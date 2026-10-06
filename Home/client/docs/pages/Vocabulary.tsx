@@ -32,7 +32,7 @@ export function Vocabulary() {
           },
           {
             term: "Team",
-            def: "A subgroup of members for routing and notifications.",
+            def: "A named group of AI Employees — Engineering, Revenue, Ops. Managed at Settings → Teams; each employee belongs to at most one.",
           },
         ]}
       />

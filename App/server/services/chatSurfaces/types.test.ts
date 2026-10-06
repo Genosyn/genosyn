@@ -76,7 +76,7 @@ describe("provider ids", () => {
     }
   });
 
-  test("'teams' alone is not a provider id — Team is the org-chart entity", () => {
+  test("'teams' alone is not a provider id — Team is Genosyn's own entity", () => {
     assert.equal(isChatSurfaceProvider("teams"), false);
     assert.ok(CHAT_SURFACE_PROVIDER_IDS.includes("microsoft-teams"));
   });

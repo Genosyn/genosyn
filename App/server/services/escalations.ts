@@ -13,7 +13,6 @@ import {
   markEntityNotificationsRead,
   type CreateNotificationInput,
 } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 
 /**
@@ -256,17 +255,13 @@ async function sweepOverdueHandoffs(now: Date, assertLeaseHeld: () => void): Pro
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: handoff.fromEmployeeId }),
     ]);
     if (!company || !receiver) continue;
-    // Escalate up the receiver's reporting line to the human accountable for
-    // it, widened to owners/admins so a company with no reporting lines still
-    // hears about it. `managingMemberIdForEmployee` only returns a live
-    // Member, so a manager who has left does not receive this.
-    const userIds = new Set(await ownersAndAdmins(handoff.companyId));
-    const managerId = await managingMemberIdForEmployee(handoff.companyId, receiver.id);
-    if (managerId) userIds.add(managerId);
-    if (userIds.size === 0) continue;
+    // Escalate to the people who can step in: the company's owners and admins,
+    // read from live memberships so somebody who has left is not paged.
+    const userIds = await ownersAndAdmins(handoff.companyId);
+    if (userIds.length === 0) continue;
     assertLeaseHeld();
     if (!(await claimStallReminder(Handoff, handoff.id, now))) continue;
-    const inputs: CreateNotificationInput[] = [...userIds].map((userId) => ({
+    const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: handoff.companyId,
       userId,
       kind: "handoff_overdue" as const,
@@ -298,15 +293,13 @@ async function sweepStaleRevisionProposals(now: Date, assertLeaseHeld: () => voi
       AppDataSource.getRepository(AIEmployee).findOneBy({ id: proposal.employeeId }),
     ]);
     if (!company || !employee) continue;
-    // The create-time audience: owners/admins plus the employee's manager,
-    // re-derived from live rows for the same left-the-company reason above.
-    const userIds = new Set(await ownersAndAdmins(proposal.companyId));
-    const managerId = await managingMemberIdForEmployee(proposal.companyId, employee.id);
-    if (managerId) userIds.add(managerId);
-    if (userIds.size === 0) continue;
+    // The create-time audience — owners and admins — re-derived from live
+    // memberships for the same left-the-company reason above.
+    const userIds = await ownersAndAdmins(proposal.companyId);
+    if (userIds.length === 0) continue;
     assertLeaseHeld();
     if (!(await claimStallReminder(RevisionProposal, proposal.id, now))) continue;
-    const inputs: CreateNotificationInput[] = [...userIds].map((userId) => ({
+    const inputs: CreateNotificationInput[] = userIds.map((userId) => ({
       companyId: proposal.companyId,
       userId,
       kind: "revision_stale" as const,

@@ -191,8 +191,8 @@ export function Improvement() {
       </P>
       <UL>
         <LI>
-          <Strong>Who hears about it</Strong> — owners, admins, and the employee&apos;s manager get
-          a bell when a proposal lands. One still pending after <Strong>24 hours</Strong> re-pages
+          <Strong>Who hears about it</Strong> — the company&apos;s owners and admins get a bell
+          when a proposal lands. One still pending after <Strong>24 hours</Strong> re-pages
           the same audience exactly once, the same stall sweep that guards unanswered Approvals and{" "}
           <DocLink to="/docs/decisions">Decisions</DocLink>.
         </LI>

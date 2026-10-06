@@ -10,8 +10,6 @@ const Employee = z
     role: z.string().describe("Job title — e.g. 'Engineering manager'."),
     avatarKey: z.string().nullable(),
     teamId: z.string().uuid().nullable(),
-    reportsToEmployeeId: z.string().uuid().nullable(),
-    reportsToUserId: z.string().uuid().nullable(),
   })
   .openapi("Employee");
 

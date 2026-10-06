@@ -278,25 +278,19 @@ describe("Routine browser recording authorization", () => {
     assert.equal((await fetch(memberUrl)).status, 403);
   });
 
-  test("rechecks live access when an AI Employee's reporting line changes", async () => {
-    const { member, company, employee, run, appSession } = await fixture({ live: true });
-    const lead = await insert(AIEmployee, {
-      companyId: company.id,
-      name: "Browser Lead",
-      slug: `lead-${randomUUID()}`,
-      role: "Lead",
-      reportsToUserId: member.id,
-    });
-    await AppDataSource.getRepository(AIEmployee).update(
-      { id: employee.id },
-      { reportsToEmployeeId: lead.id },
-    );
+  test("rechecks live access when a Member's company role changes", async () => {
+    const { member, company, run, appSession } = await fixture({ live: true });
     const url = `${runPath(company.id, run.id)}/browser-recordings/${appSession.id}/live`;
     actingUserId = member.id;
+    assert.equal((await fetch(url)).status, 404, "a plain Member never watches the App browser");
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: member.id },
+      { role: "admin" },
+    );
     assert.equal((await fetch(url)).status, 200);
-    await AppDataSource.getRepository(AIEmployee).update(
-      { id: lead.id },
-      { reportsToUserId: null },
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: member.id },
+      { role: "member" },
     );
     assert.equal((await fetch(url)).status, 404);
   });
@@ -435,68 +429,42 @@ describe("Routine browser recording authorization", () => {
     );
   });
 
-  test("gives the AI Employee's human manager the App recording without an admin role", async () => {
-    const { company, employee, run, appSession, memberSession } = await fixture();
-    const manager = await addPlainMember(company.id, "manager");
-    const bystander = await addPlainMember(company.id, "bystander");
-    await AppDataSource.getRepository(AIEmployee).update(
-      { id: employee.id },
-      { reportsToUserId: manager.id },
-    );
+  test("keeps App recordings from every plain Member, saved or live, listed or fetched", async () => {
+    // Before reporting lines were removed, the Member an AI Employee reported
+    // to could watch its App-browser recordings without being an admin. Now
+    // the role is the whole rule: no plain Member gets one, by any route.
+    const { company, run, appSession, memberSession } = await fixture();
+    const plain = await addPlainMember(company.id, "plain");
+    actingUserId = plain.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), []);
+    const list = await fetch(`${runPath(company.id, run.id)}/browser-recordings`);
+    assert.equal(list.status, 200);
+    assert.deepEqual(await list.json(), []);
+    for (const sessionId of [appSession.id, memberSession.id]) {
+      const file = await fetch(`${runPath(company.id, run.id)}/browser-recordings/${sessionId}`);
+      assert.equal(file.status, 404, sessionId);
+      assert.deepEqual(await file.json(), { error: "Not found" });
+    }
+  });
 
-    actingUserId = manager.id;
+  test("gives App recordings to an admin who joins, and takes them back when the role goes", async () => {
+    const { company, run, appSession } = await fixture();
+    const promoted = await addPlainMember(company.id, "promoted");
+    actingUserId = promoted.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), []);
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: promoted.id },
+      { role: "admin" },
+    );
     assert.deepEqual(await recordingIds(company.id, run.id), [appSession.id]);
     assert.equal(
       (await fetch(`${runPath(company.id, run.id)}/browser-recordings/${appSession.id}`)).status,
       200,
     );
-    // A Member browser is the owner's own computer, so the org chart buys no
-    // access to it.
-    assert.equal(
-      (await fetch(`${runPath(company.id, run.id)}/browser-recordings/${memberSession.id}`)).status,
-      404,
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: promoted.id },
+      { role: "member" },
     );
-
-    // Being a Member of the company is not itself oversight.
-    actingUserId = bystander.id;
-    assert.deepEqual(await recordingIds(company.id, run.id), []);
-  });
-
-  test("follows the reporting line up through an AI manager to the human above it", async () => {
-    const { company, employee, run, appSession } = await fixture();
-    const manager = await addPlainMember(company.id, "skip-level");
-    const lead = await insert(AIEmployee, {
-      companyId: company.id,
-      name: "Browser Lead",
-      slug: `lead-${randomUUID()}`,
-      role: "Lead",
-      reportsToUserId: manager.id,
-    });
-    await AppDataSource.getRepository(AIEmployee).update(
-      { id: employee.id },
-      { reportsToEmployeeId: lead.id },
-    );
-
-    actingUserId = manager.id;
-    assert.deepEqual(await recordingIds(company.id, run.id), [appSession.id]);
-  });
-
-  test("stops walking a reporting line that loops back on itself", async () => {
-    const { company, employee, run } = await fixture();
-    const stranger = await addPlainMember(company.id, "stranger");
-    const lead = await insert(AIEmployee, {
-      companyId: company.id,
-      name: "Circular Lead",
-      slug: `circular-${randomUUID()}`,
-      role: "Lead",
-      reportsToEmployeeId: employee.id,
-    });
-    await AppDataSource.getRepository(AIEmployee).update(
-      { id: employee.id },
-      { reportsToEmployeeId: lead.id },
-    );
-
-    actingUserId = stranger.id;
     assert.deepEqual(await recordingIds(company.id, run.id), []);
   });
 

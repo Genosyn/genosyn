@@ -43,7 +43,7 @@ import {
 let companyId: string;
 let otherCompanyId: string;
 let ownerId: string;
-let managerId: string;
+let memberId: string;
 let ada: AIEmployee;
 let bo: AIEmployee;
 let adaRoutine: Routine;
@@ -90,7 +90,7 @@ beforeEach(async () => {
   companyId = testCompanyId();
   otherCompanyId = testCompanyId();
   ownerId = testId("owner");
-  managerId = testId("manager");
+  memberId = testId("member");
 
   ada = await insert(AIEmployee, {
     companyId,
@@ -98,7 +98,6 @@ beforeEach(async () => {
     slug: "ada",
     role: "Analyst",
     soulBody: "",
-    reportsToUserId: managerId,
   });
   bo = await insert(AIEmployee, {
     companyId,
@@ -119,7 +118,7 @@ beforeEach(async () => {
   strangerRoutine = await makeRoutine(strangerEmployee, "Cyd nightly");
 
   await insert(Membership, { companyId, userId: ownerId, role: "owner" });
-  await insert(Membership, { companyId, userId: managerId, role: "member" });
+  await insert(Membership, { companyId, userId: memberId, role: "member" });
 });
 
 afterEach(() => {
@@ -480,7 +479,7 @@ describe("placeStanddown", () => {
     assert.match(events[0].metadataJson, /"scope":"routine"/);
   });
 
-  test("journals every covered AI Employee exactly once and pages owners plus the manager", async () => {
+  test("journals every covered AI Employee exactly once and pages the owners and admins only", async () => {
     await placeStanddown({
       companyId,
       scope: "company",
@@ -503,9 +502,10 @@ describe("placeStanddown", () => {
     const bells = await AppDataSource.getRepository(Notification).findBy({
       kind: "standdown_placed",
     });
-    // The owner is an admin-role recipient; the manager is on the reporting
-    // line and is not an admin, so their presence is the real assertion here.
-    assert.deepEqual(bells.map((b) => b.userId).sort(), [ownerId, managerId].sort());
+    // The owner is an admin-role recipient. The plain Member is not, and with
+    // reporting lines gone nothing else makes them accountable for an
+    // employee — their absence is the real assertion here.
+    assert.deepEqual(bells.map((b) => b.userId), [ownerId]);
     assert.equal(bells[0].entityKind, "standdown");
     assert.match(bells[0].body, /A human placed it/);
   });
@@ -646,7 +646,7 @@ describe("liftStanddown", () => {
     const first = await liftStanddown({ standdown, userId: ownerId, reason: "All clear." });
     const second = await liftStanddown({
       standdown,
-      userId: managerId,
+      userId: memberId,
       reason: "All clear again.",
     });
 

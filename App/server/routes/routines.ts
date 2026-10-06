@@ -48,7 +48,6 @@ import {
 } from "../services/runContinuationView.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
-import { memberManagesEmployee } from "../services/reportingLine.js";
 import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
 import {
   deleteBrowserRecordingsForRunIds,
@@ -843,11 +842,10 @@ async function loadCompanyRun(companyId: string, runId: string): Promise<Run | n
  * Who may watch one browser recording.
  *
  * A **Member browser** is a human's own computer, so its recording stays with
- * that exact owner no matter where they sit on the org chart. Genosyn's own
- * Browser is company equipment: company admins can watch it, and so can the
- * Member the AI Employee reports to — supervising an employee's work is the
- * whole point of the reporting line, and it should not require handing that
- * Member the admin role over everything else.
+ * that exact owner whatever their company role. Genosyn's own Browser is
+ * company equipment: its recordings are for the company's owners and admins,
+ * and nobody else. A recording shows the whole viewport, sign-in screens
+ * included, so there is no wider audience to fall back to.
  */
 async function canReadBrowserRecording(
   req: Parameters<typeof requireBrowserSession>[0],
@@ -861,9 +859,7 @@ async function canReadBrowserRecording(
       ownerUserId: req.userId,
     });
   }
-  if (req.companyRole && roleAtLeast("admin", req.companyRole)) return true;
-  if (!req.userId) return false;
-  return memberManagesEmployee(session.companyId, session.employeeId, req.userId);
+  return Boolean(req.companyRole && roleAtLeast("admin", req.companyRole));
 }
 
 async function recordingsVisibleToRequester(

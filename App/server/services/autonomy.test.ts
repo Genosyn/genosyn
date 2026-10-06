@@ -500,6 +500,30 @@ describe("demotion", () => {
     assert.equal(bells.length, 2); // one per waiver, once each
   });
 
+  test("the revocation page goes to every owner and admin, and to no plain Member", async () => {
+    // Reporting lines once added the Member an employee reported to. They are
+    // gone, so a plain Member is never on this page whatever they work on.
+    const adminId = testId("admin");
+    const memberId = testId("member");
+    await insert(Membership, { companyId, userId: adminId, role: "admin" });
+    await insert(Membership, { companyId, userId: memberId, role: "member" });
+    await insert(Membership, {
+      companyId: testCompanyId(),
+      userId: testId("elsewhere"),
+      role: "owner",
+    });
+    await grantBrowserWaiver();
+    const badRun = { id: testId("run"), status: "error", outcomeVerdict: null } as Run;
+
+    await contractAutonomyOnBadRun({ run: badRun, employee });
+
+    const bells = await AppDataSource.getRepository(Notification).findBy({
+      kind: "autonomy_revoked",
+    });
+    assert.deepEqual(bells.map((bell) => bell.userId).sort(), [adminId, ownerId].sort());
+    assert.ok(bells.every((bell) => bell.companyId === companyId));
+  });
+
   test("a Run that failed a required Check revokes waivers, and the reason says which", async () => {
     await grantBrowserWaiver();
     const badRun = {

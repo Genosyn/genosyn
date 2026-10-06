@@ -10,7 +10,6 @@ import { Standdown, type StanddownScope, type StanddownSource } from "../db/enti
 import { recordAudit } from "./audit.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { createNotifications } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 
 /**
  * Standdowns (M58) — the stop button, and the predicate every hot path asks
@@ -692,12 +691,6 @@ async function notifyStanddownPlaced(standdown: Standdown, employees: AIEmployee
       where: { companyId: standdown.companyId, role: In(["owner", "admin"]) },
     });
     const audience = new Set(memberships.map((m) => m.userId));
-    // The accountable human is not always an admin, and "the work you are
-    // responsible for has stopped" is not news they should hear secondhand.
-    for (const employee of employees) {
-      const manager = await managingMemberIdForEmployee(standdown.companyId, employee.id);
-      if (manager) audience.add(manager);
-    }
     if (audience.size === 0) return;
     let what = "A Routine is stood down";
     if (standdown.scope === "company") what = "All AI work is stood down";

@@ -2009,7 +2009,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_teams",
     description:
-      "List the Teams (org chart groupings) in this company. Each team comes with its members so you can see who's on which team and resolve `@slug` to a real teammate. Use this when a teammate references 'the eng team' or 'who's on revenue?'.",
+      "List the Teams (named groups of AI employees) in this company. Each team comes with its members so you can see who's on which team and resolve `@slug` to a real teammate. Use this when a teammate references 'the eng team' or 'who's on revenue?'.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -2039,18 +2039,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_handoff",
     description:
-      "Hand a piece of work off to another AI employee. The receiver picks it up at the start of their next chat turn or routine run via list_handoffs. Pass `toEmployee` (slug or UUID) for an explicit handoff, or `toManager: true` to send it up your reporting line. Use this when something is genuinely outside your remit — don't fire-and-forget routine work, do the work yourself.",
+      "Hand a piece of work off to another AI employee, named by `toEmployee` (slug or UUID; list_employees and list_teams show who works here). The receiver picks it up at the start of their next chat turn or routine run via list_handoffs. Use this when something is genuinely outside your remit — don't fire-and-forget routine work, do the work yourself.",
     inputSchema: {
       type: "object",
       properties: {
         toEmployee: {
           type: "string",
           description: "Slug (preferred) or UUID of the receiving employee.",
-        },
-        toManager: {
-          type: "boolean",
-          description:
-            "If true, hand off to your `reportsTo` employee. Errors if you don't have a manager set.",
         },
         title: {
           type: "string",
@@ -2066,7 +2061,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Optional ISO-8601 deadline. The receiver sees this in their inbox.",
         },
       },
-      required: ["title"],
+      required: ["toEmployee", "title"],
       additionalProperties: false,
     },
   },

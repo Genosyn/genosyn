@@ -11,7 +11,6 @@ import { Run } from "../db/entities/Run.js";
 import { recordAudit } from "./audit.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { createNotifications, notifyApprovalPending } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 
 /**
  * Earned autonomy (M53): trust as a measured quantity instead of a setting
@@ -635,8 +634,6 @@ async function notifyRevocation(
       where: { companyId: waiver.companyId, role: In(["owner", "admin"]) },
     });
     const audience = new Set(memberships.map((m) => m.userId));
-    const manager = await managingMemberIdForEmployee(waiver.companyId, waiver.employeeId);
-    if (manager) audience.add(manager);
     if (audience.size === 0) return;
     await createNotifications(
       [...audience].map((userId) => ({

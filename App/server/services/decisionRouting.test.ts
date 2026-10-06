@@ -24,6 +24,10 @@ import {
  * assignee always wins, the skipped bell is always eventually sent (decline
  * and fuse), and only the routed decider may answer — recorded exactly like a
  * human answer, minus nothing.
+ *
+ * Every rule names its decider. A `manager` rule — "the asker's manager", from
+ * the removed reporting lines — can still exist in an upgraded database; it
+ * must match, route nowhere, and never let a later rule route its askers.
  */
 
 let companyId: string;
@@ -57,7 +61,6 @@ beforeEach(async () => {
     slug: "ada",
     role: "Analyst",
     soulBody: "",
-    reportsToEmployeeId: decider.id,
   });
   await insert(AIModel, {
     employeeId: decider.id,
@@ -68,15 +71,34 @@ beforeEach(async () => {
   await insert(Membership, { companyId, userId: testId("owner"), role: "owner" });
 });
 
+/** A rule naming `decider` for any asker, unless overridden. */
 async function addRule(over: Partial<DecisionPolicy> = {}): Promise<DecisionPolicy> {
   return insert(DecisionPolicy, {
     companyId,
     askingEmployeeId: null,
-    deciderKind: "manager",
-    deciderEmployeeId: null,
+    deciderKind: "employee",
+    deciderEmployeeId: decider.id,
     sortOrder: 0,
     enabled: true,
     ...over,
+  });
+}
+
+/**
+ * A rule as an upgraded database still holds it: saved as "their manager"
+ * before reporting lines were removed, so it names nobody. Written straight to
+ * the table — no route can create one any more.
+ */
+function addRetiredManagerRule(over: Partial<DecisionPolicy> = {}): Promise<DecisionPolicy> {
+  return addRule({ deciderKind: "manager", deciderEmployeeId: null, ...over });
+}
+
+async function connectModel(employee: AIEmployee): Promise<void> {
+  await insert(AIModel, {
+    employeeId: employee.id,
+    provider: "anthropic",
+    model: "claude-x",
+    isActive: true,
   });
 }
 
@@ -102,10 +124,41 @@ describe("resolveDecider", () => {
     assert.equal(await resolveDecider(companyId, asker.id), null);
   });
 
-  test("a manager rule walks reportsToEmployeeId", async () => {
+  test("a named-employee rule routes to the employee it names", async () => {
     await addRule();
     const resolved = await resolveDecider(companyId, asker.id);
     assert.equal(resolved?.id, decider.id);
+  });
+
+  test("a rule for one asker routes only that asker", async () => {
+    const other = await insert(AIEmployee, {
+      companyId,
+      name: "Bo",
+      slug: "bo",
+      role: "Writer",
+      soulBody: "",
+    });
+    await addRule({ askingEmployeeId: asker.id });
+    assert.equal((await resolveDecider(companyId, asker.id))?.id, decider.id);
+    assert.equal(await resolveDecider(companyId, other.id), null);
+  });
+
+  test("another company's rules never route this company's questions", async () => {
+    await addRule({ companyId: testCompanyId() });
+    assert.equal(await resolveDecider(companyId, asker.id), null);
+  });
+
+  test("a rule naming an employee of another company cannot serve", async () => {
+    const stranger = await insert(AIEmployee, {
+      companyId: testCompanyId(),
+      name: "Eve",
+      slug: "eve",
+      role: "Spy",
+      soulBody: "",
+    });
+    await connectModel(stranger);
+    await addRule({ deciderEmployeeId: stranger.id });
+    assert.equal(await resolveDecider(companyId, asker.id), null);
   });
 
   test("a decider with no AI Model connected cannot serve", async () => {
@@ -127,15 +180,80 @@ describe("resolveDecider", () => {
       role: "CFO",
       soulBody: "",
     });
-    await insert(AIModel, {
-      employeeId: other.id,
-      provider: "anthropic",
-      model: "claude-x",
-      isActive: true,
-    });
-    await addRule({ deciderKind: "employee", deciderEmployeeId: other.id, sortOrder: 1 });
-    await addRule({ sortOrder: 0 }); // manager rule, lower sortOrder
+    await connectModel(other);
+    await addRule({ deciderEmployeeId: other.id, sortOrder: 1 });
+    await addRule({ sortOrder: 0 }); // names `decider`, lower sortOrder
     assert.equal((await resolveDecider(companyId, asker.id))?.id, decider.id);
+  });
+});
+
+describe("a retired manager rule", () => {
+  let zed: AIEmployee;
+
+  beforeEach(async () => {
+    zed = await insert(AIEmployee, {
+      companyId,
+      name: "Zed",
+      slug: "zed",
+      role: "CFO",
+      soulBody: "",
+    });
+    await connectModel(zed);
+  });
+
+  test("matches but routes nowhere: the question stays with people", async () => {
+    await addRetiredManagerRule();
+    assert.equal(await resolveDecider(companyId, asker.id), null);
+  });
+
+  test("first in line, it keeps a later named rule from routing its askers", async () => {
+    await addRetiredManagerRule({ sortOrder: 0 });
+    await addRule({ deciderEmployeeId: zed.id, sortOrder: 1 });
+    assert.equal(
+      await resolveDecider(companyId, asker.id),
+      null,
+      "dropping it must not hand the question to a decider nobody picked for this asker",
+    );
+  });
+
+  test("scoped to one asker, it leaves every other asker to the later rules", async () => {
+    const bo = await insert(AIEmployee, {
+      companyId,
+      name: "Bo",
+      slug: "bo",
+      role: "Writer",
+      soulBody: "",
+    });
+    await addRetiredManagerRule({ askingEmployeeId: asker.id, sortOrder: 0 });
+    await addRule({ deciderEmployeeId: zed.id, sortOrder: 1 });
+    assert.equal(await resolveDecider(companyId, asker.id), null);
+    assert.equal((await resolveDecider(companyId, bo.id))?.id, zed.id);
+  });
+
+  test("behind a named rule, it changes nothing: the named rule routes", async () => {
+    await addRule({ deciderEmployeeId: zed.id, sortOrder: 0 });
+    await addRetiredManagerRule({ sortOrder: 1 });
+    assert.equal((await resolveDecider(companyId, asker.id))?.id, zed.id);
+  });
+
+  test("disabled, it no longer matches, like any disabled rule", async () => {
+    await addRetiredManagerRule({ sortOrder: 0, enabled: false });
+    await addRule({ deciderEmployeeId: zed.id, sortOrder: 1 });
+    assert.equal((await resolveDecider(companyId, asker.id))?.id, zed.id);
+  });
+
+  test("ignores a decider left on the row: only a named-employee rule routes", async () => {
+    // Not a shape the API can write, but a hand-edited row must still fail safe.
+    await addRetiredManagerRule({ deciderEmployeeId: zed.id });
+    assert.equal(await resolveDecider(companyId, asker.id), null);
+  });
+
+  test("a new question is not routed and rings the human bell exactly once", async () => {
+    await addRetiredManagerRule();
+    const decision = await ask();
+    assert.equal(decision.routedToEmployeeId, null);
+    assert.equal(decision.routedAt, null);
+    assert.equal((await bells()).length, 1);
   });
 });
 

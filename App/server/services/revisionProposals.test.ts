@@ -770,18 +770,14 @@ function sharedInput(evidenceRunIds: string[] = []) {
 }
 
 describe("participating Routine revisions", () => {
-  test("successful participants stage a brief change with exact target evidence and notify both managers", async () => {
+  test("successful participants stage a brief change with exact target evidence and notify the owners and admins", async () => {
     const { colleague } = await participant();
-    const proposerManager = testId("proposer-manager");
-    const targetManager = testId("target-manager");
-    for (const userId of [proposerManager, targetManager])
-      await insert(Membership, { companyId, userId, role: "member" });
-    await AppDataSource.getRepository(AIEmployee).update(colleague.id, {
-      reportsToUserId: proposerManager,
-    });
-    await AppDataSource.getRepository(AIEmployee).update(employee.id, {
-      reportsToUserId: targetManager,
-    });
+    // Plain Members are not paged, whichever employees they work alongside:
+    // with reporting lines gone, applying a revision is an owner/admin call.
+    const plainMember = testId("plain-member");
+    const admin = testId("admin");
+    await insert(Membership, { companyId, userId: plainMember, role: "member" });
+    await insert(Membership, { companyId, userId: admin, role: "admin" });
     const evidence = await evidenceRun();
     const review = await reviewRun(colleague.id);
     const proposal = await createRevisionProposal(
@@ -804,10 +800,8 @@ describe("participating Routine revisions", () => {
       companyId,
       role: "owner",
     });
-    assert.deepEqual(
-      new Set(recipients),
-      new Set([companyOwner.userId, proposerManager, targetManager]),
-    );
+    assert.deepEqual(new Set(recipients), new Set([companyOwner.userId, admin]));
+    assert.equal(recipients.length, 2, "each recipient is paged once");
     await applyRevisionProposal(proposal, { userId: testId("owner"), note: "Include sources." });
     const changed = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
     assert.equal(changed.body, proposal.proposedBody);

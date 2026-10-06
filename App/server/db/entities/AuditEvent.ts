@@ -20,7 +20,7 @@ export type AuditActorKind = "user" | "system" | "webhook" | "cron" | "ai";
 // The per-Run effect digest: everything one Run changed, in order.
 @Index(["runId"])
 // "What did this employee do, and when" — the filter the audit page grew and
-// the query the reporting line needs to review a bad autonomous window.
+// the query a human needs to review a bad autonomous window.
 @Index(["companyId", "actorEmployeeId", "createdAt"])
 export class AuditEvent {
   @PrimaryGeneratedColumn("uuid")

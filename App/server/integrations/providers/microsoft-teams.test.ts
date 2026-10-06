@@ -69,7 +69,7 @@ describe("catalog", () => {
   });
 
   /**
-   * "Teams" on its own is Genosyn's org-chart entity. Every mention in this
+   * "Teams" on its own is Genosyn's Team entity. Every mention in this
    * connector's copy has to be the product, spelled out.
    */
   test("never says Teams without Microsoft in front of it", () => {

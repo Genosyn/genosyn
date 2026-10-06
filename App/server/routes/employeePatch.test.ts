@@ -29,6 +29,10 @@ import { employeesRouter } from "./employees.js";
  * edit. A refusal names the keys and writes nothing, not even the valid
  * settings sent beside them: no row change, no audit event, and no rename of
  * the employee's directory for a slug sent alongside.
+ *
+ * The removed reporting lines answer the same way: `reportsToEmployeeId` and
+ * `reportsToUserId` are unknown keys now, so the payloads the old org-chart
+ * editors sent are refused by name rather than half-saved.
  */
 
 const originalDataDir = config.dataDir;
@@ -152,18 +156,87 @@ for (const [label, payload, named] of [
   });
 }
 
+// What the removed org-chart editors used to send — the Org chart card on the
+// employee's General page, and the Edit org popover on the Employees list —
+// plus each reporting-line key on its own. Built per test, since they carry
+// real ids: the valid `teamId` beside a removed key must not be saved either.
+for (const [label, settings, named] of [
+  ["an AI reporting line", () => ({ reportsToEmployeeId: manager.id }), ["reportsToEmployeeId"]],
+  ["a human reporting line", () => ({ reportsToUserId: administrator.id }), ["reportsToUserId"]],
+  ["a cleared reporting line", () => ({ reportsToEmployeeId: null }), ["reportsToEmployeeId"]],
+  [
+    "the old Org chart card's payload",
+    () => ({ teamId: team.id, reportsToEmployeeId: manager.id }),
+    ["reportsToEmployeeId"],
+  ],
+  [
+    "the old Edit org popover's payload",
+    () => ({ teamId: team.id, reportsToEmployeeId: null, reportsToUserId: administrator.id }),
+    ["reportsToEmployeeId", "reportsToUserId"],
+  ],
+] as const) {
+  test(`a PATCH carrying ${label} is a 400 naming the removed keys, and nothing is written`, async () => {
+    const stored = await savedEmployee();
+    const response = await patch(settings());
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "ValidationError");
+    const issues = response.body.issues as Array<{ code: string; keys?: string[] }>;
+    assert.deepEqual(
+      issues.map(({ code, keys }) => ({ code, keys })),
+      [{ code: "unrecognized_keys", keys: named }],
+    );
+    const after = await savedEmployee();
+    assert.deepEqual(after, stored);
+    assert.equal(after.teamId, null, "the valid teamId beside it was not saved");
+    assert.equal(await updateAudits(), 0);
+  });
+}
+
+test("an employee row no longer carries a reporting line, whatever the request said", async () => {
+  await patch({ teamId: team.id, reportsToEmployeeId: manager.id });
+  const raw = await AppDataSource.query(`SELECT * FROM "ai_employees" WHERE "id" = ?`, [
+    employee.id,
+  ]);
+  assert.equal(raw.length, 1);
+  assert.ok(!("reportsToEmployeeId" in raw[0]), "no reportsToEmployeeId column");
+  assert.ok(!("reportsToUserId" in raw[0]), "no reportsToUserId column");
+  assert.ok("teamId" in raw[0], "the Team column stays");
+});
+
+test("a team from another company is refused, and the employee keeps its team", async () => {
+  await patch({ teamId: team.id });
+  const otherCompany = await insert(Company, {
+    name: "Elsewhere",
+    slug: "elsewhere",
+    ownerId: administrator.id,
+  });
+  const foreignTeam = await insert(Team, {
+    companyId: otherCompany.id,
+    name: "Their Ops",
+    slug: "their-ops",
+  });
+  const response = await patch({ teamId: foreignTeam.id });
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, "Team not found in this company");
+  assert.equal((await savedEmployee()).teamId, team.id);
+});
+
+test("a PATCH can clear the employee's team", async () => {
+  assert.equal((await patch({ teamId: team.id })).status, 200);
+  assert.equal((await savedEmployee()).teamId, team.id);
+  const cleared = await patch({ teamId: null });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.teamId, null);
+  assert.equal((await savedEmployee()).teamId, null);
+});
+
 // Exactly the payloads the UI sends: each form saves its own slice of the row.
 // Under a strict schema each key must stay listed, or that save is a 400.
 for (const [label, settings] of [
   // General card (`employeeTabs.tsx`) — only the fields that changed.
   ["the General card's payload", () => ({ name: "Jordan", role: "Head of Ops", slug: "jordan" })],
-  // Org chart card (`employeeTabs.tsx`).
-  ["the Org chart card's payload", () => ({ teamId: team.id, reportsToEmployeeId: manager.id })],
-  // Edit org popover on the AI Employees list (`EmployeesIndex.tsx`).
-  [
-    "the Edit org popover's payload",
-    () => ({ teamId: team.id, reportsToEmployeeId: null, reportsToUserId: administrator.id }),
-  ],
+  // Team card (`employeeTabs.tsx`).
+  ["the Team card's payload", () => ({ teamId: team.id })],
   // Browser card (`employeeTabs.tsx`): the toggle, approval mode, and allow list.
   ["the browser toggle's payload", () => ({ browserEnabled: true })],
   ["the approval mode's payload", () => ({ browserApprovalRequired: false })],

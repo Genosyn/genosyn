@@ -100,7 +100,7 @@ export function Autonomy() {
         <Strong>every</Strong> active waiver the employee holds and re-arms the gates on the spot. A
         failed Check counts here exactly like an off-goal grade — it is the stronger evidence of the
         two, since no model had a say in it. The employee&apos;s journal records what happened and
-        why, and owners, admins, and the employee&apos;s manager are paged. Demotion only ever
+        why, and the company&apos;s owners and admins are paged. Demotion only ever
         tightens — a bad Run can take autonomy away, never hand more out.
       </P>
 

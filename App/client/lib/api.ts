@@ -230,8 +230,6 @@ export type Employee = {
   role: string;
   avatarKey?: string | null;
   teamId?: string | null;
-  reportsToEmployeeId?: string | null;
-  reportsToUserId?: string | null;
   /**
    * Whether the built-in `browser` MCP server is wired into this employee's
    * provider config. False on a stock install — operator opts in per
@@ -759,11 +757,14 @@ export type Decision = {
 /**
  * One row of the decision-rights matrix (M53a): which AI decider a question
  * from `askingEmployeeId` (null = any employee) is routed to before the human
- * bell rings. A `manager` rule must not name a decider; an `employee` rule
- * must. Served by `/api/companies/:cid/decision-policies`; reads are
- * member-level, mutations admin-gated. Live-sync rides the "decision" kind.
+ * bell rings. Every rule is created as `employee` and names its
+ * `deciderEmployeeId`. `manager` only appears on a rule saved before reporting
+ * lines were removed: it names nobody, still matches, and leaves its askers'
+ * questions with people. Served by `/api/companies/:cid/decision-policies`;
+ * reads are member-level, mutations admin-gated. Live-sync rides the
+ * "decision" kind.
  */
-export type DecisionPolicyDeciderKind = "manager" | "employee";
+export type DecisionPolicyDeciderKind = "employee" | "manager";
 export type DecisionPolicyRule = {
   id: string;
   askingEmployeeId: string | null;

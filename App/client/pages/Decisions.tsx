@@ -2,16 +2,8 @@ import React from "react";
 import { Plus, Search, Settings2, Trash2 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
-import {
-  api,
-  Approval,
-  Company,
-  Decision,
-  DecisionPolicyDeciderKind,
-  DecisionPolicyRule,
-  Employee,
-  Me,
-} from "../lib/api";
+import { api, Approval, Company, Decision, DecisionPolicyRule, Employee, Me } from "../lib/api";
+import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
 import { errorMessage } from "../lib/errors";
 import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
 import {
@@ -611,7 +603,9 @@ function Stack({ children }: { children: React.ReactNode }) {
  * question is routed to before the human bell rings. Reads are member-level —
  * every Member can see who answers for whom — but the controls are admin-only,
  * because a rule redirects questions away from human inboxes. Server 400s
- * (self-answer, decider/kind mismatches) surface inline.
+ * (self-answer, a missing decider) surface inline. Every rule names its
+ * decider; a "their manager" rule saved before reporting lines were removed
+ * still lists, marked retired, so an admin can see why it no longer routes.
  */
 function RoutingModal({ company, onClose }: { company: Company; onClose: () => void }) {
   const [rules, setRules] = React.useState<DecisionPolicyRule[] | null>(null);
@@ -687,17 +681,6 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
     }
   }
 
-  function ruleLabel(rule: DecisionPolicyRule): { asking: string; decider: string } {
-    const asking = rule.askingEmployeeId
-      ? (employeesById.get(rule.askingEmployeeId)?.name ?? "(deleted employee)")
-      : "Any employee";
-    const decider =
-      rule.deciderKind === "manager"
-        ? "their manager"
-        : (employeesById.get(rule.deciderEmployeeId ?? "")?.name ?? "(deleted employee)");
-    return { asking, decider };
-  }
-
   return (
     <Modal
       open
@@ -726,7 +709,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
             ) : (
               <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
                 {rules.map((rule) => {
-                  const { asking, decider } = ruleLabel(rule);
+                  const { asking, decider, retired } = routingRuleLabel(rule, employeesById);
                   return (
                     <li key={rule.id} className="flex items-center gap-3 px-3 py-2">
                       <div
@@ -740,6 +723,11 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
                         <span className="font-medium">{asking}</span>
                         <span className="mx-1.5 text-slate-400 dark:text-slate-500">→</span>
                         <span>{decider}</span>
+                        {retired && (
+                          <span className="ml-2 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                            was their manager
+                          </span>
+                        )}
                       </div>
                       {canManage ? (
                         <>
@@ -776,6 +764,13 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
                 })}
               </ul>
             )}
+            {hasRetiredRoutingRules(rules) && (
+              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                Rules that sent questions to “their manager” stopped routing when reporting lines
+                were removed, so those questions page people. To route them again, delete the rule
+                and add one that names the employee who answers.
+              </p>
+            )}
             {canManage && (
               <AddRuleForm base={base} employees={employees} onAdded={() => void reload()} />
             )}
@@ -796,28 +791,26 @@ function AddRuleForm({
   onAdded: () => void;
 }) {
   const [askingEmployeeId, setAskingEmployeeId] = React.useState("");
-  const [deciderKind, setDeciderKind] = React.useState<DecisionPolicyDeciderKind>("manager");
   const [deciderEmployeeId, setDeciderEmployeeId] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (deciderKind === "employee" && !deciderEmployeeId) {
+    if (!deciderEmployeeId) {
       setError("Pick the employee who answers.");
       return;
     }
     setSaving(true);
     setError(null);
     try {
+      // Every rule names its decider; there is no reporting line to follow.
       await api.post(base, {
         askingEmployeeId: askingEmployeeId || null,
-        deciderKind,
-        // A manager rule must not name a decider — the server refuses it.
-        deciderEmployeeId: deciderKind === "employee" ? deciderEmployeeId : null,
+        deciderKind: "employee",
+        deciderEmployeeId,
       });
       setAskingEmployeeId("");
-      setDeciderKind("manager");
       setDeciderEmployeeId("");
       onAdded();
     } catch (err) {
@@ -828,16 +821,24 @@ function AddRuleForm({
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-3">
+    // noValidate: the browser's own check on the required decider would only
+    // move focus, silently; `save` says what is missing, inline, instead.
+    <form noValidate onSubmit={save} className="flex flex-col gap-3">
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Add a rule
       </div>
       <FormError message={error} />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Select
           label="Questions from"
           value={askingEmployeeId}
-          onChange={(e) => setAskingEmployeeId(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setAskingEmployeeId(next);
+            // An employee never answers its own questions, so the decider
+            // list drops whoever now asks — clear a pick it no longer offers.
+            if (next && next === deciderEmployeeId) setDeciderEmployeeId("");
+          }}
         >
           <option value="">Any employee</option>
           {employees.map((e) => (
@@ -848,29 +849,19 @@ function AddRuleForm({
         </Select>
         <Select
           label="Are answered by"
-          value={deciderKind}
-          onChange={(e) => setDeciderKind(e.target.value as DecisionPolicyDeciderKind)}
+          value={deciderEmployeeId}
+          onChange={(e) => setDeciderEmployeeId(e.target.value)}
+          required
         >
-          <option value="manager">Their manager</option>
-          <option value="employee">A named employee</option>
+          <option value="">Choose an employee…</option>
+          {employees
+            .filter((e) => e.id !== askingEmployeeId)
+            .map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
         </Select>
-        {deciderKind === "employee" && (
-          <Select
-            label="Decider"
-            value={deciderEmployeeId}
-            onChange={(e) => setDeciderEmployeeId(e.target.value)}
-            required
-          >
-            <option value="">Choose an employee…</option>
-            {employees
-              .filter((e) => e.id !== askingEmployeeId)
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-          </Select>
-        )}
       </div>
       <div>
         <Button type="submit" size="sm" loading={saving}>

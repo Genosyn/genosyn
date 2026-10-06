@@ -6,7 +6,6 @@ import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import type { Run } from "../db/entities/Run.js";
 import { createNotifications, type CreateNotificationInput } from "./notifications.js";
-import { managingMemberIdForEmployee } from "./reportingLine.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
 
 /**
@@ -18,22 +17,17 @@ import { redactSensitiveText } from "./approvalRedaction.js";
  * "the Run broke" and "the Run finished but missed its acceptance criteria" —
  * arrive the way an Approval already does.
  *
- * Audience: the company's owners and admins, plus the Member at the top of the
- * employee's reporting line (who may be neither), deduplicated. Runs with a
- * retry still scheduled stay quiet, mirroring the Home panel: a failure is not
- * actionable until the last attempt has been spent.
+ * Audience: the company's owners and admins — the people who can act on a
+ * broken Routine. Runs with a retry still scheduled stay quiet, mirroring the
+ * Home panel: a failure is not actionable until the last attempt has been
+ * spent.
  */
 
-async function alertAudience(companyId: string, employeeId: string): Promise<string[]> {
-  const [memberships, managerId] = await Promise.all([
-    AppDataSource.getRepository(Membership).find({
-      where: { companyId, role: In(["owner", "admin"]) },
-    }),
-    managingMemberIdForEmployee(companyId, employeeId),
-  ]);
-  const userIds = new Set(memberships.map((m) => m.userId));
-  if (managerId) userIds.add(managerId);
-  return [...userIds];
+async function alertAudience(companyId: string): Promise<string[]> {
+  const memberships = await AppDataSource.getRepository(Membership).find({
+    where: { companyId, role: In(["owner", "admin"]) },
+  });
+  return [...new Set(memberships.map((m) => m.userId))];
 }
 
 type RunAlertContext = {
@@ -53,7 +47,7 @@ async function loadContext(run: Run): Promise<RunAlertContext | null> {
   if (!employee) return null;
   const company = await AppDataSource.getRepository(Company).findOneBy({ id: employee.companyId });
   if (!company) return null;
-  const userIds = await alertAudience(company.id, employee.id);
+  const userIds = await alertAudience(company.id);
   if (userIds.length === 0) return null;
   return { run, routine, employee, company, userIds };
 }

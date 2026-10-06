@@ -3,7 +3,6 @@ import {
   Code,
   DocLink,
   H2,
-  H3,
   KeyList,
   LI,
   OL,
@@ -80,8 +79,15 @@ export function Employees() {
             ),
           },
           {
-            term: "reportsTo",
-            def: "Optional pointer to another employee for an org chart. Used for handoffs.",
+            term: "team",
+            def: (
+              <>
+                Optional Team the employee belongs to — Engineering, Revenue, Ops. Pick it on the
+                employee&apos;s <Strong>Settings → General</Strong>; create teams at{" "}
+                <Strong>Settings → Teams</Strong>. It shows on the employee&apos;s card in the
+                Employees list.
+              </>
+            ),
           },
           {
             term: "browserEnabled",
@@ -188,14 +194,12 @@ export function Employees() {
         auth works in host or disabled mode on a single App process.
       </P>
 
-      <H3 id="org-chart">Org chart</H3>
-      <P>
-        Set <Code>reportsTo</Code> on an employee to give them a manager. Genosyn renders this as an
-        org chart and surfaces it to the runner — useful when you want a <Strong>Handoff</Strong>{" "}
-        from one employee to another to follow the reporting line.
-      </P>
-
       <H2 id="surfaces">Surfaces inside the app</H2>
+      <P>
+        <Strong>AI → Employees</Strong> lists every AI Employee as a card with their name, role, and
+        team. Open a card to reach that employee, or choose <Strong>New employee</Strong> to hire
+        one.
+      </P>
       <P>
         An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
         switch between them sits at the top right of the employee&apos;s header, next to their name.
@@ -287,8 +291,9 @@ export function Employees() {
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
           work delegated to them. Creating a Handoff starts the receiver working immediately in a
           background session (when they have a connected model) — delegation is a &quot;go&quot;
-          signal, not a note on a desk. A pending Handoff past its due date escalates: the
-          receiver&apos;s manager and the company&apos;s admins get a bell, once.
+          signal, not a note on a desk. A Handoff always names the employee who receives it. A
+          pending Handoff past its due date escalates: the company&apos;s owners and admins get a
+          bell, once.
         </LI>
         <LI>
           <Strong>Settings → Connections.</Strong> The list of{" "}
@@ -304,8 +309,8 @@ export function Employees() {
           <DocLink to="/docs/browser">Browser</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → General.</Strong> Name, role, slug, profile picture, org chart — and,
-          at the bottom, deleting the employee.
+          <Strong>Settings → General.</Strong> Name, role, slug, profile picture, team — and, at
+          the bottom, deleting the employee.
         </LI>
       </UL>
 
