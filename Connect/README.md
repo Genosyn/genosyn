@@ -172,5 +172,11 @@ npm test                       # memory store; add CONNECT_TEST_POSTGRES_URL for
 npm run lint && npm run typecheck && npm run build
 ```
 
+To point a local App at a local Connect, use the loopback IP in both places —
+`CONNECT_PUBLIC_URL=http://127.0.0.1:8473` here and the same URL at **Admin →
+Runtime → Hosted sign-in → Sign-in service URL** — because the App's outbound
+policy refuses a hostname such as `localhost` that resolves to a private
+address unless it is on the private-host allowlist.
+
 `App/scripts/test-connect-sign-in.ts` drives an App installation and this
 service together in a real browser, with Google as a fixture.
