@@ -206,7 +206,9 @@ export function Introduction() {
         Finance&apos;s Chart of accounts. Pages only appear when you can open them, here and in each
         section&apos;s sidebar alike: a Member doesn&apos;t see admin-only pages such as Usage,
         Single sign-on, or the Audit log, and Finance pages follow the finance access an owner or
-        admin set for you on Settings → Members.
+        admin set for you on Settings → Members. A bookmark or a shared link can still lead a Member
+        to Usage, Single sign-on, the Audit log, or the Email logs; each then says that only owners
+        and admins can open it, rather than failing to load.
       </P>
       <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}

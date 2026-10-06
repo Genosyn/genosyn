@@ -9,6 +9,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { errorMessage } from "../lib/errors";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { formatTokens } from "../components/routines/RunViews";
 
@@ -28,6 +29,24 @@ const WINDOW_OPTIONS = [
 
 export default function Usage() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  // Admin-only on the server. A Member arrives only by URL, since the rail and
+  // the palette leave the page out, so they get a note in place of the
+  // report, which never mounts to send a request that could only answer 403.
+  if (!canOpenSubpage(subpageAt("/settings/usage"), company)) {
+    return (
+      <>
+        <TopBar title="Usage" />
+        <EmptyState
+          title="Only owners and admins see usage"
+          description="Usage adds up Runs, tokens, and compute time across the whole company. A Run's own token count still shows in its Run log."
+        />
+      </>
+    );
+  }
+  return <UsageReport company={company} />;
+}
+
+function UsageReport({ company }: { company: Company }) {
   const [days, setDays] = React.useState(30);
   const [summary, setSummary] = React.useState<UsageSummary | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);

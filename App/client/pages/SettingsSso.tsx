@@ -11,18 +11,21 @@ import {
 } from "lucide-react";
 import {
   api,
+  Company,
   CompanySsoSettings,
   SsoIssuerCheck,
   SsoProvider,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 import { errorMessage } from "../lib/errors";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
@@ -65,6 +68,23 @@ function seedDraft(d: CompanySsoSettings): Draft {
 
 export function SettingsSso() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  // Admin-only on the server. A Member who follows a link here gets a note
+  // instead, and the settings form never mounts to request what would 403.
+  if (!canOpenSubpage(subpageAt("/settings/sso"), company)) {
+    return (
+      <>
+        <TopBar title="Single sign-on" />
+        <EmptyState
+          title="Only owners and admins manage single sign-on"
+          description="Single sign-on lets Members sign in through the company's own identity provider. If your company uses it, ask an owner or admin for the login URL."
+        />
+      </>
+    );
+  }
+  return <SsoSettingsForm company={company} />;
+}
+
+function SsoSettingsForm({ company }: { company: Company }) {
   const [data, setData] = React.useState<CompanySsoSettings | null>(null);
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [saving, setSaving] = React.useState(false);

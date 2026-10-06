@@ -84,6 +84,17 @@ export function Customers() {
         email address into the picker finds the account too.
       </P>
 
+      <H2 id="access">Who can see the customer list</H2>
+      <P>
+        The customer list follows the{" "}
+        <DocLink to="/docs/finance#finance-access">finance access</DocLink> an owner or admin sets
+        for each Member under <Code>Settings → Members</Code>: <Strong>Full</Strong> to work with
+        it, <Strong>Read-only</Strong> to browse it without changing anything. With{" "}
+        <Strong>None</Strong>, <Code>Customers</Code> opens to a note saying they don&apos;t have
+        access, with links to <Code>Revenue → Accounts</Code>, which lists the same accounts, and to{" "}
+        <Code>Contracts</Code>, which every Member can open.
+      </P>
+
       <H2 id="overview">Customer overview</H2>
       <P>
         Click any customer&apos;s name to open everything about the account on one page. The

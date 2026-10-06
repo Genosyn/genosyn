@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  Company,
   EmailLog,
   EmailLogPage,
   EmailLogPurpose,
@@ -19,6 +20,7 @@ import {
   EmailLogTransport,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -63,6 +65,21 @@ function useCtx(): SettingsOutletCtx {
 
 export function SettingsEmailLogs() {
   const { company } = useCtx();
+  // Admin-only on the server. Settings → Email shows a Member no Logs tab, but
+  // a link can still land here, so they get a note and the log never mounts
+  // to send a request that could only answer 403.
+  if (!canOpenSubpage(subpageAt("/settings/email/logs"), company)) {
+    return (
+      <EmptyState
+        title="Only owners and admins read the email logs"
+        description="They list each notification email Genosyn sends for this company, such as invitations, with its recipient, subject, and any delivery error. If one didn't arrive, an owner or admin can check it here."
+      />
+    );
+  }
+  return <EmailLogList company={company} />;
+}
+
+function EmailLogList({ company }: { company: Company }) {
   const [page, setPage] = React.useState<EmailLogPage | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
