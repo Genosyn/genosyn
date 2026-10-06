@@ -87,8 +87,9 @@ import {
  * (`SectionRailLinks`), and the ⌘K palette searches it, so a page added to a
  * rail is findable from the palette the moment it ships rather than whenever
  * somebody remembers a second list. Both leave out what the viewer can't open
- * (`canOpenSubpage`), so one `access` entry gates a page in both places.
- * Rails that are mostly dynamic — the mail folders with their unread badges,
+ * (`canOpenSubpage`), so one `access` entry gates a page in both places, and
+ * a page someone reaches by URL anyway checks that same entry (`subpageAt`)
+ * to show them a note instead of a 403. Rails that are mostly dynamic — the mail folders with their unread badges,
  * the Tasks review queue — still draw their own links, and their fixed
  * destinations are listed here for the palette.
  * `server/client/subpageRoutes.test.ts` holds both ends together: every path
@@ -1037,6 +1038,19 @@ export function canOpenSubpage(page: SubpageItem, viewer: SubpageViewer): boolea
     if (needed === "full" && has !== "full") return false;
   }
   return true;
+}
+
+/**
+ * The catalogued page at `path` ("/settings/usage"). A page reached by URL —
+ * a bookmark, a shared link, a legacy redirect — passes it to
+ * `canOpenSubpage`, so its no-access note follows the same `access` entry as
+ * the rails and the palette. Throws for a path the catalogue doesn't list:
+ * a mistyped path then fails the page's tests rather than ungating the page.
+ */
+export function subpageAt(path: string): SubpageItem {
+  const page = PALETTE_SUBPAGES.find((p) => p.path === path);
+  if (!page) throw new Error(`No page is catalogued at ${path}`);
+  return page;
 }
 
 // ─────────────────────────────── palette search ───────────────────────────────

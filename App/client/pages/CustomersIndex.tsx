@@ -3,8 +3,10 @@ import { Link, useNavigate, useOutletContext, useSearchParams } from "react-rout
 import {
   Archive,
   ArchiveRestore,
+  Building2,
   ChevronLeft,
   ChevronRight,
+  FileSignature,
   Globe2,
   Mail,
   MoreHorizontal,
@@ -15,8 +17,15 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, formatMoney, type Customer, type CustomerListPage } from "../lib/api";
+import {
+  api,
+  formatMoney,
+  type Company,
+  type Customer,
+  type CustomerListPage,
+} from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import {
   CUSTOMER_LIST_QUERY_MAX_LENGTH,
   clampCustomerPage,
@@ -29,7 +38,8 @@ import {
   type CustomerListUrlState,
 } from "../lib/customerList";
 import { Breadcrumbs } from "../components/AppShell";
-import { Button } from "../components/ui/Button";
+import { Button, buttonClassName } from "../components/ui/Button";
+import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -44,6 +54,50 @@ import { useLiveRefetch } from "../components/CompanySocket";
  */
 export default function CustomersIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
+  // The finance routes serve this list, so it follows finance access. A
+  // Member with None still lands here from the Customers nav link or a shared
+  // URL, so instead of a list that could only fail to load ("Couldn't load
+  // customers", with a Try again that never works) they get a note, and the
+  // list never mounts to send a request that would answer 403.
+  if (!canOpenSubpage(subpageAt("/customers"), company)) {
+    return <CustomersClosed companySlug={company.slug} />;
+  }
+  return <CustomerList company={company} />;
+}
+
+/**
+ * The Customers landing for a Member without finance access. Revenue →
+ * Accounts lists the same accounts and Contracts stays open to them, so the
+ * note links to both rather than leaving them at a dead end — on a phone the
+ * rail with Contracts in it is folded away.
+ */
+function CustomersClosed({ companySlug }: { companySlug: string }) {
+  const link = buttonClassName({ variant: "secondary", size: "sm" });
+  return (
+    <div className="page-shell p-4 sm:p-8">
+      <div className="mb-6">
+        <Breadcrumbs items={[{ label: "Customers" }]} />
+      </div>
+      <h1 className="mb-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
+      <EmptyState
+        title="You don't have access to the customer list"
+        description="It follows finance access, which owners and admins choose for each Member. Ask one of them to change yours under Settings → Members. Revenue → Accounts lists the same accounts, and Contracts stays open to you."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link to={`/c/${companySlug}/revenue/accounts`} className={link}>
+              <Building2 size={14} /> Revenue accounts
+            </Link>
+            <Link to={`/c/${companySlug}/customers/contracts`} className={link}>
+              <FileSignature size={14} /> Contracts
+            </Link>
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+function CustomerList({ company }: { company: Company }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const background = useBackgroundAction();

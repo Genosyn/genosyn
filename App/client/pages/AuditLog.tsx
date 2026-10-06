@@ -8,8 +8,10 @@ import {
   AuditFilters,
   AuditPage,
   type AuditActorKind,
+  type Company,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody } from "../components/ui/Card";
@@ -45,6 +47,24 @@ const ACTOR_KINDS: { value: AuditActorKind | ""; label: string }[] = [
 
 export default function AuditLog() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  // Reading the whole company's history is admin-only on the server. A Member
+  // who follows a link here gets a note pointing to what they can read, and
+  // the log, whose requests could only answer 403, never mounts.
+  if (!canOpenSubpage(subpageAt("/settings/audit"), company)) {
+    return (
+      <>
+        <TopBar title="Audit log" />
+        <EmptyState
+          title="Only owners and admins read the audit log"
+          description="It records every change across the company, by every Member and AI Employee. To follow one AI Employee's work, choose it on Home for its work timeline; a Run's own effects are in its Run log."
+        />
+      </>
+    );
+  }
+  return <AuditTrail company={company} />;
+}
+
+function AuditTrail({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
