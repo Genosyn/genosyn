@@ -1,6 +1,7 @@
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -15,21 +16,25 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { ApiKey } from "../db/entities/ApiKey.js";
 import { Company } from "../db/entities/Company.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
+import { TaxRate } from "../db/entities/TaxRate.js";
 import { User } from "../db/entities/User.js";
 import type { IntegrationConfig } from "../integrations/types.js";
+import { hashApiToken } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { financeRouter } from "./finance.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 
 /**
  * Route contract for working inside a Repository.
  *
- * Three things this file exists to pin down, because all three are easy to
+ * Four things this file exists to pin down, because all four are easy to
  * lose in a refactor and expensive to lose in production:
  *
  *   1. **Who may do what.** Editing and committing are Member-level; pushing
@@ -43,11 +48,17 @@ import { repositoryContentRouter } from "./repositoryContent.js";
  *      pushing into it is one request that both writes to a third party and
  *      changes the row, and it now has to work on a server the company hosts
  *      itself as well as on github.com.
+ *   4. **The guards stay on repository paths.** The router shares the
+ *      `/api/companies/:cid` mount with every section after it, so a guard
+ *      not scoped to `/repositories` refuses API keys — and, in shared SaaS
+ *      mode, every write — on routers that have nothing to do with git.
  */
 
 let server: Server;
 let baseUrl: string;
 let actingUserId: string | null = null;
+/** An API key the next request presents in place of a session. Reset per test. */
+let actingApiKey: string | null = null;
 let dataDir: string;
 const originalDataDir = config.dataDir;
 const originalMultiTenant = config.security.multiTenant;
@@ -89,6 +100,9 @@ before(async () => {
     next();
   });
   app.use("/api/companies/:cid", repositoryContentRouter);
+  // Mounted after it, as in server/index.ts: a repository guard that leaks off
+  // its own paths shows up as a refused Finance request.
+  app.use("/api/companies/:cid", financeRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, resolve);
@@ -260,6 +274,7 @@ beforeEach(async () => {
     lastSyncError: "",
   });
   actingUserId = member.id;
+  actingApiKey = null;
 });
 
 type ApiResponse<T = Record<string, unknown>> = { status: number; body: T };
@@ -277,7 +292,10 @@ async function call<T = Record<string, unknown>>(
     `${baseUrl}/api/companies/${companyId ?? company.id}${path}`,
     {
       method,
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(actingApiKey ? { authorization: `Bearer ${actingApiKey}` } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
   );
@@ -286,6 +304,26 @@ async function call<T = Record<string, unknown>>(
 }
 
 const base = () => `/repositories/${repository.slug}/workspace`;
+
+/**
+ * Send the next requests with an API key for `user` instead of a session.
+ *
+ * `lastUsedAt` starts fresh so the auth seam's debounced bookkeeping write
+ * never lands after the test has finished and the table has been dropped.
+ */
+async function useApiKey(user: User): Promise<void> {
+  const tokenBody = randomBytes(32).toString("base64url");
+  await insert(ApiKey, {
+    companyId: company.id,
+    userId: user.id,
+    name: "Automation",
+    prefix: tokenBody.slice(0, 8),
+    tokenHash: hashApiToken(tokenBody),
+    lastUsedAt: new Date(),
+  });
+  actingUserId = null;
+  actingApiKey = `gen_${tokenBody}`;
+}
 
 async function forgeConnection(
   provider: "github" | "forgejo",
@@ -392,6 +430,97 @@ describe("authorization", () => {
     });
     assert.equal(write.status, 403);
     assert.match(write.body.error, /read-only in shared SaaS mode/);
+  });
+});
+
+// ───────────────────────────── guard scope ──────────────────────────────
+
+describe("the guards stay on repository paths", () => {
+  /** A read from each family of route this router serves, all below `/repositories`. */
+  const reads = () => [
+    `${base()}/tree`,
+    `/repositories/${repository.slug}/forge-connections`,
+    `/repositories/${repository.slug}/sessions`,
+    `/repositories/${repository.slug}/ai-overview`,
+    `/repositories/${repository.slug}/session-candidates`,
+  ];
+
+  /** And a write from each. The guards answer before any body is validated. */
+  const writes = (): Array<[string, string]> => [
+    ["PUT", `${base()}/file`],
+    ["POST", `${base()}/commit`],
+    ["POST", `/repositories/${repository.slug}/sessions`],
+    ["PATCH", `/repositories/${repository.slug}/sessions/${randomUUID()}`],
+    ["POST", `/repositories/${repository.slug}/session-attachments`],
+  ];
+
+  test("an API key is refused on every repository route", async () => {
+    await useApiKey(owner);
+    for (const path of reads()) {
+      const response = await call<{ error: string }>("GET", path);
+      assert.equal(response.status, 403, `GET ${path}`);
+      assert.match(response.body.error, /logged-in browser session/, `GET ${path}`);
+    }
+    for (const [method, path] of writes()) {
+      const response = await call<{ error: string }>(method, path, {});
+      assert.equal(response.status, 403, `${method} ${path}`);
+      assert.match(response.body.error, /logged-in browser session/, `${method} ${path}`);
+    }
+  });
+
+  test("shared SaaS mode refuses every repository write", async () => {
+    (config.security as { multiTenant: boolean }).multiTenant = true;
+    actingUserId = owner.id;
+    for (const [method, path] of writes()) {
+      const response = await call<{ error: string }>(method, path, {});
+      assert.equal(response.status, 403, `${method} ${path}`);
+      assert.match(response.body.error, /read-only in shared SaaS mode/, `${method} ${path}`);
+    }
+  });
+
+  test("an API key reaches a router mounted after this one", async () => {
+    await useApiKey(owner);
+    const listed = await call<unknown[]>("GET", "/tax-rates");
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
+    assert.deepEqual(listed.body, []);
+    const created = await call<{ name: string }>("POST", "/tax-rates", {
+      name: "VAT",
+      ratePercent: 20,
+    });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    assert.equal(created.body.name, "VAT");
+  });
+
+  test("shared SaaS mode leaves a router mounted after this one writable", async () => {
+    (config.security as { multiTenant: boolean }).multiTenant = true;
+    actingUserId = owner.id;
+    const created = await call("POST", "/tax-rates", { name: "VAT", ratePercent: 20 });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    assert.equal(
+      await AppDataSource.getRepository(TaxRate).countBy({ companyId: company.id }),
+      1,
+    );
+  });
+
+  test("the guards hold however the path is cased", async () => {
+    // Express matches routes case-insensitively, so this reaches the handler…
+    const shouted = `/REPOSITORIES/${repository.slug}/workspace`;
+    assert.equal((await call("GET", `${shouted}/tree`)).status, 200);
+
+    // …and the guards have to match it too.
+    (config.security as { multiTenant: boolean }).multiTenant = true;
+    const write = await call<{ error: string }>("PUT", `${shouted}/file`, {
+      path: "x.md",
+      content: "x",
+    });
+    assert.equal(write.status, 403);
+    assert.match(write.body.error, /read-only in shared SaaS mode/);
+
+    (config.security as { multiTenant: boolean }).multiTenant = false;
+    await useApiKey(owner);
+    const read = await call<{ error: string }>("GET", `${shouted}/tree`);
+    assert.equal(read.status, 403);
+    assert.match(read.body.error, /logged-in browser session/);
   });
 });
 

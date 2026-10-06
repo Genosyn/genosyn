@@ -10,6 +10,7 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { User } from "../db/entities/User.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
+  onRoutePaths,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
@@ -93,25 +94,33 @@ import { repositoryWorkSessionCandidates } from "../services/repositoryWorkSessi
  * The two exceptions, which do require admin, are the operations that reach
  * outside the company: pushing a branch to the remote and pulling from it. A
  * local commit can be undone by anyone; a push cannot be recalled.
+ *
+ * The router shares the `/api/companies/:cid` mount with Finance, Contracts,
+ * Mail and every section mounted after it, so each guard beyond sign-in and
+ * membership (which those routers enforce themselves) is scoped to the
+ * repository paths. Unscoped, they refused API keys on all of those routers
+ * and, in shared SaaS mode, every write to them.
  */
 export const repositoryContentRouter = Router({ mergeParams: true });
 repositoryContentRouter.use(requireAuth);
 repositoryContentRouter.use(requireCompanyMember);
-repositoryContentRouter.use(requireBrowserSession);
-repositoryContentRouter.use((req, res, next) => {
-  if (
-    config.security.multiTenant &&
-    req.method !== "GET" &&
-    req.method !== "HEAD" &&
-    req.method !== "OPTIONS"
-  ) {
-    return res.status(403).json({
-      error:
-        "Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
-    });
-  }
-  next();
-});
+repositoryContentRouter.use(onRoutePaths(["/repositories"], requireBrowserSession));
+repositoryContentRouter.use(
+  onRoutePaths(["/repositories"], (req, res, next) => {
+    if (
+      config.security.multiTenant &&
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
+      req.method !== "OPTIONS"
+    ) {
+      return res.status(403).json({
+        error:
+          "Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
+      });
+    }
+    next();
+  }),
+);
 
 const requireAdmin = requireCompanyRole("admin");
 
