@@ -223,13 +223,12 @@ connect:
   termsUrl: https://genosyn.com/terms`}</Pre>
       <P>
         The chart runs <Code>ghcr.io/genosyn/connect</Code> at the chart&apos;s version as a
-        non-root, read-only Deployment with no volume, and routes the whole Connect host to it. One
-        replica keeps sign-ins in memory; for more, add <Code>CONNECT_DATABASE_URL</Code> (Postgres)
-        and <Code>CONNECT_SECRET</Code> to the Secret and raise <Code>connect.replicaCount</Code>.
-        Register <Code>https://connect.genosyn.com/api/connect/google/callback</Code> and the legacy{" "}
-        <Code>/api/google-sign-in/callback</Code> with Google. A profile that enables{" "}
-        <Code>ingress.connect</Code> without <Code>connect.enabled</Code> fails to render: the App no
-        longer serves sign-in for other installations.
+        non-root, read-only Deployment with no volume, and routes the whole Connect host to it.
+        Connect keeps no state, so <Code>connect.replicaCount</Code> can be anything: its replicas
+        share only <Code>CONNECT_SECRET</Code>, which the chart generates once and keeps. Register{" "}
+        <Code>https://connect.genosyn.com/api/connect/google/callback</Code> with Google. A profile
+        that enables <Code>ingress.connect</Code> without <Code>connect.enabled</Code> fails to
+        render: the App no longer serves sign-in for other installations.
       </P>
       <P>
         Hostname settings use <Code>ingress.connect.enabled</Code>, <Code>host</Code>, and{" "}

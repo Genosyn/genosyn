@@ -326,13 +326,20 @@ describe("rails drawn from the catalogue", () => {
     "client/pages/MailLayout.tsx": "mail",
   };
 
-  test("renders each static rail from the catalogue, with no hand-written links", () => {
+  test("renders each static rail from the catalogue for its viewer, with no hand-written links", () => {
     for (const [file, section] of Object.entries(CATALOGUE_RAILS)) {
       const source = readAppFile(file);
       assert.match(
         source,
         new RegExp(`<SectionRailLinks section="${section}"`),
         `${file} must draw its rail with SectionRailLinks`,
+      );
+      // Without a viewer the rail would offer pages the palette hides for
+      // being unable to open — a Member's link to a 403.
+      assert.match(
+        source,
+        new RegExp(`<SectionRailLinks section="${section}"[^>]*\\sviewer=\\{`),
+        `${file} must pass its viewer, so the rail leaves out what they can't open`,
       );
       // A hand-written link here would be a page the palette can't find.
       assert.doesNotMatch(source, /<SidebarLink\b/, `${file} must not hand-write rail links`);

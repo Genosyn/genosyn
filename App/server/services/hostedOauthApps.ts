@@ -26,11 +26,6 @@ export type HostedOauthApp = {
   name: string;
   /** Scopes the service adds to every request to identify the account. */
   identityScopes: readonly string[];
-  /**
-   * What a service released before scopes were negotiable grants. It reports
-   * no scope list, and it grants these and nothing else.
-   */
-  legacyScopes: readonly string[];
   /** Why a completed sign-in cannot be used, or null when it can. */
   credentialProblem(args: {
     credential: {
@@ -44,17 +39,11 @@ export type HostedOauthApp = {
   }): string | null;
 };
 
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
-];
-
 export const HOSTED_OAUTH_APPS: Readonly<Record<string, HostedOauthApp>> = Object.freeze({
   google: {
     connectProvider: "google",
     name: "Google",
     identityScopes: GOOGLE_OAUTH_IDENTITY_SCOPES,
-    legacyScopes: GMAIL_SCOPES,
     credentialProblem({ credential, requestedScopes, linkMailbox }) {
       if (!credential.refreshToken || !credential.expiresAt || !credential.email) {
         return "Google sign-in finished without lasting access. Start again.";

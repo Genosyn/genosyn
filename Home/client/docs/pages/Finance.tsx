@@ -533,7 +533,9 @@ export function Finance() {
           post, edit, or send is refused by the server, not just hidden.
         </LI>
         <LI>
-          <Strong>None</Strong> — the finance section is closed to them entirely.
+          <Strong>None</Strong> — the finance section is closed to them entirely. Opening Finance
+          shows them a note that they don&apos;t have access, and that an owner or admin can change
+          it under <Code>Settings → Members</Code>, in place of pages that could only fail to load.
         </LI>
       </UL>
       <P>

@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import {
   discoverHostedSignIn,
-  discoverHostedSignInPath,
-  readHostedSignInOffer,
   requestHostedSignIn,
   resetHostedSignInDiscoveryForTests,
 } from "./hostedSignInTransport.js";
 
 const originalFetch = globalThis.fetch;
 const issuer = "https://connect.example";
+const CALENDAR = "https://www.googleapis.com/auth/calendar";
 let calls: string[];
 beforeEach(() => {
   calls = [];
@@ -19,7 +18,7 @@ beforeEach(() => {
     assert.equal(init?.redirect, "error");
     assert.equal(init?.body, undefined);
     assert.equal(new Headers(init?.headers).has("cookie"), false);
-    return Response.json({ version: 1, available: true });
+    return Response.json({ version: 2, available: true, scopes: [CALENDAR] });
   };
 });
 afterEach(() => {
@@ -27,40 +26,29 @@ afterEach(() => {
 });
 
 test("provider discovery is neutral and its cache is isolated by provider and issuer", async () => {
-  assert.equal(await discoverHostedSignInPath(issuer, "google"), "/api/connect/google");
-  assert.equal(await discoverHostedSignInPath(issuer, "google"), "/api/connect/google");
-  assert.equal(
-    await discoverHostedSignInPath(issuer, "future-provider"),
-    "/api/connect/future-provider",
-  );
-  assert.equal(
-    await discoverHostedSignInPath("https://other.example", "google"),
-    "/api/connect/google",
-  );
-  assert.equal(calls.length, 3);
-});
-
-test("only an absent Google namespace can discover a legacy host", async () => {
-  globalThis.fetch = async (input) => {
-    const url = String(input);
-    calls.push(url);
-    return url.includes("/api/connect/")
-      ? new Response(null, { status: 404 })
-      : Response.json({ version: 1, available: true });
-  };
-  assert.equal(await discoverHostedSignInPath(issuer, "google"), "/api/google-sign-in");
+  const offer = { path: "/api/connect/google", scopes: [CALENDAR] };
+  assert.deepEqual(await discoverHostedSignIn(issuer, "google"), offer);
+  assert.deepEqual(await discoverHostedSignIn(issuer, "google"), offer);
+  assert.deepEqual(await discoverHostedSignIn(issuer, "future-provider"), {
+    path: "/api/connect/future-provider",
+    scopes: [CALENDAR],
+  });
+  assert.deepEqual(await discoverHostedSignIn("https://other.example", "google"), offer);
   assert.deepEqual(calls, [
     `${issuer}/api/connect/google/status`,
-    `${issuer}/api/google-sign-in/status`,
+    `${issuer}/api/connect/future-provider/status`,
+    "https://other.example/api/connect/google/status",
   ]);
-  await assert.rejects(discoverHostedSignInPath(issuer, "unknown"), /unavailable/);
-  assert.equal(calls.length, 3);
 });
 
-test("disabled, incompatible, unavailable and redirecting providers never downgrade", async () => {
+test("only protocol 2 counts, and nothing falls back to the Gmail-only path", async () => {
   for (const response of [
-    () => Response.json({ version: 1, available: false }),
+    () => Response.json({ version: 1, available: true }),
+    () => Response.json({ version: 1, available: true, scopes: [CALENDAR] }),
+    () => Response.json({ version: 2, available: false, scopes: [] }),
     () => Response.json({ version: 2, available: true }),
+    () => Response.json({ version: 3, available: true, scopes: [CALENDAR] }),
+    () => new Response(null, { status: 404 }),
     () => new Response(null, { status: 503 }),
     () => new Response(null, { status: 302, headers: { location: "/api/google-sign-in/status" } }),
   ]) {
@@ -70,7 +58,7 @@ test("disabled, incompatible, unavailable and redirecting providers never downgr
       calls.push(String(input));
       return response();
     };
-    assert.equal(await discoverHostedSignInPath(issuer, "google").catch(() => null), null);
+    assert.equal(await discoverHostedSignIn(issuer, "google").catch(() => null), null);
     assert.deepEqual(calls, [`${issuer}/api/connect/google/status`]);
   }
 });
@@ -87,9 +75,29 @@ test("stored protocol paths cannot send a token to another provider or arbitrary
       /unavailable/,
     );
   }
-  await assert.rejects(discoverHostedSignInPath(issuer, "../admin"), /unavailable/);
-  await assert.rejects(discoverHostedSignInPath("http://remote.example", "google"), /unavailable/);
+  await assert.rejects(
+    requestHostedSignIn(issuer, "github", "/api/google-sign-in", "refresh", {
+      refreshToken: "private",
+    }),
+    /unavailable/,
+    "the Gmail-only path renews Google Connections only",
+  );
+  await assert.rejects(discoverHostedSignIn(issuer, "../admin"), /unavailable/);
+  await assert.rejects(discoverHostedSignIn("http://remote.example", "google"), /unavailable/);
   assert.equal(calls.length, 0);
+});
+
+test("Connections from the Gmail-only path renew there", async () => {
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return Response.json({ accessToken: "renewed", expiresAt: Date.now() + 60_000 });
+  };
+  const renewed = await requestHostedSignIn(issuer, "google", "/api/google-sign-in", "refresh", {
+    clientId: "client",
+    refreshToken: "private",
+  });
+  assert.equal((renewed as { accessToken: string }).accessToken, "renewed");
+  assert.deepEqual(calls, [`${issuer}/api/google-sign-in/refresh`]);
 });
 
 test("credential requests do not rediscover or fall back after failure, and hide upstream detail", async () => {
@@ -121,60 +129,18 @@ test("oversized responses and network failures expose no credential material", a
   }
 });
 
-test("discovery reports the scopes a service offers, and null for a service that predates them", async () => {
-  globalThis.fetch = async (input) => {
-    calls.push(String(input));
-    return Response.json({
-      version: 1,
-      available: true,
-      scopes: ["https://www.googleapis.com/auth/calendar"],
-    });
-  };
+test("discovery reports exactly the scopes a service offers, or nothing for a malformed list", async () => {
   assert.deepEqual(await discoverHostedSignIn(issuer, "google"), {
     path: "/api/connect/google",
-    scopes: ["https://www.googleapis.com/auth/calendar"],
+    scopes: [CALENDAR],
   });
-  resetHostedSignInDiscoveryForTests();
-  globalThis.fetch = async () => Response.json({ version: 1, available: true });
-  assert.deepEqual(await discoverHostedSignIn(issuer, "google"), {
-    path: "/api/connect/google",
-    scopes: null,
-  });
-  for (const scopes of ["openid", [1], Array(257).fill("s"), ["x".repeat(257)]]) {
+  for (const scopes of ["openid", [1], Array(257).fill("s"), ["x".repeat(257)], [""]]) {
     resetHostedSignInDiscoveryForTests();
-    globalThis.fetch = async () => Response.json({ version: 1, available: true, scopes });
+    globalThis.fetch = async () => Response.json({ version: 2, available: true, scopes });
     assert.equal(
       await discoverHostedSignIn(issuer, "google"),
       null,
       JSON.stringify(scopes).slice(0, 30),
     );
   }
-});
-
-test("a saved protocol path is read as saved and never rediscovered", async () => {
-  globalThis.fetch = async (input) => {
-    calls.push(String(input));
-    return String(input).includes("/api/google-sign-in/")
-      ? Response.json({ version: 1, available: true })
-      : new Response(null, { status: 500 });
-  };
-  assert.deepEqual(await readHostedSignInOffer(issuer, "google", "/api/google-sign-in"), {
-    path: "/api/google-sign-in",
-    scopes: null,
-  });
-  assert.deepEqual(await readHostedSignInOffer(issuer, "google", "/api/google-sign-in"), {
-    path: "/api/google-sign-in",
-    scopes: null,
-  });
-  assert.deepEqual(calls, [`${issuer}/api/google-sign-in/status`]);
-  await assert.rejects(
-    readHostedSignInOffer(issuer, "google", "/api/connect/google"),
-    /unavailable/,
-  );
-  await assert.rejects(readHostedSignInOffer(issuer, "google", "/api/admin"), /unavailable/);
-  await assert.rejects(
-    readHostedSignInOffer(issuer, "github", "/api/google-sign-in"),
-    /unavailable/,
-  );
-  assert.equal(calls.length, 2);
 });

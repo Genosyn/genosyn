@@ -29,11 +29,13 @@ const VERSION = "v1";
 /**
  * AES-256-GCM under a key derived from the operator's secret.
  *
- * `context` is authenticated but not stored, so a value sealed as one kind of
- * flow cannot be replayed as another even by someone who can write the store.
+ * `context` is authenticated but not stored, so a token sealed for one step or
+ * one provider cannot be presented as another.
  */
 export function createSealer(secret: string): Sealer {
-  const key = Buffer.from(crypto.hkdfSync("sha256", secret, "genosyn-connect", "flow-state", 32));
+  const key = Buffer.from(
+    crypto.hkdfSync("sha256", secret, "genosyn-connect", "sealed-context", 32),
+  );
   return {
     seal(plaintext, context) {
       const iv = crypto.randomBytes(12);

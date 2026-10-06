@@ -179,6 +179,24 @@ values reused from a release older than the Connect image lack the block.
 {{- printf "%s-connect" (include "genosyn.fullname" . | trunc 55 | trimSuffix "-") }}
 {{- end -}}
 
+{{- define "genosyn.connectKeyName" -}}
+{{- printf "%s-key" (include "genosyn.connectFullname" .) }}
+{{- end -}}
+
+{{/*
+CONNECT_SECRET for every Connect replica: kept once made, so an upgrade never
+ends the sign-ins open at that moment. The template supplies lookup's result as
+`existing`; a missing or empty key is simply made again, because losing it
+costs only sign-ins in flight. Never put the value in a failure message.
+*/}}
+{{- define "genosyn.connectKeyData" -}}
+{{- $stored := "" -}}
+{{- if and .existing .existing.data -}}
+{{- $stored = default "" (index .existing.data "CONNECT_SECRET") -}}
+{{- end -}}
+{{- toYaml (dict "CONNECT_SECRET" (default (randAlphaNum 48 | b64enc) $stored)) -}}
+{{- end -}}
+
 {{/*
 The origin Connect builds its callback from: explicit, or the Connect host.
 */}}

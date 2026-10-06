@@ -12,11 +12,6 @@ export const GOOGLE_IDENTITY_SCOPES = [
   "openid",
 ] as const;
 
-const GMAIL_MAILBOX_SCOPES = new Set([
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://mail.google.com/",
-]);
-
 /**
  * Every Google product a Genosyn installation knows how to use. The keys are
  * what an operator lists in CONNECT_GOOGLE_SCOPE_GROUPS; the scopes match the
@@ -110,10 +105,6 @@ export const GOOGLE_SCOPE_GROUPS: readonly ScopeGroup[] = [
 
 export const DEFAULT_GOOGLE_SCOPE_GROUPS = ["gmail"];
 
-export function hasGmailMailboxScope(scopes: readonly string[]): boolean {
-  return scopes.some((scope) => GMAIL_MAILBOX_SCOPES.has(scope));
-}
-
 const tokenSchema = z.object({
   access_token: z.string().min(1).max(16_384),
   refresh_token: z.string().min(1).max(16_384).optional(),
@@ -151,7 +142,11 @@ export function createGoogleProvider(options: {
           ? (result.body as { error: unknown }).error
           : undefined;
       if (error === "invalid_grant") {
-        throw new UpstreamError("Google access expired or was revoked. Connect again.", 401);
+        throw new UpstreamError(
+          "Google access expired or was revoked. Connect again.",
+          401,
+          "exchange_failed",
+        );
       }
       throw new UpstreamError("Google sign-in could not be completed. Please try again.");
     }
@@ -174,12 +169,6 @@ export function createGoogleProvider(options: {
     identityScopes: GOOGLE_IDENTITY_SCOPES,
     catalog: GOOGLE_SCOPE_GROUPS,
     groups: GOOGLE_SCOPE_GROUPS.filter((group) => offered.has(group.key)),
-    defaultRequest: {
-      group: "gmail",
-      satisfiedBy: hasGmailMailboxScope,
-      missingMessage:
-        "Google did not grant the access Gmail needs. Connect again and allow Gmail access.",
-    },
     authorizeUrl(args) {
       const url = new URL(AUTHORIZE_URL);
       url.search = new URLSearchParams({
@@ -215,6 +204,7 @@ export function createGoogleProvider(options: {
         throw new UpstreamError(
           "Google did not grant offline access. Connect again and allow access.",
           400,
+          "offline_access_missing",
         );
       }
       const profile = await upstreamJson(fetchImpl, USERINFO_URL, {
@@ -225,6 +215,7 @@ export function createGoogleProvider(options: {
         throw new UpstreamError(
           "Google did not confirm a verified email address for this account. Try another account.",
           400,
+          "account_unverified",
         );
       }
       return {
@@ -246,13 +237,6 @@ export function createGoogleProvider(options: {
           grant_type: "refresh_token",
         }),
       );
-    },
-    messages: {
-      cancelled: "Google sign-in was cancelled. Return to your Genosyn installation to try again.",
-      completed:
-        "Google sign-in is complete. Return to your Genosyn installation to finish connecting.",
-      failed:
-        "Google sign-in could not be completed. Return to your Genosyn installation and try again.",
     },
   };
 }

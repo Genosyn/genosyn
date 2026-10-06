@@ -13,16 +13,15 @@ const MINUTES = 60_000;
 
 /**
  * Budgets per client address unless noted. Starting, viewing, approving and
- * returning from a sign-in are a person's clicks; polling is counted only
- * when its proof is wrong; renewal is budgeted per refresh token, so one
- * installation can renew many Connections without exhausting its address.
+ * returning from a sign-in are a person's clicks; renewal is budgeted per
+ * refresh token, so one installation can renew many Connections without
+ * exhausting its address, and its rejections per address, to slow guessing.
  */
 export const RULES = {
   start: { limit: 30, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
   page: { limit: 60, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
   authorize: { limit: 30, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
   callback: { limit: 30, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
-  pollFailure: { limit: 10, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
   refreshToken: { limit: 20, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
   refreshFailure: { limit: 30, windowMs: 15 * MINUTES, blockMs: 15 * MINUTES },
 } satisfies Record<string, ThrottleRule>;

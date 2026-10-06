@@ -4,6 +4,7 @@ import { getProvider, listProviderIds } from "../integrations/index.js";
 import type { IntegrationConfig } from "../integrations/types.js";
 import {
   compareAndSetAuthFlowState,
+  consumeAuthFlowState,
   consumeAuthFlowStateSnapshot,
   createAuthFlowState,
   readAuthFlowState,
@@ -19,10 +20,9 @@ import {
   scopeGroupLabels,
   type HostedOauthApp,
 } from "./hostedOauthApps.js";
-import { LEGACY_GOOGLE_BROKER_PATH, type HostedOauthCredentials } from "./hostedOauthTokens.js";
+import type { HostedOauthCredentials } from "./hostedOauthTokens.js";
 import {
   discoverHostedSignIn,
-  readHostedSignInOffer,
   requestHostedSignIn,
   resetHostedSignInDiscoveryForTests,
   type HostedSignInOffer,
@@ -34,21 +34,30 @@ import { getRuntimeOauthSettings, normalizeSignInUrl } from "./runtimeSettings.j
  * Sign in to an Integration through Genosyn Connect, the hosted sign-in
  * service, instead of an OAuth app registered on this installation.
  *
- * The installation's server starts the sign-in with two proofs, the person's
- * browser completes consent on the service, and the server collects the
- * credential once with the verifier only it holds. Tokens never touch the
- * browser, and the service never needs to reach this installation, so a
- * laptop on `localhost` works the same as a public server. From then on the
- * installation talks to the provider directly; only token renewal goes back
- * to the service that issued the Connection.
+ * Connect keeps no state. This installation's server starts a sign-in with
+ * the hash of a browser proof, the page to come back to, and a one-time key;
+ * the person's browser completes consent on the service, and the service
+ * sends the browser back here with the credential encrypted to that key. Only
+ * this server can read it, and the service never needs to reach this
+ * installation, so a laptop on `localhost` works the same as a public server.
+ * From then on the installation talks to the provider directly; only token
+ * renewal goes back to the service that issued the Connection.
  */
 
-// Historical name, from when only Gmail used this; in-flight attempts keep it.
-const FLOW_KIND = "hosted-google-consumer";
+const ATTEMPT_KIND = "hosted-oauth-attempt";
 const FLOW_TTL_MS = 10 * 60_000;
-const LEASE_MS = 30_000;
+/** How long completing a returned sign-in may take before a poll gives up on it. */
+const COMPLETION_LEASE_MS = 2 * 60_000;
 const RESTART = "This sign-in expired or was already used. Start again.";
 
+/** The installation's page Genosyn Connect sends the browser back to. */
+const HOSTED_RETURN_PATH = "/api/integrations/oauth/hosted/return";
+
+const startedSchema = z.object({
+  requestId: z.string().min(1).max(8192),
+  authorizeUrl: z.string().url().max(16_384),
+  expiresAt: z.number().finite().positive(),
+});
 const credentialSchema = z.object({
   clientId: z.string().min(1).max(512),
   accessToken: z.string().min(1).max(16_384),
@@ -58,29 +67,30 @@ const credentialSchema = z.object({
   email: z.string().email().max(320).optional(),
   account: z.string().min(1).max(320).optional(),
 });
-const pollSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("pending") }),
-  z.object({ status: z.literal("denied"), detail: z.string().max(2000).optional() }),
-  z.object({ status: z.literal("complete"), credential: credentialSchema }),
-]);
+
+type HostedOutcome = { status: "complete" | "denied"; detail?: string };
 
 type HostedAttempt = {
   companyId: string;
   userId: string;
   label: string;
-  /** Integration id. Attempts saved before other providers existed omit it: Google. */
-  provider?: string;
-  /** Attempts saved before groups were negotiable omit it: Gmail. */
-  scopeGroups?: string[];
-  requestedScopes?: string[];
+  /** Integration id. */
+  provider: string;
+  scopeGroups: string[];
+  requestedScopes: string[];
   extraFields?: Record<string, string>;
   tokenBrokerUrl: string;
-  tokenBrokerPath?: string;
-  requestId: string;
-  codeVerifier: string;
+  tokenBrokerPath: string;
+  /** The origin the sign-in started from; only its own page may finish it. */
+  installationOrigin: string;
+  /** Sent to the service once, which encrypts the credential to it; never to a browser. */
+  resultKey: string;
   existingConnectionId?: string;
   linkMailbox: boolean;
-  pollingUntil?: number;
+  /** When the browser came back and this installation began completing it. */
+  returnedAt?: number;
+  /** What the opener's next poll reports, once. */
+  outcome?: HostedOutcome;
 };
 
 export type OauthStartResult = {
@@ -98,8 +108,8 @@ export type HostedSignInAvailability =
   | { status: "available"; issuer: string; offer: HostedSignInOffer; scopes: ReadonlySet<string> }
   | { status: "disabled" | "unsupported" | "unreachable"; issuer: string | null };
 
-function offeredScopes(hosted: HostedOauthApp, offer: HostedSignInOffer): ReadonlySet<string> {
-  return new Set(offer.scopes ?? hosted.legacyScopes);
+function offeredScopes(offer: HostedSignInOffer): ReadonlySet<string> {
+  return new Set(offer.scopes);
 }
 
 /**
@@ -116,7 +126,7 @@ export async function hostedSignInAvailability(app: string): Promise<HostedSignI
   try {
     const offer = await discoverHostedSignIn(issuer, hosted.connectProvider);
     if (!offer) return { status: "unsupported", issuer };
-    return { status: "available", issuer, offer, scopes: offeredScopes(hosted, offer) };
+    return { status: "available", issuer, offer, scopes: offeredScopes(offer) };
   } catch {
     return { status: "unreachable", issuer };
   }
@@ -203,9 +213,8 @@ export async function startHostedOauth(args: {
   existingConnectionId?: string;
   linkMailbox?: boolean;
   installationOrigin?: string;
-  /** Reconnects stay with the service and protocol that issued the Connection. */
+  /** Reconnects stay with the service that issued the Connection. */
   tokenBrokerUrl?: string;
-  tokenBrokerPath?: string;
 }): Promise<OauthStartResult> {
   const integration = getProvider(args.provider);
   const hosted = hostedOauthApp(integration?.catalog.oauth?.app);
@@ -225,20 +234,14 @@ export async function startHostedOauth(args: {
 
   let offer: HostedSignInOffer | null;
   try {
-    // Reconnects and existing credentials keep their original protocol as
-    // well as their issuer. Discovery never sends a credential.
-    offer = args.tokenBrokerUrl
-      ? await readHostedSignInOffer(
-          issuer,
-          hosted.connectProvider,
-          args.tokenBrokerPath ?? LEGACY_GOOGLE_BROKER_PATH,
-        )
-      : await discoverHostedSignIn(issuer, hosted.connectProvider);
+    // Discovery never sends a credential. A reconnect asks the service that
+    // issued the Connection, whatever the installation's current default is.
+    offer = await discoverHostedSignIn(issuer, hosted.connectProvider);
   } catch {
     throw unavailable(hosted.name);
   }
   if (!offer) throw unavailable(hosted.name);
-  const offered = offeredScopes(hosted, offer);
+  const offered = offeredScopes(offer);
   const missing = product.filter((scope) => !offered.has(scope));
   if (missing.length > 0) {
     throw new Error(
@@ -246,45 +249,24 @@ export async function startHostedOauth(args: {
     );
   }
 
-  const codeVerifier = crypto.randomBytes(32).toString("base64url");
-  const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
-  // Independent browser proof binds the service's consent page to the browser
-  // actually visiting this installation. It cannot redeem the result.
+  // The browser proof binds the service's consent page to the browser that is
+  // actually visiting this installation. It cannot read the result: only the
+  // result key can, and that stays on this server.
   const hostedBrowserProof = crypto.randomBytes(32).toString("base64url");
   const browserChallenge = crypto
     .createHash("sha256")
     .update(hostedBrowserProof)
     .digest("base64url");
+  const resultKey = crypto.randomBytes(32).toString("base64url");
+  let installationOrigin: string;
   try {
-    const started = z
-      .object({
-        requestId: z.string().min(1).max(256),
-        authorizeUrl: z.string().url().max(8192),
-        expiresAt: z.number().finite().positive(),
-      })
-      .parse(
-        await requestHostedSignIn(issuer, hosted.connectProvider, offer.path, "start", {
-          codeChallenge,
-          browserChallenge,
-          installationOrigin: new URL(args.installationOrigin ?? getPublicUrl()).origin,
-          // A service that predates scope negotiation grants exactly its
-          // default and rejects a request that names anything.
-          ...(offer.scopes ? { scopes: requestedScopes } : {}),
-        }),
-      );
-    const authorize = new URL(started.authorizeUrl);
-    if (
-      authorize.origin !== new URL(issuer).origin ||
-      authorize.username ||
-      authorize.password ||
-      authorize.pathname !== `${offer.path}/authorize` ||
-      authorize.searchParams.get("requestId") !== started.requestId ||
-      authorize.hash
-    ) {
-      throw new Error("Unexpected consent address");
-    }
-    const expiresAt = Math.min(started.expiresAt, Date.now() + FLOW_TTL_MS);
-    if (expiresAt <= Date.now()) throw new Error("Expired before it started");
+    installationOrigin = new URL(args.installationOrigin ?? getPublicUrl()).origin;
+  } catch {
+    throw unavailable(hosted.name);
+  }
+  const deadline = Date.now() + FLOW_TTL_MS;
+  let hostedAttempt: string | null = null;
+  try {
     const payload: HostedAttempt = {
       companyId: args.companyId,
       userId: args.userId,
@@ -297,14 +279,40 @@ export async function startHostedOauth(args: {
         : {}),
       tokenBrokerUrl: issuer,
       tokenBrokerPath: offer.path,
-      requestId: started.requestId,
-      codeVerifier,
+      installationOrigin,
+      resultKey,
       existingConnectionId: args.existingConnectionId,
       linkMailbox: args.linkMailbox === true,
     };
-    const hostedAttempt = await createAuthFlowState(FLOW_KIND, payload, FLOW_TTL_MS, expiresAt);
+    // The attempt's own token is the `state` the service echoes back: it finds
+    // this attempt when the browser returns, and binds the encrypted result to it.
+    hostedAttempt = await createAuthFlowState(ATTEMPT_KIND, payload, FLOW_TTL_MS, deadline);
+    const started = startedSchema.parse(
+      await requestHostedSignIn(issuer, hosted.connectProvider, offer.path, "start", {
+        browserChallenge,
+        installationOrigin,
+        returnUrl: `${installationOrigin}${HOSTED_RETURN_PATH}`,
+        state: hostedAttempt,
+        resultKey,
+        scopes: requestedScopes,
+      }),
+    );
+    const authorize = new URL(started.authorizeUrl);
+    if (
+      authorize.origin !== new URL(issuer).origin ||
+      authorize.username ||
+      authorize.password ||
+      authorize.pathname !== `${offer.path}/authorize` ||
+      authorize.searchParams.get("requestId") !== started.requestId ||
+      authorize.hash
+    ) {
+      throw new Error("Unexpected consent address");
+    }
+    const expiresAt = Math.min(started.expiresAt, deadline);
+    if (expiresAt <= Date.now()) throw new Error("Expired before it started");
     return { authorizeUrl: started.authorizeUrl, hostedAttempt, hostedBrowserProof, expiresAt };
   } catch {
+    if (hostedAttempt) await consumeAuthFlowState(ATTEMPT_KIND, hostedAttempt).catch(() => null);
     throw unavailable(hosted.name);
   }
 }
@@ -323,80 +331,164 @@ export async function cancelHostedOauth(args: {
   userId: string;
   attempt: string;
 }): Promise<void> {
-  // Retry CAS if a concurrent poll just claimed the same pending attempt.
+  // Retry CAS if the returning browser just changed the same attempt.
   for (let retry = 0; retry < 4; retry++) {
-    const snapshot = await readAuthFlowState<HostedAttempt>(FLOW_KIND, args.attempt);
+    const snapshot = await readAuthFlowState<HostedAttempt>(ATTEMPT_KIND, args.attempt);
     if (!snapshot) return;
     assertOwner(snapshot, args);
-    if (await consumeAuthFlowStateSnapshot(FLOW_KIND, args.attempt, snapshot)) return;
+    if (await consumeAuthFlowStateSnapshot(ATTEMPT_KIND, args.attempt, snapshot)) return;
   }
   throw new Error("Sign-in changed while cancelling. Try again.");
 }
 
+/**
+ * The opener's view of a sign-in: pending until the browser returns from the
+ * service and this installation has finished with it, then its outcome, once.
+ * Nothing here contacts the service.
+ */
 export async function pollHostedOauth(args: {
   companyId: string;
   userId: string;
   attempt: string;
 }): Promise<HostedOauthPollResult> {
-  const snapshot = await readAuthFlowState<HostedAttempt>(FLOW_KIND, args.attempt);
+  const snapshot = await readAuthFlowState<HostedAttempt>(ATTEMPT_KIND, args.attempt);
   if (!snapshot) return { status: "denied", detail: RESTART };
   assertOwner(snapshot, args);
-  const providerId = snapshot.payload.provider ?? "google";
-  const integration = getProvider(providerId);
-  const hosted = hostedOauthApp(integration?.catalog.oauth?.app);
-  if (!integration?.buildOauthConfig || !hosted) {
-    await consumeAuthFlowStateSnapshot(FLOW_KIND, args.attempt, snapshot);
+  const { outcome, returnedAt } = snapshot.payload;
+  if (outcome) {
+    await consumeAuthFlowStateSnapshot(ATTEMPT_KIND, args.attempt, snapshot);
+    return outcome;
+  }
+  if (returnedAt !== undefined && returnedAt + COMPLETION_LEASE_MS <= Date.now()) {
+    // The process completing it stopped midway. Never guess whether a
+    // Connection was saved; ask for a fresh sign-in instead.
+    await consumeAuthFlowStateSnapshot(ATTEMPT_KIND, args.attempt, snapshot);
     return { status: "denied", detail: RESTART };
   }
-  if (snapshot.payload.pollingUntil) {
-    if (snapshot.payload.pollingUntil > Date.now()) return { status: "pending" };
-    // A process stopped mid-exchange. Do not redeem a one-use remote result
-    // twice or create a second Connection after an ambiguous completion.
-    await consumeAuthFlowStateSnapshot(FLOW_KIND, args.attempt, snapshot);
-    return { status: "denied", detail: RESTART };
+  return { status: "pending" };
+}
+
+/** The browser that came back is not this installation's own page. */
+export class HostedReturnOriginError extends Error {
+  constructor() {
+    super("This sign-in can only finish on the Genosyn page that started it.");
+    this.name = "HostedReturnOriginError";
   }
-  const claimed = await compareAndSetAuthFlowState(FLOW_KIND, args.attempt, snapshot, {
-    ...snapshot.payload,
-    pollingUntil: Date.now() + LEASE_MS,
-  });
-  if (!claimed) return { status: "pending" };
-  const lease = await readAuthFlowState<HostedAttempt>(FLOW_KIND, args.attempt);
-  if (!lease) return { status: "denied", detail: RESTART };
-  let result: z.infer<typeof pollSchema>;
+}
+
+const RESULT_PATTERN = /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22,65536}$/;
+
+/**
+ * The installation's side of Genosyn Connect's result encryption: AES-256-GCM
+ * under the attempt's key, bound to the service's provider id and the
+ * attempt's `state`, formatted `<iv>.<ciphertext and tag>` in base64url.
+ * Null for anything not sealed to this attempt.
+ */
+export function decryptHostedResult(
+  resultKey: string,
+  provider: string,
+  state: string,
+  sealed: string,
+): string | null {
+  if (!RESULT_PATTERN.test(sealed)) return null;
+  const [ivText, payloadText] = sealed.split(".");
   try {
-    result = pollSchema.parse(
-      await requestHostedSignIn(
-        lease.payload.tokenBrokerUrl,
-        hosted.connectProvider,
-        lease.payload.tokenBrokerPath ?? LEGACY_GOOGLE_BROKER_PATH,
-        "poll",
-        { requestId: lease.payload.requestId, codeVerifier: lease.payload.codeVerifier },
-      ),
-    );
+    const key = Buffer.from(resultKey, "base64url");
+    const iv = Buffer.from(ivText, "base64url");
+    const payload = Buffer.from(payloadText, "base64url");
+    if (key.length !== 32 || iv.length !== 12 || payload.length < 17) return null;
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAAD(Buffer.from(`genosyn-connect-result:v2:${provider}:${state}`));
+    decipher.setAuthTag(payload.subarray(payload.length - 16));
+    return Buffer.concat([
+      decipher.update(payload.subarray(0, payload.length - 16)),
+      decipher.final(),
+    ]).toString("utf8");
   } catch {
-    await compareAndSetAuthFlowState(FLOW_KIND, args.attempt, lease, snapshot.payload);
-    throw unavailable(hosted.name);
+    return null;
   }
-  if (result.status === "pending") {
-    await compareAndSetAuthFlowState(FLOW_KIND, args.attempt, lease, snapshot.payload);
-    return { status: "pending" };
+}
+
+/** Why the service says a sign-in ended without a credential, in this installation's words. */
+function returnedErrorDetail(hosted: HostedOauthApp, code: string): string {
+  switch (code) {
+    case "access_denied":
+      return `${hosted.name} sign-in was cancelled. Start again when ready.`;
+    case "account_unverified":
+      return `${hosted.name} did not confirm a verified email address for this account. Try another account.`;
+    case "offline_access_missing":
+      return `${hosted.name} did not grant lasting access. Start again and allow access on the consent screen.`;
+    case "registration_changed":
+      return "Genosyn Connect's sign-in settings changed while you were signing in. Start again.";
+    default:
+      return `${hosted.name} sign-in could not be completed. Start again.`;
   }
-  const attempt = await consumeAuthFlowStateSnapshot(FLOW_KIND, args.attempt, lease);
-  if (!attempt) return { status: "denied", detail: RESTART };
-  if (result.status === "denied") {
+}
+
+/**
+ * The browser is back from Genosyn Connect: decrypt the credential with the
+ * attempt's key, save the Connection, and leave the outcome for the opener's
+ * next poll. Each attempt finishes once; a replay, or a return after the
+ * Member cancelled, finds nothing to finish.
+ */
+export async function completeHostedReturn(args: {
+  state: string;
+  result?: string;
+  error?: string;
+  /** The `Origin` of the page that posted the return. */
+  origin: string | undefined;
+}): Promise<HostedOutcome> {
+  const snapshot = await readAuthFlowState<HostedAttempt>(ATTEMPT_KIND, args.state);
+  if (!snapshot || snapshot.payload.returnedAt !== undefined) {
+    return { status: "denied", detail: RESTART };
+  }
+  if (args.origin !== snapshot.payload.installationOrigin) throw new HostedReturnOriginError();
+  const claimed = await compareAndSetAuthFlowState(ATTEMPT_KIND, args.state, snapshot, {
+    ...snapshot.payload,
+    returnedAt: Date.now(),
+  });
+  if (!claimed) return { status: "denied", detail: RESTART };
+  const lease = await readAuthFlowState<HostedAttempt>(ATTEMPT_KIND, args.state);
+  if (!lease) return { status: "denied", detail: RESTART };
+  const outcome = await finishReturnedSignIn(lease.payload, args);
+  // A Member who cancelled meanwhile no longer waits for this outcome.
+  await compareAndSetAuthFlowState(ATTEMPT_KIND, args.state, lease, {
+    ...lease.payload,
+    outcome,
+  });
+  return outcome;
+}
+
+async function finishReturnedSignIn(
+  attempt: HostedAttempt,
+  args: { state: string; result?: string; error?: string },
+): Promise<HostedOutcome> {
+  const integration = getProvider(attempt.provider);
+  const hosted = hostedOauthApp(integration?.catalog.oauth?.app);
+  if (!integration?.buildOauthConfig || !hosted) return { status: "denied", detail: RESTART };
+  if (!args.result) {
+    return { status: "denied", detail: returnedErrorDetail(hosted, args.error ?? "") };
+  }
+  const plaintext = decryptHostedResult(
+    attempt.resultKey,
+    hosted.connectProvider,
+    args.state,
+    args.result,
+  );
+  let credential: z.infer<typeof credentialSchema>;
+  try {
+    credential = credentialSchema.parse(JSON.parse(plaintext ?? "null"));
+  } catch {
+    // Whatever arrived, its content never reaches the Member.
     return {
       status: "denied",
-      detail: `${hosted.name} sign-in was cancelled or expired. Start again when ready.`,
+      detail: `${hosted.name} sign-in could not be verified. Start again.`,
     };
   }
 
-  const credential = result.credential;
-  const scopeGroups = attempt.scopeGroups ?? ["mail"];
-  const requestedScopes =
-    attempt.requestedScopes ?? integrationOauthScopes(integration, scopeGroups);
   const problem = hosted.credentialProblem({
     credential,
-    requestedScopes,
+    requestedScopes: attempt.requestedScopes,
     linkMailbox: attempt.linkMailbox,
   });
   if (problem) return { status: "denied", detail: problem };
@@ -413,7 +505,7 @@ export async function pollHostedOauth(args: {
       userInfo: { email: credential.email ?? "" },
       clientId: credential.clientId,
       clientSecret: "",
-      scopeGroups,
+      scopeGroups: attempt.scopeGroups,
       extraFields: attempt.extraFields,
     });
     // The client secret stays with the service that issued these tokens.
@@ -422,12 +514,12 @@ export async function pollHostedOauth(args: {
       ...direct,
       credentialSource: "hosted",
       tokenBrokerUrl: attempt.tokenBrokerUrl,
-      tokenBrokerPath: attempt.tokenBrokerPath ?? LEGACY_GOOGLE_BROKER_PATH,
+      tokenBrokerPath: attempt.tokenBrokerPath,
     } satisfies Partial<HostedOauthCredentials> as unknown as IntegrationConfig;
     await completeOauth({
       companyId: attempt.companyId,
       userId: attempt.userId,
-      provider: providerId,
+      provider: attempt.provider,
       label: attempt.label,
       existingConnectionId: attempt.existingConnectionId,
       linkMailbox: attempt.linkMailbox,

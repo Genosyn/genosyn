@@ -141,9 +141,9 @@ configured, the verification link is in the private App log. Configure
 inviting Members.
 For Genosyn Connect, the production profile needs both blocks below, and the
 `genosyn-connect` Secret created once in `genosyn-prod` with
-`CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET` (plus
-`CONNECT_DATABASE_URL` and `CONNECT_SECRET` before raising
-`connect.replicaCount` above one). A profile from before Connect became its own
+`CONNECT_GOOGLE_CLIENT_ID` and `CONNECT_GOOGLE_CLIENT_SECRET`. The chart makes
+the key Connect's replicas share, so `connect.replicaCount` needs nothing
+more. A profile from before Connect became its own
 service — `ingress.connect` without `connect.enabled` — fails to render with
 that instruction rather than deploying a host with nothing behind it.
 

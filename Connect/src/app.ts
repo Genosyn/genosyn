@@ -2,18 +2,24 @@ import crypto from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createBroker } from "./broker.js";
 import type { ConnectConfig } from "./config.js";
-import type { FlowStates } from "./flowState.js";
 import { consoleLogger, type Logger } from "./log.js";
 import { landingPage, LOGO_SVG, messagePage } from "./pages.js";
-import { canonicalProtocol, LEGACY_GOOGLE_PROTOCOL, PROVIDER_ID_PATTERN } from "./protocol.js";
+import {
+  canonicalProtocol,
+  LEGACY_GOOGLE_RENEWAL_PATH,
+  PROTOCOL_VERSION,
+  PROVIDER_ID_PATTERN,
+} from "./protocol.js";
 import type { ProviderRegistry } from "./providers/index.js";
 import { offeredScopes } from "./providers/types.js";
-import { createProtocolRouter } from "./routes.js";
+import { createProtocolRouter, createRenewalRouter } from "./routes.js";
+import type { Sealer } from "./secrets.js";
 import { Throttle } from "./throttle.js";
 
 export type ConnectAppOptions = {
   config: Pick<ConnectConfig, "publicUrl" | "trustedProxyHops" | "accessLog" | "links">;
-  flows: FlowStates;
+  /** Seals sign-in context into the tokens a browser carries; replicas must share its key. */
+  sealer: Sealer;
   providers: ProviderRegistry;
   throttle?: Throttle;
   log?: Logger;
@@ -24,7 +30,7 @@ export type ConnectAppOptions = {
  * index, and each provider's protocol routes. Nothing else answers.
  */
 export function createConnectApp(options: ConnectAppOptions): express.Express {
-  const { config, flows, providers } = options;
+  const { config, sealer, providers } = options;
   const throttle = options.throttle ?? new Throttle();
   const log = options.log ?? consoleLogger;
   const https = config.publicUrl.startsWith("https://");
@@ -97,18 +103,15 @@ export function createConnectApp(options: ConnectAppOptions): express.Express {
     res.json({ ok: true });
   });
 
-  app.get("/readyz", async (_req, res) => {
-    try {
-      await flows.store.ping();
-      res.json({ ok: true });
-    } catch {
-      res.status(503).json({ ok: false });
-    }
+  // Connect depends on nothing it could wait for: no database, no cache. Ready
+  // is the same as alive; the route exists so probes need no special case.
+  app.get("/readyz", (_req, res) => {
+    res.json({ ok: true });
   });
 
   app.get("/api/connect", (_req, res) => {
     res.json({
-      version: 1,
+      version: PROTOCOL_VERSION,
       providers: [...providers.values()].map((provider) => {
         const available = Boolean(provider.registration) && provider.groups.length > 0;
         return {
@@ -124,34 +127,25 @@ export function createConnectApp(options: ConnectAppOptions): express.Express {
     });
   });
 
-  const brokerOptions = { publicUrl: config.publicUrl, flows };
+  const brokerOptions = { publicUrl: config.publicUrl, sealer };
   const routerOptions = { publicUrl: config.publicUrl, throttle, links: config.links };
-  const canonical = new Map(
+  const brokers = new Map(
     [...providers.values()].map((provider) => [
       provider.id,
-      createProtocolRouter(
-        createBroker(provider, canonicalProtocol(provider.id), brokerOptions),
-        routerOptions,
-      ),
+      createBroker(provider, canonicalProtocol(provider.id), brokerOptions),
     ]),
   );
+  const canonical = new Map(
+    [...brokers].map(([id, broker]) => [id, createProtocolRouter(broker, routerOptions)]),
+  );
+  const google = brokers.get("google");
+  if (google) app.use(LEGACY_GOOGLE_RENEWAL_PATH, createRenewalRouter(google, routerOptions));
   app.use("/api/connect/:provider", (req, res, next) => {
     const id = req.params.provider ?? "";
     const router = PROVIDER_ID_PATTERN.test(id) ? canonical.get(id) : undefined;
     if (!router) return res.status(404).json({ error: "Sign-in provider not found" });
     return router(req, res, next);
   });
-
-  const google = providers.get("google");
-  if (google) {
-    app.use(
-      LEGACY_GOOGLE_PROTOCOL.basePath,
-      createProtocolRouter(
-        createBroker(google, LEGACY_GOOGLE_PROTOCOL, brokerOptions),
-        routerOptions,
-      ),
-    );
-  }
 
   // Browsers ask for HTML; installations ask for JSON.
   const wantsPage = (req: Request) => req.accepts(["json", "html"]) === "html";
@@ -174,8 +168,8 @@ export function createConnectApp(options: ConnectAppOptions): express.Express {
       );
   });
 
-  // Unexpected failures are logged by name only: their messages can quote a
-  // database row or an upstream response.
+  // Unexpected failures are logged by name only: their messages can quote an
+  // upstream response.
   app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
     log.error(
       `${req.method} ${req.path} failed: ${error instanceof Error ? error.name : "unknown error"}`,

@@ -13,9 +13,11 @@ import { requireTrustedOrigin } from "../middleware/httpSecurity.js";
 import { resetHostedOauthAvailabilityForTests, startHostedOauth } from "../services/hostedOauth.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
 import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
+import { sealConnectResult } from "../test/connectResult.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
 import { integrationsRouter } from "./integrations.js";
+import { integrationsOauthRouter } from "./integrationsOauth.js";
 
 const issuer = "https://sign-in.example";
 const nativeFetch = globalThis.fetch;
@@ -32,6 +34,8 @@ before(async () => {
   await initTestDb();
   const app = express();
   app.use(express.json());
+  // As in the App: the return surface sits before the session and origin gate.
+  app.use("/api/integrations/oauth", integrationsOauthRouter);
   app.use(requireTrustedOrigin);
   app.use(async (req, _res, next) => {
     req.session = actingUserId ? { userId: actingUserId, sessionVersion: 0 } : null;
@@ -73,21 +77,24 @@ beforeEach(async () => {
   overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: true, gmailSignInUrl: issuer } });
   globalThis.fetch = async (input, init) => {
     if (!String(input).startsWith(issuer)) return nativeFetch(input, init);
-    if (String(input).endsWith("/status")) return Response.json({ version: 1, available: true });
+    if (String(input).endsWith("/status"))
+      return Response.json({
+        version: 2,
+        available: true,
+        scopes: [
+          "https://www.googleapis.com/auth/gmail.modify",
+          "https://www.googleapis.com/auth/gmail.settings.basic",
+        ],
+      });
     remoteCalls++;
     if (String(input).endsWith("/start")) {
       remoteStarts.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
     }
-    const value = String(input).endsWith("/start")
-      ? {
-          requestId: "request",
-          authorizeUrl: `${String(input).replace(/\/start$/, "/authorize")}?requestId=request`,
-          expiresAt: Date.now() + 600_000,
-        }
-      : { status: "pending" };
-    return new Response(JSON.stringify(value), {
-      status: 200,
-      headers: { "content-type": "application/json" },
+    if (!String(input).endsWith("/start")) throw new Error(`Unexpected request: ${String(input)}`);
+    return Response.json({
+      requestId: "request",
+      authorizeUrl: `${String(input).replace(/\/start$/, "/authorize")}?requestId=request`,
+      expiresAt: Date.now() + 600_000,
     });
   };
 });
@@ -152,10 +159,10 @@ test("even another company admin cannot redeem or cancel the initiating Member's
   assert.equal(remoteCalls, 0);
   actingUserId = owner.id;
   assert.deepEqual((await post("poll", attempt)).body, { status: "pending" });
-  assert.equal(remoteCalls, 1);
+  assert.equal(remoteCalls, 0, "waiting never contacts the service");
 });
 
-test("attempt schema rejects malformed input and cancelling prevents subsequent network polling", async () => {
+test("attempt schema rejects malformed input and cancelling ends the attempt", async () => {
   const attempt = await start();
   assert.equal((await post("poll", { token: attempt })).status, 400);
   assert.equal((await post("cancel", "bad")).status, 400);
@@ -229,4 +236,114 @@ test("start and reconnect retain the verified browser Origin through a trusted p
   } finally {
     testSecurity.trustedProxyHops = originalProxyHops;
   }
+});
+
+async function returnPost(body: unknown, headers: Record<string, string> = {}) {
+  const response = await nativeFetch(`${origin}/api/integrations/oauth/hosted/return`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+}
+
+function sealedReturn(started: Record<string, unknown>) {
+  return {
+    state: String(started.state),
+    result: sealConnectResult({
+      resultKey: String(started.resultKey),
+      state: String(started.state),
+      value: {
+        clientId: "shared-client",
+        accessToken: "access",
+        refreshToken: "refresh",
+        expiresAt: Date.now() + 3_600_000,
+        scope: [
+          "openid",
+          "https://www.googleapis.com/auth/gmail.modify",
+          "https://www.googleapis.com/auth/gmail.settings.basic",
+        ].join(" "),
+        email: "owner@gmail.com",
+        account: "owner@gmail.com",
+      },
+    }),
+  };
+}
+
+test("the return page reads the fragment in the browser, behind a strict policy", async () => {
+  const page = await nativeFetch(`${origin}/api/integrations/oauth/hosted/return`);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  assert.equal(page.headers.get("referrer-policy"), "no-referrer");
+  const csp = page.headers.get("content-security-policy") ?? "";
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  const scriptNonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
+  assert.ok(scriptNonce);
+  const html = await page.text();
+  assert.ok(html.includes(`<script nonce="${scriptNonce}">`));
+  assert.match(html, /history\.replaceState\(null,"",window\.location\.pathname\)/);
+  assert.match(html, /credentials:"same-origin"/);
+  assert.doesNotMatch(html, /innerHTML/);
+});
+
+test("the return page's post finishes the sign-in without a session, once", async () => {
+  await start();
+  const started = remoteStarts[0];
+  const installation = String(started.installationOrigin);
+  actingUserId = null;
+  const finished = await returnPost(sealedReturn(started), { origin: installation });
+  assert.equal(finished.status, 200);
+  assert.deepEqual(finished.body, { status: "complete" });
+  const replay = await returnPost(sealedReturn(started), { origin: installation });
+  assert.deepEqual(replay.body, {
+    status: "denied",
+    detail: "This sign-in expired or was already used. Start again.",
+  });
+  actingUserId = owner.id;
+  assert.deepEqual((await post("poll", started.state)).body, { status: "complete" });
+  const { AppDataSource } = await import("../db/datasource.js");
+  assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 1);
+});
+
+test("a return from anywhere but the installation's own page is refused untouched", async () => {
+  await start();
+  const started = remoteStarts[0];
+  const installation = String(started.installationOrigin);
+  const refusals: Array<Record<string, string>> = [
+    { origin: "https://attacker.example" },
+    {},
+    { origin: installation, "sec-fetch-site": "cross-site" },
+  ];
+  for (const headers of refusals) {
+    const refused = await returnPost(sealedReturn(started), headers);
+    assert.equal(refused.status, 403, JSON.stringify(headers));
+  }
+  for (const body of [
+    { state: started.state },
+    { state: "short", error: "access_denied" },
+    { state: started.state, error: "Not A Code" },
+    { state: started.state, result: "r", error: "access_denied" },
+    { ...sealedReturn(started), extra: true },
+  ]) {
+    assert.equal((await returnPost(body, { origin: installation })).status, 400);
+  }
+  // The genuine page still finishes it afterwards.
+  const genuine = await returnPost(sealedReturn(started), { origin: installation });
+  assert.deepEqual(genuine.body, { status: "complete" });
+});
+
+test("a cancelled sign-in reported by the service ends with this installation's words", async () => {
+  await start();
+  const started = remoteStarts[0];
+  const cancelled = await returnPost(
+    { state: started.state, error: "access_denied" },
+    { origin: String(started.installationOrigin) },
+  );
+  assert.deepEqual(cancelled.body, {
+    status: "denied",
+    detail: "Google sign-in was cancelled. Start again when ready.",
+  });
+  assert.deepEqual((await post("poll", started.state)).body, cancelled.body);
 });

@@ -135,17 +135,21 @@ never reaches them. Its operator guide is [`Connect/README.md`](./Connect/README
   An app registered at Admin → Integrations, or a client supplied on a
   Connection, always wins over Connect. The App no longer hosts sign-in for
   other installations; do not add those routes back to it.
-- **Its wire protocol is released.** Installations pin the path they signed in
-  through (`/api/connect/<provider>`, or Gmail's original `/api/google-sign-in`)
-  and renew there for the life of the Connection. Extend it compatibly — a new
-  optional field, a new provider — and keep `Connect/tests/legacy.test.ts`
-  green; never rename a path, cookie prefix or window-message name.
+- **It keeps no state.** A sign-in's context travels sealed with it (the
+  request id, then the provider's `state`), and the credential returns through
+  the browser to the installation's own page, encrypted to a one-time key only
+  that installation's server holds. Replicas share nothing but `CONNECT_SECRET`.
+  Do not add a database, a cache, or anything a later step must look up.
+- **Its wire protocol is versioned and released.** `status` reports the
+  version; an installation treats any other as "not offered here". Connections
+  renew on the path that issued them for their whole life — including Gmail's
+  original `/api/google-sign-in/refresh`. Extend a version compatibly (a new
+  optional field, a new provider) and keep `Connect/tests/compat.test.ts`
+  green; a breaking change is a new version that releases understand.
 - **Same stack, different container.** TypeScript, Express and zod as in the
   App. Configuration is environment variables read once by
   `Connect/src/config.ts`: it is a separate image an operator runs with
   `docker run`, and §5's "no env, AppSetting for everything" rule binds the App.
-  It has no TypeORM: its only persistent state is optional, ten-minute sign-in
-  handoffs in one Postgres table it creates idempotently, through `pg`.
 - **Provider names, endpoints and scopes come from code**, never a request.
   Adding a provider means an adapter in `Connect/src/providers/`, its entry in
   `hostedOauthApps.ts`, and tests on both sides.
@@ -616,9 +620,10 @@ in a Work session instead of leaving them stranded as local commits.
 - **Icons**: `lucide-react` only.
 - **Section pages are catalogued.** Section rails and the ⌘K palette's page
   search both read `client/lib/subpages.ts`. Add a new page there, with the
-  access it needs so the palette never offers it to someone who can't open it,
-  rather than as a hand-written rail link. `server/client/subpageRoutes.test.ts`
-  fails on a static route that is neither catalogued nor deliberately left out.
+  access it needs so neither the palette nor a rail (which passes its
+  `viewer`) offers it to someone who can't open it, rather than as a
+  hand-written rail link. `server/client/subpageRoutes.test.ts` fails on a
+  static route that is neither catalogued nor deliberately left out.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run

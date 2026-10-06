@@ -1,7 +1,8 @@
 {{- /*
 Genosyn Connect, the hosted sign-in service (connect.enabled). A separate
 image from the App with its own Service; ingress.connect routes the sign-in
-hostname here. It mounts no volume and runs with a read-only filesystem.
+hostname here. It keeps no state: it mounts no volume, runs with a read-only
+filesystem, and its replicas share only the key in connect-key.yaml.
 */ -}}
 {{- $connect := include "genosyn.connect" . | fromYaml }}
 {{- if $connect.enabled }}
@@ -72,8 +73,11 @@ spec:
             {{- with $connect.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          # Provider credentials and, for several replicas, the shared store.
+          # The chart's shared key, then the provider credentials. A key the
+          # operator's own Secret also sets is taken from that Secret.
           envFrom:
+            - secretRef:
+                name: {{ include "genosyn.connectKeyName" . | quote }}
             - secretRef:
                 name: {{ $connect.existingSecret | quote }}
           # The image's `node` user, by number so the kubelet can verify it.
@@ -85,7 +89,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
-          # Ready only while its sign-in store answers.
+          # Connect waits on nothing, so ready is the same as alive.
           readinessProbe:
             httpGet:
               path: /readyz

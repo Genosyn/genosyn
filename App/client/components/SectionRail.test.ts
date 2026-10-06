@@ -7,12 +7,13 @@ import { Route, Routes, StaticRouter } from "react-router-dom";
 import type { Company, Me } from "../lib/api.js";
 import { productIntegrationScope } from "../lib/productIntegrations.js";
 import { SECTION_BY_KEY, type SectionKey } from "../lib/sections.js";
-import { SECTION_SUBPAGES, railSubpages } from "../lib/subpages.js";
+import { SECTION_SUBPAGES, type SubpageViewer, railSubpages } from "../lib/subpages.js";
 import AccountLayout from "../pages/AccountLayout.js";
 import CustomersLayout from "../pages/CustomersLayout.js";
 import FinanceLayout from "../pages/FinanceLayout.js";
 import MarketingLayout from "../pages/MarketingLayout.js";
 import MeetingsLayout from "../pages/MeetingsLayout.js";
+import ResourcesLayout from "../pages/ResourcesLayout.js";
 import RevenueLayout from "../pages/RevenueLayout.js";
 import SettingsLayout from "../pages/SettingsLayout.js";
 import SignatureLayout from "../pages/SignatureLayout.js";
@@ -32,6 +33,22 @@ const company = {
   financeAccess: "full",
   requireTwoFactor: false,
 } satisfies Company;
+const admin = { ...company, role: "admin" } satisfies Company;
+const member = { ...company, role: "member" } satisfies Company;
+const memberReadOnly = { ...member, financeAccess: "read" } satisfies Company;
+const memberNoFinance = { ...member, financeAccess: "none" } satisfies Company;
+/**
+ * Owners and admins whose membership row says None. The server resolves them
+ * to Full before the client sees them; the client holds to that regardless.
+ */
+const ADMINS_WITH_A_NONE_ROW = [
+  { ...company, financeAccess: "none" },
+  { ...admin, financeAccess: "none" },
+] satisfies Company[];
+
+/** The Settings rail's admin-only pages: each one's read answers a Member 403. */
+const ADMIN_ONLY_SETTINGS = ["Usage", "Single sign-on", "Audit log"];
+
 const me = {
   id: "me",
   email: "me@example.com",
@@ -50,6 +67,30 @@ function renderAt(at: string, routePath: string, element: React.ReactElement): s
       StaticRouter,
       { location: `/c/acme/${at}` },
       h(Routes, null, h(Route, { path: `/c/:companySlug/${routePath}`, element })),
+    ),
+  );
+}
+
+/** What a page mounted beneath a layout renders — its `<Outlet>` content. */
+const PAGE_TEXT = "The page behind the rail";
+
+/** `renderAt`, with a page mounted under `layout` at every path in `section`. */
+function renderPageAt(at: string, section: string, layout: React.ReactElement): string {
+  const page = h("p", null, PAGE_TEXT);
+  return renderToStaticMarkup(
+    h(
+      StaticRouter,
+      { location: `/c/acme/${at}` },
+      h(
+        Routes,
+        null,
+        h(
+          Route,
+          { path: `/c/:companySlug/${section}`, element: layout },
+          h(Route, { index: true, element: page }),
+          h(Route, { path: "*", element: page }),
+        ),
+      ),
     ),
   );
 }
@@ -199,23 +240,112 @@ describe("SectionRailLinks", () => {
     );
     assert.equal(html, "");
   });
+
+  test("draws owners' and admins' rails exactly as it does without a viewer", () => {
+    for (const section of sections) {
+      const render = (viewer?: SubpageViewer) =>
+        renderAt(
+          section,
+          `${section}/*`,
+          h(SectionRailLinks, { section, companySlug: "acme", viewer }),
+        );
+      const everything = render();
+      for (const viewer of [company, admin, ...ADMINS_WITH_A_NONE_ROW]) {
+        assert.equal(
+          render(viewer),
+          everything,
+          `${section}: ${viewer.role}, ${viewer.financeAccess}`,
+        );
+      }
+    }
+  });
+
+  test("leaves the admin-only Settings pages out for a Member, keeping the rest in order", () => {
+    const everything = expectedLinks("settings");
+    for (const text of ADMIN_ONLY_SETTINGS) {
+      assert.ok(
+        everything.some((l) => l.text === text),
+        `the Settings rail lists ${text}`,
+      );
+    }
+    for (const viewer of [member, memberReadOnly, memberNoFinance]) {
+      const html = renderAt(
+        "settings/members",
+        "settings/*",
+        h(SectionRailLinks, { section: "settings", companySlug: "acme", viewer }),
+      );
+      assert.deepEqual(
+        links(html).map(({ href, text }) => ({ href, text })),
+        everything.filter((l) => !ADMIN_ONLY_SETTINGS.includes(l.text)),
+        viewer.financeAccess,
+      );
+      // The group keeps its heading, and the opening spacing, while a link remains.
+      assert.deepEqual(headings(html), [{ text: "Company", spacing: "pt-2" }]);
+      assert.deepEqual(
+        links(html).filter((l) => l.current).map((l) => l.text),
+        ["Members"],
+      );
+    }
+  });
+
+  test("follows Finance access, dropping each heading with the last of its links", () => {
+    const finance = (viewer?: SubpageViewer) =>
+      renderAt(
+        "finance",
+        "finance/*",
+        h(SectionRailLinks, { section: "finance", companySlug: "acme", viewer }),
+      );
+    // Every Finance page needs at least Read, so None leaves no links, and no
+    // "Ledger" or "Catalog" heading standing over an empty group.
+    assert.equal(finance(memberNoFinance), "");
+    // Read opens every rail page: the create forms that need Full aren't on it.
+    assert.equal(finance(memberReadOnly), finance());
+    assert.equal(finance(member), finance());
+
+    // The customer list is served by the finance routes; Contracts is not.
+    const customers = renderAt(
+      "customers/contracts",
+      "customers/*",
+      h(SectionRailLinks, { section: "customers", companySlug: "acme", viewer: memberNoFinance }),
+    );
+    assert.deepEqual(
+      links(customers).map((l) => l.text),
+      ["Contracts"],
+    );
+  });
 });
 
 describe("section layouts draw their rails from the catalogue", () => {
-  const LAYOUTS: [SectionKey, string, React.ReactElement][] = [
-    ["finance", "finance", h(FinanceLayout, { company })],
-    ["revenue", "revenue", h(RevenueLayout, { company })],
-    ["marketing", "marketing", h(MarketingLayout, { company })],
-    ["meetings", "meetings", h(MeetingsLayout, { company })],
-    ["customers", "customers", h(CustomersLayout, { company })],
-    ["signatures", "signatures", h(SignatureLayout, { company })],
-    ["tldrs", "tldrs", h(TldrsLayout, { company })],
-    ["vault", "vault", h(VaultLayout, { company })],
+  type Layout = [SectionKey, string, (company: Company) => React.ReactElement];
+  const LAYOUTS: Layout[] = [
+    ["finance", "finance", (c) => h(FinanceLayout, { company: c })],
+    ["revenue", "revenue", (c) => h(RevenueLayout, { company: c })],
+    ["marketing", "marketing", (c) => h(MarketingLayout, { company: c })],
+    ["meetings", "meetings", (c) => h(MeetingsLayout, { company: c })],
+    ["customers", "customers", (c) => h(CustomersLayout, { company: c })],
+    ["resources", "resources", (c) => h(ResourcesLayout, { company: c })],
+    ["signatures", "signatures", (c) => h(SignatureLayout, { company: c })],
+    ["tldrs", "tldrs", (c) => h(TldrsLayout, { company: c })],
+    ["vault", "vault", (c) => h(VaultLayout, { company: c })],
   ];
+  const SETTINGS_AND_ACCOUNT: Layout[] = [
+    [
+      "settings",
+      "settings/members",
+      (c) => h(SettingsLayout, { company: c, me, onCompaniesChanged: () => {} }),
+    ],
+    [
+      "account",
+      "account/security",
+      (c) => h(AccountLayout, { company: c, me, onCompaniesChanged: () => {} }),
+    ],
+  ];
+  const routeFor = (section: SectionKey) => `${SECTION_BY_KEY[section].path.slice(1)}/*`;
+  const hrefsAndText = (html: string) => links(html).map(({ href, text }) => ({ href, text }));
 
   test("renders exactly the catalogue's rail, plus the product Integrations link", () => {
-    for (const [section, at, element] of LAYOUTS) {
-      const rail = links(aside(renderAt(at, `${SECTION_BY_KEY[section].path.slice(1)}/*`, element)));
+    for (const [section, at, layout] of LAYOUTS) {
+      const rail = links(aside(renderAt(at, routeFor(section), layout(company))));
       const expected = expectedLinks(section);
       if (productIntegrationScope(section)) {
         expected.push({ href: `/c/acme/${section}/integrations`, text: "Integrations" });
@@ -261,5 +391,81 @@ describe("section layouts draw their rails from the catalogue", () => {
     );
     assert.equal(/<aside\b/.test(html), false);
     assert.equal(html.includes("/vault/integrations"), false);
+  });
+
+  test("draws the same layout for every owner and admin, whatever their finance row says", () => {
+    for (const [section, at, layout] of [...LAYOUTS, ...SETTINGS_AND_ACCOUNT]) {
+      const owners = renderAt(at, routeFor(section), layout(company));
+      for (const c of [admin, ...ADMINS_WITH_A_NONE_ROW]) {
+        assert.equal(
+          renderAt(at, routeFor(section), layout(c)),
+          owners,
+          `${section}: ${c.role}, ${c.financeAccess}`,
+        );
+      }
+    }
+  });
+
+  test("gives a Member a Settings rail without the admin-only pages", () => {
+    const rail = (c: Company) =>
+      hrefsAndText(
+        aside(
+          renderAt(
+            "settings/members",
+            "settings/*",
+            h(SettingsLayout, { company: c, me, onCompaniesChanged: () => {} }),
+          ),
+        ),
+      );
+    assert.deepEqual(
+      rail(member),
+      expectedLinks("settings").filter((l) => !ADMIN_ONLY_SETTINGS.includes(l.text)),
+    );
+    assert.deepEqual(rail(admin), expectedLinks("settings"));
+  });
+
+  test("closes Finance to a Member without finance access, wherever they land", () => {
+    for (const at of ["finance", "finance/invoices/inv-7", "finance/settings"]) {
+      const html = renderPageAt(at, "finance", h(FinanceLayout, { company: memberNoFinance }));
+      // No Finance links: only the product Integrations page, which reads
+      // Connections and so opens for any Member.
+      assert.deepEqual(
+        hrefsAndText(aside(html)),
+        [{ href: "/c/acme/finance/integrations", text: "Integrations" }],
+        at,
+      );
+      // The page, whose every read would answer 403, gives way to one note.
+      assert.equal(html.includes(PAGE_TEXT), false, at);
+      assert.ok(decode(html).includes("You don't have access to Finance"), at);
+      assert.ok(html.includes("Settings → Members"), at);
+    }
+  });
+
+  test("keeps Finance, rail and pages, open to anyone with Read access or more", () => {
+    const rail = [
+      ...expectedLinks("finance"),
+      { href: "/c/acme/finance/integrations", text: "Integrations" },
+    ];
+    for (const c of [company, admin, member, memberReadOnly]) {
+      for (const at of ["finance", "finance/invoices/inv-7"]) {
+        const html = renderPageAt(at, "finance", h(FinanceLayout, { company: c }));
+        const who = `${c.role}, ${c.financeAccess} at ${at}`;
+        assert.deepEqual(hrefsAndText(aside(html)), rail, who);
+        assert.ok(html.includes(PAGE_TEXT), who);
+        assert.equal(decode(html).includes("have access to Finance"), false, who);
+      }
+    }
+  });
+
+  test("gives a Member without finance access a Customers rail of Contracts alone", () => {
+    const html = renderAt(
+      "customers/contracts",
+      "customers/*",
+      h(CustomersLayout, { company: memberNoFinance }),
+    );
+    assert.deepEqual(hrefsAndText(aside(html)), [
+      { href: "/c/acme/customers/contracts", text: "Contracts" },
+      { href: "/c/acme/customers/integrations", text: "Integrations" },
+    ]);
   });
 });

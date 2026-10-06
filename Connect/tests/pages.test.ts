@@ -134,23 +134,19 @@ test("a consent page whose opener never answers warns after a moment", () => {
   assert.equal(page.elements.continue.disabled, true);
 });
 
-test("message and landing pages only script when asked to close a finished popup", () => {
-  const plain = messagePage({ title: "T", detail: "<d>", tone: "error", styleNonce: "s", links });
-  assert.doesNotMatch(plain, /<script/);
-  assert.match(plain, /class="tone-error"/);
-  assert.match(plain, /&lt;d&gt;/);
-  const closing = messagePage({
-    title: "Done",
+test("message and landing pages never script", () => {
+  const error = messagePage({ title: "T", detail: "<d>", tone: "error", styleNonce: "s", links });
+  assert.doesNotMatch(error, /<script/);
+  assert.match(error, /class="tone-error"/);
+  assert.match(error, /&lt;d&gt;/);
+  const info = messagePage({
+    title: "Page not found",
     detail: "d",
-    tone: "ok",
+    tone: "info",
     styleNonce: "s",
     links,
-    close: { scriptNonce: "c" },
   });
-  assert.match(
-    closing,
-    /<script nonce="c">setTimeout\(\(\)=>\{try\{window\.close\(\)\}catch\(e\)\{\}\},1500\);<\/script>/,
-  );
+  assert.doesNotMatch(info, /<script|class="tone-/);
   const landing = landingPage({
     providers: [
       { name: "Google", products: ["Gmail"] },
@@ -161,6 +157,7 @@ test("message and landing pages only script when asked to close a finished popup
   });
   assert.match(landing, /<strong>Google<\/strong><span>Gmail<\/span>/);
   assert.doesNotMatch(landing, /Unconfigured/);
+  assert.doesNotMatch(landing, /<script/);
   assert.match(
     landingPage({ providers: [], styleNonce: "s", links }),
     /No Integrations are available here yet/,

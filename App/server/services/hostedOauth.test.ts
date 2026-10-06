@@ -9,9 +9,12 @@ import { ensureFreshGoogleToken } from "../integrations/providers/google/auth.js
 import type { IntegrationRuntimeContext } from "../integrations/types.js";
 import { listCatalog } from "../integrations/index.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { sealConnectResult } from "../test/connectResult.js";
 import { createAuthFlowState, readAuthFlowState } from "./authFlowState.js";
 import {
   cancelHostedOauth,
+  completeHostedReturn,
+  HostedReturnOriginError,
   hostedSignInAvailability,
   hostedSignInOffers,
   pollHostedOauth,
@@ -59,9 +62,8 @@ const credential = (scope = [...IDENTITY, ...GMAIL].join(" ")) => ({
 const originalFetch = globalThis.fetch;
 type Call = { url: string; body: Record<string, unknown>; init?: RequestInit };
 let calls: Call[] = [];
-let remoteResult: unknown;
-/** What the fake Genosyn Connect advertises; null imitates a service from before scopes. */
-let advertised: string[] | null;
+/** What the fake Genosyn Connect advertises. */
+let advertised: string[];
 
 function reply(value: unknown): Response {
   return new Response(JSON.stringify(value), {
@@ -69,14 +71,38 @@ function reply(value: unknown): Response {
     headers: { "content-type": "application/json" },
   });
 }
-const startCall = () => calls.find((call) => call.url.endsWith("/start"));
+const starts = () => calls.filter((call) => call.url.endsWith("/start"));
+const startCall = () => starts().at(-1);
+
+/**
+ * The browser arriving back from Genosyn Connect at this installation's
+ * return page, which posts the fragment to the server. By default it carries
+ * a result sealed the way the service seals it, for the latest sign-in.
+ */
+async function returnWith(
+  outcome: { credential: unknown } | { error: string },
+  started: Record<string, unknown> = startCall()!.body,
+) {
+  return completeHostedReturn({
+    state: String(started.state),
+    ...("credential" in outcome
+      ? {
+          result: sealConnectResult({
+            resultKey: String(started.resultKey),
+            state: String(started.state),
+            value: outcome.credential,
+          }),
+        }
+      : { error: outcome.error }),
+    origin: String(started.installationOrigin),
+  });
+}
 
 before(initTestDb);
 after(closeTestDb);
 beforeEach(async () => {
   await resetTestDb();
   calls = [];
-  remoteResult = { status: "pending" };
   advertised = [...GMAIL, CALENDAR, TASKS, ANALYTICS, ADWORDS];
   resetHostedOauthAvailabilityForTests();
   overrideRuntimeSettingsForTests({ oauth: { gmailSignInEnabled: true, gmailSignInUrl: issuer } });
@@ -88,14 +114,13 @@ beforeEach(async () => {
       init,
     });
     if (url === `${issuer}/api/connect/google/status`)
-      return reply({ version: 1, available: true, ...(advertised ? { scopes: advertised } : {}) });
+      return reply({ version: 2, available: true, scopes: advertised });
     if (url === `${issuer}/api/connect/google/start`)
       return reply({
-        requestId: "remote-request",
-        authorizeUrl: `${issuer}/api/connect/google/authorize?requestId=remote-request`,
+        requestId: "v1.sealed-request",
+        authorizeUrl: `${issuer}/api/connect/google/authorize?requestId=v1.sealed-request`,
         expiresAt: Date.now() + 600_000,
       });
-    if (url === `${issuer}/api/connect/google/poll`) return reply(remoteResult);
     if (
       url === `${issuer}/api/google-sign-in/refresh` ||
       url === `${issuer}/api/connect/google/refresh`
@@ -153,9 +178,13 @@ test("each way Gmail sign-in can be unavailable tells the person what to ask for
   );
 
   for (const response of [
-    { version: 1, available: false },
+    // A service still on protocol 1 could not finish a sign-in started here.
+    { version: 1, available: true, scopes: GMAIL },
+    { version: 1, available: true },
+    { version: 2, available: false, scopes: [] },
     { version: 2, available: true },
-    { version: 1, available: true, scopes: [CALENDAR] },
+    { version: 2, available: true, scopes: [CALENDAR] },
+    { version: 3, available: true, scopes: GMAIL },
   ]) {
     resetHostedOauthAvailabilityForTests();
     globalThis.fetch = async () => reply(response);
@@ -196,64 +225,79 @@ test("the catalog marks every Integration Genosyn Connect can sign in to, and on
   );
   assert.equal(none.find((entry) => entry.provider === "google")?.oauth?.instanceApp, true);
 
-  // A service from before scopes were advertised offers Gmail alone.
-  advertised = null;
+  // A service still on protocol 1 offers nothing an installation could finish.
   resetHostedOauthAvailabilityForTests();
-  const legacy = listCatalog({ hostedSignIn: await hostedSignInOffers(new Set(), ["google"]) });
-  assert.deepEqual(
-    legacy
-      .filter((entry) => entry.oauth?.hostedSignIn)
-      .map((entry) => [entry.provider, entry.oauth!.hostedScopeGroups]),
-    [["google", ["mail"]]],
+  globalThis.fetch = async () => reply({ version: 1, available: true, scopes: GMAIL });
+  const older = listCatalog({ hostedSignIn: await hostedSignInOffers(new Set(), ["google"]) });
+  assert.equal(
+    older.some((entry) => entry.oauth?.hostedSignIn),
+    false,
   );
 });
 
-test("a fresh Gmail sign-in names its scopes and keeps the verifier encrypted and server-side", async () => {
+test("a fresh Gmail sign-in sends a one-time key and its own return page, and keeps the key server-side", async () => {
   const result = await startOauth(base);
   assert.ok(result.hostedAttempt);
-  const state = await readAuthFlowState<{
-    codeVerifier: string;
-    tokenBrokerUrl: string;
-    tokenBrokerPath: string;
-  }>("hosted-google-consumer", result.hostedAttempt);
-  assert.ok(state);
-  const started = startCall()!;
-  assert.deepEqual(started.body.scopes, [...IDENTITY, ...GMAIL]);
-  assert.equal(
-    started.body.codeChallenge,
-    crypto.createHash("sha256").update(state.payload.codeVerifier).digest("base64url"),
-  );
   assert.ok(result.hostedBrowserProof);
+  const started = startCall()!.body;
+  assert.deepEqual(Object.keys(started).sort(), [
+    "browserChallenge",
+    "installationOrigin",
+    "resultKey",
+    "returnUrl",
+    "scopes",
+    "state",
+  ]);
+  assert.deepEqual(started.scopes, [...IDENTITY, ...GMAIL]);
+  assert.equal(started.state, result.hostedAttempt, "the service echoes the attempt back");
   assert.equal(
-    started.body.browserChallenge,
+    started.returnUrl,
+    `${String(started.installationOrigin)}/api/integrations/oauth/hosted/return`,
+  );
+  assert.equal(
+    started.browserChallenge,
     crypto.createHash("sha256").update(result.hostedBrowserProof).digest("base64url"),
   );
-  assert.notEqual(result.hostedBrowserProof, state.payload.codeVerifier);
+  assert.match(String(started.resultKey), /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(JSON.stringify(result).includes(String(started.resultKey)), false);
   assert.equal(JSON.stringify(calls).includes(result.hostedBrowserProof), false);
+
+  const state = await readAuthFlowState<{
+    resultKey: string;
+    tokenBrokerUrl: string;
+    tokenBrokerPath: string;
+    installationOrigin: string;
+  }>("hosted-oauth-attempt", result.hostedAttempt);
+  assert.ok(state);
+  assert.equal(state.payload.resultKey, started.resultKey);
+  assert.equal(state.payload.installationOrigin, started.installationOrigin);
   assert.equal(state.payload.tokenBrokerUrl, issuer);
   assert.equal(state.payload.tokenBrokerPath, "/api/connect/google");
-  assert.equal(JSON.stringify(result).includes(state.payload.codeVerifier), false);
-  assert.equal(JSON.stringify(calls).includes(state.payload.codeVerifier), false);
   const rows = await AppDataSource.getRepository(AuthFlowState).find();
-  assert.equal(JSON.stringify(rows).includes(state.payload.codeVerifier), false);
+  assert.equal(JSON.stringify(rows).includes(String(started.resultKey)), false);
   assert.equal(JSON.stringify(rows).includes(result.hostedAttempt), false);
+
+  // Waiting for the browser never contacts the service.
+  calls = [];
+  assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt }), {
+    status: "pending",
+  });
+  assert.equal(calls.length, 0);
 });
 
-test("a service from before scopes were negotiable is asked for Gmail without naming scopes", async () => {
-  advertised = null;
-  await startOauth(base);
-  assert.equal("scopes" in startCall()!.body, false);
-  assert.deepEqual(Object.keys(startCall()!.body).sort(), [
-    "browserChallenge",
-    "codeChallenge",
-    "installationOrigin",
-  ]);
-  calls = [];
-  await assert.rejects(
-    startOauth({ ...base, scopeGroups: ["calendar"] }),
-    /does not offer Calendar/,
+test("a service still on protocol 1 is never asked to start a sign-in", async () => {
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), body: {}, init });
+    return String(input).endsWith("/status")
+      ? reply({ version: 1, available: true, scopes: GMAIL })
+      : reply({ requestId: "r", authorizeUrl: `${issuer}/x`, expiresAt: Date.now() + 1 });
+  };
+  await assert.rejects(startOauth(base), /Genosyn Connect is unavailable/);
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [`${issuer}/api/connect/google/status`],
   );
-  assert.equal(startCall(), undefined);
+  assert.equal(await AppDataSource.getRepository(AuthFlowState).count(), 0);
 });
 
 test("an app of the installation's own always wins over Genosyn Connect", async () => {
@@ -296,14 +340,14 @@ test("wrong Member or company cannot poll or cancel another sign-in or consume i
   );
   assert.equal(calls.length, 2);
   assert.deepEqual(await pollHostedOauth({ ...base, attempt }), { status: "pending" });
-  assert.ok(await readAuthFlowState("hosted-google-consumer", attempt));
+  assert.ok(await readAuthFlowState("hosted-oauth-attempt", attempt));
 });
 
-test("one completed poll persists local credentials with no shared secret and cannot replay", async () => {
+test("a returned sign-in saves local credentials with no shared secret, reports once, and cannot replay", async () => {
   const result = await startOauth(base);
-  remoteResult = { status: "complete", credential: credential() };
   const attempt = result.hostedAttempt!;
-  assert.deepEqual(await pollHostedOauth({ ...base, attempt }), { status: "complete" });
+  const started = startCall()!.body;
+  assert.deepEqual(await returnWith({ credential: credential() }), { status: "complete" });
   const [connection] = await AppDataSource.getRepository(IntegrationConnection).find();
   assert.ok(connection);
   assert.equal(connection.accountHint, "member@gmail.com");
@@ -319,17 +363,25 @@ test("one completed poll persists local credentials with no shared secret and ca
   assert.equal(serialized.hostedSignIn, true);
   assert.equal(JSON.stringify(serialized).includes("google-refresh-secret"), false);
   assert.equal(JSON.stringify(serialized).includes(issuer), false);
+
+  // The same fragment again, before and after the opener hears the outcome.
+  assert.deepEqual(await returnWith({ credential: credential() }, started), {
+    status: "denied",
+    detail: "This sign-in expired or was already used. Start again.",
+  });
+  assert.deepEqual(await pollHostedOauth({ ...base, attempt }), { status: "complete" });
   assert.equal((await pollHostedOauth({ ...base, attempt })).status, "denied");
+  assert.equal((await returnWith({ credential: credential() }, started)).status, "denied");
   assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 1);
 });
 
 test("Calendar connects through Genosyn Connect like Gmail does", async () => {
   const result = await startOauth({ ...base, label: "Calendar", scopeGroups: ["calendar"] });
   assert.deepEqual(startCall()!.body.scopes, [...IDENTITY, CALENDAR]);
-  remoteResult = {
-    status: "complete",
-    credential: credential([...IDENTITY, CALENDAR].join(" ")),
-  };
+  assert.deepEqual(
+    await returnWith({ credential: credential([...IDENTITY, CALENDAR].join(" ")) }),
+    { status: "complete" },
+  );
   assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt! }), {
     status: "complete",
   });
@@ -349,7 +401,10 @@ test("other Google Integrations build their own configuration, extra fields incl
     scopeGroups: ["analytics"],
   });
   assert.deepEqual(startCall()!.body.scopes, [...IDENTITY, ANALYTICS]);
-  remoteResult = { status: "complete", credential: credential([...IDENTITY, ANALYTICS].join(" ")) };
+  assert.equal(
+    (await returnWith({ credential: credential([...IDENTITY, ANALYTICS].join(" ")) })).status,
+    "complete",
+  );
   assert.equal(
     (await pollHostedOauth({ ...base, attempt: analytics.hostedAttempt! })).status,
     "complete",
@@ -371,7 +426,10 @@ test("other Google Integrations build their own configuration, extra fields incl
     scopeGroups: ["ads"],
     extraFields: { developerToken: " dev-token ", loginCustomerId: "123-456-7890" },
   });
-  remoteResult = { status: "complete", credential: credential([...IDENTITY, ADWORDS].join(" ")) };
+  assert.equal(
+    (await returnWith({ credential: credential([...IDENTITY, ADWORDS].join(" ")) })).status,
+    "complete",
+  );
   assert.equal(
     (await pollHostedOauth({ ...base, attempt: ads.hostedAttempt! })).status,
     "complete",
@@ -431,8 +489,9 @@ test("a grant that leaves out what was asked for is refused, Gmail all-or-nothin
       label: item.groups.join("+"),
       scopeGroups: item.groups,
     });
-    remoteResult = { status: "complete", credential: item.granted };
+    const returned = await returnWith({ credential: item.granted });
     const polled = await pollHostedOauth({ ...base, attempt: result.hostedAttempt! });
+    assert.deepEqual(polled, returned, "the opener hears what the return page heard");
     if (item.detail) {
       assert.equal(polled.status, "denied", item.groups.join(","));
       assert.match(polled.detail ?? "", item.detail);
@@ -443,51 +502,145 @@ test("a grant that leaves out what was asked for is refused, Gmail all-or-nothin
   assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 1);
 });
 
-test("cancelling an in-flight poll prevents a late result from creating a Connection", async () => {
+test("a sign-in the Member cancelled cannot be finished by a late return", async () => {
   const result = await startOauth(base);
   const attempt = result.hostedAttempt!;
-  let release!: (response: Response) => void;
-  let contacted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    contacted = resolve;
-  });
-  globalThis.fetch = async () => {
-    contacted();
-    return new Promise<Response>((resolve) => {
-      release = resolve;
-    });
-  };
-  const polling = pollHostedOauth({ ...base, attempt });
-  await started;
-  assert.equal((await pollHostedOauth({ ...base, attempt })).status, "pending");
   await cancelHostedOauth({ ...base, attempt });
   await cancelHostedOauth({ ...base, attempt });
-  release(reply({ status: "complete", credential: credential() }));
-  assert.equal((await polling).status, "denied");
+  assert.equal((await returnWith({ credential: credential() })).status, "denied");
+  assert.equal((await pollHostedOauth({ ...base, attempt })).status, "denied");
   assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
 });
 
-test("malformed remote completion never persists tokens and remote details never reach the Member", async () => {
-  const result = await startOauth(base);
-  remoteResult = { status: "complete", credential: { ...credential(), expiresAt: "wrong-type" } };
-  await assert.rejects(
-    pollHostedOauth({ ...base, attempt: result.hostedAttempt! }),
-    (error: Error) => {
-      assert.equal(error.message.includes("google-refresh-secret"), false);
-      assert.match(error.message, /Genosyn Connect is unavailable/);
-      return true;
-    },
+test("only the page that started a sign-in, holding its result, can finish it", async () => {
+  const first = await startOauth(base);
+  const firstStart = startCall()!.body;
+  const second = await startOauth({ ...base, label: "Second" });
+  const secondStart = startCall()!.body;
+  const sealed = sealConnectResult({
+    resultKey: String(firstStart.resultKey),
+    state: String(firstStart.state),
+    value: credential(),
+  });
+  for (const origin of [
+    "https://evil.example",
+    undefined,
+    `${String(firstStart.installationOrigin)}/`,
+  ]) {
+    await assert.rejects(
+      completeHostedReturn({ state: String(firstStart.state), result: sealed, origin }),
+      HostedReturnOriginError,
+    );
+  }
+  // Those changed nothing: the genuine page still finishes it.
+  assert.equal(
+    (await pollHostedOauth({ ...base, attempt: first.hostedAttempt! })).status,
+    "pending",
   );
-  remoteResult = { status: "denied", detail: "secret-token-from-untrusted-broker" };
-  const denied = await pollHostedOauth({ ...base, attempt: result.hostedAttempt! });
-  assert.equal(denied.status, "denied");
-  assert.equal(JSON.stringify(denied).includes("secret-token"), false);
+
+  // A result for one sign-in does not open another, nor does one sealed to another key.
+  const crossed = await completeHostedReturn({
+    state: String(secondStart.state),
+    result: sealed,
+    origin: String(secondStart.installationOrigin),
+  });
+  assert.deepEqual(crossed, {
+    status: "denied",
+    detail: "Google sign-in could not be verified. Start again.",
+  });
+  assert.deepEqual(await pollHostedOauth({ ...base, attempt: second.hostedAttempt! }), crossed);
+  const forged = sealConnectResult({
+    resultKey: crypto.randomBytes(32).toString("base64url"),
+    state: String(firstStart.state),
+    value: credential(),
+  });
+  const wrongKey = await completeHostedReturn({
+    state: String(firstStart.state),
+    result: forged,
+    origin: String(firstStart.installationOrigin),
+  });
+  assert.equal(wrongKey.status, "denied");
   assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
+});
+
+test("a result that is not a usable credential never persists tokens or echoes what arrived", async () => {
+  for (const value of [
+    { ...credential(), expiresAt: "wrong-type" },
+    { ...credential(), clientId: "" },
+    "secret-token-from-untrusted-service",
+    null,
+  ]) {
+    const result = await startOauth(base);
+    const outcome = await returnWith({ credential: value });
+    assert.deepEqual(outcome, {
+      status: "denied",
+      detail: "Google sign-in could not be verified. Start again.",
+    });
+    assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt! }), outcome);
+  }
+  assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
+});
+
+test("why the service ended a sign-in is told in this installation's own words", async () => {
+  const cases: Array<[string, RegExp]> = [
+    ["access_denied", /^Google sign-in was cancelled\. Start again when ready\.$/],
+    ["account_unverified", /did not confirm a verified email address.*another account/],
+    ["offline_access_missing", /did not grant lasting access/],
+    ["registration_changed", /sign-in settings changed while you were signing in/],
+    ["exchange_failed", /^Google sign-in could not be completed\. Start again\.$/],
+    ["something_new", /^Google sign-in could not be completed\. Start again\.$/],
+  ];
+  for (const [code, detail] of cases) {
+    const result = await startOauth(base);
+    const outcome = await returnWith({ error: code });
+    assert.equal(outcome.status, "denied", code);
+    assert.match(outcome.detail ?? "", detail, code);
+    assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt! }), outcome);
+  }
+  assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
+});
+
+test("a return whose completion was interrupted is abandoned, never guessed at", async () => {
+  const result = await startOauth(base);
+  const attempt = result.hostedAttempt!;
+  const snapshot = await readAuthFlowState<Record<string, unknown>>(
+    "hosted-oauth-attempt",
+    attempt,
+  );
+  const { compareAndSetAuthFlowState } = await import("./authFlowState.js");
+  // A process claimed the return, then stopped before recording an outcome.
+  assert.ok(
+    await compareAndSetAuthFlowState("hosted-oauth-attempt", attempt, snapshot!, {
+      ...snapshot!.payload,
+      returnedAt: Date.now() - 3 * 60_000,
+    }),
+  );
+  assert.equal((await returnWith({ credential: credential() })).status, "denied");
+  assert.deepEqual(await pollHostedOauth({ ...base, attempt }), {
+    status: "denied",
+    detail: "This sign-in expired or was already used. Start again.",
+  });
+  assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
+
+  // While one is still being completed, the opener keeps waiting.
+  const fresh = await startOauth(base);
+  const current = await readAuthFlowState<Record<string, unknown>>(
+    "hosted-oauth-attempt",
+    fresh.hostedAttempt!,
+  );
+  await compareAndSetAuthFlowState("hosted-oauth-attempt", fresh.hostedAttempt!, current!, {
+    ...current!.payload,
+    returnedAt: Date.now(),
+  });
+  assert.equal(
+    (await pollHostedOauth({ ...base, attempt: fresh.hostedAttempt! })).status,
+    "pending",
+  );
 });
 
 test("a failed mailbox link reports failure and removes its newly created Connection", async () => {
   const result = await startOauth({ ...base, linkMailbox: true });
-  remoteResult = { status: "complete", credential: credential() };
+  assert.equal((await returnWith({ credential: credential() })).status, "denied");
   const denied = await pollHostedOauth({ ...base, attempt: result.hostedAttempt! });
   assert.equal(denied.status, "denied");
   assert.match(denied.detail ?? "", /mailbox could not be connected/);
@@ -512,7 +665,7 @@ test("hosted consent creates a real Gmail mailbox and starts its first successfu
     throw new Error(`Unexpected Gmail fixture path: ${url.pathname}`);
   };
   const result = await startOauth({ ...base, linkMailbox: true });
-  remoteResult = { status: "complete", credential: credential() };
+  assert.deepEqual(await returnWith({ credential: credential() }), { status: "complete" });
   assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt! }), {
     status: "complete",
   });
@@ -579,10 +732,10 @@ test("hosted reconnect pins its issuer and protects an existing mailbox's identi
     calls.some((call) => call.url.startsWith("https://changed.example")),
     false,
   );
-  remoteResult = {
-    status: "complete",
-    credential: { ...credential(), email: "different@gmail.com" },
-  };
+  assert.equal(
+    (await returnWith({ credential: { ...credential(), email: "different@gmail.com" } })).status,
+    "denied",
+  );
   assert.equal(
     (await pollHostedOauth({ ...base, attempt: result.hostedAttempt! })).status,
     "denied",
@@ -602,10 +755,10 @@ test("a hosted Connection can widen to other offered products on reconnect, keep
     scopeGroups: ["calendar", "tasks"],
   });
   assert.deepEqual(startCall()!.body.scopes, [...IDENTITY, CALENDAR, TASKS]);
-  remoteResult = {
-    status: "complete",
-    credential: credential([...IDENTITY, CALENDAR, TASKS].join(" ")),
-  };
+  assert.equal(
+    (await returnWith({ credential: credential([...IDENTITY, CALENDAR, TASKS].join(" ")) })).status,
+    "complete",
+  );
   assert.equal(
     (await pollHostedOauth({ ...base, attempt: result.hostedAttempt! })).status,
     "complete",
@@ -681,7 +834,7 @@ test("unsafe service origins and consent redirects are refused before credential
     resetHostedOauthAvailabilityForTests();
     globalThis.fetch = async (input) =>
       String(input).endsWith("/status")
-        ? reply({ version: 1, available: true, scopes: GMAIL })
+        ? reply({ version: 2, available: true, scopes: GMAIL })
         : reply({ requestId: "id", authorizeUrl, expiresAt: Date.now() + 600_000 });
     await assert.rejects(startHostedOauth(base), /unavailable/);
   }
@@ -725,7 +878,8 @@ test("canonical refresh keeps its saved provider path after the service default 
   assert.equal(refreshed.refreshToken, "rotated-refresh");
 });
 
-test("attempts saved by an earlier release still poll their legacy path and default to Gmail", async () => {
+test("a sign-in left open across the upgrade asks the Member to start again", async () => {
+  // What a release on protocol 1 saved: it waited to poll the service.
   const attempt = await createAuthFlowState(
     "hosted-google-consumer",
     {
@@ -739,76 +893,57 @@ test("attempts saved by an earlier release still poll their legacy path and defa
     },
     600_000,
   );
-  globalThis.fetch = async (input) => {
-    assert.equal(String(input), `${issuer}/api/google-sign-in/poll`);
-    return reply({ status: "complete", credential: credential() });
-  };
-  assert.deepEqual(await pollHostedOauth({ ...base, attempt }), { status: "complete" });
-  const [connection] = await AppDataSource.getRepository(IntegrationConnection).find();
-  const config = decryptConnectionConfig(connection);
-  assert.equal(connection.provider, "google");
-  assert.equal(config.tokenBrokerPath, "/api/google-sign-in");
-  assert.deepEqual(config.scopeGroups, ["mail"]);
+  assert.deepEqual(await pollHostedOauth({ ...base, attempt }), {
+    status: "denied",
+    detail: "This sign-in expired or was already used. Start again.",
+  });
+  await cancelHostedOauth({ ...base, attempt });
+  assert.equal(calls.length, 0);
+  assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
 });
 
-test("new installations can connect and renew against an older Google host", async () => {
+test("an older service starts nothing new here, but its Connections keep renewing", async () => {
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), init });
     if (url === `${issuer}/api/connect/google/status`) return new Response(null, { status: 404 });
-    if (url === `${issuer}/api/google-sign-in/status`)
-      return reply({ version: 1, available: true });
-    if (url === `${issuer}/api/google-sign-in/start`)
-      return reply({
-        requestId: "old-host-request",
-        authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=old-host-request`,
-        expiresAt: Date.now() + 600_000,
-      });
-    if (url === `${issuer}/api/google-sign-in/poll`)
-      return reply({ status: "complete", credential: credential() });
     if (url === `${issuer}/api/google-sign-in/refresh`)
       return reply({ accessToken: "renewed", expiresAt: Date.now() + 3_600_000 });
-    throw new Error("Unexpected request");
+    throw new Error(`Unexpected request: ${url}`);
   };
-  const result = await startHostedOauth(base);
-  assert.equal("scopes" in startCall()!.body, false);
-  assert.deepEqual(await pollHostedOauth({ ...base, attempt: result.hostedAttempt! }), {
-    status: "complete",
-  });
-  const [connection] = await AppDataSource.getRepository(IntegrationConnection).find();
-  const config = decryptConnectionConfig(connection);
-  assert.equal(config.tokenBrokerPath, "/api/google-sign-in");
+  await assert.rejects(startHostedOauth(base), /unavailable/);
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [`${issuer}/api/connect/google/status`],
+    "no fallback to the Gmail-only path",
+  );
+  const { original } = await hostedConnection(["mail"], null);
   const context: IntegrationRuntimeContext = {
     authMode: "oauth2",
-    config: { ...config, expiresAt: 1 },
+    config: { ...original, expiresAt: 1 },
   };
   await ensureFreshGoogleToken(context);
   assert.equal(context.config.accessToken, "renewed");
   assert.equal(calls.at(-1)?.url, `${issuer}/api/google-sign-in/refresh`);
 });
 
-test("reconnecting credentials without a saved protocol stays on the legacy endpoint", async () => {
+test("reconnecting a Connection from the Gmail-only path signs in on the service's current path", async () => {
   const { connection } = await hostedConnection(["mail"], null);
-  globalThis.fetch = async (input, init) => {
-    const url = String(input);
-    calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), init });
-    if (url === `${issuer}/api/google-sign-in/status`)
-      return reply({ version: 1, available: true });
-    assert.equal(url, `${issuer}/api/google-sign-in/start`);
-    return reply({
-      requestId: "legacy-reconnect",
-      authorizeUrl: `${issuer}/api/google-sign-in/authorize?requestId=legacy-reconnect`,
-      expiresAt: Date.now() + 600_000,
-    });
-  };
+  overrideRuntimeSettingsForTests({ oauth: { gmailSignInUrl: "https://changed.example" } });
   const result = await startOauthReconnect({ ...base, connectionId: connection.id });
-  const attempt = await readAuthFlowState<{ tokenBrokerPath: string }>(
-    "hosted-google-consumer",
-    result.hostedAttempt!,
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [`${issuer}/api/connect/google/status`, `${issuer}/api/connect/google/start`],
   );
-  assert.equal(attempt?.payload.tokenBrokerPath, "/api/google-sign-in");
+  assert.equal((await returnWith({ credential: credential() })).status, "complete");
   assert.equal(
-    calls.some((call) => call.url.includes("/api/connect/")),
-    false,
+    (await pollHostedOauth({ ...base, attempt: result.hostedAttempt! })).status,
+    "complete",
   );
+  const saved = await AppDataSource.getRepository(IntegrationConnection).findOneByOrFail({
+    id: connection.id,
+  });
+  const config = decryptConnectionConfig(saved);
+  assert.equal(config.tokenBrokerUrl, issuer);
+  assert.equal(config.tokenBrokerPath, "/api/connect/google");
 });
