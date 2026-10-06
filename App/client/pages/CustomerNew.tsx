@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 import { ArrowLeft, Plus, Star, Trash2 } from "lucide-react";
 import {
   api,
+  Company,
   Customer,
   CustomerContact,
   CustomerContactDraft,
@@ -11,14 +12,16 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
-import { Button } from "../components/ui/Button";
+import { Button, buttonClassName } from "../components/ui/Button";
+import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { CustomersOutletCtx } from "./CustomersLayout";
+import { CustomersClosed, CustomersOutletCtx } from "./CustomersLayout";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
 /**
@@ -71,6 +74,70 @@ function rowFromContact(c: CustomerContact): ContactRow {
 
 export default function CustomerNew() {
   const { company } = useOutletContext<CustomersOutletCtx>();
+  const { customerSlug } = useParams();
+  // Everything this form sends goes through the finance routes: loading the
+  // customer to edit needs Read, and saving needs Full. With None even the
+  // load answers 403, so the Customers note stands in for the whole form.
+  if (effectiveFinanceAccess(company) === "none") {
+    return (
+      <CustomersClosed companySlug={company.slug} page={customerSlug ? "customer" : "list"} />
+    );
+  }
+  // Read-only can load a customer but not save one, so instead of fields
+  // whose save could only be refused they get a note and a way back. The
+  // catalogue holds New customer to Full for the same reason, which is why
+  // the palette never offers it to them.
+  if (!canWriteFinance(company)) {
+    return <CustomerFormReadOnly companySlug={company.slug} customerSlug={customerSlug} />;
+  }
+  return <CustomerForm company={company} />;
+}
+
+/**
+ * In place of the form for a Member with read-only finance access, who still
+ * reaches it from the list's New customer, a customer's Edit, or a saved
+ * link. It keeps the form's breadcrumb trail and heading, as Finance's own
+ * forms do for the same Member (`FinanceReadOnlyPage`), and Back returns to
+ * the customer being edited, or to the list.
+ */
+function CustomerFormReadOnly({
+  companySlug,
+  customerSlug,
+}: {
+  companySlug: string;
+  customerSlug: string | undefined;
+}) {
+  const customersUrl = `/c/${companySlug}/customers`;
+  return (
+    <div className="page-shell p-4 sm:p-8">
+      <div className="mb-6">
+        <Breadcrumbs
+          items={[
+            { label: "Customers", to: customersUrl },
+            { label: customerSlug ? "Edit" : "New" },
+          ]}
+        />
+      </div>
+      <h1 className="mb-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">
+        {customerSlug ? "Edit customer" : "New customer"}
+      </h1>
+      <EmptyState
+        title="Your finance access is read-only"
+        description="Customer pages follow finance access, so you can view customers but not add or edit them. Owners and admins choose each Member's finance access. Ask one of them to change yours under Settings → Members."
+        action={
+          <Link
+            to={customerSlug ? `${customersUrl}/${customerSlug}` : customersUrl}
+            className={buttonClassName({ variant: "secondary" })}
+          >
+            Back
+          </Link>
+        }
+      />
+    </div>
+  );
+}
+
+function CustomerForm({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { customerSlug } = useParams();
   const isEdit = Boolean(customerSlug);
