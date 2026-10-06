@@ -274,11 +274,16 @@ export function Decisions() {
       <P>
         By default every question waits for a human — no configuration, exactly the behavior above.
         A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the{" "}
-        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee:
-        it names who may answer on a human&apos;s behalf — the employee&apos;s{" "}
-        <Strong>manager</Strong>, via the org chart&apos;s reports-to line, or a{" "}
-        <Strong>named employee</Strong>. A decision the employee addressed to a specific person is
-        never routed.
+        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee,
+        or for any employee: it names the AI Employee who may answer on a human&apos;s behalf. The
+        first enabled rule that matches the asker decides. A decision the employee addressed to a
+        specific person is never routed.
+      </P>
+      <P>
+        Rules once offered <Strong>their manager</Strong> as the decider, read from a reporting
+        line. Reporting lines were removed, so a rule saved that way is marked{" "}
+        <em>was their manager</em> and no longer routes: its askers&apos; questions page people.
+        Delete it and add a rule that names who answers to route them again.
       </P>
       <P>
         A routed question skips the creation-time bell. Instead, the decider is briefed in a

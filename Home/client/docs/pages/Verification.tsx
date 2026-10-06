@@ -204,8 +204,8 @@ export function Verification() {
       <H2 id="tools">What an AI Employee can read and report</H2>
       <P>
         Until now there was no run-reading tool in Genosyn at all, which made a whole class of
-        question unanswerable from inside the company: a manager asked why a colleague&apos;s work
-        was not landing, or an employee briefed about one of its own Routines being stood down, had
+        question unanswerable from inside the company: an employee asked why a colleague&apos;s work
+        was not landing, or one briefed about one of its own Routines being stood down, had
         nothing to open. Two tools close that, and neither writes anything.
       </P>
       <KeyList
