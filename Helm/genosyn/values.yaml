@@ -141,7 +141,7 @@ gke:
 # installation leaves this off; its App already uses that service.
 #
 # Enable it with ingress.connect, which routes that hostname here. The service
-# keeps no data beyond ten-minute sign-ins and needs no volume.
+# keeps no data at all and needs no volume or database.
 connect:
   enabled: false
   image:
@@ -149,14 +149,13 @@ connect:
     # Empty means "this chart's appVersion".
     tag: ""
     pullPolicy: IfNotPresent
-  # One replica keeps sign-ins in memory; a restart costs only those in flight.
-  # More replicas need a shared store: put CONNECT_DATABASE_URL (Postgres) and
-  # CONNECT_SECRET in existingSecret, or sign-ins will fail across pods.
+  # Any number works: replicas share nothing but CONNECT_SECRET, which the
+  # chart generates once and keeps (the <release>-connect-key Secret).
   replicaCount: 1
   # Required: a pre-created Secret in the release namespace whose keys become
   # the service's environment — CONNECT_GOOGLE_CLIENT_ID and
-  # CONNECT_GOOGLE_CLIENT_SECRET, plus CONNECT_SECRET and CONNECT_DATABASE_URL
-  # for more than one replica. The chart never renders these values.
+  # CONNECT_GOOGLE_CLIENT_SECRET. A CONNECT_SECRET here takes precedence over
+  # the chart's own. The chart never renders these values.
   existingSecret: ""
   # The HTTPS origin people and Google's redirects reach. Empty uses
   # https://<ingress.connect.host>.

@@ -1,0 +1,21 @@
+{{- /*
+The key Genosyn Connect seals each sign-in's context with. Connect keeps no
+state, so this is all its replicas share: any replica holding the same key can
+serve any step of any sign-in. The lookup keeps the key across upgrades
+(`helm template` has no cluster to look at and renders a fresh one).
+*/ -}}
+{{- $connect := include "genosyn.connect" . | fromYaml }}
+{{- if $connect.enabled }}
+{{- $secretName := include "genosyn.connectKeyName" . }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+    app.kubernetes.io/component: connect
+type: Opaque
+data:
+  {{- include "genosyn.connectKeyData" (dict "existing" $existing) | nindent 2 }}
+{{- end }}
