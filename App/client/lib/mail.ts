@@ -12,6 +12,11 @@ export type MailAccount = {
   /** Which backend drives this mailbox. */
   provider: "gmail" | "imap";
   address: string;
+  /**
+   * The name recipients see beside the address. Empty sends the bare address.
+   * Always empty on Gmail, which takes the name from its own settings.
+   */
+  senderName: string;
   status: "active" | "paused" | "error";
   statusMessage: string;
   lastSyncAt: string | null;
@@ -287,6 +292,8 @@ export type ImapConnectInput = {
   imapPort?: number;
   smtpHost?: string;
   smtpPort?: number;
+  /** Optional name shown beside the address on mail sent from this mailbox. */
+  senderName?: string;
 };
 
 /** A member's pinned search. `query` is raw search grammar, same as typed. */
@@ -617,6 +624,9 @@ export const mailApi = {
     api.get<{ account: MailAccount }>(`${base(cid)}/accounts/${aid}`),
   patchAccount: (cid: string, aid: string, status: "active" | "paused") =>
     api.patch<{ account: MailAccount }>(`${base(cid)}/accounts/${aid}`, { status }),
+  /** The name beside the address in `From`. IMAP mailboxes only; "" clears it. */
+  setSenderName: (cid: string, aid: string, senderName: string) =>
+    api.patch<{ account: MailAccount }>(`${base(cid)}/accounts/${aid}`, { senderName }),
   deleteAccount: (cid: string, aid: string) =>
     api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}`),
   syncNow: (cid: string, aid: string) =>

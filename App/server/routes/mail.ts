@@ -30,7 +30,11 @@ import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
 import { broadcastToCompany } from "../services/realtime.js";
-import { createMailAccount, serializeMailAccount } from "../services/mail/accounts.js";
+import {
+  createMailAccount,
+  serializeMailAccount,
+  updateMailAccountSenderName,
+} from "../services/mail/accounts.js";
 import { connectImapMailbox, describeMailboxConnect } from "../services/mail/connect.js";
 import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
 import {
@@ -294,6 +298,12 @@ mailRouter.post("/mail/connect/discover", validateBody(discoverSchema), async (r
 });
 
 const port = z.number().int().min(1).max(65535);
+/**
+ * Only bounded here. The service trims, collapses and checks it — see
+ * `parseSenderName` — because it can say what is wrong with a name in a
+ * sentence, where a schema failure reaches the person as "ValidationError".
+ */
+const senderNameField = z.string().max(1000);
 const connectImapSchema = z.object({
   address: z.string().min(3).max(320),
   password: z.string().min(1).max(1024),
@@ -302,6 +312,7 @@ const connectImapSchema = z.object({
   imapPort: port.optional(),
   smtpHost: z.string().max(253).optional(),
   smtpPort: port.optional(),
+  senderName: senderNameField.optional(),
 });
 
 /**
@@ -383,7 +394,14 @@ mailRouter.get("/mail/accounts/:aid", async (req, res) => {
   res.json({ account: serializeMailAccount(account) });
 });
 
-const patchAccountSchema = z.object({ status: z.enum(["active", "paused"]) });
+const patchAccountSchema = z
+  .object({
+    status: z.enum(["active", "paused"]).optional(),
+    senderName: senderNameField.optional(),
+  })
+  .refine((body) => body.status !== undefined || body.senderName !== undefined, {
+    message: "Nothing to change: send a status or a senderName.",
+  });
 
 mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async (req, res) => {
   const account = await loadAccount(
@@ -392,26 +410,51 @@ mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async 
   );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const body = req.body as z.infer<typeof patchAccountSchema>;
-  const resumed = body.status === "active" && account.status !== "active";
   const accountRepo = AppDataSource.getRepository(MailAccount);
-  // Target only the operator-controlled fields. A full entity save can race
-  // a sync transition and overwrite its queued/running attempt metadata.
-  await accountRepo.update(account.id, {
-    status: body.status,
-    statusMessage: "",
-    ...(body.status === "paused" ? { syncState: "failed", syncFinishedAt: new Date() } : {}),
-  });
+  // The name goes first because it is the half that can be refused, and a
+  // refusal must not leave a status change applied behind it.
+  if (body.senderName !== undefined) {
+    let renamed: MailAccount;
+    try {
+      renamed = await updateMailAccountSenderName(account, body.senderName);
+    } catch (err) {
+      return res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Could not save the sender name" });
+    }
+    if (renamed.senderName !== account.senderName) {
+      await recordAudit({
+        companyId: account.companyId,
+        actorUserId: req.userId ?? null,
+        action: "mail.account.sender_name",
+        targetType: "mail_account",
+        targetId: account.id,
+        targetLabel: account.address,
+        metadata: { previous: account.senderName, senderName: renamed.senderName },
+      });
+    }
+  }
+  if (body.status !== undefined) {
+    const resumed = body.status === "active" && account.status !== "active";
+    // Target only the operator-controlled fields. A full entity save can race
+    // a sync transition and overwrite its queued/running attempt metadata.
+    await accountRepo.update(account.id, {
+      status: body.status,
+      statusMessage: "",
+      ...(body.status === "paused" ? { syncState: "failed", syncFinishedAt: new Date() } : {}),
+    });
+    await recordAudit({
+      companyId: account.companyId,
+      actorUserId: req.userId ?? null,
+      action: body.status === "paused" ? "mail.account.pause" : "mail.account.resume",
+      targetType: "mail_account",
+      targetId: account.id,
+      targetLabel: account.address,
+    });
+    // Un-pausing should catch up immediately, not on the next heartbeat.
+    if (resumed) void queueAccountSync(account.id).catch(() => {});
+  }
   const updatedAccount = await accountRepo.findOneByOrFail({ id: account.id });
-  await recordAudit({
-    companyId: account.companyId,
-    actorUserId: req.userId ?? null,
-    action: body.status === "paused" ? "mail.account.pause" : "mail.account.resume",
-    targetType: "mail_account",
-    targetId: account.id,
-    targetLabel: account.address,
-  });
-  // Un-pausing should catch up immediately, not on the next heartbeat.
-  if (resumed) void queueAccountSync(account.id).catch(() => {});
   broadcastToCompany(account.companyId, {
     type: "mail.updated",
     accountId: account.id,

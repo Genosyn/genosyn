@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Mail,
   Pause,
+  Pencil,
   Play,
   Plug2,
   Plus,
@@ -14,11 +15,13 @@ import {
 } from "lucide-react";
 import {
   MailAccessLevel,
+  MailAccount,
   MailGrant,
   MailGrantCandidate,
   mailApi,
   shortMailDate,
 } from "../lib/mail";
+import { MAX_SENDER_NAME_LENGTH, normalizeSenderName } from "../../shared/mailSenderName";
 import { mailReconnectHref } from "../lib/integrationReconnect";
 import { errorMessage } from "../lib/errors";
 import { MailAnalysisSettingsCard } from "./MailAnalysisSettings";
@@ -28,6 +31,7 @@ import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { ConnectMailboxDialog } from "../components/mail/ConnectMailbox";
+import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
@@ -247,6 +251,12 @@ export default function MailSettings() {
             <Trash2 size={14} className="mr-1.5" /> Disconnect
           </Button>
         </div>
+        <SenderNameSetting
+          key={account.id}
+          companyId={company.id}
+          account={account}
+          onSaved={refresh}
+        />
       </section>
 
       {/* AI analysis of newly-arrived mail */}
@@ -380,6 +390,131 @@ export default function MailSettings() {
           await refresh();
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * The name recipients see beside this mailbox's address.
+ *
+ * Editable for IMAP mailboxes only. An IMAP server keeps no name for an
+ * account — every mail client stores one and writes it into each message — so
+ * Genosyn, being the client, has to. Gmail stamps `From` itself from its own
+ * Send mail as setting, so for a Gmail mailbox this only says where that is.
+ */
+function SenderNameSetting({
+  companyId,
+  account,
+  onSaved,
+}: {
+  companyId: string;
+  account: MailAccount;
+  onSaved: () => Promise<void>;
+}) {
+  const [current, setCurrent] = React.useState(account.senderName);
+  /** The text being edited, or null when the editor is closed. */
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const hintId = React.useId();
+
+  // Somebody else may rename it; the realtime refresh hands the new row down.
+  React.useEffect(() => setCurrent(account.senderName), [account.senderName]);
+
+  if (account.provider !== "imap") {
+    return (
+      <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+        <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100">Sender name</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Gmail adds the name from its own settings to every message from this mailbox. Change it in
+          Gmail under Settings → Accounts → Send mail as.
+        </p>
+      </div>
+    );
+  }
+
+  const next = normalizeSenderName(draft ?? "");
+  const cancel = () => {
+    setDraft(null);
+    setError(null);
+  };
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (draft === null || next === current) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { account: saved } = await mailApi.setSenderName(companyId, account.id, next);
+      setCurrent(saved.senderName);
+      setDraft(null);
+      void onSaved();
+    } catch (err) {
+      setError(errorMessage(err, "Couldn’t save the sender name"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100">Sender name</h2>
+          {current ? (
+            <p className="mt-0.5 truncate text-sm text-slate-700 dark:text-slate-300">
+              {current} <span className="text-slate-400">&lt;{account.address}&gt;</span>
+            </p>
+          ) : (
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+              Not set — recipients see only {account.address}.
+            </p>
+          )}
+        </div>
+        {draft === null && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setDraft(current);
+              setError(null);
+            }}
+          >
+            <Pencil size={14} className="mr-1.5" /> {current ? "Edit" : "Set name"}
+          </Button>
+        )}
+      </div>
+      {draft !== null && (
+        <form onSubmit={save} className="mt-3 space-y-2">
+          <Input
+            aria-label="Sender name"
+            aria-describedby={hintId}
+            autoFocus
+            autoComplete="off"
+            maxLength={MAX_SENDER_NAME_LENGTH}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !saving) {
+                e.preventDefault();
+                cancel();
+              }
+            }}
+          />
+          <p id={hintId} className="text-xs text-slate-500 dark:text-slate-400">
+            Used on everything sent from this mailbox, by Members and AI Employees alike — drafts
+            already waiting included. Leave it empty to send from the address alone.
+          </p>
+          <FormError message={error} />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" loading={saving} disabled={next === current}>
+              Save
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={cancel}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

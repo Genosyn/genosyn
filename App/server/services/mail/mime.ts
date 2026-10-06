@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import { parseAddressList } from "../../lib/emailAddress.js";
+
 /**
  * Outbound MIME composition, with no transport in it.
  *
@@ -21,7 +23,22 @@ import crypto from "node:crypto";
  * without `From` and `Date` is malformed, and one without `Message-ID` cannot
  * be threaded by anyone who receives it. The IMAP adapter therefore fills all
  * three in, which is also what makes the copy it appends to Sent look right.
+ *
+ * Address headers are the one place a header carries structure, and the
+ * grammar is easy to get subtly wrong: a display name with a comma in it must
+ * be quoted or it becomes two recipients, a quote inside one must be escaped,
+ * and a name outside ASCII must be RFC 2047-encoded rather than quoted.
+ * {@link formatMailbox} is the one writer of that grammar, and
+ * {@link displayNameText} and {@link decodeMimeWords} read it back, so a name
+ * survives the trip through a mail server and into the mirror unchanged.
  */
+
+/** One address with the name shown beside it — the shape of `From`. */
+export type MimeMailbox = {
+  address: string;
+  /** Display name. Empty or absent writes the bare address. */
+  name?: string;
+};
 
 export type MimeAttachment = {
   filename: string;
@@ -41,8 +58,9 @@ export type MimeFields = {
   /** Space-joined References chain, oldest first. */
   references?: string;
   attachments?: MimeAttachment[];
-  /** Author. Omitted on the Gmail path, where the server fills it in. */
-  from?: string;
+  /** Author. Omitted on the Gmail path, where the server fills it in from the
+   * account's own Send mail as settings — name included. */
+  from?: MimeMailbox;
   /** Origination date. Omitted on the Gmail path for the same reason. */
   date?: Date;
   /** Pre-generated Message-ID, angle brackets included. See
@@ -71,7 +89,7 @@ let boundaryCounter = 0;
  */
 export function buildMimeString(m: MimeFields): string {
   const headers: string[] = [];
-  if (m.from) headers.push(`From: ${encodeAddressList(m.from)}`);
+  if (m.from) headers.push(`From: ${formatMailbox(m.from)}`);
   headers.push(`To: ${encodeAddressList(m.to)}`);
   if (m.cc) headers.push(`Cc: ${encodeAddressList(m.cc)}`);
   if (m.bcc) headers.push(`Bcc: ${encodeAddressList(m.bcc)}`);
@@ -150,6 +168,52 @@ export function stripBccHeader(raw: Buffer): Buffer {
     Buffer.from(kept.join("\r\n"), "utf8"),
     raw.subarray(separator),
   ]);
+}
+
+/**
+ * The same message with `From` restamped as `from` — when, and only when, the
+ * `From` it carries is `from`'s own address.
+ *
+ * This is how a stored draft picks up the mailbox's sender name as it is at
+ * the moment of sending. A draft is composed with whatever name the mailbox
+ * had then, and an AI-written one can wait days for review; a name set or
+ * changed in the meantime must apply to it exactly as it would to a fresh
+ * message, or the person who just named the mailbox watches the next fifty
+ * approved drafts go out without it. Only the name moves: the address is the
+ * one already on the message.
+ *
+ * Anything else is returned untouched — a draft another mail client wrote from
+ * an alias, a message with no `From` at all — because that is somebody's
+ * deliberate choice of identity, not a stale copy of ours.
+ *
+ * The header block is handled as bytes (`latin1` maps each byte to one
+ * character and back), so a header another client wrote in a legacy 8-bit
+ * charset is carried through exactly instead of being mangled into U+FFFD.
+ */
+export function refreshFromHeader(raw: Buffer, from: MimeMailbox): Buffer {
+  const separator = raw.indexOf("\r\n\r\n");
+  if (separator < 0) return raw;
+  // One entry per header: its first line plus any folded continuations.
+  const headers: string[][] = [];
+  for (const line of raw.subarray(0, separator).toString("latin1").split("\r\n")) {
+    const current = headers[headers.length - 1];
+    if (current && /^[ \t]/.test(line)) current.push(line);
+    else headers.push([line]);
+  }
+  const own = from.address.trim().toLowerCase();
+  const stamped = Buffer.from(`From: ${formatMailbox(from)}`, "utf8").toString("latin1");
+  let changed = false;
+  const rewritten = headers.map((lines) => {
+    // Unfolding is removing the CRLF before each continuation line.
+    const value = /^from\s*:(.*)$/i.exec(lines.join(""));
+    if (!value) return lines.join("\r\n");
+    const { addresses } = parseAddressList(value[1]);
+    if (addresses.length !== 1 || addresses[0] !== own) return lines.join("\r\n");
+    changed = true;
+    return stamped;
+  });
+  if (!changed) return raw;
+  return Buffer.concat([Buffer.from(rewritten.join("\r\n"), "latin1"), raw.subarray(separator)]);
 }
 
 /**
@@ -286,23 +350,184 @@ function encodeHeader(s: string): string {
 }
 
 /**
- * Sanitize an address-list header (`To`/`Cc`/`Bcc`). Splits on commas and,
- * for each `Display Name <addr>` entry, RFC 2047-encodes the display name
- * (unicode-safe) while passing the angle-addr through with CRLF stripped —
- * so a non-ASCII sender name in a reply produces a valid header, and a
- * newline in either half can't inject a new header line.
+ * One RFC 5322 `mailbox`: `Avery Monroe <avery@example.com>`, or the bare
+ * address when there is no name.
+ *
+ * The name is written in the plainest form that reads back as exactly the
+ * same text:
+ *
+ * - words of letters, digits and the punctuation RFC 5322 allows in an atom
+ *   go out as they are, which is how every mail client writes an ordinary
+ *   name;
+ * - anything holding a special — a comma, a dot, a quote, an `@` — becomes a
+ *   quoted string with `"` and `\` escaped, because an unquoted comma starts a
+ *   second recipient and strict parsers refuse an unquoted dot;
+ * - anything outside ASCII is RFC 2047-encoded, since a quoted string may
+ *   only hold ASCII and an encoded word inside quotes is not decoded.
+ *
+ * Control characters collapse to a space first. That is the header-injection
+ * guard: no name, however it was typed, can end this line and begin another.
+ */
+export function formatMailbox(mailbox: MimeMailbox): string {
+  const address = stripCrlf(mailbox.address);
+  const name = stripCrlf(mailbox.name ?? "");
+  if (!name) return address;
+  return `${encodeDisplayName(name)} <${address}>`;
+}
+
+/** An atom's characters (RFC 5322 §3.2.3) and the spaces between atoms. */
+const PLAIN_DISPLAY_NAME = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]+$/;
+
+function encodeDisplayName(name: string): string {
+  if (/[^\x20-\x7e]/.test(name)) return encodeHeader(name);
+  if (PLAIN_DISPLAY_NAME.test(name)) return name;
+  return `"${name.replace(/[\\"]/g, "\\$&")}"`;
+}
+
+/**
+ * A display name as written in a header, read back as the text it shows.
+ *
+ * Quoted segments lose their quotes and backslash escapes; everything else is
+ * kept as it is. So `"Doe, John"` reads `Doe, John`, `"Avery \"AJ\" Monroe"`
+ * reads `Avery "AJ" Monroe`, and `"Ada" Lovelace` — two words, one of them
+ * quoted — reads `Ada Lovelace`.
+ */
+export function displayNameText(raw: string): string {
+  let text = "";
+  let quoted = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quoted && ch === "\\" && i + 1 < raw.length) text += raw[++i];
+    else if (ch === '"') quoted = !quoted;
+    else text += ch;
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Sanitize an address-list header (`To`/`Cc`/`Bcc`) as a person typed it.
+ *
+ * Entries split on the commas *between* recipients — not one inside a quoted
+ * name, so `"Doe, John" <john@x.com>` stays one recipient, the same reading
+ * `parseAddressList` gives the SMTP envelope. Each `Name <address>` entry is
+ * rewritten by {@link formatMailbox}, which also keeps a newline in either
+ * half from injecting a header; a bare address passes through as typed.
  */
 function encodeAddressList(value: string): string {
-  return stripCrlf(value)
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+  return splitAddressList(stripCrlf(value))
     .map((entry) => {
-      const m = entry.match(/^(.*?)\s*<([^>]+)>$/);
-      if (!m) return stripCrlf(entry);
-      const name = m[1].replace(/^"|"$/g, "").trim();
-      const addr = stripCrlf(m[2]);
-      return name ? `${encodeHeader(name)} <${addr}>` : `<${addr}>`;
+      const named = /^(.*?)\s*<([^<>]*)>$/.exec(entry);
+      if (!named) return entry;
+      return formatMailbox({ name: displayNameText(named[1]), address: named[2] });
     })
+    .filter(Boolean)
     .join(", ");
+}
+
+/** Split a recipient list on the commas outside quoted names and angle addresses. */
+function splitAddressList(value: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quoted = false;
+  let angled = false;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (quoted && ch === "\\" && i + 1 < value.length) {
+      current += ch + value[++i];
+      continue;
+    }
+    if (ch === "," && !quoted && !angled) {
+      entries.push(current);
+      current = "";
+      continue;
+    }
+    if (ch === '"' && !angled) quoted = !quoted;
+    else if (ch === "<" && !quoted) angled = true;
+    else if (ch === ">" && !quoted) angled = false;
+    current += ch;
+  }
+  entries.push(current);
+  return entries.map((entry) => entry.trim()).filter(Boolean);
+}
+
+// ───────────────────────────── reading headers back ─────────────────────────────
+
+/** `=?charset?B|Q?text?=` — one RFC 2047 encoded word. */
+const ENCODED_WORD = /=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/g;
+
+type EncodedRun = { charset: string; bytes: Buffer[]; source: string };
+
+/**
+ * Decode the RFC 2047 encoded words in a header's text — the inverse of
+ * {@link encodeHeader}.
+ *
+ * Gmail's API hands headers over already decoded. An IMAP server hands over
+ * the bytes exactly as they were sent, so without this a sender called Zoë
+ * reads `=?UTF-8?B?Wm/Dqw==?=` in the mirror.
+ *
+ * Whitespace between two adjacent encoded words is folding, not text (RFC 2047
+ * §6.2). Adjacent words in one charset are decoded as a single run of bytes,
+ * because some senders split one multi-byte character across two words. A
+ * word in a charset this runtime cannot decode is left exactly as written
+ * rather than guessed at.
+ */
+export function decodeMimeWords(value: string): string {
+  if (!value.includes("=?")) return value;
+  const pieces: Array<string | EncodedRun> = [];
+  let cursor = 0;
+  for (const match of value.matchAll(ENCODED_WORD)) {
+    const [word, charsetSpec, encoding, text] = match;
+    const start = match.index ?? 0;
+    const between = value.slice(cursor, start);
+    cursor = start + word.length;
+    // RFC 2231 lets a charset carry a language: `UTF-8*en`.
+    const charset = charsetSpec.split("*")[0].toLowerCase();
+    const bytes = encoding.toUpperCase() === "B" ? Buffer.from(text, "base64") : decodeQ(text);
+    const previous = pieces[pieces.length - 1];
+    if (typeof previous === "object" && /^[ \t\r\n]*$/.test(between)) {
+      if (previous.charset === charset) {
+        previous.bytes.push(bytes);
+        previous.source += between + word;
+        continue;
+      }
+    } else if (between) {
+      pieces.push(between);
+    }
+    pieces.push({ charset, bytes: [bytes], source: word });
+  }
+  pieces.push(value.slice(cursor));
+  return pieces
+    .map((piece) =>
+      typeof piece === "string"
+        ? piece
+        : (decodeCharset(piece.charset, Buffer.concat(piece.bytes)) ?? piece.source),
+    )
+    .join("");
+}
+
+/** RFC 2047's `Q` encoding: `_` is a space, `=XX` is one byte, the rest is itself. */
+function decodeQ(text: string): Buffer {
+  const bytes: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const hex = ch === "=" ? text.slice(i + 1, i + 3) : "";
+    if (ch === "_") {
+      bytes.push(0x20);
+    } else if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+      bytes.push(Number.parseInt(hex, 16));
+      i += 2;
+    } else {
+      bytes.push(ch.charCodeAt(0) & 0xff);
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function decodeCharset(charset: string, bytes: Buffer): string | null {
+  try {
+    return new TextDecoder(charset).decode(bytes);
+  } catch {
+    // An unknown label throws; the caller keeps the word as it was written.
+    return null;
+  }
 }

@@ -72,6 +72,19 @@ export class MailAccount {
   @Column({ type: "varchar" })
   address!: string;
 
+  /**
+   * The name recipients see beside the address — `From: Avery Monroe
+   * <avery@example.com>`. Empty sends the bare address.
+   *
+   * IMAP only. An IMAP/SMTP account has no identity on the server: every mail
+   * client keeps the sender's name itself and writes it into each message, so
+   * Genosyn, as the client, keeps it here. Gmail does keep one (Settings →
+   * Accounts → Send mail as) and stamps `From` itself, so a Gmail mailbox leaves
+   * this empty rather than holding a second name that would never be sent.
+   */
+  @Column({ type: "varchar", default: "" })
+  senderName!: string;
+
   @Column({ type: "varchar", default: "active" })
   status!: MailAccountStatus;
 
