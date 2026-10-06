@@ -608,7 +608,7 @@ describe("OpenAI subscription policy routes", () => {
       },
     });
     const starts: Parameters<typeof CodexAppServer.start>[0][] = [];
-    const notifications: Array<(method: string, params: unknown) => void> = [];
+    const codex = fakeCodexNotifications();
     let sessionId: string | null = null;
     let authRoot = "";
     let workspace = "";
@@ -632,10 +632,7 @@ describe("OpenAI subscription policy routes", () => {
             }
             return verification.request<T>(method, params);
           },
-          onNotification: (listener: (method: string, params: unknown) => void) => {
-            notifications.push(listener);
-            return verification.onNotification(listener);
-          },
+          onNotification: codex.subscribe(verification),
           onExit: () => () => undefined,
           stderrSummary: () => "",
           close: async () => undefined,
@@ -654,14 +651,13 @@ describe("OpenAI subscription policy routes", () => {
       authRoot = startedOptions.env.CODEX_HOME ?? "";
       workspace = startedOptions.cwd;
       assert.ok(authRoot);
-      const notify = notifications[0];
-      assert.ok(notify);
 
       await fs.writeFile(path.join(authRoot, "auth.json"), managedAuth, {
         encoding: "utf8",
         mode: 0o600,
       });
-      notify("account/login/completed", { loginId, success: true });
+      codex.emit("account/login/completed", { loginId, success: true });
+      codex.emit("account/updated", { authMode: "chatgpt", planType: "plus" });
 
       const completed = await waitForDeviceStatus(created.body.id, sessionId, "succeeded");
       assert.equal(completed.output, "ChatGPT subscription connected.");
@@ -697,20 +693,28 @@ describe("OpenAI subscription policy routes", () => {
     }
   });
 
-  test("device sign-in accepts a session Codex reports only after the refreshing read", async () => {
-    // The app-server answers `account/read` from the snapshot it booted with,
-    // which never contains the session the login just wrote into CODEX_HOME.
+  test("device sign-in confirms the account only once Codex announces the session it loaded", async () => {
+    // Codex 0.146.0 reports the login complete before it loads the session it
+    // just wrote into CODEX_HOME, and until then answers `account/read` with
+    // the empty account it booted with (#59).
     const signIn = await runDeviceSignIn(
-      (params) =>
-        params.refreshToken === false
-          ? { account: null, requiresOpenaiAuth: true }
-          : { account: { type: "chatgpt", email: "member@example.test" } },
+      (loaded) =>
+        loaded
+          ? {
+              account: { type: "chatgpt", email: "member@example.test", planType: "plus" },
+              requiresOpenaiAuth: true,
+            }
+          : { account: null, requiresOpenaiAuth: true },
+      { authMode: "chatgpt", planType: "plus" },
       "succeeded",
     );
 
+    assert.equal(signIn.beforeAnnouncement.status, "running");
+    assert.equal(signIn.beforeAnnouncement.output, "Confirming the ChatGPT account…");
+    assert.equal(signIn.readsBeforeAnnouncement, 0);
     assert.equal(signIn.status.output, "ChatGPT subscription connected.");
     assert.equal(signIn.status.error, null);
-    assert.deepEqual(signIn.accountReads, [{ refreshToken: false }, { refreshToken: true }]);
+    assert.deepEqual(signIn.accountReads, [{ params: { refreshToken: false }, loaded: true }]);
 
     const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({
       id: signIn.modelId,
@@ -722,12 +726,17 @@ describe("OpenAI subscription policy routes", () => {
     assert.ok(stored.connectedAt instanceof Date);
   });
 
-  test("device sign-in stores no credential when neither read confirms a ChatGPT account", async () => {
-    const signIn = await runDeviceSignIn(() => ({ account: { type: "apiKey" } }), "failed");
+  test("device sign-in stores no credential when Codex loads no ChatGPT account", async () => {
+    const signIn = await runDeviceSignIn(
+      () => ({ account: { type: "apiKey" }, requiresOpenaiAuth: true }),
+      { authMode: "apikey", planType: null },
+      "failed",
+    );
 
+    assert.equal(signIn.readsBeforeAnnouncement, 0);
     assert.match(String(signIn.status.error), /did not confirm the managed ChatGPT account/);
     assert.equal(signIn.status.output, null);
-    assert.deepEqual(signIn.accountReads, [{ refreshToken: false }, { refreshToken: true }]);
+    assert.deepEqual(signIn.accountReads, [{ params: { refreshToken: false }, loaded: true }]);
 
     const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({
       id: signIn.modelId,
@@ -819,21 +828,54 @@ describe("OpenAI subscription policy routes", () => {
   });
 });
 
+type DeviceStatus = { status: string; output: string | null; error: string | null };
+
 type DeviceSignIn = {
   modelId: string;
-  status: { status: string; output: string | null; error: string | null };
-  accountReads: Array<Record<string, unknown>>;
+  status: DeviceStatus;
+  /** The sign-in as Codex left it: login completed, session not yet loaded. */
+  beforeAnnouncement: DeviceStatus;
+  readsBeforeAnnouncement: number;
+  accountReads: Array<{ params: Record<string, unknown>; loaded: boolean }>;
   managedAuth: string;
 };
 
+type NotificationListener = (method: string, params: unknown) => void;
+
 /**
- * Drive one whole device sign-in against a fake Codex app-server: start the
- * login, let Codex write its managed session into the isolated CODEX_HOME,
- * report the login completed, and settle. `accountFor` decides what each
- * `account/read` answers, which is the seam the confirmation retry lives on.
+ * Notification fan-out for an in-process fake app-server. Like the real
+ * transport, every subscriber hears every notification until it unsubscribes;
+ * subscribers also reach the connection-test fake, which emits its own.
+ */
+function fakeCodexNotifications() {
+  const listeners = new Set<NotificationListener>();
+  return {
+    subscribe:
+      (verification: CodexAppServer) =>
+      (listener: NotificationListener): (() => void) => {
+        listeners.add(listener);
+        const stopVerification = verification.onNotification(listener);
+        return () => {
+          listeners.delete(listener);
+          stopVerification();
+        };
+      },
+    emit: (method: string, params: unknown) => {
+      for (const listener of [...listeners]) listener(method, params);
+    },
+  };
+}
+
+/**
+ * Drive one whole device sign-in against a fake Codex app-server that keeps
+ * Codex 0.146.0's order: it writes the managed session into the isolated
+ * CODEX_HOME, reports the login completed, and only then loads the session and
+ * announces it with `account/updated`. `accountFor` answers each
+ * `account/read` from whether the session has been loaded yet.
  */
 async function runDeviceSignIn(
-  accountFor: (params: Record<string, unknown>) => unknown,
+  accountFor: (loaded: boolean) => unknown,
+  announcement: { authMode: string | null; planType: string | null },
   expected: "succeeded" | "failed",
 ): Promise<DeviceSignIn> {
   const created = await call<PublicModel>("POST", "/", {
@@ -853,9 +895,10 @@ async function runDeviceSignIn(
       refresh_token: `refresh-${randomUUID()}`,
     },
   });
-  const accountReads: Array<Record<string, unknown>> = [];
+  const accountReads: DeviceSignIn["accountReads"] = [];
   const starts: Parameters<typeof CodexAppServer.start>[0][] = [];
-  const notifications: Array<(method: string, params: unknown) => void> = [];
+  const codex = fakeCodexNotifications();
+  let loaded = false;
   let sessionId: string | null = null;
 
   try {
@@ -873,23 +916,19 @@ async function runDeviceSignIn(
             } as T;
           }
           if (method === "account/read") {
-            const read = (params ?? {}) as Record<string, unknown>;
-            accountReads.push(read);
-            return accountFor(read) as T;
+            accountReads.push({ params: (params ?? {}) as Record<string, unknown>, loaded });
+            return accountFor(loaded) as T;
           }
           return verification.request<T>(method, params);
         },
-        onNotification: (listener: (method: string, params: unknown) => void) => {
-          notifications.push(listener);
-          return verification.onNotification(listener);
-        },
+        onNotification: codex.subscribe(verification),
         onExit: () => () => undefined,
         stderrSummary: () => "",
         close: async () => undefined,
       } as unknown as CodexAppServer;
     };
 
-    const started = await call<{ id: string; status: string }>(
+    const started = await call<DeviceStatus & { id: string }>(
       "POST",
       `/${created.body.id}/subscription/device`,
     );
@@ -901,20 +940,34 @@ async function runDeviceSignIn(
     assert.ok(startedOptions);
     const authRoot = startedOptions.env.CODEX_HOME ?? "";
     assert.ok(authRoot);
-    const notify = notifications[0];
-    assert.ok(notify);
 
     await fs.writeFile(path.join(authRoot, "auth.json"), managedAuth, {
       encoding: "utf8",
       mode: 0o600,
     });
-    notify("account/login/completed", { loginId, success: true });
+    codex.emit("account/login/completed", { loginId, success: true });
+    const beforeAnnouncement = await waitForDevice(
+      created.body.id,
+      sessionId,
+      (session) => session.status !== "running" || session.output !== started.body.output,
+      "sign-in to react to the completed login",
+    );
+    const readsBeforeAnnouncement = accountReads.length;
 
+    loaded = true;
+    codex.emit("account/updated", announcement);
     const status = await waitForDeviceStatus(created.body.id, sessionId, expected);
     await waitUntilMissing(authRoot);
     await waitUntilMissing(startedOptions.cwd);
     sessionId = null;
-    return { modelId: created.body.id, status, accountReads, managedAuth };
+    return {
+      modelId: created.body.id,
+      status,
+      beforeAnnouncement,
+      readsBeforeAnnouncement,
+      accountReads,
+      managedAuth,
+    };
   } finally {
     if (sessionId) {
       await call("DELETE", `/${created.body.id}/subscription/device/${sessionId}`).catch(
@@ -941,17 +994,33 @@ async function waitForDeviceStatus(
   modelId: string,
   sessionId: string,
   expected: string,
-): Promise<{ status: string; output: string | null; error: string | null }> {
+): Promise<DeviceStatus> {
+  return waitForDevice(
+    modelId,
+    sessionId,
+    (session) => session.status === expected,
+    `device sign-in to reach ${expected}`,
+  );
+}
+
+async function waitForDevice(
+  modelId: string,
+  sessionId: string,
+  done: (session: DeviceStatus) => boolean,
+  what: string,
+): Promise<DeviceStatus> {
+  let last: DeviceStatus | null = null;
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const response = await call<{ status: string; output: string | null; error: string | null }>(
+    const response = await call<DeviceStatus>(
       "GET",
       `/${modelId}/subscription/device/${sessionId}`,
     );
     assert.equal(response.status, 200);
-    if (response.body.status === expected) return response.body;
+    last = response.body;
+    if (done(last)) return last;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.fail(`device sign-in did not reach ${expected}`);
+  assert.fail(`timed out waiting for ${what}; last state: ${JSON.stringify(last)}`);
 }
 
 async function waitUntilMissing(target: string): Promise<void> {

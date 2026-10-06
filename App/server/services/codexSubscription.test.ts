@@ -164,48 +164,83 @@ const MANAGED_ACCOUNT = {
 };
 const NO_ACCOUNT = { account: null, requiresOpenaiAuth: true };
 
-test("an account Codex already knows about is confirmed without a refresh", async () => {
-  const reads: Array<{ refreshToken: boolean }> = [];
-  const confirmed = await confirmManagedChatgptAccount(async (params) => {
-    reads.push(params);
+test("an account Codex has already announced is confirmed by a single read", async () => {
+  let reads = 0;
+  const confirmed = await confirmManagedChatgptAccount(Promise.resolve(), async () => {
+    reads += 1;
     return MANAGED_ACCOUNT;
   });
 
   assert.equal(confirmed, true);
-  assert.deepEqual(reads, [{ refreshToken: false }]);
+  assert.equal(reads, 1);
 });
 
-test("a session written during sign-in is confirmed by the refreshing read", async () => {
-  // Regression: the app-server answers from the credential snapshot it booted
-  // with, so the session a device login just wrote appears only after a
-  // refresh. Rejecting the first empty answer failed every completed sign-in.
-  const reads: Array<{ refreshToken: boolean }> = [];
-  const confirmed = await confirmManagedChatgptAccount(async (params) => {
-    reads.push(params);
-    return params.refreshToken ? MANAGED_ACCOUNT : NO_ACCOUNT;
+test("the account is read only after Codex announces the session it loaded", async () => {
+  // Regression for #59: Codex 0.146.0 reports the login complete before it
+  // loads the session it just wrote, and until then answers with the empty
+  // account it booted with. Reading on completion failed every fast sign-in.
+  let announce!: () => void;
+  const announced = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  let loaded = false;
+  const reads: boolean[] = [];
+  const confirming = confirmManagedChatgptAccount(announced, async () => {
+    reads.push(loaded);
+    return loaded ? MANAGED_ACCOUNT : NO_ACCOUNT;
   });
 
-  assert.equal(confirmed, true);
-  assert.deepEqual(reads, [{ refreshToken: false }, { refreshToken: true }]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(reads, [], "nothing is read while Codex is still loading the session");
+  loaded = true;
+  announce();
+
+  assert.equal(await confirming, true);
+  assert.deepEqual(reads, [true]);
 });
 
-test("an account that is never a managed ChatGPT one stays unconfirmed", async () => {
+test("an announcement that never comes delays the read by the bound instead of hanging", async () => {
+  const startedAt = Date.now();
+  let reads = 0;
+  const confirmed = await confirmManagedChatgptAccount(
+    new Promise<void>(() => undefined),
+    async () => {
+      reads += 1;
+      return MANAGED_ACCOUNT;
+    },
+    25,
+  );
+
+  assert.equal(confirmed, true);
+  assert.equal(reads, 1);
+  assert.ok(Date.now() - startedAt >= 20, "the read waited for the bound");
+});
+
+test("a failed announcement only ends the wait; the read still decides", async () => {
+  const confirmed = await confirmManagedChatgptAccount(
+    Promise.reject(new Error("OpenAI Codex app-server exited unexpectedly (code 3).")),
+    async () => NO_ACCOUNT,
+  );
+
+  assert.equal(confirmed, false);
+});
+
+test("an account that is never a managed ChatGPT one stays unconfirmed after one read", async () => {
   for (const unmanaged of [NO_ACCOUNT, { account: { type: "apiKey" } }, {}, null, "chatgpt"]) {
-    const reads: Array<{ refreshToken: boolean }> = [];
-    const confirmed = await confirmManagedChatgptAccount(async (params) => {
-      reads.push(params);
+    let reads = 0;
+    const confirmed = await confirmManagedChatgptAccount(Promise.resolve(), async () => {
+      reads += 1;
       return unmanaged;
     });
 
     assert.equal(confirmed, false);
-    assert.deepEqual(reads, [{ refreshToken: false }, { refreshToken: true }]);
+    assert.equal(reads, 1);
   }
 });
 
-test("a failed refreshing read surfaces its own error instead of a bare rejection", async () => {
+test("a failed read surfaces its own error instead of a bare rejection", async () => {
   await assert.rejects(
-    confirmManagedChatgptAccount(async (params) => {
-      if (!params.refreshToken) return NO_ACCOUNT;
+    confirmManagedChatgptAccount(Promise.resolve(), async () => {
       throw new Error("OpenAI Codex app-server timed out waiting for account/read.");
     }),
     /timed out waiting for account\/read/,

@@ -13,6 +13,12 @@ import { modelSetupFailure } from "./modelCatalog.js";
 
 const AUTH_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const ACCOUNT_READ_TIMEOUT_MS = 30_000;
+/**
+ * How long a completed device login may take to reach `account/updated`. In
+ * between, Codex loads the new session and re-reads the account's cloud
+ * config, a fetch it gives up on after 15 seconds of its own.
+ */
+const ACCOUNT_UPDATE_TIMEOUT_MS = 30_000;
 const DEVICE_LOGIN_TIMEOUT_MS = 15 * 60 * 1_000;
 const TERMINAL_SESSION_TTL_MS = 15 * 60 * 1_000;
 const STALE_TEMP_MAX_AGE_MS = 8 * 60 * 60 * 1_000;
@@ -59,6 +65,8 @@ type DeviceSession = PublicSubscriptionDeviceSession & {
   loginId: string | null;
   home: IsolatedCodexHome;
   server: CodexAppServer;
+  /** Settles on Codex's first `account/updated`, or when it exits. */
+  accountUpdated: Promise<void>;
   timeout: ReturnType<typeof setTimeout>;
   settling: boolean;
   finishStarted: boolean;
@@ -309,6 +317,7 @@ async function startSubscriptionDeviceLoginInner(
       loginId: null,
       home,
       server,
+      accountUpdated: nextAccountUpdate(server),
       settling: false,
       finishStarted: false,
       finished,
@@ -539,8 +548,13 @@ async function settleDeviceSession(
   session.settling = true;
   try {
     if (status === "succeeded") {
-      const confirmed = await confirmManagedChatgptAccount((params) =>
-        session.server.request<unknown>("account/read", params, ACCOUNT_READ_TIMEOUT_MS),
+      session.output = "Confirming the ChatGPT account…";
+      const confirmed = await confirmManagedChatgptAccount(session.accountUpdated, () =>
+        session.server.request<unknown>(
+          "account/read",
+          { refreshToken: false },
+          ACCOUNT_READ_TIMEOUT_MS,
+        ),
       );
       if (!confirmed) {
         throw new Error("OpenAI Codex did not confirm the managed ChatGPT account.");
@@ -855,20 +869,45 @@ export function isManagedChatgptAccount(value: unknown): boolean {
 }
 
 /**
- * Codex answers `account/read` from the credential snapshot its app-server
- * already holds. A device sign-in writes the managed session into `CODEX_HOME`
- * long after that snapshot was taken, so the cheap non-refreshing read still
- * reports the empty account the process booted with and every completed
- * sign-in looked unconfirmed. Only the refreshing read reloads the credential,
- * so ask a second time before rejecting the account. The first read stays
- * because it costs nothing and skips the refresh-token flow whenever Codex
- * already knows about the account.
+ * Codex 0.146.0 announces `account/login/completed` as soon as its token
+ * exchange succeeds, and only afterwards loads the session it wrote into
+ * `CODEX_HOME`, re-reads the account's cloud config, and announces the result
+ * as `account/updated`. `account/read` answers from the session Codex has
+ * loaded, so a read sent on completion races that load and reports the empty
+ * account the process booted with. On a fast host every sign-in lost that
+ * race. Asking with `refreshToken` cannot close the gap: Codex refreshes only
+ * a session it already holds, and then rotates its token over the network.
+ *
+ * So wait for Codex to announce the account, then read it once. The wait is
+ * bounded in case the announcement never comes, and the read still decides.
  */
 export async function confirmManagedChatgptAccount(
-  read: (params: { refreshToken: boolean }) => Promise<unknown>,
+  accountUpdated: Promise<void>,
+  read: () => Promise<unknown>,
+  timeoutMs = ACCOUNT_UPDATE_TIMEOUT_MS,
 ): Promise<boolean> {
-  if (isManagedChatgptAccount(await read({ refreshToken: false }))) return true;
-  return isManagedChatgptAccount(await read({ refreshToken: true }));
+  await settledOrElapsed(accountUpdated, timeoutMs);
+  return isManagedChatgptAccount(await read());
+}
+
+/**
+ * Settle on the first `account/updated` Codex sends, or once it exits and never
+ * will. Subscribed before `account/login/start`, so it catches the announcement
+ * on either side of `account/login/completed`: Codex 0.156.0 and later load the
+ * session first and announce both together.
+ */
+function nextAccountUpdate(server: CodexAppServer): Promise<void> {
+  return new Promise((resolve) => {
+    const stopNotifications = server.onNotification((method) => {
+      if (method === "account/updated") settle();
+    });
+    const stopExit = server.onExit(() => settle());
+    function settle() {
+      stopNotifications();
+      stopExit();
+      resolve();
+    }
+  });
 }
 
 function parseModelConfig(value: string): Record<string, unknown> {
@@ -914,6 +953,19 @@ function safePublicError(value: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Resolve once `signal` settles or `ms` pass, whichever comes first. */
+async function settledOrElapsed(signal: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const elapsed = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([signal.catch(() => undefined), elapsed]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function waitForLock(previous: Promise<void>, signal?: AbortSignal): Promise<void> {
