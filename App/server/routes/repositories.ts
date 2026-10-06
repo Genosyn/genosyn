@@ -72,8 +72,8 @@ export const repositoriesRouter = Router({ mergeParams: true });
  * to every Member. A record route added below must also be added here.
  */
 const RECORD_PATHS = [
-  /^\/repositories\/?$/,
-  /^\/repositories\/[^/]+\/?$/,
+  /^\/repositories$/,
+  /^\/repositories\/[^/]+$/,
   /^\/repositories\/[^/]+\/(?:grants|grant-candidates|test)(?:\/|$)/,
 ];
 
