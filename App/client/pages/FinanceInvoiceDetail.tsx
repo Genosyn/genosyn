@@ -39,6 +39,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
+import { splitAddressList } from "@/lib/addressList";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -1266,12 +1267,11 @@ function ResendInvoiceModal({
 
 function parseRecipientInput(value: string): string[] {
   const seen = new Set<string>();
-  return value.split(",").flatMap((address) => {
-    const trimmed = address.trim();
-    const key = trimmed.toLowerCase();
-    if (!trimmed || seen.has(key)) return [];
+  return splitAddressList(value).flatMap((address) => {
+    const key = address.toLowerCase();
+    if (seen.has(key)) return [];
     seen.add(key);
-    return [trimmed];
+    return [address];
   });
 }
 
