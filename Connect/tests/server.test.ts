@@ -28,11 +28,10 @@ test("startConnect listens, reports what it offers without secrets, and closes o
   const running = await startConnect(config, { log, fetch: fakeGoogle().fetch });
   const base = `http://127.0.0.1:${config.port}`;
   assert.deepEqual(await (await fetch(`${base}/healthz`)).json(), { ok: true });
-  assert.equal(running.store.name, "memory");
   assert.equal(lines.length, 1);
   assert.match(
     lines[0],
-    /listening on 127\.0\.0\.1:\d+ as https:\/\/connect\.example\.test; memory store; offering google \(gmail, calendar\)/,
+    /listening on 127\.0\.0\.1:\d+ as https:\/\/connect\.example\.test; stateless; offering google \(gmail, calendar\)/,
   );
   for (const secret of [config.secret, config.google!.clientSecret]) {
     assert.equal(lines[0].includes(secret), false);
@@ -78,6 +77,16 @@ test("the entry point refuses to start with a broken configuration and lists eve
     process.output(),
     /Set both CONNECT_GOOGLE_CLIENT_ID and CONNECT_GOOGLE_CLIENT_SECRET/,
   );
+});
+
+test("the entry point refuses a database: there is nothing to store", async () => {
+  const process = run({
+    CONNECT_PUBLIC_URL: "https://connect.example.com",
+    CONNECT_DATABASE_URL: "postgres://connect:password@db/connect",
+  });
+  assert.equal(await process.exited, 1);
+  assert.match(process.output(), /CONNECT_DATABASE_URL is no longer used/);
+  assert.equal(process.output().includes("password"), false);
 });
 
 test("the entry point serves until SIGTERM and then exits cleanly", async () => {

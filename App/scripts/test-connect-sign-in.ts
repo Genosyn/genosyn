@@ -20,11 +20,9 @@ import express from "express";
 import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
 import { createConnectApp } from "../../Connect/src/app";
-import { createFlowStates } from "../../Connect/src/flowState";
 import { silentLogger } from "../../Connect/src/log";
 import { createProviders } from "../../Connect/src/providers/index";
 import { createSealer } from "../../Connect/src/secrets";
-import { createMemoryStore } from "../../Connect/src/store/memory";
 import { AppDataSource } from "../server/db/datasource";
 import { Company } from "../server/db/entities/Company";
 import { IntegrationConnection } from "../server/db/entities/IntegrationConnection";
@@ -34,6 +32,7 @@ import { User } from "../server/db/entities/User";
 import { errorHandler } from "../server/middleware/error";
 import { securityHeaders } from "../server/middleware/httpSecurity";
 import { integrationsRouter } from "../server/routes/integrations";
+import { integrationsOauthRouter } from "../server/routes/integrationsOauth";
 import { mailRouter } from "../server/routes/mail";
 import { decryptConnectionConfig } from "../server/services/integrations";
 import { resetHostedOauthAvailabilityForTests } from "../server/services/hostedOauth";
@@ -88,36 +87,27 @@ const googleFetch: typeof fetch = async (input, init) => {
   throw new Error(`Unexpected request from Genosyn Connect: ${url}`);
 };
 
-// ---------- Genosyn Connect on its own origin ----------
+// ---------- Genosyn Connect on its own origin, keeping nothing ----------
 const connectServer = createHttpServer();
 const connectPort = await listen(connectServer);
 const connectOrigin = `http://localhost:${connectPort}`;
 const connectConfig = {
+  port: connectPort,
+  listenHost: "127.0.0.1",
   publicUrl: connectOrigin,
+  secret: crypto.randomBytes(32).toString("hex"),
+  secretIsEphemeral: false,
   trustedProxyHops: 0,
   accessLog: false,
   links: { privacy: null, terms: null },
+  google: { ...GOOGLE_CLIENT, scopeGroups: ["gmail", "calendar"] },
 };
 connectServer.on(
   "request",
   createConnectApp({
     config: connectConfig,
-    flows: createFlowStates(
-      createMemoryStore(),
-      createSealer(crypto.randomBytes(32).toString("hex")),
-    ),
-    providers: createProviders(
-      {
-        ...connectConfig,
-        port: connectPort,
-        listenHost: "127.0.0.1",
-        secret: "unused",
-        secretIsEphemeral: true,
-        databaseUrl: null,
-        google: { ...GOOGLE_CLIENT, scopeGroups: ["gmail", "calendar"] },
-      },
-      { fetch: googleFetch },
-    ),
+    sealer: createSealer(connectConfig.secret),
+    providers: createProviders(connectConfig, { fetch: googleFetch }),
     log: silentLogger,
   }),
 );
@@ -167,6 +157,8 @@ const dev = await createServer({
 // The App's own headers: its COOP keeps the popup's opener for the handshake.
 app.use(securityHeaders);
 app.use(express.json({ limit: "1mb" }));
+// Where Genosyn Connect sends the popup back; before the session, as in the App.
+app.use("/api/integrations/oauth", integrationsOauthRouter);
 app.use("/api", async (req, _res, next) => {
   req.session = { userId: owner.id, sessionVersion: 0 };
   await persistTestSession(req);
@@ -226,7 +218,13 @@ async function signInFromPopup(
   await continueButton.click();
   await popup.waitForURL("https://accounts.google.com/**");
   await popup.locator(`#${decision}`).click();
-  await popup.waitForURL(`${connectOrigin}/api/connect/google/callback?**`).catch(() => {});
+  // Connect sends the popup back to this installation's own page, with the
+  // result in the fragment, which the page hands to its server and removes.
+  await popup.waitForURL(`${appOrigin}/api/integrations/oauth/hosted/return**`);
+  await popup
+    .getByRole("heading", { name: decision === "allow" ? "Connected" : "Sign-in could not finish" })
+    .waitFor();
+  assert.equal(new URL(popup.url()).hash, "", "the fragment leaves the address bar");
   return popup;
 }
 
@@ -307,15 +305,16 @@ add(
     );
     await page
       .getByRole("alert")
-      .getByText("Google sign-in was cancelled or expired. Start again when ready.")
+      .getByText("Google sign-in was cancelled. Start again when ready.")
       .waitFor({ timeout: 30_000 });
     assert.equal(await AppDataSource.getRepository(IntegrationConnection).count(), 0);
     assert.equal(
       await page.getByRole("button", { name: "Continue", exact: true }).isEnabled(),
       true,
     );
+    // The installation may already have closed its popup.
     if (!popup.isClosed()) {
-      await popup.getByText("Sign-in not completed").waitFor();
+      await popup.getByText("Google sign-in was cancelled. Start again when ready.").waitFor();
     }
   },
 );

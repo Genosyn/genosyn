@@ -4,16 +4,15 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createConnectApp } from "../src/app.js";
 import type { ConnectConfig } from "../src/config.js";
-import { createFlowStates } from "../src/flowState.js";
 import { silentLogger } from "../src/log.js";
 import { createProviders } from "../src/providers/index.js";
 import { createSealer } from "../src/secrets.js";
-import { createMemoryStore } from "../src/store/memory.js";
-import type { FlowStore } from "../src/store/types.js";
 import { Throttle } from "../src/throttle.js";
+import { decryptResult } from "../src/tokens.js";
 
 export const PUBLIC_URL = "https://connect.example.test";
 export const INSTALLATION = "http://nas.local:3000";
+export const RETURN_URL = `${INSTALLATION}/api/integrations/oauth/hosted/return`;
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.settings.basic",
@@ -34,7 +33,6 @@ export function testConfig(overrides: Partial<ConnectConfig> = {}): ConnectConfi
     secret: "s".repeat(48),
     secretIsEphemeral: false,
     trustedProxyHops: 0,
-    databaseUrl: null,
     accessLog: false,
     links: { privacy: null, terms: null },
     google: {
@@ -49,11 +47,13 @@ export function testConfig(overrides: Partial<ConnectConfig> = {}): ConnectConfi
 type GoogleCall = { url: string; body: URLSearchParams; headers: Headers };
 
 /**
- * A stand-in for Google's token and userinfo endpoints. Anything else is an
- * unexpected outbound request and fails the test.
+ * A stand-in for Google's token and userinfo endpoints. Authorization codes
+ * are single-use, as Google's are. Anything else is an unexpected outbound
+ * request and fails the test.
  */
 export function fakeGoogle() {
   const calls: GoogleCall[] = [];
+  const redeemed = new Set<string>();
   const state = {
     tokenStatus: 200,
     tokenBody: {} as Record<string, unknown>,
@@ -62,7 +62,6 @@ export function fakeGoogle() {
     profileStatus: 200,
     profile: { email: "member@gmail.com", email_verified: true } as Record<string, unknown>,
     grantedScope: [...IDENTITY_SCOPES, ...GMAIL_SCOPES].join(" "),
-    tokenDelayMs: 0,
   };
   const fetchImpl: typeof fetch = async (input, init = {}) => {
     const url = String(input);
@@ -73,8 +72,6 @@ export function fakeGoogle() {
     calls.push({ url, body, headers });
     assert.equal(init.redirect, "error", "upstream calls never follow redirects");
     if (url === "https://oauth2.googleapis.com/token") {
-      if (state.tokenDelayMs)
-        await new Promise((resolve) => setTimeout(resolve, state.tokenDelayMs));
       if (body.get("grant_type") === "refresh_token") {
         return Response.json(
           Object.keys(state.refreshBody).length
@@ -83,6 +80,9 @@ export function fakeGoogle() {
           { status: state.refreshStatus },
         );
       }
+      const code = body.get("code") ?? "";
+      if (redeemed.has(code)) return Response.json({ error: "invalid_grant" }, { status: 400 });
+      redeemed.add(code);
       return Response.json(
         Object.keys(state.tokenBody).length
           ? state.tokenBody
@@ -106,22 +106,16 @@ export function fakeGoogle() {
 
 export type TestService = Awaited<ReturnType<typeof startTestService>>;
 
-/** The real app on an ephemeral port, with an in-memory store and a fake Google. */
+/** The real app on an ephemeral port, with a fake Google and nothing else. */
 export async function startTestService(
-  options: {
-    config?: Partial<ConnectConfig>;
-    store?: FlowStore;
-    now?: () => number;
-    throttle?: Throttle;
-  } = {},
+  options: { config?: Partial<ConnectConfig>; throttle?: Throttle } = {},
 ) {
   const config = testConfig(options.config);
   const google = fakeGoogle();
-  const store = options.store ?? createMemoryStore({ now: options.now });
   const throttle = options.throttle ?? new Throttle();
   const app = createConnectApp({
     config,
-    flows: createFlowStates(store, createSealer(config.secret)),
+    sealer: createSealer(config.secret),
     providers: createProviders(config, { fetch: google.fetch }),
     throttle,
     log: silentLogger,
@@ -134,13 +128,46 @@ export async function startTestService(
     base,
     config,
     google,
-    store,
     throttle,
     async close() {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
     },
+  };
+}
+
+/** What an installation holds for one sign-in it started. */
+export type Started = {
+  response: Response;
+  body: { requestId: string; authorizeUrl: string; expiresAt: number; error?: string };
+  browserProof: string;
+  resultKey: string;
+  state: string;
+  /** Where the installation asked the browser to come back to. */
+  returnUrl: string;
+};
+
+/** The fragment the installation's page receives, and what it decrypts to. */
+export function readReturn(
+  location: string | null,
+  started: Pick<Started, "resultKey" | "state"> & { returnUrl?: string },
+) {
+  assert.ok(location, "the callback sends the browser back to the installation");
+  const url = new URL(location);
+  assert.equal(`${url.origin}${url.pathname}`, started.returnUrl ?? RETURN_URL);
+  assert.equal(url.search, "", "nothing about the result is sent to a server");
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const result = fragment.get("result");
+  const plaintext = result
+    ? decryptResult(started.resultKey, "google", fragment.get("state") ?? "", result)
+    : null;
+  return {
+    state: fragment.get("state"),
+    error: fragment.get("error"),
+    result,
+    credential: plaintext ? (JSON.parse(plaintext) as Record<string, unknown>) : null,
+    keys: [...fragment.keys()],
   };
 }
 
@@ -156,22 +183,23 @@ export function client(service: { base: string }, basePath = "/api/connect/googl
         body: JSON.stringify(body),
       });
     },
-    async start(extra: Record<string, unknown> = {}) {
-      const codeVerifier = random();
+    async start(extra: Record<string, unknown> = {}): Promise<Started> {
       const browserProof = random();
-      const response = await this.post("/start", {
-        codeChallenge: digest(codeVerifier),
+      const resultKey = random();
+      const state = random();
+      const fields = {
         browserChallenge: digest(browserProof),
         installationOrigin: INSTALLATION,
+        returnUrl: RETURN_URL,
+        state,
+        resultKey,
+        scopes: [...IDENTITY_SCOPES, ...GMAIL_SCOPES],
         ...extra,
-      });
-      const body = (await response.json()) as {
-        requestId: string;
-        authorizeUrl: string;
-        expiresAt: number;
-        error?: string;
       };
-      return { response, body, codeVerifier, browserProof };
+      const response = await this.post("/start", fields);
+      const body = (await response.json()) as Started["body"];
+      const returnUrl = typeof fields.returnUrl === "string" ? fields.returnUrl : RETURN_URL;
+      return { response, body, browserProof, resultKey, state, returnUrl };
     },
     async page(requestId: string) {
       const response = await fetch(url(`/authorize?requestId=${requestId}`), {
@@ -214,23 +242,31 @@ export function client(service: { base: string }, basePath = "/api/connect/googl
         .find((part) => page.nonce !== "" && part.endsWith(`=${page.nonce}`));
       return { response, upstream, state, page, callbackCookie: callbackCookie ?? "" };
     },
-    async callback(state: string, cookie: string, query = "code=google-auth-code") {
+    /** Google issues one code per consent; replaying a callback replays its code. */
+    async callback(
+      state: string,
+      cookie: string,
+      query = `code=code-${digest(state).slice(0, 16)}`,
+    ) {
       return fetch(url(`/callback?state=${state}&${query}`), {
+        redirect: "manual",
         headers: { cookie, accept: "text/html" },
       });
     },
-    async poll(requestId: string, codeVerifier: string) {
-      const response = await this.post("/poll", { requestId, codeVerifier });
-      return { response, body: (await response.json()) as Record<string, unknown> };
-    },
-    /** Start → consent page → Continue → provider → callback, returning what the poll needs. */
+    /** Start → consent page → Continue → provider → callback → back to the installation. */
     async signIn(extra: Record<string, unknown> = {}, callbackQuery?: string) {
       const started = await this.start(extra);
       assert.equal(started.response.status, 200, started.body.error);
       const consent = await this.consent(started.body.requestId, started.browserProof);
       assert.equal(consent.response.status, 303);
       const returned = await this.callback(consent.state, consent.callbackCookie, callbackQuery);
-      return { started, consent, returned };
+      assert.equal(returned.status, 303, await returned.clone().text());
+      return {
+        started,
+        consent,
+        returned,
+        delivered: readReturn(returned.headers.get("location"), started),
+      };
     },
   };
 }

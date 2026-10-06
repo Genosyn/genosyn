@@ -57,7 +57,6 @@ button{width:100%;font:inherit;font-weight:600;padding:12px 16px;border:0;border
 button:disabled{opacity:.4;cursor:not-allowed}
 button:focus-visible,a:focus-visible{outline:3px solid #94a3b8;outline-offset:3px}
 .note{font-size:13px;color:var(--subtle);margin:16px 0 0}
-.tone-ok h1{color:var(--ok)}
 .tone-error h1{color:var(--err)}
 footer{margin-top:20px;font-size:12px;color:var(--subtle);display:flex;gap:16px}
 footer a{color:inherit}
@@ -112,29 +111,24 @@ export function consentPage(args: {
   });
 }
 
-/** A finished, failed, or expired sign-in, and every other browser-facing error. */
+/**
+ * A failed or expired sign-in, and every other browser-facing error. A sign-in
+ * that gets as far as the provider always ends on the installation's own page
+ * instead, so this service never shows a success.
+ */
 export function messagePage(args: {
   title: string;
   detail: string;
-  tone: "ok" | "error" | "info";
+  tone: "error" | "info";
   styleNonce: string;
   links: PageLinks;
-  /** Close a successful popup on its own; the installation is already polling. */
-  close?: { scriptNonce: string };
 }): string {
-  const body = `<h1>${escapeHtml(args.title)}</h1><p>${escapeHtml(args.detail)}</p>${args.close ? '<p class="note">This window closes on its own. If it stays open, you can close it.</p>' : ""}`;
   return renderDocument({
     title: args.title,
     styleNonce: args.styleNonce,
-    body,
+    body: `<h1>${escapeHtml(args.title)}</h1><p>${escapeHtml(args.detail)}</p>`,
     links: args.links,
-    className: args.tone === "info" ? undefined : `tone-${args.tone}`,
-    script: args.close
-      ? {
-          nonce: args.close.scriptNonce,
-          source: "setTimeout(()=>{try{window.close()}catch(e){}},1500);",
-        }
-      : undefined,
+    className: args.tone === "error" ? "tone-error" : undefined,
   });
 }
 
@@ -151,7 +145,7 @@ export function landingPage(args: {
         `<li><strong>${escapeHtml(provider.name)}</strong><span>${escapeHtml(provider.products.join(", "))}</span></li>`,
     )
     .join("");
-  const body = `<h1>Genosyn Connect</h1><p>Genosyn Connect lets self-hosted Genosyn installations connect Integrations without registering their own OAuth apps. There is nothing to do here: start from your installation, under Email or Settings → Integrations.</p>${offered ? `<p>Available here:</p><ul class="access">${offered}</ul>` : "<p>No Integrations are available here yet.</p>"}<p class="note">This service holds each sign-in for at most ten minutes, until your installation collects it, and renews access tokens when your installation asks. It never stores your email, files or other data.</p>`;
+  const body = `<h1>Genosyn Connect</h1><p>Genosyn Connect lets self-hosted Genosyn installations connect Integrations without registering their own OAuth apps. There is nothing to do here: start from your installation, under Email or Settings → Integrations.</p>${offered ? `<p>Available here:</p><ul class="access">${offered}</ul>` : "<p>No Integrations are available here yet.</p>"}<p class="note">This service keeps nothing. Each sign-in travels sealed through your browser and comes back to your installation encrypted to its own key, and renewing access stores nothing either. It never sees your email, files or other data.</p>`;
   return renderDocument({
     title: "Genosyn Connect",
     styleNonce: args.styleNonce,

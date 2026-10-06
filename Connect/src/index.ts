@@ -15,18 +15,18 @@ try {
 
 if (config.secretIsEphemeral) {
   consoleLogger.info(
-    "CONNECT_SECRET is not set; sign-in state is in memory and sealed with a per-process key.",
+    "CONNECT_SECRET is not set; this process seals sign-ins with a key of its own. Give every replica the same CONNECT_SECRET when running more than one.",
   );
 }
 
 const running = await startConnect(config).catch((error: unknown) => {
-  // A code (EADDRINUSE, ECONNREFUSED, a Postgres SQLSTATE) says what went
-  // wrong without echoing a connection string or a query.
+  // A code such as EADDRINUSE says what went wrong without echoing anything
+  // configured.
   const code = (error as { code?: unknown } | null)?.code;
   consoleLogger.error(
     `could not start: ${error instanceof Error ? error.name : "unknown error"}${
       typeof code === "string" ? ` (${code})` : ""
-    }${config.databaseUrl ? "; check CONNECT_DATABASE_URL" : ""}`,
+    }`,
   );
   process.exit(1);
 });

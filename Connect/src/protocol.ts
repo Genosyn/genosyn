@@ -1,51 +1,42 @@
 /**
- * One wire protocol a provider is served under.
+ * The protocol version Connect speaks, reported by every status route.
  *
- * Installations save the path they signed in through and renew tokens on
- * that exact path forever after, so a path, its cookie prefix and its
- * window-message names can never change once released. State kinds are per
- * protocol: a sign-in started on one path cannot be continued on another.
+ * Version 2 keeps no state: a sign-in's context travels sealed with it, and
+ * the credential returns to the installation through the browser, encrypted
+ * to a key only that installation holds. Installations released before it
+ * spoke version 1, which parked the credential on the service until they
+ * polled for it; they read `version: 2` as "not available here" and never
+ * start a sign-in they could not finish. Renewal (`/refresh`) is the same in
+ * both versions and must stay so: every Connection renews on the path that
+ * issued it, for as long as it exists.
  */
+export const PROTOCOL_VERSION = 2;
+
+/** One provider's routes, cookies and window messages. */
 export type Protocol = {
   providerId: string;
   basePath: string;
-  flowKind: string;
-  callbackKind: string;
   cookiePrefix: string;
   /** Posted by the consent page to the window that opened it. */
   readyMessage: string;
   /** Posted back by that window with the browser proof. */
   launchMessage: string;
-  /**
-   * The first Gmail-only release: the client never names scopes and expects
-   * Gmail, and the start request may carry nothing else.
-   */
-  legacy: boolean;
 };
 
 export function canonicalProtocol(providerId: string): Protocol {
   return {
     providerId,
     basePath: `/api/connect/${providerId}`,
-    flowKind: `flow:${providerId}`,
-    callbackKind: `callback:${providerId}`,
     cookiePrefix: `genosyn_connect_${providerId}_`,
     readyMessage: "genosyn-sign-in-ready",
     launchMessage: "genosyn-sign-in-launch",
-    legacy: false,
   };
 }
 
-/** The Gmail-only path released before provider-neutral routes existed. */
-export const LEGACY_GOOGLE_PROTOCOL: Protocol = Object.freeze({
-  providerId: "google",
-  basePath: "/api/google-sign-in",
-  flowKind: "flow:google-legacy",
-  callbackKind: "callback:google-legacy",
-  cookiePrefix: "genosyn_gmail_",
-  readyMessage: "genosyn-google-sign-in-ready",
-  launchMessage: "genosyn-google-sign-in-launch",
-  legacy: true,
-});
-
 export const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * Installations released from 1.227 up to protocol 2 issued Gmail Connections
+ * on this path, and renew them here. Only renewal is left on it.
+ */
+export const LEGACY_GOOGLE_RENEWAL_PATH = "/api/google-sign-in";

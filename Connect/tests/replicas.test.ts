@@ -1,142 +1,66 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
-import { afterEach, test } from "node:test";
-import pg from "pg";
-import { createMemoryStore } from "../src/store/memory.js";
-import { createPostgresStore } from "../src/store/postgres.js";
-import type { FlowStore } from "../src/store/types.js";
-import { client, startTestService, testConfig, type TestService } from "./helpers.js";
+import { after, before, test } from "node:test";
+import { client, readReturn, startTestService, type TestService } from "./helpers.js";
 
-const running: TestService[] = [];
-afterEach(async () => {
-  for (const service of running.splice(0)) await service.close();
+/**
+ * Replicas share nothing but the operator's secret: no database, no sticky
+ * sessions. Each step of one sign-in may land on a different replica, and one
+ * started before a restart finishes after it, as long as the secret is the same.
+ */
+let first: TestService;
+let second: TestService;
+let stranger: TestService;
+
+before(async () => {
+  first = await startTestService();
+  second = await startTestService();
+  stranger = await startTestService({ config: { secret: "t".repeat(48) } });
+});
+after(async () => {
+  await Promise.all([first.close(), second.close(), stranger.close()]);
 });
 
-async function replica(store: FlowStore, overrides: Parameters<typeof testConfig>[0] = {}) {
-  const service = await startTestService({ store, config: overrides });
-  running.push(service);
-  return service;
-}
-
-test("replicas sharing a store and secret can each serve any step of a sign-in", async () => {
-  const store = createMemoryStore();
-  const [a, b, c] = [await replica(store), await replica(store), await replica(store)];
-  const started = await client(a).start();
-  const consent = await client(b).consent(started.body.requestId, started.browserProof);
+test("every step of a sign-in may land on a different replica", async () => {
+  const a = client(first);
+  const b = client(second);
+  const started = await a.start();
+  assert.equal(started.response.status, 200);
+  // The consent page and its form go to the second replica, the provider
+  // returns to the first.
+  const consent = await b.consent(started.body.requestId, started.browserProof);
   assert.equal(consent.response.status, 303);
-  assert.equal((await client(c).callback(consent.state, consent.callbackCookie)).status, 200);
-  const result = await client(a).poll(started.body.requestId, started.codeVerifier);
-  assert.equal(result.body.status, "complete");
-});
-
-const postgresUrl = process.env.CONNECT_TEST_POSTGRES_URL;
-test(
-  "replicas with their own Postgres connections complete a sign-in together",
-  { skip: postgresUrl ? false : "set CONNECT_TEST_POSTGRES_URL to run against Postgres" },
-  async () => {
-    const table = `connect_test_${crypto.randomBytes(6).toString("hex")}`;
-    const stores = [
-      await createPostgresStore(postgresUrl!, { table }),
-      await createPostgresStore(postgresUrl!, { table }),
-    ];
-    try {
-      const [a, b] = [await replica(stores[0]), await replica(stores[1])];
-      const started = await client(a).start({
-        scopes: ["https://www.googleapis.com/auth/calendar"],
-      });
-      const consent = await client(b).consent(started.body.requestId, started.browserProof);
-      assert.equal((await client(a).callback(consent.state, consent.callbackCookie)).status, 200);
-      const polls = await Promise.all([
-        client(a).poll(started.body.requestId, started.codeVerifier),
-        client(b).poll(started.body.requestId, started.codeVerifier),
-        client(a).poll(started.body.requestId, started.codeVerifier),
-        client(b).poll(started.body.requestId, started.codeVerifier),
-      ]);
-      assert.equal(polls.filter((poll) => poll.body.status === "complete").length, 1);
-    } finally {
-      for (const service of running.splice(0)) await service.close();
-      for (const store of stores) await store.close();
-      const admin = new pg.Client({ connectionString: postgresUrl });
-      await admin.connect();
-      await admin.query(`DROP TABLE IF EXISTS ${table}`);
-      await admin.end();
-    }
-  },
-);
-
-test("a replica with a different secret cannot read the others' sign-ins", async () => {
-  const store = createMemoryStore();
-  const a = await replica(store);
-  const b = await replica(store, { secret: "d".repeat(48) });
-  const started = await client(a).start();
-  const page = await client(b).page(started.body.requestId);
-  assert.equal(page.response.status, 400);
-  assert.match(page.html, /expired or was already used/);
+  const returned = await a.callback(consent.state, consent.callbackCookie);
+  assert.equal(returned.status, 303);
+  const delivered = readReturn(returned.headers.get("location"), started);
+  assert.equal(delivered.state, started.state);
+  assert.equal(delivered.credential?.refreshToken, "google-refresh-token");
+  assert.equal(second.google.calls.length, 0, "the code is redeemed once, where it arrived");
   assert.equal(
-    (await client(b).poll(started.body.requestId, started.codeVerifier)).body.status,
-    "denied",
+    first.google.calls.filter((call) => call.body.get("grant_type") === "authorization_code")
+      .length,
+    1,
   );
 });
 
-test("rotating the OAuth client mid-sign-in stops the old sign-in instead of mixing registrations", async () => {
-  const store = createMemoryStore();
-  const before = await replica(store);
-  const after = await replica(store, {
-    google: { clientId: "rotated-client", clientSecret: "rotated-secret", scopeGroups: ["gmail"] },
+test("a replica with another secret can continue none of it, but still renews", async () => {
+  const a = client(first);
+  const c = client(stranger);
+  const started = await a.start();
+  const page = await c.page(started.body.requestId);
+  assert.equal(page.response.status, 400);
+  assert.match(page.html, /expired or is no longer valid/);
+
+  const consent = await a.consent(started.body.requestId, started.browserProof);
+  const elsewhere = await c.callback(consent.state, consent.callbackCookie);
+  assert.equal(elsewhere.status, 400);
+  assert.equal(stranger.google.calls.length, 0);
+  // The sign-in itself is untouched and finishes where the secret matches.
+  assert.equal((await a.callback(consent.state, consent.callbackCookie)).status, 303);
+
+  // Renewal needs only the OAuth client, never the secret.
+  const renewed = await c.post("/refresh", {
+    clientId: stranger.config.google!.clientId,
+    refreshToken: "issued-by-another-replica",
   });
-  const started = await client(before).start();
-  const refused = await client(after).consent(started.body.requestId, started.browserProof);
-  assert.equal(refused.response.status, 400);
-  assert.match(await refused.response.text(), /Sign-in settings changed/);
-
-  const midway = await client(before).start();
-  const consent = await client(before).consent(midway.body.requestId, midway.browserProof);
-  const returned = await client(after).callback(consent.state, consent.callbackCookie);
-  assert.equal(returned.status, 200);
-  assert.match(await returned.text(), /Sign-in settings changed/);
-  assert.equal(after.google.calls.length, 0, "the new client never redeems the old client's code");
-  const result = await client(before).poll(midway.body.requestId, midway.codeVerifier);
-  assert.equal(result.body.status, "denied");
-
-  const renewal = await client(after).post("/refresh", {
-    clientId: before.config.google!.clientId,
-    refreshToken: "issued-by-old-client",
-  });
-  assert.equal(renewal.status, 401);
-});
-
-test("a store outage fails closed with a generic error and recovers", async () => {
-  const store = createMemoryStore();
-  let broken = false;
-  const flaky: FlowStore = {
-    ...store,
-    name: "memory",
-    async insert(...args) {
-      if (broken) throw new Error("connection refused: postgres://user:password@db");
-      return store.insert(...args);
-    },
-    async get(...args) {
-      if (broken) throw new Error("connection refused");
-      return store.get(...args);
-    },
-    async ping() {
-      if (broken) throw new Error("down");
-    },
-  };
-  const service = await replica(flaky);
-  const api = client(service);
-  const started = await api.start();
-  broken = true;
-  const failed = await api.start();
-  assert.equal(failed.response.status, 500);
-  assert.deepEqual(failed.body, { error: "Sign-in failed. Please try again." });
-  const page = await api.page(started.body.requestId);
-  assert.equal(page.response.status, 500);
-  assert.match(page.html, /Something went wrong/);
-  assert.doesNotMatch(page.html, /password|postgres/);
-  assert.equal((await fetch(`${service.base}/readyz`)).status, 503);
-  assert.equal((await fetch(`${service.base}/healthz`)).status, 200);
-  broken = false;
-  assert.equal((await fetch(`${service.base}/readyz`)).status, 200);
-  assert.equal((await api.page(started.body.requestId)).response.status, 200);
+  assert.equal(renewed.status, 200);
 });

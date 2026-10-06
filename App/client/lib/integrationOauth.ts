@@ -58,8 +58,8 @@ export function connectWithOauth(args: {
     };
     const abort = () => finish(new DOMException("Cancelled", "AbortError"));
     const message = (event: MessageEvent) => {
-      // Prove which installation opened this broker window before it can
-      // start provider consent. The server-held claim verifier stays private.
+      // Prove which installation opened this sign-in window before it can
+      // start provider consent. The key that reads the result stays on the server.
       if (
         hostedAttempt &&
         hostedOrigin &&
@@ -68,17 +68,10 @@ export function connectWithOauth(args: {
         event.source === popup
       ) {
         const ready = event.data as { source?: string; requestId?: string } | null;
-        if (
-          (ready?.source === "genosyn-sign-in-ready" ||
-            ready?.source === "genosyn-google-sign-in-ready") &&
-          ready.requestId === hostedRequestId
-        ) {
+        if (ready?.source === "genosyn-sign-in-ready" && ready.requestId === hostedRequestId) {
           popup.postMessage(
             {
-              source:
-                ready.source === "genosyn-sign-in-ready"
-                  ? "genosyn-sign-in-launch"
-                  : "genosyn-google-sign-in-launch",
+              source: "genosyn-sign-in-launch",
               requestId: hostedRequestId,
               proof: hostedBrowserProof,
             },
@@ -87,7 +80,8 @@ export function connectWithOauth(args: {
         }
         return;
       }
-      // A hosted sign-in is completed only by our authenticated polling API.
+      // A hosted sign-in ends on this installation's return page, which hands
+      // the result to the server; the authenticated poll reports the outcome.
       if (!directReady || event.origin !== window.location.origin || event.source !== popup) return;
       const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
       if (!data || data.source !== "genosyn-oauth") return;

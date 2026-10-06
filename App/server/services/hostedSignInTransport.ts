@@ -2,24 +2,30 @@ import { z } from "zod";
 import { normalizeSignInUrl } from "./runtimeSettings.js";
 
 const UNAVAILABLE = "Hosted sign-in is unavailable. Please try again later.";
+/**
+ * Where Gmail Connections issued by releases before Genosyn Connect's
+ * provider-neutral routes renew. Nothing new is started there.
+ */
 const LEGACY_GOOGLE_PATH = "/api/google-sign-in";
 const DISCOVERY_TTL_MS = 30_000;
 const providerSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
-/** `scopes` is absent on services released before scopes were negotiable. */
+/**
+ * Protocol 2: the service keeps no state and returns the credential through
+ * the browser, encrypted to this installation. A service that answers with
+ * any other version cannot finish a sign-in this installation starts, so it
+ * counts as not offering one.
+ */
 const statusSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   available: z.boolean(),
-  scopes: z.array(z.string().min(1).max(256)).max(256).optional(),
+  scopes: z.array(z.string().min(1).max(256)).max(256),
 });
 
 /** What a sign-in service offers for one provider, as its status route reports it. */
 export type HostedSignInOffer = {
   path: string;
-  /**
-   * Every scope the service will request for an installation. Null when the
-   * service predates scope negotiation: it then grants Gmail and nothing else.
-   */
-  scopes: string[] | null;
+  /** Every scope the service will request for an installation. */
+  scopes: string[];
 };
 
 const discovery = new Map<
@@ -50,7 +56,7 @@ export async function requestHostedSignIn(
   issuer: string,
   provider: string,
   path: string,
-  operation: "status" | "start" | "poll" | "refresh",
+  operation: "status" | "start" | "refresh",
   payload?: Record<string, unknown>,
   timeoutMs = 10_000,
 ): Promise<unknown> {
@@ -101,7 +107,7 @@ async function readOffer(
     await requestHostedSignIn(origin, provider, path, "status", undefined, 2000),
   );
   if (!status.success || !status.data.available) return null;
-  return { path, scopes: status.data.scopes ?? null };
+  return { path, scopes: status.data.scopes };
 }
 
 function cached(key: string, load: () => Promise<HostedSignInOffer | null>) {
@@ -114,9 +120,10 @@ function cached(key: string, load: () => Promise<HostedSignInOffer | null>) {
 }
 
 /**
- * Discover what a service offers for a provider with public status calls only;
- * token exchanges never fall back. Null means "not offered here right now".
- * Throws when the service cannot be reached at all.
+ * Discover what a service offers for a provider with a public status call
+ * only. Null means "not offered here right now", which includes a service
+ * that speaks another protocol version. Throws when the service cannot be
+ * reached at all.
  */
 export async function discoverHostedSignIn(
   issuer: string,
@@ -125,37 +132,7 @@ export async function discoverHostedSignIn(
   const path = validateHostedSignInPath(provider, `/api/connect/${provider}`);
   const origin = normalizeSignInUrl(issuer);
   if (!origin) throw new SignInTransportError();
-  return cached(`${origin}${path}`, async () => {
-    try {
-      return await readOffer(origin, provider, path);
-    } catch (error) {
-      // Older Google hosts only know this route. A disabled provider, outage,
-      // redirect, or incompatible protocol must not trigger a downgrade.
-      if (!(error instanceof SignInTransportError) || error.status !== 404 || provider !== "google")
-        throw error;
-      return readOffer(origin, provider, LEGACY_GOOGLE_PATH);
-    }
-  });
-}
-
-/** What the exact saved issuer and path offer now — for reconnecting a Connection. */
-export async function readHostedSignInOffer(
-  issuer: string,
-  provider: string,
-  path: string,
-): Promise<HostedSignInOffer | null> {
-  validateHostedSignInPath(provider, path);
-  const origin = normalizeSignInUrl(issuer);
-  if (!origin) throw new SignInTransportError();
-  return cached(`pinned:${origin}${path}`, () => readOffer(origin, provider, path));
-}
-
-/** Compatibility for callers that only need the protocol path. */
-export async function discoverHostedSignInPath(
-  issuer: string,
-  provider: string,
-): Promise<string | null> {
-  return (await discoverHostedSignIn(issuer, provider))?.path ?? null;
+  return cached(`${origin}${path}`, () => readOffer(origin, provider, path));
 }
 
 export function resetHostedSignInDiscoveryForTests(): void {

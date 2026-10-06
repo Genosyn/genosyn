@@ -17,20 +17,30 @@ function problems(env: NodeJS.ProcessEnv): string[] {
   assert.fail("expected the configuration to be refused");
 }
 
-test("a public URL alone starts a service with an in-memory store and nothing offered", () => {
+test("a public URL alone starts a service that offers nothing and seals with a key of its own", () => {
   const config = loadConfig(minimal);
   assert.equal(config.publicUrl, "https://connect.example.com");
   assert.equal(config.port, 8473);
   assert.equal(config.listenHost, "0.0.0.0");
   assert.equal(config.trustedProxyHops, 0);
-  assert.equal(config.databaseUrl, null);
   assert.equal(config.accessLog, true);
   assert.equal(config.google, null);
   assert.deepEqual(config.links, { privacy: null, terms: null });
-  // Memory-only state needs no shared key; one is generated per process.
+  // One replica needs no configured key: each process generates its own.
   assert.equal(config.secretIsEphemeral, true);
   assert.ok(config.secret.length >= 32);
   assert.notEqual(loadConfig(minimal).secret, config.secret);
+  assert.deepEqual(Object.keys(config).sort(), [
+    "accessLog",
+    "google",
+    "links",
+    "listenHost",
+    "port",
+    "publicUrl",
+    "secret",
+    "secretIsEphemeral",
+    "trustedProxyHops",
+  ]);
 });
 
 test("the public URL must be an HTTPS origin, or HTTP on loopback for development", () => {
@@ -101,17 +111,20 @@ test("Google needs both client values and only known scope groups", () => {
   );
 });
 
-test("a shared Postgres store requires a shared secret of real length", () => {
-  const database = { ...minimal, CONNECT_DATABASE_URL: "postgres://connect@db/connect" };
-  assert.match(problems(database)[0], /CONNECT_SECRET is required with CONNECT_DATABASE_URL/);
-  assert.match(problems({ ...database, CONNECT_SECRET: "too-short" })[0], /at least 32 characters/);
-  const config = loadConfig({ ...database, CONNECT_SECRET: "x".repeat(32) });
-  assert.equal(config.databaseUrl, "postgres://connect@db/connect");
+test("a configured secret must be of real length, and a database is refused: nothing is stored", () => {
+  assert.match(problems({ ...minimal, CONNECT_SECRET: "too-short" })[0], /at least 32 characters/);
+  const config = loadConfig({ ...minimal, CONNECT_SECRET: ` ${"x".repeat(32)} ` });
+  assert.equal(config.secret, "x".repeat(32));
   assert.equal(config.secretIsEphemeral, false);
-  assert.match(
-    problems({ ...minimal, CONNECT_DATABASE_URL: "mysql://db", CONNECT_SECRET: "x".repeat(32) })[0],
-    /postgres:\/\//,
-  );
+  for (const name of ["CONNECT_DATABASE_URL", "CONNECT_DATABASE_URL_FILE"]) {
+    const refused = problems({ ...minimal, [name]: "postgres://connect@db/connect" });
+    assert.equal(refused.length, 1, name);
+    assert.match(
+      refused[0],
+      /CONNECT_DATABASE_URL is no longer used: Genosyn Connect keeps no state/,
+    );
+    assert.match(refused[0], /same CONNECT_SECRET/);
+  }
 });
 
 test("secrets can come from mounted files, but not from a file and a value at once", () => {
@@ -119,19 +132,16 @@ test("secrets can come from mounted files, but not from a file and a value at on
   try {
     const secretFile = path.join(dir, "secret");
     const googleFile = path.join(dir, "google");
-    const databaseFile = path.join(dir, "database");
     fs.writeFileSync(secretFile, `${"f".repeat(40)}\n`);
     fs.writeFileSync(googleFile, "file-secret\n");
-    fs.writeFileSync(databaseFile, "postgresql://connect@db/connect\n");
     const config = loadConfig({
       ...minimal,
       CONNECT_SECRET_FILE: secretFile,
-      CONNECT_DATABASE_URL_FILE: databaseFile,
       CONNECT_GOOGLE_CLIENT_ID: "id",
       CONNECT_GOOGLE_CLIENT_SECRET_FILE: googleFile,
     });
     assert.equal(config.secret, "f".repeat(40));
-    assert.equal(config.databaseUrl, "postgresql://connect@db/connect");
+    assert.equal(config.secretIsEphemeral, false);
     assert.equal(config.google?.clientSecret, "file-secret");
     assert.match(
       problems({ ...minimal, CONNECT_SECRET: "x".repeat(32), CONNECT_SECRET_FILE: secretFile })[0],

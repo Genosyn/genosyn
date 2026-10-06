@@ -277,10 +277,18 @@ cases.push({
 });
 
 cases.push({
-  name: "legacy hosted popup protocol still completes through authenticated polling",
+  name: "a page speaking the retired Gmail-only messages is never sent the browser proof",
   run: async (page) => {
     state.legacyProtocol = true;
-    await completeHosted(page);
+    const opened = page.waitForEvent("popup");
+    await submit(page).click();
+    const popup = await opened;
+    await dialog(page).getByRole("status").getByText("Waiting for sign-in…").waitFor();
+    // Give the opener every chance to answer the page's ready message.
+    await popup.waitForTimeout(500);
+    assert.equal(await popup.getByRole("button", { name: "Complete consent" }).isDisabled(), true);
+    await dialog(page).getByRole("button", { name: "Cancel sign-in" }).click();
+    await saved(page, 0);
   },
 });
 
