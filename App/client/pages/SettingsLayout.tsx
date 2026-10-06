@@ -10,7 +10,9 @@ import { SectionRailLinks } from "../components/SectionRail";
  * TasksLayout / BasesLayout so the company-level settings section feels
  * consistent with the rest of the app. Child routes read `company`, the
  * current user, and the refresh callback from Outlet context. Rail links come
- * from the subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches.
+ * from the subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches, and
+ * like the palette they leave out what the viewer can't open: a Member sees
+ * no Usage, Single sign-on, or Audit log, whose reads are admin-only.
  */
 
 export type SettingsOutletCtx = {
@@ -58,7 +60,7 @@ export default function SettingsLayout({
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="settings" companySlug={company.slug} />
+        <SectionRailLinks section="settings" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

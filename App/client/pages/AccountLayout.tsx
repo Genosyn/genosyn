@@ -46,7 +46,7 @@ export default function AccountLayout({
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="account" companySlug={company.slug} />
+        <SectionRailLinks section="account" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

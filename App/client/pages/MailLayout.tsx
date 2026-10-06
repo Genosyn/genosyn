@@ -498,7 +498,7 @@ export default function MailLayout({ company }: { company: Company }) {
             subpage catalogue (`lib/subpages.ts`) the ⌘K palette searches. The
             folders above are drawn here because they carry live counts; the
             catalogue lists them for the palette too. */}
-        <SectionRailLinks section="mail" companySlug={company.slug} continued />
+        <SectionRailLinks section="mail" companySlug={company.slug} viewer={company} continued />
       </nav>
     </div>
   );

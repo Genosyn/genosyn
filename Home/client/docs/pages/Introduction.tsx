@@ -203,9 +203,10 @@ export function Introduction() {
         the invoice form. Each page shows the section it belongs to, and whichever group holds the
         closest match comes first, so <Code>↵</Code> opens it. Add the section&apos;s name to narrow
         things down: &ldquo;revenue accounts&rdquo; finds Revenue&apos;s Accounts and not
-        Finance&apos;s Chart of accounts. Pages only appear when you can open them: a Member
-        doesn&apos;t see admin-only pages such as Usage, Single sign-on, or the Audit log, and
-        Finance pages follow the finance access an owner or admin set for you on Settings → Members.
+        Finance&apos;s Chart of accounts. Pages only appear when you can open them, here and in each
+        section&apos;s sidebar alike: a Member doesn&apos;t see admin-only pages such as Usage,
+        Single sign-on, or the Audit log, and Finance pages follow the finance access an owner or
+        admin set for you on Settings → Members.
       </P>
       <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}

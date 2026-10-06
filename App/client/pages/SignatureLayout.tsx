@@ -16,7 +16,7 @@ export default function SignatureLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        <SectionRailLinks section="signatures" companySlug={company.slug} />
+        <SectionRailLinks section="signatures" companySlug={company.slug} viewer={company} />
       </nav>
       <div className="border-t border-slate-100 p-3 text-xs leading-5 text-slate-400 dark:border-slate-800 dark:text-slate-500">
         Every view, signature, and delivery is recorded in the request audit trail.

@@ -19,6 +19,7 @@ import {
   type SubpageItem,
   type SubpageViewer,
   canOpenSubpage,
+  effectiveFinanceAccess,
   isCurrentSubpage,
   pagesLead,
   railSubpages,
@@ -255,6 +256,21 @@ describe("subpage visibility", () => {
     assert.equal(canOpenSubpage(financeRead, {}), false);
     assert.equal(canOpenSubpage(financeRead, { role: "member" }), false);
     assert.equal(canOpenSubpage(plain, {}), true);
+  });
+
+  test("resolves Finance access as the server does", () => {
+    // FinanceLayout closes the section on `none`, so this is the whole rule.
+    for (const role of ["owner", "admin"] as const) {
+      for (const financeAccess of ["none", "read", "full", undefined] as const) {
+        assert.equal(effectiveFinanceAccess({ role, financeAccess }), "full", role);
+      }
+    }
+    assert.equal(effectiveFinanceAccess(MEMBER_NONE), "none");
+    assert.equal(effectiveFinanceAccess(MEMBER_READ), "read");
+    assert.equal(effectiveFinanceAccess(MEMBER_FULL), "full");
+    assert.equal(effectiveFinanceAccess({ role: "member" }), "none");
+    assert.equal(effectiveFinanceAccess({ financeAccess: "read" }), "read");
+    assert.equal(effectiveFinanceAccess({}), "none");
   });
 
   test("hides exactly the pages whose own reads or writes are admin-only", () => {

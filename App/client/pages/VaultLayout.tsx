@@ -38,7 +38,7 @@ export default function VaultLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="vault" companySlug={company.slug} />
+        <SectionRailLinks section="vault" companySlug={company.slug} viewer={company} />
       </nav>
       <div className="border-t border-slate-100 p-3 text-xs leading-5 text-slate-400 dark:border-slate-800 dark:text-slate-500">
         Stored values stay encrypted until an authorized request needs them.

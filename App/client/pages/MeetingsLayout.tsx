@@ -28,7 +28,7 @@ export default function MeetingsLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <SectionRailLinks section="meetings" companySlug={company.slug} />
+        <SectionRailLinks section="meetings" companySlug={company.slug} viewer={company} />
       </nav>
     </div>
   );

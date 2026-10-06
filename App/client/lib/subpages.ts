@@ -86,9 +86,11 @@ import {
  * Two surfaces read it. The section rails render their links from it
  * (`SectionRailLinks`), and the ⌘K palette searches it, so a page added to a
  * rail is findable from the palette the moment it ships rather than whenever
- * somebody remembers a second list. Rails that are mostly dynamic — the mail
- * folders with their unread badges, the Tasks review queue — still draw their
- * own links, and their fixed destinations are listed here for the palette.
+ * somebody remembers a second list. Both leave out what the viewer can't open
+ * (`canOpenSubpage`), so one `access` entry gates a page in both places.
+ * Rails that are mostly dynamic — the mail folders with their unread badges,
+ * the Tasks review queue — still draw their own links, and their fixed
+ * destinations are listed here for the palette.
  * `server/client/subpageRoutes.test.ts` holds both ends together: every path
  * below must be a real route in `App.tsx`, and every static route there must
  * be listed here or excluded on purpose.
@@ -1008,17 +1010,29 @@ export const PALETTE_SUBPAGES: readonly SubpageItem[] = (() => {
 // ─────────────────────────────── visibility ───────────────────────────────
 
 /**
+ * The Finance access this person actually has, by the server's own rule
+ * (`financeAccessFor`): owners and admins always `full`, whatever their
+ * membership row says; anyone else what their membership grants, failing
+ * closed to `none`. Below `read`, every finance route answers 403.
+ */
+export function effectiveFinanceAccess(viewer: SubpageViewer): FinanceAccess {
+  const isAdmin = viewer.role === "owner" || viewer.role === "admin";
+  return isAdmin ? "full" : (viewer.financeAccess ?? "none");
+}
+
+/**
  * Whether this person can actually open the page. Mirrors the server's own
  * gates — an admin-only page answers 403 to a Member, and every Finance read
- * needs at least `read` access — so the palette never offers a destination
- * that can only fail. An unknown role is treated as a plain Member.
+ * needs at least `read` access — so neither the palette nor a section rail
+ * offers a destination that can only fail. An unknown role is treated as a
+ * plain Member.
  */
 export function canOpenSubpage(page: SubpageItem, viewer: SubpageViewer): boolean {
   const isAdmin = viewer.role === "owner" || viewer.role === "admin";
   if (page.access?.admin && !isAdmin) return false;
   const needed = page.access?.finance;
   if (needed) {
-    const has: FinanceAccess = isAdmin ? "full" : (viewer.financeAccess ?? "none");
+    const has = effectiveFinanceAccess(viewer);
     if (has === "none") return false;
     if (needed === "full" && has !== "full") return false;
   }
