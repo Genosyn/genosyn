@@ -24,6 +24,7 @@ import { api, CompanySearchResult, SearchResultKind } from "../lib/api";
 import {
   ACCOUNT_SECTION,
   HELP_SECTION,
+  SECTION_BY_KEY,
   SECTION_GROUPS,
   SectionGroup,
   SectionItem,
@@ -31,6 +32,14 @@ import {
   activeSection,
   searchSections,
 } from "../lib/sections";
+import {
+  PALETTE_SUBPAGES,
+  type SubpageMatch,
+  type SubpageViewer,
+  isCurrentSubpage,
+  pagesLead,
+  searchSubpages,
+} from "../lib/subpages";
 import { type Command, searchCommands, useCommandSnapshot } from "./CommandRegistry";
 import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
@@ -45,9 +54,13 @@ import { clsx } from "./ui/clsx";
  *
  * Two modes, one list:
  *   - empty query  → browse, grouped exactly like the catalog reads
- *   - typing       → sections ranked by `searchSections` first (navigation is
- *     the palette's primary job), then entity hits from `/search` — employees,
- *     notes, bases, channels, … — grouped by kind underneath
+ *   - typing       → navigation first (it is the palette's primary job):
+ *     sections ranked by `searchSections`, and the pages inside them — Finance
+ *     → Recurring invoices, Settings → Members — ranked by `searchSubpages`
+ *     over the same catalogue the section rails draw. Whichever group holds the
+ *     single best match leads, so ↵ opens the best destination. Entity hits
+ *     from `/search` — employees, notes, bases, channels, … — follow, grouped
+ *     by kind underneath.
  * Either way the keyboard walks a single flat index in visual order, so ↓↓↵
  * means the same thing in both.
  */
@@ -185,10 +198,13 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
 export function CommandPaletteProvider({
   companyId,
   companySlug,
+  viewer,
   children,
 }: {
   companyId: string;
   companySlug: string;
+  /** Who is looking — decides which pages the palette may offer. */
+  viewer: SubpageViewer;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -227,7 +243,12 @@ export function CommandPaletteProvider({
     <CommandPaletteContext.Provider value={value}>
       {children}
       {isOpen && (
-        <CommandPalette companyId={companyId} companySlug={companySlug} onClose={close} />
+        <CommandPalette
+          companyId={companyId}
+          companySlug={companySlug}
+          viewer={viewer}
+          onClose={close}
+        />
       )}
     </CommandPaletteContext.Provider>
   );
@@ -294,26 +315,35 @@ function useEntitySearch(companyId: string, query: string) {
 
 // ───────────────────────────────── palette ─────────────────────────────────
 
-/** One keyboard-walkable row — an action, a section match, or an entity hit. */
+/** One keyboard-walkable row — an action, a section or page match, or an entity hit. */
 type PaletteEntry =
   | { type: "command"; command: Command }
   | { type: "section"; match: SectionMatch }
+  | { type: "page"; match: SubpageMatch }
   | { type: "entity"; hit: CompanySearchResult };
 
 function entryId(entry: PaletteEntry): string {
-  if (entry.type === "command") return `command-palette-opt-cmd-${entry.command.id}`;
-  return entry.type === "section"
-    ? `command-palette-opt-${entry.match.item.key}`
-    : `command-palette-opt-ent-${entry.hit.kind}-${entry.hit.id}`;
+  switch (entry.type) {
+    case "command":
+      return `command-palette-opt-cmd-${entry.command.id}`;
+    case "section":
+      return `command-palette-opt-${entry.match.item.key}`;
+    case "page":
+      return `command-palette-opt-page-${entry.match.page.id}`;
+    case "entity":
+      return `command-palette-opt-ent-${entry.hit.kind}-${entry.hit.id}`;
+  }
 }
 
 function CommandPalette({
   companyId,
   companySlug,
+  viewer,
   onClose,
 }: {
   companyId: string;
   companySlug: string;
+  viewer: SubpageViewer;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
@@ -325,6 +355,17 @@ function CommandPalette({
   const [active, setActive] = React.useState(0);
 
   const matches = React.useMemo(() => searchSections(PALETTE_ITEMS, query), [query]);
+  // Pages the viewer can open, minus any that land exactly where a listed
+  // section row already does ("revenue" shouldn't offer Revenue twice).
+  const pageMatches = React.useMemo(
+    () =>
+      searchSubpages(PALETTE_SUBPAGES, query, {
+        viewer,
+        excludePaths: matches.map((m) => m.item.path),
+      }),
+    [query, viewer, matches],
+  );
+  const pagesFirst = pagesLead(matches, pageMatches);
   const searching = query.trim().length > 0;
   const currentKey = activeSection(location.pathname);
   const { hits: entityHits, pending: entityPending } = useEntitySearch(companyId, query);
@@ -358,16 +399,19 @@ function CommandPalette({
     return list;
   }, [entityHits, searching]);
 
-  // The single flat index the keyboard walks: sections first — the palette is
-  // primarily how you move between sections — then entity groups in order.
-  const entries = React.useMemo<PaletteEntry[]>(
-    () => [
+  // The single flat index the keyboard walks: navigation first — the palette
+  // is primarily how you move around — then entity groups in order. Within
+  // navigation, sections and pages keep their own groups, and whichever holds
+  // the best match leads.
+  const entries = React.useMemo<PaletteEntry[]>(() => {
+    const sections = matches.map((match): PaletteEntry => ({ type: "section", match }));
+    const pages = pageMatches.map((match): PaletteEntry => ({ type: "page", match }));
+    return [
       ...commandMatches.map((command): PaletteEntry => ({ type: "command", command })),
-      ...matches.map((match): PaletteEntry => ({ type: "section", match })),
+      ...(pagesFirst ? [...pages, ...sections] : [...sections, ...pages]),
       ...entityGroups.flatMap((g) => g.hits.map((hit): PaletteEntry => ({ type: "entity", hit }))),
-    ],
-    [commandMatches, matches, entityGroups],
-  );
+    ];
+  }, [commandMatches, matches, pageMatches, pagesFirst, entityGroups]);
 
   // One id → position map keeps the rendered order and the keyboard index in
   // lockstep no matter which groups are present.
@@ -405,7 +449,12 @@ function CommandPalette({
         entry.command.run();
         return;
       }
-      const path = entry.type === "section" ? entry.match.item.path : entry.hit.path;
+      const path =
+        entry.type === "section"
+          ? entry.match.item.path
+          : entry.type === "page"
+            ? entry.match.page.path
+            : entry.hit.path;
       const destination = `/c/${companySlug}${path}`;
       if (!navigationGuard.request(destination)) navigate(destination);
     },
@@ -438,6 +487,45 @@ function CommandPalette({
   const empty = entries.length === 0 && !entityPending;
   const idxOf = (entry: PaletteEntry) => indexByEntryId.get(entryId(entry)) ?? 0;
 
+  const sectionGroup = matches.length > 0 && (
+    <div key="sections" className="mb-1">
+      <GroupHeader>Sections</GroupHeader>
+      {matches.map((m) => {
+        const i = idxOf({ type: "section", match: m });
+        return (
+          <PaletteRow
+            key={m.item.key}
+            match={m}
+            index={i}
+            active={i === active}
+            isCurrent={m.item.key === currentKey}
+            onHover={setActive}
+            onSelect={() => select({ type: "section", match: m })}
+          />
+        );
+      })}
+    </div>
+  );
+  const pageGroup = pageMatches.length > 0 && (
+    <div key="pages" className="mb-1">
+      <GroupHeader>Pages</GroupHeader>
+      {pageMatches.map((m) => {
+        const i = idxOf({ type: "page", match: m });
+        return (
+          <PageRow
+            key={m.page.id}
+            match={m}
+            index={i}
+            active={i === active}
+            isCurrent={isCurrentSubpage(m.page, companySlug, location)}
+            onHover={setActive}
+            onSelect={() => select({ type: "page", match: m })}
+          />
+        );
+      })}
+    </div>
+  );
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-[12vh] backdrop-blur-[2px] dark:bg-black/60"
@@ -462,7 +550,7 @@ function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search sections, employees, notes…"
+            placeholder="Search sections, pages, employees, notes…"
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus-visible:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
             role="combobox"
             aria-expanded="true"
@@ -512,25 +600,7 @@ function CommandPalette({
               )}
               {searching ? (
                 <>
-                  {matches.length > 0 && (
-                    <div className="mb-1">
-                      <GroupHeader>Sections</GroupHeader>
-                      {matches.map((m) => {
-                        const i = idxOf({ type: "section", match: m });
-                        return (
-                          <PaletteRow
-                            key={m.item.key}
-                            match={m}
-                            index={i}
-                            active={i === active}
-                            isCurrent={m.item.key === currentKey}
-                            onHover={setActive}
-                            onSelect={() => select({ type: "section", match: m })}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
+                  {pagesFirst ? [pageGroup, sectionGroup] : [sectionGroup, pageGroup]}
                   {entityGroups.map((g) => (
                     <div key={g.label} className="mb-1 last:mb-0">
                       <GroupHeader>{g.label}</GroupHeader>
@@ -561,16 +631,17 @@ function CommandPalette({
                   <div key={g.label} className="mb-1 last:mb-0">
                     <GroupHeader>{g.label}</GroupHeader>
                     {g.items.map((item) => {
-                      const i = idxOf({ type: "section", match: { item, hit: null } });
+                      const match: SectionMatch = { item, hit: null, score: 0 };
+                      const i = idxOf({ type: "section", match });
                       return (
                         <PaletteRow
                           key={item.key}
-                          match={{ item, hit: null }}
+                          match={match}
                           index={i}
                           active={i === active}
                           isCurrent={item.key === currentKey}
                           onHover={setActive}
-                          onSelect={() => select({ type: "section", match: { item, hit: null } })}
+                          onSelect={() => select({ type: "section", match })}
                         />
                       );
                     })}
@@ -717,6 +788,75 @@ function PaletteRow({
       >
         <Kbd>G</Kbd>
         <Kbd>{item.shortcut}</Kbd>
+      </span>
+      {isCurrent && (
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+          Current
+        </span>
+      )}
+      {active && (
+        <CornerDownLeft
+          size={14}
+          className="shrink-0 text-slate-400 dark:text-slate-500"
+          aria-hidden="true"
+        />
+      )}
+    </button>
+  );
+}
+
+/**
+ * A page inside a section. It wears its section's colours with its own rail
+ * icon, and names the section underneath, so "Recurring invoices" reads as
+ * Finance's page at a glance — and never as a section of its own.
+ */
+function PageRow({
+  match,
+  index,
+  active,
+  isCurrent,
+  onHover,
+  onSelect,
+}: {
+  match: SubpageMatch;
+  index: number;
+  active: boolean;
+  isCurrent: boolean;
+  onHover: (i: number) => void;
+  onSelect: () => void;
+}) {
+  const { page, hit } = match;
+  const section = SECTION_BY_KEY[page.section];
+  const Icon = page.icon;
+  return (
+    <button
+      id={`command-palette-opt-page-${page.id}`}
+      role="option"
+      aria-selected={active}
+      data-idx={index}
+      onMouseMove={() => onHover(index)}
+      onClick={onSelect}
+      className={clsx(
+        "flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors",
+        active ? "bg-slate-100 dark:bg-slate-800" : "bg-transparent",
+      )}
+    >
+      <span
+        className={clsx(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+          section.iconBg,
+        )}
+      >
+        <Icon size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+          <Highlighted text={page.label} hit={hit} />
+        </span>
+        <span className="flex min-w-0 items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+          <span className="sr-only">in </span>
+          <span className="truncate">{section.label}</span>
+        </span>
       </span>
       {isCurrent && (
         <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">

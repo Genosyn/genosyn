@@ -89,6 +89,11 @@ export function AppShell({
     () => ({ open, setOpen, hasSidebar, setHasSidebar }),
     [open, hasSidebar],
   );
+  // What the palette needs to leave out pages this person can't open.
+  const paletteViewer = React.useMemo(
+    () => ({ role: current.role, financeAccess: current.financeAccess }),
+    [current.role, current.financeAccess],
+  );
 
   return (
     <CompanySocketProvider companyId={current.id}>
@@ -99,7 +104,11 @@ export function AppShell({
         {/* Outside the palette so pages can publish contextual actions into it,
             and the palette can read them, from the same tree. */}
         <CommandRegistryProvider>
-          <CommandPaletteProvider companyId={current.id} companySlug={current.slug}>
+          <CommandPaletteProvider
+            companyId={current.id}
+            companySlug={current.slug}
+            viewer={paletteViewer}
+          >
             <ContextualSidebarContext.Provider value={sidebarState}>
               <AskAiProvider>
               <div className="flex h-full flex-col">
@@ -426,7 +435,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
     <button
       onClick={palette.open}
       className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
-      title={`Search sections (${PALETTE_SHORTCUT})`}
+      title={`Search sections and pages (${PALETTE_SHORTCUT})`}
     >
       <span className={"flex h-5 w-5 items-center justify-center rounded " + current.iconBg}>
         <Icon size={12} />

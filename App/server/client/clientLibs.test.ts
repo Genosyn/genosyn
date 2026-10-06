@@ -810,6 +810,41 @@ describe("section routing and command search", () => {
     );
     assert.deepEqual(ties.map((row) => row.item.label), ["Alpha", "Beta"]);
   });
+
+  test("ignores case, accents, and extra spaces, as page search does", () => {
+    for (const query of ["  RÔUTINES ", "routines", "Roûtines"]) {
+      const [top] = searchSections(items, query);
+      assert.equal(top?.item.key, "routines", query);
+      assert.deepEqual(top?.hit, [0, 8], query);
+    }
+    assert.equal(searchSections(items, "ai   employees")[0]?.item.key, "employees");
+    // Accented synonyms fold too: "récurring" still reaches Routines.
+    assert.ok(searchSections(items, "récurring").some((row) => row.item.key === "routines"));
+  });
+
+  test("reports each match's score so the palette can compare it with pages", () => {
+    assert.equal(searchSections(items, "routines")[0]?.score, 100);
+    assert.equal(searchSections(items, "rout")[0]?.score, 90);
+    assert.equal(
+      searchSections(items, "recurring").find((row) => row.item.key === "routines")?.score,
+      55,
+      "Routines answers to its synonym",
+    );
+    for (const row of searchSections(items, "")) assert.equal(row.score, 0);
+    const ranked = searchSections(items, "e").map((row) => row.score);
+    assert.deepEqual(ranked, [...ranked].sort((a, b) => b - a), "results come best first");
+  });
+
+  test("prefers a synonym that starts with the query over one that merely contains it", () => {
+    const [top] = searchSections(
+      [
+        { ...SECTION_BY_KEY.notes, label: "Alpha", description: "", keywords: ["bank feeds"] },
+        { ...SECTION_BY_KEY.skills, label: "Beta", description: "", keywords: ["x", "feeder"] },
+      ],
+      "feed",
+    );
+    assert.equal(top.item.label, "Beta");
+  });
 });
 
 describe("paste and drop file extraction", () => {

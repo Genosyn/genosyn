@@ -5,6 +5,7 @@ import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { activeSection } from "../../client/lib/sections.js";
+import { railSubpages } from "../../client/lib/subpages.js";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -27,15 +28,21 @@ describe("Finance customer statements", () => {
   });
 
   test("puts a discoverable statement link beside receivables", () => {
-    const layout = readAppFile("client/pages/FinanceLayout.tsx");
-    const invoices = layout.indexOf('label="Invoices"');
-    const statements = layout.indexOf('label="Customer statements"');
-    const creditNotes = layout.indexOf('label="Credit notes"');
+    // The Finance rail draws its links from the subpage catalogue, in order.
+    assert.match(
+      readAppFile("client/pages/FinanceLayout.tsx"),
+      /<SectionRailLinks section="finance"/,
+    );
+    const rail = railSubpages("finance");
+    const labels = rail.map((page) => page.navLabel ?? page.label);
+    const invoices = labels.indexOf("Invoices");
+    const statements = labels.indexOf("Customer statements");
+    const creditNotes = labels.indexOf("Credit notes");
 
     assert.ok(invoices >= 0, "Finance must retain its Invoices link");
     assert.ok(statements > invoices, "Customer statements must follow Invoices");
     assert.ok(creditNotes > statements, "Customer statements must precede Credit notes");
-    assert.match(layout, /to={`\$\{base}\/customer-statements`}/);
+    assert.equal(rail[statements].path, "/finance/customer-statements");
   });
 
   test("uses one shared statement view with Finance-specific navigation", () => {

@@ -45,7 +45,8 @@
     "test:base-forms-browser": "tsx scripts/test-base-forms-browser.ts",
     "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts",
-    "test:recurring-invoice-name": "tsx scripts/test-recurring-invoice-name.ts"
+    "test:recurring-invoice-name": "tsx scripts/test-recurring-invoice-name.ts",
+    "test:command-palette": "tsx scripts/test-command-palette.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
