@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import {
+  discoverHostedSignIn,
   discoverHostedSignInPath,
+  readHostedSignInOffer,
   requestHostedSignIn,
   resetHostedSignInDiscoveryForTests,
 } from "./hostedSignInTransport.js";
@@ -117,4 +119,62 @@ test("oversized responses and network failures expose no credential material", a
       (error: Error) => error.message === "Hosted sign-in is unavailable. Please try again later.",
     );
   }
+});
+
+test("discovery reports the scopes a service offers, and null for a service that predates them", async () => {
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return Response.json({
+      version: 1,
+      available: true,
+      scopes: ["https://www.googleapis.com/auth/calendar"],
+    });
+  };
+  assert.deepEqual(await discoverHostedSignIn(issuer, "google"), {
+    path: "/api/connect/google",
+    scopes: ["https://www.googleapis.com/auth/calendar"],
+  });
+  resetHostedSignInDiscoveryForTests();
+  globalThis.fetch = async () => Response.json({ version: 1, available: true });
+  assert.deepEqual(await discoverHostedSignIn(issuer, "google"), {
+    path: "/api/connect/google",
+    scopes: null,
+  });
+  for (const scopes of ["openid", [1], Array(257).fill("s"), ["x".repeat(257)]]) {
+    resetHostedSignInDiscoveryForTests();
+    globalThis.fetch = async () => Response.json({ version: 1, available: true, scopes });
+    assert.equal(
+      await discoverHostedSignIn(issuer, "google"),
+      null,
+      JSON.stringify(scopes).slice(0, 30),
+    );
+  }
+});
+
+test("a saved protocol path is read as saved and never rediscovered", async () => {
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return String(input).includes("/api/google-sign-in/")
+      ? Response.json({ version: 1, available: true })
+      : new Response(null, { status: 500 });
+  };
+  assert.deepEqual(await readHostedSignInOffer(issuer, "google", "/api/google-sign-in"), {
+    path: "/api/google-sign-in",
+    scopes: null,
+  });
+  assert.deepEqual(await readHostedSignInOffer(issuer, "google", "/api/google-sign-in"), {
+    path: "/api/google-sign-in",
+    scopes: null,
+  });
+  assert.deepEqual(calls, [`${issuer}/api/google-sign-in/status`]);
+  await assert.rejects(
+    readHostedSignInOffer(issuer, "google", "/api/connect/google"),
+    /unavailable/,
+  );
+  await assert.rejects(readHostedSignInOffer(issuer, "google", "/api/admin"), /unavailable/);
+  await assert.rejects(
+    readHostedSignInOffer(issuer, "github", "/api/google-sign-in"),
+    /unavailable/,
+  );
+  assert.equal(calls.length, 2);
 });

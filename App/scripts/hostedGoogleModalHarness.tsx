@@ -5,6 +5,8 @@ import type { IntegrationCatalogEntry } from "../client/lib/api";
 import { OauthOrServiceAccountModal } from "../client/pages/SettingsIntegrations";
 import "../client/styles/index.css";
 
+// `?offer=mail,calendar` imitates a Genosyn Connect that offers several products.
+const offer = new URLSearchParams(window.location.search).get("offer")?.split(",") ?? ["mail"];
 const entry: IntegrationCatalogEntry = {
   provider: "google",
   name: "Google Workspace",
@@ -16,6 +18,7 @@ const entry: IntegrationCatalogEntry = {
   oauth: {
     app: "google",
     hostedSignIn: true,
+    hostedScopeGroups: offer,
     scopes: ["openid"],
     scopeGroups: [
       {

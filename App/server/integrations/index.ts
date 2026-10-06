@@ -29,6 +29,7 @@ import { metaAdsProvider } from "./providers/meta-ads.js";
 import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
 import { redditAdsProvider } from "./providers/reddit-ads.js";
 import { isPublicUrlConfigured } from "../services/publicUrl.js";
+import { hostedScopeGroups } from "../services/hostedOauthApps.js";
 import { config } from "../../config.js";
 
 /**
@@ -244,7 +245,11 @@ function catalogDisabledReason(providerId: string): string | null {
  * recommending a connector that cannot work here is worse than no card.
  */
 export function listCatalog(
-  opts: { registeredOauthApps?: ReadonlySet<string>; hostedGoogleSignIn?: boolean } = {},
+  opts: {
+    registeredOauthApps?: ReadonlySet<string>;
+    /** Per OAuth app, the scopes Genosyn Connect offers right now. */
+    hostedSignIn?: ReadonlyMap<string, ReadonlySet<string>>;
+  } = {},
 ): IntegrationCatalogEntry[] {
   const registered = opts.registeredOauthApps;
   return Object.values(PROVIDERS).map((p) => {
@@ -255,8 +260,13 @@ export function listCatalog(
     if (entry.oauth && registered?.has(entry.oauth.app)) {
       entry.oauth = { ...entry.oauth, instanceApp: true };
     }
-    if (entry.provider === "google" && entry.oauth && opts.hostedGoogleSignIn) {
-      entry.oauth = { ...entry.oauth, hostedSignIn: true };
+    // A registered app wins: the installation chose its own over the service.
+    const offered = entry.oauth && !entry.oauth.instanceApp
+      ? opts.hostedSignIn?.get(entry.oauth.app)
+      : undefined;
+    const hostedGroups = offered ? hostedScopeGroups(p, offered) : [];
+    if (entry.oauth && hostedGroups.length > 0) {
+      entry.oauth = { ...entry.oauth, hostedSignIn: true, hostedScopeGroups: hostedGroups };
     }
     return entry;
   });
