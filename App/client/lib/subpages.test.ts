@@ -469,6 +469,7 @@ describe("subpage search", () => {
     assert.deepEqual(aiAccess, catalogueOrder);
     assert.deepEqual(aiAccess, [
       "/meetings/ai-access",
+      "/resources/ai-access",
       "/marketing/ai-access",
       "/revenue/ai-access",
       "/signatures/ai-access",
@@ -594,3 +595,40 @@ describe("current page", () => {
 function searchSubpagesFor(query: string, viewer: SubpageViewer, excludePaths: string[]) {
   return { pages: searchSubpages(PALETTE_SUBPAGES, query, { viewer, excludePaths, limit: 500 }) };
 }
+
+// ─────────────────────────── Resources → AI access ───────────────────────────
+
+describe("Resources in the catalogue", () => {
+  test("draws the Resources rail as the library, then AI access", () => {
+    assert.deepEqual(
+      railSubpages("resources").map((p) => [p.navLabel ?? p.label, p.path]),
+      [
+        ["Library", "/resources"],
+        ["AI access", "/resources/ai-access"],
+      ],
+    );
+  });
+
+  test("offers AI access to every Member, like the sibling AI access pages", () => {
+    // Members can open the page and see who is read only; only owners and
+    // admins can change it, which the page and its route enforce.
+    const aiAccess = page("/resources/ai-access");
+    assert.equal(aiAccess.access, undefined);
+    for (const viewer of Object.values(VIEWERS)) assert.equal(canOpenSubpage(aiAccess, viewer), true);
+    for (const sibling of ["/signatures/ai-access", "/revenue/ai-access", "/marketing/ai-access"]) {
+      assert.equal(page(sibling).access, undefined, `${sibling} is ungated too`);
+    }
+  });
+
+  test("finds Resources → AI access by its section, its name, and what it governs", () => {
+    assert.equal(palette("resources ai access").pages[0].page.path, "/resources/ai-access");
+    assert.ok(paths(palette("read only", MEMBER_NONE).pages).includes("/resources/ai-access"));
+    assert.ok(paths(palette("who can edit resources").pages).includes("/resources/ai-access"));
+  });
+
+  test("never offers the library page beside the Resources section itself", () => {
+    const { sections, pages } = palette("resources");
+    assert.equal(sections[0].item.key, "resources");
+    assert.equal(paths(pages).includes("/resources"), false);
+  });
+});

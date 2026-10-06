@@ -315,6 +315,7 @@ describe("rails drawn from the catalogue", () => {
     "client/pages/MeetingsLayout.tsx": "meetings",
     "client/pages/CustomersLayout.tsx": "customers",
     "client/pages/SignatureLayout.tsx": "signatures",
+    "client/pages/ResourcesLayout.tsx": "resources",
     "client/pages/TldrsLayout.tsx": "tldrs",
     "client/pages/VaultLayout.tsx": "vault",
     "client/pages/SettingsLayout.tsx": "settings",
