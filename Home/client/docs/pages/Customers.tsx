@@ -97,9 +97,13 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>Read-only</Strong> — browse the list, overviews, and statements without changing
-          anything. <Code>New customer</Code> and <Code>Edit</Code> open to a note that their
-          finance access is read-only, with a <Code>Back</Code> button, in place of a form that
-          couldn&apos;t be saved.
+          anything. The list leaves out <Code>New customer</Code> and each row&apos;s menu, and the
+          overview leaves out <Code>Edit</Code> and the Billing tab&apos;s{" "}
+          <Code>New invoice</Code>, <Code>New estimate</Code>, and{" "}
+          <Code>New recurring invoice</Code>. Following a saved link to the New or Edit customer page
+          shows a note that their finance access is read-only, with a <Code>Back</Code> button, in
+          place of a form that couldn&apos;t be saved. Contracts don&apos;t depend on finance
+          access, so they can still upload, edit, download, and delete them.
         </LI>
         <LI>
           <Strong>None</Strong> — each of those pages opens to a note saying they don&apos;t have

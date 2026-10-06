@@ -45,7 +45,7 @@ import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
-import { effectiveFinanceAccess } from "../lib/subpages";
+import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
@@ -146,6 +146,10 @@ function failure(result: PromiseSettledResult<unknown>): string | undefined {
  * timeline, deals, contacts, meetings, billing documents, and contracts,
  * signature requests and files. Records are edited on their own pages
  * (Finance, Revenue, Mail, Meetings, Signatures), so rows deep-link there.
+ *
+ * The finance routes write the customer and its billing documents, so a
+ * read-only Member gets the page without Edit or the billing tab's New links;
+ * every detail the edit form holds is already shown here for reading.
  */
 export default function CustomerDetail() {
   const { company } = useOutletContext<CustomersOutletCtx>();
@@ -162,6 +166,7 @@ export default function CustomerDetail() {
 }
 
 function CustomerOverview({ company }: { company: Company }) {
+  const canWrite = canWriteFinance(company);
   const { customerSlug } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -519,7 +524,7 @@ function CustomerOverview({ company }: { company: Company }) {
     );
   }
 
-  const editTo = `${customersUrl}/${customer.slug}/edit`;
+  const editTo = canWrite ? `${customersUrl}/${customer.slug}/edit` : null;
   const website = websiteHref(customer);
   const owner = ownerLabel(customer, members, employees);
   const people = (relationship?.contacts.length ?? 0) + customer.contacts.length;
@@ -607,9 +612,11 @@ function CustomerOverview({ company }: { company: Company }) {
           >
             <ScrollText size={14} /> Statement
           </Button>
-          <Button variant="secondary" onClick={() => navigate(editTo)}>
-            <Pencil size={14} /> Edit
-          </Button>
+          {editTo && (
+            <Button variant="secondary" onClick={() => navigate(editTo)}>
+              <Pencil size={14} /> Edit
+            </Button>
+          )}
         </div>
       </div>
 
@@ -917,6 +924,7 @@ function CustomerOverview({ company }: { company: Company }) {
                 companySlug={company.slug}
                 members={members}
                 employees={employees}
+                canEditBilling={canWrite}
               />
             </>
           ) : (
@@ -945,7 +953,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Invoices"
             count={invoices.length}
             newLabel="New invoice"
-            newTo={`${financeBase}/invoices/new`}
+            newTo={canWrite ? `${financeBase}/invoices/new` : undefined}
             emptyText="No invoices for this customer yet."
             first
           >
@@ -979,7 +987,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Estimates"
             count={estimates.length}
             newLabel="New estimate"
-            newTo={`${financeBase}/estimates/new`}
+            newTo={canWrite ? `${financeBase}/estimates/new` : undefined}
             emptyText="No estimates for this customer yet."
           >
             {estimates.length > 0 && (
@@ -1007,7 +1015,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Recurring invoices"
             count={recurring.length}
             newLabel="New recurring invoice"
-            newTo={newRecurringInvoicePath(financeBase, customer.id)}
+            newTo={canWrite ? newRecurringInvoicePath(financeBase, customer.id) : undefined}
             emptyText="No recurring invoices for this customer yet."
           >
             {recurring.length > 0 && (
@@ -1106,7 +1114,7 @@ function MailSection({
   mail: CustomerMailPage | null;
   error: string | null;
   companySlug: string;
-  editTo: string;
+  editTo: string | null;
   preview?: number;
   onLoadMore?: () => void;
   loadingMore?: boolean;
@@ -1335,6 +1343,7 @@ function DocSection({
   title: string;
   count: number;
   newLabel?: string;
+  /** The create form New opens; left out for a Member who can't submit it. */
   newTo?: string;
   emptyText: string;
   /** The first section on a tab sits flush under the tab bar. */

@@ -6,7 +6,12 @@ import { Route, Routes, StaticRouter } from "react-router-dom";
 
 import { DialogProvider } from "../components/ui/Dialog.js";
 import type { Company, Me } from "../lib/api.js";
-import { canOpenSubpage, effectiveFinanceAccess, subpageAt } from "../lib/subpages.js";
+import {
+  canOpenSubpage,
+  canWriteFinance,
+  effectiveFinanceAccess,
+  subpageAt,
+} from "../lib/subpages.js";
 import AuditLog from "./AuditLog.js";
 import ContractsIndex from "./ContractsIndex.js";
 import CustomerDetail from "./CustomerDetail.js";
@@ -276,7 +281,9 @@ describe("the Customers landing", () => {
       const html = renderCustomers(c);
       assert.equal(html.includes(NOTE), false, who(c));
       assert.ok(html.includes('aria-label="Search customers"'), who(c));
-      assert.ok(html.includes("New customer"), who(c));
+      // Creating one needs Full access, so Read lists without it
+      // (`CustomersReadOnly.test.ts`).
+      assert.equal(html.includes("New customer"), canWriteFinance(c), who(c));
       assert.ok(html.includes('aria-label="Loading customers"'), who(c));
     }
   });
@@ -294,12 +301,15 @@ describe("the Customers landing", () => {
 });
 
 /**
- * An `<a>` to exactly `href` whose text ends in `text`, after any icon. It
- * never reaches past its own `</a>`, so a breadcrumb to the same place can't
- * stand in for the link under test.
+ * An `<a>` to exactly `href` whose text ends in `text`, after any icon and
+ * before any closing tags, such as a `<Button>`'s inside a `<Link>`. It never
+ * reaches past its own `</a>`, so a breadcrumb to the same place can't stand
+ * in for the link under test.
  */
 function linkTo(href: string, text: string): RegExp {
-  return new RegExp(`<a [^>]*href="${href}"[^>]*>(?:(?!</a>)[\\s\\S])*${text}</a>`);
+  return new RegExp(
+    `<a [^>]*href="${href}"[^>]*>(?:(?!</a>)[\\s\\S])*${text}(?:</(?!a>)[a-z]+>)*</a>`,
+  );
 }
 
 describe("a customer's overview and statement", () => {
@@ -354,7 +364,8 @@ describe("a customer's overview and statement", () => {
 });
 
 describe("the New customer and Edit customer forms", () => {
-  const READ_ONLY = "Your finance access is read-only";
+  // The note Finance's own forms show the same Member (`FinanceReadOnlyPage`).
+  const READ_ONLY = "You have read-only access to Finance";
   const FORMS = [
     { at: "customers/new", title: "New customer", back: "/c/acme/customers" },
     { at: "customers/acme-corp/edit", title: "Edit customer", back: "/c/acme/customers/acme-corp" },
@@ -382,7 +393,7 @@ describe("the New customer and Edit customer forms", () => {
     for (const { at, title, back } of FORMS) {
       const html = renderCustomers(memberReadOnly, at);
       assert.ok(html.includes(READ_ONLY), at);
-      assert.ok(html.includes("you can view customers but not add or edit them"), at);
+      assert.ok(html.includes("You can view customers but not create or edit them"), at);
       assert.ok(html.includes("Ask one of them to change yours under Settings → Members"), at);
       // Still headed by the form's name, so they know where they landed.
       assert.match(html, heading(title), at);

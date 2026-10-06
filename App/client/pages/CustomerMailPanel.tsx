@@ -23,8 +23,11 @@ export function CustomerMailList({
 }: {
   mail: CustomerMailPage;
   companySlug: string;
-  /** The customer's edit page — where an email address or domain is added. */
-  editTo: string;
+  /**
+   * The customer's edit page — where an email address or domain is added —
+   * or null for a Member whose finance access can't save it.
+   */
+  editTo: string | null;
   /** Show only this many conversations, without paging controls. */
   preview?: number;
   onLoadMore?: () => void;
@@ -46,6 +49,14 @@ export function CustomerMailList({
     );
   }
   if (mail.addresses.length === 0 && !mail.domain) {
+    if (!editTo) {
+      return (
+        <EmptyState
+          title="No email address to search"
+          description="Once this customer has a billing email, a contact with an email address, or a domain, the mail you've exchanged with them shows here."
+        />
+      );
+    }
     return (
       <EmptyState
         title="No email address to search"
