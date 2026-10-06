@@ -69,6 +69,10 @@ export default function MailSettings() {
   const displayStatus = pendingStatus ?? account.status;
   const pausePending = pendingStatus !== undefined;
   const reconnectHref = mailReconnectHref(company.role, company.slug, account.connectionId);
+  // The server enforces this on AI access and on disconnecting; hiding the
+  // controls just stops a Member from composing a change that will be refused.
+  // Pausing, the sender name and AI analysis stay open to every Member.
+  const canManage = company.role !== "member";
 
   const loadGrants = React.useCallback(async () => {
     const [g, cand] = await Promise.all([
@@ -241,15 +245,17 @@ export default function MailSettings() {
               </>
             )}
           </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            loading={disconnecting}
-            disabled={pausePending}
-            onClick={disconnect}
-          >
-            <Trash2 size={14} className="mr-1.5" /> Disconnect
-          </Button>
+          {canManage && (
+            <Button
+              size="sm"
+              variant="danger"
+              loading={disconnecting}
+              disabled={pausePending}
+              onClick={disconnect}
+            >
+              <Trash2 size={14} className="mr-1.5" /> Disconnect
+            </Button>
+          )}
         </div>
         <SenderNameSetting
           key={account.id}
@@ -260,20 +266,27 @@ export default function MailSettings() {
       </section>
 
       {/* AI analysis of newly-arrived mail */}
-      <MailAnalysisSettingsCard companyId={company.id} accountId={account.id} />
+      <MailAnalysisSettingsCard
+        companyId={company.id}
+        accountId={account.id}
+        canManageAccess={canManage}
+      />
 
       {/* AI access */}
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-1 flex items-center gap-2">
           <Users size={16} className="text-slate-400" />
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI access</h2>
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAddOpen(true)}>
-            <Plus size={14} className="mr-1" /> Grant access
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAddOpen(true)}>
+              <Plus size={14} className="mr-1" /> Grant access
+            </Button>
+          )}
         </div>
         <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
           Which AI employees can act on this mailbox through their tools and via rules. Members
           always have full access; this only governs AI.
+          {!canManage && " Only owners and admins can change it."}
         </p>
 
         {grantsError ? (
@@ -284,7 +297,10 @@ export default function MailSettings() {
           </div>
         ) : grants.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
-            No AI employees have access yet. Grant one so it can triage, draft, or reply.
+            No AI employees have access yet.{" "}
+            {canManage
+              ? "Grant one so it can triage, draft, or reply."
+              : "An owner or admin can grant one so it can triage, draft, or reply."}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -305,19 +321,24 @@ export default function MailSettings() {
                 <Select
                   value={g.accessLevel}
                   onChange={(e) => setLevel(g, e.target.value as MailAccessLevel)}
+                  disabled={!canManage}
+                  aria-label={`Access level for ${g.employee?.name ?? "this employee"}`}
                   className="w-28"
                 >
                   <option value="read">Read</option>
                   <option value="draft">Draft</option>
                   <option value="send">Send</option>
                 </Select>
-                <button
-                  onClick={() => revoke(g)}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
-                  title="Revoke"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => revoke(g)}
+                    className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+                    title="Revoke"
+                    aria-label={`Revoke ${g.employee?.name ?? "this employee"}'s access`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -368,7 +389,7 @@ export default function MailSettings() {
         </p>
       </section>
 
-      {addOpen && (
+      {addOpen && canManage && (
         <GrantModal
           companyId={company.id}
           accountId={account.id}

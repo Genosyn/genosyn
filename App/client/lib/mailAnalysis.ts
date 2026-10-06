@@ -265,21 +265,30 @@ function accessLabel(level: MailAssistantRosterEntry["accessLevel"]): string {
 export function analysisReadinessNote(args: {
   enabled: boolean;
   resolved: { employeeName: string; modelLabel: string; accessLevel: MailAccessLevel } | null;
+  /** False for a plain Member, who can see AI access but not change it. */
+  canManageAccess?: boolean;
 }): { tone: "ok" | "warn" | "off"; text: string } {
+  const canManageAccess = args.canManageAccess ?? true;
   if (!args.enabled) {
     return { tone: "off", text: "New mail arrives without a summary or action buttons." };
   }
   if (!args.resolved) {
     return {
       tone: "warn",
-      text: "No AI employee with a connected model has access to this mailbox yet, so nothing is being analysed. Grant one under AI access below.",
+      text: `No AI employee with a connected model has access to this mailbox yet, so nothing is being analysed. ${
+        canManageAccess
+          ? "Grant one under AI access below."
+          : "An owner or admin can grant one under AI access below."
+      }`,
     };
   }
   const base = `${args.resolved.employeeName} reads new mail on ${args.resolved.modelLabel}.`;
   return args.resolved.accessLevel === "read"
     ? {
         tone: "warn",
-        text: `${base} On Read access they can summarise and triage, but cannot prepare a reply for Needs you — raise them to Draft for that.`,
+        text: `${base} On Read access they can summarise and triage, but cannot prepare a reply for Needs you — ${
+          canManageAccess ? "raise them" : "an owner or admin can raise them"
+        } to Draft for that.`,
       }
     : { tone: "ok", text: base };
 }
