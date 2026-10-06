@@ -274,6 +274,7 @@ export function labelsForMessage(args: {
 
 /** The subset of mailparser's output this module consumes. */
 export type ParsedSource = {
+  /** Each header as it was sent, folding kept, one character per byte. */
   headerLines: Array<{ key: string; line: string }>;
   text?: string;
   html?: string | false;
@@ -298,13 +299,17 @@ export type ParsedSource = {
  * unfolded because a folded `References` chain that keeps its newlines would
  * break both threading and the reply builder.
  *
- * A raw line is not yet the text a reader sees: a subject or a name outside
- * ASCII travels as RFC 2047 words, which Gmail decodes before its API answers
- * and an IMAP server never does. So `Subject` and the address headers are
- * decoded here — an address list name by name, re-quoted wherever the decoded
- * name needs it ({@link decodeAddressList}) — and every other header keeps
- * its bytes. `Message-ID`, `References` and `In-Reply-To` above all: rows and
- * conversations are keyed on them, so they reach the mirror byte for byte.
+ * A raw line is not yet the text a reader sees. A subject or a name outside
+ * ASCII travels as RFC 2047 words or, from plenty of senders, as raw UTF-8,
+ * which a line holding one character per byte shows as `ZoÃ«`. Gmail reads
+ * both before its API answers and an IMAP server reads neither. So `Subject`
+ * and the address headers are read here — their bytes as UTF-8 where they are
+ * UTF-8 ({@link utf8Text}), then their encoded words, an address list name by
+ * name and re-quoted wherever the decoded name needs it
+ * ({@link decodeAddressList}) — and every other header keeps its bytes.
+ * `Message-ID`, `References` and `In-Reply-To` above all: rows and
+ * conversations are keyed on hashes of them, so any new reading would give a
+ * message already mirrored a new ref on its next import, and a second row.
  */
 export function headersFromLines(
   lines: Array<{ key: string; line: string }>,
@@ -326,9 +331,32 @@ const ADDRESS_HEADERS = new Set(["from", "sender", "reply-to", "to", "cc", "bcc"
 /** One header's value as a reader sees it — see {@link headersFromLines}. */
 function decodedValue(name: string, value: string): string {
   const key = name.toLowerCase();
-  if (key === "subject") return decodeHeaderText(value);
-  if (ADDRESS_HEADERS.has(key)) return decodeAddressList(value);
+  if (key === "subject") return decodeHeaderText(utf8Text(value));
+  if (ADDRESS_HEADERS.has(key)) return decodeAddressList(utf8Text(value));
   return value;
+}
+
+/** Shared by every call: a decode that is not streaming starts clean, even after one that threw. */
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * A header value sent as raw UTF-8 (RFC 6532), read as the text it is.
+ *
+ * Only a value whose characters are all bytes, and whose bytes are valid
+ * UTF-8, is read. Bytes that are not UTF-8 are some legacy 8-bit charset the
+ * header does not name, and are kept as they came rather than guessed at; a
+ * character above U+00FF means the value was never bytes at all.
+ *
+ * This runs before the encoded words are decoded. What they decode to is text,
+ * not bytes, and a name holding both would keep its raw half as mojibake.
+ */
+function utf8Text(value: string): string {
+  if (!/[\x80-\xff]/.test(value) || /[\u0100-\uffff]/.test(value)) return value;
+  try {
+    return UTF8.decode(Buffer.from(value, "latin1"));
+  } catch {
+    return value;
+  }
 }
 
 /** First 220 characters of the body, whitespace collapsed. */
