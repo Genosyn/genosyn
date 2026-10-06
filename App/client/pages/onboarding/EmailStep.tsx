@@ -141,12 +141,23 @@ export function EmailStep({
           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
             Mailbox connected: {account.address}
           </div>
-          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            One step left — give {employee.name} draft access to it.
-          </p>
-          <Button className="mt-4" onClick={grantExisting} loading={busy}>
-            {busy ? "Granting…" : "Grant draft access"}
-          </Button>
+          {company.role === "member" ? (
+            // Granting AI access is owner/admin on the server; offering the
+            // button would only end in a refusal.
+            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+              An owner or admin can give {employee.name} draft access to it at Email → Settings → AI
+              access.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                One step left — give {employee.name} draft access to it.
+              </p>
+              <Button className="mt-4" onClick={grantExisting} loading={busy}>
+                {busy ? "Granting…" : "Grant draft access"}
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">

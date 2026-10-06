@@ -22,9 +22,12 @@ import { errorMessage } from "../lib/errors";
 export function MailAnalysisSettingsCard({
   companyId,
   accountId,
+  canManageAccess = true,
 }: {
   companyId: string;
   accountId: string;
+  /** Whether the viewer can change AI access, which the readiness line points to. */
+  canManageAccess?: boolean;
 }) {
   const dialog = useDialog();
   const [data, setData] = React.useState<MailAnalysisSettingsData | null>(null);
@@ -108,7 +111,11 @@ export function MailAnalysisSettingsCard({
     ? data.roster.find((entry) => entry.id === data.employeeId)
     : undefined;
   const models = chosen?.models ?? [];
-  const note = analysisReadinessNote({ enabled: data.enabled, resolved: data.resolved });
+  const note = analysisReadinessNote({
+    enabled: data.enabled,
+    resolved: data.resolved,
+    canManageAccess,
+  });
 
   return (
     <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">

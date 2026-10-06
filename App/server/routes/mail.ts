@@ -20,10 +20,12 @@ import { MailRule } from "../db/entities/MailRule.js";
 import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import {
+  onRoutePaths,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
   requireCompanyRole,
+  requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
 import { effectiveFinanceAccess } from "../middleware/financeAccess.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
@@ -109,7 +111,8 @@ import {
 /**
  * HTTP surface for the Email section (M25): mailbox accounts, the local
  * thread/message mirror, write-through actions, drafts, rules, handovers,
- * and per-employee grants. Mounted at /api/companies/:cid/mail.
+ * and per-employee grants. Mounted at /api/companies/:cid, so every path here
+ * starts `/mail`.
  *
  * Route handlers parse + shape only; the mechanics live in services/mail/.
  */
@@ -117,6 +120,47 @@ import {
 export const mailRouter = Router({ mergeParams: true });
 mailRouter.use(requireAuth);
 mailRouter.use(requireCompanyMember);
+
+/**
+ * Who may decide what AI Employees can do with a mailbox, as opposed to using
+ * it.
+ *
+ * Every Member reads and answers mail, so working the inbox stays open to them.
+ * Granting, changing and revoking AI access does not: a `send` Grant lets an
+ * employee speak for the company unattended, and it makes the employee eligible
+ * for automatic proactive email work. That is the same act as
+ * `/revenue/ai-access`, `/meetings/ai-access` or `/signatures/ai-access`, and it
+ * is gated the same way. Reading the Grant list stays open, so every Member can
+ * see what has been delegated.
+ *
+ * The mailbox's own lifecycle is gated on its routes below. Connecting stores
+ * or reuses a credential the whole company relies on. Disconnecting deletes
+ * every Grant and lifts the levels from the Google connector's `gmail_*` tools
+ * (see `services/connectionCapabilities.ts`). If a Member could disconnect, they
+ * could get around this gate. Those routes are gated one by one because
+ * `PATCH /mail/accounts/:aid` shares their path and stays open.
+ *
+ * Deliberately left open to Members, because none of it can widen what an AI
+ * Employee may do beyond the Grants an owner or admin set:
+ *
+ *   - pausing or resuming sync and the sender name (`PATCH /mail/accounts/:aid`).
+ *     Pausing stops sync and inbound automation without constraining any tool,
+ *     so resuming only restores what was configured. A Standdown is the stop
+ *     instrument;
+ *   - AI analysis settings. The reader must already hold a Grant on this
+ *     mailbox, gets one submission tool, and only proposes; its buttons run
+ *     with the pressing Member's authority;
+ *   - rules, handovers, drafts, sending and Sync now: ordinary use of the
+ *     inbox, each bounded by the employee's Grant where an employee is involved.
+ *
+ * `onRoutePaths` is load-bearing: this router is mounted at
+ * `/api/companies/:cid` beside its siblings, so an unscoped `.use()` guard would
+ * also intercept their requests. The matcher covers `/grants` and anything
+ * under it, but not `/grant-candidates`, which is a read.
+ */
+mailRouter.use(
+  onRoutePaths([/^\/mail\/accounts\/[^/]+\/grants(?:\/|$)/], requireCompanyRoleForMutations("admin")),
+);
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -358,32 +402,42 @@ mailRouter.post(
 
 const createAccountSchema = z.object({ connectionId: z.string().uuid() });
 
-mailRouter.post("/mail/accounts", validateBody(createAccountSchema), async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const body = req.body as z.infer<typeof createAccountSchema>;
-  let account: MailAccount;
-  try {
-    account = await createMailAccount({
+// Admin-only for the reason `/mail/connect/imap` is: Google sign-in creates the
+// same MailAccount behind the admin-gated `/integrations/oauth/start`, so a
+// Member-level path to it is a hole, not a shortcut. Linking also opens the
+// whole mailbox to every Member and moves the `gmail_*` tools onto
+// mailbox Grants.
+mailRouter.post(
+  "/mail/accounts",
+  requireCompanyRole("admin"),
+  validateBody(createAccountSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof createAccountSchema>;
+    let account: MailAccount;
+    try {
+      account = await createMailAccount({
+        companyId: cid,
+        connectionId: body.connectionId,
+        createdByUserId: req.userId ?? null,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : "Connect failed" });
+    }
+    await recordAudit({
       companyId: cid,
-      connectionId: body.connectionId,
-      createdByUserId: req.userId ?? null,
+      actorUserId: req.userId ?? null,
+      action: "mail.account.connect",
+      targetType: "mail_account",
+      targetId: account.id,
+      targetLabel: account.address,
     });
-  } catch (err) {
-    return res.status(400).json({ error: err instanceof Error ? err.message : "Connect failed" });
-  }
-  await recordAudit({
-    companyId: cid,
-    actorUserId: req.userId ?? null,
-    action: "mail.account.connect",
-    targetType: "mail_account",
-    targetId: account.id,
-    targetLabel: account.address,
-  });
-  // First sync (the backfill) runs in the background; the UI follows along
-  // via `mail.updated` events and the account's lastSyncAt/backfilledAt.
-  void queueAccountSync(account.id).catch(() => {});
-  res.json({ account: serializeMailAccount(account) });
-});
+    // First sync (the backfill) runs in the background; the UI follows along
+    // via `mail.updated` events and the account's lastSyncAt/backfilledAt.
+    void queueAccountSync(account.id).catch(() => {});
+    res.json({ account: serializeMailAccount(account) });
+  },
+);
 
 mailRouter.get("/mail/accounts/:aid", async (req, res) => {
   const account = await loadAccount(
@@ -403,6 +457,8 @@ const patchAccountSchema = z
     message: "Nothing to change: send a status or a senderName.",
   });
 
+// Open to every Member on purpose. Neither field can widen an AI Employee's
+// access; see the role note at the top of this file.
 mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async (req, res) => {
   const account = await loadAccount(
     (req.params as Record<string, string>).cid,
@@ -463,7 +519,10 @@ mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async 
   res.json({ account: serializeMailAccount(updatedAccount) });
 });
 
-mailRouter.delete("/mail/accounts/:aid", async (req, res) => {
+// Admin-only: disconnecting deletes the mailbox's Grants and rules, and
+// without a MailAccount the `gmail_*` tools answer to the Connection Grant
+// alone. A Member who could disconnect could undo the Grant gate above.
+mailRouter.delete("/mail/accounts/:aid", requireCompanyRole("admin"), async (req, res) => {
   const account = await loadAccount(
     (req.params as Record<string, string>).cid,
     req.params.aid as string,
@@ -1580,6 +1639,11 @@ mailRouter.post("/mail/handovers/:hid/retry", requireBrowserSession, async (req,
 });
 
 // ───────────────────────────── grants ─────────────────────────────
+//
+// Which AI Employees may act on this mailbox, at read < draft < send. Human
+// Members reach mail through company membership; this governs the AI surface
+// only. Reads are open to every Member. Mutations are owner/admin, enforced by
+// the `onRoutePaths` guard at the top of this file.
 
 async function hydrateGrants(grants: EmployeeMailAccountGrant[]): Promise<unknown[]> {
   const employees = await employeesById(grants.map((g) => g.employeeId));
@@ -1794,6 +1858,9 @@ const aiAnalysisSettingsSchema = z
   })
   .strict();
 
+// Open to every Member. It chooses among employees an owner or admin already
+// granted on this mailbox (checked here, and again at read time by
+// `resolveAnalysisReader`), so it cannot widen anyone's access.
 mailRouter.patch(
   "/mail/accounts/:aid/ai-analysis",
   validateBody(aiAnalysisSettingsSchema),
