@@ -34,12 +34,14 @@ export function ensureDir(p: string): void {
 }
 
 /**
- * Per-employee browser-storage snapshot. We persist Playwright's
- * `storageState()` here (cookies + localStorage + sessionStorage) so an
- * employee that logged into X.com once stays logged in for every future
- * conversation and routine, even across container restarts. One file per
- * employee — concurrent sessions of the same employee race on save and
- * last-writer-wins, which is fine for "is the user logged in" state.
+ * Per-employee export of Playwright's `storageState()` (cookies and
+ * localStorage), beside the Chrome profile in
+ * {@link employeeBrowserProfileDir} that actually keeps the employee signed
+ * in. Every session the employee opens in the App's browser shares that one
+ * profile, so this file is written by a single profile-level debounced
+ * export, plus a final one when Chrome closes, instead of each session racing
+ * to overwrite it. A working profile never reads it back: it seeds a
+ * brand-new profile once and is the cookie jar for the ephemeral fallback.
  */
 export function employeeBrowserStateFile(companyId: string, employeeId: string): string {
   return path.join(browserPrivateCompanyDir(companyId), `${employeeId}.json`);

@@ -11,15 +11,19 @@ import {
 } from "./paths.js";
 
 /**
- * Per-employee Playwright `storageState()` persistence.
+ * On-disk browser state for each AI Employee, kept App-private under
+ * `.private/browser-state/<company-id>/` rather than in the employee's
+ * model-visible workspace (see `paths.ts`).
  *
- * We snapshot cookies + localStorage + sessionStorage to an App-private JSON
- * file outside the employee's model-visible workspace. Loaded on every
- * browser-context launch and saved on every clean teardown — so logging into
- * X.com once survives container restarts, idle teardown, and fresh
- * conversations with the same employee without making bearer cookies readable
- * by coding tools. IndexedDB and service workers aren't covered; sites that key
- * their auth off those will still need a re-login.
+ * The Chrome profile, `<employee-id>.profile/`, is the source of truth:
+ * cookies, localStorage, IndexedDB, cache and history all live in it and
+ * survive restarts on their own. The `<employee-id>.json` beside it is a
+ * one-way export of Playwright's `storageState()` (cookies and localStorage
+ * only), which `browserChromium.ts` writes on a debounce after navigation and
+ * whenever it closes Chrome, `SIGTERM` included. A working profile never
+ * reads it back. It is read only to seed a brand-new profile once, so an
+ * upgrade from the ephemeral browser keeps every employee's sign-ins, and as
+ * the cookie jar for the ephemeral fallback when the profile cannot be used.
  */
 
 export type StorageState = {
@@ -304,9 +308,10 @@ export async function browserProfileIsNew(
 }
 
 /**
- * Read the saved storage state for this employee, or `undefined` if no
- * snapshot exists yet (or the file is unreadable / unparseable). Callers
- * pass the result straight into `browser.newContext({ storageState })`.
+ * Read the exported storage state for this employee, or `undefined` if no
+ * snapshot exists yet (or the file is unreadable / unparseable). Only the
+ * one-time seed of a brand-new profile and the ephemeral fallback's
+ * `newContext({ storageState })` read it.
  */
 export async function loadStorageState(
   companyId: string,
