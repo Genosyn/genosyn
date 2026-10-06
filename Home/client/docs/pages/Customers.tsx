@@ -86,24 +86,32 @@ export function Customers() {
 
       <H2 id="access">Who can see and change customers</H2>
       <P>
-        The customer list follows the{" "}
+        The customer list, <Code>New customer</Code>, and each customer&apos;s own pages — its
+        overview, statement, and edit page — follow the{" "}
         <DocLink to="/docs/finance#finance-access">finance access</DocLink> an owner or admin sets
-        for each Member under <Code>Settings → Members</Code>: <Strong>Full</Strong> to work with
-        it, <Strong>Read-only</Strong> to browse it without changing anything. With{" "}
-        <Strong>None</Strong>, <Code>Customers</Code> opens to a note saying they don&apos;t have
-        access, with links to <Code>Revenue → Accounts</Code>, which lists the same accounts, and to{" "}
-        <Code>Contracts</Code>, which every Member can open.
+        for each Member under <Code>Settings → Members</Code>:
       </P>
-      <P>
-        A read-only Member can open every customer&apos;s overview and statement but not change
-        them. The list leaves out <Strong>New customer</Strong> and each row&apos;s menu, and the
-        overview leaves out <Strong>Edit</Strong> and the Billing tab&apos;s{" "}
-        <Strong>New invoice</Strong>, <Strong>New estimate</Strong>, and{" "}
-        <Strong>New recurring invoice</Strong>. Following a saved link to the New or Edit customer
-        page shows a note in its place, with a way back. Contracts don&apos;t depend on finance
-        access, so they can still upload, edit, download, and delete them, on a customer&apos;s{" "}
-        <Strong>Documents</Strong> tab or under <Code>Customers → Contracts</Code>.
-      </P>
+      <UL>
+        <LI>
+          <Strong>Full</Strong> — browse, add, and edit customers.
+        </LI>
+        <LI>
+          <Strong>Read-only</Strong> — browse the list, overviews, and statements without changing
+          anything. The list leaves out <Code>New customer</Code> and each row&apos;s menu, and the
+          overview leaves out <Code>Edit</Code> and the Billing tab&apos;s{" "}
+          <Code>New invoice</Code>, <Code>New estimate</Code>, and{" "}
+          <Code>New recurring invoice</Code>. Following a saved link to the New or Edit customer page
+          shows a note that their finance access is read-only, with a <Code>Back</Code> button, in
+          place of a form that couldn&apos;t be saved. Contracts don&apos;t depend on finance
+          access, so they can still upload, edit, download, and delete them.
+        </LI>
+        <LI>
+          <Strong>None</Strong> — each of those pages opens to a note saying they don&apos;t have
+          access, however they reach it: the <Code>Customers</Code> link, a <Code>⌘K</Code> search
+          result, or a shared link. The note links to <Code>Revenue → Accounts</Code>, which lists
+          the same accounts, and to <Code>Contracts</Code>, which every Member can open.
+        </LI>
+      </UL>
 
       <H2 id="overview">Customer overview</H2>
       <P>

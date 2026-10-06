@@ -542,9 +542,10 @@ export function Finance() {
           <Strong>None</Strong> — the finance section is closed to them entirely. Opening Finance
           shows them a note that they don&apos;t have access, and that an owner or admin can change
           it under <Code>Settings → Members</Code>, in place of pages that could only fail to load.
-          The customer list under <Code>Customers</Code> follows the same setting and shows the same
-          kind of note; <DocLink to="/docs/customers#access">Contracts and Revenue → Accounts</DocLink>{" "}
-          stay open to them.
+          The customer list and each customer&apos;s pages under <Code>Customers</Code> follow the
+          same setting and show the same kind of note;{" "}
+          <DocLink to="/docs/customers#access">Contracts and Revenue → Accounts</DocLink> stay open
+          to them.
         </LI>
       </UL>
       <P>

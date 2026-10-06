@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { describe, mock, test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Route, Routes, StaticRouter } from "react-router-dom";
 
 import { DialogProvider } from "../components/ui/Dialog.js";
 import type { Company, Me } from "../lib/api.js";
-import { canOpenSubpage, canWriteFinance, subpageAt } from "../lib/subpages.js";
+import {
+  canOpenSubpage,
+  canWriteFinance,
+  effectiveFinanceAccess,
+  subpageAt,
+} from "../lib/subpages.js";
 import AuditLog from "./AuditLog.js";
+import ContractsIndex from "./ContractsIndex.js";
+import CustomerDetail from "./CustomerDetail.js";
+import CustomerNew from "./CustomerNew.js";
+import CustomerStatement from "./CustomerStatement.js";
 import CustomersIndex from "./CustomersIndex.js";
 import CustomersLayout from "./CustomersLayout.js";
 import { SettingsEmail } from "./SettingsEmail.js";
@@ -18,9 +27,10 @@ import Usage from "./Usage.js";
 
 /**
  * Pages a viewer can't open, reached anyway: a bookmark, a shared link, a
- * legacy redirect, or (for Customers) the section's own nav link. The rails
- * and the palette already leave these pages out; here each page answers for
- * itself, with a note in place of the page, from the same catalogue entry.
+ * legacy redirect, or (for Customers) the section's own nav link and a ⌘K
+ * search result. The rails and the palette already leave these pages out;
+ * here each page answers for itself, with a note in place of the page, by the
+ * same rule.
  *
  * Effects don't run in a server render, so a request can't be watched for
  * here. What can be checked is the thing that decides it: whether the part of
@@ -30,6 +40,15 @@ import Usage from "./Usage.js";
  */
 
 const h = React.createElement;
+
+// `Select` measures its menu in a layout effect, which React warns does
+// nothing on the server. True, beside the point here, and repeated for every
+// render of the New customer form, so it would bury any warning that matters.
+const consoleError = console.error.bind(console);
+mock.method(console, "error", (...args: unknown[]) => {
+  if (String(args[0]).includes("useLayoutEffect does nothing on the server")) return;
+  consoleError(...args);
+});
 
 const owner = {
   id: "company",
@@ -127,14 +146,19 @@ function renderSettings(at: string, company: Company): string {
   );
 }
 
-/** The Customers landing as `App.tsx` mounts it. */
-function renderCustomers(company: Company): string {
+/** The Customers section as `App.tsx` mounts it, at its landing unless told. */
+function renderCustomers(company: Company, at = "customers"): string {
   return render(
-    "customers",
+    at,
     h(
       Route,
       { path: "/c/:companySlug/customers", element: h(CustomersLayout, { company }) },
       h(Route, { index: true, element: h(CustomersIndex) }),
+      h(Route, { path: "new", element: h(CustomerNew) }),
+      h(Route, { path: "contracts", element: h(ContractsIndex) }),
+      h(Route, { path: ":customerSlug", element: h(CustomerDetail) }),
+      h(Route, { path: ":customerSlug/statement", element: h(CustomerStatement) }),
+      h(Route, { path: ":customerSlug/edit", element: h(CustomerNew) }),
     ),
   );
 }
@@ -273,5 +297,153 @@ describe("the Customers landing", () => {
         who(c),
       );
     }
+  });
+});
+
+/**
+ * An `<a>` to exactly `href` whose text ends in `text`, after any icon and
+ * before any closing tags, such as a `<Button>`'s inside a `<Link>`. It never
+ * reaches past its own `</a>`, so a breadcrumb to the same place can't stand
+ * in for the link under test.
+ */
+function linkTo(href: string, text: string): RegExp {
+  return new RegExp(
+    `<a [^>]*href="${href}"[^>]*>(?:(?!</a>)[\\s\\S])*${text}(?:</(?!a>)[a-z]+>)*</a>`,
+  );
+}
+
+describe("a customer's overview and statement", () => {
+  const NOTE = "You don't have access to this customer's page";
+  /** Each page, and something only it draws once mounted. */
+  const PAGES: { at: string; own: string | null }[] = [
+    // The overview's first render is its spinner alone.
+    { at: "customers/acme-corp", own: null },
+    { at: "customers/acme-corp/statement", own: "Statement of account" },
+  ];
+
+  test("give a Member without finance access a note, and links to what stays open", () => {
+    for (const { at, own } of PAGES) {
+      const html = renderCustomers(memberNoFinance, at);
+      assert.ok(html.includes(NOTE), at);
+      assert.ok(html.includes("Ask one of them to change yours under Settings → Members"), at);
+      assert.match(html, heading("Customers"), at);
+      // Revenue → Accounts has the same account, and Contracts never needed
+      // finance access; both are linked from the page, not only the rail.
+      const page = main(html);
+      assert.match(page, linkTo("/c/acme/revenue/accounts", "Revenue accounts"), at);
+      assert.match(page, linkTo("/c/acme/customers/contracts", "Contracts"), at);
+      // The page never mounted: nothing of its own, and nothing loading.
+      if (own) assert.equal(html.includes(own), false, at);
+      assert.equal(loading(html), false, at);
+    }
+  });
+
+  test("open as before for anyone with Read access or more", () => {
+    for (const { at, own } of PAGES) {
+      for (const c of [...OWNERS_AND_ADMINS, member, memberReadOnly]) {
+        const html = renderCustomers(c, at);
+        assert.equal(html.includes(NOTE), false, `${at} for ${who(c)}`);
+        if (own) assert.ok(html.includes(own), `${at} for ${who(c)}`);
+        assert.ok(loading(html), `${at} for ${who(c)}`);
+      }
+    }
+  });
+
+  test("close exactly when the viewer's finance access is None", () => {
+    // Neither page is catalogued, since each lives under one customer's slug.
+    for (const { at } of PAGES) {
+      for (const c of EVERYONE) {
+        assert.equal(
+          renderCustomers(c, at).includes(NOTE),
+          effectiveFinanceAccess(c) === "none",
+          `${at} for ${who(c)}`,
+        );
+      }
+    }
+  });
+});
+
+describe("the New customer and Edit customer forms", () => {
+  // The note Finance's own forms show the same Member (`FinanceReadOnlyPage`).
+  const READ_ONLY = "You have read-only access to Finance";
+  const FORMS = [
+    { at: "customers/new", title: "New customer", back: "/c/acme/customers" },
+    { at: "customers/acme-corp/edit", title: "Edit customer", back: "/c/acme/customers/acme-corp" },
+  ];
+
+  test("give a Member without finance access the Customers note in place of either", () => {
+    const notes: [string, string][] = [
+      ["customers/new", "You don't have access to the customer list"],
+      ["customers/acme-corp/edit", "You don't have access to this customer's page"],
+    ];
+    for (const [at, note] of notes) {
+      const html = renderCustomers(memberNoFinance, at);
+      assert.ok(html.includes(note), at);
+      assert.equal(html.includes(READ_ONLY), false, at);
+      assert.match(html, heading("Customers"), at);
+      assert.match(main(html), linkTo("/c/acme/revenue/accounts", "Revenue accounts"), at);
+      assert.match(main(html), linkTo("/c/acme/customers/contracts", "Contracts"), at);
+      // No form, and no load of the customer an edit would start.
+      assert.equal(/<form\b/.test(html), false, at);
+      assert.equal(loading(html), false, at);
+    }
+  });
+
+  test("meet a read-only Member with a note and a way back instead of a form", () => {
+    for (const { at, title, back } of FORMS) {
+      const html = renderCustomers(memberReadOnly, at);
+      assert.ok(html.includes(READ_ONLY), at);
+      assert.ok(html.includes("You can view customers but not create or edit them"), at);
+      assert.ok(html.includes("Ask one of them to change yours under Settings → Members"), at);
+      // Still headed by the form's name, so they know where they landed.
+      assert.match(html, heading(title), at);
+      assert.match(main(html), linkTo(back, "Back"), at);
+      // Nothing to fill in only to be refused, and nothing loading.
+      assert.equal(/<form\b/.test(html), false, at);
+      assert.equal(loading(html), false, at);
+    }
+  });
+
+  test("open as before for owners, admins, and Members with Full access", () => {
+    for (const c of [...OWNERS_AND_ADMINS, member]) {
+      const created = renderCustomers(c, "customers/new");
+      assert.match(created, /<form\b/, who(c));
+      assert.match(created, heading("New customer"), who(c));
+      assert.ok(created.includes("Create customer"), who(c));
+      // Editing loads the customer before it draws the form.
+      const edited = renderCustomers(c, "customers/acme-corp/edit");
+      assert.ok(loading(edited), who(c));
+      for (const html of [created, edited]) {
+        assert.equal(html.includes(READ_ONLY), false, who(c));
+        assert.equal(html.includes("You don't have access"), false, who(c));
+      }
+    }
+  });
+
+  test("open exactly when the catalogue says the viewer can open New customer", () => {
+    // Saving needs Full, which is what the catalogue asks of New customer;
+    // an edit saves through the same routes.
+    assert.deepEqual(subpageAt("/customers/new").access, { finance: "full" });
+    for (const { at } of FORMS) {
+      for (const c of EVERYONE) {
+        const html = renderCustomers(c, at);
+        assert.equal(
+          /<form\b/.test(html) || loading(html),
+          canOpenSubpage(subpageAt("/customers/new"), c),
+          `${at} for ${who(c)}`,
+        );
+      }
+    }
+  });
+});
+
+describe("Contracts", () => {
+  test("stays open to a Member without finance access, drawn as for everyone", () => {
+    const [first, ...rest] = EVERYONE.map((c) => main(renderCustomers(c, "customers/contracts")));
+    for (const [i, page] of rest.entries()) assert.equal(page, first, who(EVERYONE[i + 1]));
+    assert.match(first, heading("Contracts"));
+    assert.ok(first.includes("Upload contract"));
+    assert.ok(loading(first));
+    assert.equal(first.includes("You don't have access"), false);
   });
 });

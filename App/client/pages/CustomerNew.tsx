@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 import { ArrowLeft, Plus, Star, Trash2 } from "lucide-react";
 import {
   api,
+  Company,
   Customer,
   CustomerContact,
   CustomerContactDraft,
@@ -11,7 +12,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { canWriteFinance } from "../lib/subpages";
+import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
@@ -20,7 +21,7 @@ import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
-import { CustomersOutletCtx } from "./CustomersLayout";
+import { CustomersClosed, CustomersOutletCtx } from "./CustomersLayout";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
 /**
@@ -80,6 +81,18 @@ function rowFromContact(c: CustomerContact): ContactRow {
 export default function CustomerNew() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const { customerSlug } = useParams();
+  // Everything this form sends goes through the finance routes: loading the
+  // customer to edit needs Read, and saving needs Full. With None even the
+  // load answers 403, so the Customers note stands in for the whole form.
+  if (effectiveFinanceAccess(company) === "none") {
+    return (
+      <CustomersClosed companySlug={company.slug} page={customerSlug ? "customer" : "list"} />
+    );
+  }
+  // Read-only can load a customer but not save one, so instead of fields
+  // whose save could only be refused they get the note Finance's own forms
+  // show, with a way back. The catalogue holds New customer to Full for the
+  // same reason, which is why the palette never offers it to them.
   if (!canWriteFinance(company)) {
     return (
       <FinanceReadOnlyPage
@@ -90,11 +103,10 @@ export default function CustomerNew() {
       />
     );
   }
-  return <CustomerForm />;
+  return <CustomerForm company={company} />;
 }
 
-function CustomerForm() {
-  const { company } = useOutletContext<CustomersOutletCtx>();
+function CustomerForm({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { customerSlug } = useParams();
   const isEdit = Boolean(customerSlug);

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  Company,
   Customer,
   CustomerCredit,
   CustomerMailPage,
@@ -44,7 +45,7 @@ import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
-import { canWriteFinance } from "../lib/subpages";
+import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
@@ -62,7 +63,7 @@ import {
   CustomerSignaturesList,
   SectionHeading,
 } from "./CustomerRelationshipPanels";
-import { CustomersOutletCtx } from "./CustomersLayout";
+import { CustomersClosed, CustomersOutletCtx } from "./CustomersLayout";
 import { ownerLabel, type RevenueContact } from "./RevenueContacts";
 import { stagePillClasses, type Deal } from "./RevenueDeals";
 
@@ -152,6 +153,19 @@ function failure(result: PromiseSettledResult<unknown>): string | undefined {
  */
 export default function CustomerDetail() {
   const { company } = useOutletContext<CustomersOutletCtx>();
+  // The account itself, its mail, and its billing all load through the
+  // finance routes, so with finance access None each request could only
+  // answer 403. Such a Member still follows links here — a ⌘K search result,
+  // a customer cell in a Base, a shared URL — so instead of that error as the
+  // page they get the Customers note, and the overview never mounts to send
+  // those requests.
+  if (effectiveFinanceAccess(company) === "none") {
+    return <CustomersClosed companySlug={company.slug} page="customer" />;
+  }
+  return <CustomerOverview company={company} />;
+}
+
+function CustomerOverview({ company }: { company: Company }) {
   const canWrite = canWriteFinance(company);
   const { customerSlug } = useParams();
   const navigate = useNavigate();

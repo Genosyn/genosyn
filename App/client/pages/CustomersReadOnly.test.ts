@@ -28,7 +28,9 @@ import CustomersLayout from "./CustomersLayout.js";
  * and renders the detail page's mail and people panels from data directly.
  * `server/client/financeReadOnly.test.ts` holds the Customers pages to the
  * same rule for the rest of what they draw once their data is in: the row
- * menu, the detail page's Edit, and its billing tab's New links.
+ * menu, the detail page's Edit, and its billing tab's New links. What a Member
+ * without finance access meets instead, and Contracts staying open to
+ * everyone, are `closedPages.test.ts`'s.
  */
 
 const h = React.createElement;
@@ -55,7 +57,6 @@ const owner = {
 const admin = { ...owner, role: "admin" } satisfies Company;
 const fullMember = { ...owner, role: "member" } satisfies Company;
 const readOnlyMember = { ...fullMember, financeAccess: "read" } satisfies Company;
-const memberWithoutFinance = { ...fullMember, financeAccess: "none" } satisfies Company;
 
 /**
  * Everyone who may change customers. Owners and admins are Full whatever their
@@ -188,17 +189,6 @@ describe("Customers for a Member with read-only Finance access", () => {
     }
   });
 
-  test("tells a Member without finance access who follows a link to a form that they have none", () => {
-    // Contracts keep the Customers section open to them, so a saved link to a
-    // form can still land here; they can't view customers, let alone edit one.
-    for (const at of ["new", "acme-corp/edit"]) {
-      const html = text(renderCustomers(at, memberWithoutFinance));
-      assert.ok(html.includes("You don't have access to Finance"), at);
-      assert.equal(html.includes(READ_ONLY_NOTE), false, at);
-      assert.equal(html.includes("You can view customers"), false, at);
-    }
-  });
-
   test("leaves the mail panel without its way into the edit form", () => {
     const mail: CustomerMailPage = {
       threads: [],
@@ -241,21 +231,6 @@ describe("Customers for a Member with read-only Finance access", () => {
     assert.ok(people(true).includes("on the customer's edit page"));
     assert.ok(people(false).includes("No billing contacts"));
     assert.equal(people(false).includes("edit page"), false);
-  });
-
-  test("leaves Contracts to every Member who can open them", () => {
-    // `routes/contracts.ts` gates no contract on finance access, so neither
-    // does the page: Read, and even None, still upload.
-    const everyone: [string, Company][] = [
-      ...WRITERS,
-      ["read-only Member", readOnlyMember],
-      ["Member without finance access", memberWithoutFinance],
-    ];
-    for (const [who, company] of everyone) {
-      const html = renderCustomers("contracts", company);
-      assert.equal(heading(html), "Contracts", who);
-      assert.ok(buttons(html).includes("Upload contract"), who);
-    }
   });
 
   test("draws every page the same for each viewer who can write", () => {
