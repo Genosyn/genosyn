@@ -4417,10 +4417,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_recurring_invoice",
     description:
-      "Create a recurring invoice schedule for repeat billing. Required fields are `customerSlug`, `name`, `cronExpr`, `frequency`, and 1–200 `lines`; each line needs `{description, quantity, unitPriceCents}` and may include `taxRateId`, `productId`, or `sortOrder`. The five-field `cronExpr` uses server-local time and must match `frequency` (for example `0 9 20 8 *` + `yearly` means every August 20 at 09:00). Each run creates a draft by default. Set `autoSend: true` only when the teammate explicitly wants every future run to issue the invoice, post it to the ledger, and email the customer. Creating the schedule itself never creates or emails an invoice. Needs `invoice` finance access.",
+      "Create a recurring invoice schedule for repeat billing. Required fields are `customerSlug`, `cronExpr`, `frequency`, and 1–200 `lines`; each line needs `{description, quantity, unitPriceCents}` and may include `taxRateId`, `productId`, or `sortOrder`. `name` is optional and defaults to the customer's name. The five-field `cronExpr` uses server-local time and must match `frequency` (for example `0 9 20 8 *` + `yearly` means every August 20 at 09:00). Each run creates a draft by default. Set `autoSend: true` only when the teammate explicitly wants every future run to issue the invoice, post it to the ledger, and email the customer. Creating the schedule itself never creates or emails an invoice. Needs `invoice` finance access.",
     inputSchema: {
       type: "object",
-      required: ["customerSlug", "name", "cronExpr", "frequency", "lines"],
+      required: ["customerSlug", "cronExpr", "frequency", "lines"],
       properties: {
         subsidiaryId: {
           type: ["string", "null"],
@@ -4432,7 +4432,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Who to bill (from list_customers / create_customer).",
         },
-        name: { type: "string", description: "Human-readable schedule name." },
+        name: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "Human-readable schedule name. Omit it or leave it blank to name the schedule after the customer.",
+        },
         cronExpr: {
           type: "string",
           description:
@@ -4519,8 +4524,16 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             "Issuing legal entity id from list_subsidiaries. Omit to keep the existing issuer; pass null for the company default. Archived subsidiaries cannot be selected.",
         },
         recurringInvoiceSlug: { type: "string", description: "Which schedule to update." },
-        customerSlug: { type: "string", description: "Move future billing to this customer." },
-        name: { type: "string" },
+        customerSlug: {
+          type: "string",
+          description: "Move future billing to this customer. The schedule keeps its name.",
+        },
+        name: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "New schedule name; it cannot be blank.",
+        },
         cronExpr: { type: "string", description: "Valid five-field cron in server-local time." },
         frequency: {
           type: "string",

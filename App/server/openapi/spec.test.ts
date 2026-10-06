@@ -26,6 +26,8 @@ type SchemaShape = {
   enum?: unknown[];
   format?: string;
   items?: SchemaShape;
+  maxLength?: number;
+  minLength?: number;
   oneOf?: SchemaShape[];
   nullable?: boolean;
   properties?: Record<string, SchemaShape>;
@@ -110,6 +112,25 @@ test("Finance documents expose subsidiary selection and admin-managed legal enti
   }
   assert.ok(document.components?.schemas?.DocumentIssuerSnapshot);
   assert.ok(document.components?.schemas?.Subsidiary);
+});
+
+test("Recurring invoice names default to the customer on create and stay put on edit", () => {
+  const document = buildOpenApiDocument();
+  const create = operationAt(document, "/api/companies/{cid}/recurring-invoices");
+  const createInput = create.requestBody?.content?.["application/json"]?.schema;
+  assert.deepEqual(createInput?.required, ["customerId", "cronExpr"]);
+  assert.equal(createInput?.properties?.name?.type, "string");
+  assert.equal(createInput?.properties?.name?.maxLength, 200);
+  assert.equal(createInput?.properties?.name?.minLength, undefined);
+  assert.match(createInput?.properties?.name?.description ?? "", /named after its customer/);
+  assert.match(create.description ?? "", /blank name names the schedule after its customer/);
+
+  const edit = operationAt(document, "/api/companies/{cid}/recurring-invoices/{slug}", "patch");
+  const editInput = edit.requestBody?.content?.["application/json"]?.schema;
+  assert.equal(editInput?.required, undefined);
+  assert.equal(editInput?.properties?.name?.minLength, 1);
+  assert.equal(editInput?.properties?.name?.maxLength, 200);
+  assert.match(edit.description ?? "", /never renames the schedule/);
 });
 
 test("Routine browser recordings document cookie-only metadata and range streaming", () => {

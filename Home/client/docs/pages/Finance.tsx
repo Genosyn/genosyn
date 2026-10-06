@@ -301,7 +301,9 @@ export function Finance() {
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
-        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
+        template, or click <Code>New recurring invoice</Code> on a customer&apos;s{" "}
+        <DocLink to="/docs/customers#overview">Billing tab</DocLink> to start one with that customer
+        already picked. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
         <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
         and compose the line items just like a normal invoice. The count lets you say{" "}
@@ -313,6 +315,23 @@ export function Finance() {
         The list shows what each schedule bills per run, tax included, with its currency, and
         whether each run creates a draft or issues and emails the invoice. The same schedules appear
         on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
+      </P>
+
+      <H3 id="recurring-names">Naming a schedule</H3>
+      <P>
+        A new schedule&apos;s <Strong>Name</Strong> starts as its customer&apos;s name. Until you
+        type a name of your own, picking another customer renames it to match; once you have typed
+        one, changing the customer leaves it alone. Clear the field to hand the name back to the
+        customer: a schedule saved with an empty name takes the customer&apos;s name, and the next
+        customer you pick fills the field in again. Editing a schedule never renames it, even when
+        you move it to another customer. If the customer you started from is archived, the form
+        picks no customer and asks you to choose one rather than billing someone else.
+      </P>
+      <P>
+        The API and AI Employees follow the same rule. <Code>name</Code> is optional when creating a
+        schedule with <Code>POST /api/companies/:cid/recurring-invoices</Code> or the{" "}
+        <Code>create_recurring_invoice</Code> tool: left out or blank, it becomes the
+        customer&apos;s name. An edit that sends a name must send one that isn&apos;t blank.
       </P>
 
       <H3 id="recurring-modes">Draft vs auto-send</H3>
@@ -351,7 +370,8 @@ export function Finance() {
         <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{" "}
         <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
         tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>
-        explicitly to issue and email every future invoice automatically.
+        explicitly to issue and email every future invoice automatically. A schedule the employee
+        doesn&apos;t name is named after its customer, as in the form.
       </P>
 
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
