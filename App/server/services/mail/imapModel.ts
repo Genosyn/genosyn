@@ -320,7 +320,7 @@ export function headersFromLines(
     const colon = line.indexOf(":");
     if (colon <= 0) continue;
     const name = line.slice(0, colon).trim();
-    out.push({ name, value: decodedValue(name, line.slice(colon + 1).trim()) });
+    out.push({ name, value: decodedHeaderValue(name, line.slice(colon + 1).trim()) });
   }
   return out;
 }
@@ -328,8 +328,14 @@ export function headersFromLines(
 /** The headers that hold mailboxes, whose display names a reader sees. */
 const ADDRESS_HEADERS = new Set(["from", "sender", "reply-to", "to", "cc", "bcc"]);
 
-/** One header's value as a reader sees it — see {@link headersFromLines}. */
-function decodedValue(name: string, value: string): string {
+/**
+ * One header's value as a reader sees it — see {@link headersFromLines}.
+ *
+ * Exported for the sync pass that decodes rows mirrored before this decoded
+ * anything: those rows hold exactly the unfolded value that arrives here, so
+ * running it through the same function gives what a fresh import would.
+ */
+export function decodedHeaderValue(name: string, value: string): string {
   const key = name.toLowerCase();
   if (key === "subject") return decodeHeaderText(utf8Text(value));
   if (ADDRESS_HEADERS.has(key)) return decodeAddressList(utf8Text(value));

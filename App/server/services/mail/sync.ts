@@ -33,6 +33,7 @@ import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQue
 import { listFolders, withImap } from "./imapClient.js";
 import {
   imapBackfillPass,
+  imapHeaderRepairPass,
   imapIncrementalPass,
   imapSyncErrorMessage,
   parseImapCursor,
@@ -496,6 +497,23 @@ async function imapPass(
     persistCursor: (cursor) => checkpointImapCursor(account, cursor, assertWritable),
   };
 
+  // Ahead of the import, and in both branches: a message the import reads
+  // again — moved to another folder, say — has its row decoded there too, and
+  // the repair has to carry approvals across before any row on their threads
+  // is decoded. A mailbox with nothing to repair returns at once.
+  let repaired = false;
+  try {
+    repaired = await imapHeaderRepairPass(ctx);
+  } catch (error) {
+    if (error instanceof MailSyncLeaseLostError || error instanceof MailSyncCancelledError) {
+      throw error;
+    }
+    // The repair tidies mail already mirrored. Failing it must never stop new
+    // mail arriving; it resumes from its cursor on the next pass.
+    // eslint-disable-next-line no-console
+    console.error(`[mail] header repair failed for account ${account.id}:`, error);
+  }
+
   if (!account.backfilledAt) {
     const complete = await imapBackfillPass(ctx);
     if (complete) {
@@ -508,7 +526,7 @@ async function imapPass(
     return true;
   }
 
-  const changed = await imapIncrementalPass(ctx);
+  const changed = (await imapIncrementalPass(ctx)) || repaired;
   // Map the Drafts folder onto the mirror every pass, exactly as the Gmail
   // engine does. Without it a draft somebody wrote in Apple Mail or their
   // webmail arrives here labelled DRAFT but with no handle, and the Drafts

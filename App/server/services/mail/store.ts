@@ -267,6 +267,23 @@ function summarizeParticipants(account: MailAccount, messages: MailMessage[]): s
   return names.length > 3 ? `${head} +${names.length - 3}` : head;
 }
 
+/**
+ * Whether any message in a conversation holds a subject or recipient list
+ * with an RFC 2047 word in it — as an IMAP row mirrored before its adapter
+ * decoded does. Reads only columns stored ahead of the bodies, so asking costs
+ * an index lookup rather than the conversation's mail.
+ */
+export async function threadHoldsEncodedHeaderText(threadId: string): Promise<boolean> {
+  const rows = await AppDataSource.getRepository(MailMessage)
+    .createQueryBuilder("m")
+    .select(["m.id", "m.subject", "m.toEmails", "m.ccEmails", "m.bccEmails"])
+    .where("m.threadId = :threadId", { threadId })
+    .getMany();
+  return rows.some((m) =>
+    [m.subject, m.toEmails, m.ccEmails, m.bccEmails].some((text) => text.includes("=?")),
+  );
+}
+
 // ---------- Labels ----------
 
 /** Mirror the mailbox's label catalog: upsert everything present, delete rows

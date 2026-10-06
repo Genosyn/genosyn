@@ -28,6 +28,7 @@ import {
   proactiveWorkOutcomeSummary,
   proactiveWorkReviewDetails,
   reconcileProactiveWorkApprovals,
+  restampProactiveWorkInboundEvidence,
   settleQueuedProactiveRoutineRun,
   reviseProactiveWorkApproval,
   validateProactiveRoutineApproval,
@@ -414,6 +415,107 @@ test("terminal mail-backed work stays suppressed until new inbound evidence", as
     });
     assert.notEqual(afterCustomerReply.id, original.id, `${status} new inbound evidence`);
   }
+});
+
+test("declined mail-backed work stays declined when its thread's header text is decoded", async () => {
+  // An IMAP row mirrored before its adapter decoded holds header text as the
+  // server sent it, until the sync pass decodes it in place. The same mail
+  // reading decoded is not new customer evidence.
+  const f = await fixture();
+  const account = await insert(MailAccount, {
+    companyId: f.companyId,
+    connectionId: "connection",
+    provider: "imap",
+    address: "support@example.test",
+    status: "active",
+  });
+  await insert(EmployeeMailAccountGrant, {
+    employeeId: f.employee.id,
+    accountId: account.id,
+    accessLevel: "draft",
+  });
+  const thread = await insert(MailThread, {
+    companyId: f.companyId,
+    accountId: account.id,
+    gmailThreadId: "export-thread",
+    subject: "=?UTF-8?Q?Probl=C3=A8me_d=27export?=",
+  });
+  const { id: messageId } = await insert(MailMessage, {
+    companyId: f.companyId,
+    accountId: account.id,
+    threadId: thread.id,
+    gmailMessageId: "customer-export-1",
+    gmailThreadId: thread.gmailThreadId,
+    fromEmail: "customer@example.test",
+    toEmails: `=?UTF-8?Q?=C3=89quipe_Support?= <${account.address}>`,
+    subject: thread.subject,
+    bodyText: "The export fails every time.",
+    sentAt: new Date("2026-09-01T09:00:00.000Z"),
+    labelIds: " INBOX ",
+  });
+  const propose = (title: string) =>
+    createProactiveWorkApproval({
+      companyId: f.companyId,
+      employeeId: f.employee.id,
+      title,
+      context: "The customer reported a failing export.",
+      plan: "Investigate the export failure and leave the result for Member review.",
+      origin: { mailThreadId: thread.id, mailDeliveryMode: "review" },
+    });
+  const declined = await propose("Investigate the export failure");
+
+  // The stamp the release before this one wrote: over the header text as stored.
+  const m = await AppDataSource.getRepository(MailMessage).findOneByOrFail({ id: messageId });
+  const stampedBefore = digest([
+    thread.id,
+    thread.accountId,
+    thread.gmailThreadId,
+    [
+      [
+        m.id,
+        m.gmailMessageId,
+        m.gmailThreadId,
+        m.messageIdHeader,
+        m.referencesHeader,
+        m.inReplyToHeader,
+        m.sentAt?.toISOString() ?? null,
+        m.fromName,
+        m.fromEmail,
+        m.toEmails,
+        m.ccEmails,
+        m.bccEmails,
+        m.subject,
+        m.bodyText,
+        m.bodyHtml,
+        m.attachmentsJson,
+        m.sizeEstimate,
+      ],
+    ],
+  ]);
+  await AppDataSource.getRepository(Approval).update(
+    { id: declined.id },
+    {
+      status: "rejected",
+      decidedAt: new Date(),
+      decidedByUserId: f.member.id,
+      payloadJson: JSON.stringify({
+        ...(JSON.parse(declined.payloadJson!) as Record<string, unknown>),
+        inboundEvidenceFingerprint: stampedBefore,
+      }),
+    },
+  );
+  assert.equal((await propose("Look at the export again")).id, declined.id, "held while raw");
+
+  assert.equal(await restampProactiveWorkInboundEvidence(account, declined.id), true);
+  await AppDataSource.getRepository(MailMessage).update(
+    { id: messageId },
+    { subject: "Problème d'export", toEmails: `Équipe Support <${account.address}>` },
+  );
+  assert.equal(
+    (await propose("Take another look at the export")).id,
+    declined.id,
+    "and held once the text is decoded",
+  );
 });
 
 test("one human approval starts one bounded session with the original draft ceiling", async () => {

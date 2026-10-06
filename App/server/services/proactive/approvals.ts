@@ -22,7 +22,8 @@ import { recordAudit } from "../audit.js";
 import { handoverDeliveryMode } from "../mail/handoverPrompt.js";
 import { handoverGrantError } from "../mail/handovers.js";
 import { CANONICAL_LABELS } from "../mail/mailbox/types.js";
-import { columnHasLabel } from "../mail/store.js";
+import { fullyDecodedAddressList, fullyDecodedHeaderText } from "../mail/mime.js";
+import { columnHasLabel, threadHoldsEncodedHeaderText } from "../mail/store.js";
 import { notifyApprovalPending } from "../notifications.js";
 import { workBlocked } from "../standdowns.js";
 import { runWorkSummary } from "../runWorkSummary.js";
@@ -149,9 +150,19 @@ function grantModeForDelivery(mode: ProactiveWorkOrigin["mailDeliveryMode"]): Ma
   return "draft";
 }
 
-async function semanticMailEvidence(
-  threadId: string,
-): Promise<{ all: unknown[]; inbound: unknown[] }> {
+type MailEvidence = {
+  all: unknown[];
+  inbound: unknown[];
+  /**
+   * `inbound` with every subject and recipient list fully decoded, or null
+   * when no inbound header holds an RFC 2047 word and the two are the same.
+   */
+  decodedInbound: unknown[] | null;
+};
+
+type HeaderText = Pick<MailMessage, "subject" | "toEmails" | "ccEmails" | "bccEmails">;
+
+async function semanticMailEvidence(threadId: string): Promise<MailEvidence> {
   const messages = await AppDataSource.getRepository(MailMessage).find({ where: { threadId } });
   const semantic = messages
     .filter((message) => !columnHasLabel(message.labelIds, CANONICAL_LABELS.draft))
@@ -166,30 +177,52 @@ async function semanticMailEvidence(
     })
     .map((message) => ({
       sent: columnHasLabel(message.labelIds, CANONICAL_LABELS.sent),
-      evidence: [
-        message.id,
-        message.gmailMessageId,
-        message.gmailThreadId,
-        message.messageIdHeader,
-        message.referencesHeader,
-        message.inReplyToHeader,
-        message.sentAt?.toISOString() ?? null,
-        message.fromName,
-        message.fromEmail,
-        message.toEmails,
-        message.ccEmails,
-        message.bccEmails,
-        message.subject,
-        message.bodyText,
-        message.bodyHtml,
-        message.attachmentsJson,
-        message.sizeEstimate,
-      ],
+      message,
+      evidence: messageEvidence(message, message),
     }));
+  const inbound = semantic.filter((entry) => !entry.sent);
+  const encoded = inbound.some(({ message }) =>
+    [message.subject, message.toEmails, message.ccEmails, message.bccEmails].some((text) =>
+      text.includes("=?"),
+    ),
+  );
   return {
-    all: semantic.map((message) => message.evidence),
-    inbound: semantic.filter((message) => !message.sent).map((message) => message.evidence),
+    all: semantic.map((entry) => entry.evidence),
+    inbound: inbound.map((entry) => entry.evidence),
+    decodedInbound: encoded
+      ? inbound.map(({ message }) =>
+          messageEvidence(message, {
+            subject: fullyDecodedHeaderText(message.subject),
+            toEmails: fullyDecodedAddressList(message.toEmails),
+            ccEmails: fullyDecodedAddressList(message.ccEmails),
+            bccEmails: fullyDecodedAddressList(message.bccEmails),
+          }),
+        )
+      : null,
   };
+}
+
+/** What one message contributes to its thread's evidence, with `headers` as its header text. */
+function messageEvidence(message: MailMessage, headers: HeaderText): unknown[] {
+  return [
+    message.id,
+    message.gmailMessageId,
+    message.gmailThreadId,
+    message.messageIdHeader,
+    message.referencesHeader,
+    message.inReplyToHeader,
+    message.sentAt?.toISOString() ?? null,
+    message.fromName,
+    message.fromEmail,
+    headers.toEmails,
+    headers.ccEmails,
+    headers.bccEmails,
+    headers.subject,
+    message.bodyText,
+    message.bodyHtml,
+    message.attachmentsJson,
+    message.sizeEstimate,
+  ];
 }
 
 async function legacyMailEvidenceChanged(
@@ -226,18 +259,88 @@ async function legacyInboundEvidenceChanged(
   );
 }
 
-async function mailInboundEvidenceFingerprint(
+/**
+ * A mail thread's inbound evidence, in both forms a stamp on handled work may
+ * hold. `current` hashes each subject and recipient list fully decoded, and is
+ * what every new stamp carries. `raw` hashes them as stored, which is how every
+ * stamp was written before — over RFC 2047 words, on an IMAP thread mirrored
+ * before its adapter decoded them. The two differ only while an inbound header
+ * still holds such a word.
+ */
+function inboundEvidenceFingerprints(
+  thread: Pick<MailThread, "id" | "accountId" | "gmailThreadId">,
+  evidence: MailEvidence,
+): { current: string; raw: string } {
+  const identity = [thread.id, thread.accountId, thread.gmailThreadId];
+  const raw = digest([...identity, evidence.inbound]);
+  return {
+    current: evidence.decodedInbound ? digest([...identity, evidence.decodedInbound]) : raw,
+    raw,
+  };
+}
+
+async function mailInboundEvidenceFingerprints(
   companyId: string,
   origin: ProactiveWorkOrigin,
-): Promise<string | null> {
+): Promise<{ current: string; raw: string } | null> {
   if (!origin.mailThreadId) return null;
   const thread = await AppDataSource.getRepository(MailThread).findOneBy({
     id: origin.mailThreadId,
     companyId,
   });
   if (!thread) throw new Error("The source mailbox or email thread is no longer active.");
-  const evidence = await semanticMailEvidence(thread.id);
-  return digest([thread.id, thread.accountId, thread.gmailThreadId, evidence.inbound]);
+  return inboundEvidenceFingerprints(thread, await semanticMailEvidence(thread.id));
+}
+
+/**
+ * Carry one work review's inbound stamp across the decoding of its mail
+ * thread's header text, before that decoding happens — the counterpart of
+ * `restampMailReviewInboundEvidence`, which says why. Declined or finished
+ * work on a thread stays put until new customer mail arrives; a stamp over the
+ * raw text would stop matching once the sync pass decodes the thread, and the
+ * same work would be proposed again with nothing new behind it. A stamp that
+ * still matches the raw text is replaced by the fully decoded form; one that
+ * does not is left alone. The source fingerprint that guards approval is
+ * never rewritten. Returns whether the stamp was replaced.
+ */
+export async function restampProactiveWorkInboundEvidence(
+  account: MailAccount,
+  approvalId: string,
+): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({
+    id: approvalId,
+    companyId: account.companyId,
+    kind: "proactive_work",
+  });
+  if (!approval?.payloadJson) return false;
+  let payload: ProactiveWorkPayload;
+  try {
+    payload = parseProactiveWorkPayload(approval.payloadJson);
+  } catch {
+    return false;
+  }
+  const stamp = payload.inboundEvidenceFingerprint;
+  const threadId = payload.origin.mailThreadId;
+  if (!stamp || !threadId) return false;
+  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+    id: threadId,
+    accountId: account.id,
+  });
+  // Most threads never held an encoded word, and their two forms are one.
+  if (!thread || !(await threadHoldsEncodedHeaderText(thread.id))) return false;
+  const inbound = inboundEvidenceFingerprints(thread, await semanticMailEvidence(thread.id));
+  if (stamp !== inbound.raw || inbound.current === inbound.raw) return false;
+  const restamped = await repo.update(
+    { id: approval.id, companyId: account.companyId, payloadJson: approval.payloadJson },
+    {
+      payloadJson: JSON.stringify({
+        ...(JSON.parse(approval.payloadJson) as Record<string, unknown>),
+        inboundEvidenceFingerprint: inbound.current,
+      }),
+    },
+  );
+  return restamped.affected === 1;
 }
 
 /** Recheck the standing source so old reviews cannot authorize a changed instruction. */
@@ -449,7 +552,7 @@ export async function createProactiveWorkApproval(args: {
   const context = reviewText(args.context, 4_000, "Context");
   const plan = reviewText(args.plan, 8_000, "Plan");
   const fingerprint = await sourceFingerprint(args.companyId, args.employeeId, origin);
-  const inboundEvidenceFingerprint = await mailInboundEvidenceFingerprint(args.companyId, origin);
+  const inbound = await mailInboundEvidenceFingerprints(args.companyId, origin);
   // Run ids change on every poll. The source and concrete proposed plan do not.
   const dedupeKey = digest([origin.routineId ?? null, origin.mailThreadId ?? null, title, plan]);
   const result = await withSerializedTransaction(async (manager) => {
@@ -503,8 +606,11 @@ export async function createProactiveWorkApproval(args: {
       if (origin.mailThreadId ? !sameMailThread : previous.dedupeKey !== dedupeKey) continue;
       if (approval.status === "executing") return { approval, created: false };
       if (approval.status !== "pending" && sameMailThread) {
-        const inboundUnchanged = previous.inboundEvidenceFingerprint
-          ? previous.inboundEvidenceFingerprint === inboundEvidenceFingerprint
+        // Either form of the evidence counts: a raw stamp on a thread whose
+        // header text is not decoded yet, and a decoded one after it is.
+        const stamp = previous.inboundEvidenceFingerprint;
+        const inboundUnchanged = stamp
+          ? stamp === inbound?.current || stamp === inbound?.raw
           : !(await legacyInboundEvidenceChanged(previous.origin, approval.requestedAt));
         if (inboundUnchanged) return { approval, created: false };
         continue;
@@ -546,7 +652,7 @@ export async function createProactiveWorkApproval(args: {
       origin,
       sourceFingerprint: fingerprint,
       dedupeKey,
-      inboundEvidenceFingerprint,
+      inboundEvidenceFingerprint: inbound?.current ?? null,
       revision: digest([title, context, plan, origin, fingerprint]),
     };
     const approval = await repo.save(
@@ -623,7 +729,7 @@ export async function reviseProactiveWorkApproval(args: {
   }
   const origin = await currentOriginForRevision(args.companyId, args.employeeId, payload.origin);
   const fingerprint = await sourceFingerprint(args.companyId, args.employeeId, origin);
-  const inboundEvidenceFingerprint = await mailInboundEvidenceFingerprint(args.companyId, origin);
+  const inbound = await mailInboundEvidenceFingerprints(args.companyId, origin);
   const title = args.title === undefined ? payload.title : reviewText(args.title, 200, "Title");
   const context =
     args.context === undefined ? payload.context : reviewText(args.context, 4_000, "Context");
@@ -635,7 +741,7 @@ export async function reviseProactiveWorkApproval(args: {
     plan,
     origin,
     sourceFingerprint: fingerprint,
-    inboundEvidenceFingerprint,
+    inboundEvidenceFingerprint: inbound?.current ?? null,
     dedupeKey: digest([origin.routineId ?? null, origin.mailThreadId ?? null, title, plan]),
     revision: digest([title, context, plan, origin, fingerprint]),
   };
