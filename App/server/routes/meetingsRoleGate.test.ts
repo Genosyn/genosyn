@@ -354,6 +354,82 @@ describe("meetings routes — calendar configuration is admin-only", () => {
 });
 
 /**
+ * The same calendar routes, spelled with a trailing slash.
+ *
+ * Express routes non-strictly, so `/meetings/calendars/:id/` reaches the
+ * handler registered at `/meetings/calendars/:id`. The guard's anchored
+ * matchers missed that spelling, so it skipped itself: a plain member's PATCH
+ * through it answered 200 and saved auto-record "all" with a notetaker. Each
+ * test pairs the member's 403 with a request the slash spelling lets through,
+ * so the 403 is the guard and not a route that never matched.
+ */
+describe("meetings routes — a trailing slash does not skip the admin gate", () => {
+  test("a plain member cannot arm auto-record through `/meetings/calendars/:id/`", async () => {
+    const account = await aCalendar();
+    const employee = await anEmployee();
+
+    actingUserId = memberId;
+    const forbidden = await call<{ error: string }>("PATCH", `/meetings/calendars/${account.id}/`, {
+      autoRecord: "all",
+      notetakerEmployeeId: employee.id,
+    });
+    assert.equal(forbidden.status, 403);
+    assert.equal(forbidden.body.error, "admin company role required");
+    const untouched = await AppDataSource.getRepository(CalendarAccount).findOneByOrFail({
+      id: account.id,
+    });
+    assert.equal(untouched.autoRecord, "off");
+    assert.equal(untouched.notetakerEmployeeId, null);
+    assert.equal(await grantCount(), 0);
+
+    actingUserId = adminId;
+    const allowed = await call<{ calendar: { autoRecord: string } }>(
+      "PATCH",
+      `/meetings/calendars/${account.id}/`,
+      { autoRecord: "all" },
+    );
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.calendar.autoRecord, "all");
+  });
+
+  test("a plain member cannot disconnect a calendar through `/meetings/calendars/:id/`", async () => {
+    const account = await aCalendar();
+
+    actingUserId = memberId;
+    const forbidden = await call("DELETE", `/meetings/calendars/${account.id}/`);
+    assert.equal(forbidden.status, 403);
+    assert.ok(
+      await AppDataSource.getRepository(CalendarAccount).findOneBy({ id: account.id }),
+      "the calendar should survive a member's delete",
+    );
+
+    actingUserId = ownerId;
+    const allowed = await call("DELETE", `/meetings/calendars/${account.id}/`);
+    assert.equal(allowed.status, 200);
+    assert.equal(await AppDataSource.getRepository(CalendarAccount).count(), 0);
+  });
+
+  test("a plain member cannot connect a calendar through `/meetings/calendars/`", async () => {
+    actingUserId = memberId;
+    const forbidden = await call("POST", "/meetings/calendars/", {
+      connectionId: randomUUID(),
+      calendarId: "primary",
+    });
+    assert.equal(forbidden.status, 403);
+    assert.equal(await AppDataSource.getRepository(CalendarAccount).count(), 0);
+
+    // As above: the admin's 400 comes from the absent Connection, past the guard.
+    actingUserId = adminId;
+    const allowed = await call<{ error: string }>("POST", "/meetings/calendars/", {
+      connectionId: randomUUID(),
+      calendarId: "primary",
+    });
+    assert.equal(allowed.status, 400);
+    assert.equal(allowed.body.error, "Connection not found.");
+  });
+});
+
+/**
  * The other half of the guard. `onRoutePaths` exists because this router shares
  * the `/api/companies/:cid` mount with its siblings, so an unscoped `.use()`
  * would make unrelated features admin-only; and the calendar matchers are
@@ -367,6 +443,16 @@ describe("meetings routes — the admin gate stays scoped", () => {
     actingUserId = memberId;
     const res = await call<{ error: string }>("POST", `/meetings/calendars/${account.id}/sync`);
     // 400 from the missing Connection, not 403: the sync route is not gated.
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /Google connection/);
+  });
+
+  test("a member may still sync a calendar with a trailing slash", async () => {
+    // The guard trims the slash before matching; that must not pull the sync
+    // route under the anchored `/meetings/calendars/:id` matcher.
+    const account = await aCalendar();
+    actingUserId = memberId;
+    const res = await call<{ error: string }>("POST", `/meetings/calendars/${account.id}/sync/`);
     assert.equal(res.status, 400);
     assert.match(res.body.error, /Google connection/);
   });

@@ -237,15 +237,31 @@ export function requireCompanyRoleForMutations(minimum: Role) {
 export type RoutePathMatcher = string | RegExp;
 
 export function matchesRoutePath(path: string, matchers: readonly RoutePathMatcher[]): boolean {
-  // Matched case-insensitively because Express itself is: a Router defaults to
-  // `caseSensitive: false`, so `POST /ROUTINE-FOLDERS` reaches the handler
-  // registered at `/routine-folders`. A guard that compared case-sensitively
-  // therefore skipped itself for exactly that request, and an ordinary Member
-  // could create a folder — or write to Secrets, API keys, Repositories, or any
-  // other surface gated this way — by shouting the path. Every matcher in the
-  // codebase is written in lowercase with `[^/]+` for variable segments, so
-  // folding the path can only make a guard match MORE paths, never fewer.
-  const normalized = path.toLowerCase();
+  // Matched the way Express routes the request, not the way the caller spelled
+  // it: wherever the two disagree, the guard skips itself and the handler still
+  // runs.
+  //
+  // Case-insensitively, because a Router defaults to `caseSensitive: false`:
+  // `POST /ROUTINE-FOLDERS` reaches the handler registered at
+  // `/routine-folders`, so an ordinary Member could create a folder — or write
+  // to Secrets, API keys, Repositories, or any other surface gated this way —
+  // by shouting the path.
+  //
+  // Without a trailing slash, because a Router also defaults to `strict: false`:
+  // `PATCH /meetings/calendars/:id/` reaches the handler registered at
+  // `/meetings/calendars/:id`, which an anchored matcher such as
+  // `/^\/meetings\/calendars\/[^/]+$/` did not see, so a Member could arm
+  // auto-record on a calendar, or rewrite or delete an AI Employee, by ending
+  // the path with "/". The root stays "/", so `/^\/$/` still matches it.
+  //
+  // Nothing else needs folding. `req.path` is the pathname the router itself
+  // matches, and the other respellings (percent-encoding, doubled or dot
+  // segments, backslashes) reach no handler or fall inside a `[^/]+` segment.
+  //
+  // Every matcher in the codebase is lowercase, uses `[^/]+` for variable
+  // segments, and is written against the path without its trailing slash, so
+  // normalizing can only make a guard match MORE paths, never fewer.
+  const normalized = path.toLowerCase().replace(/\/+$/, "") || "/";
   return matchers.some((matcher) => {
     if (typeof matcher === "string") {
       return normalized === matcher || normalized.startsWith(`${matcher}/`);
