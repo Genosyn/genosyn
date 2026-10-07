@@ -1,3 +1,5 @@
+import type { FinanceAccess } from "../db/entities/Membership.js";
+
 /**
  * Product areas that can be tagged from an AI-employee chat composer.
  *
@@ -14,7 +16,24 @@ export type ChatProductReference = {
   description: string;
   keywords: string[];
   toolHints: string[];
+  /**
+   * Who may open `path`, copied from its page's entry in the client's subpage
+   * catalogue (`client/lib/subpages.ts`). Unset means any Member. Company
+   * search offers the area only to someone who may. Tags ignore it: a tag
+   * already in a message keeps its product, since what the employee can then
+   * reach is decided by its Grants and the Member's own access.
+   */
+  access?: { finance: "read" };
 };
+
+/**
+ * What every Finance page needs, and the customer list the finance routes
+ * also serve: `FINANCE_READ` in the subpage catalogue. The Finance and
+ * Customers areas need it too. Each opens its section's landing, which is
+ * gated like any other page; only the palette's Sections group lists those
+ * sections to everyone, since a section's landing explains itself.
+ */
+const FINANCE_READ = { finance: "read" } as const;
 
 export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
   {
@@ -120,6 +139,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Customer accounts and contracts",
     keywords: ["customer", "account", "client", "contract", "statement"],
     toolHints: ["list_customers", "get_customer", "create_customer", "update_customer"],
+    access: FINANCE_READ,
   },
   {
     key: "revenue",
@@ -187,6 +207,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
       "invoices",
     ],
     toolHints: ["list_invoices", "list_customers", "get_finance_report"],
+    access: FINANCE_READ,
   },
   {
     key: "estimates",
@@ -195,6 +216,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Draft, review, issue, and send customer quotations",
     keywords: ["estimate", "quote", "quotation", "proposal", "pricing"],
     toolHints: ["list_estimates", "get_estimate", "list_finance_products", "create_estimate", "issue_estimate", "send_estimate"],
+    access: FINANCE_READ,
   },
   {
     key: "invoices",
@@ -203,6 +225,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Create, issue, send, and collect invoices",
     keywords: ["invoice", "bill customer", "billing", "receivable", "charge"],
     toolHints: ["list_invoices", "get_invoice", "create_invoice", "send_invoice"],
+    access: FINANCE_READ,
   },
   {
     key: "recurring-invoices",
@@ -216,6 +239,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
       "create_recurring_invoice",
       "update_recurring_invoice",
     ],
+    access: FINANCE_READ,
   },
   {
     key: "products",
@@ -224,6 +248,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Finance product and service catalogue",
     keywords: ["product", "service", "catalogue", "catalog", "price", "sku"],
     toolHints: [],
+    access: FINANCE_READ,
   },
   {
     key: "bills",
@@ -232,6 +257,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Vendor bills and accounts payable",
     keywords: ["bill", "vendor", "supplier", "payable", "ap"],
     toolHints: [],
+    access: FINANCE_READ,
   },
   {
     key: "transactions",
@@ -240,6 +266,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Posted ledger transactions",
     keywords: ["transaction", "ledger", "entry", "books", "journal"],
     toolHints: ["list_finance_transactions", "get_finance_transaction"],
+    access: FINANCE_READ,
   },
   {
     key: "finance-reports",
@@ -248,6 +275,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Profit and loss, balance sheet, and cash flow",
     keywords: ["finance report", "p&l", "profit", "loss", "balance sheet", "cash flow"],
     toolHints: ["get_finance_report"],
+    access: FINANCE_READ,
   },
   {
     key: "reconciliation",
@@ -256,8 +284,22 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     description: "Match and categorise bank activity",
     keywords: ["reconcile", "reconciliation", "bank", "categorise", "match"],
     toolHints: [],
+    access: FINANCE_READ,
   },
 ] as const;
+
+/**
+ * Whether someone with this Finance access can open the area's page — the
+ * test `canOpenSubpage` applies to that page on the client. Pass the level
+ * `financeAccessFor` resolved, which makes owners and admins `full` whatever
+ * their membership row says.
+ */
+export function canOpenProductReference(
+  reference: ChatProductReference,
+  financeAccess: FinanceAccess,
+): boolean {
+  return !reference.access || financeAccess !== "none";
+}
 
 export type ChatProductSearchResult = ChatProductReference & { score: number };
 

@@ -166,12 +166,13 @@ export function WorkspaceChat() {
       <H2 id="resource-references">Tag product areas and company resources</H2>
       <P>
         Type <Code>#</Code> followed by two or more characters in any AI-employee chat composer. The
-        picker includes product areas such as <Strong>Estimates</Strong>, <Strong>Invoices</Strong>,
+        picker includes product areas such as <Strong>Estimates</Strong>, <Strong>Invoices</Strong>,{" "}
         <Strong>Workspace</Strong>, <Strong>Contacts</Strong>, and <Strong>Deals</Strong>, alongside
         the company content you can see: Skills, Routines, channels, Projects, Todos, Bases,
         notebooks, Notes, Resources, Charts, Dashboards, repositories, Pipelines, and Customers —
-        or, for a Member without finance access, the same accounts as Revenue accounts. Choose a
-        result to insert a clickable tag.
+        or, for a Member without finance access, the same accounts as Revenue accounts. Product
+        areas follow finance access too: a Member without it isn&apos;t offered Finance, its pages
+        such as Estimates and Invoices, or Customers. Choose a result to insert a clickable tag.
       </P>
       <P>
         Use <Code>@</Code> for a person or AI Employee and <Code>#</Code> for a place, product area,

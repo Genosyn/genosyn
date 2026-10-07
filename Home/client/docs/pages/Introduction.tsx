@@ -229,14 +229,18 @@ export function Introduction() {
         The palette searches your company&apos;s content too, not just sections and pages. Type two or
         more characters and matching AI Employees, skills, routines, notebooks, notes, bases,
         channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear
-        grouped beneath them. It matches <em>names</em> — plus a few fields you&apos;d
+        grouped beneath them, with <Strong>Product areas</Strong> such as Estimates or Workspace
+        alongside. It matches <em>names</em> — plus a few fields you&apos;d
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
         employee&apos;s role — never document bodies. Press <Code>↵</Code> to open a result; a todo
         takes you to its project&apos;s board, ticket number in hand. Results respect what you can
         see: restricted projects and private channels you aren&apos;t in stay out of the list, and
         customers follow your finance access. Without it, the same accounts appear as{" "}
         <Strong>Revenue accounts</Strong> that open in Revenue, with no billing email (see{" "}
-        <DocLink to="/docs/customers#access">who can see customers</DocLink>).
+        <DocLink to="/docs/customers#access">who can see customers</DocLink>). Product areas follow
+        your finance access the way pages do: Finance, its pages such as Estimates and Invoices, and
+        Customers appear only with Read-only or Full access. The Finance and Customers sections
+        themselves stay listed; without access, each opens to a note explaining why.
       </P>
 
       <Callout kind="tip" title="Open source, permissively licensed.">
