@@ -1131,6 +1131,9 @@ try {
     async () => {
       const page = await open();
       await page.getByText("Waiting for ready AI Employees", { exact: true }).waitFor();
+      // Standing work renders before the socket connects, and a push sent
+      // earlier reaches no subscriber; the page listens by the time it opens.
+      await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
       const initialLoads = loads;
       overview.installations.push({
         id: "live",

@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import type { Company } from "../client/lib/api";
 import { ChatSessionsProvider, useChatSessions } from "../client/lib/chatSessions";
 import Proactive from "../client/pages/Proactive";
-import { CompanySocketProvider } from "../client/components/CompanySocket";
+import { CompanySocketProvider, useCompanySocket } from "../client/components/CompanySocket";
 import "../client/styles/index.css";
 
 function Location() {
@@ -15,6 +15,11 @@ function Location() {
       {location.pathname}
     </output>
   );
+}
+
+function SocketStatus() {
+  const { status } = useCompanySocket();
+  return <output data-socket-status={status} hidden />;
 }
 
 const params = new URLSearchParams(location.search);
@@ -60,6 +65,7 @@ createRoot(document.getElementById("root")!).render(
         <main className="min-h-screen bg-white text-slate-900">
           <Proactive company={company} />
           <Location />
+          <SocketStatus />
           <ChatSessionProbe />
         </main>
       </CompanySocketProvider>
