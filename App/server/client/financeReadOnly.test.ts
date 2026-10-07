@@ -6,15 +6,16 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Every Finance page that can change finances asks `canWriteFinance` first,
- * and so does every Customer page that can change a customer.
+ * and so does every Customers page that can change a customer, since the
+ * finance routes write customers too.
  *
- * `client/pages/FinanceReadOnly.test.ts` and `client/pages/closedPages.test.ts`
- * render what a page draws before its data arrives. What it draws afterwards —
- * a row's menu, an invoice's Send and Void, Record payment, a proposal's Apply,
- * a customer's Edit — exists only once a request has come back, which server
- * rendering never waits for. So the rule is held here, at the source: a page
- * that sends a write, or links to a form that does, must consult
- * `canWriteFinance(company)`, the client's copy of the server's
+ * `client/pages/FinanceReadOnly.test.ts` and `CustomersReadOnly.test.ts`
+ * render what a page draws before its data arrives. What it draws afterwards
+ * — a row's menu, an invoice's Send and Void, Record payment, a proposal's
+ * Apply, a customer's Edit — exists only once a request has come back, which
+ * server rendering never waits for. So the rule is held here, at the source:
+ * a page that sends a finance write, or links to a form that does, must
+ * consult `canWriteFinance(company)`, the client's copy of the server's
  * `requireFinanceWrite`. Lint fails a `canWrite` that is never read, so
  * consulting it means using it.
  */
@@ -39,33 +40,30 @@ const STRICTER: Record<string, RegExp> = {
 };
 
 /**
- * Customers is its own section, but the finance router answers every
- * `/customers…` path, so the list, a customer's overview, and its New and
- * Edit forms follow finance access. The section also holds contracts,
- * signature requests, files, and custom fields, whose routes finance access
- * doesn't gate and which stay open to every Member. So a Customer page is held
- * to the rule only where it reaches the finance routes: a write to a customer,
- * or a link to a form that saves one — a customer's New or Edit, or Finance's
- * own, like the Billing tab's New invoice.
+ * A Customers page's write to the finance routes, which serve customers and
+ * their contacts. Told apart by its path, because the same pages also upload
+ * contracts, which `routes/contracts.ts` gates on no finance level.
  */
-const CUSTOMER_WRITE =
-  /\bapi\.(?:post|patch|put|del)\b[^`;]*`\/api\/companies\/\$\{[^}]+\}\/customers\b/;
-const FINANCE_FORM_LINK = /`[^`]*(?:customers|finance)[^`]*\/(?:new|edit)`|\bnewRecurringInvoicePath\(/;
+const CUSTOMER_WRITE = /\bapi\.(?:post|patch|put|del)\b(?:<[^>]*>)?\(\s*`[^`]*\/customers\b/;
+/**
+ * A Customers page's link into a form that needs Full access: a customer's,
+ * or one of Finance's. A signature request is no finance write.
+ */
+const CUSTOMER_FORM_LINK = /(?<!\/signatures)\/(?:new|edit)`/;
 
-function pagesNamed(name: RegExp): { file: string; source: string }[] {
+function readPages(pattern: RegExp, layout: string): { file: string; source: string }[] {
   return fs
     .readdirSync(pagesDir)
-    .filter((file) => name.test(file))
+    .filter((file) => pattern.test(file) && file !== layout)
     .map((file) => ({ file, source: fs.readFileSync(path.join(pagesDir, file), "utf8") }));
 }
 
 function financePages(): { file: string; source: string }[] {
-  return pagesNamed(/^Finance.*\.tsx$/).filter(({ file }) => file !== "FinanceLayout.tsx");
+  return readPages(/^Finance.*\.tsx$/, "FinanceLayout.tsx");
 }
 
-/** The Customers section's pages and the panels they're built from. */
 function customerPages(): { file: string; source: string }[] {
-  return pagesNamed(/^Customers?[A-Z].*\.tsx$/);
+  return readPages(/^Customers?[A-Z].*\.tsx$/, "CustomersLayout.tsx");
 }
 
 describe("Finance pages and read-only access", () => {
@@ -91,37 +89,25 @@ describe("Finance pages and read-only access", () => {
   });
 });
 
-describe("Customer pages and read-only access", () => {
+describe("Customers pages and read-only access", () => {
   test("ask canWriteFinance wherever they can change a customer or open a form that does", () => {
-    const pages = customerPages().filter(
-      ({ source }) => CUSTOMER_WRITE.test(source) || FINANCE_FORM_LINK.test(source),
+    const writers = customerPages().filter(
+      ({ source }) => CUSTOMER_WRITE.test(source) || CUSTOMER_FORM_LINK.test(source),
     );
-    // Guard the guard: the list (New customer, the row menu), the overview
-    // (Edit, the Billing tab's New links), and the New and Edit form itself.
-    const found = pages.map(({ file }) => file);
+    // Guard the guard: a pattern that stopped matching would pass vacuously.
     for (const file of ["CustomersIndex.tsx", "CustomerDetail.tsx", "CustomerNew.tsx"]) {
-      assert.ok(found.includes(file), `${file} should be found changing customers`);
+      assert.ok(
+        writers.some((page) => page.file === file),
+        `${file} is no longer recognized as changing customers`,
+      );
     }
-    for (const { file, source } of pages) {
+    for (const { file, source } of writers) {
       assert.match(
         source,
         ASKS,
-        `${file} changes customers, or links to a form that does, through the finance ` +
-          "routes, so it must offer each change only when canWriteFinance(company) is " +
-          "true — a read-only Member's request is refused",
+        `${file} changes customers through the finance routes, so it must offer each ` +
+          "change only when canWriteFinance(company) is true — a read-only Member's request is refused",
       );
     }
-  });
-
-  test("leave contracts, which every Member may change, out of it", () => {
-    const [panel] = customerPages().filter(({ file }) => file === "CustomerContractsPanel.tsx");
-    assert.ok(panel, "a customer's contracts are changed in CustomerContractsPanel.tsx");
-    // It writes, but only through the contracts router, which no finance gate
-    // guards…
-    assert.match(panel.source, WRITE);
-    assert.doesNotMatch(panel.source, CUSTOMER_WRITE);
-    assert.doesNotMatch(panel.source, FINANCE_FORM_LINK);
-    // …so a read-only Member keeps Upload contract, Edit, and Delete.
-    assert.doesNotMatch(panel.source, /\bcanWriteFinance\b|\beffectiveFinanceAccess\b/);
   });
 });

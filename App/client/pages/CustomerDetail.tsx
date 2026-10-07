@@ -146,6 +146,10 @@ function failure(result: PromiseSettledResult<unknown>): string | undefined {
  * timeline, deals, contacts, meetings, billing documents, and contracts,
  * signature requests and files. Records are edited on their own pages
  * (Finance, Revenue, Mail, Meetings, Signatures), so rows deep-link there.
+ *
+ * The finance routes write the customer and its billing documents, so a
+ * read-only Member gets the page without Edit or the billing tab's New links;
+ * every detail the edit form holds is already shown here for reading.
  */
 export default function CustomerDetail() {
   const { company } = useOutletContext<CustomersOutletCtx>();
@@ -162,11 +166,6 @@ export default function CustomerDetail() {
 }
 
 function CustomerOverview({ company }: { company: Company }) {
-  // Edit, and the Billing tab's New invoice, New estimate, and New recurring
-  // invoice, open forms that save through the finance routes, which refuse a
-  // read-only Member, so they get the page without those. Contracts,
-  // signature requests, files, and custom fields have routes of their own
-  // that finance access doesn't gate, so those stay for every Member.
   const canWrite = canWriteFinance(company);
   const { customerSlug } = useParams();
   const navigate = useNavigate();
@@ -925,7 +924,7 @@ function CustomerOverview({ company }: { company: Company }) {
                 companySlug={company.slug}
                 members={members}
                 employees={employees}
-                canEditCustomer={canWrite}
+                canEditBilling={canWrite}
               />
             </>
           ) : (
@@ -1344,6 +1343,7 @@ function DocSection({
   title: string;
   count: number;
   newLabel?: string;
+  /** The create form New opens; left out for a Member who can't submit it. */
   newTo?: string;
   emptyText: string;
   /** The first section on a tab sits flush under the tab bar. */

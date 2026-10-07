@@ -47,7 +47,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * Customers list — the landing page of the standalone Customers section.
  * Creating and editing happen on a dedicated `customers/new` /
  * `customers/:slug/edit` page (not a modal) so the form has room for
- * contacts and contracts.
+ * contacts and contracts. The finance routes write customers, so a read-only
+ * Member gets the list without New customer or the row menu, whose every
+ * entry is a write; each name still opens the customer's page.
  */
 export default function CustomersIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
@@ -63,9 +65,6 @@ export default function CustomersIndex() {
 }
 
 function CustomerList({ company }: { company: Company }) {
-  // New customer and every entry in the row menu — Edit, Archive, Delete —
-  // save through the finance routes, which refuse them below Full access. A
-  // read-only Member gets the list without them, as Finance's own lists do.
   const canWrite = canWriteFinance(company);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();

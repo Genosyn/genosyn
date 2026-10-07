@@ -14,13 +14,13 @@ import {
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
-import { Button, buttonClassName } from "../components/ui/Button";
-import { EmptyState } from "../components/ui/EmptyState";
+import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
+import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { CustomersClosed, CustomersOutletCtx } from "./CustomersLayout";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
@@ -72,6 +72,12 @@ function rowFromContact(c: CustomerContact): ContactRow {
   };
 }
 
+/**
+ * `customers/new` and `customers/:customerSlug/edit`. The finance routes save
+ * customers and their contacts, so either needs Full finance access; a
+ * read-only Member who lands here gets a note instead of a form that could
+ * only be refused.
+ */
 export default function CustomerNew() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const { customerSlug } = useParams();
@@ -84,57 +90,20 @@ export default function CustomerNew() {
     );
   }
   // Read-only can load a customer but not save one, so instead of fields
-  // whose save could only be refused they get a note and a way back. The
-  // catalogue holds New customer to Full for the same reason, which is why
-  // the palette never offers it to them.
+  // whose save could only be refused they get the note Finance's own forms
+  // show, with a way back. The catalogue holds New customer to Full for the
+  // same reason, which is why the palette never offers it to them.
   if (!canWriteFinance(company)) {
-    return <CustomerFormReadOnly companySlug={company.slug} customerSlug={customerSlug} />;
+    return (
+      <FinanceReadOnlyPage
+        company={company}
+        section={{ label: "Customers", path: "customers" }}
+        title={customerSlug ? "Edit customer" : "New customer"}
+        backTo={customerSlug ?? ""}
+      />
+    );
   }
   return <CustomerForm company={company} />;
-}
-
-/**
- * In place of the form for a Member with read-only finance access, who still
- * reaches it from the list's New customer, a customer's Edit, or a saved
- * link. It keeps the form's breadcrumb trail and heading, as Finance's own
- * forms do for the same Member (`FinanceReadOnlyPage`), and Back returns to
- * the customer being edited, or to the list.
- */
-function CustomerFormReadOnly({
-  companySlug,
-  customerSlug,
-}: {
-  companySlug: string;
-  customerSlug: string | undefined;
-}) {
-  const customersUrl = `/c/${companySlug}/customers`;
-  return (
-    <div className="page-shell p-4 sm:p-8">
-      <div className="mb-6">
-        <Breadcrumbs
-          items={[
-            { label: "Customers", to: customersUrl },
-            { label: customerSlug ? "Edit" : "New" },
-          ]}
-        />
-      </div>
-      <h1 className="mb-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">
-        {customerSlug ? "Edit customer" : "New customer"}
-      </h1>
-      <EmptyState
-        title="Your finance access is read-only"
-        description="Customer pages follow finance access, so you can view customers but not add or edit them. Owners and admins choose each Member's finance access. Ask one of them to change yours under Settings → Members."
-        action={
-          <Link
-            to={customerSlug ? `${customersUrl}/${customerSlug}` : customersUrl}
-            className={buttonClassName({ variant: "secondary" })}
-          >
-            Back
-          </Link>
-        }
-      />
-    </div>
-  );
 }
 
 function CustomerForm({ company }: { company: Company }) {

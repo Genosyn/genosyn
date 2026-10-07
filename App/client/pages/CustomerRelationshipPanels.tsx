@@ -138,7 +138,7 @@ export function CustomerPeoplePanel({
   companySlug,
   members,
   employees,
-  canEditCustomer,
+  canEditBilling,
 }: {
   contacts: RevenueContact[];
   billingContacts: CustomerContact[];
@@ -146,11 +146,10 @@ export function CustomerPeoplePanel({
   members: Member[];
   employees: Employee[];
   /**
-   * Billing contacts are added on the customer's edit page, which saves
-   * through the finance routes; false for a Member whose read-only finance
-   * access can't, so they aren't sent there.
+   * Whether this Member can add billing contacts, on the customer's edit
+   * page: a finance write, so not with read-only finance access.
    */
-  canEditCustomer: boolean;
+  canEditBilling: boolean;
 }) {
   return (
     <div className="space-y-8">
@@ -203,9 +202,9 @@ export function CustomerPeoplePanel({
           <EmptyState
             title="No billing contacts"
             description={
-              canEditCustomer
+              canEditBilling
                 ? "Add the people who handle invoices and payments on the customer's edit page."
-                : "The people who handle the customer's invoices and payments appear here."
+                : "The people who handle this customer's invoices and payments appear here."
             }
           />
         ) : (
