@@ -220,8 +220,16 @@ test("upstream calls refuse redirects, cap the body, time out, and hide network 
   await assert.rejects(
     upstreamJson(
       (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason));
+        new Promise((resolve, reject) => {
+          // An unanswered request holds its socket open, and that is what keeps
+          // the process alive until the deadline: the timer behind
+          // AbortSignal.timeout() is unref'd and holds nothing open by itself.
+          // The stand-in answers late, so a missing timeout fails instead of hanging.
+          const socket = setTimeout(() => resolve(Response.json({ late: true })), 5_000);
+          init!.signal!.addEventListener("abort", () => {
+            clearTimeout(socket);
+            reject(init!.signal!.reason);
+          });
         }),
       "https://x",
       {},
