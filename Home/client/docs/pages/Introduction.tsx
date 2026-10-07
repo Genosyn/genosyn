@@ -233,7 +233,10 @@ export function Introduction() {
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
         employee&apos;s role — never document bodies. Press <Code>↵</Code> to open a result; a todo
         takes you to its project&apos;s board, ticket number in hand. Results respect what you can
-        see: restricted projects and private channels you aren&apos;t in stay out of the list.
+        see: restricted projects and private channels you aren&apos;t in stay out of the list, and
+        customers follow your finance access. Without it, the same accounts appear as{" "}
+        <Strong>Revenue accounts</Strong> that open in Revenue, with no billing email (see{" "}
+        <DocLink to="/docs/customers#access">who can see customers</DocLink>).
       </P>
 
       <Callout kind="tip" title="Open source, permissively licensed.">

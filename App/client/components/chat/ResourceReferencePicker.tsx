@@ -32,6 +32,7 @@ const KIND_LABELS: Record<SearchResultKind, string> = {
   repository: "Repository",
   pipeline: "Pipeline",
   customer: "Customer",
+  account: "Revenue account",
 };
 
 /** Resource searches start at two characters, matching the search endpoint. */
