@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
+  Building2,
   CalendarClock,
   Contact2,
   CornerDownLeft,
@@ -190,6 +191,13 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
     group: "Customers",
     icon: Contact2,
     iconBg: "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
+  },
+  // The same accounts, for a Member whose finance access keeps Customers
+  // closed: they open in Revenue, so they read like Revenue → Accounts.
+  account: {
+    group: "Revenue accounts",
+    icon: Building2,
+    iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
   },
 };
 

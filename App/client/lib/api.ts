@@ -5446,7 +5446,9 @@ export type SearchResultKind =
   | "dashboard"
   | "repository"
   | "pipeline"
-  | "customer";
+  | "customer"
+  /** A customer opened as its Revenue account, for a Member without finance access. */
+  | "account";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;
