@@ -6211,7 +6211,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_revenue_account",
     description:
-      "Create a prospect or customer account with domain, website, industry, size, owner, notes and billing status. This writes the same Customer entity Finance uses, so a future invoice links to this row without migration. Needs `write` revenue access.",
+      "Create a prospect or customer account with domain, website, industry, size, owner, notes and billing status. This writes the same Customer entity Finance uses, so a future invoice links to this row without migration. The billing `email` belongs to Finance: setting it also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6247,7 +6247,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_revenue_account",
     description:
-      "Enrich or reassign an existing prospect/customer account. Pass only changed fields. Domain duplicates are refused. Needs `write` revenue access.",
+      "Enrich or reassign an existing prospect/customer account. Pass only changed fields. Domain duplicates are refused. The billing `email` belongs to Finance: setting it also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6287,7 +6287,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "merge_revenue_accounts",
     description:
-      "Merge a duplicate source Account into an active destination Account in one transaction. Reparents Revenue and Finance history, preserves issued document identities, applies explicit source/target choices for standard and custom field conflicts, copies missing Account custom values, and archives the source. Preview first, then pass conflict choices in `resolutions` and the source's exact current name in `confirmSourceName`. Needs `write` revenue access.",
+      "Merge a duplicate source Account into an active destination Account in one transaction. Reparents Revenue and Finance history, preserves issued document identities, applies explicit source/target choices for standard and custom field conflicts, copies missing Account custom values, and archives the source. Preview first, then pass conflict choices in `resolutions` and the source's exact current name in `confirmSourceName`. Taking the source's billing email, billing or shipping address, or tax number also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access; keeping the destination's needs neither. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6690,7 +6690,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "merge_revenue_records",
     description:
-      "Merge a reviewed duplicate candidate for an Account, Contact, Deal, or Partnership into the selected survivor. First use `preview_revenue_record_merge`; then pass its explicit standard/custom conflict choices, the exact source label, and the source/target ids. Relationships and aliases are preserved, the source becomes a redirecting tombstone, and the operation has guarded undo. Needs `write` revenue access.",
+      "Merge a reviewed duplicate candidate for an Account, Contact, Deal, or Partnership into the selected survivor. First use `preview_revenue_record_merge`; then pass its explicit standard/custom conflict choices, the exact source label, and the source/target ids. Relationships and aliases are preserved, the source becomes a redirecting tombstone, and the operation has guarded undo. For an Account, taking the source's billing details also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6732,7 +6732,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_revenue_operations",
     description:
-      "List merge, bulk, and historical-import audit operations, including queued/running progress and rollback state. Needs `read` revenue access.",
+      "List merge, bulk, and historical-import audit operations, including queued/running progress and rollback state. Without Finance access, an Account operation leaves billing details out of its request and summary and sets `billingWithheld`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6754,7 +6754,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_revenue_operation",
     description:
-      "Retrieve one Revenue merge/bulk/history operation and a paginated page of per-record before/after audit rows. Needs `read` revenue access.",
+      "Retrieve one Revenue merge/bulk/history operation and a paginated page of per-record before/after audit rows. Without Finance access, an Account operation and its rows leave billing details out and set `billingWithheld`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6769,7 +6769,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "undo_revenue_operation",
     description:
-      "Guardedly undo a merge, asynchronous bulk job, or historical Deal import. It refuses atomically if any affected row changed later. Pass confirm `UNDO`; use `get_revenue_operation` first to inspect the audit rows and current rollback state. Needs `write` revenue access.",
+      "Guardedly undo a merge, asynchronous bulk job, or historical Deal import. It refuses atomically if any affected row changed later. Pass confirm `UNDO`; use `get_revenue_operation` first to inspect the audit rows and current rollback state. Undoing a change to an Account's billing details also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6783,7 +6783,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "preview_revenue_bulk_operation",
     description:
-      "Dry-run a bulk Account, Contact, Deal, Partnership, or Follow-up mutation with a frozen selection preview and per-record validation. Actions cover archive/restore, safe standard/custom-field changes, owner/lifecycle/status changes, Deal Stage movement, and Follow-up reschedule/reassign/complete/cancel. Standard-field updates require confirm `UPDATE_STANDARD_FIELDS`. Selected IDs or a filter are required; Closed Lost movement requires a lost reason. Needs `write` revenue access.",
+      "Dry-run a bulk Account, Contact, Deal, Partnership, or Follow-up mutation with a frozen selection preview and per-record validation. Actions cover archive/restore, safe standard/custom-field changes, owner/lifecycle/status changes, Deal Stage movement, and Follow-up reschedule/reassign/complete/cancel. Standard-field updates require confirm `UPDATE_STANDARD_FIELDS`. Selected IDs or a filter are required; Closed Lost movement requires a lost reason. An Account standard-field update that sets `email`, `billingAddress`, `shippingAddress`, or `taxNumber` also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access, even as a dry run. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6802,7 +6802,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "start_revenue_bulk_job",
     description:
-      "Freeze the previewed selection and queue an asynchronous Account, Contact, Deal, Partnership, or Follow-up bulk job. Supported actions include archive/restore, confirmed safe standard-field updates, and Follow-up triage. `atomic` rolls back every write on one failure; `partial` commits valid rows and reports failures. The stable idempotency key makes retries safe. Needs `write` revenue access.",
+      "Freeze the previewed selection and queue an asynchronous Account, Contact, Deal, Partnership, or Follow-up bulk job. Supported actions include archive/restore, confirmed safe standard-field updates, and Follow-up triage. `atomic` rolls back every write on one failure; `partial` commits valid rows and reports failures. The stable idempotency key makes retries safe. Setting an Account's billing details also needs an `invoice` Finance Grant and, in a Member's chat, that Member's Full finance access. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6822,7 +6822,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_revenue_bulk_job",
     description:
-      "Read queued/running/completed bulk-job progress plus a paginated JSON page of per-record validation and reconciliation rows. Use `export_revenue_bulk_reconciliation` for CSV. Needs `read` revenue access.",
+      "Read queued/running/completed bulk-job progress plus a paginated JSON page of per-record validation and reconciliation rows. Use `export_revenue_bulk_reconciliation` for CSV. Without Finance access, an Account job leaves billing details out and sets `billingWithheld`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6837,7 +6837,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_revenue_bulk_reconciliation",
     description:
-      "Export a bulk job’s filtered, paginated per-record reconciliation as CSV for `send_chat_attachment`; use `get_revenue_bulk_job` for JSON status and rows. Needs `read` revenue access.",
+      "Export a bulk job’s filtered, paginated per-record reconciliation as CSV for `send_chat_attachment`; use `get_revenue_bulk_job` for JSON status and rows. Without Finance access, an Account job's rows leave billing details out. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6960,7 +6960,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_revenue_snapshot",
     description:
-      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants, and so are Account billing details. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
+      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants, and so are Account billing details, in operation audit rows too. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {

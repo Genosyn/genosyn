@@ -536,7 +536,9 @@ export function Finance() {
           templates, and a vendor&apos;s details for reading only. Following a saved link to a
           create or edit form shows a note in its place, with a way back. The same holds in{" "}
           <DocLink to="/docs/customers#access">Customers</DocLink>: they can open every customer but
-          not create, edit, archive, or delete one.
+          not create, edit, archive, or delete one. Revenue holds an account&apos;s{" "}
+          <DocLink to="/docs/revenue#billing-details">billing details</DocLink> to the same bar:
+          they can read them there but not change them.
         </LI>
         <LI>
           <Strong>None</Strong> — the finance section is closed to them entirely. Opening Finance
@@ -588,7 +590,8 @@ export function Finance() {
         audit log (marked as an AI actor) and on the employee&apos;s journal, exactly like the human
         finance routes. Members still reach Finance through the app as usual; grants govern the AI
         surface only. Any level also lets the employee&apos;s Revenue tools return an
-        account&apos;s <DocLink to="/docs/revenue#billing-details">billing details</DocLink>.
+        account&apos;s <DocLink to="/docs/revenue#billing-details">billing details</DocLink>;
+        changing them through those tools takes Invoicing or Full accounting.
       </P>
       <P>
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer

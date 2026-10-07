@@ -1433,6 +1433,382 @@ describe("revenue routes — account billing details follow finance access", () 
     }
     assert.ok(tombstone.archivedAt);
   });
+
+  /** The finance routes' words for a change below Full finance access. */
+  const REFUSED = {
+    none: "You don't have access to this company's finances.",
+    read: "You have read-only finance access.",
+  } as const;
+
+  /** An Account standard-field update: a dry run unless it carries an idempotency key. */
+  function accountFieldUpdate(
+    ids: string[],
+    values: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
+    return {
+      resourceType: "account",
+      target: { ids },
+      action: { type: "update_standard_fields", confirm: "UPDATE_STANDARD_FIELDS", values },
+      dryRun: !idempotencyKey,
+      idempotencyKey,
+    };
+  }
+
+  async function finishedJob(jobId: string) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const detail = await call<{
+        operation: { status: string };
+        summary: { executionOperationId?: string };
+      }>("GET", `/revenue/bulk/jobs/${jobId}`);
+      if (["completed", "partial", "failed"].includes(detail.body.operation.status)) {
+        return detail.body;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return assert.fail(`bulk job ${jobId} never finished`);
+  }
+
+  test("setting billing details through Revenue takes Full finance access", async () => {
+    const { source, target } = await seedAccounts();
+    const writes: Array<[string, string, Record<string, unknown>]> = [
+      ["POST", "/revenue/accounts", { name: "Acme Billing", email: "ap@acme-billing.example" }],
+      ["PATCH", `/revenue/accounts/${source.id}`, { email: "new@acme.example" }],
+      // A dry run too: its rows would echo each account's current values.
+      ["POST", "/revenue/bulk", accountFieldUpdate([source.id], { taxNumber: "GB000000000" })],
+      [
+        "POST",
+        "/revenue/bulk",
+        accountFieldUpdate([source.id], { billingAddress: "9 New Street" }, "refused-bulk"),
+      ],
+      [
+        "POST",
+        "/revenue/bulk/jobs",
+        accountFieldUpdate([source.id], { shippingAddress: "4 Quay" }, "refused-job"),
+      ],
+      [
+        "POST",
+        `/revenue/accounts/${source.id}/merge`,
+        {
+          targetAccountId: target.id,
+          confirmSourceName: source.name,
+          resolutions: { email: "source" },
+        },
+      ],
+      [
+        "POST",
+        `/revenue/records/account/${source.id}/merge`,
+        {
+          targetId: target.id,
+          confirmSourceLabel: source.name,
+          resolutions: { taxNumber: "source" },
+        },
+      ],
+    ];
+    for (const financeAccess of ["none", "read"] as const) {
+      await actAs("member", financeAccess);
+      for (const [method, path, body] of writes) {
+        const refused = await call<{ error: string }>(method, path, body);
+        assert.equal(refused.status, 403, `${financeAccess}: ${method} ${path}`);
+        assert.equal(refused.body.error, REFUSED[financeAccess]);
+      }
+    }
+    const accounts = AppDataSource.getRepository(Customer);
+    for (const account of [source, target]) {
+      const stored = await accounts.findOneByOrFail({ id: account.id });
+      for (const field of BILLING_FIELDS) {
+        const key = field as keyof Customer;
+        assert.equal(stored[key], account[key], field);
+      }
+      assert.equal(stored.archivedAt, null);
+    }
+    assert.equal(await accounts.countBy({ companyId, name: "Acme Billing" }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueOperation).countBy({ companyId }), 0);
+
+    // Everything else stays open to a Read-only Member, and a merge that
+    // keeps the destination's billing details goes through.
+    const created = await call("POST", "/revenue/accounts", { name: "Acme Labs" });
+    const patched = await call("PATCH", `/revenue/accounts/${source.id}`, { notes: "Renewal" });
+    const preview = await call<{ rows: Array<{ before: Record<string, unknown> }> }>(
+      "POST",
+      "/revenue/bulk",
+      accountFieldUpdate([source.id], { industry: "Shipping" }),
+    );
+    const merged = await call("POST", `/revenue/accounts/${source.id}/merge`, {
+      targetAccountId: target.id,
+      confirmSourceName: source.name,
+      resolutions: { email: "target", taxNumber: "target", name: "source" },
+    });
+    assert.equal(created.status, 201);
+    for (const response of [patched, preview, merged]) {
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+    }
+    assert.deepEqual(Object.keys(preview.body.rows[0].before), ["industry"]);
+    const survivor = await accounts.findOneByOrFail({ id: target.id });
+    assert.equal(survivor.name, "Acme Ltd");
+    for (const field of BILLING_FIELDS) {
+      const key = field as keyof Customer;
+      assert.equal(survivor[key], target[key], field);
+    }
+  });
+
+  test("Full finance access sets billing details, and so do owners and admins whatever their row says", async () => {
+    const { source, target } = await seedAccounts();
+    for (const [role, financeAccess] of [
+      ["member", "full"],
+      ["owner", "none"],
+      ["admin", "none"],
+    ] as const) {
+      await actAs(role, financeAccess);
+      const email = `${role}@acme.example`;
+      const patched = await call<AccountBody>("PATCH", `/revenue/accounts/${source.id}`, {
+        email,
+      });
+      assert.equal(patched.status, 200, role);
+      assert.equal(patched.body.email, email);
+      const preview = await call<{ rows: Array<{ before: Record<string, unknown> }> }>(
+        "POST",
+        "/revenue/bulk",
+        accountFieldUpdate([source.id], { taxNumber: "GB000000000" }),
+      );
+      assert.equal(preview.status, 200, role);
+      assert.deepEqual(preview.body.rows[0].before, { taxNumber: "GB123456789" });
+    }
+    const merged = await call("POST", `/revenue/records/account/${source.id}/merge`, {
+      targetId: target.id,
+      confirmSourceLabel: source.name,
+      resolutions: { billingAddress: "source", taxNumber: "source" },
+    });
+    assert.equal(merged.status, 200, JSON.stringify(merged.body));
+    const survivor = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      id: target.id,
+    });
+    assert.equal(survivor.billingAddress, source.billingAddress);
+    assert.equal(survivor.taxNumber, source.taxNumber);
+    assert.equal(survivor.email, target.email);
+  });
+
+  test("an undo that would restore billing details takes Full finance access", async () => {
+    const { source, target } = await seedAccounts();
+    const accounts = AppDataSource.getRepository(Customer);
+    await actAs("member", "full");
+    const bulk = await call<{ operationId: string }>(
+      "POST",
+      "/revenue/bulk",
+      accountFieldUpdate([source.id], { billingAddress: "9 New Street, London" }, "undo-bulk"),
+    );
+    const queued = await call<{ job: { id: string } }>(
+      "POST",
+      "/revenue/bulk/jobs",
+      accountFieldUpdate([target.id], { taxNumber: "GB555555555" }, "undo-job"),
+    );
+    assert.equal(bulk.status, 200);
+    assert.equal(queued.status, 202);
+    assert.equal((await finishedJob(queued.body.job.id)).operation.status, "completed");
+    const merge = await call<{ operationId: string }>(
+      "POST",
+      `/revenue/records/account/${source.id}/merge`,
+      { targetId: target.id, confirmSourceLabel: source.name, resolutions: { email: "source" } },
+    );
+    const status = await call<{ operationId: string }>("POST", "/revenue/bulk", {
+      resourceType: "account",
+      target: { ids: [target.id] },
+      action: { type: "set_account_status", accountStatus: "former" },
+      idempotencyKey: "undo-status",
+    });
+    assert.equal(merge.status, 200);
+    assert.equal(status.status, 200);
+
+    const billingUndos = [
+      `/revenue/operations/${merge.body.operationId}/undo`,
+      `/revenue/bulk/jobs/${queued.body.job.id}/undo`,
+      `/revenue/operations/${queued.body.job.id}/undo`,
+      `/revenue/operations/${bulk.body.operationId}/undo`,
+    ];
+    for (const financeAccess of ["none", "read"] as const) {
+      await actAs("member", financeAccess);
+      for (const path of billingUndos) {
+        const refused = await call<{ error: string }>("POST", path, { confirm: "UNDO" });
+        assert.equal(refused.status, 403, `${financeAccess}: ${path}`);
+        assert.equal(refused.body.error, REFUSED[financeAccess]);
+      }
+    }
+    // Any other undo stays open to them.
+    const undoneStatus = await call("POST", `/revenue/operations/${status.body.operationId}/undo`, {
+      confirm: "UNDO",
+    });
+    assert.equal(undoneStatus.status, 200);
+    const survivor = await accounts.findOneByOrFail({ id: target.id });
+    assert.equal(survivor.accountStatus, "customer");
+    assert.equal(survivor.email, source.email);
+    assert.equal(survivor.taxNumber, "GB555555555");
+    const changed = await accounts.findOneByOrFail({ id: source.id });
+    assert.equal(changed.billingAddress, "9 New Street, London");
+
+    await actAs("member", "full");
+    for (const path of [billingUndos[0], billingUndos[1], billingUndos[3]]) {
+      const undone = await call("POST", path, { confirm: "UNDO" });
+      assert.equal(undone.status, 200, `${path}: ${JSON.stringify(undone.body)}`);
+    }
+    const restoredTarget = await accounts.findOneByOrFail({ id: target.id });
+    const restoredSource = await accounts.findOneByOrFail({ id: source.id });
+    assert.equal(restoredTarget.email, target.email);
+    assert.equal(restoredTarget.taxNumber, target.taxNumber);
+    assert.equal(restoredSource.billingAddress, source.billingAddress);
+    assert.equal(restoredSource.archivedAt, null);
+  });
+
+  test("change history leaves billing details out for a Member without finance access", async () => {
+    const { source, target } = await seedAccounts();
+    await actAs("member", "full");
+    const bulk = await call<{ operationId: string }>(
+      "POST",
+      "/revenue/bulk",
+      accountFieldUpdate(
+        [source.id],
+        { taxNumber: "GB555555555", industry: "Shipping" },
+        "history-bulk",
+      ),
+    );
+    const queued = await call<{ job: { id: string } }>(
+      "POST",
+      "/revenue/bulk/jobs",
+      accountFieldUpdate(
+        [target.id],
+        { email: "accounts@acme-group.example", notes: "Group renewal" },
+        "history-job",
+      ),
+    );
+    assert.equal(bulk.status, 200);
+    assert.equal(queued.status, 202);
+    const job = await finishedJob(queued.body.job.id);
+    assert.ok(job.summary.executionOperationId);
+    const merge = await call<{ operationId: string }>(
+      "POST",
+      `/revenue/records/account/${source.id}/merge`,
+      {
+        targetId: target.id,
+        confirmSourceLabel: source.name,
+        resolutions: { billingAddress: "source", name: "source" },
+      },
+    );
+    assert.equal(merge.status, 200);
+    // A Contact's email is its own, in its history as anywhere else.
+    const contact = await createContact("Ada Lovelace", "ada@example.com");
+    const contactBulk = await call<{ operationId: string }>("POST", "/revenue/bulk", {
+      resourceType: "contact",
+      target: { ids: [contact.id] },
+      action: {
+        type: "update_standard_fields",
+        confirm: "UPDATE_STANDARD_FIELDS",
+        values: { email: "ada.king@example.com" },
+      },
+      idempotencyKey: "history-contact",
+    });
+    assert.equal(contactBulk.status, 200);
+
+    const hidden = ["GB555555555", "accounts@acme-group.example", ...billingValues(source, target)];
+    const accountOperations = [
+      bulk.body.operationId,
+      merge.body.operationId,
+      queued.body.job.id,
+      job.summary.executionOperationId!,
+    ];
+    type Flagged = { id: string; billingWithheld?: true };
+
+    /** Every Revenue read that carries change history, in JSON and CSV. */
+    async function readHistory() {
+      const list = await call<{ rows: Flagged[] }>("GET", "/revenue/operations");
+      const details = await Promise.all(
+        accountOperations.map((id) =>
+          call<{ operation: Flagged; rows: Flagged[] }>("GET", `/revenue/operations/${id}`),
+        ),
+      );
+      const jobDetail = await call<{ rows: Flagged[] }>(
+        "GET",
+        `/revenue/bulk/jobs/${queued.body.job.id}`,
+      );
+      const reconciliation = await call(
+        "GET",
+        `/revenue/bulk/jobs/${queued.body.job.id}/reconciliation?format=json`,
+      );
+      const audit = await call("GET", "/revenue/exports/operation_audit?format=json");
+      const csv = await Promise.all(
+        [
+          `/revenue/bulk/jobs/${queued.body.job.id}/reconciliation?format=csv`,
+          "/revenue/exports/operation_audit?format=csv",
+        ].map(async (path) => {
+          const res = await fetch(`${baseUrl}/api/companies/${companyId}${path}`);
+          return { status: res.status, text: await res.text() };
+        }),
+      );
+      for (const response of [list, ...details, jobDetail, reconciliation, audit, ...csv]) {
+        assert.equal(response.status, 200);
+      }
+      return {
+        list: list.body.rows,
+        details: details.map((detail) => detail.body),
+        jobRows: jobDetail.body.rows,
+        text: [
+          JSON.stringify([list, details, jobDetail, reconciliation, audit]),
+          ...csv.map((response) => response.text),
+        ].join("\n"),
+      };
+    }
+
+    await actAs("member", "none");
+    const withheld = await readHistory();
+    for (const value of hidden) assert.equal(withheld.text.includes(value), false, value);
+    // The rest of each change stays, and so does a Contact's own email.
+    for (const value of ["Shipping", "Group renewal", "Acme Ltd", "ada.king@example.com"]) {
+      assert.ok(withheld.text.includes(value), value);
+    }
+    const flag = (id: string) => withheld.list.find((row) => row.id === id)?.billingWithheld;
+    assert.deepEqual(accountOperations.map(flag), [true, true, true, true]);
+    assert.equal(flag(contactBulk.body.operationId), undefined);
+    const [bulkDetail] = withheld.details;
+    assert.equal(bulkDetail.operation.billingWithheld, true);
+    assert.deepEqual(
+      bulkDetail.rows.map((row) => row.billingWithheld),
+      [true],
+    );
+    assert.ok(withheld.jobRows.length > 0);
+    assert.ok(withheld.jobRows.every((row) => row.billingWithheld === true));
+
+    await actAs("member", "read");
+    const visible = await readHistory();
+    for (const value of hidden) assert.ok(visible.text.includes(value), value);
+    assert.equal(visible.text.includes("billingWithheld"), false);
+  });
+
+  test("an undo answers a Member without finance access without billing details", async () => {
+    const { source, target } = await seedAccounts();
+    await actAs("member", "full");
+    // Nothing chooses between their billing details, so the merge keeps the
+    // destination's and only records the conflicts.
+    const merge = await call<{ operationId: string }>(
+      "POST",
+      `/revenue/records/account/${source.id}/merge`,
+      { targetId: target.id, confirmSourceLabel: source.name },
+    );
+    assert.equal(merge.status, 200);
+
+    await actAs("member", "none");
+    const undone = await call<{ operation: { billingWithheld?: true }; rolledBack: number }>(
+      "POST",
+      `/revenue/operations/${merge.body.operationId}/undo`,
+      { confirm: "UNDO" },
+    );
+    assert.equal(undone.status, 200, JSON.stringify(undone.body));
+    assert.equal(undone.body.operation.billingWithheld, true);
+    for (const value of billingValues(source, target)) {
+      assert.equal(JSON.stringify(undone.body).includes(value), false, value);
+    }
+    const restored = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      id: source.id,
+    });
+    assert.equal(restored.archivedAt, null);
+  });
 });
 
 // ── AI access ──────────────────────────────────────────────────────────────

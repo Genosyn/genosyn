@@ -15,10 +15,11 @@ import {
   X,
 } from "lucide-react";
 import { api, type IntegrationConnection } from "../lib/api";
-import type {
-  RevenueCommercialValueBacklogPage,
-  RevenueDealHistoryActivityBackfillSummary,
-  RevenueDealHistoryCoveragePage,
+import {
+  canTakeAccountMergeSource,
+  type RevenueCommercialValueBacklogPage,
+  type RevenueDealHistoryActivityBackfillSummary,
+  type RevenueDealHistoryCoveragePage,
 } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -587,6 +588,14 @@ export default function RevenueDataQuality() {
       }
       throw cause;
     }
+  }
+
+  /** Whether this viewer may use the duplicate's value for `field`; see `canTakeAccountMergeSource`. */
+  function mergeSourceAllowed(field: string): boolean {
+    return (
+      mergeCandidate?.resourceType !== "account" ||
+      canTakeAccountMergeSource(field, company.financeAccess)
+    );
   }
 
   async function commitMerge() {
@@ -1374,7 +1383,12 @@ export default function RevenueDataQuality() {
                         <td className="px-3 py-2">
                           <Select
                             aria-label={`Choose ${conflict.label} value`}
-                            value={mergeResolutions[conflict.field] ?? conflict.resolution}
+                            value={
+                              mergeSourceAllowed(conflict.field)
+                                ? (mergeResolutions[conflict.field] ?? conflict.resolution)
+                                : "target"
+                            }
+                            disabled={!mergeSourceAllowed(conflict.field)}
                             onChange={(event) =>
                               setMergeResolutions((current) => ({
                                 ...current,
@@ -1396,6 +1410,12 @@ export default function RevenueDataQuality() {
               <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
                 Their billing details differ too. Those follow finance access, so they aren&apos;t
                 shown here, and the survivor keeps its own.
+              </p>
+            )}
+            {mergePreview.fieldConflicts.some((conflict) => !mergeSourceAllowed(conflict.field)) && (
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Using the duplicate&apos;s billing details needs full finance access, so the
+                survivor keeps its own.
               </p>
             )}
             <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">

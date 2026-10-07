@@ -593,11 +593,17 @@ import {
 import {
   accountForViewer,
   accountMergePreviewForViewer,
+  bulkSetsAccountBilling,
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
   mergeRevenueAccounts,
+  mergeTakesSourceBilling,
+  revenueBulkJobForViewer,
+  revenueOperationForViewer,
+  revenueOperationRowForViewer,
   setRevenueAccountArchived,
+  setsAccountBilling,
   updateRevenueAccount,
 } from "../services/revenue/accounts.js";
 import {
@@ -637,6 +643,7 @@ import {
   createRevenueBulkJob,
   getRevenueBulkJob,
   rollbackRevenueBulkJob,
+  undoRewritesAccountBilling,
 } from "../services/revenue/bulkJobs.js";
 import {
   mergeRevenueRecords,
@@ -4900,6 +4907,17 @@ async function employeeSeesAccountBilling(req: McpRequest): Promise<boolean> {
   return (await employeeFinanceAccessLevel(req)) !== null;
 }
 
+/**
+ * Refuse a call that sets an account's billing details unless this employee
+ * may change them: an `invoice` Finance Grant, the bar `update_customer`
+ * holds, capped in a Member's chat by that Member's own Finance access. That
+ * covers an account write, a bulk standard-field update or its preview, a
+ * merge taking the source's, and an undo restoring earlier ones.
+ */
+async function requireAccountBillingWrite(req: McpRequest, res: Response): Promise<boolean> {
+  return requireFinance(req, res, "invoice");
+}
+
 mcpInternalRouter.post(
   "/tools/list_revenue_accounts",
   validateBody(
@@ -4964,6 +4982,7 @@ mcpInternalRouter.post(
   validateBody(revenueAccountWriteSchema.extend({ name: z.string().min(1).max(120) }).strict()),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
+    if (setsAccountBilling(req.body) && !(await requireAccountBillingWrite(req, res))) return;
     try {
       const account = await createRevenueAccount(req.mcpCompany!.id, req.body, { userId: null });
       await aiWriteTrail(req, {
@@ -4994,6 +5013,7 @@ mcpInternalRouter.post(
     const { accountId, ...patch } = req.body as z.infer<typeof revenueAccountWriteSchema> & {
       accountId: string;
     };
+    if (setsAccountBilling(patch) && !(await requireAccountBillingWrite(req, res))) return;
     try {
       const account = await updateRevenueAccount(req.mcpCompany!.id, accountId, patch);
       if (!account) return res.status(404).json({ error: "Account not found" });
@@ -5069,6 +5089,12 @@ mcpInternalRouter.post(
       confirmSourceName: string;
       resolutions: Record<string, "source" | "target">;
     };
+    if (
+      mergeTakesSourceBilling(req.body.resolutions) &&
+      !(await requireAccountBillingWrite(req, res))
+    ) {
+      return;
+    }
     try {
       const result = await mergeRevenueAccounts(
         req.mcpCompany!.id,
@@ -6387,6 +6413,13 @@ mcpInternalRouter.post(
       confirmSourceLabel: string;
       resolutions: Record<string, "source" | "target">;
     };
+    if (
+      body.resourceType === "account" &&
+      mergeTakesSourceBilling(body.resolutions) &&
+      !(await requireAccountBillingWrite(req, res))
+    ) {
+      return;
+    }
     try {
       const result = await mergeRevenueRecords(
         req.mcpCompany!.id,
@@ -6452,7 +6485,9 @@ mcpInternalRouter.post(
   ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    res.json(await listRevenueOperations(req.mcpCompany!.id, req.body));
+    const { rows, total } = await listRevenueOperations(req.mcpCompany!.id, req.body);
+    const billingVisible = await employeeSeesAccountBilling(req);
+    res.json({ rows: rows.map((row) => revenueOperationForViewer(row, billingVisible)), total });
   },
 );
 
@@ -6476,7 +6511,12 @@ mcpInternalRouter.post(
     };
     const result = await getRevenueOperation(req.mcpCompany!.id, operationId, query);
     if (!result) return res.status(404).json({ error: "Revenue operation not found" });
-    res.json(result);
+    const billingVisible = await employeeSeesAccountBilling(req);
+    res.json({
+      ...result,
+      operation: revenueOperationForViewer(result.operation, billingVisible),
+      rows: result.rows.map((row) => revenueOperationRowForViewer(row, billingVisible)),
+    });
   },
 );
 
@@ -6487,6 +6527,12 @@ mcpInternalRouter.post(
     if (!(await requireRevenue(req, res, "write"))) return;
     const { operationId } = req.body as { operationId: string };
     try {
+      if (
+        (await undoRewritesAccountBilling(req.mcpCompany!.id, operationId)) &&
+        !(await requireAccountBillingWrite(req, res))
+      ) {
+        return;
+      }
       const bulkJob = await getRevenueBulkJob(req.mcpCompany!.id, operationId, {
         rowLimit: 1,
       });
@@ -6501,7 +6547,12 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} undid a Revenue operation`,
         metadata: { rolledBack: result.rolledBack },
       });
-      res.json(result);
+      const billingVisible = await employeeSeesAccountBilling(req);
+      res.json(
+        "job" in result
+          ? { ...result, job: revenueOperationForViewer(result.job, billingVisible) }
+          : { ...result, operation: revenueOperationForViewer(result.operation, billingVisible) },
+      );
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -6796,6 +6847,7 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
     const input = normalizeRevenueBulkToolInput(req.body as z.infer<typeof revenueBulkToolSchema>);
+    if (bulkSetsAccountBilling(input) && !(await requireAccountBillingWrite(req, res))) return;
     try {
       res.json(
         await runRevenueBulkOperation(
@@ -6816,6 +6868,7 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
     const input = normalizeRevenueBulkToolInput(req.body as z.infer<typeof revenueBulkToolSchema>);
+    if (bulkSetsAccountBilling(input) && !(await requireAccountBillingWrite(req, res))) return;
     try {
       const result = await createRevenueBulkJob(req.mcpCompany!.id, input, revenueActor(req));
       if (!result.replayed) {
@@ -6859,7 +6912,7 @@ mcpInternalRouter.post(
     };
     const result = await getRevenueBulkJob(req.mcpCompany!.id, operationId, query);
     if (!result) return res.status(404).json({ error: "Revenue bulk job not found" });
-    res.json(result);
+    res.json(revenueBulkJobForViewer(result, await employeeSeesAccountBilling(req)));
   },
 );
 
@@ -6877,11 +6930,12 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     const body = req.body as { operationId: string; limit?: number; offset?: number };
-    const result = await getRevenueBulkJob(req.mcpCompany!.id, body.operationId, {
+    const found = await getRevenueBulkJob(req.mcpCompany!.id, body.operationId, {
       rowLimit: body.limit,
       rowOffset: body.offset,
     });
-    if (!result) return res.status(404).json({ error: "Revenue bulk job not found" });
+    if (!found) return res.status(404).json({ error: "Revenue bulk job not found" });
+    const result = revenueBulkJobForViewer(found, await employeeSeesAccountBilling(req));
     const contentText = revenueExportCsv({
       resource: "import_reconciliation",
       generatedAt: new Date(),
@@ -7448,7 +7502,8 @@ mcpInternalRouter.post(
       });
     }
     const withholdBilling =
-      body.resource === "accounts" && !(await employeeSeesAccountBilling(req));
+      (body.resource === "accounts" || body.resource === "operation_audit") &&
+      !(await employeeSeesAccountBilling(req));
     const page = await exportRevenueSnapshotPage(req.mcpCompany!.id, body.resource, {
       ...body,
       asOf: body.asOf ? new Date(body.asOf) : undefined,

@@ -1,7 +1,9 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
+import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
+import { setsAccountBilling } from "./accounts.js";
 import {
   BulkAtomicValidationError,
   runRevenueBulkOperation,
@@ -413,6 +415,40 @@ export async function rollbackRevenueBulkJob(
   });
   const job = await AppDataSource.getRepository(RevenueOperation).save(detail.operation);
   return { job, rolledBack: result.rolledBack };
+}
+
+/**
+ * Whether undoing this operation would rewrite an account's billing details
+ * (`ACCOUNT_BILLING_FIELDS`). An undo restores each applied row's recorded
+ * `before`, so it rewrites exactly what those rows changed: a bulk
+ * standard-field update that set one, or a merge that took the source's. A
+ * bulk job rolls back through its execution operation, as
+ * `rollbackRevenueBulkJob` does.
+ */
+export async function undoRewritesAccountBilling(companyId: string, id: string): Promise<boolean> {
+  const job = await getRevenueBulkJob(companyId, id, { rowLimit: 1 });
+  const operationId = job
+    ? typeof job.summary.executionOperationId === "string"
+      ? job.summary.executionOperationId
+      : null
+    : id;
+  if (!operationId) return false;
+  const rows = await AppDataSource.getRepository(RevenueOperationRow).find({
+    select: { id: true, beforeJson: true, afterJson: true },
+    where: {
+      companyId,
+      operationId,
+      status: "applied",
+      // Both entity types rollback resolves to an account.
+      entityType: In(["account", "customer"]),
+    },
+  });
+  return rows.some((row) =>
+    [row.beforeJson, row.afterJson].some((json) => {
+      const patch = parseJson<unknown>(json, null);
+      return typeof patch === "object" && patch !== null && setsAccountBilling(patch);
+    }),
+  );
 }
 
 export async function resumeRevenueBulkJobs(): Promise<number> {

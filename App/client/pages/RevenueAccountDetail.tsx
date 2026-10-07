@@ -13,9 +13,13 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { api, type Customer, type Employee, type Member } from "../lib/api";
+import { api, type Customer, type Employee, type FinanceAccess, type Member } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
-import type { RevenueAccount, RevenueAccountRecord } from "../lib/revenue";
+import {
+  canTakeAccountMergeSource,
+  type RevenueAccount,
+  type RevenueAccountRecord,
+} from "../lib/revenue";
 import type { RevenueContact } from "./RevenueContacts";
 import type { Deal } from "./RevenueDeals";
 import type { RevenueOutletCtx } from "./RevenueLayout";
@@ -431,6 +435,7 @@ export default function RevenueAccountDetail() {
         base={base}
         sectionUrl={sectionUrl}
         source={account}
+        financeAccess={company.financeAccess}
         onMerged={(result) => {
           setMergeOpen(false);
           navigate(`${sectionUrl}/accounts/${result.target.id}`);
@@ -446,6 +451,7 @@ function AccountMergeModal({
   base,
   sectionUrl,
   source,
+  financeAccess,
   onMerged,
 }: {
   open: boolean;
@@ -453,6 +459,7 @@ function AccountMergeModal({
   base: string;
   sectionUrl: string;
   source: RevenueAccountRecord;
+  financeAccess: FinanceAccess;
   onMerged: (result: AccountMergePreview) => void;
 }) {
   const [accounts, setAccounts] = React.useState<RevenueAccount[] | null>(null);
@@ -544,6 +551,9 @@ function AccountMergeModal({
         ] satisfies Array<[string, number]>
       ).filter(([, count]) => count > 0)
     : [];
+  const billingLocked = (preview?.fieldConflicts ?? []).some(
+    (conflict) => !canTakeAccountMergeSource(conflict.field, financeAccess),
+  );
 
   return (
     <Modal open={open} onClose={onClose} title="Merge Account" size="lg">
@@ -658,7 +668,12 @@ function AccountMergeModal({
                         <td className="px-3 py-2">
                           <Select
                             aria-label={`Choose ${conflict.label} value`}
-                            value={resolutions[conflict.field] ?? conflict.resolution}
+                            value={
+                              canTakeAccountMergeSource(conflict.field, financeAccess)
+                                ? (resolutions[conflict.field] ?? conflict.resolution)
+                                : "target"
+                            }
+                            disabled={!canTakeAccountMergeSource(conflict.field, financeAccess)}
                             onChange={(event) =>
                               setResolutions((current) => ({
                                 ...current,
@@ -677,6 +692,13 @@ function AccountMergeModal({
               </table>
             </div>
           )}
+
+        {billingLocked && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Taking the source&apos;s billing details needs full finance access, so the destination
+            keeps its own.
+          </p>
+        )}
 
         {preview && (
           <Input

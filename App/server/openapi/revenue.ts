@@ -367,6 +367,28 @@ const commonErrors = {
   },
 };
 
+/**
+ * For a request that can set an Account's billing details. Those take Full
+ * finance access, like every change on the Customers pages.
+ */
+const billingWriteErrors = {
+  ...commonErrors,
+  403: {
+    description:
+      "Not a member of this company, or the request sets an Account's billing email, billing " +
+      "or shipping address, or tax number without Full finance access",
+    content: { "application/json": { schema: ErrorResponse } },
+  },
+};
+
+const billingWithheld = z
+  .literal(true)
+  .optional()
+  .describe(
+    "Set when this Account history held billing details the viewer, who has no finance " +
+      "access, may not read; they were left out.",
+  );
+
 // ───────────────────────────── Contacts ─────────────────────────────
 
 registry.registerPath({
@@ -495,6 +517,11 @@ registry.registerPath({
         "application/json": {
           schema: z.object({
             name: z.string().min(1),
+            email: z
+              .string()
+              .email()
+              .optional()
+              .describe("Billing email. Setting it takes Full finance access."),
             accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
             domain: z.string().optional(),
             websiteUrl: z.string().url().optional(),
@@ -514,7 +541,7 @@ registry.registerPath({
       description: "An account with the same normalized domain already exists",
       content: { "application/json": { schema: ErrorResponse } },
     },
-    ...commonErrors,
+    ...billingWriteErrors,
   },
 });
 
@@ -577,7 +604,8 @@ registry.registerPath({
   description:
     "Transactionally reparents Revenue and Finance history into an active destination Account, " +
     "applies the supplied source/target conflict resolutions, preserves issued document " +
-    "identifiers, archives the source Account, and returns an operation ID for guarded undo.",
+    "identifiers, archives the source Account, and returns an operation ID for guarded undo. " +
+    "Resolving a billing detail to the source takes Full finance access.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -603,7 +631,7 @@ registry.registerPath({
       description: "The merge confirmation or destination is invalid",
       content: { "application/json": { schema: ErrorResponse } },
     },
-    ...commonErrors,
+    ...billingWriteErrors,
   },
 });
 
@@ -659,7 +687,8 @@ registry.registerPath({
   summary: "Merge a core Revenue record with explicit conflict choices",
   description:
     "Reparents related data, preserves source aliases, archives a redirect tombstone, and " +
-    "returns a guarded operation ID that can be undone while its after-state is unchanged.",
+    "returns a guarded operation ID that can be undone while its after-state is unchanged. " +
+    "For an Account, resolving a billing detail to the source takes Full finance access.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -688,7 +717,7 @@ registry.registerPath({
       description: "A conflict or invariant makes the merge unsafe",
       content: { "application/json": { schema: ErrorResponse } },
     },
-    ...commonErrors,
+    ...billingWriteErrors,
   },
 });
 
@@ -737,11 +766,13 @@ const RevenueOperation = z
     idempotencyKey: z.string().nullable(),
     sourceId: z.string().nullable(),
     targetId: z.string().nullable(),
+    requestJson: z.string(),
     summaryJson: z.string(),
     completedAt: z.string().datetime(),
     rolledBackAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
+    billingWithheld,
   })
   .openapi("RevenueOperation");
 const RevenueOperationRow = z
@@ -760,6 +791,7 @@ const RevenueOperationRow = z
     sortOrder: z.number().int(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
+    billingWithheld,
   })
   .openapi("RevenueOperationRow");
 
@@ -767,6 +799,9 @@ registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/revenue/operations",
   summary: "List reversible Revenue operations",
+  description:
+    "For a viewer without finance access, an Account operation's request and summary leave " +
+    "out billing details (merge conflicts over them and bulk values that set them).",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -796,6 +831,9 @@ registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/revenue/operations/{id}",
   summary: "Inspect a Revenue operation and its reconciliation rows",
+  description:
+    "For a viewer without finance access, an Account operation and its rows leave out " +
+    "billing details, as the list does.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -826,6 +864,9 @@ registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/revenue/operations/{id}/undo",
   summary: "Guardedly undo a completed Revenue operation",
+  description:
+    "Undoing an operation that changed an Account's billing details restores the earlier " +
+    "ones, so it takes Full finance access.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -849,7 +890,7 @@ registry.registerPath({
       description: "The operation is not terminal or its after-state has changed",
       content: { "application/json": { schema: ErrorResponse } },
     },
-    ...commonErrors,
+    ...billingWriteErrors,
   },
 });
 
@@ -1092,6 +1133,9 @@ for (const path of [
     summary: path.endsWith("/jobs")
       ? "Queue an idempotent Revenue bulk job"
       : "Preview or synchronously apply a Revenue bulk operation",
+    description:
+      "An Account standard-field update that sets `email`, `billingAddress`, " +
+      "`shippingAddress`, or `taxNumber` takes Full finance access, dry runs included.",
     tags: ["Revenue"],
     security: defaultSecurity,
     request: {
@@ -1129,7 +1173,7 @@ for (const path of [
         description: "Validation or idempotency conflict",
         content: { "application/json": { schema: ErrorResponse } },
       },
-      ...commonErrors,
+      ...billingWriteErrors,
     },
   });
 }
@@ -1139,6 +1183,9 @@ for (const suffix of ["", "/reconciliation"] as const) {
     method: "get",
     path: `/api/companies/{cid}/revenue/bulk/jobs/{id}${suffix}`,
     summary: suffix ? "Export a bulk-job reconciliation page" : "Read bulk-job progress",
+    description:
+      "For a viewer without finance access, an Account job leaves out billing details and " +
+      "sets `billingWithheld` where it did.",
     tags: ["Revenue"],
     security: defaultSecurity,
     request: {
@@ -1178,6 +1225,8 @@ registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/revenue/bulk/jobs/{id}/undo",
   summary: "Undo a completed Revenue bulk job",
+  description:
+    "Undoing a job that changed an Account's billing details takes Full finance access.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -1194,7 +1243,7 @@ registry.registerPath({
       description: "The job is still running or no longer safe to undo",
       content: { "application/json": { schema: ErrorResponse } },
     },
-    ...commonErrors,
+    ...billingWriteErrors,
   },
 });
 

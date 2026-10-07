@@ -5,6 +5,7 @@ import { Contact } from "../../db/entities/Contact.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { uniqueCustomerSlug } from "../finance.js";
 import { toSlug } from "../../lib/slug.js";
+import type { RevenueBulkJob } from "./bulkJobs.js";
 import { matchingResourceIds } from "./customFields.js";
 import { assertRevenueOwner } from "./integrity.js";
 import {
@@ -118,6 +119,170 @@ export function accountMergePreviewForViewer<P extends { fieldConflicts?: MergeF
   const visible = conflicts.filter((conflict) => !BILLING_FIELDS.has(conflict.field));
   if (billingVisible || visible.length === conflicts.length) return preview;
   return { ...preview, fieldConflicts: visible, billingWithheld: true };
+}
+
+/**
+ * Whether an account write sets a billing detail: a create or an update, or
+ * one bulk standard-field patch. Like every change on the Customers pages,
+ * that takes Full finance access; an AI Employee needs an `invoice` Finance
+ * Grant, the bar `update_customer` holds.
+ */
+export function setsAccountBilling(values: object): boolean {
+  return ACCOUNT_BILLING_FIELDS.some(
+    (field) => (values as Record<string, unknown>)[field] !== undefined,
+  );
+}
+
+/**
+ * Whether a bulk request sets an account's billing details: a standard-field
+ * update on Accounts whose shared or per-record values name one. A dry run
+ * counts too, because its rows return each account's current values as
+ * `before`.
+ */
+export function bulkSetsAccountBilling(request: {
+  resourceType: string;
+  action: { type: string; values?: object; rows?: ReadonlyArray<{ values: object }> };
+}): boolean {
+  const { action } = request;
+  if (request.resourceType !== "account" || action.type !== "update_standard_fields") {
+    return false;
+  }
+  return [action.values ?? {}, ...(action.rows ?? []).map((row) => row.values)].some((values) =>
+    setsAccountBilling(values),
+  );
+}
+
+/**
+ * Whether an Account merge takes a billing detail from its source. A merge
+ * keeps the destination's values unless a resolution picks the source's, so
+ * only that sets billing details; keeping the destination's needs nothing.
+ */
+export function mergeTakesSourceBilling(resolutions: MergeConflictResolutions): boolean {
+  return ACCOUNT_BILLING_FIELDS.some((field) => resolutions[field] === "source");
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * A piece of Account history without billing details: each billing field is
+ * dropped wherever it is a key (a bulk request's values, a row's before and
+ * after, a merge's resolutions), and each merge conflict over one is dropped
+ * whole. `withheld` says whether anything was.
+ */
+function historyWithoutBilling(value: unknown): { value: unknown; withheld: boolean } {
+  if (Array.isArray(value)) {
+    let withheld = false;
+    const items: unknown[] = [];
+    for (const item of value) {
+      if (isJsonObject(item) && typeof item.field === "string" && BILLING_FIELDS.has(item.field)) {
+        withheld = true;
+        continue;
+      }
+      const kept = historyWithoutBilling(item);
+      withheld ||= kept.withheld;
+      items.push(kept.value);
+    }
+    return { value: withheld ? items : value, withheld };
+  }
+  if (!isJsonObject(value)) return { value, withheld: false };
+  let withheld = false;
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, item] of Object.entries(value)) {
+    if (BILLING_FIELDS.has(key)) {
+      withheld = true;
+      continue;
+    }
+    const kept = historyWithoutBilling(item);
+    withheld ||= kept.withheld;
+    entries.push([key, kept.value]);
+  }
+  return { value: withheld ? Object.fromEntries(entries) : value, withheld };
+}
+
+/**
+ * `record` with its history fields, JSON text or JSON already parsed, leaving
+ * out billing details, and with `billingWithheld` set when any did. Text that
+ * doesn't parse is withheld whole, since nothing says what it holds.
+ */
+function recordWithoutBilling<T extends object>(
+  record: T,
+  fields: ReadonlyArray<string>,
+): T | (T & { billingWithheld: true }) {
+  const kept: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = (record as Record<string, unknown>)[field];
+    if (typeof value !== "string") {
+      const history = historyWithoutBilling(value);
+      if (history.withheld) kept[field] = history.value;
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      kept[field] = "null";
+      continue;
+    }
+    const history = historyWithoutBilling(parsed);
+    if (history.withheld) kept[field] = JSON.stringify(history.value);
+  }
+  if (Object.keys(kept).length === 0) return record;
+  return { ...record, ...kept, billingWithheld: true };
+}
+
+/**
+ * A Revenue operation, one entry of the change history, as its viewer may see
+ * it. An Account merge or bulk operation records billing details: a merge's
+ * field conflicts, a bulk request's values, and the before and after of each
+ * row it changed. A viewer who can't read them gets the operation without
+ * them, with `billingWithheld` set when anything was left out. Other records'
+ * history passes through: a Contact's `email` is its own.
+ */
+export function revenueOperationForViewer<
+  T extends { resourceType: string; requestJson: string; summaryJson: string },
+>(operation: T, billingVisible: boolean): T | (T & { billingWithheld: true }) {
+  if (billingVisible || operation.resourceType !== "account") return operation;
+  return recordWithoutBilling(operation, ["requestJson", "summaryJson"]);
+}
+
+/** One row of an operation as its viewer may see it; see `revenueOperationForViewer`. */
+export function revenueOperationRowForViewer<
+  T extends { resourceType: string; beforeJson: string; afterJson: string },
+>(row: T, billingVisible: boolean): T | (T & { billingWithheld: true }) {
+  if (billingVisible || row.resourceType !== "account") return row;
+  return recordWithoutBilling(row, ["beforeJson", "afterJson"]);
+}
+
+/**
+ * A bulk job, with its operation, summary, and rows, as its viewer may see it;
+ * see `revenueOperationForViewer`.
+ */
+export function revenueBulkJobForViewer(
+  job: RevenueBulkJob,
+  billingVisible: boolean,
+): RevenueBulkJob {
+  if (billingVisible || job.operation.resourceType !== "account") return job;
+  return {
+    ...recordWithoutBilling(job, ["summary"]),
+    operation: revenueOperationForViewer(job.operation, false),
+    rows: job.rows.map((row) => recordWithoutBilling(row, ["before", "after"])),
+  };
+}
+
+/**
+ * One `operation_audit` export row, an operation joined to one of its rows,
+ * as its viewer may see it; see `revenueOperationForViewer`.
+ */
+export function revenueOperationAuditRowForViewer(
+  row: Record<string, unknown>,
+  billingVisible: boolean,
+): Record<string, unknown> {
+  if (billingVisible || row.operationResourceType !== "account") return row;
+  return recordWithoutBilling(row, ["requestJson", "summaryJson", "beforeJson", "afterJson"]);
 }
 
 export function normalizeAccountDomain(value: string): string {

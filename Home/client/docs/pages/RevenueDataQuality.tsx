@@ -45,7 +45,8 @@ export function RevenueDataQuality() {
           status fields are validated together before the merge can commit. An Account&apos;s{" "}
           <DocLink to="/docs/revenue#billing-details">billing details</DocLink> are listed only
           for Members with finance access; without it, the preview says they differ and the
-          survivor keeps its own.
+          survivor keeps its own. Using the duplicate&apos;s billing details needs Full finance
+          access, so for a Read-only Member those rows stay on the survivor&apos;s value.
         </LI>
         <LI>Type the duplicate record&apos;s displayed label and confirm.</LI>
       </OL>
@@ -65,6 +66,8 @@ export function RevenueDataQuality() {
       <Callout kind="info" title="Every merge has guarded undo.">
         The audit history stores exact before-and-after rows. Undo first verifies that none of those
         rows changed after the merge; if newer work exists, it stops instead of overwriting it.
+        Undoing a merge that took the duplicate&apos;s billing details restores the earlier ones,
+        so it needs Full finance access too.
       </Callout>
 
       <H2 id="bulk">Bulk record and follow-up operations</H2>
@@ -108,6 +111,16 @@ export function RevenueDataQuality() {
         classifications, currencies, and dates are validated before writing. Notes can be replaced,
         appended, or cleared. Deal amount, owner, and expected-close changes also append immutable
         history events, so bulk cleanup cannot silently rewrite reporting truth.
+      </P>
+      <P>
+        An Account&apos;s <Code>email</Code>, <Code>billingAddress</Code>,{" "}
+        <Code>shippingAddress</Code>, and <Code>taxNumber</Code> are its{" "}
+        <DocLink to="/docs/revenue#billing-details">billing details</DocLink>. A patch that names
+        one needs Full finance access, for the preview as well as the write, and so does undoing a
+        bulk operation that changed one. Below Full, Revenue refuses it with the finance
+        pages&apos; message and changes nothing. For a Member without finance access,{" "}
+        <Strong>Audit and undo</Strong>, bulk job details, and reconciliation exports leave billing
+        details out of an Account&apos;s history.
       </P>
 
       <H2 id="deal-history">Historical Deal truth and funnel reporting</H2>
@@ -232,7 +245,7 @@ export function RevenueDataQuality() {
         export is complete without later writes moving records between pages. AI Employees need the
         source Mail Account ID and a read Grant to that exact mailbox to export Gmail document
         candidates; Revenue access alone does not reveal mailbox-derived metadata. Likewise, the
-        Accounts export leaves out each account&apos;s{" "}
+        Accounts export and the operation audit rows leave out each account&apos;s{" "}
         <DocLink to="/docs/revenue#billing-details">billing details</DocLink> for a Member without
         finance access and an AI Employee without a Finance grant.
       </P>

@@ -38,12 +38,18 @@ import { recordAudit } from "../services/audit.js";
 import {
   accountForViewer,
   accountMergePreviewForViewer,
+  bulkSetsAccountBilling,
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
   mergeRevenueAccounts,
+  mergeTakesSourceBilling,
   previewRevenueAccountMerge,
+  revenueBulkJobForViewer,
+  revenueOperationForViewer,
+  revenueOperationRowForViewer,
   setRevenueAccountArchived,
+  setsAccountBilling,
   updateRevenueAccount,
 } from "../services/revenue/accounts.js";
 import {
@@ -89,6 +95,7 @@ import {
   createRevenueBulkJob,
   getRevenueBulkJob,
   rollbackRevenueBulkJob,
+  undoRewritesAccountBilling,
 } from "../services/revenue/bulkJobs.js";
 import {
   backfillDealHistoryFromActivities,
@@ -239,6 +246,25 @@ function billingVisibleTo(req: Request): boolean {
   return effectiveFinanceAccess(req) !== "none";
 }
 
+/**
+ * Whether this viewer may set an account's billing details: Full finance
+ * access, the bar the Customers routes hold every change to. A request that
+ * sets one below it (an account write, a bulk standard-field update or its
+ * dry run, a merge taking the source's, an undo restoring earlier ones) is
+ * refused here in the finance routes' words.
+ */
+function allowBillingWrite(req: Request, res: Response): boolean {
+  const access = effectiveFinanceAccess(req);
+  if (access === "full") return true;
+  res.status(403).json({
+    error:
+      access === "none"
+        ? "You don't have access to this company's finances."
+        : "You have read-only finance access.",
+  });
+  return false;
+}
+
 const accountWriteSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   email: z.string().email().max(200).or(z.literal("")).optional(),
@@ -282,6 +308,7 @@ revenueOperationsRouter.post(
   "/revenue/accounts",
   validateBody(accountWriteSchema.extend({ name: z.string().min(1).max(120) })),
   h(async (req, res) => {
+    if (setsAccountBilling(req.body) && !allowBillingWrite(req, res)) return;
     try {
       const row = await createRevenueAccount(cidOf(req), req.body, actorOf(req));
       await audit(req, "revenue.account.create", "customer", row.id, row.name);
@@ -342,6 +369,7 @@ revenueOperationsRouter.post(
     }),
   ),
   h(async (req, res) => {
+    if (mergeTakesSourceBilling(req.body.resolutions) && !allowBillingWrite(req, res)) return;
     try {
       const result = await mergeRevenueAccounts(
         cidOf(req),
@@ -383,6 +411,7 @@ revenueOperationsRouter.patch(
   "/revenue/accounts/:id",
   validateBody(accountWriteSchema),
   h(async (req, res) => {
+    if (setsAccountBilling(req.body) && !allowBillingWrite(req, res)) return;
     try {
       const row = await updateRevenueAccount(cidOf(req), req.params.id, req.body);
       if (!row) return res.status(404).json({ error: "Account not found" });
@@ -445,6 +474,13 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     const params = mergeParamsSchema.safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid Revenue record" });
+    if (
+      params.data.resourceType === "account" &&
+      mergeTakesSourceBilling(req.body.resolutions) &&
+      !allowBillingWrite(req, res)
+    ) {
+      return;
+    }
     try {
       const result = await mergeRevenueRecords(
         cidOf(req),
@@ -505,7 +541,12 @@ revenueOperationsRouter.get(
       })
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json(await listRevenueOperations(cidOf(req), parsed.data));
+    const { rows, total } = await listRevenueOperations(cidOf(req), parsed.data);
+    const billingVisible = billingVisibleTo(req);
+    return res.json({
+      rows: rows.map((row) => revenueOperationForViewer(row, billingVisible)),
+      total,
+    });
   }),
 );
 
@@ -523,7 +564,13 @@ revenueOperationsRouter.get(
       return res.status(400).json({ error: "Invalid operation query" });
     }
     const result = await getRevenueOperation(cidOf(req), params.data.id, query.data);
-    return result ? res.json(result) : res.status(404).json({ error: "Operation not found" });
+    if (!result) return res.status(404).json({ error: "Operation not found" });
+    const billingVisible = billingVisibleTo(req);
+    return res.json({
+      ...result,
+      operation: revenueOperationForViewer(result.operation, billingVisible),
+      rows: result.rows.map((row) => revenueOperationRowForViewer(row, billingVisible)),
+    });
   }),
 );
 
@@ -533,6 +580,12 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid operation" });
+    if (
+      (await undoRewritesAccountBilling(cidOf(req), params.data.id)) &&
+      !allowBillingWrite(req, res)
+    ) {
+      return;
+    }
     try {
       const bulkJob = await getRevenueBulkJob(cidOf(req), params.data.id, { rowLimit: 1 });
       const result = bulkJob
@@ -549,7 +602,10 @@ revenueOperationsRouter.post(
         result.operation.kind,
         { rolledBack: result.rolledBack },
       );
-      return res.json(result);
+      return res.json({
+        ...result,
+        operation: revenueOperationForViewer(result.operation, billingVisibleTo(req)),
+      });
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
@@ -801,6 +857,7 @@ revenueOperationsRouter.post(
     if (body.dryRun) {
       return res.status(400).json({ error: "Use /revenue/bulk for a synchronous dry run" });
     }
+    if (bulkSetsAccountBilling(body) && !allowBillingWrite(req, res)) return;
     try {
       const result = await createRevenueBulkJob(cidOf(req), normalizedBulkBody(body), actorOf(req));
       if (!result.replayed) {
@@ -838,7 +895,8 @@ revenueOperationsRouter.get(
       return res.status(400).json({ error: "Invalid bulk job query" });
     }
     const job = await getRevenueBulkJob(cidOf(req), params.data.id, query.data);
-    return job ? res.json(job) : res.status(404).json({ error: "Bulk job not found" });
+    if (!job) return res.status(404).json({ error: "Bulk job not found" });
+    return res.json(revenueBulkJobForViewer(job, billingVisibleTo(req)));
   }),
 );
 
@@ -856,11 +914,12 @@ revenueOperationsRouter.get(
     if (!params.success || !query.success) {
       return res.status(400).json({ error: "Invalid bulk reconciliation query" });
     }
-    const job = await getRevenueBulkJob(cidOf(req), params.data.id, {
+    const found = await getRevenueBulkJob(cidOf(req), params.data.id, {
       rowLimit: query.data.limit,
       rowOffset: query.data.offset,
     });
-    if (!job) return res.status(404).json({ error: "Bulk job not found" });
+    if (!found) return res.status(404).json({ error: "Bulk job not found" });
+    const job = revenueBulkJobForViewer(found, billingVisibleTo(req));
     if (query.data.format === "csv") {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader(
@@ -892,6 +951,12 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid bulk job" });
+    if (
+      (await undoRewritesAccountBilling(cidOf(req), params.data.id)) &&
+      !allowBillingWrite(req, res)
+    ) {
+      return;
+    }
     try {
       const result = await rollbackRevenueBulkJob(cidOf(req), params.data.id);
       await audit(
@@ -902,7 +967,10 @@ revenueOperationsRouter.post(
         result.job.resourceType,
         { rolledBack: result.rolledBack },
       );
-      return res.json(result);
+      return res.json({
+        ...result,
+        job: revenueOperationForViewer(result.job, billingVisibleTo(req)),
+      });
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
@@ -913,8 +981,9 @@ revenueOperationsRouter.post(
   "/revenue/bulk",
   validateBody(bulkSchema),
   h(async (req, res) => {
+    const body = req.body as z.infer<typeof bulkSchema>;
+    if (bulkSetsAccountBilling(body) && !allowBillingWrite(req, res)) return;
     try {
-      const body = req.body as z.infer<typeof bulkSchema>;
       const result = await runRevenueBulkOperation(
         cidOf(req),
         normalizedBulkBody(body),
@@ -2949,7 +3018,10 @@ revenueOperationsRouter.get(
         resource === "field_evidence" && financeAccess === "none"
           ? ["finance" as const]
           : undefined,
-      withholdBilling: resource === "accounts" && !billingVisibleTo(req) ? true : undefined,
+      withholdBilling:
+        (resource === "accounts" || resource === "operation_audit") && !billingVisibleTo(req)
+          ? true
+          : undefined,
     } as RevenueExportOptionsByResource[RevenueExportResource];
     let page;
     try {

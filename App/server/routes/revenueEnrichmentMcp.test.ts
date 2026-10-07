@@ -1096,3 +1096,242 @@ test("Account tools leave billing details out without Finance access, in a Membe
   await AppDataSource.getRepository(Membership).update(membership.id, { financeAccess: "read" });
   assertVisible(await readAccounts());
 });
+
+/** An Account standard-field bulk update, as the bulk tools take it. */
+function accountFieldUpdate(ids: string[], values: Record<string, unknown>) {
+  return {
+    resourceType: "account",
+    target: { ids },
+    action: { type: "update_standard_fields", confirm: "UPDATE_STANDARD_FIELDS", values },
+  };
+}
+
+async function finishedBulkJob(operationId: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const job = await aiCall("get_revenue_bulk_job", { operationId });
+    assert.equal(job.status, 200, job.body.error);
+    const status = (job.body.operation as { status: string }).status;
+    if (["completed", "partial", "failed"].includes(status)) return job.body;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return assert.fail(`bulk job ${operationId} never finished`);
+}
+
+test("Account tools set billing details only with an invoice Finance Grant, in a Member's chat too", async () => {
+  const source = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Ltd",
+    slug: "acme-ltd",
+    domain: "acme.example",
+    email: "ap@acme.example",
+    taxNumber: "GB123456789",
+  });
+  const target = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Group",
+    slug: "acme-group",
+    domain: "acme-group.example",
+    email: "billing@acme-group.example",
+    taxNumber: "GB987654321",
+  });
+  const writes: Array<[string, Record<string, unknown>]> = [
+    ["create_revenue_account", { name: "Acme Billing", email: "ap@acme-billing.example" }],
+    ["update_revenue_account", { accountId: source.id, email: "new@acme.example" }],
+    // A preview too: its rows would echo each account's current values.
+    ["preview_revenue_bulk_operation", accountFieldUpdate([source.id], { taxNumber: "GB0" })],
+    [
+      "start_revenue_bulk_job",
+      { ...accountFieldUpdate([source.id], { billingAddress: "9 New Street" }), idempotencyKey: "ai-refused-job" },
+    ],
+    [
+      "merge_revenue_accounts",
+      {
+        sourceAccountId: source.id,
+        targetAccountId: target.id,
+        confirmSourceName: source.name,
+        resolutions: { email: "source" },
+      },
+    ],
+    [
+      "merge_revenue_records",
+      {
+        resourceType: "account",
+        sourceId: source.id,
+        targetId: target.id,
+        confirmSourceLabel: source.name,
+        resolutions: { taxNumber: "source" },
+      },
+    ],
+  ];
+  const assertRefused = async (why: RegExp) => {
+    for (const [tool, body] of writes) {
+      const refused = await aiCall(tool, body);
+      assert.equal(refused.status, 403, tool);
+      assert.match(refused.body.error ?? "", why, tool);
+    }
+  };
+
+  // A Revenue write Grant changes everything but billing details.
+  await assertRefused(/do not have access to the finance system/);
+  const noted = await aiCall("update_revenue_account", { accountId: source.id, notes: "Renewal" });
+  assert.equal(noted.status, 200, noted.body.error);
+  const grant = await insert(EmployeeFinanceGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "read",
+  });
+  await assertRefused(/needs the "invoice" finance access level; yours is "read"/);
+
+  // In a Member's chat, a Read-only Member caps an invoice Grant.
+  await AppDataSource.getRepository(EmployeeFinanceGrant).update(grant.id, {
+    accessLevel: "invoice",
+  });
+  const member = await insert(User, {
+    email: "member@acme.example",
+    name: "Member",
+    passwordHash: "x",
+    sessionVersion: 0,
+  });
+  const membership = await insert(Membership, {
+    companyId: company.id,
+    userId: member.id,
+    role: "member",
+    financeAccess: "read",
+  });
+  revokeMcpToken(token);
+  token = issueMcpToken(employee.id, company.id, {
+    authority: "member",
+    requesterUserId: member.id,
+    requesterSessionVersion: member.sessionVersion,
+  });
+  await assertRefused(/finance access level/);
+  const accounts = AppDataSource.getRepository(Customer);
+  const untouched = await accounts.findOneByOrFail({ id: source.id });
+  assert.equal(untouched.email, "ap@acme.example");
+  assert.equal(untouched.archivedAt, null);
+  assert.equal(await accounts.countBy({ companyId: company.id, name: "Acme Billing" }), 0);
+
+  // A Member with Full finance access lifts the cap.
+  await AppDataSource.getRepository(Membership).update(membership.id, { financeAccess: "full" });
+  const updated = await aiCall("update_revenue_account", {
+    accountId: source.id,
+    email: "new@acme.example",
+  });
+  assert.equal(updated.status, 200, updated.body.error);
+  assert.equal((updated.body.account as { email?: string }).email, "new@acme.example");
+  const preview = await aiCall(
+    "preview_revenue_bulk_operation",
+    accountFieldUpdate([source.id], { taxNumber: "GB0" }),
+  );
+  assert.equal(preview.status, 200, preview.body.error);
+  const merged = await aiCall("merge_revenue_records", {
+    resourceType: "account",
+    sourceId: source.id,
+    targetId: target.id,
+    confirmSourceLabel: source.name,
+    resolutions: { taxNumber: "source" },
+  });
+  assert.equal(merged.status, 200, merged.body.error);
+  assert.equal((await accounts.findOneByOrFail({ id: target.id })).taxNumber, "GB123456789");
+});
+
+test("Revenue history tools leave Account billing details out without Finance access", async () => {
+  const source = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Ltd",
+    slug: "acme-ltd",
+    domain: "acme.example",
+    email: "ap@acme.example",
+    billingAddress: "1 Ledger Lane, London",
+  });
+  const target = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Group",
+    slug: "acme-group",
+    domain: "acme-group.example",
+    email: "billing@acme-group.example",
+    billingAddress: "3 Treasury Street, Leeds",
+  });
+  const grant = await insert(EmployeeFinanceGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "invoice",
+  });
+  const queued = await aiCall("start_revenue_bulk_job", {
+    ...accountFieldUpdate([target.id], { email: "accounts@acme-group.example", notes: "Renewal" }),
+    idempotencyKey: "ai-history-job",
+  });
+  assert.equal(queued.status, 202, queued.body.error);
+  const jobId = (queued.body.job as { id: string }).id;
+  const job = await finishedBulkJob(jobId);
+  assert.equal((job.operation as { status: string }).status, "completed");
+  const merged = await aiCall("merge_revenue_records", {
+    resourceType: "account",
+    sourceId: source.id,
+    targetId: target.id,
+    confirmSourceLabel: source.name,
+    resolutions: { billingAddress: "source" },
+  });
+  assert.equal(merged.status, 200, merged.body.error);
+  const mergeId = merged.body.operationId as string;
+  const hidden = [
+    "ap@acme.example",
+    "1 Ledger Lane, London",
+    "billing@acme-group.example",
+    "accounts@acme-group.example",
+    "3 Treasury Street, Leeds",
+  ];
+
+  /** Every history tool, for both operations. */
+  async function readHistory() {
+    const responses = [
+      await aiCall("list_revenue_operations", {}),
+      await aiCall("get_revenue_operation", { operationId: mergeId }),
+      await aiCall("get_revenue_operation", { operationId: jobId }),
+      await aiCall("get_revenue_bulk_job", { operationId: jobId }),
+      await aiCall("export_revenue_bulk_reconciliation", { operationId: jobId }),
+      await aiCall("export_revenue_snapshot", { resource: "operation_audit", format: "json" }),
+      await aiCall("export_revenue_snapshot", { resource: "operation_audit", format: "csv" }),
+    ];
+    for (const response of responses) assert.equal(response.status, 200, response.body.error);
+    return JSON.stringify(responses.map((response) => response.body));
+  }
+
+  // Without a Finance Grant the history keeps everything but billing details,
+  // and undoing a change to them is refused.
+  await AppDataSource.getRepository(EmployeeFinanceGrant).delete(grant.id);
+  const withheld = await readHistory();
+  for (const value of hidden) assert.equal(withheld.includes(value), false, value);
+  for (const value of ["Renewal", "Acme Ltd", "billingWithheld"]) {
+    assert.ok(withheld.includes(value), value);
+  }
+  for (const operationId of [mergeId, jobId]) {
+    const undo = await aiCall("undo_revenue_operation", { operationId, confirm: "UNDO" });
+    assert.equal(undo.status, 403, operationId);
+  }
+
+  // A read Grant reads them, and still can't undo them.
+  await insert(EmployeeFinanceGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "read",
+  });
+  const visible = await readHistory();
+  for (const value of hidden) assert.ok(visible.includes(value), value);
+  assert.equal(visible.includes("billingWithheld"), false);
+  const refusedUndo = await aiCall("undo_revenue_operation", { operationId: mergeId, confirm: "UNDO" });
+  assert.equal(refusedUndo.status, 403);
+
+  // An invoice Grant undoes them.
+  await AppDataSource.getRepository(EmployeeFinanceGrant).update(
+    { employeeId: employee.id },
+    { accessLevel: "invoice" },
+  );
+  for (const operationId of [mergeId, jobId]) {
+    const undo = await aiCall("undo_revenue_operation", { operationId, confirm: "UNDO" });
+    assert.equal(undo.status, 200, undo.body.error);
+  }
+  const restored = await AppDataSource.getRepository(Customer).findOneByOrFail({ id: target.id });
+  assert.equal(restored.email, "billing@acme-group.example");
+  assert.equal(restored.billingAddress, "3 Treasury Street, Leeds");
+});

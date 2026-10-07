@@ -31,7 +31,7 @@ import {
   type RevenueOperationStatus,
 } from "../../db/entities/RevenueOperation.js";
 import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
-import { accountForViewer } from "./accounts.js";
+import { accountForViewer, revenueOperationAuditRowForViewer } from "./accounts.js";
 import { listFollowUpPage } from "./followUps.js";
 import { ensureRevenueImportRowsForCompany } from "./imports.js";
 
@@ -119,6 +119,12 @@ export type RevenueExportOptionsByResource = {
     kind?: RevenueOperationKind;
     resourceType?: RevenueOperationResourceType;
     status?: RevenueOperationStatus;
+    /**
+     * Internal authorization filter; never accepted from a public query.
+     * Leaves billing details out of Account history; see
+     * `revenueOperationForViewer`.
+     */
+    withholdBilling?: boolean;
   };
   document_candidates: RevenueExportBaseOptions & {
     status?: RevenueDocumentCandidate["status"];
@@ -624,7 +630,9 @@ const operationAuditAdapter: RevenueExportAdapter<
         : null;
     return {
       total,
-      rows: pageRows.map(operationAuditRow),
+      rows: pageRows.map((row) =>
+        revenueOperationAuditRowForViewer(operationAuditRow(row), !options.withholdBilling),
+      ),
       nextOffset: !context.cursor && hasMore ? context.offset + pageRows.length : null,
       nextCursor,
     };

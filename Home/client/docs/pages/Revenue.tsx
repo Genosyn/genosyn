@@ -126,7 +126,20 @@ export function Revenue() {
         With None, Revenue leaves billing details out everywhere it shows an account: pickers show
         the name and domain only, merge previews and the Accounts export omit them, and the API
         returns accounts without them. Everything <Code>Revenue → Accounts</Code> shows stays, and
-        so do the account&apos;s phone, currency, and annual contract value.
+        so do the account&apos;s phone, currency, and annual contract value. Change history leaves
+        them out too: an account&apos;s merges and bulk updates, in the operation list and detail,
+        bulk job details and reconciliations, and the operation audit export, keep every other
+        change and mark what was left out with <Code>billingWithheld</Code>.
+      </P>
+      <P>
+        Changing billing details takes Full access, as it does on the Customers pages. Below Full,
+        Revenue refuses a request that would set one: creating or updating an account with a
+        billing email, a bulk standard-field update that names a billing field (its dry run too), a
+        merge that takes the source&apos;s billing details, and an undo that would restore earlier
+        ones. The refusal uses the finance pages&apos; words: &quot;You have read-only finance
+        access.&quot; or, with None, &quot;You don&apos;t have access to this company&apos;s
+        finances.&quot; Everything else stays open, including a merge that keeps the
+        destination&apos;s billing details.
       </P>
       <P>
         Each contact carries a <Strong>lifecycle stage</Strong> — subscriber, lead, qualified,
@@ -159,7 +172,8 @@ export function Revenue() {
         Missing custom values are copied; conflicting custom values stay visible until you choose
         their source or survivor value. A Member without finance access doesn&apos;t see conflicting{" "}
         <a href="#billing-details">billing details</a>: the preview says they differ, and the
-        survivor keeps its own.
+        survivor keeps its own. A Read-only Member sees them, but taking the duplicate&apos;s needs
+        Full access, so those rows stay on the survivor&apos;s value.
       </P>
       <Callout kind="info" title="A merge is atomic, audited, and reversible.">
         Either every linked record moves or none do. Undo verifies that no affected row has changed
@@ -386,9 +400,12 @@ export function Revenue() {
       </UL>
       <P>
         An account&apos;s <a href="#billing-details">billing details</a> also need finance access:
-        revenue tools return accounts without them unless the employee holds a{" "}
-        <DocLink to="/docs/finance#ai-access">Finance → AI access</DocLink> grant, and in a
-        Member&apos;s chat the Member&apos;s own finance access applies as well.
+        revenue tools return accounts, and their change history, without them unless the employee
+        holds a <DocLink to="/docs/finance#ai-access">Finance → AI access</DocLink> grant. Setting
+        them (an account write, a bulk update or its preview, a merge that takes the source&apos;s,
+        an undo that restores earlier ones) takes Invoicing or Full accounting. In a Member&apos;s
+        chat the Member&apos;s own finance access applies as well, so there it also takes a Member
+        with Full access.
       </P>
       <P>
         Members reach Revenue through the app as usual; these levels govern the AI surface only.

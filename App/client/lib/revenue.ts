@@ -1,4 +1,4 @@
-import type { Customer } from "./api";
+import type { Customer, FinanceAccess } from "./api";
 
 export type RevenueResourceType = "contact" | "account" | "deal" | "partnership";
 export type RevenueCustomFieldType =
@@ -105,7 +105,19 @@ export type FollowUpView = {
 };
 
 /** The account fields Revenue serves only to a viewer with finance access. */
-type AccountBillingField = "email" | "billingAddress" | "shippingAddress" | "taxNumber";
+const ACCOUNT_BILLING_FIELDS = ["email", "billingAddress", "shippingAddress", "taxNumber"] as const;
+type AccountBillingField = (typeof ACCOUNT_BILLING_FIELDS)[number];
+
+/**
+ * Whether this viewer may take an Account merge source's value for `field`.
+ * Billing details take Full finance access, the bar the server holds the
+ * merge to, so below it the destination keeps its own and the choice is locked.
+ */
+export function canTakeAccountMergeSource(field: string, financeAccess: FinanceAccess): boolean {
+  return (
+    financeAccess === "full" || !(ACCOUNT_BILLING_FIELDS as readonly string[]).includes(field)
+  );
+}
 
 /**
  * One account as the Revenue routes serve it. Its billing details belong to
