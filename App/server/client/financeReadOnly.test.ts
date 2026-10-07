@@ -110,4 +110,17 @@ describe("Customers pages and read-only access", () => {
       );
     }
   });
+
+  test("leave a customer's contracts open to read-only Members", () => {
+    // The contracts panel writes, but only through `routes/contracts.ts`,
+    // which gates on no finance level, so it isn't held to the rule above…
+    const panel = customerPages().find(({ file }) => file === "CustomerContractsPanel.tsx");
+    assert.ok(panel, "a customer's contracts are changed in CustomerContractsPanel.tsx");
+    assert.match(panel.source, WRITE);
+    assert.doesNotMatch(panel.source, CUSTOMER_WRITE);
+    assert.doesNotMatch(panel.source, CUSTOMER_FORM_LINK);
+    // …and must not hide behind it either: Upload contract, Edit, and Delete
+    // stay for a Member whose finance access is read-only.
+    assert.doesNotMatch(panel.source, /\bcanWriteFinance\b|\beffectiveFinanceAccess\b/);
+  });
 });
