@@ -1,6 +1,5 @@
-import { Request, Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
-import { Role } from "../db/entities/Membership.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { searchCompany } from "../services/search.js";
 
@@ -29,7 +28,8 @@ searchRouter.get("/search", async (req, res) => {
   const results = await searchCompany({
     companyId: cid,
     userId: req.userId!,
-    role: (req as Request & { role: Role }).role,
+    role: req.companyRole!,
+    financeAccess: req.membership?.financeAccess,
     query: parsed.data.q,
   });
   res.json({ results });

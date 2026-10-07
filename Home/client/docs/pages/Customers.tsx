@@ -111,11 +111,21 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>None</Strong> — each of those pages opens to a note saying they don&apos;t have
-          access, however they reach it: the <Code>Customers</Code> link, a <Code>⌘K</Code> search
-          result, or a shared link. The note links to <Code>Revenue → Accounts</Code>, which lists
-          the same accounts, and to <Code>Contracts</Code>, which every Member can open.
+          access, however they reach it: the <Code>Customers</Code> link or a shared link. The note
+          links to <Code>Revenue → Accounts</Code>, which lists the same accounts, and to{" "}
+          <Code>Contracts</Code>, which every Member can open.
         </LI>
       </UL>
+      <P>
+        <Code>⌘K</Code> search follows the same setting. With Full or Read-only access it finds
+        customers by name or billing email and opens the customer&apos;s page. With None, the same
+        accounts are listed under <Strong>Revenue accounts</Strong> instead: they&apos;re found by
+        name or domain, show the domain or industry beside the name, and open in{" "}
+        <Code>Revenue → Accounts</Code>. Their billing emails are never shown, and searching for
+        one finds nothing. The <Code>#</Code> picker in an{" "}
+        <DocLink to="/docs/workspace-chat#resource-references">AI Employee chat</DocLink> uses the
+        same search, so a Member with None tags the Revenue account.
+      </P>
 
       <H2 id="overview">Customer overview</H2>
       <P>

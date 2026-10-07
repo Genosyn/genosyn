@@ -180,6 +180,12 @@ jobs:
           cache-dependency-path: App/package-lock.json
       - run: npm ci
       - run: npx playwright-core install --with-deps chromium
+      # The fixture typecheck follows the mail fixture into Connect's source,
+      # which resolves Connect's own dependencies, and the end-to-end browser
+      # test drives the real Genosyn Connect service in-process.
+      - name: Install Genosyn Connect
+        run: npm ci
+        working-directory: Connect
       - name: Typecheck onboarding browser fixtures
         run: npx tsc -p tsconfig.onboarding-tests.json
       - name: Test company direction, hiring, and Routine selection
@@ -190,10 +196,6 @@ jobs:
         run: npm run test:mail-connect
       - name: Test hosted Gmail connection dialogs
         run: npm run test:hosted-google-modal
-      # The browser test drives the real Genosyn Connect service in-process.
-      - name: Install Genosyn Connect
-        run: npm ci
-        working-directory: Connect
       - name: Test Gmail through Genosyn Connect, end to end
         run: npm run test:connect-sign-in
       - name: Build the client for the full app browser test

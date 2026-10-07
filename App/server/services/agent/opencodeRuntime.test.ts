@@ -1412,6 +1412,11 @@ test("startup diagnostics explain installation errors without exposing raw outpu
     /install scripts enabled/,
   );
   assert.doesNotMatch(openCodeStartupError("ConfigInvalidError secret", 1), /secret/);
+  // All OpenCode 1.18 prints when its port is already bound.
+  assert.match(
+    openCodeStartupError("\u001b[91m\u001b[1mError: \u001b[0mUnexpected error\n\nServeError\n", 1),
+    /port because it is already in use/,
+  );
   assert.match(
     openCodeActivityError({ message: "secret", cause: { code: "ECONNRESET" } }).message,
     /ECONNRESET/,

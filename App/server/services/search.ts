@@ -8,7 +8,7 @@ import { Chart } from "../db/entities/Chart.js";
 import { Repository } from "../db/entities/Repository.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
-import { Role } from "../db/entities/Membership.js";
+import { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
@@ -17,6 +17,7 @@ import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Todo } from "../db/entities/Todo.js";
+import { financeAccessFor } from "../middleware/financeAccess.js";
 import {
   andWhereTokens,
   escapeLike,
@@ -33,7 +34,8 @@ import { listAccessibleProjectIds } from "./projects.js";
  * client; this covers everything that lives in the database).
  *
  * Deliberately a *name* search: it matches the fields a person would type to
- * jump somewhere (titles, names, a customer's email), not document bodies.
+ * jump somewhere (titles, names, a customer's email or an account's domain),
+ * not document bodies.
  * Body search would drown the palette in weak hits; the per-section search
  * surfaces (e.g. `/notes/search`) stay the right tool for content queries.
  *
@@ -58,7 +60,9 @@ export type SearchResultKind =
   | "dashboard"
   | "repository"
   | "pipeline"
-  | "customer";
+  | "customer"
+  /** A customer row opened as its Revenue account — see {@link ACCOUNT_SPEC}. */
+  | "account";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;
@@ -197,16 +201,6 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     sublabel: (r) => r.description || null,
   },
   {
-    kind: "customer",
-    entity: Customer,
-    nameCol: "name",
-    secondaryCols: ["t.email"],
-    softDeletes: true,
-    hasUpdatedAt: true,
-    path: (r) => `/customers/${r.slug}`,
-    sublabel: (r) => r.email || null,
-  },
-  {
     kind: "repository",
     entity: Repository,
     nameCol: "name",
@@ -223,6 +217,41 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     sublabel: (r) => r.description || null,
   },
 ];
+
+/**
+ * A customer row is one account seen from two sections, and the viewer's
+ * Finance access picks which one a hit opens. The Customers pages load
+ * through the finance routes, so with Read or Full access a hit opens the
+ * customer and carries its billing email.
+ */
+const CUSTOMER_SPEC: SimpleSpec = {
+  kind: "customer",
+  entity: Customer,
+  nameCol: "name",
+  secondaryCols: ["t.email"],
+  softDeletes: true,
+  hasUpdatedAt: true,
+  path: (r) => `/customers/${r.slug}`,
+  sublabel: (r) => r.email || null,
+};
+
+/**
+ * With finance access None those pages are closed, so the same row comes back
+ * as its Revenue account: Revenue → Accounts lists the same accounts and is
+ * open to every Member. The hit is matched and described only by what that
+ * page shows — name, domain, industry. The billing email is neither displayed
+ * nor matched, since a match alone would tie the address to the account.
+ */
+const ACCOUNT_SPEC: SimpleSpec = {
+  kind: "account",
+  entity: Customer,
+  nameCol: "name",
+  secondaryCols: ["t.domain"],
+  softDeletes: true,
+  hasUpdatedAt: true,
+  path: (r) => `/revenue/accounts/${r.id}`,
+  sublabel: (r) => r.domain || r.industry || null,
+};
 
 async function searchSimple(ctx: Ctx, spec: SimpleSpec): Promise<Scored[]> {
   let qb = AppDataSource.getRepository(spec.entity)
@@ -414,6 +443,12 @@ export async function searchCompany(opts: {
   companyId: string;
   userId: string;
   role: Role;
+  /**
+   * The Finance level on the viewer's membership, as stored. Owners and
+   * admins count as `full` whatever it says — `financeAccessFor`, the rule
+   * every finance route applies — so callers pass it unresolved.
+   */
+  financeAccess: FinanceAccess | undefined;
   query: string;
 }): Promise<CompanySearchResult[]> {
   const qRaw = opts.query.trim();
@@ -428,9 +463,12 @@ export async function searchCompany(opts: {
     id: opts.userId,
     role: opts.role,
   });
+  const customerSpec =
+    financeAccessFor(opts.role, opts.financeAccess) === "none" ? ACCOUNT_SPEC : CUSTOMER_SPEC;
 
   const perKind = await Promise.all([
     ...SIMPLE_SPECS.map((spec) => searchSimple(ctx, spec)),
+    searchSimple(ctx, customerSpec),
     searchEmployeeChildren(ctx, "skill"),
     searchEmployeeChildren(ctx, "routine"),
     searchNotes(ctx),

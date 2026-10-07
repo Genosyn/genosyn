@@ -106,14 +106,43 @@ export type OpenCodeServer = {
   close(): Promise<void>;
 };
 
-/** Launch the package pinned by Genosyn, never an operator's global executable. */
-export async function startOpenCodeServer(args: {
+type OpenCodeServerOptions = {
   config: Config;
   cwd?: string;
   toolEnv?: Record<string, string>;
   bashTimeoutMs?: number;
   signal?: AbortSignal;
-}): Promise<OpenCodeServer> {
+};
+
+/** OpenCode could not bind its port; another port will do. */
+export class OpenCodePortTakenError extends Error {}
+
+/**
+ * A port is free when it is chosen, but OpenCode binds it only once it has
+ * booted, and on a busy host another socket can take it in between.
+ */
+const OPENCODE_PORT_ATTEMPTS = 3;
+
+/** Launch the package pinned by Genosyn, never an operator's global executable. */
+export async function startOpenCodeServer(args: OpenCodeServerOptions): Promise<OpenCodeServer> {
+  for (let attempt = 1; ; attempt++) {
+    // OpenCode interprets port=0 as "try4096 first". Choose a real ephemeral
+    // port so one turn cannot inherit a pooled connection to an earlier child.
+    const port = await allocateOpenCodePort();
+    try {
+      return await launchOpenCodeServer(args, port);
+    } catch (error) {
+      if (!(error instanceof OpenCodePortTakenError) || attempt >= OPENCODE_PORT_ATTEMPTS)
+        throw error;
+    }
+  }
+}
+
+/** Start OpenCode on one given port. */
+export async function launchOpenCodeServer(
+  args: OpenCodeServerOptions,
+  port: number,
+): Promise<OpenCodeServer> {
   args.signal?.throwIfAborted();
   const home = await mkdtemp(path.join(os.tmpdir(), "genosyn-opencode-"));
   const password = randomBytes(32).toString("hex");
@@ -132,9 +161,6 @@ export async function startOpenCodeServer(args: {
       bin: { opencode: string };
     };
     const executable = path.resolve(path.dirname(packagePath), packageJson.bin.opencode);
-    // OpenCode interprets port=0 as "try4096 first". Choose a real ephemeral
-    // port so one turn cannot inherit a pooled connection to an earlier child.
-    const port = await allocateOpenCodePort();
     child = spawn(
       executable,
       ["serve", "--hostname=127.0.0.1", `--port=${port}`, "--log-level=ERROR"],
@@ -162,11 +188,9 @@ export async function startOpenCodeServer(args: {
     const exited = new Promise<never>((_resolve, reject) => {
       proc.once("exit", (code, signal) =>
         reject(
-          new Error(
-            started
-              ? `OpenCode stopped unexpectedly (${signal ?? code ?? "unknown"}).`
-              : openCodeStartupError(startupOutput, code),
-          ),
+          started
+            ? new Error(`OpenCode stopped unexpectedly (${signal ?? code ?? "unknown"}).`)
+            : openCodeStartupFailure(startupOutput, code),
         ),
       );
       proc.once("error", (error: NodeJS.ErrnoException) =>
@@ -235,12 +259,22 @@ export async function startOpenCodeServer(args: {
   }
 }
 
+function openCodeStartupFailure(output: string, code: number | null): Error {
+  const message = openCodeStartupError(output, code);
+  return openCodePortTaken(output) ? new OpenCodePortTakenError(message) : new Error(message);
+}
+
+/** OpenCode 1.18 reports a port it cannot bind only as Effect's ServeError. */
+function openCodePortTaken(output: string): boolean {
+  return /EADDRINUSE|address already in use|\bServeError\b/i.test(output);
+}
+
 export function openCodeStartupError(output: string, code: number | null): string {
   if (
     /postinstall script was not run|failed to install the right opencode CLI package/i.test(output)
   )
     return "The installed OpenCode runtime is incomplete. Reinstall the application dependencies with install scripts enabled.";
-  if (/EADDRINUSE|address already in use/i.test(output))
+  if (openCodePortTaken(output))
     return "OpenCode could not open its local server port because it is already in use.";
   if (/ConfigInvalidError|invalid configuration|configuration is invalid/i.test(output))
     return "OpenCode rejected the generated runtime configuration.";

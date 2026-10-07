@@ -13,7 +13,12 @@ import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
-import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
+import {
+  launchOpenCodeServer,
+  OpenCodePortTakenError,
+  startOpenCodeServer,
+  type OpenCodeServer,
+} from "./opencodeServer.js";
 import {
   runOpenCodeSession,
   SILENT_STOP_NUDGE,
@@ -585,6 +590,42 @@ test(
       assert.equal(fixture.requests.length, 2);
     } finally {
       await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode names a port another socket already holds as taken",
+  { timeout: 180_000 },
+  async () => {
+    // A port is free when chosen but can be taken before OpenCode binds it;
+    // startOpenCodeServer retries only on this error, so it must be recognized.
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+    const address = holder.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      await assert.rejects(
+        launchOpenCodeServer(
+          {
+            config: {
+              share: "disabled",
+              autoupdate: false,
+              plugin: [],
+              permission: { "*": "deny" },
+            },
+            signal: AbortSignal.timeout(150_000),
+          },
+          address.port,
+        ),
+        (error) => {
+          assert.ok(error instanceof OpenCodePortTakenError);
+          assert.match(error.message, /already in use/);
+          return true;
+        },
+      );
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
     }
   },
 );

@@ -546,8 +546,10 @@ try {
     await page.locator('[id^="public-form-question-"] [role="alert"]').count(),
     6,
   );
-  assert.equal(
-    await page.evaluate(() => document.activeElement?.id),
+  // Focus moves on the next animation frame, once the errors have laid out, so
+  // it can still be on the submit button when the alert first appears.
+  await page.waitForFunction(
+    (id) => document.activeElement?.id === id,
     `form-question-control-${ids.name}`,
   );
   checks++;
@@ -602,10 +604,8 @@ try {
   });
   checks++;
 
-  assert.equal(
-    await page.evaluate(() => document.activeElement?.textContent),
-    "Inquiry received",
-  );
+  // The confirmation takes focus in an effect after its heading renders.
+  await page.waitForFunction(() => document.activeElement?.textContent === "Inquiry received");
   assert.equal(
     await page.getByText("Thanks — the Northwind team has your response.", { exact: true }).count(),
     1,

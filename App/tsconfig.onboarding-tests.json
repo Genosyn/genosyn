@@ -2,6 +2,9 @@
   "extends": "./tsconfig.server.json",
   "compilerOptions": {
     "noEmit": true,
+    // test-mail-connect.ts proves the popup against the real Genosyn Connect
+    // consent page, so this program checks Connect's source alongside App's.
+    "rootDir": "..",
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],
