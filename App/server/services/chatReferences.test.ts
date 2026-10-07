@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { PALETTE_SUBPAGES } from "../../client/lib/subpages.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import {
   CHAT_PRODUCT_REFERENCES,
@@ -70,6 +71,22 @@ describe("chat product reference catalogue", () => {
         .map((tool) => `${reference.key}:${tool}`),
     );
     assert.deepEqual(missing, []);
+  });
+
+  test("needs the access its page's subpage catalogue entry names", () => {
+    // Search offers an area by `access`, and the ⌘K palette offers the page
+    // itself by its catalogue entry. If the two drifted, one surface would
+    // offer a page the other hides.
+    const declared = Object.fromEntries(
+      CHAT_PRODUCT_REFERENCES.map((reference) => [reference.key, reference.access ?? null]),
+    );
+    const catalogued = Object.fromEntries(
+      CHAT_PRODUCT_REFERENCES.map((reference) => [
+        reference.key,
+        PALETTE_SUBPAGES.find((page) => page.path === reference.path)?.access ?? null,
+      ]),
+    );
+    assert.deepEqual(declared, catalogued);
   });
 });
 

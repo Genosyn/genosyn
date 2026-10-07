@@ -62,6 +62,115 @@ describe("company search product references", () => {
 });
 
 /**
+ * Every Finance page, and the customer list, is served by the finance routes,
+ * so the ⌘K palette's Pages group never offers one to a Member with finance
+ * access None. The product areas that open those pages follow the same rule,
+ * in the palette and the chat # picker alike; every other area stays open.
+ */
+describe("company search product areas follow finance access", () => {
+  /**
+   * Each area that opens a page the finance routes serve, with the name
+   * someone types to find it. Finance's landing and the customer list are
+   * such pages too, though the palette lists their sections to everyone.
+   */
+  const FINANCE_AREAS: Record<string, string> = {
+    customers: "Customers",
+    finance: "Finance",
+    estimates: "Estimates",
+    invoices: "Invoices",
+    "recurring-invoices": "Recurring invoices",
+    products: "Products & services",
+    bills: "Bills",
+    transactions: "Finance transactions",
+    "finance-reports": "Finance reports",
+    reconciliation: "Reconciliation",
+  };
+  let companyId: string;
+
+  beforeEach(async () => {
+    const company = await insert(Company, {
+      name: "Empty Co",
+      slug: "empty-co",
+      ownerId: "owner-1",
+    });
+    companyId = company.id;
+  });
+
+  /** The product areas offered to this viewer, as catalogue keys in rank order. */
+  async function areasFor(
+    role: Role,
+    financeAccess: FinanceAccess | undefined,
+    query: string,
+  ): Promise<string[]> {
+    const results = await searchCompany({
+      companyId,
+      userId: `${role}-1`,
+      role,
+      financeAccess,
+      query,
+    });
+    return results.flatMap((result) =>
+      result.kind === "product" ? [result.id.replace(/^product:/, "")] : [],
+    );
+  }
+
+  /** Searched by its own name, each Finance area comes first. */
+  async function assertOffersEveryFinanceArea(
+    role: Role,
+    financeAccess: FinanceAccess,
+  ): Promise<void> {
+    for (const [key, name] of Object.entries(FINANCE_AREAS)) {
+      const offered = await areasFor(role, financeAccess, name);
+      assert.equal(offered[0], key, `${role} with ${financeAccess}: ${name}`);
+    }
+  }
+
+  test("owners and admins are offered every Finance area even when their membership row says None", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      await assertOffersEveryFinanceArea(role, "none");
+    }
+  });
+
+  test("Full and Read-only Members are offered every Finance area", async () => {
+    for (const financeAccess of ["full", "read"] as const) {
+      await assertOffersEveryFinanceArea("member", financeAccess);
+    }
+  });
+
+  test("a Member with None is offered no Finance area, and the areas they can open keep their places", async () => {
+    const financeKeys = new Set(Object.keys(FINANCE_AREAS));
+    // A membership without a level fails closed, as every finance route does.
+    for (const financeAccess of ["none", undefined] as const) {
+      const label = financeAccess ?? "no level";
+      for (const query of ["invoice", "estimate", ...Object.values(FINANCE_AREAS)]) {
+        const offered = await areasFor("member", financeAccess, query);
+        assert.deepEqual(
+          offered.filter((key) => financeKeys.has(key)),
+          [],
+          `${label}: ${query}`,
+        );
+      }
+      assert.deepEqual(await areasFor("member", financeAccess, "channel"), ["workspace"], label);
+      // Products, Estimates, and Finance reports outrank Signals for "pro".
+      // They are left out before the five-area cap, so Signals still makes it.
+      assert.deepEqual(
+        await areasFor("member", financeAccess, "pro"),
+        ["projects", "contacts", "signals"],
+        label,
+      );
+    }
+    // A reader is offered the top five, which leaves Signals out.
+    assert.deepEqual(await areasFor("member", "read", "pro"), [
+      "products",
+      "projects",
+      "contacts",
+      "estimates",
+      "finance-reports",
+    ]);
+  });
+});
+
+/**
  * Customers are served by the finance routes, which refuse a Member with
  * finance access None. Search must not hand that Member a customer page they
  * can't open, nor the billing email that page would have shown them.

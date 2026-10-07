@@ -25,7 +25,7 @@ import {
   tokenizeQuery,
 } from "./likeSearch.js";
 import type { Token } from "./likeSearch.js";
-import { searchChatProductReferences } from "./chatReferences.js";
+import { canOpenProductReference, searchChatProductReferences } from "./chatReferences.js";
 import { listAccessibleProjectIds } from "./projects.js";
 
 /**
@@ -463,8 +463,8 @@ export async function searchCompany(opts: {
     id: opts.userId,
     role: opts.role,
   });
-  const customerSpec =
-    financeAccessFor(opts.role, opts.financeAccess) === "none" ? ACCOUNT_SPEC : CUSTOMER_SPEC;
+  const financeAccess = financeAccessFor(opts.role, opts.financeAccess);
+  const customerSpec = financeAccess === "none" ? ACCOUNT_SPEC : CUSTOMER_SPEC;
 
   const perKind = await Promise.all([
     ...SIMPLE_SPECS.map((spec) => searchSimple(ctx, spec)),
@@ -480,6 +480,9 @@ export async function searchCompany(opts: {
   const merged: Scored[] = [];
   merged.push(
     ...searchChatProductReferences(qRaw)
+      // Before the cap, so an area this viewer can't open never takes the
+      // place of one they can.
+      .filter((reference) => canOpenProductReference(reference, financeAccess))
       .slice(0, PER_KIND_CAP)
       .map((reference) => ({
         kind: "product" as const,
