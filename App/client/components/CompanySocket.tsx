@@ -37,22 +37,23 @@ export function CompanySocketProvider({
 }) {
   const [status, setStatus] =
     React.useState<ContextValue["status"]>("connecting");
-  // Hold the socket in a ref so we can return its handle synchronously from
-  // the context without triggering a re-render every reconnect.
-  const socketRef = React.useRef<CompanySocket | null>(null);
+  // Publish the handle as soon as it exists, while it is still minting its
+  // token, so consumers subscribe before anything can arrive. Reconnects
+  // reuse the handle, so this renders once per company, not per reconnect.
+  const [socket, setSocket] = React.useState<CompanySocket | null>(null);
 
   React.useEffect(() => {
     const sock = connectCompanySocket(companyId, setStatus);
-    socketRef.current = sock;
+    setSocket(sock);
     return () => {
       sock.close();
-      socketRef.current = null;
+      setSocket(null);
     };
   }, [companyId]);
 
   const value = React.useMemo<ContextValue>(
-    () => ({ socket: socketRef.current, status }),
-    [status],
+    () => ({ socket, status }),
+    [socket, status],
   );
 
   return (
