@@ -287,6 +287,12 @@ export type WorkspaceSocket = CompanySocket;
  * Auth is a two-step mint: we first call POST /ws-token to get a short-
  * lived token, then upgrade with `?token=...`. The socket auto-reconnects
  * with exponential backoff up to 30 s and re-mints the token each attempt.
+ *
+ * `close()` is final wherever it lands in that sequence — React StrictMode
+ * closes a handle while its first token is still being minted. A closed
+ * handle opens no further socket, hangs up one still connecting as soon as
+ * it opens, and stops calling `onStatus` and reconnecting, so the status a
+ * caller shows is only ever the live connection's.
  */
 export function connectCompanySocket(
   companyId: string,
@@ -324,12 +330,22 @@ export function connectCompanySocket(
       scheduleReconnect();
       return;
     }
+    // Closed while the token was being minted. A socket opened now would be
+    // a live connection nobody listens to, held until the page unloads.
+    if (closed) return;
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${window.location.host}/api/ws?token=${encodeURIComponent(token)}`;
     const sock = new WebSocket(url);
     ws = sock;
 
     sock.addEventListener("open", () => {
+      // Closed while this socket was still connecting. Hanging up here, not
+      // in `close()`, spares the browser's "closed before the connection is
+      // established" warning.
+      if (closed) {
+        sock.close();
+        return;
+      }
       attempt = 0;
       onStatus?.("open");
     });
@@ -344,6 +360,9 @@ export function connectCompanySocket(
     });
     sock.addEventListener("close", () => {
       ws = null;
+      // A closed handle's caller has moved on, perhaps to a new handle whose
+      // status this "closed" would overwrite.
+      if (closed) return;
       onStatus?.("closed");
       scheduleReconnect();
     });
@@ -372,6 +391,7 @@ export function connectCompanySocket(
     close: () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      // A socket still connecting hangs up from its own `open` listener.
       if (ws && ws.readyState === WebSocket.OPEN) ws.close();
       handlers.clear();
     },
