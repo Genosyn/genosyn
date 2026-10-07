@@ -15,8 +15,9 @@ import {
   ShieldAlert,
   UserPlus,
 } from "lucide-react";
-import { api, Customer, Employee, Member, formatMoney } from "../lib/api";
+import { api, Employee, Member, formatMoney } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import type { RevenueAccount } from "../lib/revenue";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -143,7 +144,7 @@ export default function RevenueContactDetail() {
   const [enrolling, setEnrolling] = React.useState(false);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
-  const [accounts, setAccounts] = React.useState<Customer[]>([]);
+  const [accounts, setAccounts] = React.useState<RevenueAccount[]>([]);
 
   const reload = React.useCallback(async () => {
     const payload = await api.get<ContactDetailResponse>(
@@ -170,7 +171,7 @@ export default function RevenueContactDetail() {
     Promise.all([
       api.get<Member[]>(`/api/companies/${company.id}/members`),
       api.get<Employee[]>(`/api/companies/${company.id}/employees`),
-      api.get<{ rows: Customer[] }>(
+      api.get<{ rows: RevenueAccount[] }>(
         `/api/companies/${company.id}/revenue/accounts?limit=200`,
       ),
     ])
@@ -663,7 +664,7 @@ function EditContactModal({
   contact: RevenueContact;
   members: Member[];
   employees: Employee[];
-  accounts: Customer[];
+  accounts: RevenueAccount[];
   onClose: () => void;
   /** Optimistic write into the page's copy of the row, and the rollback. */
   onPatch: (patch: Partial<RevenueContact>) => void;

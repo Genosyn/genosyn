@@ -545,7 +545,8 @@ export function Finance() {
           The customer list and each customer&apos;s pages under <Code>Customers</Code> follow the
           same setting and show the same kind of note;{" "}
           <DocLink to="/docs/customers#access">Contracts and Revenue → Accounts</DocLink> stay open
-          to them.
+          to them, though Revenue leaves out each account&apos;s{" "}
+          <DocLink to="/docs/revenue#billing-details">billing details</DocLink>.
         </LI>
       </UL>
       <P>
@@ -586,7 +587,8 @@ export function Finance() {
         it from <Code>Finance → AI access</Code>. Every write an AI Employee makes lands in the
         audit log (marked as an AI actor) and on the employee&apos;s journal, exactly like the human
         finance routes. Members still reach Finance through the app as usual; grants govern the AI
-        surface only.
+        surface only. Any level also lets the employee&apos;s Revenue tools return an
+        account&apos;s <DocLink to="/docs/revenue#billing-details">billing details</DocLink>.
       </P>
       <P>
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer

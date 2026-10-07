@@ -104,7 +104,19 @@ export type FollowUpView = {
   updatedAt: string;
 };
 
-export type RevenueAccount = Customer & {
+/** The account fields Revenue serves only to a viewer with finance access. */
+type AccountBillingField = "email" | "billingAddress" | "shippingAddress" | "taxNumber";
+
+/**
+ * One account as the Revenue routes serve it. Its billing details belong to
+ * Finance, so a Member whose finance access is None gets the account without
+ * them and with `billingWithheld` set (the server's `ACCOUNT_BILLING_FIELDS`).
+ */
+export type RevenueAccountRecord = Omit<Customer, AccountBillingField> &
+  Partial<Pick<Customer, AccountBillingField>> & { billingWithheld?: true };
+
+/** A row of the Revenue account list. */
+export type RevenueAccount = RevenueAccountRecord & {
   contactCount: number;
   openDealCount: number;
 };

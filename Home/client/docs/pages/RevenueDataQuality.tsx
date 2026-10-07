@@ -42,7 +42,10 @@ export function RevenueDataQuality() {
         <LI>
           Review every conflicting field and the counts of relationships and custom values that will
           move. Choose the source or survivor value for each conflict; coupled ownership and Deal
-          status fields are validated together before the merge can commit.
+          status fields are validated together before the merge can commit. An Account&apos;s{" "}
+          <DocLink to="/docs/revenue#billing-details">billing details</DocLink> are listed only
+          for Members with finance access; without it, the preview says they differ and the
+          survivor keeps its own.
         </LI>
         <LI>Type the duplicate record&apos;s displayed label and confirm.</LI>
       </OL>
@@ -228,7 +231,10 @@ export function RevenueDataQuality() {
         snapshot boundary and paginated cursors or offsets, so operators can continue until the
         export is complete without later writes moving records between pages. AI Employees need the
         source Mail Account ID and a read Grant to that exact mailbox to export Gmail document
-        candidates; Revenue access alone does not reveal mailbox-derived metadata.
+        candidates; Revenue access alone does not reveal mailbox-derived metadata. Likewise, the
+        Accounts export leaves out each account&apos;s{" "}
+        <DocLink to="/docs/revenue#billing-details">billing details</DocLink> for a Member without
+        finance access and an AI Employee without a Finance grant.
       </P>
       <P>
         Import history now has a lightweight summary listing, lookup by Import ID, filters for

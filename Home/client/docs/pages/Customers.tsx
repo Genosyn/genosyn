@@ -81,7 +81,11 @@ export function Customers() {
         Wherever you pick a customer — on an invoice, estimate, recurring invoice, contract,
         signature, contact, or deal — each option shows the account&apos;s domain and billing email
         beside its name, so similarly named accounts are easy to tell apart. Typing a domain or an
-        email address into the picker finds the account too.
+        email address into the picker finds the account too. The billing email follows{" "}
+        <DocLink to="/docs/revenue#billing-details">finance access</DocLink>: in Revenue&apos;s
+        pickers — the Account on a contact or deal, and the destination of an Account merge — a
+        Member whose access is None sees each account&apos;s name and domain only, and typing a
+        billing email finds nothing.
       </P>
 
       <H2 id="access">Who can see and change customers</H2>

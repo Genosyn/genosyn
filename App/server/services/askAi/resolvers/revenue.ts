@@ -75,7 +75,10 @@ import { employeeNames } from "./routines.js";
  *
  * Never described: signing tokens, signature values, the signing PDF's text or
  * storage keys, recipient IP addresses, event metadata, conference join links
- * (they routinely carry a passcode), recording paths, and Connection config.
+ * (they routinely carry a passcode), recording paths, and Connection config —
+ * nor an Account's billing details (`ACCOUNT_BILLING_FIELDS`). Those follow
+ * Finance access on both sides, which a record behind the Revenue gate cannot
+ * express; the customer's Finance record carries them behind its own gate.
  */
 
 const REVENUE_GATE: AskAiGate = { type: "revenue" };
@@ -534,7 +537,6 @@ export const resolveRevenueAccount: AskAiResolver = async ({ companyId, ref }) =
           ? `${account.parentCompanyName}${account.parentCompanyDomain ? ` (${account.parentCompanyDomain})` : ""}`
           : null,
       ],
-      ["Email", account.email],
       ["Phone", account.phone],
       [
         "Annual contract value",

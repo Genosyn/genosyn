@@ -18,10 +18,12 @@ import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
+import { Membership } from "../db/entities/Membership.js";
 import { RevenueCustomField } from "../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../db/entities/RevenueCustomValue.js";
 import { RevenueDocumentCandidate } from "../db/entities/RevenueDocumentCandidate.js";
 import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
+import { User } from "../db/entities/User.js";
 import { AppDataSource } from "../db/datasource.js";
 import { errorHandler } from "../middleware/error.js";
 import { deadToolNames } from "../services/agent/tools/grantDead.js";
@@ -1000,4 +1002,97 @@ test("custom-field external provenance is explicit and cross-grant gated", async
   });
   assert.equal(email.status, 403);
   assert.match(email.body.error ?? "", /grant/i);
+});
+
+test("Account tools leave billing details out without Finance access, in a Member's chat too", async () => {
+  const billing = {
+    email: "ap@acme.example",
+    billingAddress: "1 Ledger Lane, London",
+    shippingAddress: "2 Dock Road, Tilbury",
+    taxNumber: "GB123456789",
+  };
+  const source = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Ltd",
+    slug: "acme-ltd",
+    domain: "acme.example",
+    ...billing,
+  });
+  const target = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme Group",
+    slug: "acme-group",
+    domain: "acme-group.example",
+    email: "billing@acme-group.example",
+  });
+  const hidden = [...Object.values(billing), target.email];
+
+  /** Every account tool that reads the source account or its billing conflicts. */
+  async function readAccounts() {
+    const responses = [
+      await aiCall("list_revenue_accounts", {}),
+      await aiCall("get_revenue_account", { accountId: source.id }),
+      await aiCall("preview_revenue_record_merge", {
+        resourceType: "account",
+        sourceId: source.id,
+        targetId: target.id,
+      }),
+      await aiCall("export_revenue_snapshot", { resource: "accounts", format: "json" }),
+    ];
+    for (const response of responses) assert.equal(response.status, 200, response.body.error);
+    const [list, detail, preview, exported] = responses;
+    const sourceRow = (rows: unknown) =>
+      (rows as Array<{ id: string; billingWithheld?: boolean }>).find(
+        (row) => row.id === source.id,
+      );
+    return {
+      serialized: JSON.stringify(responses.map((response) => response.body)),
+      withheld: [
+        sourceRow(list.body.rows)?.billingWithheld,
+        (detail.body.account as { billingWithheld?: boolean }).billingWithheld,
+        preview.body.billingWithheld,
+        sourceRow(exported.body.rows)?.billingWithheld,
+      ],
+    };
+  }
+  const assertWithheld = (read: Awaited<ReturnType<typeof readAccounts>>) => {
+    for (const value of hidden) assert.equal(read.serialized.includes(value), false, value);
+    assert.deepEqual(read.withheld, [true, true, true, true]);
+  };
+  const assertVisible = (read: Awaited<ReturnType<typeof readAccounts>>) => {
+    for (const value of hidden) assert.ok(read.serialized.includes(value), value);
+    assert.deepEqual(read.withheld, [undefined, undefined, undefined, undefined]);
+  };
+
+  // A Revenue Grant alone is no Finance access.
+  assertWithheld(await readAccounts());
+  await insert(EmployeeFinanceGrant, {
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "read",
+  });
+  assertVisible(await readAccounts());
+
+  // In a Member's chat, that Member's own Finance access caps the employee's.
+  const member = await insert(User, {
+    email: "member@acme.example",
+    name: "Member",
+    passwordHash: "x",
+    sessionVersion: 0,
+  });
+  const membership = await insert(Membership, {
+    companyId: company.id,
+    userId: member.id,
+    role: "member",
+    financeAccess: "none",
+  });
+  revokeMcpToken(token);
+  token = issueMcpToken(employee.id, company.id, {
+    authority: "member",
+    requesterUserId: member.id,
+    requesterSessionVersion: member.sessionVersion,
+  });
+  assertWithheld(await readAccounts());
+  await AppDataSource.getRepository(Membership).update(membership.id, { financeAccess: "read" });
+  assertVisible(await readAccounts());
 });

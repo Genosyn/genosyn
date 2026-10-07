@@ -15,13 +15,13 @@ import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { api, type Customer, type Employee, type Member } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
-import type { RevenueAccount } from "../lib/revenue";
+import type { RevenueAccount, RevenueAccountRecord } from "../lib/revenue";
 import type { RevenueContact } from "./RevenueContacts";
 import type { Deal } from "./RevenueDeals";
 import type { RevenueOutletCtx } from "./RevenueLayout";
 
 type AccountDetail = {
-  account: Customer;
+  account: RevenueAccountRecord;
   contacts: RevenueContact[];
   deals: Deal[];
 };
@@ -49,6 +49,8 @@ type AccountMergePreview = {
   counts: AccountMergeCounts;
   fieldConflicts?: MergeConflict[];
   customFieldConflicts?: MergeConflict[];
+  /** Conflicts on billing details were left out: the viewer has no finance access. */
+  billingWithheld?: true;
 };
 
 type MergeConflict = {
@@ -64,7 +66,7 @@ function displayMergeValue(value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-function ownerValue(account: Customer): string {
+function ownerValue(account: RevenueAccountRecord): string {
   if (account.ownerId) return `user:${account.ownerId}`;
   if (account.ownerEmployeeId) return `employee:${account.ownerEmployeeId}`;
   return "";
@@ -160,7 +162,10 @@ export default function RevenueAccountDetail() {
       if (!confirmed) return;
     }
     background(
-      () => api.post<Customer>(`${base}/accounts/${accountId}/${archived ? "archive" : "restore"}`),
+      () =>
+        api.post<RevenueAccountRecord>(
+          `${base}/accounts/${accountId}/${archived ? "archive" : "restore"}`,
+        ),
       {
         title: `Couldn’t ${archived ? "archive" : "restore"} this Account`,
         onSuccess: () => void load(),
@@ -447,7 +452,7 @@ function AccountMergeModal({
   onClose: () => void;
   base: string;
   sectionUrl: string;
-  source: Customer;
+  source: RevenueAccountRecord;
   onMerged: (result: AccountMergePreview) => void;
 }) {
   const [accounts, setAccounts] = React.useState<RevenueAccount[] | null>(null);
@@ -612,6 +617,12 @@ function AccountMergeModal({
                 {preview.counts.customValueConflicts} Account custom{" "}
                 {preview.counts.customValueConflicts === 1 ? "value needs" : "values need"} a
                 resolution below.
+              </p>
+            )}
+            {preview.billingWithheld && (
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Their billing details differ too. Those follow finance access, so they aren&apos;t
+                shown here, and the destination keeps its own.
               </p>
             )}
           </div>

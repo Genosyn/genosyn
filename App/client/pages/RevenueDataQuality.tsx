@@ -101,6 +101,8 @@ type MergePreview = {
   relationshipCounts: Record<string, number>;
   customValuesCopied: number;
   customValueConflicts: number;
+  /** An Account's billing-detail conflicts were left out: the viewer has no finance access. */
+  billingWithheld?: true;
 };
 type BulkResult = {
   dryRun: boolean;
@@ -1390,6 +1392,12 @@ export default function RevenueDataQuality() {
                 </tbody>
               </table>
             </div>
+            {mergePreview.billingWithheld && (
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Their billing details differ too. Those follow finance access, so they aren&apos;t
+                shown here, and the survivor keeps its own.
+              </p>
+            )}
             <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
               Moves:{" "}
               {Object.entries(mergePreview.relationshipCounts)
