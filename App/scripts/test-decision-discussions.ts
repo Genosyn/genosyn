@@ -1543,9 +1543,23 @@ try {
   await check(
     "review form shows context and consequences, and selecting an option never submits",
     async () => {
+      const reason =
+        "The update promises Acme a new delivery date, and only the account owner can commit to it.";
       const row = decision({
         // A row written by an older release may still carry this retired field.
         expiresAt: new Date(fixtureNow.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+        body: [
+          "## Why this needs a human decision",
+          reason,
+          "",
+          "What happened: Acme asked for an update on their delayed order.",
+          "",
+          "Why it is blocked: The draft names a delivery date nobody has confirmed.",
+          "",
+          "**Recommendation:** Send the reviewed draft once the date is confirmed.",
+          "",
+          "Unknowns: Whether the warehouse can ship before Friday.",
+        ].join("\n"),
         options: [
           {
             id: "revise",
@@ -1562,7 +1576,36 @@ try {
         ],
       });
       const fixture = await open({ rows: [row] });
-      await fixture.page.getByText(row.body, { exact: true }).waitFor();
+      const view = card(fixture.page, row.id);
+      // The stated reason is its own step; the context opens on its first two
+      // sections and names the rest. A label repeating the step title is dropped.
+      await view
+        .getByRole("heading", { name: "Why this needs a human decision", exact: true })
+        .waitFor();
+      await view.getByText(reason, { exact: true }).waitFor();
+      await view
+        .getByText("Acme asked for an update on their delayed order.", { exact: true })
+        .waitFor();
+      assert.equal(
+        await view.getByRole("heading", { name: "What happened", exact: true }).count(),
+        1,
+      );
+      await view.getByRole("heading", { name: "Why it is blocked", exact: true }).waitFor();
+      const more = view.getByRole("list", { name: "Also in the full context", exact: true });
+      assert.deepEqual(await more.getByRole("listitem").allInnerTexts(), [
+        "Recommendation",
+        "Unknowns",
+      ]);
+      assert.equal(
+        await view
+          .getByText("Send the reviewed draft once the date is confirmed.", { exact: true })
+          .count(),
+        0,
+      );
+      await fixture.page.screenshot({
+        path: path.join(output, "decision-context-collapsed.png"),
+        fullPage: true,
+      });
       assert.equal(await fixture.page.getByText(/^Expires /).count(), 0);
       assert.equal(await fixture.page.getByRole("radio", { checked: true }).count(), 0);
       assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
@@ -1574,9 +1617,13 @@ try {
       await fixture.page
         .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
         .fill("Use the revised delivery date.");
-      await fixture.page
-        .getByRole("button", { name: "Read the full context", exact: true })
-        .click();
+      await view.getByRole("button", { name: "Read the full context", exact: true }).click();
+      await view
+        .getByText("Send the reviewed draft once the date is confirmed.", { exact: true })
+        .waitFor();
+      await view.getByRole("heading", { name: "Unknowns", exact: true }).waitFor();
+      assert.equal(await more.count(), 0);
+      await view.getByRole("button", { name: "Show less", exact: true }).waitFor();
       assert.deepEqual(fixture.writes, []);
       await fixture.page.screenshot({
         path: path.join(output, "decision-review-desktop.png"),
@@ -2494,9 +2541,11 @@ try {
     "decide keeps its note, disables Discuss during submission, and retries safely",
     async () => {
       const fixture = await open({ holdDecision: true, decisionError: true });
-      await fixture.page
-        .getByRole("button", { name: "Read the full context", exact: true })
-        .click();
+      // A one-sentence context has nothing folded away, so it offers no toggle.
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Read the full context" }).count(),
+        0,
+      );
       await fixture.page.getByText("Send the update", { exact: true }).click();
       await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
       await fixture.page

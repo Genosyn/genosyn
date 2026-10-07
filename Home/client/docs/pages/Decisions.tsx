@@ -46,8 +46,12 @@ export function Decisions() {
       <H2 id="reading-a-card">Read the timeline, then act</H2>
       <P>
         Cards are timelines rather than blocks of instructions. <Strong>What happened</Strong>
-        summarizes the source and links to the original email, Run, or conversation. The next step
-        shows what the AI Employee recommends, what it already did, or the exact question it needs
+        summarizes the source and links to the original email, Run, or conversation. When the
+        employee labels parts of its context, such as <Strong>Why it is blocked</Strong> or{" "}
+        <Strong>Recommendation</Strong>, each label becomes its own marked section.{" "}
+        <Strong>Why this needs a human decision</Strong> follows on Decisions and work reviews: the
+        employee&apos;s own statement of the stakes and why the choice is yours. The next step shows
+        what the AI Employee recommends, what it already did, or the exact question it needs
         answered. The final controls are the actions available now. After you answer, approve,
         decline, send, or discard, the card stays in your active stack. Its timeline records your
         choice and updates as the AI Employee continues, finishes, or encounters a problem.
@@ -106,7 +110,8 @@ export function Decisions() {
 
       <H2 id="approving-work">Reviewing proposed work</H2>
       <P>
-        A work review shows <Strong>What happened</Strong> and{" "}
+        A work review shows <Strong>What happened</Strong>,{" "}
+        <Strong>Why this needs a human decision</Strong>, and{" "}
         <Strong>What the AI Employee recommends</Strong>. An owner or admin selects{" "}
         <Strong>Approve &amp; start</Strong> to authorize exactly that plan. Select{" "}
         <Strong>Request changes</Strong> to open a linked conversation with the employee, or{" "}
@@ -146,8 +151,11 @@ export function Decisions() {
           customer, AI Employee, or detail from the context or reported outcome.
         </LI>
         <LI>
-          Read <Strong>What happened</Strong>. Use <Strong>Read the full context</Strong> for longer
-          explanations. The source link opens the original email, Routine Run, or conversation.
+          Read <Strong>What happened</Strong> and <Strong>Why this needs a human decision</Strong>.
+          Longer context opens on its first sections, with the rest named beside{" "}
+          <Strong>Read the full context</Strong>; a long reason has{" "}
+          <Strong>Read the full reason</Strong>. The source link opens the original email, Routine
+          Run, or conversation.
         </LI>
         <LI>
           Need more detail? Press <Strong>Discuss</Strong> to ask the AI Employee that raised the

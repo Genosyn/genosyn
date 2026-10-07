@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatHumanDecisionContext } from "../../shared/decisionContext.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 
 /** Shared by Decision intake and proactive work reviews. This is a statement
@@ -21,10 +22,11 @@ export const humanDecisionReasonSchema = z
   .min(20, "Explain the major stakes and the choice that requires human judgment.")
   .max(1_500);
 
-/** Put the rationale first so it remains visible even in bounded previews.
+/** Put the rationale first so it remains visible even in bounded previews,
+ * in the form the review cards read back (`shared/decisionContext.ts`).
  * Callers still apply the destination's own length ceiling after composing. */
 export function withHumanDecisionReason(context: string, humanDecisionReason: string): string {
   const reason = redactApprovalSummary(humanDecisionReasonSchema.parse(humanDecisionReason)) ?? "";
   const evidence = redactApprovalSummary(context) ?? "";
-  return `## Why this needs a human decision\n${reason}\n\n${evidence}`.trim();
+  return formatHumanDecisionContext(reason, evidence);
 }

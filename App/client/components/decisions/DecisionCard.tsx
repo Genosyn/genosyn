@@ -3,22 +3,25 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
-  ChevronUp,
   Clock3,
   GitBranch,
   Info,
   ListChecks,
   MessageSquarePlus,
 } from "lucide-react";
+import { parseDecisionContext } from "../../../shared/decisionContext";
 import { api, Company, Decision, DecisionUrgency } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { FormError } from "@/components/ui/FormError";
 import { Menu, MenuHeader, MenuItem } from "@/components/ui/Menu";
 import { clsx } from "@/components/ui/clsx";
 import { DecisionSourceLine } from "@/components/decisions/DecisionSource";
+import {
+  DecisionContextSections,
+  DecisionReasonItem,
+} from "@/components/decisions/DecisionContext";
 import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
 import { ReviewTimeline, ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
 import { formatRelative } from "@/components/decisions/relative";
@@ -66,7 +69,6 @@ export function DecisionCard({
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
   const submitting = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [contextOpen, setContextOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [guidanceOpen, setGuidanceOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
@@ -76,6 +78,7 @@ export function DecisionCard({
   const selected = decision.options.find((option) => option.id === selectedId);
   const employeeName = decision.employee?.name ?? "The AI Employee";
   const busy = pendingAction !== null;
+  const context = React.useMemo(() => parseDecisionContext(decision.body), [decision.body]);
 
   async function perform(
     action: PendingAction,
@@ -174,42 +177,30 @@ export function DecisionCard({
         <ReviewTimeline className="mt-5">
           <ReviewTimelineItem icon={Info} title="What happened">
             <DecisionSourceLine company={company} decision={decision} />
-            <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
-              {decision.body ? (
-                <>
-                  <div
-                    id={`${fieldId}-context`}
-                    className={clsx(
-                      "break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300",
-                      contextOpen ? "max-h-[32rem] overflow-auto" : "max-h-36 overflow-hidden",
-                    )}
-                  >
-                    <ChatMarkdown content={decision.body} />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setContextOpen((value) => !value)}
-                    aria-expanded={contextOpen}
-                    aria-controls={`${fieldId}-context`}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                  >
-                    {contextOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                    {contextOpen ? "Show less" : "Read the full context"}
-                  </button>
-                </>
-              ) : (
-                <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+            {context.sections.length > 0 ? (
+              <DecisionContextSections
+                id={`${fieldId}-context`}
+                sections={context.sections}
+                heading="What happened"
+                preview={{ sections: 2, lines: 6 }}
+                className="mt-3"
+              />
+            ) : (
+              !context.reason && (
+                <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm leading-relaxed text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                   No context was included. Ask {employeeName} for the details you need before
                   choosing.
                 </p>
-              )}
-            </div>
+              )
+            )}
             {decision.routedToEmployee && (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                 <span>Routed to {decision.routedToEmployee.name} (AI)</span>
               </div>
             )}
           </ReviewTimelineItem>
+
+          {context.reason && <DecisionReasonItem reason={context.reason} />}
 
           <ReviewTimelineItem icon={ListChecks} title="What do you need to decide?" tone="accent">
             <form onSubmit={submit} aria-labelledby={`${fieldId}-title`}>

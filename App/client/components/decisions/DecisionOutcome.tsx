@@ -3,8 +3,6 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   CircleSlash,
   Clock,
   Clock3,
@@ -12,13 +10,14 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { parseDecisionContext } from "../../../shared/decisionContext";
 import { api, Company, Decision, DecisionStatus } from "../../lib/api";
 import { errorMessage } from "../../lib/errors";
-import { ChatMarkdown } from "../ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
 import { Button } from "../ui/Button";
 import { clsx } from "../ui/clsx";
 import { FormError } from "../ui/FormError";
+import { DecisionContextSections, DecisionReasonItem } from "./DecisionContext";
 import { DecisionPickup } from "./DecisionPickup";
 import { DecisionSourceLine } from "./DecisionSource";
 import { DecisionDiscussButton } from "./DecisionDiscussButton";
@@ -71,7 +70,6 @@ export function DecisionOutcome({
   refreshNotice?: React.ReactNode;
   keepExpanded?: boolean;
 }) {
-  const [contextOpen, setContextOpen] = React.useState(false);
   const [restoring, setRestoring] = React.useState(false);
   const [restoreError, setRestoreError] = React.useState<string | null>(null);
   const restoringRef = React.useRef(false);
@@ -91,6 +89,7 @@ export function DecisionOutcome({
         : "Expired under an earlier version";
   const pickup = decision.pickupStatus === "none" ? null : PICKUP_TIMELINE[decision.pickupStatus];
   const mayRestore = status === "cancelled" && decision.decidedByUserId !== null && canRestore;
+  const context = React.useMemo(() => parseDecisionContext(decision.body), [decision.body]);
 
   async function restore() {
     if (!mayRestore || restoringRef.current) return;
@@ -169,30 +168,18 @@ export function DecisionOutcome({
         <ReviewTimeline className="mt-4">
           <ReviewTimelineItem icon={Info} title="What happened">
             <DecisionSourceLine company={company} decision={decision} />
-            {decision.body && (
-              <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
-                <div
-                  id={`${fieldId}-context`}
-                  className={clsx(
-                    "break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300",
-                    contextOpen ? "max-h-[32rem] overflow-auto" : "max-h-24 overflow-hidden",
-                  )}
-                >
-                  <ChatMarkdown content={decision.body} />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setContextOpen((value) => !value)}
-                  aria-expanded={contextOpen}
-                  aria-controls={`${fieldId}-context`}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                >
-                  {contextOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                  {contextOpen ? "Show less" : "Read the full context"}
-                </button>
-              </div>
+            {context.sections.length > 0 && (
+              <DecisionContextSections
+                id={`${fieldId}-context`}
+                sections={context.sections}
+                heading="What happened"
+                preview={{ sections: 1, lines: 4 }}
+                className="mt-2"
+              />
             )}
           </ReviewTimelineItem>
+
+          {context.reason && <DecisionReasonItem reason={context.reason} />}
 
           <ReviewTimelineItem
             icon={StatusIcon}

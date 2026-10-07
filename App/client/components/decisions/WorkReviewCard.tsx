@@ -10,10 +10,15 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { parseDecisionContext } from "../../../shared/decisionContext";
 import { api, type Approval, type Company, type HomeApproval } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { ApprovalDiscussButton } from "@/components/decisions/ApprovalDiscussButton";
+import {
+  DecisionContextSections,
+  DecisionReasonItem,
+} from "@/components/decisions/DecisionContext";
 import { ReviewTimeline, ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
@@ -76,6 +81,8 @@ function WorkTimeline({
 }) {
   const review = workReview(approval);
   const source = sourceHref(company, approval);
+  const contextId = React.useId();
+  const context = React.useMemo(() => parseDecisionContext(review?.context), [review?.context]);
   if (!review) {
     return (
       <FormError message="This work review could not be displayed. Refresh before deciding." />
@@ -84,9 +91,13 @@ function WorkTimeline({
   return (
     <ReviewTimeline>
       <ReviewTimelineItem icon={CircleDot} title="What happened">
-        <div className="break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-          <ChatMarkdown content={review.context} />
-        </div>
+        {context.sections.length > 0 && (
+          <DecisionContextSections
+            id={contextId}
+            sections={context.sections}
+            heading="What happened"
+          />
+        )}
         {source && (
           <Link
             to={source.href}
@@ -96,6 +107,7 @@ function WorkTimeline({
           </Link>
         )}
       </ReviewTimelineItem>
+      {context.reason && <DecisionReasonItem reason={context.reason} />}
       <ReviewTimelineItem icon={ListChecks} title="What the AI Employee recommends" tone="accent">
         <div className="break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
           <ChatMarkdown content={review.plan} />
