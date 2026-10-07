@@ -1,14 +1,7 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { LayoutGrid, List, Plus, Search } from "lucide-react";
-import {
-  api,
-  Customer,
-  Employee,
-  Member,
-  formatMoney,
-  parseMoneyToCents,
-} from "../lib/api";
+import { api, Employee, Member, formatMoney, parseMoneyToCents } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -21,7 +14,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { RevenueOutletCtx } from "./RevenueLayout";
-import type { RevenueClassification } from "../lib/revenue";
+import type { RevenueAccount, RevenueClassification } from "../lib/revenue";
 
 /**
  * The deal board — `GET /revenue/deals/board` rendered as one column per
@@ -1049,7 +1042,7 @@ function NewDealModal({
   const [followUpReminderAt, setFollowUpReminderAt] = React.useState("");
   const [description, setDescription] = React.useState("");
 
-  const [customers, setCustomers] = React.useState<Customer[]>([]);
+  const [customers, setCustomers] = React.useState<RevenueAccount[]>([]);
   const [contacts, setContacts] = React.useState<RevenueContact[]>([]);
   const [sources, setSources] = React.useState<RevenueClassification[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -1059,8 +1052,8 @@ function NewDealModal({
     let alive = true;
     void Promise.all([
       api
-        .get<{ rows: Customer[] }>(`${base}/accounts?limit=200`)
-        .catch(() => ({ rows: [] as Customer[] })),
+        .get<{ rows: RevenueAccount[] }>(`${base}/accounts?limit=200`)
+        .catch(() => ({ rows: [] as RevenueAccount[] })),
       api
         .get<{ rows: RevenueContact[] }>(`${base}/contacts?limit=200`)
         .catch(() => ({ rows: [] as RevenueContact[] })),

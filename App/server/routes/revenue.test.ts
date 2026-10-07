@@ -14,10 +14,11 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Contact } from "../db/entities/Contact.js";
+import { Customer } from "../db/entities/Customer.js";
 import { Deal } from "../db/entities/Deal.js";
 import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../db/entities/DealStage.js";
-import { Membership, type Role } from "../db/entities/Membership.js";
+import { Membership, type FinanceAccess, type Role } from "../db/entities/Membership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
 import { RevenueOperation } from "../db/entities/RevenueOperation.js";
@@ -1215,6 +1216,222 @@ describe("revenue routes — operating system", () => {
     assert.equal(retrieved.body.batch.id, batch.body.batch.id);
     assert.equal(retrieved.body.counts.created, 3);
     assert.equal("rowMapJson" in retrieved.body.batch, false);
+  });
+});
+
+// ── Account billing details ────────────────────────────────────────────────
+
+describe("revenue routes — account billing details follow finance access", () => {
+  const BILLING_FIELDS = ["email", "billingAddress", "shippingAddress", "taxNumber"];
+
+  type AccountBody = Record<string, unknown>;
+  type PreviewBody = {
+    source: AccountBody;
+    target: AccountBody;
+    fieldConflicts: Array<{ field: string }>;
+    billingWithheld?: boolean;
+  };
+
+  /** Two accounts whose billing details all differ, beside a few other conflicts. */
+  async function seedAccounts() {
+    const source = await insert(Customer, {
+      companyId,
+      name: "Acme Ltd",
+      slug: "acme-ltd",
+      domain: "acme.example",
+      phone: "+44 20 7946 0000",
+      currency: "GBP",
+      annualContractValueCents: 1_200_000,
+      email: "ap@acme.example",
+      billingAddress: "1 Ledger Lane, London",
+      shippingAddress: "2 Dock Road, Tilbury",
+      taxNumber: "GB123456789",
+    });
+    const target = await insert(Customer, {
+      companyId,
+      name: "Acme Group",
+      slug: "acme-group",
+      domain: "acme-group.example",
+      industry: "Logistics",
+      email: "billing@acme-group.example",
+      billingAddress: "3 Treasury Street, Leeds",
+      shippingAddress: "",
+      taxNumber: "GB987654321",
+    });
+    return { source, target };
+  }
+
+  function billingValues(...accounts: Customer[]): string[] {
+    return accounts.flatMap((account) =>
+      BILLING_FIELDS.map((field) => String(account[field as keyof Customer])).filter(Boolean),
+    );
+  }
+
+  /** Sign in as someone whose membership row stores `financeAccess`. */
+  async function actAs(role: Role, financeAccess: FinanceAccess): Promise<void> {
+    if (role === "admin") {
+      const admin = await insert(User, {
+        email: "admin@example.com",
+        name: "Admin",
+        passwordHash: "x",
+        sessionVersion: 0,
+      });
+      await insert(Membership, { companyId, userId: admin.id, role, financeAccess });
+      actingUserId = admin.id;
+      return;
+    }
+    const userId = role === "owner" ? ownerId : memberId;
+    await AppDataSource.getRepository(Membership).update({ companyId, userId }, { financeAccess });
+    actingUserId = userId;
+  }
+
+  /** Every Revenue read that carries the source account or its billing conflicts. */
+  async function readAccounts(sourceId: string, targetId: string) {
+    const list = await call<{ rows: AccountBody[] }>("GET", "/revenue/accounts");
+    const detail = await call<{ account: AccountBody }>("GET", `/revenue/accounts/${sourceId}`);
+    const preview = await call<PreviewBody>(
+      "GET",
+      `/revenue/accounts/${sourceId}/merge-preview?targetAccountId=${targetId}`,
+    );
+    const recordPreview = await call<PreviewBody>(
+      "GET",
+      `/revenue/records/account/${sourceId}/merge-preview?targetId=${targetId}`,
+    );
+    const exported = await call<{ rows: AccountBody[] }>(
+      "GET",
+      "/revenue/exports/accounts?format=json",
+    );
+    for (const response of [list, detail, preview, recordPreview, exported]) {
+      assert.equal(response.status, 200);
+    }
+    const rowOf = (rows: AccountBody[]) => {
+      const row = rows.find((candidate) => candidate.id === sourceId);
+      assert.ok(row, "the source account is listed");
+      return row;
+    };
+    return {
+      accounts: [rowOf(list.body.rows), detail.body.account, rowOf(exported.body.rows)],
+      previews: [preview.body, recordPreview.body],
+      accountPreview: preview.body,
+      serialized: JSON.stringify([list, detail, preview, recordPreview, exported]),
+    };
+  }
+
+  async function assertSeesBilling(source: Customer, target: Customer): Promise<void> {
+    const read = await readAccounts(source.id, target.id);
+    for (const account of read.accounts) {
+      for (const field of BILLING_FIELDS) {
+        assert.equal(account[field], source[field as keyof Customer], field);
+      }
+      assert.equal(account.billingWithheld, undefined);
+    }
+    for (const preview of read.previews) {
+      const fields = preview.fieldConflicts.map((conflict) => conflict.field);
+      for (const field of BILLING_FIELDS) assert.ok(fields.includes(field), field);
+      assert.equal(preview.billingWithheld, undefined);
+    }
+    // The Account merge preview names its two accounts and nothing more.
+    for (const side of [read.accountPreview.source, read.accountPreview.target]) {
+      assert.deepEqual(Object.keys(side).sort(), ["archivedAt", "id", "name", "slug"]);
+    }
+  }
+
+  test("owners and admins read billing details whatever their membership row says", async () => {
+    const { source, target } = await seedAccounts();
+    await actAs("owner", "none");
+    await assertSeesBilling(source, target);
+    await actAs("admin", "none");
+    await assertSeesBilling(source, target);
+  });
+
+  test("Members with Full or Read-only finance access read billing details", async () => {
+    const { source, target } = await seedAccounts();
+    for (const financeAccess of ["full", "read"] as const) {
+      await actAs("member", financeAccess);
+      await assertSeesBilling(source, target);
+    }
+  });
+
+  test("a Member without finance access reads accounts without billing details", async () => {
+    const { source, target } = await seedAccounts();
+    await actAs("member", "none");
+    const read = await readAccounts(source.id, target.id);
+
+    for (const account of read.accounts) {
+      for (const field of BILLING_FIELDS) assert.equal(field in account, false, field);
+      assert.equal(account.billingWithheld, true);
+      // What Revenue shows stays, and so do phone, currency, and ACV.
+      assert.equal(account.name, "Acme Ltd");
+      assert.equal(account.domain, "acme.example");
+      assert.equal(account.phone, "+44 20 7946 0000");
+      assert.equal(account.currency, "GBP");
+      assert.equal(account.annualContractValueCents, 1_200_000);
+    }
+    for (const preview of read.previews) {
+      const fields = preview.fieldConflicts.map((conflict) => conflict.field);
+      assert.deepEqual(
+        fields.filter((field) => BILLING_FIELDS.includes(field)),
+        [],
+      );
+      for (const field of ["name", "domain", "industry", "annualContractValueCents"]) {
+        assert.ok(fields.includes(field), field);
+      }
+      assert.equal(preview.billingWithheld, true);
+    }
+    for (const value of billingValues(source, target)) {
+      assert.equal(read.serialized.includes(value), false, value);
+    }
+
+    // A Contact's email is its own address, not a billing detail.
+    actingUserId = ownerId;
+    const left = await createContact("Ada Lovelace", "ada@example.com");
+    const right = await createContact("Ada King", "ada.king@example.com");
+    actingUserId = memberId;
+    const contactPreview = await call<PreviewBody>(
+      "GET",
+      `/revenue/records/contact/${left.id}/merge-preview?targetId=${right.id}`,
+    );
+    assert.equal(contactPreview.status, 200);
+    assert.ok(contactPreview.body.fieldConflicts.some((conflict) => conflict.field === "email"));
+    assert.equal(contactPreview.body.billingWithheld, undefined);
+  });
+
+  test("a Member without finance access changes and merges accounts without reading billing details", async () => {
+    const { source, target } = await seedAccounts();
+    await actAs("member", "none");
+    const hidden = billingValues(source, target);
+
+    const updated = await call<AccountBody>("PATCH", `/revenue/accounts/${source.id}`, {
+      notes: "Renewal in May",
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.notes, "Renewal in May");
+    assert.equal(updated.body.billingWithheld, true);
+    const archived = await call<AccountBody>("POST", `/revenue/accounts/${target.id}/archive`);
+    const restored = await call<AccountBody>("POST", `/revenue/accounts/${target.id}/restore`);
+    assert.equal(archived.status, 200);
+    assert.equal(restored.status, 200);
+    const merged = await call<PreviewBody>("POST", `/revenue/accounts/${source.id}/merge`, {
+      targetAccountId: target.id,
+      confirmSourceName: source.name,
+    });
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.billingWithheld, true);
+    for (const value of hidden) {
+      assert.equal(JSON.stringify([updated, archived, restored, merged]).includes(value), false);
+    }
+
+    // Nothing they sent chose between the billing details, so the
+    // destination keeps its own — and the archived source keeps its copy.
+    const rows = AppDataSource.getRepository(Customer);
+    const survivor = await rows.findOneByOrFail({ id: target.id });
+    const tombstone = await rows.findOneByOrFail({ id: source.id });
+    for (const field of BILLING_FIELDS) {
+      const key = field as keyof Customer;
+      assert.equal(survivor[key], target[key], field);
+      assert.equal(tombstone[key], source[key], field);
+    }
+    assert.ok(tombstone.archivedAt);
   });
 });
 

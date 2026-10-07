@@ -6189,7 +6189,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_revenue_accounts",
     description:
-      "List account records across the whole lifecycle. These are the existing Customer rows: `prospect` accounts are not billable until an invoice exists, so never create a finance-only duplicate. Filters include status, owner, and exact custom-field value. Needs `read` revenue access.",
+      "List account records across the whole lifecycle. These are the existing Customer rows: `prospect` accounts are not billable until an invoice exists, so never create a finance-only duplicate. Filters include status, owner, and exact custom-field value. An Account's billing email, billing and shipping addresses, and tax number belong to Finance: without the Finance Grant (and, in a Member's chat, that Member's Finance access) they are left out and `billingWithheld` is true. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6236,7 +6236,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_revenue_account",
     description:
-      "Fetch one account with its Contacts, Deals, typed custom fields and formal documents. Works for prospects and billed customers because both share the Customer entity. Needs `read` revenue access.",
+      "Fetch one account with its Contacts, Deals, typed custom fields and formal documents. Works for prospects and billed customers because both share the Customer entity. An Account's billing email, billing and shipping addresses, and tax number belong to Finance: without the Finance Grant (and, in a Member's chat, that Member's Finance access) they are left out and `billingWithheld` is true. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: { accountId: { type: "string" } },
@@ -6667,7 +6667,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "preview_revenue_record_merge",
     description:
-      "Preview merging an Account, Contact, Deal, or Partnership into a chosen survivor. Returns standard/custom field conflicts, proposed source/target resolutions, and relationship counts without writing. Pass tentative `resolutions` to recalculate the preview. Always inspect this before `merge_revenue_records`. Needs `read` revenue access.",
+      "Preview merging an Account, Contact, Deal, or Partnership into a chosen survivor. Returns standard/custom field conflicts, proposed source/target resolutions, and relationship counts without writing. Pass tentative `resolutions` to recalculate the preview. Always inspect this before `merge_revenue_records`. Without Finance access an Account preview leaves out conflicts on billing details and sets `billingWithheld`; the survivor keeps its own. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6960,7 +6960,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_revenue_snapshot",
     description:
-      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
+      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants, and so are Account billing details. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {

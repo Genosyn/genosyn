@@ -59,6 +59,67 @@ export type AccountMergePreview = {
   operationId?: string;
 };
 
+/**
+ * The account fields that exist to bill it. Finance sends invoices to `email`
+ * (the default `to` for invoice Send) and prints the billing address and tax
+ * number on invoices and estimates; the shipping address is the other address
+ * on the same customer form. Like the Customers pages, they follow Finance
+ * access: a viewer whose access is None gets every Revenue account payload
+ * without them. Everything Revenue's own pages show or edit stays, and so do
+ * phone, currency, and Annual Contract Value, which the entity documents as a
+ * sales metric.
+ */
+export const ACCOUNT_BILLING_FIELDS = [
+  "email",
+  "billingAddress",
+  "shippingAddress",
+  "taxNumber",
+] as const satisfies ReadonlyArray<keyof Customer>;
+
+export type AccountBillingField = (typeof ACCOUNT_BILLING_FIELDS)[number];
+
+const BILLING_FIELDS: ReadonlySet<string> = new Set(ACCOUNT_BILLING_FIELDS);
+
+/**
+ * An account without its billing details. `billingWithheld` says they were
+ * left out, so a missing `email` is never read as "no billing email on file".
+ */
+export type AccountWithoutBilling<T> = Omit<T, AccountBillingField> & { billingWithheld: true };
+
+/**
+ * One account — a row of a list or an export, or a record — as its viewer may
+ * see it: whole when they can read billing details, without them otherwise.
+ */
+export function accountForViewer<T extends object>(
+  account: T,
+  billingVisible: boolean,
+): T | AccountWithoutBilling<T> {
+  if (billingVisible) return account;
+  const visible = Object.fromEntries(
+    Object.entries(account).filter(([field]) => !BILLING_FIELDS.has(field)),
+  );
+  return { ...visible, billingWithheld: true } as AccountWithoutBilling<T>;
+}
+
+/**
+ * An Account merge preview as its viewer may see it. A conflict on a billing
+ * field carries both accounts' values, so a viewer without billing access gets
+ * the preview without those conflicts and with `billingWithheld` set. Nothing
+ * they send resolves them, so the merge keeps the destination's billing
+ * details — what it does with any conflict left unresolved.
+ *
+ * Only for an Account merge: a Contact's `email` conflict is its own address.
+ */
+export function accountMergePreviewForViewer<P extends { fieldConflicts?: MergeFieldConflict[] }>(
+  preview: P,
+  billingVisible: boolean,
+): P | (P & { billingWithheld: true }) {
+  const conflicts = preview.fieldConflicts ?? [];
+  const visible = conflicts.filter((conflict) => !BILLING_FIELDS.has(conflict.field));
+  if (billingVisible || visible.length === conflicts.length) return preview;
+  return { ...preview, fieldConflicts: visible, billingWithheld: true };
+}
+
 export function normalizeAccountDomain(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -296,9 +357,12 @@ async function accountMergePreview(
   if (!source) throw new Error("Source account not found");
   if (!target) throw new Error("Destination account not found");
   const count = (key: string) => preview.relationshipCounts[key] ?? 0;
+  // Just what the type promises: the whole rows would carry their billing
+  // details past `accountMergePreviewForViewer`, which only sees conflicts.
+  const summary = ({ id, name, slug, archivedAt }: Customer) => ({ id, name, slug, archivedAt });
   return {
-    source,
-    target,
+    source: summary(source),
+    target: summary(target),
     counts: {
       contacts: count("contacts"),
       deals: count("deals"),

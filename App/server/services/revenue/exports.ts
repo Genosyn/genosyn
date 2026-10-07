@@ -31,6 +31,7 @@ import {
   type RevenueOperationStatus,
 } from "../../db/entities/RevenueOperation.js";
 import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
+import { accountForViewer } from "./accounts.js";
 import { listFollowUpPage } from "./followUps.js";
 import { ensureRevenueImportRowsForCompany } from "./imports.js";
 
@@ -70,7 +71,13 @@ export type RevenueExportBaseOptions = {
 type RevenueMergeResourceType = "account" | "contact" | "deal" | "partnership";
 
 export type RevenueExportOptionsByResource = {
-  accounts: RevenueExportBaseOptions;
+  accounts: RevenueExportBaseOptions & {
+    /**
+     * Internal authorization filter; never accepted from a public query.
+     * Leaves out each account's billing details — see `ACCOUNT_BILLING_FIELDS`.
+     */
+    withholdBilling?: boolean;
+  };
   contacts: RevenueExportBaseOptions;
   deals: RevenueExportBaseOptions;
   partnerships: RevenueExportBaseOptions;
@@ -166,7 +173,7 @@ type RevenueExportAdapter<Options extends RevenueExportBaseOptions> = {
 type TimestampAdapterConfig<Options extends RevenueExportBaseOptions> = {
   orderColumn?: string;
   configure?: (query: SelectQueryBuilder<ObjectLiteral>, options: Options) => void;
-  serialize?: (row: ObjectLiteral) => Record<string, unknown>;
+  serialize?: (row: ObjectLiteral, options: Options) => Record<string, unknown>;
 };
 
 type OperationAuditRaw = {
@@ -343,7 +350,7 @@ function timestampAdapter<Options extends RevenueExportBaseOptions>(
           : null;
       return {
         total,
-        rows: entities.map(serialize),
+        rows: entities.map((row) => serialize(row, options)),
         nextOffset: !context.cursor && hasMore ? context.offset + entities.length : null,
         nextCursor,
       };
@@ -661,7 +668,9 @@ const revenueExportAdapters: {
     RevenueExportOptionsByResource[Resource]
   >;
 } = {
-  accounts: timestampAdapter(Customer),
+  accounts: timestampAdapter<RevenueExportOptionsByResource["accounts"]>(Customer, {
+    serialize: (row, options) => plain(accountForViewer(row, !options.withholdBilling)),
+  }),
   contacts: timestampAdapter(Contact),
   deals: timestampAdapter(Deal),
   partnerships: timestampAdapter(Partnership),

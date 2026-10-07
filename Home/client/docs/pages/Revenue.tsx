@@ -111,6 +111,23 @@ export function Revenue() {
         billable until it has an invoice, so contracts, ACV and statements work for a prospect for
         free.
       </P>
+
+      <H3 id="billing-details">Billing details follow finance access</H3>
+      <P>
+        An account&apos;s billing details — its billing email, billing and shipping addresses, and
+        tax number — exist to invoice it, so they follow each Member&apos;s{" "}
+        <DocLink to="/docs/finance#finance-access">finance access</DocLink>, just like the{" "}
+        <DocLink to="/docs/customers#access">Customers</DocLink> pages that edit them. With Full or
+        Read-only access, Revenue shows the billing email beside each account in the Account pickers
+        on contacts and deals and in the Merge destination picker, and a merge preview lists billing
+        details that differ.
+      </P>
+      <P>
+        With None, Revenue leaves billing details out everywhere it shows an account: pickers show
+        the name and domain only, merge previews and the Accounts export omit them, and the API
+        returns accounts without them. Everything <Code>Revenue → Accounts</Code> shows stays, and
+        so do the account&apos;s phone, currency, and annual contract value.
+      </P>
       <P>
         Each contact carries a <Strong>lifecycle stage</Strong> — subscriber, lead, qualified,
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
@@ -140,7 +157,9 @@ export function Revenue() {
         Genosyn then moves every applicable Revenue and Finance reference in one transaction,
         preserves aliases and source IDs, and archives the duplicate as a redirecting tombstone.
         Missing custom values are copied; conflicting custom values stay visible until you choose
-        their source or survivor value.
+        their source or survivor value. A Member without finance access doesn&apos;t see conflicting{" "}
+        <a href="#billing-details">billing details</a>: the preview says they differ, and the
+        survivor keeps its own.
       </P>
       <Callout kind="info" title="A merge is atomic, audited, and reversible.">
         Either every linked record moves or none do. Undo verifies that no affected row has changed
@@ -365,6 +384,12 @@ export function Revenue() {
           <DocLink to="/docs/sequences#autosend">autoSend</DocLink>.
         </LI>
       </UL>
+      <P>
+        An account&apos;s <a href="#billing-details">billing details</a> also need finance access:
+        revenue tools return accounts without them unless the employee holds a{" "}
+        <DocLink to="/docs/finance#ai-access">Finance → AI access</DocLink> grant, and in a
+        Member&apos;s chat the Member&apos;s own finance access applies as well.
+      </P>
       <P>
         Members reach Revenue through the app as usual; these levels govern the AI surface only.
         Every write an employee makes lands in the audit log marked as an AI actor and on the

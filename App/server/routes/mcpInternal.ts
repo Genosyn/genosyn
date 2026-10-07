@@ -591,6 +591,8 @@ import {
   updateDealStage,
 } from "../services/revenue/stages.js";
 import {
+  accountForViewer,
+  accountMergePreviewForViewer,
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
@@ -640,6 +642,7 @@ import {
   mergeRevenueRecords,
   previewRevenueMerge,
   type MergeResourceType,
+  type RevenueMergePreview,
 } from "../services/revenue/merge.js";
 import {
   findMergedRecordRedirect,
@@ -4886,6 +4889,17 @@ const revenueAccountWriteSchema = z.object({
   ownerEmployeeId: z.string().uuid().nullable().optional(),
 });
 
+/**
+ * Whether this employee may read an account's billing details (see
+ * `ACCOUNT_BILLING_FIELDS`). They are Finance's, so it takes a Finance Grant
+ * and, in a Member's chat, that Member's own Finance access — the rule
+ * finance-sourced field evidence follows. Without it every Account payload
+ * these tools return leaves them out and says so with `billingWithheld`.
+ */
+async function employeeSeesAccountBilling(req: McpRequest): Promise<boolean> {
+  return (await employeeFinanceAccessLevel(req)) !== null;
+}
+
 mcpInternalRouter.post(
   "/tools/list_revenue_accounts",
   validateBody(
@@ -4914,12 +4928,12 @@ mcpInternalRouter.post(
       limit?: number;
       offset?: number;
     };
-    res.json(
-      await listRevenueAccounts(req.mcpCompany!.id, {
-        ...body,
-        ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
-      }),
-    );
+    const { rows, total } = await listRevenueAccounts(req.mcpCompany!.id, {
+      ...body,
+      ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
+    });
+    const billingVisible = await employeeSeesAccountBilling(req);
+    res.json({ rows: rows.map((row) => accountForViewer(row, billingVisible)), total });
   },
 );
 
@@ -4929,13 +4943,19 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     const { accountId } = req.body as { accountId: string };
-    const account = await getRevenueAccount(req.mcpCompany!.id, accountId);
-    if (!account) return res.status(404).json({ error: "Account not found" });
-    const [customValues, documents] = await Promise.all([
+    const found = await getRevenueAccount(req.mcpCompany!.id, accountId);
+    if (!found) return res.status(404).json({ error: "Account not found" });
+    const [customValues, documents, billingVisible] = await Promise.all([
       getCustomValues(req.mcpCompany!.id, "account", accountId),
       listRevenueDocuments(req.mcpCompany!.id, { customerId: accountId }),
+      employeeSeesAccountBilling(req),
     ]);
-    res.json({ ...account, customValues, documents });
+    res.json({
+      ...found,
+      account: accountForViewer(found.account, billingVisible),
+      customValues,
+      documents,
+    });
   },
 );
 
@@ -4954,7 +4974,8 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} created account ${account.name}`,
         metadata: { status: account.accountStatus, domain: account.domain },
       });
-      res.json({ account });
+      const billingVisible = await employeeSeesAccountBilling(req);
+      res.json({ account: accountForViewer(account, billingVisible) });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -4984,7 +5005,8 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} updated account ${account.name}`,
         metadata: { changes: Object.keys(patch) },
       });
-      res.json({ account });
+      const billingVisible = await employeeSeesAccountBilling(req);
+      res.json({ account: accountForViewer(account, billingVisible) });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -5019,7 +5041,8 @@ mcpInternalRouter.post(
           archived ? "archived" : "restored"
         } account ${account.name}`,
       });
-      res.json({ account });
+      const billingVisible = await employeeSeesAccountBilling(req);
+      res.json({ account: accountForViewer(account, billingVisible) });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -5063,7 +5086,8 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} merged account ${result.source.name} into ${result.target.name}`,
         metadata: { targetAccountId: result.target.id, moved: result.counts },
       });
-      res.json(result);
+      const billingVisible = await employeeSeesAccountBilling(req);
+      res.json(accountMergePreviewForViewer(result, billingVisible));
     } catch (error) {
       const message = (error as Error).message;
       res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
@@ -6299,6 +6323,13 @@ mcpInternalRouter.post(
 
 const revenueMergeResourceToolEnum = z.enum(["account", "contact", "deal", "partnership"]);
 
+/** A record merge preview as this employee may see it — see `accountMergePreviewForViewer`. */
+async function recordMergePreviewForEmployee(req: McpRequest, preview: RevenueMergePreview) {
+  return preview.resourceType === "account"
+    ? accountMergePreviewForViewer(preview, await employeeSeesAccountBilling(req))
+    : preview;
+}
+
 mcpInternalRouter.post(
   "/tools/preview_revenue_record_merge",
   validateBody(
@@ -6320,15 +6351,14 @@ mcpInternalRouter.post(
       resolutions: Record<string, "source" | "target">;
     };
     try {
-      res.json(
-        await previewRevenueMerge(
-          req.mcpCompany!.id,
-          body.resourceType,
-          body.sourceId,
-          body.targetId,
-          body.resolutions,
-        ),
+      const preview = await previewRevenueMerge(
+        req.mcpCompany!.id,
+        body.resourceType,
+        body.sourceId,
+        body.targetId,
+        body.resolutions,
       );
+      res.json(await recordMergePreviewForEmployee(req, preview));
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -6375,7 +6405,7 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} merged ${result.source.label} into ${result.target.label}`,
         metadata: { operationId: result.operationId, moved: result.relationshipCounts },
       });
-      res.json(result);
+      res.json(await recordMergePreviewForEmployee(req, result));
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
     }
@@ -7417,6 +7447,8 @@ mcpInternalRouter.post(
         error: "Integration evidence needs a Grant to its source Connection.",
       });
     }
+    const withholdBilling =
+      body.resource === "accounts" && !(await employeeSeesAccountBilling(req));
     const page = await exportRevenueSnapshotPage(req.mcpCompany!.id, body.resource, {
       ...body,
       asOf: body.asOf ? new Date(body.asOf) : undefined,
@@ -7426,6 +7458,7 @@ mcpInternalRouter.post(
         body.resource === "field_evidence" && financeAccess === null
           ? (["finance"] as const)
           : undefined,
+      withholdBilling: withholdBilling || undefined,
       allowedEmailAccountIds:
         body.resource === "field_evidence" ? evidenceScope?.mailAccountIds : undefined,
       allowedIntegrationConnectionIds:

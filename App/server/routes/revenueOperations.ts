@@ -36,6 +36,8 @@ import {
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
+  accountForViewer,
+  accountMergePreviewForViewer,
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
@@ -80,6 +82,7 @@ import {
   mergeRevenueRecords,
   previewRevenueMerge,
   type MergeResourceType,
+  type RevenueMergePreview,
 } from "../services/revenue/merge.js";
 import { runRevenueBulkOperation } from "../services/revenue/bulk.js";
 import {
@@ -226,6 +229,16 @@ function optionalDate(value: string | null | undefined): Date | null | undefined
 
 // ── Accounts (the existing Customer row, before or after billing) ──────────
 
+/**
+ * Whether this viewer may read an account's billing details — at least Read
+ * finance access, the bar every finance route sets. Every Account payload
+ * below, and an Account merge or export elsewhere in this file, is shaped by
+ * it (see `ACCOUNT_BILLING_FIELDS`).
+ */
+function billingVisibleTo(req: Request): boolean {
+  return effectiveFinanceAccess(req) !== "none";
+}
+
 const accountWriteSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   email: z.string().email().max(200).or(z.literal("")).optional(),
@@ -259,7 +272,9 @@ revenueOperationsRouter.get(
       })
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json(await listRevenueAccounts(cidOf(req), parsed.data));
+    const { rows, total } = await listRevenueAccounts(cidOf(req), parsed.data);
+    const billingVisible = billingVisibleTo(req);
+    return res.json({ rows: rows.map((row) => accountForViewer(row, billingVisible)), total });
   }),
 );
 
@@ -270,7 +285,7 @@ revenueOperationsRouter.post(
     try {
       const row = await createRevenueAccount(cidOf(req), req.body, actorOf(req));
       await audit(req, "revenue.account.create", "customer", row.id, row.name);
-      return res.status(201).json(row);
+      return res.status(201).json(accountForViewer(row, billingVisibleTo(req)));
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
@@ -288,7 +303,7 @@ for (const [action, archived] of [
         const row = await setRevenueAccountArchived(cidOf(req), req.params.id, archived);
         if (!row) return res.status(404).json({ error: "Account not found" });
         await audit(req, `revenue.account.${action}`, "customer", row.id, row.name);
-        return res.json(row);
+        return res.json(accountForViewer(row, billingVisibleTo(req)));
       } catch (error) {
         return res.status(409).json({ error: (error as Error).message });
       }
@@ -304,9 +319,12 @@ revenueOperationsRouter.get(
       return res.status(400).json({ error: "A valid destination Account is required" });
     }
     try {
-      return res.json(
-        await previewRevenueAccountMerge(cidOf(req), req.params.id, parsed.data.targetAccountId),
+      const preview = await previewRevenueAccountMerge(
+        cidOf(req),
+        req.params.id,
+        parsed.data.targetAccountId,
       );
+      return res.json(accountMergePreviewForViewer(preview, billingVisibleTo(req)));
     } catch (error) {
       const message = (error as Error).message;
       return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
@@ -344,7 +362,7 @@ revenueOperationsRouter.post(
           moved: result.counts,
         },
       );
-      return res.json(result);
+      return res.json(accountMergePreviewForViewer(result, billingVisibleTo(req)));
     } catch (error) {
       const message = (error as Error).message;
       return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
@@ -356,7 +374,8 @@ revenueOperationsRouter.get(
   "/revenue/accounts/:id",
   h(async (req, res) => {
     const row = await getRevenueAccount(cidOf(req), req.params.id);
-    return row ? res.json(row) : res.status(404).json({ error: "Account not found" });
+    if (!row) return res.status(404).json({ error: "Account not found" });
+    return res.json({ ...row, account: accountForViewer(row.account, billingVisibleTo(req)) });
   }),
 );
 
@@ -370,7 +389,7 @@ revenueOperationsRouter.patch(
       await audit(req, "revenue.account.update", "customer", row.id, row.name, {
         changes: Object.keys(req.body),
       });
-      return res.json(row);
+      return res.json(accountForViewer(row, billingVisibleTo(req)));
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
@@ -384,6 +403,13 @@ const mergeParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+/** A record merge preview as this viewer may see it — see `accountMergePreviewForViewer`. */
+function recordMergePreviewFor(req: Request, preview: RevenueMergePreview) {
+  return preview.resourceType === "account"
+    ? accountMergePreviewForViewer(preview, billingVisibleTo(req))
+    : preview;
+}
+
 revenueOperationsRouter.get(
   "/revenue/records/:resourceType/:id/merge-preview",
   h(async (req, res) => {
@@ -393,14 +419,13 @@ revenueOperationsRouter.get(
       return res.status(400).json({ error: "Valid source and destination records are required" });
     }
     try {
-      return res.json(
-        await previewRevenueMerge(
-          cidOf(req),
-          params.data.resourceType as MergeResourceType,
-          params.data.id,
-          query.data.targetId,
-        ),
+      const preview = await previewRevenueMerge(
+        cidOf(req),
+        params.data.resourceType as MergeResourceType,
+        params.data.id,
+        query.data.targetId,
       );
+      return res.json(recordMergePreviewFor(req, preview));
     } catch (error) {
       const message = (error as Error).message;
       return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
@@ -443,7 +468,7 @@ revenueOperationsRouter.post(
           customValuesCopied: result.customValuesCopied,
         },
       );
-      return res.json(result);
+      return res.json(recordMergePreviewFor(req, result));
     } catch (error) {
       const message = (error as Error).message;
       return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
@@ -2924,6 +2949,7 @@ revenueOperationsRouter.get(
         resource === "field_evidence" && financeAccess === "none"
           ? ["finance" as const]
           : undefined,
+      withholdBilling: resource === "accounts" && !billingVisibleTo(req) ? true : undefined,
     } as RevenueExportOptionsByResource[RevenueExportResource];
     let page;
     try {

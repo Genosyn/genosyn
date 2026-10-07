@@ -630,7 +630,6 @@ describe("resolveRevenueAccount", () => {
       "- Employees: 250",
       "- Headquarters: 1 Market St, San Francisco",
       "- Parent company: Acme Holdings (acme-holdings.test)",
-      "- Email: hello@acme.test",
       "- Phone: +1 555 0100",
       "- Annual contract value: $12,000.00",
       "- Owner: Grace Hopper (Member)",
@@ -647,6 +646,9 @@ describe("resolveRevenueAccount", () => {
       /- Deals: 2 open worth (\$10,000\.00 \+ €5,000\.00|€5,000\.00 \+ \$10,000\.00), 1 won, 1 lost\n/,
     );
     assertExcludes(item.body, "Shelved deal", "Gone Person", "Pilot ·", "Old RFP ·");
+    // The billing email is Finance's: the Revenue gate cannot hold it back
+    // from an employee or a Member without Finance access.
+    assertExcludes(item.body, "hello@acme.test");
     assertFenced(item.body, "account notes");
     assertFenced(item.body, "account activity");
     assert.match(item.briefing!("read"), /`get_revenue_account`/);
