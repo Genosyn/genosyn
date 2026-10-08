@@ -235,6 +235,7 @@ describe("subpage catalogue ↔ client router", () => {
       "account/security",
       "mail/rules",
       "tldrs/settings",
+      "decisions/history",
       "workspace/integrations",
       "finance/integrations",
       "admin/users",
@@ -320,6 +321,7 @@ describe("rails drawn from the catalogue", () => {
     // counts); its fixed pages — Routines → AI access — come from here.
     "client/pages/RoutinesLayout.tsx": "routines",
     "client/pages/TldrsLayout.tsx": "tldrs",
+    "client/pages/DecisionsLayout.tsx": "decisions",
     "client/pages/VaultLayout.tsx": "vault",
     "client/pages/SettingsLayout.tsx": "settings",
     "client/pages/AccountLayout.tsx": "account",

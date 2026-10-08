@@ -1,11 +1,20 @@
 import React from "react";
-import { Plus, Search, Settings2, Trash2 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Plus, Settings2, Trash2 } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import { api, Approval, Company, Decision, DecisionPolicyRule, Employee, Me } from "../lib/api";
 import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
 import { errorMessage } from "../lib/errors";
 import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
+import {
+  StackSearch,
+  StackSection,
+  decisionMatches,
+  isStackReview,
+  reviewMatches,
+  stackLinkFromHash,
+  useScrollToStackLink,
+} from "@/components/decisions/stackPage";
 import {
   compareStackItems,
   decisionItem,
@@ -13,9 +22,6 @@ import {
   stackItemPending,
   useDecisionFollowUps,
 } from "@/components/decisions/useDecisionFollowUps";
-import { WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
-import { MailReviewOutcome } from "@/components/decisions/MailReviewCard";
-import { DecisionOutcome } from "../components/decisions/DecisionOutcome";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
@@ -28,29 +34,20 @@ import { clsx } from "../components/ui/clsx";
 import { EnabledToggle } from "./RevenueSignals";
 
 /**
- * The Decision Stack in full — every question an AI Employee raised for a
- * Member, what is still waiting, and what happened to the ones already answered.
+ * The Decision Stack — every question an AI Employee raised for a Member, and
+ * every email or work review, that is still waiting on someone.
  *
- * Pending Decisions live on this page. The split that matters is
- * **assigned to you** versus
+ * The split that matters is **assigned to you** versus
  * **anyone can answer**: an employee that named a Member did so because that
  * person holds the context, and burying those in one long list is how a
  * question addressed to somebody specific sits for three days.
  *
- * History is kept on the same page rather than behind a tab because the most
- * common question about a decided row — "did it actually go out?" — is now
- * answerable here: answering starts the employee's work session, and its report
- * comes back onto the row.
+ * A card you act on stays where it is while you follow it — answering starts
+ * the employee's work session, and its report comes back onto the card — until
+ * you close it. Everything already settled lives on its own page,
+ * `DecisionHistory`, so this one only ever holds what still needs someone. A
+ * link to a settled item (`#decision-<id>`, `#review-<id>`) is sent on there.
  */
-
-type Filter = "all" | "decided" | "cancelled" | "expired";
-
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "decided", label: "Answered" },
-  { id: "cancelled", label: "Dismissed" },
-  { id: "expired", label: "Expired (legacy)" },
-];
 
 function isFutureSnooze(decision: Decision, now: number): boolean {
   if (decision.status !== "pending" || !decision.snoozedUntil) return false;
@@ -60,21 +57,15 @@ function isFutureSnooze(decision: Decision, now: number): boolean {
 
 export default function Decisions({ company, me }: { company: Company; me: Me }) {
   const location = useLocation();
-  const scrolledTo = React.useRef<string | null>(null);
+  const navigate = useNavigate();
   const reloadVersion = React.useRef(0);
-  const linkedDecisionId =
-    /^#decision-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
-      .exec(location.hash)?.[1]
-      ?.toLowerCase() ?? null;
-  const linkedReviewId =
-    /^#review-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
-      .exec(location.hash)?.[1]
-      ?.toLowerCase() ?? null;
+  const link = stackLinkFromHash(location.hash);
+  const linkedDecisionId = link?.kind === "decision" ? link.id : null;
+  const linkedReviewId = link?.kind === "review" ? link.id : null;
   // A decision linked from elsewhere (`#decision-<id>`) is the one Ask AI
   // means by "this decision".
   useAskAiPageContext(linkedDecisionId ? [{ kind: "decision", id: linkedDecisionId }] : null);
   const [rows, setRows] = React.useState<Decision[] | null>(null);
-  const [filter, setFilter] = React.useState<Filter>("all");
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [linkedError, setLinkedError] = React.useState<string | null>(null);
   const [routingOpen, setRoutingOpen] = React.useState(false);
@@ -89,6 +80,21 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const followUps = useDecisionFollowUps(company, me.id);
   const clearClosedFollowUps = followUps.clearClosed;
 
+  // A link resolves once per navigation: the first load that finds its target
+  // decides whether it is read here or in History. Closing the card, a live
+  // refresh, or another Member's answer never pulls the reader off this page.
+  const linkKey = React.useRef("");
+  linkKey.current = `${location.key}:${location.hash}`;
+  const resolvedLink = React.useRef<string | null>(null);
+  const followed = React.useRef(followUps.items);
+  followed.current = followUps.items;
+  const sendsToHistory = React.useCallback((key: string, itemKey: string, settled: boolean) => {
+    if (resolvedLink.current === key) return false;
+    resolvedLink.current = key;
+    // A card this Member still follows stays on their stack until Close.
+    return settled && !followed.current.some((item) => item.key === itemKey);
+  }, []);
+
   const reloadWork = React.useCallback(async () => {
     const version = ++workRequest.current;
     if (!canReview) {
@@ -96,6 +102,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       setWorkError(null);
       return;
     }
+    const key = linkKey.current;
     try {
       const approvals = await api.get<Approval[]>(
         `/api/companies/${company.id}/approvals?kind=decision_stack`,
@@ -106,7 +113,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           const linked = await api.get<Approval>(
             `/api/companies/${company.id}/approvals/${linkedReviewId}`,
           );
-          if (linked.kind === "proactive_work" || linked.kind === "mail_send") {
+          if (isStackReview(linked)) {
             approvals.push(linked);
           } else {
             targetError = "The linked Approval does not belong in the Decision stack.";
@@ -116,10 +123,22 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         }
       }
       if (version !== workRequest.current) return;
+      if (linkedReviewId) {
+        const linked = approvals.find(
+          (approval) => approval.id === linkedReviewId && isStackReview(approval),
+        );
+        if (
+          sendsToHistory(key, `review-${linkedReviewId}`, !!linked && linked.status !== "pending")
+        ) {
+          navigate(`/c/${company.slug}/decisions/history#review-${linkedReviewId}`, {
+            replace: true,
+          });
+          return;
+        }
+      }
+      // The list also carries recently settled reviews; those are History's.
       setWorkReviews(
-        approvals.filter(
-          (approval) => approval.kind === "proactive_work" || approval.kind === "mail_send",
-        ),
+        approvals.filter((approval) => isStackReview(approval) && approval.status === "pending"),
       );
       clearClosedFollowUps("review");
       setWorkError(null);
@@ -129,7 +148,15 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       setWorkError(errorMessage(err, "Could not load email and work reviews"));
       setWorkReviews((current) => current ?? []);
     }
-  }, [company.id, canReview, linkedReviewId, clearClosedFollowUps]);
+  }, [
+    company.id,
+    company.slug,
+    canReview,
+    linkedReviewId,
+    clearClosedFollowUps,
+    navigate,
+    sendsToHistory,
+  ]);
 
   React.useEffect(() => {
     setWorkReviews(null);
@@ -145,23 +172,14 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
 
   const reload = React.useCallback(async () => {
     const version = ++reloadVersion.current;
+    const key = linkKey.current;
     try {
-      const [recent, dismissed] = await Promise.all([
-        api.get<Decision[]>(`/api/companies/${company.id}/decisions`),
-        api.get<Decision[]>(`/api/companies/${company.id}/decisions?status=cancelled&limit=200`),
-      ]);
-      // The main feed is a mixed-status 200-row window. Keep dismissed
-      // Decisions independently addressable so an older question never loses
-      // its Undismiss path just because newer activity filled that window.
-      const listed = [...recent];
-      const listedIds = new Set(listed.map((row) => row.id));
-      for (const decision of dismissed) {
-        if (listedIds.has(decision.id)) continue;
-        listed.push(decision);
-        listedIds.add(decision.id);
-      }
+      const listed = await api.get<Decision[]>(
+        `/api/companies/${company.id}/decisions?status=pending`,
+      );
       let targetError: string | null = null;
-      // A saved discussion can outlive the newest 200 rows on this page.
+      // A linked Decision can sit beyond the newest 200 waiting ones, or be
+      // settled already: still followed here, or else History's to show.
       if (linkedDecisionId && !listed.some((row) => row.id === linkedDecisionId)) {
         try {
           listed.push(
@@ -172,6 +190,21 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         }
       }
       if (version !== reloadVersion.current) return;
+      if (linkedDecisionId) {
+        const linked = listed.find((row) => row.id === linkedDecisionId);
+        if (
+          sendsToHistory(
+            key,
+            `decision-${linkedDecisionId}`,
+            !!linked && linked.status !== "pending",
+          )
+        ) {
+          navigate(`/c/${company.slug}/decisions/history#decision-${linkedDecisionId}`, {
+            replace: true,
+          });
+          return;
+        }
+      }
       setRows(listed);
       clearClosedFollowUps("decision");
       if (linkedDecisionId) setLinkedError(targetError);
@@ -181,7 +214,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       setLoadError(errorMessage(err, "Could not load the decisions"));
       // Retain the last good list while its inline refresh error is visible.
     }
-  }, [company.id, linkedDecisionId, clearClosedFollowUps]);
+  }, [company.id, company.slug, linkedDecisionId, clearClosedFollowUps, navigate, sendsToHistory]);
 
   const reloadDecisionsAfterAction = React.useCallback(
     async (announcement?: string) => {
@@ -232,38 +265,13 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   // decision answered on this page fills in its own outcome without a refresh.
   useLiveRefetch("decision", reload);
 
-  // The discussion transcript links back to its exact decision, including
-  // history rows. Live refreshes must not repeatedly pull the reader back.
+  // A linked card must not hide behind an earlier search.
   React.useEffect(() => {
-    if (linkedDecisionId || linkedReviewId) {
-      setFilter("all");
-      setSearch("");
-    }
+    if (linkedDecisionId || linkedReviewId) setSearch("");
   }, [location.key, linkedDecisionId, linkedReviewId]);
-  React.useEffect(() => {
-    if ((!rows && !workReviews) || (!linkedDecisionId && !linkedReviewId)) return;
-    const targetKey = `${location.key}:${location.hash}`;
-    if (scrolledTo.current === targetKey) return;
-    const target = document.getElementById(
-      linkedDecisionId ? `decision-${linkedDecisionId}` : `review-${linkedReviewId}`,
-    );
-    if (!target) return;
-    target.scrollIntoView({ block: "center" });
-    scrolledTo.current = targetKey;
-  }, [
-    rows,
-    workReviews,
-    filter,
-    search,
-    location.key,
-    location.hash,
-    linkedDecisionId,
-    linkedReviewId,
-  ]);
+  useScrollToStackLink();
 
   const query = search.trim().toLocaleLowerCase();
-  const matches = (text: (string | null | undefined)[]) =>
-    text.some((value) => value?.toLocaleLowerCase().includes(query));
   const now = Date.now();
   const followingKeys = new Set(followUps.items.map((item) => item.key));
   const decisionRows = new Map((rows ?? []).map((row) => [row.id, row]));
@@ -285,64 +293,24 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       reviewRows.set(item.approval.id, item.outcome);
     }
   }
-  const visibleRows = [...decisionRows.values()].filter(
-    (row) =>
-      !isFutureSnooze(row, now) &&
-      !(row.status === "pending" && followUps.hiddenKeys.has(`decision-${row.id}`)),
+  // Waiting, or followed after an answer until Close; anything else is History's.
+  const visibleRows = [...decisionRows.values()].filter((row) =>
+    row.status === "pending"
+      ? !isFutureSnooze(row, now) && !followUps.hiddenKeys.has(`decision-${row.id}`)
+      : followingKeys.has(`decision-${row.id}`),
   );
-  const filteredRows = visibleRows.filter(
-    (row) =>
-      !query ||
-      matches([
-        row.title,
-        row.body,
-        row.pickupSummary,
-        row.employee?.name,
-        row.assignee?.name,
-        row.source.mailThread?.subject,
-        row.source.routine?.name,
-        ...row.options.flatMap((option) => [option.label, option.detail]),
-      ]),
+  const visibleWork = [...reviewRows.values()].filter((row) =>
+    row.status === "pending"
+      ? !followUps.hiddenKeys.has(`review-${row.id}`)
+      : followingKeys.has(`review-${row.id}`),
   );
-  const pending = filteredRows.filter(
-    (r) => r.status === "pending" || followingKeys.has(`decision-${r.id}`),
-  );
+  const filteredRows = visibleRows.filter((row) => decisionMatches(row, query));
+  const shownWork = visibleWork.filter((row) => reviewMatches(row, query));
   const allPending = visibleRows.filter((r) => r.status === "pending").length;
-  const filteredWork =
-    [...reviewRows.values()].filter(
-      (row) =>
-        !(row.status === "pending" && followUps.hiddenKeys.has(`review-${row.id}`)) &&
-        (!query ||
-          matches([
-            row.title,
-            row.summary,
-            row.outcomeSummary,
-            row.employee?.name,
-            row.review?.kind === "work" ? row.review.context : null,
-            row.review?.kind === "work" ? row.review.plan : null,
-            row.review?.kind === "mail" ? row.review.context : null,
-            row.review?.kind === "mail" ? row.review.workSummary : null,
-            row.review?.kind === "mail" ? row.review.draft.subject : null,
-            row.review?.kind === "mail" ? row.review.draft.bodyText : null,
-          ])),
-    ) ?? [];
-  const shownWork = filteredWork.filter(
-    (approval) => approval.status === "pending" || followingKeys.has(`review-${approval.id}`),
-  );
-  const workHistory = filteredWork.filter(
-    (approval) => approval.status !== "pending" && !followingKeys.has(`review-${approval.id}`),
-  );
-  const pendingWorkCount = [...reviewRows.values()].filter(
-    (approval) => approval.status === "pending",
-  ).length;
-  const mine = pending.filter((r) => r.assignee?.id === me.id);
-  const anyone = pending.filter((r) => !r.assignee);
-  const assignedElsewhere = pending.filter((r) => r.assignee && r.assignee.id !== me.id);
-  const history = filteredRows.filter(
-    (r) => r.status !== "pending" && !followingKeys.has(`decision-${r.id}`),
-  );
-  const shown = history.filter((r) => filter === "all" || r.status === filter);
-  const working = history.filter((r) => r.pickupStatus === "running").length;
+  const pendingWorkCount = visibleWork.filter((approval) => approval.status === "pending").length;
+  const mine = filteredRows.filter((r) => r.assignee?.id === me.id);
+  const anyone = filteredRows.filter((r) => !r.assignee);
+  const assignedElsewhere = filteredRows.filter((r) => r.assignee && r.assignee.id !== me.id);
   const needsYou = [
     ...shownWork.map((approval) => reviewItem(approval, approval)),
     ...[...mine, ...anyone].map(decisionItem),
@@ -374,26 +342,29 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       <p className="mb-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
         Major choices that need your judgment. Your AI Employees handle routine preparation within
         their Grants. Reviewed email replies stay in Genosyn until an owner or admin sends or
-        discards them. After you act, follow the timeline here and close the card when you are done.
+        discards them. After you act, follow the timeline here and close the card when you are done;
+        it stays in{" "}
+        <Link
+          to={`/c/${company.slug}/decisions/history`}
+          className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Decision history
+        </Link>
+        .
       </p>
       {resolutionNotice && (
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
           {resolutionNotice.message}
         </div>
       )}
-      {visibleRows.length || workReviews?.length ? (
+      {visibleRows.length || visibleWork.length ? (
         <div className="mb-5 flex flex-wrap items-center gap-3">
-          <label className="flex min-w-0 flex-1 basis-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:basis-0 dark:border-slate-700 dark:bg-slate-900">
-            <Search size={16} className="shrink-0 text-slate-400" />
-            <input
-              type="search"
-              aria-label="Search decision stack"
-              placeholder="Search by customer, AI Employee, or context…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
-            />
-          </label>
+          <StackSearch
+            label="Search decision stack"
+            placeholder="Search by customer, AI Employee, or context…"
+            value={search}
+            onChange={setSearch}
+          />
           <span className="text-xs text-slate-500 dark:text-slate-400">
             {allPending + pendingWorkCount} open{" "}
             {allPending + pendingWorkCount === 1 ? "item" : "items"}
@@ -444,7 +415,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         <Spinner />
       ) : rows !== null &&
         visibleRows.length === 0 &&
-        !workReviews?.length &&
+        visibleWork.length === 0 &&
         followUps.items.length === 0 &&
         !loadError &&
         !workError &&
@@ -453,7 +424,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           title="Decision stack is clear"
           description="Consequential choices and required email reviews appear here with context and a clear next step. Routine preparation stays with your AI Employees."
         />
-      ) : query && !filteredRows.length && !filteredWork.length ? (
+      ) : query && !filteredRows.length && !shownWork.length ? (
         <EmptyState
           title="No matching items"
           description="Try a customer name, AI Employee, or a word from the context."
@@ -461,7 +432,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       ) : (
         <div className="flex flex-col gap-6">
           {needsYou.length > 0 && (
-            <Section
+            <StackSection
               title={
                 followingCount > 0
                   ? `Your stack · ${needsYou.filter(stackItemPending).length} waiting · ${followingCount} following`
@@ -483,11 +454,11 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
                   />
                 ))}
               </Stack>
-            </Section>
+            </StackSection>
           )}
 
           {assignedElsewhere.length > 0 && (
-            <Section title={`Assigned to other Members (${assignedElsewhere.length})`}>
+            <StackSection title={`Assigned to other Members (${assignedElsewhere.length})`}>
               <Stack>
                 {assignedElsewhere.map((d) => (
                   <DecisionStackCard
@@ -500,91 +471,11 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
                   />
                 ))}
               </Stack>
-            </Section>
-          )}
-
-          {workHistory.length > 0 && (
-            <Section title="Review history">
-              <ul className="space-y-3">
-                {workHistory.map((approval) =>
-                  approval.kind === "mail_send" ? (
-                    <MailReviewOutcome key={approval.id} company={company} approval={approval} />
-                  ) : (
-                    <WorkReviewOutcome key={approval.id} company={company} approval={approval} />
-                  ),
-                )}
-              </ul>
-            </Section>
-          )}
-
-          {history.length > 0 && (
-            <section>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Decision history
-                </h2>
-                {working > 0 && (
-                  <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
-                    {working} being worked on now
-                  </span>
-                )}
-                <div className="ml-auto flex items-center gap-1">
-                  {FILTERS.map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      aria-pressed={filter === f.id}
-                      onClick={() => setFilter(f.id)}
-                      className={clsx(
-                        "rounded-md px-2 py-0.5 text-[11px] font-medium transition",
-                        filter === f.id
-                          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                          : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
-                      )}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {shown.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  Nothing in this state yet.
-                </div>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {shown.map((d) => (
-                    <DecisionOutcome
-                      key={d.id}
-                      company={company}
-                      decision={d}
-                      onRestored={reloadDecisionsAfterAction}
-                      canRestore={
-                        !d.assignee ||
-                        d.assignee.id === me.id ||
-                        company.role === "owner" ||
-                        company.role === "admin"
-                      }
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
+            </StackSection>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {title}
-      </h2>
-      {children}
-    </section>
   );
 }
 

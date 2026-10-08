@@ -58,15 +58,14 @@ export function Decisions() {
       </P>
       <P>
         Select <Strong>Close</Strong> when you have finished following the outcome. Closing removes
-        the card from your active view; it does not cancel work or delete its history. Cards you
+        the card from the active stack; it does not cancel work or delete its timeline. Cards you
         are following stay open across refreshes in this browser, separately for each Member and
-        company. <Strong>Decision history</Strong> and <Strong>Review history</Strong> remain
-        available after you close them.
+        company. Their timelines remain on the <Strong>History</Strong> page after you close them.
       </P>
       <P>
         <Strong>Needs you</Strong> mixes email reviews, work reviews, and questions in urgency and
         age order, so you do not have to learn three separate queues. Open{" "}
-        <Strong>Decision stack</Strong> for the complete queue, search, and history.
+        <Strong>Decision stack</Strong> for the complete queue and search.
       </P>
       <P>
         Home shows <Strong>Active decisions</Strong> near the top: up to three pending items,
@@ -74,9 +73,33 @@ export function Decisions() {
         on Home; owners and admins can also review proposed work and email replies there. The
         section also keeps cards you have acted on visible until you close them, so you can follow
         what happens next. An email you are editing stays visible while new items arrive. Select{" "}
-        <Strong>All decisions</Strong>
-        to open the full stack and history.
+        <Strong>All decisions</Strong> to open the full stack.
       </P>
+
+      <H2 id="active-and-history">Active and History</H2>
+      <P>
+        The <Strong>Decision stack</Strong> has two pages in its side menu. <Strong>Active</Strong>{" "}
+        holds only what still needs someone: waiting questions, email reviews, and work reviews,
+        plus the cards you are following after acting on them. <Strong>History</Strong> keeps
+        everything already settled: answered, dismissed, and expired Decisions, each with what the
+        AI Employee did next, and for owners and admins the email and work reviews that were sent,
+        discarded, approved, or declined. On a phone, open the side menu from the top bar, or use
+        the <Strong>Decision history</Strong> link on the Active page.
+      </P>
+      <UL>
+        <LI>
+          Use <Strong>Search decision history</Strong> to find a customer, AI Employee, answer, or
+          reported outcome.
+        </LI>
+        <LI>
+          Narrow Decisions to <Strong>Answered</Strong>, <Strong>Dismissed</Strong>, or{" "}
+          <Strong>Expired (legacy)</Strong>. The most recently settled appear first.
+        </LI>
+        <LI>
+          A link to a Decision or review, from a notification, a discussion, or Ask AI, opens
+          wherever that item is now: on Active while it waits, on History once it is settled.
+        </LI>
+      </UL>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
       <UL>
@@ -140,8 +163,8 @@ export function Decisions() {
         Read its outcome step for what the employee says it did and compare that with the original
         plan. An approval records permission to start; the later outcome shows what actually
         happened. Email timelines record the exact reply as sent, discarded, not sent, or with a
-        send outcome Genosyn could not verify. These timelines also remain in{" "}
-        <Strong>Review history</Strong>.
+        send outcome Genosyn could not verify. These timelines also remain on the{" "}
+        <Strong>History</Strong> page, under <Strong>Email and work reviews</Strong>.
       </P>
 
       <H2 id="answering">Answering a decision</H2>
@@ -174,9 +197,9 @@ export function Decisions() {
         <LI>
           Nothing to decide? Select <Strong>Dismiss</Strong>. It records that outcome without
           choosing an answer; select <Strong>Close</Strong> when you are done reading it. A Decision
-          a Member dismissed has an <Strong>Undismiss</Strong> action in{" "}
-          <Strong>Decision history</Strong> to return it to the stack; a question the AI Employee
-          retracted does not.
+          a Member dismissed has an <Strong>Undismiss</Strong> action on the{" "}
+          <Strong>History</Strong> page that returns it to the active stack; a question the AI
+          Employee retracted does not.
         </LI>
       </UL>
       <P>
@@ -215,9 +238,9 @@ export function Decisions() {
         Discussion is for understanding the decision. The employee can only read it: the discussion
         does not answer or dismiss the decision, or start the proposed work. When you have made your
         choice, select an option on the same card and confirm your answer. A discussion you have
-        open stays in place under the answer. You can also use <Strong>Discuss</Strong> in{" "}
-        <Strong>Decision history</Strong> to understand an earlier outcome. If the asking employee
-        has been deleted, its Discuss button is unavailable.
+        open stays in place under the answer. You can also use <Strong>Discuss</Strong> on the{" "}
+        <Strong>History</Strong> page to understand an earlier outcome. If the asking employee has
+        been deleted, its Discuss button is unavailable.
       </P>
 
       <H2 id="what-happens-next">What happens next</H2>
@@ -248,8 +271,8 @@ export function Decisions() {
         grant ongoing access.
       </P>
       <P>
-        The <Strong>Decision history</Strong> list keeps the trail: what was asked, what was chosen,
-        who chose it, any note, and what the employee did next.
+        The <Strong>History</Strong> page keeps the trail: what was asked, what was chosen, who
+        chose it, any note, and what the employee did next.
       </P>
 
       <H2 id="where-it-came-from">Where a question came from</H2>
@@ -320,8 +343,9 @@ export function Decisions() {
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
         <Strong>Active decisions</Strong> disappears from Home once nothing is waiting and you have
-        closed the cards you were following. The full queue and history remain available on the{" "}
-        <Strong>Decision stack</Strong> page.
+        closed the cards you were following. The full queue remains on the{" "}
+        <Strong>Decision stack</Strong> page, and everything settled on its{" "}
+        <Strong>History</Strong> page.
       </Callout>
     </>
   );

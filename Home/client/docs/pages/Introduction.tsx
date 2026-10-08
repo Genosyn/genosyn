@@ -171,7 +171,9 @@ export function Introduction() {
         <Strong>Active decisions</Strong> appears near the top of Home with up to three pending
         items and the total waiting. Answer your AI Employees there; owners and admins can also
         review proposed work and email replies. Select <Strong>All decisions</Strong> to open the{" "}
-        <DocLink to="/docs/decisions">Decision stack</DocLink> and its complete history.
+        <DocLink to="/docs/decisions">Decision stack</DocLink>; its{" "}
+        <DocLink to="/docs/decisions#active-and-history">History</DocLink> page keeps everything
+        already settled.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> A pending Decision can be
