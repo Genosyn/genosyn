@@ -1225,6 +1225,11 @@ export type ConversationSummary = {
   memberBrowserId?: string | null;
   /** Upgrade-only direct thread that an owner/admin may explicitly claim. */
   legacyUnclaimed?: boolean;
+  /**
+   * The Decision this thread discusses, when the Member opened it on that
+   * Decision. Every turn in it is a read-only discussion of the Decision.
+   */
+  discussedDecisionId?: string | null;
 };
 export type ConversationMessageRole = "user" | "assistant";
 /** `interrupted` — a Member stopped this turn; the partial reply is kept. */
@@ -1296,6 +1301,15 @@ export type ConversationMessage = {
 };
 export type ConversationDetail = {
   conversation: ConversationSummary;
+  messages: ConversationMessage[];
+};
+/**
+ * A Member's own discussion of one Decision with the AI Employee who asked
+ * it, served by `/api/companies/:cid/decisions/:id/discussion`. The
+ * conversation is null until the Member sends the first message.
+ */
+export type DecisionDiscussion = {
+  conversation: ConversationSummary | null;
   messages: ConversationMessage[];
 };
 export type SendMessageResult = {

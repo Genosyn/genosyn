@@ -7,7 +7,6 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation, type ConversationSource } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
-import { Attachment } from "../db/entities/Attachment.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import {
@@ -17,21 +16,20 @@ import {
   requireCompanyMember,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { parseActions } from "../services/turnActions.js";
 import { lastChatModelId, lastChatModelIds } from "../services/conversationModels.js";
-import { contextUsagePercent } from "../services/agent/contextUsage.js";
+import {
+  serializeConversation,
+  serializeConversationDetail,
+  serializeMessage,
+  summarizeAttachment,
+} from "../services/conversationSerialization.js";
 import {
   enqueueDurableChatTurn,
   executeDurableChatTurn,
   interruptDurableChatTurn,
 } from "../services/durableChatTurns.js";
 import { resolveChatModel } from "../services/models.js";
-import {
-  attachmentsForMessages,
-  recordAttachment,
-  resolveAttachmentFile,
-  uploadMiddleware,
-} from "../services/uploads.js";
+import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 
 /**
  * Chat + per-employee surface endpoints. Split from `employees.ts` to keep
@@ -89,33 +87,6 @@ async function loadEmpAndCompany(
  */
 const CHAT_STREAM_HEARTBEAT_MS = 15_000;
 
-/**
- * `lastModelId` is the brain this thread last ran a turn on, resolved by
- * {@link lastChatModelId}. The composer preselects it so reopening a past
- * conversation keeps talking to the same model instead of silently jumping to
- * whichever one happens to be active now; null means "use the active model".
- */
-function serializeConversation(
-  c: Conversation,
-  lastMessageAt: Date | null = null,
-  lastModelId: string | null = null,
-) {
-  return {
-    id: c.id,
-    employeeId: c.employeeId,
-    title: c.title,
-    archivedAt: c.archivedAt,
-    createdAt: c.createdAt,
-    updatedAt: c.updatedAt,
-    lastMessageAt,
-    lastModelId,
-    source: c.source ?? "web",
-    connectionId: c.connectionId ?? null,
-    memberBrowserId: c.memberBrowserId ?? null,
-    legacyUnclaimed: c.ownerUserId === null && (c.source === "web" || c.source === "help"),
-  };
-}
-
 function canManageLegacyConversations(req: Request): boolean {
   return req.companyRole === "owner" || req.companyRole === "admin";
 }
@@ -138,67 +109,6 @@ async function findAccessibleConversation(args: {
     ownerUserId: IsNull(),
     source: In(["web", "help"]),
   });
-}
-
-type AttachmentSummary = {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  isImage: boolean;
-};
-
-function summarizeAttachment(a: Attachment): AttachmentSummary {
-  return {
-    id: a.id,
-    filename: a.filename,
-    mimeType: a.mimeType,
-    sizeBytes: Number(a.sizeBytes),
-    isImage: a.mimeType.startsWith("image/"),
-  };
-}
-
-/**
- * Project the persisted context gauge onto the wire.
- *
- * Null whenever the provider never reported a prompt count — legacy rows,
- * Telegram-authored replies, and any turn that failed before its first model
- * response all land here, and the client renders nothing rather than a
- * confident zero. The window may still be null on a row that has tokens: that
- * is the normal state for OpenAI subscription models, so `percent` is null too
- * and the UI shows the token count alone.
- */
-function serializeContextUsage(m: ConversationMessage) {
-  if (typeof m.contextTokens !== "number") return null;
-  return {
-    tokens: m.contextTokens,
-    window: m.contextWindow,
-    percent: contextUsagePercent(m.contextTokens, m.contextWindow),
-  };
-}
-
-function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []) {
-  const progress =
-    m.status === "working" &&
-    typeof m.progressPercent === "number" &&
-    m.progressPercent >= 1 &&
-    m.progressPercent <= 99 &&
-    !!m.progressLabel
-      ? { percent: m.progressPercent, label: m.progressLabel }
-      : null;
-  return {
-    id: m.id,
-    conversationId: m.conversationId,
-    role: m.role,
-    content: m.content,
-    status: m.status,
-    progress,
-    context: serializeContextUsage(m),
-    actions: parseActions(m.actionsJson),
-    attachments: attachments.map(summarizeAttachment),
-    createdAt: m.createdAt,
-    updatedAt: m.updatedAt,
-  };
 }
 
 function formatChatInfrastructureError(error: unknown, conversationId: string): string {
@@ -280,15 +190,7 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   if (!loaded) return res.status(404).json({ error: "Not found" });
   const conv = await findAccessibleConversation({ req, employeeId: eid, conversationId: convId });
   if (!conv) return res.status(404).json({ error: "Not found" });
-  const messages = await AppDataSource.getRepository(ConversationMessage).find({
-    where: { conversationId: conv.id },
-    order: { createdAt: "ASC" },
-  });
-  const attachmentsByMsg = await attachmentsForMessages(messages.map((m) => m.id));
-  res.json({
-    conversation: serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)),
-    messages: messages.map((m) => serializeMessage(m, attachmentsByMsg.get(m.id) ?? [])),
-  });
+  res.json(await serializeConversationDetail(conv));
 });
 
 /**

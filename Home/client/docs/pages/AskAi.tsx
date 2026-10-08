@@ -159,9 +159,10 @@ export function AskAi() {
         fail?&rdquo; chat inside a Run. The <Strong>Why did it fail?</Strong> buttons are still
         there; they now open Ask AI with the Run in context. Conversations from the old per-email
         and per-Routine chats are not carried over. Hand-offs that start work rather than a chat —{" "}
-        <DocLink to="/docs/email#hand-to-ai">Hand to AI</DocLink> on an email,{" "}
-        <Strong>Discuss</Strong> on a Decision, Proactive requests, and{" "}
-        <DocLink to="/docs/help">Genosyn Help</DocLink> — work as before.
+        <DocLink to="/docs/email#hand-to-ai">Hand to AI</DocLink> on an email, Proactive requests,
+        and <DocLink to="/docs/help">Genosyn Help</DocLink> — work as before.{" "}
+        <DocLink to="/docs/decisions#discussing">Discuss</DocLink> on a Decision keeps its own
+        private discussion with the asking AI Employee, on the Decision itself.
       </P>
     </>
   );

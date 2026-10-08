@@ -21,6 +21,8 @@ import { DecisionContextSections, DecisionReasonItem } from "./DecisionContext";
 import { DecisionPickup } from "./DecisionPickup";
 import { DecisionSourceLine } from "./DecisionSource";
 import { DecisionDiscussButton } from "./DecisionDiscussButton";
+import { DecisionDiscussion } from "./DecisionDiscussion";
+import { useDecisionDiscussionOpen } from "./useDecisionDiscussion";
 import { ReviewTimeline, ReviewTimelineItem, type ReviewTimelineTone } from "./ReviewTimeline";
 import { formatRelative } from "./relative";
 
@@ -90,6 +92,11 @@ export function DecisionOutcome({
   const pickup = decision.pickupStatus === "none" ? null : PICKUP_TIMELINE[decision.pickupStatus];
   const mayRestore = status === "cancelled" && decision.decidedByUserId !== null && canRestore;
   const context = React.useMemo(() => parseDecisionContext(decision.body), [decision.body]);
+  const [discussing, setDiscussing] = useDecisionDiscussionOpen(decision.id);
+  // Answering swaps the pending card for this one, and a discussion already
+  // open stays open — but only a press here moves focus into it.
+  const [focusDiscussion, setFocusDiscussion] = React.useState(false);
+  const discussionId = `${fieldId}-discussion`;
 
   async function restore() {
     if (!mayRestore || restoringRef.current) return;
@@ -245,6 +252,16 @@ export function DecisionOutcome({
               </p>
             </ReviewTimelineItem>
           )}
+
+          {discussing && decision.employee && (
+            <DecisionDiscussion
+              id={discussionId}
+              company={company}
+              decision={decision}
+              employee={decision.employee}
+              autoFocus={focusDiscussion}
+            />
+          )}
         </ReviewTimeline>
 
         {refreshNotice}
@@ -269,7 +286,16 @@ export function DecisionOutcome({
               Undismiss
             </Button>
           )}
-          <DecisionDiscussButton company={company} decision={decision} disabled={restoring} />
+          <DecisionDiscussButton
+            decision={decision}
+            open={discussing}
+            controls={discussionId}
+            disabled={restoring}
+            onToggle={() => {
+              setFocusDiscussion(!discussing);
+              setDiscussing(!discussing);
+            }}
+          />
         </div>
       </article>
     </li>

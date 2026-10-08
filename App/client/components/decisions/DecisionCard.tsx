@@ -23,6 +23,8 @@ import {
   DecisionReasonItem,
 } from "@/components/decisions/DecisionContext";
 import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
+import { DecisionDiscussion } from "@/components/decisions/DecisionDiscussion";
+import { useDecisionDiscussionOpen } from "@/components/decisions/useDecisionDiscussion";
 import { ReviewTimeline, ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
 import { formatRelative } from "@/components/decisions/relative";
 
@@ -79,6 +81,11 @@ export function DecisionCard({
   const employeeName = decision.employee?.name ?? "The AI Employee";
   const busy = pendingAction !== null;
   const context = React.useMemo(() => parseDecisionContext(decision.body), [decision.body]);
+  const [discussing, setDiscussing] = useDecisionDiscussionOpen(decision.id);
+  // Focus the message box only when the Member opens it here, not when the
+  // step reappears on its own.
+  const [focusDiscussion, setFocusDiscussion] = React.useState(false);
+  const discussionId = `${fieldId}-discussion`;
 
   async function perform(
     action: PendingAction,
@@ -352,7 +359,16 @@ export function DecisionCard({
                     <span className="min-w-0 truncate">Confirm: {selected.label}</span>
                   </Button>
                 )}
-                <DecisionDiscussButton company={company} decision={decision} disabled={busy} />
+                <DecisionDiscussButton
+                  decision={decision}
+                  open={discussing}
+                  controls={discussionId}
+                  disabled={busy}
+                  onToggle={() => {
+                    setFocusDiscussion(!discussing);
+                    setDiscussing(!discussing);
+                  }}
+                />
                 {canAnswer && (
                   <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row">
                     <Menu
@@ -415,6 +431,16 @@ export function DecisionCard({
               </div>
             </form>
           </ReviewTimelineItem>
+
+          {discussing && decision.employee && (
+            <DecisionDiscussion
+              id={discussionId}
+              company={company}
+              decision={decision}
+              employee={decision.employee}
+              autoFocus={focusDiscussion}
+            />
+          )}
         </ReviewTimeline>
       </article>
     </li>

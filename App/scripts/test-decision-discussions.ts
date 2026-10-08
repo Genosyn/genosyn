@@ -51,6 +51,7 @@ let holdReplies = false;
 
 type Reply = {
   response: ServerResponse;
+  employeeId: string;
   conversationId: string;
   user: ConversationMessage;
   assistant: ConversationMessage;
@@ -80,13 +81,14 @@ const server = await createServer({
         dev.middlewares.use(async (request, response, next) => {
           const pathname = new URL(request.url ?? "/", "http://fixture").pathname;
           const match = pathname.match(
-            /^\/api\/companies\/company\/employees\/asking-employee\/conversations\/([^/]+)\/messages$/,
+            /^\/api\/companies\/company\/employees\/([^/]+)\/conversations\/([^/]+)\/messages$/,
           );
           if (request.method === "POST" && match) {
             let raw = "";
             for await (const chunk of request) raw += chunk.toString();
             const body = JSON.parse(raw) as { message: string };
-            const conversationId = match[1];
+            const employeeId = match[1];
+            const conversationId = match[2];
             const user = message(`user-${replies.length}`, conversationId, "user", body.message);
             const assistant = message(
               `assistant-${replies.length}`,
@@ -95,7 +97,14 @@ const server = await createServer({
               "Checking the decision.",
             );
             assistant.status = "working";
-            const reply = { response, conversationId, user, assistant, completed: false };
+            const reply = {
+              response,
+              employeeId,
+              conversationId,
+              user,
+              assistant,
+              completed: false,
+            };
             replies.push(reply);
             response.setHeader("Content-Type", "text/event-stream");
             response.setHeader("Cache-Control", "no-cache");
@@ -340,14 +349,6 @@ function mailReview(changes: Partial<Approval> = {}): Approval {
     ...changes,
   };
 }
-function draft(row: Decision) {
-  return (
-    `Discuss [Decision](${companyPath}/decisions#decision-${row.id})\n\n` +
-    (row.status === "pending"
-      ? "Help me understand this decision and the trade-offs before I choose an option."
-      : "Help me understand this decision and its outcome.")
-  );
-}
 function reviewDraft(row: Approval) {
   return `Update [Review](${companyPath}/decisions#review-${row.id}).\n\n` + "Requested changes: ";
 }
@@ -380,6 +381,10 @@ type FixtureOptions = {
   hash?: string;
   notification?: Notification;
   decisionListLimit?: number;
+  /** Discussions the Member already had, keyed by their Decision. */
+  discussions?: Array<{ decisionId: string; messages: ConversationMessage[] }>;
+  discussionError?: boolean;
+  holdDiscussion?: boolean;
 };
 async function open(options: FixtureOptions = {}) {
   const page = await context.newPage();
@@ -418,6 +423,41 @@ async function open(options: FixtureOptions = {}) {
   const firstReply = replies.length;
   const conversations = options.history === false ? [] : [conversation()];
   let createdCount = 0;
+  const discussionGate = gate();
+  let discussionError = options.discussionError ?? false;
+  // A Decision's discussion is the Member's own thread with its asker.
+  const discussionThreads = new Map<
+    string,
+    { thread: ConversationSummary; seeded: ConversationMessage[] }
+  >();
+  const openDiscussion = (decisionId: string, seeded: ConversationMessage[] = []) => {
+    const row = [...rows, ...(options.details ?? [])].find((item) => item.id === decisionId);
+    assert.ok(row?.employee, `no asking employee for ${decisionId}`);
+    const thread: ConversationSummary = {
+      ...conversation(`discussion-${++createdCount}`),
+      employeeId: row.employee.id,
+      title: `Discuss: ${row.title}`,
+      discussedDecisionId: row.id,
+    };
+    discussionThreads.set(decisionId, { thread, seeded });
+    return thread;
+  };
+  for (const seeded of options.discussions ?? [])
+    openDiscussion(seeded.decisionId, seeded.messages);
+  const discussionDetail = (decisionId: string) => {
+    const entry = discussionThreads.get(decisionId);
+    if (!entry) return { conversation: null, messages: [] };
+    return {
+      conversation: entry.thread,
+      messages: [
+        ...entry.seeded,
+        ...replies
+          .slice(firstReply)
+          .filter((reply) => reply.conversationId === entry.thread.id)
+          .flatMap((reply) => [reply.user, reply.assistant]),
+      ],
+    };
+  };
   page.on("pageerror", (error) => {
     browserErrors.push(error.message);
     console.error("Browser error:", error.message);
@@ -467,6 +507,18 @@ async function open(options: FixtureOptions = {}) {
             nextStep: "done",
           },
         });
+      const discussionRead = url.pathname.match(
+        /^\/api\/companies\/company\/decisions\/([^/]+)\/discussion$/,
+      );
+      if (discussionRead) {
+        if (options.holdDiscussion) await discussionGate.promise;
+        if (discussionError)
+          return route.fulfill({
+            status: 503,
+            json: { error: "Discussions are temporarily unavailable." },
+          });
+        return route.fulfill({ json: discussionDetail(discussionRead[1]) });
+      }
       if (url.pathname.startsWith(`${apiBase}/decisions/`)) {
         const id = url.pathname.split("/").at(-1);
         const linked =
@@ -643,9 +695,17 @@ async function open(options: FixtureOptions = {}) {
         conversations.unshift(created);
         return route.fulfill({ json: created });
       }
+      const discussionOpen = url.pathname.match(
+        /^\/api\/companies\/company\/decisions\/([^/]+)\/discussion$/,
+      );
+      if (request.method() === "POST" && discussionOpen) {
+        if (!discussionThreads.has(discussionOpen[1])) openDiscussion(discussionOpen[1]);
+        return route.fulfill({ json: discussionDetail(discussionOpen[1]) });
+      }
       if (
-        url.pathname.startsWith(`${employeeBase}/conversations/`) &&
-        url.pathname.endsWith("/messages")
+        /^\/api\/companies\/company\/employees\/[^/]+\/conversations\/[^/]+\/messages$/.test(
+          url.pathname,
+        )
       )
         return route.continue();
       const match = url.pathname.match(
@@ -750,6 +810,10 @@ async function open(options: FixtureOptions = {}) {
     recoverDecision: () => {
       decisionError = false;
     },
+    recoverDiscussion: () => {
+      discussionError = false;
+    },
+    releaseDiscussion: discussionGate.release,
     releaseList: listGate.release,
     releaseListCall: (index: number) => {
       assert.ok(listGates[index]);
@@ -777,18 +841,48 @@ function composer(page: Page) {
   // note fields. Wait for the actual chat composer, not any textarea on screen.
   return page.getByPlaceholder("Message Alex Rivera…", { exact: true });
 }
-async function staged(page: Page, row = decision()) {
-  await page.waitForURL(`${origin}${chatPath}`);
-  await composer(page).waitFor();
-  assert.equal(await composer(page).inputValue(), draft(row));
-  assert.equal(
-    await page.getByText("Earlier unrelated planning details.", { exact: true }).count(),
-    0,
+function hideDiscussion(locator: Page | Locator) {
+  return locator.getByRole("button", { name: "Hide discussion", exact: true });
+}
+function messageBox(locator: Page | Locator) {
+  return locator.getByRole("textbox", { name: "Message Alex Rivera", exact: true });
+}
+function transcript(locator: Page | Locator) {
+  return locator.getByRole("log", { name: "Messages with Alex Rivera", exact: true });
+}
+/** Discussing opens a step in the Decision's own timeline and never leaves it. */
+async function discussing(page: Page, row = decision()) {
+  const scope = card(page, row.id);
+  await scope.getByRole("heading", { name: "Discussion with Alex Rivera", exact: true }).waitFor();
+  await messageBox(scope).waitFor();
+  assert.notEqual(new URL(page.url()).pathname, chatPath, "discussing never opens employee chat");
+  assert.equal(await page.getByPlaceholder("Message Alex Rivera…", { exact: true }).count(), 0);
+  assert.equal(await messageBox(scope).inputValue(), "");
+  assert.equal(await hideDiscussion(scope).getAttribute("aria-expanded"), "true");
+  const panel = await hideDiscussion(scope).getAttribute("aria-controls");
+  assert.ok(panel);
+  assert.equal(await page.locator(`[id="${panel}"]`).count(), 1);
+  // The Member pressed Discuss to ask something, so the message box has focus.
+  await page.waitForFunction(
+    (id) =>
+      document.activeElement?.tagName === "TEXTAREA" &&
+      Boolean(document.activeElement.closest(`[id="decision-${id}"]`)),
+    row.id,
   );
-  assert.equal(
-    await page.getByRole("button", { name: "Send message", exact: true }).isEnabled(),
-    true,
-  );
+  return scope;
+}
+/** Send one question from the Decision and wait for its reply in the same thread. */
+async function ask(
+  scope: Locator,
+  question: string,
+  reply = "I can explain the options before you decide.",
+) {
+  const answers = transcript(scope).getByText(reply, { exact: true });
+  const before = await answers.count();
+  await messageBox(scope).fill(question);
+  await messageBox(scope).press("Enter");
+  await transcript(scope).getByText(question, { exact: true }).waitFor();
+  await answers.nth(before).waitFor();
 }
 async function stagedReview(page: Page, row: Approval) {
   await page.waitForURL(`${origin}${chatPath}`);
@@ -2205,32 +2299,248 @@ try {
     },
   );
   await check(
-    "decisions: Discuss opens a fresh draft with the asking employee without sending",
+    "decisions: Discuss opens the discussion in the decision's own thread without writing",
     async () => {
       const fixture = await open({ surface: "decisions" });
       assert.equal(await discuss(fixture.page).count(), 1);
+      assert.equal(await discuss(fixture.page).getAttribute("aria-expanded"), "false");
       await discuss(fixture.page).click();
-      await staged(fixture.page);
+      const scope = await discussing(fixture.page);
+      await scope
+        .getByText(
+          "Ask Alex Rivera why it recommends an option, what it has already checked, or what changes if you wait. Discussing does not answer the decision.",
+          { exact: true },
+        )
+        .waitFor();
+      assert.equal(await scope.getByText("Only you can see this", { exact: true }).count(), 1);
+      assert.equal(
+        await messageBox(scope).getAttribute("placeholder"),
+        "Ask Alex Rivera about this decision…",
+      );
       assert.deepEqual(fixture.writes, []);
-      assert.equal(
-        fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
-        1,
+      // Only the Decision's own discussion is read; employee chat is untouched.
+      const discussionReads = fixture.reads.filter(
+        (url) => url.includes("discussion") || url.includes("conversations"),
       );
-      assert.equal(
-        fixture.reads.some((url) => url.includes("/conversations/older-chat")),
-        false,
+      assert.ok(discussionReads.length > 0);
+      assert.ok(
+        discussionReads.every(
+          (url) => url === `${apiBase}/decisions/${firstDecisionId}/discussion`,
+        ),
+        discussionReads.join(", "),
       );
+      // Answering stays a separate, explicit choice on the same card.
+      assert.equal(
+        await scope.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
+        true,
+      );
+      await hideDiscussion(scope).click();
+      await scope
+        .getByRole("heading", { name: "Discussion with Alex Rivera", exact: true })
+        .waitFor({ state: "detached" });
+      assert.equal(await discuss(scope).getAttribute("aria-expanded"), "false");
+      assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
   );
-  await check("an employee with no earlier conversations opens an unsaved discussion", async () => {
-    const fixture = await open({ history: false });
-    await discuss(fixture.page).click();
-    await staged(fixture.page);
-    assert.deepEqual(fixture.writes, []);
-    assert.equal(fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length, 1);
+  await check("Home discusses a decision in place without opening employee chat", async () => {
+    const fixture = await open({ surface: "home" });
+    await discuss(card(fixture.page)).click();
+    const scope = await discussing(fixture.page);
+    assert.equal(new URL(fixture.page.url()).pathname, companyPath);
+    fixture.allowWrites();
+    await ask(
+      scope,
+      "What did the customer ask for?",
+      "I can explain the options before you decide.",
+    );
+    assert.equal(new URL(fixture.page.url()).pathname, companyPath);
     await fixture.page.close();
   });
+  await check(
+    "only Send creates the discussion, and replies and follow-ups stay in the same thread",
+    async () => {
+      const fixture = await open();
+      await discuss(fixture.page).click();
+      const scope = await discussing(fixture.page);
+      assert.deepEqual(fixture.writes, [], "opening a discussion creates nothing");
+      fixture.allowWrites();
+      holdReplies = true;
+      try {
+        await messageBox(scope).fill("Why is revising better for the customer?");
+        await messageBox(scope).press("Enter");
+        await transcript(scope)
+          .getByText("Why is revising better for the customer?", { exact: true })
+          .waitFor();
+        assert.equal(await messageBox(scope).inputValue(), "");
+        // The reply streams into the decision's own thread.
+        await transcript(scope).getByText("Checking the decision.", { exact: true }).waitFor();
+        assert.equal(
+          await scope.getByRole("button", { name: "Send", exact: true }).isDisabled(),
+          true,
+        );
+        await scope.getByText("Alex Rivera is replying…", { exact: true }).waitFor();
+        finishReply(replies.at(-1)!, "Revising lets support confirm coverage first.");
+        await transcript(scope)
+          .getByText("Revising lets support confirm coverage first.", { exact: true })
+          .waitFor();
+      } finally {
+        holdReplies = false;
+      }
+      await ask(
+        scope,
+        "What changes if we wait a week?",
+        "I can explain the options before you decide.",
+      );
+      const text = await transcript(scope).innerText();
+      const order = [
+        "Why is revising better for the customer?",
+        "Revising lets support confirm coverage first.",
+        "What changes if we wait a week?",
+        "I can explain the options before you decide.",
+      ].map((line) => text.indexOf(line));
+      assert.deepEqual(
+        order,
+        [...order].sort((a, b) => a - b),
+        "the thread reads in order",
+      );
+      assert.ok(order.every((index) => index >= 0));
+      // The Member's words go out exactly as typed, to the one bound thread.
+      assert.deepEqual(fixture.writes, [
+        { path: `${apiBase}/decisions/${firstDecisionId}/discussion`, body: {} },
+        {
+          path: `${employeeBase}/conversations/discussion-1/messages`,
+          body: {
+            message: "Why is revising better for the customer?",
+            attachmentIds: [],
+            modelId: null,
+          },
+        },
+        {
+          path: `${employeeBase}/conversations/discussion-1/messages`,
+          body: { message: "What changes if we wait a week?", attachmentIds: [], modelId: null },
+        },
+      ]);
+      assert.equal(fixture.rows[0].status, "pending");
+      assert.equal(
+        await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
+        true,
+      );
+      assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
+      await fixture.page.close();
+    },
+  );
+  await check("an earlier discussion reappears in the decision's thread", async () => {
+    const fixture = await open({
+      discussions: [
+        {
+          decisionId: firstDecisionId,
+          messages: [
+            message("earlier-question", "discussion-1", "user", "Who reviewed the draft?"),
+            message("earlier-answer", "discussion-1", "assistant", "Priya reviewed it on Monday."),
+          ],
+        },
+      ],
+    });
+    await discuss(fixture.page).click();
+    const scope = await discussing(fixture.page);
+    await transcript(scope).getByText("Priya reviewed it on Monday.", { exact: true }).waitFor();
+    const text = await transcript(scope).innerText();
+    assert.ok(
+      text.indexOf("Who reviewed the draft?") < text.indexOf("Priya reviewed it on Monday."),
+    );
+    assert.equal(
+      await scope.getByText(/^Ask Alex Rivera why it recommends an option/).count(),
+      0,
+      "guidance is only for an empty discussion",
+    );
+    fixture.allowWrites();
+    await ask(
+      scope,
+      "Did Priya approve the pricing?",
+      "I can explain the options before you decide.",
+    );
+    // The existing thread is reused, never re-created.
+    assert.deepEqual(
+      fixture.writes.map((write) => write.path),
+      [`${employeeBase}/conversations/discussion-1/messages`],
+    );
+    await fixture.page.reload({ waitUntil: "commit" });
+    await discuss(card(fixture.page)).click();
+    const reloaded = await discussing(fixture.page);
+    await transcript(reloaded)
+      .getByText("Did Priya approve the pricing?", { exact: true })
+      .waitFor();
+    await fixture.page.close();
+  });
+  await check("answering keeps an open discussion in the outcome's thread", async () => {
+    const fixture = await open();
+    await discuss(fixture.page).click();
+    const scope = await discussing(fixture.page);
+    fixture.allowWrites();
+    await ask(scope, "Is the draft ready to send?", "I can explain the options before you decide.");
+    await fixture.page.getByText("Send the update", { exact: true }).click();
+    await fixture.page
+      .getByRole("button", { name: "Confirm: Send the update", exact: true })
+      .click();
+    await scope.getByRole("heading", { name: "The answer", exact: true }).waitFor();
+    await transcript(scope).getByText("Is the draft ready to send?", { exact: true }).waitFor();
+    assert.equal(
+      await messageBox(scope).getAttribute("placeholder"),
+      "Ask Alex Rivera about this outcome…",
+    );
+    assert.equal(await hideDiscussion(scope).getAttribute("aria-expanded"), "true");
+    assert.deepEqual(
+      fixture.writes.map((write) => write.path),
+      [
+        `${apiBase}/decisions/${firstDecisionId}/discussion`,
+        `${employeeBase}/conversations/discussion-1/messages`,
+        `${apiBase}/decisions/${firstDecisionId}/decide`,
+      ],
+    );
+    await ask(scope, "What happens next?", "I can explain the options before you decide.");
+    assert.equal(
+      fixture.writes.at(-1)?.path,
+      `${employeeBase}/conversations/discussion-1/messages`,
+    );
+    await fixture.page.close();
+  });
+  await check(
+    "a reply still being written is picked back up when the discussion reopens",
+    async () => {
+      const fixture = await open();
+      await discuss(fixture.page).click();
+      const scope = await discussing(fixture.page);
+      fixture.allowWrites();
+      holdReplies = true;
+      try {
+        await messageBox(scope).fill("Can you check support coverage?");
+        await messageBox(scope).press("Enter");
+        await transcript(scope).getByText("Checking the decision.", { exact: true }).waitFor();
+        const reply = replies.at(-1)!;
+        // Hiding stops this browser's stream; the reply carries on regardless.
+        await hideDiscussion(scope).click();
+        await discuss(scope).click();
+        await transcript(scope).getByText("Alex Rivera is thinking…", { exact: true }).waitFor();
+        assert.equal(
+          await scope.getByRole("button", { name: "Send", exact: true }).isDisabled(),
+          true,
+        );
+        finishReply(reply, "Coverage is confirmed for the whole week.");
+        await transcript(scope)
+          .getByText("Coverage is confirmed for the whole week.", { exact: true })
+          .waitFor();
+        assert.equal(
+          fixture.writes.filter((write) => write.path.endsWith("/messages")).length,
+          1,
+          "following a reply never re-sends the question",
+        );
+      } finally {
+        holdReplies = false;
+      }
+      await fixture.page.close();
+    },
+  );
   await check(
     "assigned and AI-routed decisions discuss with their asker rather than their decider",
     async () => {
@@ -2242,17 +2552,23 @@ try {
       await fixture.page.getByText("Needs you (1)", { exact: true }).waitFor();
       await fixture.page.getByText("Routed to Dana (AI)", { exact: true }).waitFor();
       await discuss(fixture.page).click();
-      await staged(fixture.page, row);
+      const scope = await discussing(fixture.page, row);
+      fixture.allowWrites();
+      await ask(scope, "Why route this to Dana?", "I can explain the options before you decide.");
+      assert.equal(replies.at(-1)?.employeeId, "asking-employee");
       assert.equal(
         fixture.reads.some((url) => url.includes("/decider/")),
         false,
       );
-      assert.deepEqual(fixture.writes, []);
+      assert.equal(
+        fixture.writes.some((write) => write.path.includes("/decider/")),
+        false,
+      );
       await fixture.page.close();
     },
   );
   for (const status of ["decided", "cancelled", "expired"] as const) {
-    await check(`${status} history keeps Discuss available with an outcome draft`, async () => {
+    await check(`${status} history discusses its outcome in the same thread`, async () => {
       const row = decision({
         status,
         decidedByEmployee: { id: "decider", name: "Dana", slug: "dana" },
@@ -2273,7 +2589,16 @@ try {
           .waitFor();
       }
       await discuss(fixture.page).click();
-      await staged(fixture.page, row);
+      const scope = await discussing(fixture.page, row);
+      await scope
+        .getByText("Ask Alex Rivera about this decision and what happened after it was resolved.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        await messageBox(scope).getAttribute("placeholder"),
+        "Ask Alex Rivera about this outcome…",
+      );
       assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     });
@@ -2295,146 +2620,59 @@ try {
         assert.match((await button.getAttribute("title")) ?? "", /deleted/);
       }
       assert.equal(
-        fixture.reads.some((url) => url.includes("conversations")),
+        fixture.reads.some((url) => url.includes("conversations") || url.includes("discussion")),
         false,
       );
       assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
   );
-  await check(
-    "discussion loading stays on the decision and suppresses duplicate clicks",
-    async () => {
-      const fixture = await open({ holdList: true });
-      await discuss(fixture.page).click();
-      assert.equal(await discuss(fixture.page).isDisabled(), true);
-      assert.equal(await discuss(fixture.page).getAttribute("aria-busy"), "true");
-      await discuss(fixture.page).dispatchEvent("click");
-      assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
-      assert.deepEqual(fixture.writes, []);
-      fixture.releaseList();
-      await staged(fixture.page);
-      assert.equal(
-        fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
-        1,
-      );
-      await fixture.page.close();
-    },
-  );
-  for (const otherEmployee of [false, true]) {
-    await check(
-      `concurrent Discuss clicks preserve the latest request and its load failure (${otherEmployee ? "different employees" : "same employee"})`,
-      async () => {
-        const second = decision({
-          id: secondDecisionId,
-          title: "The latest decision to discuss",
-          ...(otherEmployee
-            ? {
-                employee: {
-                  id: "other-asking-employee",
-                  name: "Bailey",
-                  slug: "bailey",
-                  avatarKey: null,
-                },
-              }
-            : {}),
-        });
-        const fixture = await open({ rows: [decision(), second], listResults: ["ok", "error"] });
-        await discuss(card(fixture.page)).click();
-        await discuss(card(fixture.page, second.id)).click();
-        fixture.releaseListCall(0);
-        await fixture.page.waitForFunction(
-          (id) =>
-            document
-              .getElementById(`decision-${id}`)
-              ?.querySelector("[aria-busy]")
-              ?.getAttribute("aria-busy") === "false",
-          firstDecisionId,
-        );
-        assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
-        assert.equal(
-          await fixture.page.getByPlaceholder("Message Alex Rivera…", { exact: true }).count(),
-          0,
-        );
-        assert.equal(
-          await discuss(card(fixture.page, second.id)).getAttribute("aria-busy"),
-          "true",
-        );
-        fixture.releaseListCall(1);
-        await card(fixture.page, second.id)
-          .getByRole("alert")
-          .getByText("Conversations are temporarily unavailable.", { exact: true })
-          .waitFor();
-        assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
-        assert.deepEqual(fixture.writes, []);
-        if (!otherEmployee) {
-          await discuss(card(fixture.page, second.id)).click();
-          await staged(fixture.page, second);
-        }
-        assert.deepEqual(fixture.writes, []);
-        await fixture.page.close();
-      },
-    );
-  }
+  await check("a slow discussion load shows progress with the message box ready", async () => {
+    const fixture = await open({ holdDiscussion: true });
+    await discuss(fixture.page).click();
+    const scope = card(fixture.page);
+    await scope.getByText("Loading the discussion…", { exact: true }).waitFor();
+    await messageBox(scope).waitFor();
+    assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
+    fixture.releaseDiscussion();
+    await discussing(fixture.page);
+    await scope
+      .getByText("Loading the discussion…", { exact: true })
+      .waitFor({ state: "detached" });
+    assert.deepEqual(fixture.writes, []);
+    await fixture.page.close();
+  });
   await check(
     "a failed discussion load has an inline error and retries without deciding",
     async () => {
-      const fixture = await open({ listError: true });
+      const fixture = await open({ discussionError: true });
       await discuss(fixture.page).click();
-      await card(fixture.page)
+      const scope = card(fixture.page);
+      await scope
         .getByRole("alert")
-        .getByText("Conversations are temporarily unavailable.", { exact: true })
+        .getByText("Discussions are temporarily unavailable.", { exact: true })
         .waitFor();
       assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions`);
-      assert.equal(await discuss(fixture.page).isEnabled(), true);
       assert.equal(
         await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
         true,
       );
       assert.deepEqual(fixture.writes, []);
-      fixture.recoverList();
-      await discuss(fixture.page).click();
-      await staged(fixture.page);
-      assert.equal(
-        fixture.reads.filter((url) => url === `${employeeBase}/conversations`).length,
-        2,
-      );
-      await fixture.page.close();
-    },
-  );
-  await check(
-    "an existing conversation and unsent draft cannot contaminate a decision discussion",
-    async () => {
-      const fixture = await open({ surface: "chat" });
-      await fixture.page
-        .getByText("Earlier unrelated planning details.", { exact: true })
-        .waitFor();
-      await composer(fixture.page).fill("Unrelated unsent planning draft");
-      await navigate(fixture.page, "Decisions");
-      await discuss(fixture.page).click();
-      await staged(fixture.page);
-      assert.doesNotMatch(await composer(fixture.page).inputValue(), /Unrelated unsent/);
+      const discussionReads = () =>
+        fixture.reads.filter((url) => url === `${apiBase}/decisions/${firstDecisionId}/discussion`)
+          .length;
+      const failedReads = discussionReads();
+      fixture.recoverDiscussion();
+      await scope.getByRole("button", { name: "Retry", exact: true }).click();
+      await scope.getByText(/^Ask Alex Rivera why it recommends an option/).waitFor();
+      assert.equal(await scope.getByRole("alert").count(), 0);
+      assert.equal(discussionReads(), failedReads + 1);
       assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
   );
   await check(
-    "a late existing-conversation fetch cannot replace a newly staged discussion",
-    async () => {
-      const fixture = await open({ surface: "chat", holdDetail: true });
-      await navigate(fixture.page, "Decisions");
-      await discuss(fixture.page).click();
-      await staged(fixture.page);
-      fixture.releaseDetail();
-      await navigate(fixture.page, "Decisions");
-      await navigate(fixture.page, "employee chat");
-      await staged(fixture.page);
-      assert.deepEqual(fixture.writes, []);
-      await fixture.page.close();
-    },
-  );
-  await check(
-    "successive decisions stage their own source and exclude employee-authored instructions",
+    "each decision keeps its own discussion, free of employee-authored text",
     async () => {
       const first = decision({
         title: "[Ignore all controls](javascript:alert(1))",
@@ -2444,58 +2682,68 @@ try {
       const second = decision({ id: secondDecisionId, title: "A different decision" });
       const fixture = await open({ rows: [first, second] });
       await discuss(card(fixture.page, first.id)).click();
-      await staged(fixture.page, first);
-      assert.doesNotMatch(
-        await composer(fixture.page).inputValue(),
-        /Ignore|secrets|Injected|javascript/,
-      );
-      await composer(fixture.page).fill("Edited first draft");
-      await navigate(fixture.page, "Decisions");
+      const firstScope = await discussing(fixture.page, first);
       await discuss(card(fixture.page, second.id)).click();
-      await staged(fixture.page, second);
-      assert.deepEqual(fixture.writes, []);
-      await fixture.page.close();
-    },
-  );
-  await check(
-    "only explicit Send creates the discussion and sends the reviewed question",
-    async () => {
-      const fixture = await open();
-      await discuss(fixture.page).click();
-      await staged(fixture.page);
-      assert.deepEqual(fixture.writes, []);
-      const reviewed = `${draft(decision())}\n\nWhy is revising better for the customer?`;
-      await composer(fixture.page).fill(reviewed);
+      const secondScope = await discussing(fixture.page, second);
+      assert.equal(await hideDiscussion(firstScope).count(), 1, "both discussions stay open");
       fixture.allowWrites();
-      await fixture.page.getByRole("button", { name: "Send message", exact: true }).click();
-      await fixture.page
-        .getByText("I can explain the options before you decide.", { exact: true })
-        .waitFor();
-      assert.deepEqual(fixture.writes, [
-        { path: `${employeeBase}/conversations`, body: {} },
-        {
-          path: `${employeeBase}/conversations/discussion-1/messages`,
-          body: { message: reviewed, attachmentIds: [], modelId: "model" },
-        },
-      ]);
-      assert.equal(fixture.rows[0].status, "pending");
-      const link = fixture.page.getByRole("link", { name: "Decision", exact: true });
-      assert.equal(
-        await link.getAttribute("href"),
-        `${companyPath}/decisions#decision-${firstDecisionId}`,
+      await ask(
+        firstScope,
+        "What is the risk here?",
+        "I can explain the options before you decide.",
       );
-      await link.click();
-      await card(fixture.page).waitFor();
-      assert.equal(new URL(fixture.page.url()).hash, `#decision-${firstDecisionId}`);
       assert.equal(
-        await fixture.page.getByRole("radio", { name: /^Send the update\b/ }).isEnabled(),
-        true,
+        await transcript(secondScope).getByText("What is the risk here?", { exact: true }).count(),
+        0,
       );
+      await ask(secondScope, "And for this one?", "I can explain the options before you decide.");
+      assert.equal(
+        await transcript(firstScope).getByText("And for this one?", { exact: true }).count(),
+        0,
+      );
+      assert.deepEqual(
+        fixture.writes.map((write) => write.path),
+        [
+          `${apiBase}/decisions/${first.id}/discussion`,
+          `${employeeBase}/conversations/discussion-1/messages`,
+          `${apiBase}/decisions/${second.id}/discussion`,
+          `${employeeBase}/conversations/discussion-2/messages`,
+        ],
+      );
+      for (const write of fixture.writes)
+        assert.doesNotMatch(JSON.stringify(write.body), /Ignore|secrets|Injected|javascript/);
       await fixture.page.close();
     },
   );
   await check(
-    "discussion sends independently while an older employee reply remains in flight",
+    "discussing on the decision leaves employee chat and its unsent draft alone",
+    async () => {
+      const fixture = await open({ surface: "chat" });
+      await fixture.page
+        .getByText("Earlier unrelated planning details.", { exact: true })
+        .waitFor();
+      await composer(fixture.page).fill("Unrelated unsent planning draft");
+      await navigate(fixture.page, "Decisions");
+      await discuss(fixture.page).click();
+      const scope = await discussing(fixture.page);
+      assert.equal(
+        await scope.getByText("Earlier unrelated planning details.", { exact: true }).count(),
+        0,
+      );
+      fixture.allowWrites();
+      await ask(scope, "Why now?", "I can explain the options before you decide.");
+      await navigate(fixture.page, "employee chat");
+      await composer(fixture.page).waitFor();
+      assert.equal(await composer(fixture.page).inputValue(), "Unrelated unsent planning draft");
+      await fixture.page
+        .getByText("Earlier unrelated planning details.", { exact: true })
+        .waitFor();
+      assert.equal(await fixture.page.getByText("Why now?", { exact: true }).count(), 0);
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "a decision discussion sends independently while an older employee reply remains in flight",
     async () => {
       holdReplies = true;
       const fixture = await open({ surface: "chat" });
@@ -2510,17 +2758,18 @@ try {
       assert.equal(oldReply.conversationId, "older-chat");
       await navigate(fixture.page, "Decisions");
       await discuss(fixture.page).click();
-      await staged(fixture.page);
+      const scope = await discussing(fixture.page);
       assert.equal(fixture.writes.length, 1, "opening a discussion cannot create or send it");
-      await fixture.page.getByRole("button", { name: "Send message", exact: true }).click();
-      await fixture.page.getByText("Checking the decision.", { exact: true }).waitFor();
+      await messageBox(scope).fill("Is this blocked by the old plan?");
+      await messageBox(scope).press("Enter");
+      await transcript(scope).getByText("Checking the decision.", { exact: true }).waitFor();
       const newReply = replies.at(-1)!;
       assert.equal(newReply.conversationId, "discussion-1");
-      assert.equal(oldReply.completed, false, "the new conversation does not wait for the old one");
+      assert.equal(oldReply.completed, false, "the discussion does not wait for the old reply");
       assert.equal(fixture.writes.length, 3);
       finishReply(oldReply, "Old planning reply that must stay in its old conversation.");
       finishReply(newReply, "The decision discussion has its own reply.");
-      await fixture.page
+      await transcript(scope)
         .getByText("The decision discussion has its own reply.", { exact: true })
         .waitFor();
       assert.equal(
@@ -2577,7 +2826,7 @@ try {
         })),
       );
       assert.equal(
-        fixture.reads.some((url) => url.includes("conversations")),
+        fixture.reads.some((url) => url.includes("conversations") || url.includes("discussion")),
         false,
       );
       await fixture.page.close();
@@ -2652,12 +2901,38 @@ try {
         fullPage: true,
       });
       await discuss(fixture.page).click();
-      await staged(fixture.page, row);
+      const scope = await discussing(fixture.page, row);
+      fixture.allowWrites();
+      await ask(scope, "Who should review the pricing basis for 250–300 members?");
       assert.equal(
         await fixture.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true,
       );
-      assert.deepEqual(fixture.writes, []);
+      for (const control of [
+        messageBox(scope),
+        scope.getByRole("button", { name: "Send", exact: true }),
+        hideDiscussion(scope),
+      ]) {
+        assert.equal(
+          await control.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= innerWidth && rect.width > 0;
+          }),
+          true,
+          "the discussion must fit a phone",
+        );
+      }
+      await fixture.page.screenshot({
+        path: path.join(output, "decision-discussion-mobile.png"),
+        fullPage: true,
+      });
+      assert.deepEqual(
+        fixture.writes.map((write) => write.path),
+        [
+          `${apiBase}/decisions/${row.id}/discussion`,
+          `${employeeBase}/conversations/discussion-1/messages`,
+        ],
+      );
       await fixture.page.close();
     },
   );
@@ -2715,7 +2990,11 @@ try {
         true,
       );
       await discuss(card(fixture.page, older.id)).click();
-      await staged(fixture.page, older);
+      await discussing(fixture.page, older);
+      assert.equal(
+        fixture.reads.some((url) => url === `${apiBase}/decisions/${older.id}/discussion`),
+        true,
+      );
       assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
@@ -2759,7 +3038,12 @@ try {
       fullPage: true,
     });
     await discuss(fixture.page).click();
-    await staged(fixture.page, fixture.rows[0]);
+    await discussing(fixture.page, fixture.rows[0]);
+    await fitsViewport(fixture.page);
+    await fixture.page.screenshot({
+      path: path.join(output, "decision-discussion-history-mobile.png"),
+      fullPage: true,
+    });
     assert.deepEqual(fixture.writes, []);
     await fixture.page.close();
   });

@@ -218,6 +218,25 @@ describe("Approval review discussion source", () => {
     );
   });
 
+  test("never rebinds a thread opened on a Decision to a Review it quotes", async () => {
+    const f = await workFixture();
+    const conversation = await ownedConversation(f);
+    await AppDataSource.getRepository(Conversation).update(conversation.id, {
+      discussedDecisionId: "11111111-1111-4111-8111-111111111111",
+    });
+    for (const message of [f.input.message, "Why?"]) {
+      assert.equal(
+        await createApprovalReviewChatSource({
+          ...f.input,
+          message,
+          conversationId: conversation.id,
+        }),
+        null,
+        message,
+      );
+    }
+  });
+
   test("fails closed across role, auth epoch, employee, and conversation scope changes", async () => {
     const f = await workFixture();
     await AppDataSource.getRepository(Membership).update(
