@@ -21,6 +21,7 @@ import {
   FlaskConical,
   FolderKanban,
   Handshake,
+  History,
   Images,
   Import,
   Inbox,
@@ -185,6 +186,28 @@ const ADMIN: SubpageAccess = { admin: true };
  * forms) or drawn by the rail itself carry `rail: false`.
  */
 const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
+  decisions: [
+    {
+      label: "Active decisions",
+      navLabel: "Active",
+      path: "/decisions",
+      icon: Inbox,
+      keywords: ["pending decisions", "open questions", "needs you", "waiting on me"],
+    },
+    {
+      label: "Decision history",
+      navLabel: "History",
+      path: "/decisions/history",
+      icon: History,
+      keywords: [
+        "answered decisions",
+        "dismissed decisions",
+        "past decisions",
+        "review history",
+        "undismiss",
+      ],
+    },
+  ],
   tldrs: [
     { label: "Briefings", path: "/tldrs", icon: FileText, keywords: ["tldr feed", "recaps"] },
     {

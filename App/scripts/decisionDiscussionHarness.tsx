@@ -7,7 +7,9 @@ import { ThemeProvider } from "@/components/Theme";
 import { NavigationGuardProvider } from "@/components/NavigationGuard";
 import { ChatSessionsProvider } from "@/lib/chatSessions";
 import type { Company, Employee, Me } from "@/lib/api";
+import DecisionHistory from "@/pages/DecisionHistory";
 import Decisions from "@/pages/Decisions";
+import DecisionsLayout from "@/pages/DecisionsLayout";
 import EmployeeChat from "@/pages/EmployeeChat";
 import Home from "@/pages/Home";
 import "../client/styles/index.css";
@@ -44,8 +46,16 @@ function Fixture() {
           <Route path={`/c/${company.slug}`} element={<Home company={company} me={me} />} />
           <Route
             path={`/c/${company.slug}/decisions`}
-            element={<Decisions company={company} me={me} />}
-          />
+            element={
+              // The app shell's row: the section rail beside the page.
+              <div className="flex min-h-0 flex-1">
+                <DecisionsLayout company={company} />
+              </div>
+            }
+          >
+            <Route index element={<Decisions company={company} me={me} />} />
+            <Route path="history" element={<DecisionHistory company={company} me={me} />} />
+          </Route>
           <Route element={<Outlet context={{ company, currentUserId: me.id, emp }} />}>
             <Route
               path={`/c/${company.slug}/employees/${emp.slug}/chat`}

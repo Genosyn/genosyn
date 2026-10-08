@@ -10,6 +10,7 @@ import { SECTION_BY_KEY, type SectionKey } from "../lib/sections.js";
 import { SECTION_SUBPAGES, type SubpageViewer, railSubpages } from "../lib/subpages.js";
 import AccountLayout from "../pages/AccountLayout.js";
 import CustomersLayout from "../pages/CustomersLayout.js";
+import DecisionsLayout from "../pages/DecisionsLayout.js";
 import FinanceLayout from "../pages/FinanceLayout.js";
 import MarketingLayout from "../pages/MarketingLayout.js";
 import MeetingsLayout from "../pages/MeetingsLayout.js";
@@ -232,6 +233,28 @@ describe("SectionRailLinks", () => {
     );
   });
 
+  test("keeps the Decision stack's Active and History apart", () => {
+    const at = (path: string) =>
+      links(
+        renderAt(
+          path,
+          "decisions/*",
+          h(SectionRailLinks, { section: "decisions", companySlug: "acme" }),
+        ),
+      );
+    assert.deepEqual(
+      at("decisions").map(({ href, text, current }) => ({ href, text, current })),
+      [
+        { href: "/c/acme/decisions", text: "Active", current: true },
+        { href: "/c/acme/decisions/history", text: "History", current: false },
+      ],
+    );
+    assert.deepEqual(
+      at("decisions/history").filter((l) => l.current).map((l) => l.text),
+      ["History"],
+    );
+  });
+
   test("draws nothing for a section without catalogued rail pages", () => {
     const html = renderAt(
       "workspace",
@@ -326,6 +349,7 @@ describe("section layouts draw their rails from the catalogue", () => {
     ["resources", "resources", (c) => h(ResourcesLayout, { company: c })],
     ["signatures", "signatures", (c) => h(SignatureLayout, { company: c })],
     ["tldrs", "tldrs", (c) => h(TldrsLayout, { company: c })],
+    ["decisions", "decisions/history", (c) => h(DecisionsLayout, { company: c })],
     ["vault", "vault", (c) => h(VaultLayout, { company: c })],
   ];
   const SETTINGS_AND_ACCOUNT: Layout[] = [

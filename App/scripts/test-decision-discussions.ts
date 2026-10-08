@@ -1,6 +1,7 @@
 /**
  * Run with `npm run test:decision-discussions`; local Chrome or GENOSYN_TEST_BROWSER.
- * Real Home, Decisions, employee chat, routing and chat-session state. APIs are
+ * Real Home, Decision stack and History, employee chat, routing and chat-session
+ * state. APIs are
  * deterministic fixtures; real HTTP streams exercise concurrent conversations.
  * Every unexpected request or unapproved fixture mutation fails the suite.
  */
@@ -367,7 +368,7 @@ type FixtureOptions = {
   mailConflictRefreshError?: boolean;
   mailSendResult?: "sent" | "not_sent" | "unverified";
   rows?: Decision[];
-  surface?: "home" | "decisions" | "chat";
+  surface?: "home" | "decisions" | "history" | "chat";
   width?: number;
   history?: boolean;
   holdList?: boolean;
@@ -379,7 +380,6 @@ type FixtureOptions = {
   details?: Decision[];
   hash?: string;
   notification?: Notification;
-  decisionListLimit?: number;
 };
 async function open(options: FixtureOptions = {}) {
   const page = await context.newPage();
@@ -434,9 +434,7 @@ async function open(options: FixtureOptions = {}) {
       reads.push(url.pathname + url.search);
       if (url.pathname === `${apiBase}/decisions`) {
         const status = url.searchParams.get("status");
-        const requestedLimit = Number(
-          url.searchParams.get("limit") ?? options.decisionListLimit ?? 200,
-        );
+        const requestedLimit = Number(url.searchParams.get("limit") ?? 200);
         const matching = status
           ? visibleRows().filter((row) => row.status === status)
           : visibleRows();
@@ -701,7 +699,9 @@ async function open(options: FixtureOptions = {}) {
       ? companyPath
       : options.surface === "chat"
         ? chatPath
-        : `${companyPath}/decisions`;
+        : options.surface === "history"
+          ? `${companyPath}/decisions/history`
+          : `${companyPath}/decisions`;
   await page.goto(
     `${origin}${initial}${options.role === "admin" ? "?role=admin" : ""}${options.hash ?? ""}`,
     {
@@ -725,13 +725,19 @@ async function open(options: FixtureOptions = {}) {
     await page
       .getByPlaceholder("Message Alex Rivera…", { exact: true })
       .waitFor({ timeout: 300000 });
+  else if (options.surface === "history")
+    await page
+      .getByRole("heading", { name: "Decision history", exact: true })
+      .waitFor({ timeout: 300000 });
   else if (visibleRows().some((row) => row.status === "pending"))
     await page
       .getByRole("button", { name: "Discuss", exact: true })
       .first()
       .waitFor({ timeout: 300000 });
-  else if (approvalRows.length && options.role === "admin")
-    await page.locator(`#review-${approvalRows[0].id}`).waitFor({ timeout: 300000 });
+  else if (options.role === "admin" && approvalRows.some((row) => row.status === "pending"))
+    await page
+      .locator(`#review-${approvalRows.find((row) => row.status === "pending")!.id}`)
+      .waitFor({ timeout: 300000 });
   else
     await page
       .getByRole("heading", { name: "Decision stack", exact: true })
@@ -806,6 +812,18 @@ async function stagedReview(page: Page, row: Approval) {
     await page.getByRole("button", { name: "Send message", exact: true }).isEnabled(),
     true,
   );
+}
+/** The stack's own link to History: the rail is a drawer at phone width. */
+async function openHistory(page: Page) {
+  await page.getByRole("link", { name: "Decision history", exact: true }).click();
+  await page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+}
+/** A closed review leaves the stack, and History keeps its outcome. */
+async function closedReviewInHistory(page: Page, id: string, outcome: string) {
+  await reviewCard(page, id).waitFor({ state: "detached" });
+  await openHistory(page);
+  await page.getByText("Email and work reviews", { exact: true }).waitFor();
+  await reviewCard(page, id).getByText(outcome, { exact: true }).waitFor();
 }
 async function navigate(page: Page, name: "Home" | "Decisions" | "employee chat") {
   await page
@@ -926,7 +944,9 @@ try {
         0,
       );
       assert.equal(
-        await fixture.page.getByRole("heading", { name: "Review history", exact: true }).count(),
+        await fixture.page
+          .getByRole("heading", { name: "Email and work reviews", exact: true })
+          .count(),
         0,
       );
       assert.equal(await discuss(fixture.page).count(), 1);
@@ -1031,7 +1051,10 @@ try {
         { path: `${apiBase}/approvals/${work.id}/approve`, body: { reviewRevision: revisionA } },
         { path: `${apiBase}/approvals/${mail.id}/approve`, body: { reviewRevision: revisionA } },
       ]);
-      assert.equal(await fixture.page.getByText("Review history", { exact: true }).count(), 0);
+      assert.equal(
+        await fixture.page.getByText("Email and work reviews", { exact: true }).count(),
+        0,
+      );
       await fixture.page.close();
     },
   );
@@ -1168,13 +1191,18 @@ try {
       await card(fixture.page, row.id)
         .getByRole("button", { name: "Close decision", exact: true })
         .click();
-      await fixture.page.getByText("Decision history", { exact: true }).waitFor();
+      await card(fixture.page, row.id).waitFor({ state: "detached" });
+      assert.equal(await card(fixture.page, other.id).getByRole("radio").count(), 2);
+      await openHistory(fixture.page);
+      await card(fixture.page, row.id)
+        .getByText("Alex Rivera · Couldn't carry on", { exact: true })
+        .waitFor();
       assert.equal(
         await card(fixture.page, row.id).count(),
         1,
         "closing preserves a single history record",
       );
-      assert.equal(await card(fixture.page, other.id).getByRole("radio").count(), 2);
+      assert.equal(await card(fixture.page, other.id).count(), 0, "History holds nothing waiting");
       assert.deepEqual(fixture.writes, [
         { path: `${apiBase}/decisions/${row.id}/decide`, body: { optionId: "send" } },
       ]);
@@ -1323,21 +1351,14 @@ try {
       fixture.allowWrites();
       await pendingCard.getByRole("button", { name: "Dismiss", exact: true }).click();
       await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
-      assert.equal(
-        await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).count(),
-        0,
-      );
+      await quietNotice(fixture.page, `Decision “${row.title}” dismissed.`);
       await card(fixture.page, row.id)
         .getByRole("button", { name: "Close decision", exact: true })
         .click();
-      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
-      assert.equal(
-        await card(fixture.page, row.id)
-          .getByRole("button", { name: "Close decision", exact: true })
-          .count(),
-        0,
-      );
-      await quietNotice(fixture.page, `Decision “${row.title}” dismissed.`);
+      await fixture.page
+        .getByRole("heading", { name: "Decision stack is clear", exact: true })
+        .waitFor();
+      assert.equal(await card(fixture.page, row.id).count(), 0);
       assert.deepEqual(fixture.writes, [
         {
           path: `${apiBase}/decisions/${row.id}/dismiss`,
@@ -1345,14 +1366,34 @@ try {
         },
       ]);
 
+      // The rail reaches History, which keeps the dismissed card with its Undismiss.
+      const rail = (name: string) => fixture.page.getByRole("link", { name, exact: true });
+      assert.equal(await rail("Active").getAttribute("aria-current"), "page");
+      await rail("History").click();
+      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
+      assert.equal(await rail("History").getAttribute("aria-current"), "page");
+      assert.equal(await rail("Active").getAttribute("aria-current"), null);
+      assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions/history`);
+      assert.equal(
+        await card(fixture.page, row.id)
+          .getByRole("button", { name: "Close decision", exact: true })
+          .count(),
+        0,
+      );
       await card(fixture.page, row.id)
         .getByRole("button", { name: "Undismiss", exact: true })
         .click();
+      // Waiting again, it leaves History for the stack.
+      await card(fixture.page, row.id).waitFor({ state: "detached" });
+      await quietNotice(fixture.page, `Decision “${row.title}” restored to the stack.`);
+      await fixture.page
+        .getByRole("heading", { name: "No decision history yet", exact: true })
+        .waitFor();
+      await rail("Active").click();
       await fixture.page.getByRole("heading", { name: "Needs you (1)", exact: true }).waitFor();
       await card(fixture.page, row.id)
         .getByRole("radio", { name: /^Send the update\b/ })
         .waitFor();
-      await quietNotice(fixture.page, `Decision “${row.title}” restored to the stack.`);
       assert.deepEqual(fixture.writes, [
         {
           path: `${apiBase}/decisions/${row.id}/dismiss`,
@@ -1367,34 +1408,48 @@ try {
     },
   );
   await check(
-    "dismissed history remains available outside the recent mixed-status window",
+    "History reads each settled status on its own, most recently settled first",
     async () => {
-      const newer = decision({
+      const answered = decision({
         id: secondDecisionId,
+        title: "An older answered question",
         status: "decided",
         chosenOptionId: "send",
         chosenOptionLabel: "Send the update",
-        decidedAt: fixtureNow.toISOString(),
+        decidedAt: new Date(fixtureNow.getTime() - 24 * HOUR_MS).toISOString(),
         decidedByUserId: "member",
         decidedBy: { id: "member", name: "Morgan" },
       });
       const dismissed = decision({
         id: "66666666-6666-4666-8666-666666666666",
-        title: "An older dismissed question",
+        title: "A question dismissed today",
         status: "cancelled",
-        decidedAt: new Date(fixtureNow.getTime() - 24 * HOUR_MS).toISOString(),
+        decidedAt: fixtureNow.toISOString(),
         decidedByUserId: "member",
         decidedBy: { id: "member", name: "Morgan" },
       });
-      const fixture = await open({ rows: [newer, dismissed], decisionListLimit: 1 });
+      const fixture = await open({ surface: "history", rows: [answered, dismissed] });
       await card(fixture.page, dismissed.id).waitFor();
       await card(fixture.page, dismissed.id)
         .getByRole("button", { name: "Undismiss", exact: true })
         .waitFor();
-      assert.equal(
-        fixture.reads.some((url) => url === `${apiBase}/decisions?status=cancelled&limit=200`),
-        true,
+      assert.deepEqual(
+        await fixture.page
+          .locator('li[id^="decision-"]')
+          .evaluateAll((items) => items.map((item) => item.id)),
+        [`decision-${dismissed.id}`, `decision-${answered.id}`],
       );
+      // A burst of newer answers can never push an older dismissal out of reach.
+      for (const status of ["decided", "cancelled", "expired"])
+        assert.ok(
+          fixture.reads.includes(`${apiBase}/decisions?status=${status}&limit=200`),
+          status,
+        );
+      assert.equal(fixture.reads.includes(`${apiBase}/decisions`), false);
+      await fixture.page.getByRole("button", { name: "Dismissed", exact: true }).click();
+      await card(fixture.page, answered.id).waitFor({ state: "detached" });
+      assert.equal(await card(fixture.page, dismissed.id).count(), 1);
+      assert.deepEqual(fixture.writes, []);
       await fixture.page.close();
     },
   );
@@ -1407,8 +1462,7 @@ try {
         decidedByUserId: null,
         decidedBy: null,
       });
-      const fixture = await open({ rows: [row] });
-      await fixture.page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+      const fixture = await open({ surface: "history", rows: [row] });
       await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
       assert.equal(
         await card(fixture.page, row.id)
@@ -1636,7 +1690,9 @@ try {
       await card(fixture.page, row.id)
         .getByRole("button", { name: "Close decision", exact: true })
         .click();
-      await fixture.page.getByText("Decision history", { exact: true }).waitFor();
+      await fixture.page
+        .getByRole("heading", { name: "Decision stack is clear", exact: true })
+        .waitFor();
       assert.deepEqual(fixture.writes, [
         {
           path: `${apiBase}/decisions/${row.id}/decide`,
@@ -1741,7 +1797,6 @@ try {
         await reviewCard(fixture.page)
           .getByRole("button", { name: "Close review", exact: true })
           .waitFor();
-        assert.equal(await fixture.page.getByText("Review history", { exact: true }).count(), 0);
         await fixture.page
           .getByText(action === "approve" ? "Work in progress" : "Not approved", {
             exact: true,
@@ -1760,7 +1815,11 @@ try {
         await reviewCard(fixture.page)
           .getByRole("button", { name: "Close review", exact: true })
           .click();
-        await fixture.page.getByText("Review history", { exact: true }).waitFor();
+        await closedReviewInHistory(
+          fixture.page,
+          workReviewId,
+          action === "approve" ? "Work in progress" : "Not approved",
+        );
         assert.deepEqual(fixture.writes, [
           {
             path: `${apiBase}/approvals/${workReviewId}/${action}`,
@@ -1823,6 +1882,7 @@ try {
     "proactive work history shows reported outcomes and separates unfinished or failed work",
     async () => {
       const fixture = await open({
+        surface: "history",
         role: "admin",
         reviews: [
           workReview({
@@ -1840,7 +1900,7 @@ try {
           workReview({ id: "99999999-9999-4999-8999-999999999999", status: "rejected" }),
         ],
       });
-      await fixture.page.getByText("Review history", { exact: true }).waitFor();
+      await fixture.page.getByText("Email and work reviews", { exact: true }).waitFor();
       await fixture.page
         .getByText("Prepared the checkout fix for review. Nothing was published.", { exact: true })
         .waitFor();
@@ -1958,7 +2018,6 @@ try {
     await reviewCard(fixture.page, mailReviewId)
       .getByRole("button", { name: "Close review", exact: true })
       .waitFor();
-    assert.equal(await fixture.page.getByText("Review history", { exact: true }).count(), 0);
     await fixture.page.getByText("Sent", { exact: true }).waitFor();
     await fixture.page
       .getByText("The exact reviewed email was sent. No mailbox draft was created first.", {
@@ -1978,7 +2037,7 @@ try {
     await reviewCard(fixture.page, mailReviewId)
       .getByRole("button", { name: "Close review", exact: true })
       .click();
-    await fixture.page.getByText("Review history", { exact: true }).waitFor();
+    await closedReviewInHistory(fixture.page, mailReviewId, "Sent");
     assert.deepEqual(fixture.writes, [
       {
         path: `${apiBase}/approvals/${mailReviewId}/approve`,
@@ -2023,10 +2082,13 @@ try {
           await outcome.getByRole("button", { name: "Send now", exact: true }).count(),
           0,
         );
-        assert.equal(await fixture.page.getByText("Review history", { exact: true }).count(), 0);
         await fitsViewport(fixture.page);
         await outcome.getByRole("button", { name: "Close review", exact: true }).click();
-        await fixture.page.getByText("Review history", { exact: true }).waitFor();
+        await closedReviewInHistory(
+          fixture.page,
+          mailReviewId,
+          result === "not_sent" ? "Not sent" : "Send outcome unverified",
+        );
         assert.deepEqual(fixture.writes, [
           {
             path: `${apiBase}/approvals/${mailReviewId}/approve`,
@@ -2138,7 +2200,6 @@ try {
       await reviewCard(fixture.page, mailReviewId)
         .getByRole("button", { name: "Close review", exact: true })
         .waitFor();
-      assert.equal(await fixture.page.getByText("Review history", { exact: true }).count(), 0);
       await fixture.page.getByText("Discarded", { exact: true }).waitFor();
       await fixture.page
         .getByText("Nothing was saved to the mailbox or sent.", { exact: true })
@@ -2146,7 +2207,7 @@ try {
       await reviewCard(fixture.page, mailReviewId)
         .getByRole("button", { name: "Close review", exact: true })
         .click();
-      await fixture.page.getByText("Review history", { exact: true }).waitFor();
+      await closedReviewInHistory(fixture.page, mailReviewId, "Discarded");
       assert.deepEqual(fixture.writes, [
         {
           path: `${apiBase}/approvals/${mailReviewId}/reject`,
@@ -2160,6 +2221,7 @@ try {
     "mail history distinguishes sent, known not-sent, and unverified outcomes",
     async () => {
       const fixture = await open({
+        surface: "history",
         role: "admin",
         rows: [],
         reviews: [
@@ -2257,7 +2319,7 @@ try {
         status,
         decidedByEmployee: { id: "decider", name: "Dana", slug: "dana" },
       });
-      const fixture = await open({ rows: [row] });
+      const fixture = await open({ surface: "history", rows: [row] });
       if (status === "decided") {
         await fixture.page.getByText("Answered by Dana (AI)", { exact: true }).waitFor();
       } else if (status === "cancelled") {
@@ -2289,11 +2351,19 @@ try {
         }),
       );
       const fixture = await open({ rows });
-      assert.equal(await discuss(fixture.page).count(), 4);
-      for (const button of await discuss(fixture.page).all()) {
-        assert.equal(await button.isDisabled(), true);
-        assert.match((await button.getAttribute("title")) ?? "", /deleted/);
-      }
+      const allDisabled = async () => {
+        for (const button of await discuss(fixture.page).all()) {
+          assert.equal(await button.isDisabled(), true);
+          assert.match((await button.getAttribute("title")) ?? "", /deleted/);
+        }
+      };
+      // The stack holds the waiting question; History holds the three settled ones.
+      assert.equal(await discuss(fixture.page).count(), 1);
+      await allDisabled();
+      await openHistory(fixture.page);
+      await card(fixture.page, rows[3].id).waitFor();
+      assert.equal(await discuss(fixture.page).count(), 3);
+      await allDisabled();
       assert.equal(
         fixture.reads.some((url) => url.includes("conversations")),
         false,
@@ -2566,8 +2636,9 @@ try {
       fixture.recoverDecision();
       await actionButton().click();
       await card(fixture.page).getByRole("button", { name: "Close decision", exact: true }).click();
-      await fixture.page.getByText("Decision history", { exact: true }).waitFor();
-      assert.equal(await discuss(fixture.page).isEnabled(), true);
+      await card(fixture.page).waitFor({ state: "detached" });
+      await openHistory(fixture.page);
+      assert.equal(await discuss(card(fixture.page)).isEnabled(), true);
       const expected = { optionId: "send", note: "Please explain the timing first." };
       assert.deepEqual(
         fixture.writes,
@@ -2678,7 +2749,7 @@ try {
       rows.push(
         decision({ id: secondDecisionId, title: "Expired alternative", status: "expired" }),
       );
-      const fixture = await open({ rows });
+      const fixture = await open({ surface: "history", rows });
       await fixture.page.getByRole("button", { name: "Expired (legacy)", exact: true }).click();
       assert.equal(await card(fixture.page, targetId).count(), 0);
       await fixture.page.evaluate((id) => {
@@ -2701,7 +2772,7 @@ try {
     },
   );
   await check(
-    "an older linked decision outside the recent list loads and can be discussed",
+    "an older settled decision linked to the stack opens in History and can be discussed",
     async () => {
       const older = decision({
         id: secondDecisionId,
@@ -2709,11 +2780,15 @@ try {
         status: "decided",
       });
       const fixture = await open({ details: [older], hash: `#decision-${older.id}` });
+      await fixture.page.waitForURL(
+        `${origin}${companyPath}/decisions/history#decision-${older.id}`,
+      );
       await card(fixture.page, older.id).waitFor();
       assert.equal(
         fixture.reads.some((url) => url === `${apiBase}/decisions/${older.id}`),
         true,
       );
+      assert.equal(await card(fixture.page).count(), 0, "the waiting question stays in the stack");
       await discuss(card(fixture.page, older.id)).click();
       await staged(fixture.page, older);
       assert.deepEqual(fixture.writes, []);
@@ -2741,8 +2816,91 @@ try {
       await fixture.page.close();
     },
   );
+  await check(
+    "the stack holds only what is waiting, History the rest, and links find either",
+    async () => {
+      const waiting = decision({ title: "A question still waiting" });
+      const answered = decision({
+        id: secondDecisionId,
+        title: "A question already answered",
+        status: "decided",
+        chosenOptionId: "send",
+        chosenOptionLabel: "Send the update",
+        decidedAt: fixtureNow.toISOString(),
+        decidedByUserId: "member",
+        decidedBy: { id: "member", name: "Morgan" },
+      });
+      const pendingWork = workReview();
+      const sentMail = mailReview({
+        status: "approved",
+        mailDeliveryStatus: "sent",
+        mailOutcome: {
+          sentMessageId: "message-1",
+          providerMessageRef: "provider-1",
+          sentAt: fixtureNow.toISOString(),
+        },
+      });
+      const fixture = await open({
+        role: "admin",
+        rows: [waiting, answered],
+        reviews: [pendingWork, sentMail],
+      });
+      await reviewCard(fixture.page, pendingWork.id).waitFor();
+      await card(fixture.page, waiting.id).waitFor();
+      await fixture.page.getByText("2 open items", { exact: true }).waitFor();
+      assert.equal(await card(fixture.page, answered.id).count(), 0);
+      assert.equal(await reviewCard(fixture.page, sentMail.id).count(), 0);
+      assert.equal(
+        await fixture.page.getByText("Email and work reviews", { exact: true }).count(),
+        0,
+      );
+      // The stack never reads settled Decisions at all.
+      assert.deepEqual(
+        [...new Set(fixture.reads.filter((url) => url.startsWith(`${apiBase}/decisions`)))],
+        [`${apiBase}/decisions?status=pending`],
+      );
+
+      await openHistory(fixture.page);
+      await card(fixture.page, answered.id)
+        .getByText("Answered by Morgan", { exact: true })
+        .waitFor();
+      await reviewCard(fixture.page, sentMail.id).getByText("Sent", { exact: true }).waitFor();
+      assert.equal(await card(fixture.page, waiting.id).count(), 0);
+      assert.equal(await reviewCard(fixture.page, pendingWork.id).count(), 0);
+      const search = fixture.page.getByRole("searchbox", { name: "Search decision history" });
+      await search.fill("already answered");
+      await reviewCard(fixture.page, sentMail.id).waitFor({ state: "detached" });
+      assert.equal(await card(fixture.page, answered.id).count(), 1);
+      await search.fill("nonexistent customer");
+      await fixture.page.getByText("No matching items", { exact: true }).waitFor();
+
+      // Old links keep their shape: each opens wherever its item now is.
+      for (const [from, to] of [
+        [
+          `/decisions?role=admin#decision-${answered.id}`,
+          `/decisions/history#decision-${answered.id}`,
+        ],
+        [`/decisions?role=admin#review-${sentMail.id}`, `/decisions/history#review-${sentMail.id}`],
+        [
+          `/decisions/history?role=admin#decision-${waiting.id}`,
+          `/decisions#decision-${waiting.id}`,
+        ],
+        [
+          `/decisions/history?role=admin#review-${pendingWork.id}`,
+          `/decisions#review-${pendingWork.id}`,
+        ],
+      ]) {
+        await fixture.page.goto(`${origin}${companyPath}${from}`, { waitUntil: "commit" });
+        await fixture.page.waitForURL(`${origin}${companyPath}${to}`);
+        await fixture.page.locator(`[id="${to.split("#")[1]}"]`).waitFor();
+      }
+      assert.deepEqual(fixture.writes, []);
+      await fixture.page.close();
+    },
+  );
   await check("historical Discuss remains visible beside outcomes on a narrow phone", async () => {
     const fixture = await open({
+      surface: "history",
       width: 360,
       rows: [
         decision({

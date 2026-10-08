@@ -93,6 +93,8 @@ import VaultLayout from "./pages/VaultLayout";
 import VaultIntegrations from "./pages/VaultIntegrations";
 import Approvals from "./pages/Approvals";
 import Decisions from "./pages/Decisions";
+import DecisionHistory from "./pages/DecisionHistory";
+import DecisionsLayout from "./pages/DecisionsLayout";
 import Goals from "./pages/Goals";
 import Revisions from "./pages/Revisions";
 import Initiatives from "./pages/Initiatives";
@@ -742,7 +744,12 @@ function CompanyRoutes({
           </Route>
 
           <Route path="approvals" element={<Approvals company={company} />} />
-          <Route path="decisions" element={<Decisions company={company} me={me} />} />
+          {/* Decision stack — what still needs a Member, and, on its own page,
+            the History of what was answered, dismissed, or reviewed. */}
+          <Route path="decisions" element={<DecisionsLayout company={company} />}>
+            <Route index element={<Decisions company={company} me={me} />} />
+            <Route path="history" element={<DecisionHistory company={company} me={me} />} />
+          </Route>
           <Route path="goals" element={<Goals company={company} me={me} />} />
           <Route path="revisions" element={<Revisions company={company} me={me} />} />
           <Route path="initiatives" element={<Initiatives company={company} me={me} />} />
