@@ -1,7 +1,12 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
+import {
+  type DecisionDiscussionResult,
+  getDecisionDiscussion,
+  openDecisionDiscussion,
+} from "../services/decisionDiscussions.js";
 import { kickoffDecision } from "../services/decisionKickoff.js";
 import {
   cancelDecision,
@@ -49,6 +54,7 @@ const snoozeSchema = z
   })
   .strict();
 const restoreSchema = z.object({}).strict();
+const openDiscussionSchema = z.object({}).strict();
 
 decisionsRouter.get("/decisions", async (req, res) => {
   const { cid } = req.params as Record<string, string>;
@@ -70,6 +76,53 @@ decisionsRouter.get("/decisions/:id", validateParams(idParamsSchema), async (req
   if (!decision) return res.status(404).json({ error: "Not found" });
   return res.json(decision);
 });
+
+function sendDiscussion(res: Response, result: DecisionDiscussionResult) {
+  if (result.outcome === "not_found") return res.status(404).json({ error: "Not found" });
+  if (result.outcome === "employee_deleted") {
+    return res
+      .status(409)
+      .json({ error: "The AI Employee who asked this decision has been deleted." });
+  }
+  return res.json(result.discussion);
+}
+
+/**
+ * The requesting Member's own discussion of this Decision with the employee
+ * who asked it, shown on the Decision itself. Discussion transcripts carry a
+ * Member's delegated authority, so — like direct chat — API keys cannot read
+ * or open them. Turns are sent through the ordinary conversation endpoints.
+ */
+decisionsRouter.get(
+  "/decisions/:id/discussion",
+  requireBrowserSession,
+  validateParams(idParamsSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as Record<string, string>;
+    const result = await getDecisionDiscussion({
+      companyId: cid,
+      decisionId: id,
+      userId: req.userId!,
+    });
+    return sendDiscussion(res, result);
+  },
+);
+
+decisionsRouter.post(
+  "/decisions/:id/discussion",
+  requireBrowserSession,
+  validateParams(idParamsSchema),
+  validateBody(openDiscussionSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as Record<string, string>;
+    const result = await openDecisionDiscussion({
+      companyId: cid,
+      decisionId: id,
+      userId: req.userId!,
+    });
+    return sendDiscussion(res, result);
+  },
+);
 
 decisionsRouter.post(
   "/decisions/:id/decide",

@@ -39,6 +39,10 @@ export type ConversationSource =
   unique: true,
   where: '"externalKey" IS NOT NULL',
 })
+@Index(["discussedDecisionId", "ownerUserId"], {
+  unique: true,
+  where: '"discussedDecisionId" IS NOT NULL',
+})
 export class Conversation {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -96,6 +100,19 @@ export class Conversation {
    */
   @Column({ type: "varchar", nullable: true })
   memberBrowserId!: string | null;
+
+  /**
+   * The {@link Decision} this thread discusses, set by the server when a Member
+   * opens the discussion on the Decision itself. It is the thread's binding:
+   * every turn is a read-only discussion of that Decision, and no message can
+   * rebind it (`services/decisionChatSource.ts`). One per Member and Decision,
+   * so the Decision shows the same discussion each time it is opened.
+   *
+   * Not the inverse of `Decision.conversationId`, which names the chat a
+   * Decision was raised in.
+   */
+  @Column({ type: "varchar", nullable: true })
+  discussedDecisionId!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

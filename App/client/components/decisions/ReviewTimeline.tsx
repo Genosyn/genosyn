@@ -28,6 +28,7 @@ export function ReviewTimeline({
   return <ol className={clsx("m-0 list-none p-0", className)}>{children}</ol>;
 }
 export function ReviewTimelineItem({
+  id,
   icon: Icon,
   title,
   meta,
@@ -35,6 +36,7 @@ export function ReviewTimelineItem({
   children,
   className,
 }: {
+  id?: string;
   icon: LucideIcon;
   title: React.ReactNode;
   meta?: React.ReactNode;
@@ -44,6 +46,7 @@ export function ReviewTimelineItem({
 }) {
   return (
     <li
+      id={id}
       className={clsx(
         "relative grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] gap-x-3 pb-5",
         "after:absolute after:bottom-0 after:left-[0.9375rem] after:top-8 after:w-px after:bg-slate-200 last:pb-0 last:after:hidden dark:after:bg-slate-700",

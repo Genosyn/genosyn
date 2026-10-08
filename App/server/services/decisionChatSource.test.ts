@@ -282,6 +282,83 @@ describe("Decision discussion source", () => {
     }
   });
 
+  test("binds a thread opened on the Decision by its row, whatever its messages link", async () => {
+    const f = await fixture();
+    const thread = await conversation(f, "Why would we wait?");
+    await AppDataSource.getRepository(Conversation).update(thread.id, {
+      discussedDecisionId: f.decision.id,
+    });
+    const other = await insert(Decision, {
+      companyId: f.company.id,
+      employeeId: f.employee.id,
+      title: "Another decision",
+      body: "Wrong context",
+      optionsJson: JSON.stringify(OPTIONS),
+    });
+    for (const message of [
+      "And what does it cost?",
+      // A later message cannot point the thread at another Decision.
+      `Compare ${f.link.replace(f.decision.id, other.id)}`,
+    ]) {
+      const source = await createDecisionChatSource({
+        ...f.input,
+        conversationId: thread.id,
+        message,
+      });
+      assert.ok(source, message);
+      assert.deepEqual(
+        source.tools.map((tool) => tool.name),
+        ["read_decision"],
+      );
+      assert.equal(referenceData((await source.tools[0].run({})).content).id, f.decision.id);
+    }
+    // Before its first message is saved the row still binds the thread.
+    const empty = await insert(Conversation, {
+      employeeId: f.employee.id,
+      ownerUserId: f.member.id,
+      source: "web",
+      discussedDecisionId: other.id,
+    });
+    const opening = await createDecisionChatSource({
+      ...f.input,
+      conversationId: empty.id,
+      message: "Why?",
+    });
+    assert.ok(opening);
+    assert.equal(referenceData((await opening.tools[0].run({})).content).id, other.id);
+  });
+
+  test("refuses a row-bound thread whose opening links a different Decision", async () => {
+    const f = await fixture();
+    const other = await insert(Decision, {
+      companyId: f.company.id,
+      employeeId: f.employee.id,
+      title: "Another decision",
+      body: "Wrong context",
+      optionsJson: JSON.stringify(OPTIONS),
+    });
+    const conflicting = await conversation(f, `Discuss ${f.link.replace(f.decision.id, other.id)}`);
+    await AppDataSource.getRepository(Conversation).update(conflicting.id, {
+      discussedDecisionId: f.decision.id,
+    });
+    await assert.rejects(
+      createDecisionChatSource({ ...f.input, conversationId: conflicting.id, message: "Why?" }),
+      DecisionDiscussionScopeError,
+    );
+    // Its own link in the opening is not a conflict. A Member has one
+    // discussion per Decision, so release the first thread's binding.
+    await AppDataSource.getRepository(Conversation).update(conflicting.id, {
+      discussedDecisionId: null,
+    });
+    const agreeing = await conversation(f);
+    await AppDataSource.getRepository(Conversation).update(agreeing.id, {
+      discussedDecisionId: f.decision.id,
+    });
+    assert.ok(
+      await createDecisionChatSource({ ...f.input, conversationId: agreeing.id, message: "Why?" }),
+    );
+  });
+
   test("does not rebind an ordinary conversation or trust an assistant's link", async () => {
     const f = await fixture();
     const thread = await conversation(f, "Ordinary chat");
@@ -604,6 +681,35 @@ describe("Decision discussion model boundary", () => {
         assert.equal(parameters?.additionalProperties, false);
         assert.deepEqual(parameters?.required ?? [], []);
       }
+    });
+  });
+
+  test("runs a thread opened on the Decision as its discussion even when it quotes a Review", async () => {
+    const f = await fixture();
+    const question = `Is this like [Review](/c/${f.company.slug}/decisions#review-${f.decision.id})?`;
+    const thread = await conversation(f, question);
+    await AppDataSource.getRepository(Conversation).update(thread.id, {
+      discussedDecisionId: f.decision.id,
+    });
+    await withModel(f, readThenAnswer, async (requests) => {
+      const result = await streamChatWithEmployee(
+        f.company.id,
+        f.employee.id,
+        question,
+        [],
+        () => {},
+        turnOptions(f, thread.id),
+      );
+      assert.equal(result.status, "ok");
+      assert.equal(result.reply, "The main concern is support coverage.");
+      assert.equal(requests.length, 2);
+      for (const request of requests) {
+        assert.deepEqual(
+          request.tools?.map((tool) => tool.function?.name),
+          ["read_decision"],
+        );
+      }
+      assert.equal(referenceData(requests[1].messages?.at(-1)?.content ?? "").id, f.decision.id);
     });
   });
 

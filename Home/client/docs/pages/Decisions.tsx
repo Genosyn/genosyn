@@ -182,7 +182,7 @@ export function Decisions() {
         </LI>
         <LI>
           Need more detail? Press <Strong>Discuss</Strong> to ask the AI Employee that raised the
-          decision about its reasoning, alternatives, or tradeoffs.
+          decision about its reasoning, alternatives, or tradeoffs, right on the decision.
         </LI>
         <LI>
           Under <Strong>What do you need to decide?</Strong>, select the answer you want and read
@@ -218,21 +218,27 @@ export function Decisions() {
 
       <H2 id="discussing">Discussing a decision</H2>
       <P>
-        Press <Strong>Discuss</Strong> on a decision in the <Strong>Decision stack</Strong>. A new
-        private conversation opens with the AI Employee that asked, with a draft message linking to
-        that exact decision. Add your question and press <Strong>Send</Strong> when you are ready.
-        Opening the draft sends nothing.
+        Press <Strong>Discuss</Strong> on a decision, on Home or in the{" "}
+        <Strong>Decision stack</Strong>. A <Strong>Discussion with {"{employee}"}</Strong> step
+        opens at the end of that decision&apos;s own timeline, with a message box. Type your question
+        and press <Strong>Send</Strong>, or Enter. The AI Employee that asked replies in the same
+        thread, and you can keep asking follow-ups there without leaving the decision. Opening the
+        discussion sends nothing, and <Strong>Hide discussion</Strong> folds it away.
       </P>
       <P>
-        You can ask follow-up questions in the same conversation. The employee receives the
-        decision&apos;s current context, options, and status each time you send, including the
-        recorded answer if someone has since chosen an option. Ask why it recommends an option, what
-        it has already checked, or what changes if you wait.
+        The discussion is private to you and stays with the decision: press{" "}
+        <Strong>Discuss</Strong> again later, after a reload or on another device, and the
+        conversation is still there. It also appears in your chat with that AI Employee, titled{" "}
+        <Strong>Discuss: {"{decision}"}</Strong>. Each time you send, the employee reads the
+        decision&apos;s current context, options, and status, including the recorded answer if
+        someone has since chosen an option. Ask why it recommends an option, what it has already
+        checked, or what changes if you wait.
       </P>
       <P>
-        Discussion is for understanding the decision. It does not answer or dismiss it, or start the
-        proposed work. Return to the decision card, select an option, and confirm your answer when
-        you have made your choice. You can also use <Strong>Discuss</Strong> on the{" "}
+        Discussion is for understanding the decision. The employee can only read it: the discussion
+        does not answer or dismiss the decision, or start the proposed work. When you have made your
+        choice, select an option on the same card and confirm your answer. A discussion you have
+        open stays in place under the answer. You can also use <Strong>Discuss</Strong> on the{" "}
         <Strong>History</Strong> page to understand an earlier outcome. If the asking employee has
         been deleted, its Discuss button is unavailable.
       </P>

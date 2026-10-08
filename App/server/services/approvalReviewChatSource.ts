@@ -52,6 +52,14 @@ function linkedReviewIds(message: string, companySlug: string): string[] {
   return ids;
 }
 
+async function isDecisionDiscussion(conversationId: string): Promise<boolean> {
+  const conversation = await AppDataSource.getRepository(Conversation).findOne({
+    where: { id: conversationId },
+    select: ["id", "discussedDecisionId"],
+  });
+  return Boolean(conversation?.discussedDecisionId);
+}
+
 type ReviewDetails =
   | NonNullable<ReturnType<typeof mailReviewDetails>>
   | NonNullable<ReturnType<typeof proactiveWorkReviewDetails>>;
@@ -179,17 +187,21 @@ export async function createApprovalReviewChatSource(
   const openingReviewIds = new Set(
     openingMessages.flatMap((opening) => linkedReviewIds(opening.content, input.companySlug)),
   );
+  if (openingReviewIds.size === 0) return null;
+  // A thread opened on a Decision stays that Decision's read-only discussion.
+  // A Review link quoted in it must not trade that binding for the review
+  // editor and its write tool.
+  if (input.conversationId && (await isDecisionDiscussion(input.conversationId))) return null;
   if (openingReviewIds.size > 1) throw new ApprovalReviewDiscussionScopeError();
   const openingDecisionIds = new Set(
     openingMessages.flatMap((opening) => linkedDecisionIds(opening.content, input.companySlug)),
   );
-  if (openingReviewIds.size > 0 && openingDecisionIds.size > 0) {
+  if (openingDecisionIds.size > 0) {
     throw new ApprovalReviewDiscussionScopeError(
       "This conversation contains conflicting Review and Decision links. Open a new discussion from the Decision stack.",
     );
   }
   const approvalId = [...openingReviewIds][0];
-  if (!approvalId) return null;
 
   // The exact link is already present, so any scope failure must stay on the
   // restricted path rather than falling through to ordinary full-tool chat.
