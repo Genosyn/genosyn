@@ -499,3 +499,101 @@ describe("decision pickup", () => {
     assert.ok((row.pickupSummary ?? "").length <= 8_000);
   });
 });
+
+describe("the report people read, apart from the log", () => {
+  const narration =
+    "I opened the deal. Now I'll check the quote.\n\nThe quote is current. Sending the reply.\n\nSent Acme the reply and logged it on the deal.";
+
+  async function pickUp(result: Partial<ChatResult> & { status: ChatResult["status"] }) {
+    await giveModel();
+    const decision = await stackAndAnswer();
+    await kickoffDecision({
+      companyId: company.id,
+      decisionId: decision.id,
+      requesterUserId: member.id,
+      requesterSessionVersion: 0,
+      runChat: fakeChat(result),
+    });
+    return reload(decision.id);
+  }
+
+  test("the final message is the report; every narrated step stays in the log", async () => {
+    const row = await pickUp({
+      status: "ok",
+      reply: narration,
+      finalText: "  Sent Acme the reply and logged it on the deal.  ",
+    });
+    assert.equal(row.pickupStatus, "done");
+    assert.equal(row.pickupReport, "Sent Acme the reply and logged it on the deal.");
+    assert.equal(row.pickupSummary, narration);
+  });
+
+  test("the employee's journal keeps the report, not the narration", async () => {
+    await pickUp({ status: "ok", reply: narration, finalText: "Sent Acme the reply." });
+    const [entry] = await AppDataSource.getRepository(JournalEntry).find({
+      where: { employeeId: employee.id, title: 'Picked up the decision "Send the pricing reply?"' },
+    });
+    assert.equal(entry.body, "Sent Acme the reply.");
+  });
+
+  test("without a final message there is no report, and the log is the journal entry", async () => {
+    const row = await pickUp({ status: "ok", reply: narration });
+    assert.equal(row.pickupReport, null);
+    assert.equal(row.pickupSummary, narration);
+    const [entry] = await AppDataSource.getRepository(JournalEntry).find({
+      where: { employeeId: employee.id, title: 'Picked up the decision "Send the pricing reply?"' },
+    });
+    assert.equal(entry.body, narration);
+  });
+
+  test("a failed session records why, and no report", async () => {
+    // A runtime that reported a final message alongside an error still files no report.
+    const row = await pickUp({
+      status: "error",
+      reply: "The model refused the request.",
+      finalText: "x",
+    } as Partial<ChatResult> & { status: ChatResult["status"] });
+    assert.equal(row.pickupStatus, "failed");
+    assert.equal(row.pickupReport, null);
+    assert.equal(row.pickupSummary, "The model refused the request.");
+  });
+
+  test("both are scrubbed of credentials before every Member can read them", async () => {
+    const row = await pickUp({
+      status: "ok",
+      reply: "Logged in with password: hunter2-secret-value and token=abc123secretvalue. Done.",
+      finalText: "Rotated the key sk-proj-abcdefghijklmnop and saved it to the Vault.",
+    });
+    assert.doesNotMatch(row.pickupSummary ?? "", /hunter2-secret-value|abc123secretvalue/);
+    assert.doesNotMatch(row.pickupReport ?? "", /sk-proj-abcdefghijklmnop/);
+    assert.match(row.pickupReport ?? "", /\[redacted credential\]/);
+  });
+
+  test("a long report is capped well below the log", async () => {
+    const row = await pickUp({
+      status: "ok",
+      reply: "y".repeat(9_000),
+      finalText: "z".repeat(5_000),
+    });
+    assert.equal((row.pickupReport ?? "").length, 2_000);
+    assert.equal((row.pickupSummary ?? "").length, 8_000);
+  });
+
+  test("the brief asks for a short plain report as the final message", async () => {
+    await giveModel();
+    let brief = "";
+    const decision = await stackAndAnswer();
+    await kickoffDecision({
+      companyId: company.id,
+      decisionId: decision.id,
+      requesterUserId: member.id,
+      requesterSessionVersion: 0,
+      runChat: fakeChat({ status: "ok", reply: "ok" }, (message) => {
+        brief = message;
+      }),
+    });
+    assert.match(brief, /Your final message is shown to the team on the decision itself/);
+    assert.match(brief, /one or two sentences on what you did and where it landed/);
+    assert.match(brief, /without narrating each step/);
+  });
+});

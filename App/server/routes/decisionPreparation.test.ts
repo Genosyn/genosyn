@@ -76,6 +76,10 @@ after(async () => {
   await closeTestDb();
 });
 
+// One employee never has the same question waiting twice
+// (`decisionDuplicates.ts`), so each mode asks its own.
+const QUESTION = { draft: "Which verified price applies?", triage: "Which renewal term applies?" };
+
 async function ask(mode: "draft" | "triage"): Promise<Decision> {
   const token = issueMcpToken(employee.id, company.id, {
     authority: "employee",
@@ -86,7 +90,7 @@ async function ask(mode: "draft" | "triage"): Promise<Decision> {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        title: "Which verified price applies?",
+        title: QUESTION[mode],
         humanDecisionReason:
           "The signed agreements conflict about a material renewal commitment; a Member must settle the company's obligation.",
         options: [{ label: "Standard rate" }, { label: "Contract rate" }],

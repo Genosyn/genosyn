@@ -155,6 +155,8 @@ function decision(changes: Partial<Decision> = {}): Decision {
     companyId: "company",
     title: "Which customer update should we send?",
     body: "The detailed draft has trade-offs. Do not send it before we decide.",
+    summary: null,
+    recommendation: null,
     options: [
       { id: "send", label: "Send the update", detail: "Send the reviewed draft.", tone: "primary" },
       { id: "revise", label: "Revise it first", detail: "Wait for more context.", tone: "neutral" },
@@ -176,6 +178,7 @@ function decision(changes: Partial<Decision> = {}): Decision {
     routedToEmployee: null,
     pickupStatus: "none",
     pickupSummary: null,
+    pickupReport: null,
     pickupStartedAt: null,
     pickupFinishedAt: null,
     snoozedUntil: null,
@@ -869,6 +872,36 @@ function messageBox(locator: Page | Locator) {
 function transcript(locator: Page | Locator) {
   return locator.getByRole("log", { name: "Messages with Alex Rivera", exact: true });
 }
+/** The one line a settled row collapses to: "Done · Sent the update". */
+function statusLine(locator: Locator) {
+  return locator.locator("[data-status-line]");
+}
+/** Wait until a row's status line reads `expected` (a whole line, or a pattern). */
+async function waitForLine(row: Locator, expected: string | RegExp, timeout = 12_000) {
+  const deadline = Date.now() + timeout;
+  let last = "";
+  for (;;) {
+    last = (await statusLine(row).count()) ? await statusLine(row).innerText() : "";
+    if (typeof expected === "string" ? last === expected : expected.test(last)) return;
+    if (Date.now() > deadline)
+      throw new Error(`status line stayed ${JSON.stringify(last)}, expected ${String(expected)}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+/** Open a row's single Details disclosure and return what it shows. */
+async function details(page: Page, row: Locator) {
+  const toggle = row.getByRole("button", { name: "Details", exact: true });
+  const panel = await toggle.getAttribute("aria-controls");
+  assert.ok(panel, "Details names the panel it opens");
+  await toggle.click();
+  const opened = page.locator(`[id="${panel}"]`);
+  await opened.waitFor();
+  return opened;
+}
+/** Row ids in the order the list reads, groups included. */
+function rowIds(scope: Page | Locator) {
+  return scope.locator("[data-stack-row]").evaluateAll((rows) => rows.map((row) => row.id));
+}
 /** Discussing opens a step in the Decision's own timeline and never leaves it. */
 async function discussing(page: Page, row = decision()) {
   const scope = card(page, row.id);
@@ -1026,12 +1059,11 @@ try {
         name: "Active decisions",
         exact: true,
       });
-      assert.deepEqual(
-        await pendingSection
-          .locator(":scope > ul > li")
-          .evaluateAll((rows) => rows.map((row) => row.id)),
-        [`decision-${row.id}`, `review-${mail.id}`, `review-${work.id}`],
-      );
+      assert.deepEqual(await rowIds(pendingSection), [
+        `decision-${row.id}`,
+        `review-${mail.id}`,
+        `review-${work.id}`,
+      ]);
       assert.equal(await pendingSection.getByText("6 waiting", { exact: true }).count(), 1);
       const moreLink = pendingSection.getByRole("link", {
         name: "View all decisions · 3 more waiting",
@@ -1083,9 +1115,13 @@ try {
       await reviewCard(fixture.page, work.id)
         .getByRole("button", { name: "Approve & start", exact: true })
         .click();
-      await reviewCard(fixture.page, work.id)
-        .getByText("Work in progress", { exact: true })
+      await statusLine(reviewCard(fixture.page, work.id))
+        .getByText("Approved", { exact: true })
         .waitFor();
+      assert.equal(
+        await statusLine(reviewCard(fixture.page, work.id)).innerText(),
+        "Approved · Alex Rivera is doing the work",
+      );
       await quietNotice(fixture.page, `Work review “${work.title}” approved.`);
       assert.equal(
         await reviewCard(fixture.page, work.id)
@@ -1097,14 +1133,13 @@ try {
         .getByRole("button", { name: "Send now", exact: true })
         .click();
       await reviewCard(fixture.page, mail.id).getByText("Sent", { exact: true }).waitFor();
+      assert.equal(
+        await statusLine(reviewCard(fixture.page, mail.id)).innerText(),
+        "Sent · To customer@acme.example",
+      );
       await quietNotice(fixture.page, `Email review “${mail.title}” sent.`);
       const active = fixture.page.getByRole("region", { name: "Active decisions", exact: true });
-      assert.deepEqual(
-        await active
-          .locator(":scope > ul > li")
-          .evaluateAll((items) => items.map((item) => item.id)),
-        [`review-${work.id}`, `review-${mail.id}`],
-      );
+      assert.deepEqual(await rowIds(active), [`review-${work.id}`, `review-${mail.id}`]);
       assert.equal(
         await fixture.page
           .getByRole("heading", { name: "Nothing needs you right now", exact: true })
@@ -1120,18 +1155,23 @@ try {
       ]);
       assert.doesNotMatch(saved ?? "", /checkout|Acme|customer@/);
       await fixture.page.reload({ waitUntil: "commit" });
-      await reviewCard(fixture.page, work.id)
-        .getByText("Work in progress", { exact: true })
+      await statusLine(reviewCard(fixture.page, work.id))
+        .getByText("Approved", { exact: true })
         .waitFor();
       await reviewCard(fixture.page, mail.id).getByText("Sent", { exact: true }).waitFor();
       work.status = "approved";
       work.outcomeSummary = "Prepared and checked the checkout fix. Ready for review.";
       work.outcomeRunId = "approved-run";
       // No focus event: the visible running review must discover completion by polling.
-      await reviewCard(fixture.page, work.id)
-        .getByText("Work finished", { exact: true })
+      await statusLine(reviewCard(fixture.page, work.id))
+        .getByText("Done", { exact: true })
         .waitFor({ timeout: 12000 });
-      await reviewCard(fixture.page, work.id)
+      assert.equal(
+        await statusLine(reviewCard(fixture.page, work.id)).innerText(),
+        "Done · Prepared and checked the checkout fix.",
+      );
+      // The whole report is one Details away.
+      await (await details(fixture.page, reviewCard(fixture.page, work.id)))
         .getByText(work.outcomeSummary, { exact: true })
         .waitFor();
       await reviewCard(fixture.page, work.id)
@@ -1191,9 +1231,12 @@ try {
     await fixture.page
       .getByRole("button", { name: "Confirm: Send the update", exact: true })
       .click();
-    await card(fixture.page, row.id).getByText("answered", { exact: true }).waitFor();
+    // The answered card collapses to one line that follows the work.
+    await waitForLine(
+      card(fixture.page, row.id),
+      "You chose “Send the update” · Waiting for Alex Rivera to start",
+    );
     await quietNotice(fixture.page, `Decision “${row.title}” answered.`);
-    await card(fixture.page, row.id).getByText("The answer", { exact: true }).waitFor();
     assert.equal(
       await card(fixture.page, row.id)
         .getByRole("button", { name: /Confirm:/ })
@@ -1203,15 +1246,17 @@ try {
     row.pickupStatus = "running";
     row.pickupStartedAt = fixtureNow.toISOString();
     await fixture.page.evaluate(() => dispatchEvent(new Event("focus")));
-    await card(fixture.page, row.id)
-      .getByText("Alex Rivera · Working on it now", { exact: true })
-      .waitFor();
+    await waitForLine(
+      card(fixture.page, row.id),
+      "You chose “Send the update” · Alex Rivera is on it",
+    );
     row.pickupStatus = "done";
     row.pickupSummary = "Updated the customer plan and recorded the next review date.";
     row.pickupFinishedAt = new Date(fixtureNow.getTime() + 60000).toISOString();
-    await card(fixture.page, row.id)
-      .getByText(row.pickupSummary, { exact: true })
-      .waitFor({ timeout: 12000 });
+    await waitForLine(
+      card(fixture.page, row.id),
+      "Done · Updated the customer plan and recorded the next review date.",
+    );
     await card(fixture.page, row.id)
       .getByRole("button", { name: "Close decision", exact: true })
       .click();
@@ -1281,15 +1326,14 @@ try {
         `decision-${other.id}`,
       ]);
       await fixture.page.reload({ waitUntil: "commit" });
-      await card(fixture.page, row.id)
-        .getByText("Alex Rivera · Working on it now", { exact: true })
-        .waitFor();
+      await waitForLine(card(fixture.page, row.id), /· Alex Rivera is on it$/);
       row.pickupStatus = "failed";
       row.pickupSummary = "Could not confirm the delivery date; no customer message was sent.";
       row.pickupFinishedAt = fixtureNow.toISOString();
-      await card(fixture.page, row.id)
-        .getByText(row.pickupSummary, { exact: true })
-        .waitFor({ timeout: 12000 });
+      await waitForLine(
+        card(fixture.page, row.id),
+        "Couldn’t finish · Could not confirm the delivery date; no customer message was sent.",
+      );
       await fitsViewport(fixture.page);
       await fixture.page.screenshot({
         path: path.join(output, "decision-followed-outcome-mobile.png"),
@@ -1301,8 +1345,8 @@ try {
       await card(fixture.page, row.id).waitFor({ state: "detached" });
       assert.equal(await card(fixture.page, other.id).getByRole("radio").count(), 2);
       await openHistory(fixture.page);
-      await card(fixture.page, row.id)
-        .getByText("Alex Rivera · Couldn't carry on", { exact: true })
+      await statusLine(card(fixture.page, row.id))
+        .getByText("Couldn’t finish", { exact: true })
         .waitFor();
       assert.equal(
         await card(fixture.page, row.id).count(),
@@ -1445,7 +1489,7 @@ try {
     },
   );
   await check(
-    "Dismiss stays in the stack until Close and Undismiss restores its history",
+    "Dismiss leaves the stack in one click and Undismiss restores it from History",
     async () => {
       const row = decision();
       const fixture = await open({ rows: [row] });
@@ -1457,11 +1501,21 @@ try {
       assert.equal(await fixture.page.getByRole("dialog").count(), 0);
       fixture.allowWrites();
       await pendingCard.getByRole("button", { name: "Dismiss", exact: true }).click();
-      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
-      await quietNotice(fixture.page, `Decision “${row.title}” dismissed.`);
-      await card(fixture.page, row.id)
-        .getByRole("button", { name: "Close decision", exact: true })
-        .click();
+      // No Close step: the dismissed question is gone from the stack at once.
+      await fixture.page
+        .getByRole("heading", { name: "Decision stack is clear", exact: true })
+        .waitFor();
+      await quietNotice(
+        fixture.page,
+        `Decision “${row.title}” dismissed. It is in Decision history.`,
+      );
+      assert.equal(await card(fixture.page, row.id).count(), 0);
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Close decision", exact: true }).count(),
+        0,
+      );
+      // It does not come back as something to follow after a reload.
+      await fixture.page.reload({ waitUntil: "commit" });
       await fixture.page
         .getByRole("heading", { name: "Decision stack is clear", exact: true })
         .waitFor();
@@ -1477,7 +1531,7 @@ try {
       const rail = (name: string) => fixture.page.getByRole("link", { name, exact: true });
       assert.equal(await rail("Active").getAttribute("aria-current"), "page");
       await rail("History").click();
-      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
+      await waitForLine(card(fixture.page, row.id), "Dismissed · By you");
       assert.equal(await rail("History").getAttribute("aria-current"), "page");
       assert.equal(await rail("Active").getAttribute("aria-current"), null);
       assert.equal(new URL(fixture.page.url()).pathname, `${companyPath}/decisions/history`);
@@ -1570,7 +1624,10 @@ try {
         decidedBy: null,
       });
       const fixture = await open({ surface: "history", rows: [row] });
-      await card(fixture.page, row.id).getByText("dismissed", { exact: true }).waitFor();
+      await waitForLine(
+        card(fixture.page, row.id),
+        "Withdrawn · Alex Rivera no longer needs an answer",
+      );
       assert.equal(
         await card(fixture.page, row.id)
           .getByRole("button", { name: "Undismiss", exact: true })
@@ -1738,29 +1795,20 @@ try {
       });
       const fixture = await open({ rows: [row] });
       const view = card(fixture.page, row.id);
-      // The stated reason is its own step; the context opens on its first two
-      // sections and names the rest. A label repeating the step title is dropped.
-      await view
-        .getByRole("heading", { name: "Why this needs a human decision", exact: true })
-        .waitFor();
-      await view.getByText(reason, { exact: true }).waitFor();
-      await view
-        .getByText("Acme asked for an update on their delayed order.", { exact: true })
-        .waitFor();
+      // The row opens on one plain line — the first sentence of the stated
+      // reason — and the recommendation; the rest waits behind Details.
+      assert.equal(await view.locator("[data-decision-summary]").innerText(), reason);
       assert.equal(
-        await view.getByRole("heading", { name: "What happened", exact: true }).count(),
-        1,
+        await view.locator("[data-decision-recommendation]").innerText(),
+        "Recommends: Send the update",
       );
-      await view.getByRole("heading", { name: "Why it is blocked", exact: true }).waitFor();
-      const more = view.getByRole("list", { name: "Also in the full context", exact: true });
-      assert.deepEqual(await more.getByRole("listitem").allInnerTexts(), [
-        "Recommendation",
-        "Unknowns",
-      ]);
+      for (const folded of [
+        "Acme asked for an update on their delayed order.",
+        "Send the reviewed draft once the date is confirmed.",
+      ])
+        assert.equal(await view.getByText(folded, { exact: true }).count(), 0, folded);
       assert.equal(
-        await view
-          .getByText("Send the reviewed draft once the date is confirmed.", { exact: true })
-          .count(),
+        await view.getByRole("heading", { name: "Why this needs a human decision" }).count(),
         0,
       );
       await fixture.page.screenshot({
@@ -1771,20 +1819,32 @@ try {
       assert.equal(await fixture.page.getByRole("radio", { checked: true }).count(), 0);
       assert.equal(await fixture.page.getByRole("button", { name: /Confirm:/ }).count(), 0);
       const recommended = fixture.page.getByRole("radio", { name: /^Send the update\b/ });
-      assert.equal(await fixture.page.getByText("Recommended", { exact: true }).count(), 1);
-      await fixture.page.getByText("Send the update", { exact: true }).click();
+      assert.match((await recommended.getAttribute("aria-describedby")) ?? "", /detail/);
+      // Details holds the reason, every labelled section and what each choice means.
+      const opened = await details(fixture.page, view);
+      await opened.getByRole("heading", { name: "Why it needs you", exact: true }).waitFor();
+      await opened.getByText(reason, { exact: true }).waitFor();
+      for (const heading of ["What happened", "Why it is blocked", "Recommendation", "Unknowns"])
+        await opened.getByRole("heading", { name: heading, exact: true }).waitFor();
+      await opened
+        .getByText("Acme asked for an update on their delayed order.", { exact: true })
+        .waitFor();
+      await opened
+        .getByText("Send the reviewed draft once the date is confirmed.", { exact: true })
+        .waitFor();
+      await opened.getByRole("heading", { name: "The choices", exact: true }).waitFor();
+      assert.equal(await opened.getByText("Recommended", { exact: true }).count(), 1);
+      await view
+        .getByRole("radiogroup", { name: "Choose one answer" })
+        .getByText("Send the update", { exact: true })
+        .click();
       assert.equal(await recommended.isChecked(), true);
+      // The picked answer explains itself before it is confirmed.
+      await view.locator("p").filter({ hasText: "Send the reviewed draft to Acme." }).waitFor();
       await fixture.page.getByRole("button", { name: "Add guidance", exact: true }).click();
       await fixture.page
         .getByRole("textbox", { name: "Guidance for Alex Rivera (optional)" })
         .fill("Use the revised delivery date.");
-      await view.getByRole("button", { name: "Read the full context", exact: true }).click();
-      await view
-        .getByText("Send the reviewed draft once the date is confirmed.", { exact: true })
-        .waitFor();
-      await view.getByRole("heading", { name: "Unknowns", exact: true }).waitFor();
-      assert.equal(await more.count(), 0);
-      await view.getByRole("button", { name: "Show less", exact: true }).waitFor();
       assert.deepEqual(fixture.writes, []);
       await fixture.page.screenshot({
         path: path.join(output, "decision-review-desktop.png"),
@@ -1820,8 +1880,16 @@ try {
           }),
         ],
       });
-      await fixture.page.getByText("No context was included.", { exact: false }).waitFor();
+      const view = card(fixture.page);
+      // Nothing to summarize and nothing recommended: the row invents neither.
+      assert.equal(await view.locator("[data-decision-summary]").count(), 0);
+      assert.equal(await view.locator("[data-decision-recommendation]").count(), 0);
+      const opened = await details(fixture.page, view);
+      await opened
+        .getByText(/^No more detail was included\. Use Discuss to ask Alex Rivera\.$/)
+        .waitFor();
       assert.equal(await fixture.page.getByText("Recommended", { exact: true }).count(), 0);
+      assert.equal(await opened.getByRole("heading", { name: "The choices" }).count(), 0);
       assert.equal(
         await fixture.page.getByRole("button", { name: "Dismiss", exact: true }).count(),
         1,
@@ -1872,23 +1940,38 @@ try {
           reviews: [workReview()],
           width: 360,
         });
-        await fixture.page
-          .getByText("Acme reported a checkout error in their email.", { exact: true })
-          .waitFor();
-        assert.equal(
-          await fixture.page
-            .getByRole("link", { name: "Open Review customer reports", exact: true })
-            .getAttribute("href"),
-          `${companyPath}/routines/alex/review-customer-reports`,
-        );
-        await fixture.page.getByText("Why this needs a human decision", { exact: true }).waitFor();
-        await fixture.page
+        const view = reviewCard(fixture.page);
+        // One plain line (the stated reason) and the plan, then the actions.
+        await view
           .getByText(
             "The checkout change affects customer payments and requires a consequential production decision.",
             { exact: true },
           )
           .waitFor();
-        await fixture.page.getByText("What the AI Employee recommends", { exact: true }).waitFor();
+        assert.match(
+          await view.locator("[data-work-plan]").innerText(),
+          /^Plan: Investigate the checkout failure, prepare a fix in the Repository, and run the existing Checks\.$/,
+        );
+        assert.equal(
+          await view
+            .getByText("Acme reported a checkout error in their email.", { exact: true })
+            .count(),
+          0,
+          "the context waits behind Details",
+        );
+        const opened = await details(fixture.page, view);
+        await opened
+          .getByText("Acme reported a checkout error in their email.", { exact: true })
+          .waitFor();
+        assert.equal(
+          await opened
+            .getByRole("link", { name: "Open Review customer reports", exact: true })
+            .getAttribute("href"),
+          `${companyPath}/routines/alex/review-customer-reports`,
+        );
+        await opened.getByRole("heading", { name: "Why it needs you", exact: true }).waitFor();
+        await opened.getByRole("heading", { name: "The plan", exact: true }).waitFor();
+        await opened.getByText(/Approve & start authorizes only this plan/).waitFor();
         const actionLabel = action === "approve" ? "Approve & start" : "Don’t do this";
         assert.equal(await fixture.page.getByRole("button", { name: "Go back" }).count(), 0);
         assert.equal(await fixture.page.getByRole("dialog").count(), 0);
@@ -1901,31 +1984,28 @@ try {
           });
         fixture.allowWrites();
         await fixture.page.getByRole("button", { name: actionLabel, exact: true }).click();
-        await reviewCard(fixture.page)
-          .getByRole("button", { name: "Close review", exact: true })
-          .waitFor();
-        await fixture.page
-          .getByText(action === "approve" ? "Work in progress" : "Not approved", {
-            exact: true,
-          })
-          .waitFor();
-        assert.equal(
-          await fixture.page.getByRole("button", { name: "Approve & start", exact: true }).count(),
-          0,
-        );
         await quietNotice(
           fixture.page,
           action === "approve"
             ? "Work review “Fix the checkout error reported by Acme” approved."
-            : "Work review “Fix the checkout error reported by Acme” declined.",
+            : "Work review “Fix the checkout error reported by Acme” declined. It is in Decision history.",
         );
-        await reviewCard(fixture.page)
-          .getByRole("button", { name: "Close review", exact: true })
-          .click();
+        if (action === "approve") {
+          // Approved work is followed: one line until Close.
+          await waitForLine(view, "Approved · Alex Rivera is doing the work");
+          assert.equal(
+            await fixture.page
+              .getByRole("button", { name: "Approve & start", exact: true })
+              .count(),
+            0,
+          );
+          await view.getByRole("button", { name: "Close review", exact: true }).click();
+        }
+        // Declined work has nothing to follow, so it left in the same click.
         await closedReviewInHistory(
           fixture.page,
           workReviewId,
-          action === "approve" ? "Work in progress" : "Not approved",
+          action === "approve" ? "Approved" : "Declined",
         );
         assert.deepEqual(fixture.writes, [
           {
@@ -2008,14 +2088,27 @@ try {
         ],
       });
       await fixture.page.getByText("Email and work reviews", { exact: true }).waitFor();
-      await fixture.page
+      const finished = reviewCard(fixture.page, "66666666-6666-4666-8666-666666666666");
+      await waitForLine(finished, "Done · Prepared the checkout fix for review.");
+      await waitForLine(
+        reviewCard(fixture.page, "77777777-7777-4777-8777-777777777777"),
+        "Approved · Alex Rivera is doing the work",
+      );
+      await waitForLine(
+        reviewCard(fixture.page, "88888888-8888-4888-8888-888888888888"),
+        "Couldn’t finish · The approved work could not finish.",
+      );
+      await waitForLine(
+        reviewCard(fixture.page, "99999999-9999-4999-8999-999999999999"),
+        "Declined · The work did not start.",
+      );
+      // The full report and the Run behind it are one Details away.
+      const opened = await details(fixture.page, finished);
+      await opened
         .getByText("Prepared the checkout fix for review. Nothing was published.", { exact: true })
         .waitFor();
-      await fixture.page.getByText("Work in progress", { exact: true }).waitFor();
-      await fixture.page.getByText("Work failed", { exact: true }).waitFor();
-      await fixture.page.getByText("Not approved", { exact: true }).waitFor();
       assert.equal(
-        await fixture.page
+        await opened
           .getByRole("link", { name: "Open AI work, Effects, and Checks", exact: true })
           .getAttribute("href"),
         `${companyPath}/routines/alex/review-customer-reports?run=${secondDecisionId}`,
@@ -2037,7 +2130,21 @@ try {
     async () => {
       const review = mailReview();
       const fixture = await open({ role: "admin", rows: [], reviews: [review] });
-      await fixture.page
+      const view = reviewCard(fixture.page, mailReviewId);
+      // The row: who it is for, the subject, and the first lines of the email.
+      assert.equal(await view.locator("[data-mail-to]").innerText(), "customer@acme.example");
+      assert.equal(
+        await view.locator("[data-mail-subject]").innerText(),
+        "Re: Checkout error with annual-plan discount",
+      );
+      assert.match(
+        await view.locator("[data-mail-preview]").innerText(),
+        /^Hi Priya, We found the checkout issue and prepared a fix\./,
+      );
+      assert.equal(await view.getByText("Reproduced the report", { exact: true }).count(), 0);
+      // Details: the customer's email, what the employee did first, the exact reply.
+      const opened = await details(fixture.page, view);
+      await opened
         .getByText(
           "Acme reported that checkout fails after they apply an annual-plan discount code.",
           {
@@ -2045,29 +2152,27 @@ try {
           },
         )
         .waitFor();
-      await fixture.page
-        .getByText("What the AI Employee reports it did", { exact: true })
+      await opened
+        .getByRole("heading", { name: "What Alex Rivera did first", exact: true })
         .waitFor();
-      await fixture.page.getByText("Reproduced the report", { exact: true }).waitFor();
-      await fixture.page.getByText("Prepared the fix", { exact: true }).waitFor();
-      await fixture.page.getByText("Draft reply", { exact: true }).waitFor();
-      await fixture.page.getByText("customer@acme.example", { exact: true }).waitFor();
-      await fixture.page
+      await opened.getByText("Reproduced the report", { exact: true }).waitFor();
+      await opened.getByText("Prepared the fix", { exact: true }).waitFor();
+      await opened.getByRole("heading", { name: "The reply", exact: true }).waitFor();
+      await opened.getByText("customer@acme.example", { exact: true }).waitFor();
+      await opened
         .getByText("Re: Checkout error with annual-plan discount", { exact: true })
         .waitFor();
       assert.equal(
-        await fixture.page
+        await opened
           .getByRole("link", { name: "Open original email", exact: true })
           .getAttribute("href"),
         `${companyPath}/mail/t/customer-thread?account=mail-account`,
       );
       assert.equal(
-        await fixture.page
-          .getByRole("link", { name: "Open AI work", exact: true })
-          .getAttribute("href"),
+        await opened.getByRole("link", { name: "Open AI work", exact: true }).getAttribute("href"),
         `${companyPath}/mail/t/customer-thread?account=mail-account#handover-handover-1`,
       );
-      const attachment = fixture.page.getByRole("link", {
+      const attachment = opened.getByRole("link", {
         name: "checkout-fix-summary.pdf",
         exact: true,
       });
@@ -2076,7 +2181,7 @@ try {
         `${apiBase}/approvals/${mailReviewId}/mail-review/attachments/0`,
       );
       assert.equal(await attachment.getAttribute("download"), "checkout-fix-summary.pdf");
-      await fixture.page
+      await opened
         .getByText(/exists only in Genosyn.*Nothing has been saved to Gmail or IMAP Drafts/)
         .waitFor();
       assert.deepEqual(fixture.writes, []);
@@ -2105,8 +2210,10 @@ try {
       },
     };
     const fixture = await open({ role: "admin", rows: [], reviews: [review] });
-    await fixture.page.getByText("Proposed email", { exact: true }).waitFor();
-    await fixture.page.getByText("Draft email", { exact: true }).waitFor();
+    const opened = await details(fixture.page, reviewCard(fixture.page, secondMailReviewId));
+    await opened.getByRole("heading", { name: "Why this email", exact: true }).waitFor();
+    await opened.getByRole("heading", { name: "The email", exact: true }).waitFor();
+    assert.equal(await opened.getByRole("heading", { name: "The reply" }).count(), 0);
     assert.equal(
       await fixture.page.getByRole("link", { name: "Open original email", exact: true }).count(),
       0,
@@ -2122,16 +2229,11 @@ try {
     const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
     fixture.allowWrites();
     await fixture.page.getByRole("button", { name: "Send now", exact: true }).click();
-    await reviewCard(fixture.page, mailReviewId)
-      .getByRole("button", { name: "Close review", exact: true })
-      .waitFor();
-    await fixture.page.getByText("Sent", { exact: true }).waitFor();
-    await fixture.page
-      .getByText("The exact reviewed email was sent. No mailbox draft was created first.", {
-        exact: true,
-      })
-      .waitFor();
-    await fixture.page
+    const sent = reviewCard(fixture.page, mailReviewId);
+    await sent.getByRole("button", { name: "Close review", exact: true }).waitFor();
+    await waitForLine(sent, "Sent · To customer@acme.example");
+    const opened = await details(fixture.page, sent);
+    await opened
       .getByText("No email was saved to Gmail or IMAP Drafts before this review was resolved.", {
         exact: true,
       })
@@ -2172,29 +2274,27 @@ try {
           button.click();
         });
         const outcome = reviewCard(fixture.page, mailReviewId);
-        await outcome
-          .getByText(result === "not_sent" ? "Not sent" : "Send outcome unverified", {
-            exact: true,
-          })
-          .waitFor();
-        await outcome
-          .getByText(
-            result === "not_sent"
-              ? "The reviewed email was not sent."
-              : "Genosyn could not confirm whether the reviewed email completed.",
-            { exact: true },
-          )
-          .waitFor();
+        const message =
+          result === "not_sent"
+            ? "The reviewed email was not sent."
+            : "Genosyn could not confirm whether the reviewed email completed.";
+        await waitForLine(
+          outcome,
+          `${result === "not_sent" ? "Not sent" : "Send not confirmed"} · ${message}`,
+        );
         assert.equal(
           await outcome.getByRole("button", { name: "Send now", exact: true }).count(),
           0,
         );
+        const opened = await details(fixture.page, outcome);
+        await opened.getByRole("heading", { name: "What went wrong", exact: true }).waitFor();
+        await opened.getByRole("alert").getByText(message, { exact: true }).waitFor();
         await fitsViewport(fixture.page);
         await outcome.getByRole("button", { name: "Close review", exact: true }).click();
         await closedReviewInHistory(
           fixture.page,
           mailReviewId,
-          result === "not_sent" ? "Not sent" : "Send outcome unverified",
+          result === "not_sent" ? "Not sent" : "Send not confirmed",
         );
         assert.deepEqual(fixture.writes, [
           {
@@ -2298,32 +2398,30 @@ try {
       await fixture.page.close();
     },
   );
-  await check(
-    "Discard retains its outcome until Close without a mailbox draft or send",
-    async () => {
-      const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
-      fixture.allowWrites();
-      await fixture.page.getByRole("button", { name: "Discard", exact: true }).click();
-      await reviewCard(fixture.page, mailReviewId)
-        .getByRole("button", { name: "Close review", exact: true })
-        .waitFor();
-      await fixture.page.getByText("Discarded", { exact: true }).waitFor();
-      await fixture.page
-        .getByText("Nothing was saved to the mailbox or sent.", { exact: true })
-        .waitFor();
-      await reviewCard(fixture.page, mailReviewId)
-        .getByRole("button", { name: "Close review", exact: true })
-        .click();
-      await closedReviewInHistory(fixture.page, mailReviewId, "Discarded");
-      assert.deepEqual(fixture.writes, [
-        {
-          path: `${apiBase}/approvals/${mailReviewId}/reject`,
-          body: { reviewRevision: revisionA },
-        },
-      ]);
-      await fixture.page.close();
-    },
-  );
+  await check("Discard leaves the stack in one click without a mailbox draft or send", async () => {
+    const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
+    fixture.allowWrites();
+    await fixture.page.getByRole("button", { name: "Discard", exact: true }).click();
+    // Nothing to follow: the discarded email is gone without a Close step.
+    await reviewCard(fixture.page, mailReviewId).waitFor({ state: "detached" });
+    await quietNotice(
+      fixture.page,
+      "Email review “Reply to Acme about their checkout report” discarded. It is in Decision history.",
+    );
+    assert.equal(
+      await fixture.page.getByRole("button", { name: "Close review", exact: true }).count(),
+      0,
+    );
+    await closedReviewInHistory(fixture.page, mailReviewId, "Discarded");
+    await waitForLine(reviewCard(fixture.page, mailReviewId), "Discarded · Nothing was sent.");
+    assert.deepEqual(fixture.writes, [
+      {
+        path: `${apiBase}/approvals/${mailReviewId}/reject`,
+        body: { reviewRevision: revisionA },
+      },
+    ]);
+    await fixture.page.close();
+  });
   await check(
     "mail history distinguishes sent, known not-sent, and unverified outcomes",
     async () => {
@@ -2356,15 +2454,23 @@ try {
           }),
         ],
       });
-      await fixture.page.getByText("Sent", { exact: true }).waitFor();
-      await fixture.page.getByText("Not sent", { exact: true }).waitFor();
-      await fixture.page.getByText("Send outcome unverified", { exact: true }).waitFor();
-      await fixture.page.getByText("The reviewed email was not sent.", { exact: true }).waitFor();
-      await fixture.page
-        .getByText("Genosyn could not confirm whether the reviewed email completed.", {
-          exact: true,
-        })
-        .waitFor();
+      await waitForLine(
+        reviewCard(fixture.page, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        "Sent · To customer@acme.example",
+      );
+      await waitForLine(
+        reviewCard(fixture.page, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+        "Not sent · The reviewed email was not sent.",
+      );
+      await waitForLine(
+        reviewCard(fixture.page, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+        "Send not confirmed · Genosyn could not confirm whether the reviewed email completed.",
+      );
+      assert.equal(
+        await fixture.page.getByRole("button", { name: "Close review" }).count(),
+        0,
+        "History has nothing to close",
+      );
       assert.deepEqual(fixture.writes, []);
       await fixture.page.screenshot({
         path: path.join(output, "mail-review-history-desktop.png"),
@@ -2558,7 +2664,7 @@ try {
     await fixture.page
       .getByRole("button", { name: "Confirm: Send the update", exact: true })
       .click();
-    await scope.getByRole("heading", { name: "The answer", exact: true }).waitFor();
+    await waitForLine(scope, "You chose “Send the update” · Waiting for Alex Rivera to start");
     await transcript(scope).getByText("Is the draft ready to send?", { exact: true }).waitFor();
     assert.equal(
       await messageBox(scope).getAttribute("placeholder"),
@@ -2625,7 +2731,9 @@ try {
       });
       const fixture = await open({ rows: [row] });
       await fixture.page.getByText("Needs you (1)", { exact: true }).waitFor();
-      await fixture.page.getByText("Routed to Dana (AI)", { exact: true }).waitFor();
+      await card(fixture.page, row.id)
+        .getByText(/routed to Dana \(AI\)/)
+        .waitFor();
       await discuss(fixture.page).click();
       const scope = await discussing(fixture.page, row);
       fixture.allowWrites();
@@ -2649,20 +2757,14 @@ try {
         decidedByEmployee: { id: "decider", name: "Dana", slug: "dana" },
       });
       const fixture = await open({ surface: "history", rows: [row] });
-      if (status === "decided") {
-        await fixture.page.getByText("Answered by Dana (AI)", { exact: true }).waitFor();
-      } else if (status === "cancelled") {
-        await fixture.page
-          .getByText("Closed without recording an answer by Dana (AI).", { exact: true })
-          .waitFor();
-      } else {
-        await fixture.page
-          .getByText(
-            "This Decision expired before deadlines were retired. Pending Decisions now stay open until someone answers them, a Member dismisses them, or the AI Employee retracts them.",
-            { exact: true },
-          )
-          .waitFor();
-      }
+      await waitForLine(
+        card(fixture.page, row.id),
+        status === "decided"
+          ? "Dana (AI) chose “an answer” · Waiting for Alex Rivera to start"
+          : status === "cancelled"
+            ? "Withdrawn · Alex Rivera no longer needs an answer"
+            : "Expired · This expired under an earlier version, before Decisions stopped expiring.",
+      );
       await discuss(fixture.page).click();
       const scope = await discussing(fixture.page, row);
       await scope
@@ -3153,9 +3255,7 @@ try {
       );
 
       await openHistory(fixture.page);
-      await card(fixture.page, answered.id)
-        .getByText("Answered by Morgan", { exact: true })
-        .waitFor();
+      await waitForLine(card(fixture.page, answered.id), /^You chose “Send the update” · /);
       await reviewCard(fixture.page, sentMail.id).getByText("Sent", { exact: true }).waitFor();
       assert.equal(await card(fixture.page, waiting.id).count(), 0);
       assert.equal(await reviewCard(fixture.page, pendingWork.id).count(), 0);

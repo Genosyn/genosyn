@@ -10,6 +10,7 @@ import { User } from "../db/entities/User.js";
 import { chatWithEmployee } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { parseDecisionOptions } from "./decisions.js";
+import { redactSensitiveText } from "./approvalRedaction.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 
 /**
@@ -48,8 +49,10 @@ import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/polic
  */
 const inFlight = new Set<string>();
 
-/** Keep the stored report inside a size the stack can render. */
+/** Keep the stored log inside a size the stack can render. */
 const SUMMARY_CAP = 8_000;
+/** The report is the employee's final message; a few short paragraphs at most. */
+const REPORT_CAP = 2_000;
 
 export async function kickoffDecision(args: {
   companyId: string;
@@ -181,8 +184,11 @@ export async function kickoffDecision(args: {
     const result = await runChat(companyId, employee.id, pickupBrief, [], chatOptions);
     const reply = result.reply.trim() || "(no reply)";
     if (result.status === "ok") {
-      await settle(decision, "done", reply);
-      await journal(decision, `Picked up the decision "${decision.title}"`, reply);
+      // The final message is the report people read; the reply keeps every
+      // step the session narrated on the way, for whoever wants them.
+      const report = result.finalText?.trim() || null;
+      await settle(decision, "done", reply, report);
+      await journal(decision, `Picked up the decision "${decision.title}"`, report ?? reply);
     } else {
       await settle(decision, "failed", reply);
     }
@@ -198,16 +204,23 @@ export async function kickoffDecision(args: {
   }
 }
 
+/**
+ * Land the pickup in a terminal state. Both texts are shown to every Member
+ * on the Decision stack, so they are scrubbed of credential-shaped material
+ * the session may have quoted, the same way the question itself is.
+ */
 async function settle(
   decision: Decision,
   status: DecisionPickupStatus,
   summary: string,
+  report: string | null = null,
 ): Promise<void> {
   await AppDataSource.getRepository(Decision).update(
     { id: decision.id, companyId: decision.companyId },
     {
       pickupStatus: status,
-      pickupSummary: summary.slice(0, SUMMARY_CAP),
+      pickupSummary: redactSensitiveText(summary).slice(0, SUMMARY_CAP),
+      pickupReport: report ? redactSensitiveText(report).slice(0, REPORT_CAP) || null : null,
       pickupFinishedAt: new Date(),
     },
   );
@@ -260,7 +273,8 @@ async function composePickupBrief(decision: Decision): Promise<string> {
     "- Do the work the answer unblocks, with your tools. Don't re-ask what has just been answered.",
     "- If the answer changed what you should do, do the changed thing rather than the original plan.",
     "- If you genuinely cannot proceed, say exactly what is missing — do not stack another decision for the same question.",
-    "- Your reply is shown to the team on the decision itself, so make it a short report: what you did and where it landed.",
+    "- Your final message is shown to the team on the decision itself, so make it a short report in plain words: " +
+      "one or two sentences on what you did and where it landed, without narrating each step.",
   );
   return lines.join("\n");
 }

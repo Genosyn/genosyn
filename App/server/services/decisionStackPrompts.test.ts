@@ -12,6 +12,7 @@ import {
   decisionStackInstructionsGuidance,
 } from "./humanDecisionGuidance.js";
 import { composeHandoverPrompt } from "./mail/handoverPrompt.js";
+import { MAX_WAITING_DECISIONS_PER_EMPLOYEE } from "./decisionDuplicates.js";
 import { PROACTIVE_REVIEW_BRIEF, proactiveReviewBrief } from "./proactive/workReviewPolicy.js";
 import { routineDeliveryMessage } from "./runner.js";
 
@@ -69,6 +70,26 @@ describe("the company's instructions in a briefing", () => {
 
 describe("the chat and Routine tools briefing", () => {
   for (const surface of ["chat", "routine"] as const) {
+    test(`${surface}, on: asks for fewer, bigger questions written for a busy owner`, () => {
+      const briefing = toolsBriefing(surface, false, false, "write", ON);
+      assert.match(briefing, /Ask one combined question rather than several small ones/);
+      assert.match(briefing, /a question you already have waiting is refused/);
+      assert.match(
+        briefing,
+        new RegExp(`you may have at most ${MAX_WAITING_DECISIONS_PER_EMPLOYEE} waiting at once`),
+      );
+      assert.match(briefing, /retract one with `cancel_decision`/);
+      assert.match(briefing, /Write for a busy owner who is not an expert in your work/);
+      assert.match(briefing, /the title is the question in plain words/);
+      assert.match(briefing, /the summary says in one or two plain sentences/);
+      assert.match(briefing, /the recommendation names the answer you recommend and why/);
+      assert.match(briefing, /leave out IDs, codes and jargon/);
+      assert.doesNotMatch(briefing, /Begin the body with/, "the body is now the optional detail");
+      // Off, none of it is promised.
+      const off = toolsBriefing(surface, false, false, "write", OFF);
+      assert.doesNotMatch(off, /Ask one combined question/);
+    });
+
     test(`${surface}, on: the general guidance, the company's instructions, then request_decision`, () => {
       const briefing = toolsBriefing(surface, false, false, "write", ON);
       assert.ok(briefing.includes(HUMAN_DECISION_GUIDANCE));

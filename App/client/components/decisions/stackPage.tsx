@@ -39,8 +39,11 @@ export function decisionMatches(row: Decision, query: string): boolean {
     !query ||
     mentions(query, [
       row.title,
+      row.summary,
+      row.recommendation,
       row.body,
       row.note,
+      row.pickupReport,
       row.pickupSummary,
       row.employee?.name,
       row.assignee?.name,

@@ -18,6 +18,8 @@ function decision(changes: Partial<Decision> = {}): Decision {
     companyId: "company",
     title: "Which customer update should we send?",
     body: "Acme asked about their delayed order.",
+    summary: null,
+    recommendation: null,
     options: [{ id: "send", label: "Send the update", detail: "Send it today.", tone: "primary" }],
     status: "decided",
     urgency: "normal",
@@ -36,6 +38,7 @@ function decision(changes: Partial<Decision> = {}): Decision {
     routedToEmployee: null,
     pickupStatus: "done",
     pickupSummary: "Sent the update to Priya.",
+    pickupReport: null,
     pickupStartedAt: null,
     pickupFinishedAt: null,
     snoozedUntil: null,
@@ -95,6 +98,18 @@ describe("stack search", () => {
     }
     assert.equal(decisionMatches(row, "invoice"), false);
     assert.equal(decisionMatches(row, ""), true, "an empty search matches everything");
+  });
+
+  test("finds a Decision by the short lines its row shows and by its report", () => {
+    const row = decision({
+      summary: "Globex wants a three-year term at 10% off.",
+      recommendation: "Sign it: the renewal is worth more than the discount.",
+      pickupReport: "Countersigned the order form and filed it on the deal.",
+    });
+    for (const query of ["three-year term", "worth more than the discount", "countersigned"]) {
+      assert.equal(decisionMatches(row, query), true, query);
+    }
+    assert.equal(decisionMatches(decision(), "countersigned"), false);
   });
 
   test("finds a review by its draft without reading other Approval kinds", () => {

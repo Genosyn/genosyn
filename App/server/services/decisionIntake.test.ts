@@ -21,9 +21,12 @@ import { withAuditContext } from "./audit.js";
 import {
   DECISION_STACK_OFF_MESSAGE,
   KEPT_OFF_STACK_NOTE,
+  alreadyWaitingNote,
   raiseDecision,
+  tooManyWaitingNote,
   type RaiseDecisionParams,
 } from "./decisionIntake.js";
+import { MAX_WAITING_DECISIONS_PER_EMPLOYEE } from "./decisionDuplicates.js";
 import {
   screenDecision,
   setDecisionScreenRunnerForTests,
@@ -485,6 +488,247 @@ describe("before any model is asked", () => {
     const { screen, seen } = fixedScreen(allowed);
     await raiseDecision(params(), { screen });
     assert.equal(seen[0].instructionsText, "Only ask about hiring.");
+  });
+});
+
+describe("a question the employee already has waiting, or one too many", () => {
+  test("a repeat is refused before any model is asked, pointing at the one waiting", async () => {
+    const { screen, seen } = fixedScreen(allowed);
+    const first = await raiseDecision(params(), { screen });
+    assert.equal(first.outcome, "stacked");
+    const repeat = await raiseDecision(
+      params({ title: "Choose the contract terms for Acme", body: "Acme asked again." }),
+      { screen },
+    );
+    assert.equal(repeat.outcome, "already_waiting");
+    assert.ok(repeat.outcome === "already_waiting" && first.outcome === "stacked");
+    assert.equal(repeat.existing.id, first.decision.id);
+    assert.equal(repeat.existing.title, "Choose Acme's contract terms");
+    assert.equal(repeat.match, "same_question");
+    assert.equal(seen.length, 1, "the repeat never reached the screen");
+    assert.equal((await decisions()).length, 1);
+    assert.equal(
+      await AppDataSource.getRepository(Notification).count(),
+      1,
+      "nobody is paged twice",
+    );
+    assert.equal((await auditRows("decision.create")).length, 1);
+  });
+
+  test("a second question from the same Run is folded into the first", async () => {
+    const { screen } = fixedScreen(allowed);
+    const first = await raiseDecision(params({ runId: "run-1", routineId: "routine-1" }), {
+      screen,
+    });
+    assert.equal(first.outcome, "stacked");
+    const second = await raiseDecision(
+      params({
+        title: "Hire a contractor for the rollout?",
+        runId: "run-1",
+        routineId: "routine-1",
+      }),
+      { screen },
+    );
+    assert.equal(second.outcome, "already_waiting");
+    assert.equal(second.outcome === "already_waiting" && second.match, "same_work");
+    const elsewhere = await raiseDecision(
+      params({
+        title: "Hire a contractor for the rollout?",
+        runId: "run-2",
+        routineId: "routine-9",
+      }),
+      { screen },
+    );
+    assert.equal(elsewhere.outcome, "stacked", "another Run's question is new");
+  });
+
+  test(`a question past ${MAX_WAITING_DECISIONS_PER_EMPLOYEE} waiting is refused, naming the ones waiting`, async () => {
+    const { screen, seen } = fixedScreen(allowed);
+    const titles = [
+      "Choose Acme's contract terms",
+      "Hire a support engineer?",
+      "Book the trade show booth?",
+    ];
+    for (const title of titles) {
+      assert.equal((await raiseDecision(params({ title }), { screen })).outcome, "stacked", title);
+    }
+    const refused = await raiseDecision(params({ title: "Raise list prices next quarter?" }), {
+      screen,
+    });
+    assert.equal(refused.outcome, "too_many_waiting");
+    assert.ok(refused.outcome === "too_many_waiting");
+    assert.equal(refused.limit, MAX_WAITING_DECISIONS_PER_EMPLOYEE);
+    assert.deepEqual(
+      refused.waiting.map((row) => row.title),
+      titles,
+    );
+    assert.equal(seen.length, titles.length, "the refused one never reached the screen");
+    assert.equal((await decisions()).length, titles.length);
+  });
+
+  test("answering or retracting one makes room again; snoozed ones still count", async () => {
+    const { screen } = fixedScreen(allowed);
+    for (const title of [
+      "Choose Acme's contract terms",
+      "Hire a support engineer?",
+      "Book the trade show booth?",
+    ]) {
+      await raiseDecision(params({ title }), { screen });
+    }
+    const repo = AppDataSource.getRepository(Decision);
+    await repo.update(
+      { title: "Hire a support engineer?" },
+      { snoozedUntil: new Date(Date.now() + 86_400_000) },
+    );
+    assert.equal(
+      (await raiseDecision(params({ title: "Raise list prices next quarter?" }), { screen }))
+        .outcome,
+      "too_many_waiting",
+    );
+    await repo.update({ title: "Book the trade show booth?" }, { status: "cancelled" });
+    assert.equal(
+      (await raiseDecision(params({ title: "Raise list prices next quarter?" }), { screen }))
+        .outcome,
+      "stacked",
+    );
+  });
+
+  test("a question stacked while this one was being checked still counts", async () => {
+    const screen = (async () => {
+      // Another turn of the same employee stacks the same question meanwhile.
+      await raiseDecision(params(), { screen: fixedScreen(allowed).screen });
+      return allowed;
+    }) as typeof screenDecision;
+    const raced = await raiseDecision(params({ title: "Choose the contract terms for Acme" }), {
+      screen,
+    });
+    assert.equal(raced.outcome, "already_waiting");
+    assert.equal((await decisions()).length, 1);
+  });
+
+  test("other employees' questions never count against this one", async () => {
+    const colleague = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Kai",
+      slug: "kai",
+      role: "Sales",
+      soulBody: "",
+    });
+    const { screen } = fixedScreen(allowed);
+    await raiseDecision(params({ employeeId: colleague.id }), { screen });
+    assert.equal((await raiseDecision(params(), { screen })).outcome, "stacked");
+  });
+
+  test("the notes say what to do instead and keep every gate in place", () => {
+    const waiting = {
+      id: "d1",
+      title: "Choose Acme's contract terms",
+      routineId: null,
+      runId: null,
+      mailThreadId: null,
+      conversationId: null,
+      createdAt: new Date(),
+    };
+    const same = alreadyWaitingNote(waiting, "same_question");
+    assert.match(
+      same,
+      /^You already asked this and it is still waiting for an answer: “Choose Acme's contract terms” \(id d1\)\./,
+    );
+    assert.match(same, /No new Decision was created and nobody was asked again/);
+    assert.match(same, /cancel_decision and ask one combined question/);
+    assert.match(same, /Approvals, email reviews and work reviews still apply/);
+    assert.match(
+      alreadyWaitingNote(waiting, "same_work"),
+      /^You already have a question waiting from this same piece of work/,
+    );
+    assert.match(
+      alreadyWaitingNote(waiting, "same_subject"),
+      /^This Routine already has a question waiting about the same thing/,
+    );
+    const many = tooManyWaitingNote([waiting, { ...waiting, id: "d2", title: "Hire?" }], 3);
+    assert.match(
+      many,
+      /You already have 2 questions waiting for people, and an AI Employee may hold at most 3 at once/,
+    );
+    assert.match(many, /Waiting: “Choose Acme's contract terms” \(id d1\); “Hire\?” \(id d2\)\./);
+    assert.match(many, /retract it with cancel_decision and ask one combined question/);
+    assert.match(many, /Approvals, email reviews and work reviews still apply/);
+    for (const note of [same, many]) assert.doesNotMatch(note, /authoriz|you may now|go ahead/i);
+  });
+});
+
+describe("the short lines a busy owner reads first", () => {
+  test("are stored as written, on one line", async () => {
+    const { screen } = fixedScreen(allowed);
+    const result = await raiseDecision(
+      params({
+        summary: "  Acme will sign for three years at 10% off.\nThat locks in $86k a year.  ",
+        recommendation: "Sign it: three years of revenue beats this year's discount.",
+      }),
+      { screen },
+    );
+    assert.equal(result.outcome, "stacked");
+    const [row] = await decisions();
+    assert.equal(
+      row.summary,
+      "Acme will sign for three years at 10% off. That locks in $86k a year.",
+    );
+    assert.equal(row.recommendation, "Sign it: three years of revenue beats this year's discount.");
+  });
+
+  test("are optional, for a model turn holding an older tool list", async () => {
+    const { screen } = fixedScreen(allowed);
+    await raiseDecision(params(), { screen });
+    const [row] = await decisions();
+    assert.equal(row.summary, null);
+    assert.equal(row.recommendation, null);
+  });
+
+  test("are held to their limits before any model is asked", async () => {
+    const { screen, seen } = fixedScreen(allowed);
+    await assert.rejects(
+      raiseDecision(params({ summary: "Too short" }), { screen }),
+      /plain sentences/,
+    );
+    await assert.rejects(
+      raiseDecision(params({ summary: "x".repeat(201) }), { screen }),
+      /under 200 characters/,
+    );
+    await assert.rejects(
+      raiseDecision(params({ recommendation: "x".repeat(161) }), { screen }),
+      /under 160 characters/,
+    );
+    await assert.rejects(
+      raiseDecision(params({ recommendation: " " }), { screen }),
+      /one sentence/,
+    );
+    assert.deepEqual(seen, []);
+    assert.deepEqual(await decisions(), []);
+  });
+
+  test("are scrubbed of credentials like the rest of the question", async () => {
+    const { screen } = fixedScreen(allowed);
+    await raiseDecision(
+      params({
+        summary: "Rotate the key now: the config had token=abc123supersecret in it.",
+        recommendation: "Rotate it; the old key sk-proj-abcdefghijklmnop leaked.",
+      }),
+      { screen },
+    );
+    const [row] = await decisions();
+    assert.doesNotMatch(row.summary ?? "", /abc123supersecret/);
+    assert.doesNotMatch(row.recommendation ?? "", /sk-proj-abcdefghijklmnop/);
+    assert.match(row.summary ?? "", /\[redacted\]/);
+  });
+
+  test("the summary is what the bell says", async () => {
+    const { screen } = fixedScreen(allowed);
+    await raiseDecision(params({ summary: "Acme will sign for three years at 10% off." }), {
+      screen,
+    });
+    const [bell] = await AppDataSource.getRepository(Notification).find();
+    assert.equal(bell.title, "Rey needs a decision: Choose Acme's contract terms");
+    assert.equal(bell.body, "Acme will sign for three years at 10% off.");
   });
 });
 

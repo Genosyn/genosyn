@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { formatHumanDecisionContext } from "../../shared/decisionContext.js";
 import { decisionStackInstructionLines } from "../../shared/decisionStackInstructions.js";
+import {
+  DECISION_RECOMMENDATION_MAX,
+  DECISION_SUMMARY_MAX,
+  DECISION_SUMMARY_MIN,
+  oneLine,
+} from "../../shared/decisionSummary.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 
 /** Shared by Decision intake and proactive work reviews. This is a statement
@@ -56,6 +62,42 @@ export const humanDecisionReasonSchema = z
   .trim()
   .min(20, "Explain the major stakes and the choice that requires human judgment.")
   .max(1_500);
+
+/**
+ * The line a busy owner reads under the question (`request_decision`'s
+ * `summary`): one or two plain sentences, collapsed onto one line. The
+ * stack shows it before anything else, so it is held to a length that reads
+ * in a few seconds; detail belongs in the body.
+ */
+export const decisionSummarySchema = z
+  .string()
+  .transform(oneLine)
+  .pipe(
+    z
+      .string()
+      .min(
+        DECISION_SUMMARY_MIN,
+        "Write the summary as one or two plain sentences a busy owner understands in seconds.",
+      )
+      .max(
+        DECISION_SUMMARY_MAX,
+        `Keep the summary under ${DECISION_SUMMARY_MAX} characters — one or two plain sentences. Put the rest in body.`,
+      ),
+  );
+
+/** The employee's recommended answer and why, in one sentence (`recommendation`). */
+export const decisionRecommendationSchema = z
+  .string()
+  .transform(oneLine)
+  .pipe(
+    z
+      .string()
+      .min(2, "Name the answer you recommend and say why in one sentence.")
+      .max(
+        DECISION_RECOMMENDATION_MAX,
+        `Keep the recommendation to one sentence under ${DECISION_RECOMMENDATION_MAX} characters: your pick and why.`,
+      ),
+  );
 
 /** Put the rationale first so it remains visible even in bounded previews,
  * in the form the review cards read back (`shared/decisionContext.ts`).

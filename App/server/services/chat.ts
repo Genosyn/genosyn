@@ -112,6 +112,12 @@ export type ChatResult =
        * was done — and says so rather than filing the turn as complete.
        */
       stopReason?: string;
+      /**
+       * The turn's final message alone, without the narration streamed before
+       * its tool calls — what a caller shows as the employee's report. Absent
+       * when the runtime reported none (an interrupted turn, for one).
+       */
+      finalText?: string;
     }
   | {
       status: "skipped";
@@ -966,12 +972,14 @@ export async function streamChatWithEmployee(
         return { status: "error", reply: result.error, attachmentIds, sidecars };
       }
       const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
+      const finalText = result.finalText.trim();
       return {
         status: "ok",
         reply,
         attachmentIds,
         sidecars,
         ...(result.stopReason ? { stopReason: result.stopReason } : {}),
+        ...(finalText && finalText !== "(no reply)" ? { finalText } : {}),
       };
     } finally {
       clearTimeout(timer);

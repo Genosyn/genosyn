@@ -2297,48 +2297,53 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "request_decision",
     description:
-      "Ask only for a major business choice requiring human judgment. Routine upkeep, investigation and reply preparation need no Decision. Check existing Decisions first; explain the next step, then stop that work and finish your turn. Answers normally start a fresh session. Preparation-only Decisions stay human-only and start none; read answers with list_decisions. Use request_work_review for consequential work authorization.",
+      "Ask a person one major business choice you cannot settle; never upkeep, research or wording. One combined question: a repeat, or a 4th waiting, is refused. Write for a busy non-expert owner. Then stop that work and end your turn. An answer normally starts a fresh session; from preparation-only work, none. Authorize work with request_work_review.",
     inputSchema: {
       type: "object",
       properties: {
+        title: {
+          type: "string",
+          description: "Plain question, under 100 chars, e.g. 'Sign Acme's 3-year deal?'",
+        },
+        summary: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "1–2 plain sentences: what is happening, why it needs a person now. No jargon.",
+        },
+        recommendation: {
+          type: "string",
+          maxLength: 160,
+          description: "Your pick and why, in one sentence.",
+        },
         humanDecisionReason: {
           type: "string",
           minLength: 20,
           maxLength: 1500,
-          description:
-            "Material stakes and why existing instructions cannot settle this human choice.",
-        },
-        title: {
-          type: "string",
-          description:
-            "Plain action and subject, e.g. 'Choose Acme's contract terms'. Max 200 chars.",
+          description: "Stakes, and why your instructions cannot settle it.",
         },
         body: {
           type: "string",
-          description:
-            "Context, recommendation, source links, scope, costs and exact missing details. Separate facts from unknowns.",
+          description: "Optional detail: evidence, sources, costs, unknowns.",
         },
         options: {
           type: "array",
           minItems: 1,
           maxItems: 6,
-          description: "Prefer 2–3 distinct choices. Include a way to defer or decline work.",
+          description: "2–3 distinct choices incl. defer or decline.",
           items: {
             type: "object",
             properties: {
-              label: {
-                type: "string",
-                description: "Short action. Max 80 chars.",
-              },
+              label: { type: "string", description: "Short action, max 80 chars." },
               detail: {
                 type: "string",
                 maxLength: 240,
-                description: "Next step and required Member input.",
+                description: "What you do next; any input you need.",
               },
               tone: {
                 type: "string",
                 enum: ["primary", "neutral", "danger"],
-                description: "One 'primary' recommendation; 'danger' for destructive actions.",
+                description: "'primary' marks your pick; 'danger' if destructive.",
               },
             },
             required: ["label"],
@@ -2348,15 +2353,14 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         urgency: {
           type: "string",
           enum: ["low", "normal", "high"],
-          description:
-            "Default normal. High needs a concrete near-term deadline or immediate harm explained in body.",
+          description: "High only for a near deadline or harm.",
         },
         assignee: {
           type: "string",
-          description: "Optional Member handle or email. Omit so anyone can answer.",
+          description: "Optional Member handle or email.",
         },
       },
-      required: ["title", "options", "humanDecisionReason"],
+      required: ["title", "summary", "recommendation", "options", "humanDecisionReason"],
       additionalProperties: false,
     },
   },

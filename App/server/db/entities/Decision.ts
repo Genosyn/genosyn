@@ -101,6 +101,24 @@ export class Decision {
   @Column({ type: "text", default: "" })
   body!: string;
 
+  /**
+   * The situation in one or two plain sentences, written by the asking
+   * employee for a busy owner: what is happening and why it needs a person
+   * now. It is what the stack shows under the question, with everything else
+   * behind Details. Null on rows asked before it existed (and from a model
+   * turn holding an older tool list); the stack then derives a line from the
+   * stated reason (`shared/decisionSummary.ts`).
+   */
+  @Column({ type: "varchar", nullable: true })
+  summary!: string | null;
+
+  /**
+   * The asking employee's recommended answer and why, in one sentence. Null on
+   * older rows, where the option marked `primary` is the recommendation.
+   */
+  @Column({ type: "varchar", nullable: true })
+  recommendation!: string | null;
+
   /** JSON-encoded {@link DecisionOption}[]. Between 1 and 6 entries. */
   @Column({ type: "text" })
   optionsJson!: string;
@@ -190,9 +208,22 @@ export class Decision {
   @Column({ type: "varchar", default: "none" })
   pickupStatus!: DecisionPickupStatus;
 
-  /** The employee's report back, or why no session ran. */
+  /**
+   * Everything the session said, step by step — or why no session ran. The
+   * stack keeps it behind a disclosure; {@link pickupReport} is what it shows.
+   */
   @Column({ type: "text", nullable: true })
   pickupSummary!: string | null;
+
+  /**
+   * The session's final message alone — the employee's short report on what
+   * it did and where it landed — without the narration that led up to it.
+   * Null while running, for a failed or skipped pickup (the summary says why),
+   * and on rows picked up before it was recorded, where the stack reads the
+   * last paragraph of the summary instead.
+   */
+  @Column({ type: "text", nullable: true })
+  pickupReport!: string | null;
 
   @Column({ type: dateTimeColumnType, nullable: true })
   pickupStartedAt!: Date | null;

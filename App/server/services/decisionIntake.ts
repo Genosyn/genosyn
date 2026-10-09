@@ -6,12 +6,21 @@ import { redactApprovalSummary } from "./approvalRedaction.js";
 import { currentAuditContext, recordAudit } from "./audit.js";
 import { DecisionStackOffError, getDecisionStackState } from "./decisionStackSettings.js";
 import {
+  checkWaitingDecisions,
+  type DuplicateKind,
+  type WaitingDecision,
+} from "./decisionDuplicates.js";
+import {
   screenDecision,
   type DecisionScreenOutcome,
   type DecisionScreenQuestion,
 } from "./decisionScreening.js";
 import { createDecision, normalizeDecisionOptions, type DecisionOptionInput } from "./decisions.js";
-import { humanDecisionReasonSchema } from "./humanDecisionGuidance.js";
+import {
+  decisionRecommendationSchema,
+  decisionSummarySchema,
+  humanDecisionReasonSchema,
+} from "./humanDecisionGuidance.js";
 
 /**
  * The one door an AI Employee's question comes through on its way to the
@@ -24,13 +33,19 @@ import { humanDecisionReasonSchema } from "./humanDecisionGuidance.js";
  *     instead. No row, no screen, no model call.
  *  2. **Is the question well formed?** The same rules `createDecision`
  *     enforces, checked before a model is asked anything.
- *  3. **Does it belong?** The company's instructions screen it
+ *  3. **Is it new, and is there room?** A question that repeats one of the
+ *     employee's own questions still waiting, or that would take it past
+ *     the few it may hold at once, is refused with what to do instead
+ *     (`decisionDuplicates.ts`). No row, no screen, no model call.
+ *  4. **Does it belong?** The company's instructions screen it
  *     (`decisionScreening.ts`). Kept off: nothing is created, the employee is
  *     told why and what to do instead, and the outcome is recorded where
  *     people can tune their instructions. Any failure lets it through.
- *  4. **Stack it** — `createDecision`, which re-checks that the stack is
+ *  5. **Stack it** — `createDecision`, which re-checks that the stack is
  *     still on at the moment of writing, then routes it under the company's
- *     decision policies and pages people exactly as before.
+ *     decision policies and pages people exactly as before. Step 3 runs
+ *     again first, since the screen can take a while and another question
+ *     may have been stacked meanwhile.
  */
 
 /** What an employee reads when the company has switched the stack off. */
@@ -50,6 +65,44 @@ export const KEPT_OFF_STACK_NOTE =
   "This check gives you no new authority: never take a consequential step you are not already allowed to take, " +
   "and required Approvals, email reviews and work reviews still apply.";
 
+/** How a waiting question is named back to the employee: its title and id. */
+function named(decision: WaitingDecision): string {
+  return `“${decision.title}” (id ${decision.id})`;
+}
+
+const ALREADY_WAITING_LEAD: Record<DuplicateKind, string> = {
+  same_question: "You already asked this and it is still waiting for an answer",
+  same_work:
+    "You already have a question waiting from this same piece of work (this Run, email thread or chat), " +
+    "and each piece of work asks one combined question at a time",
+  same_subject: "This Routine already has a question waiting about the same thing",
+};
+
+/** What an employee reads when it asks a question it already has waiting. */
+export function alreadyWaitingNote(existing: WaitingDecision, match: DuplicateKind): string {
+  return (
+    `${ALREADY_WAITING_LEAD[match]}: ${named(existing)}. ` +
+    "No new Decision was created and nobody was asked again. Do not ask it again. " +
+    "Wait for the answer — list_decisions and get_decision read it. " +
+    "If something material has changed, retract that one with cancel_decision and ask one combined question with the new facts; " +
+    "otherwise keep new details in your Workstream or work report. " +
+    "Until it is answered, take only allowed steps you can easily undo; required Approvals, email reviews and work reviews still apply."
+  );
+}
+
+/** What an employee reads when it already holds as many waiting questions as it may. */
+export function tooManyWaitingNote(waiting: WaitingDecision[], limit: number): string {
+  return (
+    `You already have ${waiting.length} questions waiting for people, and an AI Employee may hold at most ${limit} at once, ` +
+    "so no Decision was created and nobody was asked. Do not ask it again now. " +
+    `Waiting: ${waiting.map(named).join("; ")}. ` +
+    "Wait for answers (list_decisions reads them). If one no longer matters, or this question matters more, retract it with " +
+    "cancel_decision and ask one combined question. Meanwhile handle this within your own authority: take only allowed steps you " +
+    "can easily undo, and record what is blocked in your Workstream or work report. " +
+    "Required Approvals, email reviews and work reviews still apply."
+  );
+}
+
 export type RaiseDecisionParams = {
   companyId: string;
   employeeId: string;
@@ -58,6 +111,10 @@ export type RaiseDecisionParams = {
   title: string;
   body?: string;
   humanDecisionReason: string;
+  /** One or two plain sentences for a busy owner. */
+  summary?: string | null;
+  /** The recommended answer and why, in one sentence. */
+  recommendation?: string | null;
   options: DecisionOptionInput[];
   urgency?: DecisionUrgency;
   assigneeUserId?: string | null;
@@ -80,6 +137,20 @@ export type RaiseDecisionResult =
       title: string;
       screen: Extract<DecisionScreenOutcome, { outcome: "kept_off" }>;
     }
+  | {
+      /** The employee already has this question waiting; nothing was created. */
+      outcome: "already_waiting";
+      title: string;
+      existing: WaitingDecision;
+      match: DuplicateKind;
+    }
+  | {
+      /** The employee already holds as many waiting questions as it may. */
+      outcome: "too_many_waiting";
+      title: string;
+      waiting: WaitingDecision[];
+      limit: number;
+    }
   | { outcome: "stack_off" };
 
 export type RaiseDecisionDependencies = {
@@ -99,6 +170,9 @@ function screenQuestion(params: RaiseDecisionParams, options: DecisionOption[]):
     throw new Error("A decision needs at least one option a human can choose.");
   }
   const humanDecisionReason = humanDecisionReasonSchema.parse(params.humanDecisionReason);
+  // The short lines are optional (older tool lists omit them), but bounded when given.
+  if (params.summary != null) decisionSummarySchema.parse(params.summary);
+  if (params.recommendation != null) decisionRecommendationSchema.parse(params.recommendation);
   return {
     title,
     question: {
@@ -173,6 +247,30 @@ export async function raiseDecision(
     throw new Error("The asking AI Employee is not part of this company.");
   }
 
+  // A repeat, or one question too many, is refused before any model is asked.
+  const checkWaiting = async (): Promise<RaiseDecisionResult | null> => {
+    const check = await checkWaitingDecisions({
+      companyId: params.companyId,
+      employeeId: employee.id,
+      asked: {
+        title,
+        routineId: params.routineId,
+        runId: params.runId,
+        mailThreadId: params.mailThreadId,
+        conversationId: params.conversationId,
+      },
+    });
+    if (check.outcome === "already_waiting") {
+      return { outcome: "already_waiting", title, existing: check.existing, match: check.match };
+    }
+    if (check.outcome === "too_many_waiting") {
+      return { outcome: "too_many_waiting", title, waiting: check.waiting, limit: check.limit };
+    }
+    return null;
+  };
+  const refusedBefore = await checkWaiting();
+  if (refusedBefore) return refusedBefore;
+
   const screen = await (dependencies.screen ?? screenDecision)({
     employee,
     instructionsText: state?.instructions ?? "",
@@ -208,6 +306,10 @@ export async function raiseDecision(
     return { outcome: "kept_off", title, screen };
   }
 
+  // The screen can take a while; a question stacked meanwhile still counts.
+  const refusedAfter = await checkWaiting();
+  if (refusedAfter) return refusedAfter;
+
   try {
     const created = await createDecision({
       companyId: params.companyId,
@@ -215,6 +317,8 @@ export async function raiseDecision(
       title: params.title,
       body: params.body,
       humanDecisionReason: params.humanDecisionReason,
+      summary: params.summary,
+      recommendation: params.recommendation,
       options: params.options,
       urgency: params.urgency,
       assigneeUserId: params.assigneeUserId,
