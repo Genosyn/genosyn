@@ -214,9 +214,12 @@ export default function EmployeeNew({
   }, [company.id, resumeEmployeeId, resumeTemplateId]);
 
   function pick(t: EmployeeTemplate | null) {
+    // A name the last template filled in follows the new pick; one the
+    // person typed is theirs and stays.
+    const previous = templates?.find((x) => x.id === selected);
     setSelected(t?.id ?? null);
     if (t) {
-      if (!name) setName(t.name);
+      if (!name || name === previous?.name) setName(t.name);
       setRole(t.role);
     }
   }

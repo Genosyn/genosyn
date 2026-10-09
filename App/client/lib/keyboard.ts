@@ -44,6 +44,34 @@ export function setChordPending(open: boolean): void {
   chordPending = open;
 }
 
+/** Just what {@link submitFormOnModEnter} reads from a React keyboard event. */
+export type ModEnterEvent = {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  nativeEvent: { isComposing?: boolean };
+  currentTarget: { form: Pick<HTMLFormElement, "requestSubmit"> | null };
+  preventDefault: () => void;
+};
+
+/**
+ * ⌘/Ctrl+Enter in a multi-line box submits its form, the way Enter does in a
+ * one-line field — the "I mean it" key the app already uses for todo comments
+ * and work briefs, so a note or brief needs no reach for the button. Keys
+ * pressed mid-composition belong to the input method. The form's own submit
+ * handler still decides whether there is anything to send. Returns whether it
+ * submitted.
+ */
+export function submitFormOnModEnter(event: ModEnterEvent): boolean {
+  if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return false;
+  if (event.nativeEvent.isComposing) return false;
+  const form = event.currentTarget.form;
+  if (!form) return false;
+  event.preventDefault();
+  form.requestSubmit();
+  return true;
+}
+
 /**
  * The common bail-out for a page-level single-key shortcut: ignore keystrokes
  * that a modifier claims, that repeat from a held key, that something nearer

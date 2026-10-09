@@ -145,7 +145,9 @@ export function Reactivity() {
         <Strong>Ask AI Employee</Strong> when you want an employee to inspect the company&apos;s
         evidence, check existing Routines and earlier Initiatives, and make a recommendation first.
         The editable Chat draft asks for the evidence, exact Routine brief, schedule, and measurable
-        success criteria; opening it does not send the request or create work.
+        success criteria; opening it does not send the request or create work. With a single AI
+        Employee it is already chosen, and <Code>⌘/Ctrl+Enter</Code> in the request continues to
+        Chat.
       </P>
       <P>
         Open <Strong>Initiatives</Strong> from the Proactive page to review what employees have
@@ -166,9 +168,10 @@ export function Reactivity() {
         In <Strong>Standing work</Strong>, use <Strong>Open</Strong> to edit an existing rule or
         Routine. To assign a ready-made responsibility, open the <Strong>Starter library</Strong>{" "}
         and select <Strong>Set up</Strong>, or <Strong>Add another</Strong> when that starter is
-        already assigned. Choose an AI Employee and (where needed) a mailbox, review its
-        instructions, then select <Strong>Assign work</Strong>. The form lists missing Grants or a
-        disconnected AI Model. Manual setup remains available when Automatic setup is off.
+        already assigned. Choose an AI Employee and (where needed) a mailbox — when there is only
+        one of either, it is already chosen — review its instructions, then select{" "}
+        <Strong>Assign work</Strong>. The form lists missing Grants or a disconnected AI Model.
+        Manual setup remains available when Automatic setup is off.
       </P>
       <P>
         Email starters also need a working AI analysis reader in <Strong>Email → Settings</Strong>.

@@ -295,36 +295,41 @@ try {
     async () => (await teamPicker.inputValue()) === "Operations",
     "Ada's team shows",
   );
-  const teamForm = page.locator("form", { has: teamPicker });
-  const save = teamForm.getByRole("button", { name: "Save changes", exact: true });
-  assert.equal(await save.isDisabled(), true, "nothing to save yet");
+  // Picking a team is the edit: it saves as it is picked, with no Save button
+  // in its card (the name card above keeps its own).
+  const teamCard = teamPicker.locator(
+    'xpath=ancestor::*[.//*[contains(text(), "The team this employee belongs to")]][1]',
+  );
+  assert.equal(await teamCard.getByRole("button", { name: "Save changes", exact: true }).count(), 0);
+  assert.equal(patches.length, 0, "looking saves nothing");
 
   await choose(page, "Team", "— No team —");
-  assert.equal(await save.isDisabled(), false);
-  await save.click();
-  await eventually(async () => patches.length === 1, "the clear is sent");
+  await eventually(async () => patches.length === 1, "the clear is sent on pick");
   assert.deepEqual(patches.at(-1), { employeeId: "emp-ada", body: { teamId: null } });
   // The page reloads the employee and the card settles on what was saved.
   await eventually(
-    async () => (await teamPicker.inputValue()) === "— No team —" && (await save.isDisabled()),
+    async () => (await teamPicker.inputValue()) === "— No team —" && !(await teamPicker.isDisabled()),
     "the cleared team is saved",
   );
 
   await choose(page, "Team", "Operations");
-  await save.click();
-  await eventually(async () => patches.length === 2, "the team is sent");
+  await eventually(async () => patches.length === 2, "the team is sent on pick");
   assert.deepEqual(patches.at(-1), { employeeId: "emp-ada", body: { teamId: "team-ops" } });
-  await eventually(async () => await save.isDisabled(), "the team is saved");
+  await eventually(async () => !(await teamPicker.isDisabled()), "the team is saved");
   assert.ok(
     patches.every(({ body }) => Object.keys(body).every((key) => key === "teamId")),
     "the Team card sends teamId and nothing else",
   );
 
-  // A refused save is explained inside the card, not in a toast or a modal.
+  // A refused save puts the old team back and says why inside the card — not
+  // in a toast or a modal.
   patchFailure = "Team not found in this company";
   await choose(page, "Team", "— No team —");
-  await save.click();
   await page.getByText("Team not found in this company", { exact: true }).waitFor();
+  await eventually(
+    async () => (await teamPicker.inputValue()) === "Operations",
+    "the refused change is put back",
+  );
   assert.equal(await page.getByRole("dialog").count(), 0);
   patchFailure = null;
 

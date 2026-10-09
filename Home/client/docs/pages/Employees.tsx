@@ -83,7 +83,8 @@ export function Employees() {
             def: (
               <>
                 Optional Team the employee belongs to — Engineering, Revenue, Ops. Pick it on the
-                employee&apos;s <Strong>Settings → General</Strong>; create teams at{" "}
+                employee&apos;s <Strong>Settings → General</Strong>; it saves as you pick it, and
+                is put back with the reason if the save is refused. Create teams at{" "}
                 <Strong>Settings → Teams</Strong>. It shows on the employee&apos;s card in the
                 Employees list.
               </>
@@ -291,7 +292,9 @@ export function Employees() {
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
           {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
           10,000 characters. Keep summaries compact and link to existing detailed records;
-          the tool advertises these limits before the employee writes an entry.
+          the tool advertises these limits before the employee writes an entry. You can add an
+          entry yourself too: press Enter in its title, or <Code>⌘/Ctrl+Enter</Code> in its detail
+          box. <Strong>Settings → Memory</Strong> works the same way.
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
@@ -299,7 +302,8 @@ export function Employees() {
           background session (when they have a connected model) — delegation is a &quot;go&quot;
           signal, not a note on a desk. A Handoff always names the employee who receives it. A
           pending Handoff past its due date escalates: the company&apos;s owners and admins get a
-          bell, once.
+          bell, once. In a brief or a <Strong>Complete</Strong> / <Strong>Decline</Strong> note,{" "}
+          <Code>⌘/Ctrl+Enter</Code> submits it.
         </LI>
         <LI>
           <Strong>Settings → Connections.</Strong> The list of{" "}

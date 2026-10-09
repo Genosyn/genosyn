@@ -126,6 +126,8 @@ export type AppView = {
   location: () => Promise<string>;
   /** Wait until the router reaches `expected` (exact, or a pattern). */
   landedOn: (expected: string | RegExp) => Promise<void>;
+  /** Wait until the page has made a write `match` accepts, and return it. */
+  waitForWrite: (match: (write: Write) => boolean, message?: string) => Promise<Write>;
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -267,6 +269,21 @@ export async function startApp(title: string) {
             ? { source: "", flags: "", exact: expected }
             : { source: expected.source, flags: expected.flags, exact: null },
         );
+      },
+      waitForWrite: async (match, message) => {
+        const deadline = Date.now() + 5_000;
+        for (;;) {
+          const found = writes.find(match);
+          if (found) return found;
+          if (Date.now() > deadline) {
+            throw new assert.AssertionError({
+              message: `${message ?? "the expected write never happened"} (writes: ${
+                writes.map((w) => `${w.method} ${w.path}`).join(", ") || "none"
+              })`,
+            });
+          }
+          await page.waitForTimeout(50);
+        }
       },
     };
     checkViews.push(view);

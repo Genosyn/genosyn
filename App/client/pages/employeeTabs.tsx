@@ -47,11 +47,12 @@ import {
 } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
+import { submitFormOnModEnter } from "../lib/keyboard";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -751,19 +752,25 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
       .catch(() => setTeams([]));
   }, [company.id]);
 
-  const dirty = (teamId || null) !== (emp.teamId ?? null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!dirty || saving) return;
+  /**
+   * Picking a team is the whole edit, so it saves as it is picked — like the
+   * run-concurrency choice below — and a refusal puts the old team back with
+   * the reason. A team only groups the roster; it grants no access.
+   */
+  async function choose(next: string) {
+    if (saving) return;
+    const previous = teamId;
+    setTeamId(next);
     setError(null);
+    if ((next || null) === (emp.teamId ?? null)) return;
     setSaving(true);
     try {
       await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
-        teamId: teamId || null,
+        teamId: next || null,
       });
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
+      setTeamId(previous);
       setError((err as Error).message);
     } finally {
       setSaving(false);
@@ -780,16 +787,24 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
             and rename teams in Settings → Teams.
           </div>
         </div>
-        <form className="flex flex-col gap-3" onSubmit={submit}>
+        <div className="flex flex-col gap-3">
           <FormError message={error} />
           <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Team</span>
+            <span className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
+              Team
+              {saving && (
+                <span className="inline-flex items-center gap-1 font-normal text-slate-500 dark:text-slate-400">
+                  <ButtonSpinner size={11} /> Saving…
+                </span>
+              )}
+            </span>
             <Select
               aria-label="Team"
+              aria-busy={saving || undefined}
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-              disabled={!teams}
+              onChange={(e) => void choose(e.target.value)}
+              disabled={!teams || saving}
             >
               <option value="">— No team —</option>
               {(teams ?? []).map((t) => (
@@ -799,12 +814,7 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
               ))}
             </Select>
           </label>
-          <div className="flex justify-end pt-1">
-            <Button type="submit" loading={saving} disabled={!dirty}>
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </div>
-        </form>
+        </div>
       </CardBody>
     </Card>
   );
@@ -2396,6 +2406,8 @@ export function JournalPage() {
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onKeyDown={submitFormOnModEnter}
+              aria-label="Detail (optional)"
               rows={3}
               placeholder="Optional detail…"
               className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
@@ -2668,6 +2680,8 @@ export function MemoryPage() {
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onKeyDown={submitFormOnModEnter}
+              aria-label="Elaboration (optional)"
               rows={2}
               placeholder="Optional elaboration…"
               className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"

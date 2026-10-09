@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
+import { submitFormOnModEnter } from "@/lib/keyboard";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import type { ProactiveEmployee } from "../../../shared/proactive";
@@ -33,7 +34,8 @@ export function AskEmployeeModal({
 }) {
   const navigate = useNavigate();
   const { sessions, actions } = useChatSessions();
-  const [employeeId, setEmployeeId] = React.useState("");
+  // A company with one AI Employee has nobody else to ask.
+  const [employeeId, setEmployeeId] = React.useState(employees.length === 1 ? employees[0].id : "");
   const [request, setRequest] = React.useState("");
   const [opening, setOpening] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -176,6 +178,7 @@ export function AskEmployeeModal({
             label="What should become standing work?"
             value={request}
             onChange={(event) => setRequest(event.target.value)}
+            onKeyDown={submitFormOnModEnter}
             maxLength={MAX_INITIATIVE_REQUEST_LENGTH}
             placeholder="For example: Every Monday, review open customer commitments and propose the follow-ups that need an owner."
             hint="Describe the outcome and timing. The employee will inspect existing Routines and Initiatives before proposing anything."

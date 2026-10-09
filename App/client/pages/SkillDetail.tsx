@@ -268,7 +268,18 @@ function SettingsTab({
     <div className="flex flex-col gap-4">
       <Card>
         <CardBody className="flex flex-col gap-4">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter renames. Not a form: Enter in the tool search below
+              // must not save half-picked tools.
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              if (dirty && name.trim() && !saving) void save();
+            }}
+          />
           <p className="text-xs text-slate-500 dark:text-slate-400">
             The address stays <code className="font-mono">@{skill.slug}</code> when you
             rename — links to this skill keep working.
