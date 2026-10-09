@@ -24,7 +24,7 @@ export function DecisionDiscussButton({
     <Button
       type="button"
       size="sm"
-      variant="secondary"
+      variant="ghost"
       disabled={disabled || !decision.employee}
       onClick={onToggle}
       aria-expanded={open}

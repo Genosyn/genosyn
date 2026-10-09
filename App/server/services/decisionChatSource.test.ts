@@ -204,8 +204,11 @@ describe("Decision discussion source", () => {
         decidedAt: CREATED,
         pickupStatus: "done",
         pickupSummary: "Prepared another draft",
+        pickupReport: "Draft ready for review.",
         pickupStartedAt: CREATED,
         pickupFinishedAt: CREATED,
+        summary: "Acme wants a reply today.",
+        recommendation: "Wait: support may already have answered.",
       });
       const result = await source.tools[0].run({});
       assert.equal(result.isError, undefined);
@@ -215,6 +218,9 @@ describe("Decision discussion source", () => {
       assert.equal(data.chosenOptionLabel, "Wait");
       assert.equal(data.note, "Check support first");
       assert.equal(data.pickupSummary, "Prepared another draft");
+      assert.equal(data.pickupReport, "Draft ready for review.");
+      assert.equal(data.summary, "Acme wants a reply today.");
+      assert.equal(data.recommendation, "Wait: support may already have answered.");
       assert.equal(data.pickupFinishedAt, CREATED.toISOString());
     }
   });

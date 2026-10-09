@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
 import {
+  decisionRecommendationSchema,
+  decisionSummarySchema,
   humanDecisionReasonSchema,
   withHumanDecisionReason,
 } from "../services/humanDecisionGuidance.js";
@@ -201,7 +203,9 @@ import { MAX_DECISION_OPTIONS, cancelDecision } from "../services/decisions.js";
 import {
   DECISION_STACK_OFF_MESSAGE,
   KEPT_OFF_STACK_NOTE,
+  alreadyWaitingNote,
   raiseDecision,
+  tooManyWaitingNote,
 } from "../services/decisionIntake.js";
 import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/decisionRouting.js";
 import { WakeupError, cancelWakeup, scheduleWakeup } from "../services/wakeups.js";
@@ -13051,6 +13055,11 @@ const requestDecisionSchema = z
   .object({
     humanDecisionReason: humanDecisionReasonSchema,
     title: z.string().min(1).max(200),
+    // The lines a busy owner reads first. The tool list asks for both; a
+    // model turn holding an older list may still omit them, and the stack
+    // then derives a line from the reason, as it does for older rows.
+    summary: decisionSummarySchema.optional(),
+    recommendation: decisionRecommendationSchema.optional(),
     body: z.string().max(20_000).optional(),
     options: z
       .array(
@@ -13125,6 +13134,8 @@ mcpInternalRouter.post(
         title: body.title,
         body: body.body,
         humanDecisionReason: body.humanDecisionReason,
+        summary: body.summary,
+        recommendation: body.recommendation,
         options: body.options,
         urgency: body.urgency,
         assigneeUserId,
@@ -13148,6 +13159,32 @@ mcpInternalRouter.post(
           reason: raised.screen.reason,
           instruction: `${raised.screen.instructionNumber}. ${raised.screen.instruction}`,
           note: KEPT_OFF_STACK_NOTE,
+        });
+      }
+      if (raised.outcome === "already_waiting") {
+        // Not an error either: the question is already in front of people.
+        return res.json({
+          decisionId: null,
+          status: "already_waiting",
+          stacked: false,
+          existingDecisionId: raised.existing.id,
+          existingTitle: raised.existing.title,
+          match: raised.match,
+          note: alreadyWaitingNote(raised.existing, raised.match),
+        });
+      }
+      if (raised.outcome === "too_many_waiting") {
+        return res.json({
+          decisionId: null,
+          status: "too_many_waiting",
+          stacked: false,
+          limit: raised.limit,
+          waiting: raised.waiting.map((decision) => ({
+            decisionId: decision.id,
+            title: decision.title,
+            askedAt: decision.createdAt.toISOString(),
+          })),
+          note: tooManyWaitingNote(raised.waiting, raised.limit),
         });
       }
       const { decision, options } = raised;

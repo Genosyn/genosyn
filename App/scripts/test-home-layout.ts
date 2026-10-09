@@ -860,7 +860,11 @@ const statTiles = (page: Page) =>
       /^(Unread notifications|Todos assigned to you|Reviews waiting on you|Pending approvals)$/,
     ),
   });
-const decisionRows = (page: Page) => activeDecisions(page).locator(":scope > ul > li");
+// Every row in Home's Active decisions, in reading order (email and work
+// reviews sit inside their group's list).
+const decisionRows = (page: Page) => activeDecisions(page).locator("[data-stack-row]");
+/** The one line a settled row collapses to. */
+const statusLine = (page: Page, id: string) => page.locator(`[id="${id}"] [data-status-line]`);
 async function editMailReply(page: Page, id: string, body: string) {
   const row = page.locator(`#review-${id}`);
   await row.getByRole("button", { name: "Edit email", exact: true }).click();
@@ -1509,7 +1513,9 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
         .click();
-      await activeDecisions(page).getByText("answered", { exact: true }).waitFor();
+      await statusLine(page, "decision-decision")
+        .getByText("You chose “Confirm the owner”", { exact: true })
+        .waitFor();
       assert.equal(
         await decisionRows(page).count(),
         1,
@@ -1563,7 +1569,9 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Confirm: Confirm the owner", exact: true })
         .click();
-      await activeDecisions(page).getByText("answered", { exact: true }).waitFor();
+      await statusLine(page, "decision-decision")
+        .getByText("You chose “Confirm the owner”", { exact: true })
+        .waitFor();
       await page.getByText("Home is unavailable.", { exact: true }).waitFor();
       await activeDecisions(page)
         .getByRole("button", { name: "Close decision", exact: true })
@@ -1747,7 +1755,10 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Approve & start", exact: true })
         .click();
-      await activeDecisions(page).getByText("Work in progress", { exact: true }).waitFor();
+      await activeDecisions(page)
+        .locator("[data-status-line]")
+        .getByText("Approved", { exact: true })
+        .waitFor();
       assert.equal(await decisionRows(page).count(), 2);
       assert.deepEqual(
         await decisionRows(page).getByRole("heading", { level: 3 }).allTextContents(),
@@ -1810,19 +1821,26 @@ try {
       await activeDecisions(page)
         .getByRole("button", { name: "Approve & start", exact: true })
         .click();
-      await activeDecisions(page).getByText("Work in progress", { exact: true }).waitFor();
+      await activeDecisions(page)
+        .locator("[data-status-line]")
+        .getByText("Approved", { exact: true })
+        .waitFor();
       fixture.updateReview("work-review", {
         status: "execution_failed",
         errorMessage: "The checkout service was unavailable; no fix was published.",
         outcomeSummary: "Investigation stopped when the service became unavailable.",
       });
       fixture.emitResourceEvent("approval");
-      await activeDecisions(page).getByText("Work failed", { exact: true }).waitFor();
-      await activeDecisions(page)
-        .getByText("The checkout service was unavailable; no fix was published.", { exact: true })
-        .waitFor();
+      const failedLine = statusLine(page, "review-work-review");
+      await failedLine.getByText("Couldn’t finish", { exact: true }).waitFor();
+      assert.equal(
+        await failedLine.innerText(),
+        "Couldn’t finish · The checkout service was unavailable; no fix was published.",
+      );
       await page.reload({ waitUntil: "commit" });
-      await activeDecisions(page).getByText("Work failed", { exact: true }).waitFor();
+      await statusLine(page, "review-work-review")
+        .getByText("Couldn’t finish", { exact: true })
+        .waitFor();
       await fits(page);
       await page.screenshot({
         path: path.join(output, "home-followed-work-failed-mobile.png"),

@@ -9,6 +9,7 @@ import {
   decisionStackInstructionsGuidance,
 } from "../humanDecisionGuidance.js";
 import { decisionStackStateOf, type DecisionStackState } from "../decisionStackSettings.js";
+import { MAX_WAITING_DECISIONS_PER_EMPLOYEE } from "../decisionDuplicates.js";
 import { composeStanddownContext } from "../standdowns.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
@@ -326,12 +327,16 @@ export function toolsBriefing(
         "a human can edit, send, or discard from the Decision stack. A mail review is not a provider " +
         "draft: never create a Gmail or IMAP draft for the same reply or fresh message. Use `revise_work_review` or " +
         "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed work; a " +
-        "customer request or a discovered issue does not expand your authority. Check existing " +
-        "Decisions before adding another about the same issue. For a Decision, use a short, concrete action and " +
-        "subject as the title, such as 'Choose Acme's multi-year contract terms'. Begin the body with " +
-        "what happened, why it matters and your recommended next " +
-        "step in plain language. Include source links, what you checked, what remains unknown and " +
-        "the scope and cost of the proposed work. Offer 2–3 distinct choices with short action labels " +
+        "customer request or a discovered issue does not expand your authority. Ask one combined " +
+        "question rather than several small ones: a question you already have waiting is refused, and " +
+        `you may have at most ${MAX_WAITING_DECISIONS_PER_EMPLOYEE} waiting at once — retract one with ` +
+        "`cancel_decision` before asking a bigger one. Write for a busy owner who is not an expert in " +
+        "your work: the title is the question in plain words, such as 'Sign Acme's three-year " +
+        "contract?'; the summary says in one or two plain sentences what is happening and why it needs " +
+        "a person now; the recommendation names the answer you recommend and why, in one sentence. " +
+        "People read only those lines and the choices until they open the details, so leave out IDs, " +
+        "codes and jargon there. Put source links, what you checked, what remains unknown and the " +
+        "scope and cost of the proposed work in the body. Offer 2–3 distinct choices with short action labels " +
         "and a sentence explaining what you will do " +
         "for each. Recommend at most one; include a way to defer or decline. If you need a name, " +
         "date, price or document, ask for that exact information in the option detail and say it " +

@@ -19,6 +19,7 @@ import {
   canDecide,
   createDecision,
   decideDecision,
+  decisionLine,
   listDecisions,
   listPendingDecisions,
   normalizeDecisionOptions,
@@ -225,6 +226,75 @@ describe("raising a decision", () => {
         }),
       /at least one option/,
     );
+  });
+});
+
+describe("the short lines a Decision opens on", () => {
+  test("decisionLine keeps one redacted line within its limit, and blank is null", () => {
+    assert.equal(decisionLine("  Acme renews\n\nFriday.  ", 200), "Acme renews Friday.");
+    assert.equal(decisionLine("   ", 200), null);
+    assert.equal(decisionLine(null, 200), null);
+    assert.equal(decisionLine(undefined, 200), null);
+    const long = decisionLine("word ".repeat(80), 160) ?? "";
+    assert.ok(long.length <= 160 && long.endsWith("…"), long);
+    assert.doesNotMatch(
+      decisionLine("Use token=abc123supersecret today", 200) ?? "",
+      /abc123supersecret/,
+    );
+  });
+
+  test("createDecision stores the summary and recommendation; the DTO and the stack return them", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const { decision } = await createDecision({
+      companyId,
+      employeeId,
+      title: "Sign Acme's renewal?",
+      summary: "Acme will sign for three years\nat 10% off.",
+      recommendation: "Sign it: three years beats the discount.",
+      options: [{ label: "Sign it", tone: "primary" }],
+    });
+    assert.equal(decision.summary, "Acme will sign for three years at 10% off.");
+    assert.equal(decision.recommendation, "Sign it: three years beats the discount.");
+    const [listed] = await listDecisions({ companyId, status: "pending" });
+    assert.equal(listed.summary, "Acme will sign for three years at 10% off.");
+    assert.equal(listed.recommendation, "Sign it: three years beats the discount.");
+    assert.equal(listed.pickupReport, null);
+    const { decisions } = await listPendingDecisions({
+      companyId,
+      limit: 5,
+      viewer: { userId: ownerId, role: "owner" },
+    });
+    assert.equal(decisions[0].summary, "Acme will sign for three years at 10% off.");
+    const [bell] = await AppDataSource.getRepository(Notification).find({ where: { companyId } });
+    assert.equal(bell.body, "Acme will sign for three years at 10% off.");
+  });
+
+  test("an older-style Decision has no lines, and its bell says what to do", async () => {
+    const { companyId, employeeId } = await scenario();
+    const decision = await stack(companyId, employeeId);
+    assert.equal(decision.summary, null);
+    assert.equal(decision.recommendation, null);
+    const [listed] = await listDecisions({ companyId, status: "pending" });
+    assert.equal(listed.summary, null);
+    const [bell] = await AppDataSource.getRepository(Notification).find({ where: { companyId } });
+    assert.equal(bell.body, "Pick an option in the Decision stack so they can carry on.");
+  });
+
+  test("a recorded pickup report reaches the stack beside the full log", async () => {
+    const { companyId, employeeId } = await scenario();
+    const decision = await stack(companyId, employeeId);
+    await AppDataSource.getRepository(Decision).update(
+      { id: decision.id },
+      {
+        status: "decided",
+        pickupStatus: "done",
+        pickupSummary: "Opened the deal.\n\nSent the reply.",
+        pickupReport: "Sent the reply.",
+      },
+    );
+    const [listed] = await listDecisions({ companyId, status: "decided" });
+    assert.equal(listed.pickupReport, "Sent the reply.");
+    assert.equal(listed.pickupSummary, "Opened the deal.\n\nSent the reply.");
   });
 });
 

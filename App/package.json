@@ -52,6 +52,7 @@
     "test:mail-sender-name": "tsx scripts/test-mail-sender-name.ts",
     "test:mail-analysis-instructions": "tsx scripts/test-mail-analysis-instructions.ts",
     "test:decision-stack-settings": "tsx scripts/test-decision-stack-settings.ts",
+    "test:decision-stack-rows": "tsx scripts/test-decision-stack-rows.ts",
     "test:employees-roster": "tsx scripts/test-employees-roster.ts"
   },
   "dependencies": {

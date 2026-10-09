@@ -384,7 +384,11 @@ try {
   await waitingCard.getByRole("button", { name: "Confirm: Raise it 5%", exact: true }).click();
   await until(() => decides.length === 1, "the answer");
   assert.deepEqual(decides, [{ id: "11111111-1111-4111-8111-111111111111", optionId: "raise" }]);
-  await waitingCard.getByText("answered", { exact: true }).waitFor();
+  // The answered row collapses to one status line.
+  await waitingCard
+    .locator("[data-status-line]")
+    .getByText("Answer saved", { exact: true })
+    .waitFor();
 
   // The banner's link goes back to Settings.
   await banner.getByRole("link", { name: "Turn it back on in Settings" }).click();

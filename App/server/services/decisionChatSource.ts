@@ -83,6 +83,8 @@ export function renderUntrustedDecision(decision: Decision): string {
       {
         id: decision.id,
         title: decision.title,
+        summary: decision.summary ?? null,
+        recommendation: decision.recommendation ?? null,
         body: decision.body,
         options: parseDecisionOptions(decision.optionsJson),
         status: decision.status,
@@ -94,6 +96,7 @@ export function renderUntrustedDecision(decision: Decision): string {
         decidedAt: decision.decidedAt?.toISOString() ?? null,
         pickupStatus: decision.pickupStatus,
         pickupSummary: decision.pickupSummary,
+        pickupReport: decision.pickupReport ?? null,
         pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
         pickupFinishedAt: decision.pickupFinishedAt?.toISOString() ?? null,
         sourceReferences: {

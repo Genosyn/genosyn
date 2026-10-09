@@ -1,15 +1,14 @@
 import React from "react";
 import {
+  AlertTriangle,
   ArrowRight,
-  Check,
   ChevronDown,
   Clock3,
   GitBranch,
-  Info,
-  ListChecks,
+  Lightbulb,
   MessageSquarePlus,
 } from "lucide-react";
-import { parseDecisionContext } from "../../../shared/decisionContext";
+import { decisionHeadline } from "../../../shared/decisionSummary";
 import { api, Company, Decision, DecisionUrgency } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
@@ -17,15 +16,12 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Menu, MenuHeader, MenuItem } from "@/components/ui/Menu";
 import { clsx } from "@/components/ui/clsx";
-import { DecisionSourceLine } from "@/components/decisions/DecisionSource";
-import {
-  DecisionContextSections,
-  DecisionReasonItem,
-} from "@/components/decisions/DecisionContext";
+import { DecisionDetails } from "@/components/decisions/DecisionDetails";
 import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
 import { DecisionDiscussion } from "@/components/decisions/DecisionDiscussion";
+import { DetailsButton, focusAfterRemoval } from "@/components/decisions/StackRow";
 import { useDecisionDiscussionOpen } from "@/components/decisions/useDecisionDiscussion";
-import { ReviewTimeline, ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
+import { ReviewTimeline } from "@/components/decisions/ReviewTimeline";
 import { formatRelative } from "@/components/decisions/relative";
 
 const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | null> = {
@@ -50,9 +46,31 @@ const SNOOZE_OPTIONS: { duration: SnoozeDuration; label: string }[] = [
   { duration: "one_month", label: "1 month" },
 ];
 
-type PendingAction = "answer" | "dismiss" | "snooze";
+export type DecisionAction = "answer" | "dismiss" | "snooze";
 
-/** A pending question, shown as the story so far followed by one clear choice. */
+/** The look of one answer, by its tone and whether it is picked. */
+function optionClass(tone: Decision["options"][number]["tone"], checked: boolean): string {
+  if (checked && tone === "danger")
+    return "border-rose-500 bg-rose-50 text-rose-800 ring-1 ring-rose-500 dark:border-rose-400 dark:bg-rose-500/10 dark:text-rose-200";
+  if (checked)
+    return "border-indigo-500 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-500 dark:border-indigo-400 dark:bg-indigo-500/10 dark:text-indigo-100";
+  if (tone === "danger")
+    return "border-slate-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50/50 dark:border-slate-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:border-rose-500/40";
+  if (tone === "primary")
+    return "border-indigo-200 bg-white text-slate-900 hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-indigo-500/40 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-indigo-500/10";
+  return "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-800/60";
+}
+
+/**
+ * A waiting question as one short row: who asks, the question, one plain line
+ * about it, what the employee recommends, and the answers. Everything else —
+ * the full reason, the context, what each choice means, where it came from —
+ * is behind Details.
+ *
+ * Answering is still two deliberate steps: pick an answer, then confirm it
+ * (with guidance, if you have any). Dismiss and Snooze take the question off
+ * the stack in the same click.
+ */
 export function DecisionCard({
   company,
   decision,
@@ -64,15 +82,18 @@ export function DecisionCard({
   company: Company;
   decision: Decision;
   onResolved: (announcement?: string) => Promise<void> | void;
-  onActionStart?: () => void;
-  onActionSettled?: (decision: Decision) => void;
+  onActionStart?: (action: DecisionAction) => void;
+  /** Called with the server's row; `leave` puts focus where the row was once it is gone. */
+  onActionSettled?: (decision: Decision, action: DecisionAction, leave: () => void) => void;
   canAnswer?: boolean;
 }) {
-  const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
+  const [pendingAction, setPendingAction] = React.useState<DecisionAction | null>(null);
   const submitting = React.useRef(false);
+  const rowRef = React.useRef<HTMLLIElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [guidanceOpen, setGuidanceOpen] = React.useState(false);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
   const base = `/api/companies/${company.id}/decisions/${decision.id}`;
   const fieldId = React.useId();
@@ -80,15 +101,16 @@ export function DecisionCard({
   const selected = decision.options.find((option) => option.id === selectedId);
   const employeeName = decision.employee?.name ?? "The AI Employee";
   const busy = pendingAction !== null;
-  const context = React.useMemo(() => parseDecisionContext(decision.body), [decision.body]);
+  const headline = React.useMemo(() => decisionHeadline(decision), [decision]);
   const [discussing, setDiscussing] = useDecisionDiscussionOpen(decision.id);
   // Focus the message box only when the Member opens it here, not when the
   // step reappears on its own.
   const [focusDiscussion, setFocusDiscussion] = React.useState(false);
   const discussionId = `${fieldId}-discussion`;
+  const detailsId = `${fieldId}-details`;
 
   async function perform(
-    action: PendingAction,
+    action: DecisionAction,
     request: () => Promise<Decision>,
     announcement: string,
   ) {
@@ -97,9 +119,9 @@ export function DecisionCard({
     setPendingAction(action);
     setError(null);
     try {
-      if (action !== "snooze") onActionStart?.();
+      onActionStart?.(action);
       const result = await request();
-      onActionSettled?.(result);
+      onActionSettled?.(result, action, focusAfterRemoval(rowRef.current));
       // The refreshed row records pickup status; submitting cannot promise that
       // the employee has started or that any proposed action has succeeded.
       await onResolved(announcement);
@@ -129,7 +151,7 @@ export function DecisionCard({
     await perform(
       "dismiss",
       () => api.post<Decision>(`${base}/dismiss`, {}),
-      `Decision “${decision.title}” dismissed.`,
+      `Decision “${decision.title}” dismissed. It is in Decision history.`,
     );
   }
 
@@ -142,26 +164,34 @@ export function DecisionCard({
   }
 
   return (
-    <li id={`decision-${decision.id}`} className="scroll-mt-4 px-4 py-5 sm:px-5">
+    <li
+      ref={rowRef}
+      id={`decision-${decision.id}`}
+      data-stack-row
+      className="scroll-mt-4 px-4 py-4 sm:px-5"
+    >
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
-        <header className="flex min-w-0 items-center gap-2">
+        <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           {decision.employee ? (
             <Avatar
               name={decision.employee.name}
               kind="ai"
-              size="sm"
+              size="xs"
               src={employeeAvatarUrl(company.id, decision.employee.id, decision.employee.avatarKey)}
             />
           ) : (
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              <GitBranch size={12} />
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <GitBranch size={11} />
             </span>
           )}
-          <div className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">
+          <p className="min-w-0 flex-1 truncate">
             <span className="font-medium text-slate-700 dark:text-slate-200">{employeeName}</span>
             <span> · asked {formatRelative(decision.createdAt)}</span>
             {decision.assignee && <span> · for {decision.assignee.name}</span>}
-          </div>
+            {decision.routedToEmployee && (
+              <span> · routed to {decision.routedToEmployee.name} (AI)</span>
+            )}
+          </p>
           {badge && (
             <span
               className={clsx(
@@ -172,147 +202,205 @@ export function DecisionCard({
               {badge.label}
             </span>
           )}
+          <DetailsButton
+            size="xs"
+            open={detailsOpen}
+            controls={detailsId}
+            onToggle={() => setDetailsOpen((open) => !open)}
+          />
         </header>
 
         <h3
           id={`${fieldId}-title`}
-          className="mt-3 break-words text-base font-semibold leading-snug text-slate-900 dark:text-slate-100"
+          tabIndex={-1}
+          data-row-focus
+          className="mt-1 break-words text-[15px] font-semibold leading-snug text-slate-900 focus:outline-none dark:text-slate-100"
         >
-          {decision.title}
+          {headline.question}
         </h3>
+        {headline.summary && (
+          <p
+            data-decision-summary
+            className="mt-1 line-clamp-2 break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300"
+          >
+            {headline.summary}
+          </p>
+        )}
+        {headline.recommendation && (
+          <p
+            data-decision-recommendation
+            className="mt-1.5 flex min-w-0 items-start gap-1.5 text-sm leading-snug text-slate-700 dark:text-slate-200"
+          >
+            <Lightbulb
+              size={14}
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400"
+            />
+            <span className="min-w-0 break-words">
+              <span className="font-medium">Recommends:</span> {headline.recommendation}
+            </span>
+          </p>
+        )}
 
-        <ReviewTimeline className="mt-5">
-          <ReviewTimelineItem icon={Info} title="What happened">
-            <DecisionSourceLine company={company} decision={decision} />
-            {context.sections.length > 0 ? (
-              <DecisionContextSections
-                id={`${fieldId}-context`}
-                sections={context.sections}
-                heading="What happened"
-                preview={{ sections: 2, lines: 6 }}
-                className="mt-3"
-              />
-            ) : (
-              !context.reason && (
-                <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm leading-relaxed text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
-                  No context was included. Ask {employeeName} for the details you need before
-                  choosing.
-                </p>
-              )
-            )}
-            {decision.routedToEmployee && (
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                <span>Routed to {decision.routedToEmployee.name} (AI)</span>
+        {detailsOpen && <DecisionDetails id={detailsId} company={company} decision={decision} />}
+
+        <form onSubmit={submit} aria-labelledby={`${fieldId}-title`} className="mt-3">
+          {!canAnswer && (
+            <p
+              id={`${fieldId}-choice-help`}
+              className="mb-2 text-xs text-slate-500 dark:text-slate-400"
+            >
+              Assigned to {decision.assignee?.name ?? "another Member"}. Only they or an owner or
+              admin can answer.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {decision.options.length > 0 ? (
+              <div
+                role="radiogroup"
+                aria-label="Choose one answer"
+                aria-describedby={canAnswer ? undefined : `${fieldId}-choice-help`}
+                className="flex min-w-0 flex-wrap gap-2"
+              >
+                {decision.options.map((option, index) => {
+                  const checked = selectedId === option.id;
+                  const optionId = `${fieldId}-option-${index}`;
+                  const disabled = busy || !canAnswer;
+                  return (
+                    <label
+                      key={option.id}
+                      htmlFor={optionId}
+                      className={clsx(
+                        "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-indigo-500/30",
+                        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                        optionClass(option.tone, checked),
+                      )}
+                    >
+                      <input
+                        id={optionId}
+                        type="radio"
+                        name={`${fieldId}-answer`}
+                        value={option.id}
+                        checked={checked}
+                        disabled={disabled}
+                        aria-describedby={option.detail ? `${optionId}-detail` : undefined}
+                        onChange={() => {
+                          setSelectedId(option.id);
+                          setError(null);
+                        }}
+                        className="sr-only"
+                      />
+                      {option.tone === "danger" && (
+                        <AlertTriangle size={13} aria-hidden="true" className="shrink-0" />
+                      )}
+                      {option.tone === "primary" && (
+                        <Lightbulb
+                          size={13}
+                          aria-hidden="true"
+                          className="shrink-0 text-indigo-500 dark:text-indigo-400"
+                        />
+                      )}
+                      <span className="min-w-0 break-words">{option.label}</span>
+                      {option.tone === "primary" && <span className="sr-only"> (recommended)</span>}
+                      {option.tone === "danger" && <span className="sr-only"> (destructive)</span>}
+                      {option.detail && (
+                        <span id={`${optionId}-detail`} className="sr-only">
+                          {option.detail}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
+            ) : (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                This decision has no available answers. Ask {employeeName} for a new decision or
+                dismiss this one.
+              </p>
             )}
-          </ReviewTimelineItem>
-
-          {context.reason && <DecisionReasonItem reason={context.reason} />}
-
-          <ReviewTimelineItem icon={ListChecks} title="What do you need to decide?" tone="accent">
-            <form onSubmit={submit} aria-labelledby={`${fieldId}-title`}>
-              <fieldset disabled={busy || !canAnswer} aria-describedby={`${fieldId}-choice-help`}>
-                <legend className="sr-only">Choose one answer</legend>
-                <p
-                  id={`${fieldId}-choice-help`}
-                  className="mb-3 text-sm leading-relaxed text-slate-500 dark:text-slate-400"
-                >
-                  {canAnswer
-                    ? "Choose one answer. Nothing is recorded until you confirm it below."
-                    : `This is assigned to ${decision.assignee?.name ?? "another Member"}. You can read the choices, but only that Member or an owner or admin can answer.`}
-                </p>
-                {decision.options.length > 0 ? (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {decision.options.map((option, index) => {
-                      const checked = selectedId === option.id;
-                      const optionId = `${fieldId}-option-${index}`;
-                      return (
-                        <label
-                          key={option.id}
-                          htmlFor={optionId}
-                          className={clsx(
-                            "relative min-w-0 cursor-pointer rounded-lg border p-3 text-left transition focus-within:outline-none focus-within:ring-2 focus-within:ring-indigo-500/30",
-                            busy && "cursor-wait opacity-60",
-                            checked && option.tone === "danger"
-                              ? "border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-500/10"
-                              : checked
-                                ? "border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-500/10"
-                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:hover:bg-slate-800/60",
-                          )}
-                        >
-                          <input
-                            id={optionId}
-                            type="radio"
-                            name={`${fieldId}-answer`}
-                            value={option.id}
-                            checked={checked}
-                            aria-describedby={option.detail ? `${optionId}-detail` : undefined}
-                            onChange={() => {
-                              setSelectedId(option.id);
-                              setError(null);
-                            }}
-                            className="sr-only"
-                          />
-                          <span className="flex min-w-0 items-start gap-2">
-                            <span className="min-w-0 flex-1">
-                              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="break-words text-sm font-medium text-slate-900 dark:text-slate-100">
-                                  {option.label}
-                                </span>
-                                {option.tone === "primary" && (
-                                  <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
-                                    Recommended
-                                  </span>
-                                )}
-                                {option.tone === "danger" && (
-                                  <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-                                    Destructive action
-                                  </span>
-                                )}
-                              </span>
-                              {option.detail && (
-                                <span
-                                  id={`${optionId}-detail`}
-                                  className="mt-1 block break-words text-xs leading-relaxed text-slate-500 dark:text-slate-400"
-                                >
-                                  {option.detail}
-                                </span>
-                              )}
-                            </span>
-                            {checked && (
-                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white dark:bg-indigo-500">
-                                <Check size={12} />
-                              </span>
-                            )}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                    This decision has no available answers. Ask {employeeName} for a new decision or
-                    dismiss this one.
-                  </p>
-                )}
-              </fieldset>
-
+            <div className="flex items-center gap-1 sm:ml-auto">
+              <DecisionDiscussButton
+                decision={decision}
+                open={discussing}
+                controls={discussionId}
+                disabled={busy}
+                onToggle={() => {
+                  setFocusDiscussion(!discussing);
+                  setDiscussing(!discussing);
+                }}
+              />
               {canAnswer && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setGuidanceOpen((value) => !value)}
-                  aria-expanded={guidanceOpen}
-                  aria-controls={`${fieldId}-guidance`}
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline disabled:opacity-60 dark:text-indigo-400"
+                <Menu
+                  align="right"
+                  width={200}
+                  trigger={({ ref, onClick, open }) => (
+                    <Button
+                      ref={ref}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      loading={pendingAction === "snooze"}
+                      disabled={busy}
+                      onClick={() => {
+                        setError(null);
+                        onClick();
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={open}
+                      className="px-2.5"
+                    >
+                      <Clock3 size={14} />
+                      Snooze
+                      <ChevronDown
+                        size={13}
+                        className={clsx("transition-transform", open && "rotate-180")}
+                      />
+                    </Button>
+                  )}
                 >
-                  <MessageSquarePlus size={13} />
-                  {guidanceOpen ? "Hide guidance" : note.trim() ? "Edit guidance" : "Add guidance"}
-                </button>
+                  {(close) => (
+                    <>
+                      <MenuHeader>Snooze for</MenuHeader>
+                      {SNOOZE_OPTIONS.map((option) => (
+                        <MenuItem
+                          key={option.duration}
+                          label={option.label}
+                          onSelect={() => {
+                            close();
+                            void snooze(option.duration, option.label);
+                          }}
+                        />
+                      ))}
+                    </>
+                  )}
+                </Menu>
               )}
+              {canAnswer && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  loading={pendingAction === "dismiss"}
+                  disabled={busy}
+                  onClick={() => void dismiss()}
+                  title="Take this off the stack without answering. It stays in Decision history."
+                  className="px-2.5"
+                >
+                  Dismiss
+                </Button>
+              )}
+            </div>
+          </div>
 
-              {canAnswer && guidanceOpen && (
-                <div id={`${fieldId}-guidance`} className="mt-4">
+          {canAnswer && selected && (
+            <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
+              {selected.detail && (
+                <p className="break-words text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                  {selected.detail}
+                </p>
+              )}
+              {guidanceOpen && (
+                <div id={`${fieldId}-guidance`} className={clsx(selected.detail && "mt-3")}>
                   <label
                     htmlFor={`${fieldId}-note`}
                     className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-200"
@@ -334,105 +422,44 @@ export function DecisionCard({
                   />
                 </div>
               )}
-
-              {canAnswer && selected && (
-                <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                  Confirming records this answer for {employeeName}. Any required Approvals still
-                  apply to the work that follows.
-                </p>
-              )}
-
-              {canAnswer && <FormError message={error} className="mt-3" />}
-
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-                {canAnswer && selected && (
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant={selected.tone === "danger" ? "danger" : "primary"}
-                    loading={pendingAction === "answer"}
-                    disabled={busy}
-                    className="w-full min-w-0 sm:w-auto"
-                    title={`Confirm: ${selected.label}`}
-                  >
-                    <ArrowRight size={14} />
-                    <span className="min-w-0 truncate">Confirm: {selected.label}</span>
-                  </Button>
+              <div
+                className={clsx(
+                  "flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center",
+                  (selected.detail || guidanceOpen) && "mt-3",
                 )}
-                <DecisionDiscussButton
-                  decision={decision}
-                  open={discussing}
-                  controls={discussionId}
+              >
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant={selected.tone === "danger" ? "danger" : "primary"}
+                  loading={pendingAction === "answer"}
                   disabled={busy}
-                  onToggle={() => {
-                    setFocusDiscussion(!discussing);
-                    setDiscussing(!discussing);
-                  }}
-                />
-                {canAnswer && (
-                  <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row">
-                    <Menu
-                      align="right"
-                      width={200}
-                      trigger={({ ref, onClick, open }) => (
-                        <Button
-                          ref={ref}
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          loading={pendingAction === "snooze"}
-                          disabled={busy}
-                          onClick={() => {
-                            setError(null);
-                            onClick();
-                          }}
-                          aria-haspopup="menu"
-                          aria-expanded={open}
-                          className="w-full sm:w-auto"
-                        >
-                          <Clock3 size={14} />
-                          Snooze
-                          <ChevronDown
-                            size={13}
-                            className={clsx("transition-transform", open && "rotate-180")}
-                          />
-                        </Button>
-                      )}
-                    >
-                      {(close) => (
-                        <>
-                          <MenuHeader>Snooze for</MenuHeader>
-                          {SNOOZE_OPTIONS.map((option) => (
-                            <MenuItem
-                              key={option.duration}
-                              label={option.label}
-                              onSelect={() => {
-                                close();
-                                void snooze(option.duration, option.label);
-                              }}
-                            />
-                          ))}
-                        </>
-                      )}
-                    </Menu>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      loading={pendingAction === "dismiss"}
-                      disabled={busy}
-                      onClick={() => void dismiss()}
-                      className="w-full sm:w-auto"
-                    >
-                      Dismiss
-                    </Button>
-                  </div>
-                )}
+                  className="w-full min-w-0 sm:w-auto"
+                  title={`Confirm: ${selected.label}`}
+                >
+                  <ArrowRight size={14} />
+                  <span className="min-w-0 truncate">Confirm: {selected.label}</span>
+                </Button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setGuidanceOpen((value) => !value)}
+                  aria-expanded={guidanceOpen}
+                  aria-controls={`${fieldId}-guidance`}
+                  className="inline-flex items-center justify-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline disabled:opacity-60 dark:text-indigo-400"
+                >
+                  <MessageSquarePlus size={13} />
+                  {guidanceOpen ? "Hide guidance" : note.trim() ? "Edit guidance" : "Add guidance"}
+                </button>
               </div>
-            </form>
-          </ReviewTimelineItem>
+            </div>
+          )}
 
-          {discussing && decision.employee && (
+          <FormError message={error} className="mt-3" />
+        </form>
+
+        {discussing && decision.employee && (
+          <ReviewTimeline className="mt-4">
             <DecisionDiscussion
               id={discussionId}
               company={company}
@@ -440,8 +467,8 @@ export function DecisionCard({
               employee={decision.employee}
               autoFocus={focusDiscussion}
             />
-          )}
-        </ReviewTimeline>
+          </ReviewTimeline>
+        )}
       </article>
     </li>
   );

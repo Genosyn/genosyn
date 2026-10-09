@@ -23,6 +23,12 @@ import { emitResourceChange } from "./resourceEvents.js";
 import { withHumanDecisionReason } from "./humanDecisionGuidance.js";
 import { DecisionStackOffError, isDecisionStackEnabled } from "./decisionStackSettings.js";
 import { toSlug } from "../lib/slug.js";
+import {
+  DECISION_RECOMMENDATION_MAX,
+  DECISION_SUMMARY_MAX,
+  clip,
+  oneLine,
+} from "../../shared/decisionSummary.js";
 
 /**
  * The Decision Stack — questions AI Employees stopped to ask a human.
@@ -82,6 +88,13 @@ export type DecisionDTO = {
   companyId: string;
   title: string;
   body: string;
+  /**
+   * The asking employee's one or two plain sentences for a busy owner. Null
+   * on older rows; the stack derives a line then (`shared/decisionSummary.ts`).
+   */
+  summary: string | null;
+  /** Its recommended answer and why, in one sentence. Null on older rows. */
+  recommendation: string | null;
   options: DecisionOption[];
   status: DecisionStatus;
   urgency: DecisionUrgency;
@@ -103,7 +116,10 @@ export type DecisionDTO = {
   /** The AI decider currently holding a routed pending question. */
   routedToEmployee: { id: string; name: string; slug: string } | null;
   pickupStatus: DecisionPickupStatus;
+  /** Everything the pickup session said, or why none ran. */
   pickupSummary: string | null;
+  /** The pickup's final report alone; null when none was recorded. */
+  pickupReport: string | null;
   pickupStartedAt: string | null;
   pickupFinishedAt: string | null;
   /** While future, hidden from human attention surfaces without resolving it. */
@@ -143,6 +159,16 @@ export function parseDecisionOptions(json: string): DecisionOption[] {
     // buttons — rather than breaking the whole stack for one bad row.
     return [];
   }
+}
+
+/**
+ * One short, model-written line as it is stored and shown: redacted like the
+ * title, on one line, and held to its ceiling. Blank is null, so the stack
+ * derives a line instead of showing an empty one.
+ */
+export function decisionLine(value: string | null | undefined, max: number): string | null {
+  if (value === null || value === undefined) return null;
+  return clip(oneLine(redactApprovalSummary(value) ?? ""), max) || null;
 }
 
 /**
@@ -249,6 +275,8 @@ export function serializeDecision(
     companyId: decision.companyId,
     title: decision.title,
     body: decision.body,
+    summary: decision.summary ?? null,
+    recommendation: decision.recommendation ?? null,
     options: parseDecisionOptions(decision.optionsJson),
     status: decision.status,
     urgency: decision.urgency,
@@ -271,6 +299,7 @@ export function serializeDecision(
       : null,
     pickupStatus: decision.pickupStatus,
     pickupSummary: decision.pickupSummary,
+    pickupReport: decision.pickupReport ?? null,
     pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
     pickupFinishedAt: decision.pickupFinishedAt?.toISOString() ?? null,
     snoozedUntil: decision.snoozedUntil?.toISOString() ?? null,
@@ -491,6 +520,10 @@ export async function createDecision(params: {
   body?: string;
   /** Required at model-facing intake; optional for internal/legacy callers. */
   humanDecisionReason?: string;
+  /** One or two plain sentences for a busy owner; derived on read when absent. */
+  summary?: string | null;
+  /** The recommended answer and why, in one sentence. */
+  recommendation?: string | null;
   options: DecisionOptionInput[];
   urgency?: DecisionUrgency;
   assigneeUserId?: string | null;
@@ -531,6 +564,8 @@ export async function createDecision(params: {
     mailThreadId: params.mailThreadId ?? null,
     title,
     body,
+    summary: decisionLine(params.summary, DECISION_SUMMARY_MAX),
+    recommendation: decisionLine(params.recommendation, DECISION_RECOMMENDATION_MAX),
     optionsJson: JSON.stringify(options),
     status: "pending",
     urgency: params.urgency ?? "normal",
@@ -621,7 +656,9 @@ export async function notifyDecisionPending(decision: Decision): Promise<void> {
       userId: m.userId,
       kind: "decision_pending" as const,
       title: `${employee.name} needs a decision: ${decision.title}`,
-      body: "Pick an option in the Decision stack so they can carry on.",
+      // The employee's own plain line says what it is about; older rows say
+      // what to do instead.
+      body: current.summary || "Pick an option in the Decision stack so they can carry on.",
       link: `/c/${company.slug}/decisions#decision-${decision.id}`,
       actorKind: "ai" as const,
       actorId: employee.id,

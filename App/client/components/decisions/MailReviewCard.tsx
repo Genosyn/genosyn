@@ -1,27 +1,24 @@
 import React from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ExternalLink,
-  FileText,
-  Mail,
-  Paperclip,
-  Pencil,
-  Send,
-  Sparkles,
-  Trash2,
-  X,
-} from "lucide-react";
+import { CheckCircle2, ExternalLink, Mail, Paperclip, Pencil, Send, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { oneLine } from "../../../shared/decisionSummary";
 import { api, type Approval, type Company, type HomeApproval } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { ApprovalDiscussButton } from "@/components/decisions/ApprovalDiscussButton";
-import { ReviewTimeline, ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
+import {
+  CloseRowButton,
+  DetailSection,
+  DetailsButton,
+  DetailsPanel,
+  StatusIcon,
+  StatusText,
+  focusAfterRemoval,
+} from "@/components/decisions/StackRow";
+import { mailReviewStatusLine } from "@/components/decisions/stackStatus";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
-import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { formatRelative } from "@/components/decisions/relative";
 
@@ -31,6 +28,7 @@ function mailReview(approval: HomeApproval) {
 
 type MailReviewDraft = NonNullable<ReturnType<typeof mailReview>>["draft"];
 type MailEditSession = { draft: MailReviewDraft; baseRevision: string };
+export type MailReviewAction = "approve" | "reject";
 
 function threadHref(company: Company, approval: HomeApproval): string | null {
   const review = mailReview(approval);
@@ -144,38 +142,47 @@ function DraftPreview({ company, approval }: { company: Company; approval: HomeA
   );
 }
 
-function Timeline({
+/**
+ * The story behind an email, inside its Details: what happened, what the AI
+ * Employee did first, and the exact email with its attachments.
+ */
+function MailDetails({
+  id,
   company,
   approval,
-  outcome,
-  draftEditor,
+  settled,
+  problem,
 }: {
+  id: string;
   company: Company;
   approval: HomeApproval;
-  outcome?: React.ReactNode;
-  draftEditor?: React.ReactNode;
+  settled?: boolean;
+  /** What went wrong with the send, for a failed outcome. */
+  problem?: string | null;
 }) {
   const review = mailReview(approval);
   if (!review) {
     return (
-      <FormError message="This email review could not be displayed. Refresh and prepare a new email." />
+      <DetailsPanel id={id}>
+        <FormError message="This email review could not be displayed. Refresh and prepare a new email." />
+      </DetailsPanel>
     );
   }
   const href = threadHref(company, approval);
   const aiWorkHref = handoverHref(company, approval);
   const freshSource = freshSourceHref(company, approval);
+  const employee = approval.employee?.name ?? "The AI Employee";
   return (
-    <ReviewTimeline>
-      <ReviewTimelineItem
-        icon={Mail}
-        title="What happened"
-        meta={review.source.threadId ? "Customer email" : "Proposed email"}
-      >
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-          {review.context}
-        </p>
+    <DetailsPanel id={id}>
+      {problem && (
+        <DetailSection title="What went wrong">
+          <FormError message={problem} />
+        </DetailSection>
+      )}
+      <DetailSection title={review.source.threadId ? "The customer email" : "Why this email"}>
+        <p className="whitespace-pre-wrap">{review.context}</p>
         {(href || aiWorkHref || freshSource) && (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             {href && (
               <Link
                 to={href}
@@ -202,20 +209,12 @@ function Timeline({
             )}
           </div>
         )}
-      </ReviewTimelineItem>
+      </DetailSection>
       {(review.workSummary || review.steps.length > 0) && (
-        <ReviewTimelineItem
-          icon={Sparkles}
-          title="What the AI Employee reports it did"
-          tone="accent"
-        >
-          {review.workSummary && (
-            <div className="break-words text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-              <ChatMarkdown content={review.workSummary} />
-            </div>
-          )}
+        <DetailSection title={`What ${employee} did first`}>
+          {review.workSummary && <ChatMarkdown content={review.workSummary} />}
           {review.steps.length > 0 && (
-            <ol className="mt-2 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+            <ol className="mt-2 space-y-2">
               {review.steps.map((step, index) => (
                 <li key={`${step.title}-${index}`} className="flex gap-2">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
@@ -235,26 +234,44 @@ function Timeline({
               ))}
             </ol>
           )}
-        </ReviewTimelineItem>
+        </DetailSection>
       )}
-      <ReviewTimelineItem
-        icon={FileText}
-        title={review.source.threadId ? "Draft reply" : "Draft email"}
-        tone="accent"
-      >
-        {draftEditor ?? <DraftPreview company={company} approval={approval} />}
+      <DetailSection title={review.source.threadId ? "The reply" : "The email"}>
+        <DraftPreview company={company} approval={approval} />
         <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {outcome
+          {settled
             ? "No email was saved to Gmail or IMAP Drafts before this review was resolved."
             : `${review.source.threadId ? "This reply" : "This email"} exists only in Genosyn. Nothing has been saved to Gmail or IMAP Drafts.`}
         </p>
-      </ReviewTimelineItem>
-      {outcome}
-    </ReviewTimeline>
+      </DetailSection>
+    </DetailsPanel>
   );
 }
 
-/** Exact, stack-only email with direct Send / Edit / Ask / Discard actions. */
+/** "To ana@acme.test · Re: Pricing" — who it goes to and what it says, on one line. */
+function Envelope({ approval }: { approval: HomeApproval }) {
+  const review = mailReview(approval);
+  if (!review) return null;
+  return (
+    <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">
+      <span className="font-medium text-slate-700 dark:text-slate-200">To</span>{" "}
+      <span data-mail-to>{review.draft.to || "—"}</span>
+      {review.draft.subject && (
+        <>
+          <span className="text-slate-400 dark:text-slate-500"> · </span>
+          <span data-mail-subject>{review.draft.subject}</span>
+        </>
+      )}
+    </p>
+  );
+}
+
+/**
+ * An email ready to send, as one short row: who it is for, the subject, the
+ * first lines, and Send now / Edit email / Ask employee to edit / Discard.
+ * The source, what the employee did first, and the full email are behind
+ * Details. Each email is its own gate: grouping never sends two at once.
+ */
 export function MailReviewCard({
   company,
   approval,
@@ -262,13 +279,17 @@ export function MailReviewCard({
   onActionStart,
   onActionSettled,
   onEditingChange,
+  grouped = false,
 }: {
   company: Company;
   approval: HomeApproval;
   onResolved: (announcement?: string) => Promise<void> | void;
-  onActionStart?: () => void;
-  onActionSettled?: (approval: Approval) => void;
+  onActionStart?: (action: MailReviewAction) => void;
+  /** Called with the server's row; `leave` puts focus where the row was once it is gone. */
+  onActionSettled?: (approval: Approval, action: MailReviewAction, leave: () => void) => void;
   onEditingChange?: (approvalId: string, editing: boolean) => void;
+  /** Under a group's "3 emails to review" heading, which already says what it is. */
+  grouped?: boolean;
 }) {
   const review = mailReview(approval);
   const fallbackTitle = review?.source.threadId ? "Customer reply" : "Email review";
@@ -276,9 +297,13 @@ export function MailReviewCard({
   const [stale, setStale] = React.useState(false);
   const [busy, setBusy] = React.useState<"save" | "reload" | "send" | "discard" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const acting = React.useRef(false);
+  const rowRef = React.useRef<HTMLLIElement>(null);
   const editButtonRef = React.useRef<HTMLButtonElement>(null);
   const editorFormRef = React.useRef<HTMLFormElement>(null);
+  const fieldId = React.useId();
+  const detailsId = `${fieldId}-details`;
   const editing = editSession !== null;
   const editingBaseRevision = editSession?.baseRevision ?? null;
 
@@ -307,19 +332,19 @@ export function MailReviewCard({
     setStale(false);
   }
 
-  async function decide(action: "approve" | "reject") {
+  async function decide(action: MailReviewAction) {
     if (acting.current) return;
     acting.current = true;
     setBusy(action === "approve" ? "send" : "discard");
     setError(null);
     try {
-      onActionStart?.();
+      onActionStart?.(action);
       const result = await api.post<Approval & { executeError?: string }>(
         `/api/companies/${company.id}/approvals/${approval.id}/${action}`,
         { reviewRevision: review?.revision },
       );
       // Action responses carry outcome fields; retain the hydrated source links.
-      onActionSettled?.({ ...approval, ...result });
+      onActionSettled?.({ ...approval, ...result }, action, focusAfterRemoval(rowRef.current));
       if (result.executeError || result.status === "execution_failed") {
         const message =
           result.errorMessage ||
@@ -338,7 +363,7 @@ export function MailReviewCard({
       await onResolved(
         action === "approve"
           ? `Email review “${approval.title ?? fallbackTitle}” sent.`
-          : `Email review “${approval.title ?? fallbackTitle}” discarded.`,
+          : `Email review “${approval.title ?? fallbackTitle}” discarded. It is in Decision history.`,
       );
     } catch (err) {
       setError(
@@ -422,159 +447,212 @@ export function MailReviewCard({
   }
 
   return (
-    <li id={`review-${approval.id}`} className="scroll-mt-4 px-4 py-5 sm:px-5">
-      <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
-          <Mail size={13} /> Email ready for review
-        </span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
-          {approval.employee?.name ?? "Deleted AI Employee"} ·{" "}
-          {formatRelative(approval.requestedAt)}
-        </span>
-      </div>
-      <h3 className="mb-5 break-words text-base font-semibold leading-snug text-slate-900 dark:text-slate-100">
-        {approval.title ?? fallbackTitle}
-      </h3>
-
-      <Timeline
-        company={company}
-        approval={approval}
-        draftEditor={
-          editSession ? (
-            <form
-              ref={editorFormRef}
-              aria-label="Edit email"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void save();
-              }}
-              className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/5"
-            >
-              {stale && (
-                <div
-                  role="alert"
-                  className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
-                >
-                  <p>
-                    A newer version of this email is available. Your unsaved edits remain below so
-                    you can copy them before reloading.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="mt-2"
-                    loading={busy === "reload"}
-                    disabled={busy !== null}
-                    onClick={() => void reloadLatest()}
-                  >
-                    Discard edits and reload latest
-                  </Button>
-                </div>
-              )}
-              <Input
-                label="To"
-                name="to"
-                defaultValue={editSession.draft.to}
-                disabled={busy !== null}
-                autoFocus
-              />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  label="Cc"
-                  name="cc"
-                  defaultValue={editSession.draft.cc}
-                  disabled={busy !== null}
-                />
-                <Input
-                  label="Bcc"
-                  name="bcc"
-                  defaultValue={editSession.draft.bcc}
-                  disabled={busy !== null}
-                />
-              </div>
-              <Input
-                label="Subject"
-                name="subject"
-                defaultValue={editSession.draft.subject}
-                disabled={busy !== null}
-              />
-              <Textarea
-                label="Email"
-                name="bodyText"
-                className="min-h-[220px]"
-                defaultValue={editSession.draft.bodyText}
-                disabled={busy !== null}
-                hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="submit"
-                  size="sm"
-                  loading={busy === "save"}
-                  disabled={busy !== null || stale}
-                >
-                  <CheckCircle2 size={14} /> Save changes
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy !== null}
-                  onClick={() => {
-                    stopEditing();
-                    setError(null);
-                    returnFocusToEditButton();
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          ) : undefined
-        }
-      />
-
-      <FormError message={error} className="mt-4" />
-      {!editing && (
-        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <Button
-            loading={busy === "send"}
-            disabled={busy !== null || !review}
-            onClick={() => void decide("approve")}
-          >
-            <Send size={14} /> Send now
-          </Button>
-          <Button
-            ref={editButtonRef}
-            size="sm"
-            variant="secondary"
-            disabled={busy !== null || !review}
-            onClick={startEditing}
-          >
-            <Pencil size={14} /> Edit email
-          </Button>
-          <ApprovalDiscussButton
-            company={company}
-            approval={approval}
-            label="Ask employee to edit"
-            disabled={busy !== null}
+    <li
+      ref={rowRef}
+      id={`review-${approval.id}`}
+      data-stack-row
+      className="scroll-mt-4 px-4 py-4 sm:px-5"
+    >
+      <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
+        <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+            <Mail size={11} aria-hidden="true" />
+          </span>
+          <p className="min-w-0 flex-1 truncate">
+            {grouped ? (
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {approval.employee?.name ?? "Deleted AI Employee"}
+              </span>
+            ) : (
+              <>
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  Email to review
+                </span>
+                <span> · {approval.employee?.name ?? "Deleted AI Employee"}</span>
+              </>
+            )}
+            <span> · {formatRelative(approval.requestedAt)}</span>
+          </p>
+          {!editing && (
+            <DetailsButton
+              size="xs"
+              open={detailsOpen}
+              controls={detailsId}
+              onToggle={() => setDetailsOpen((open) => !open)}
+            />
+          )}
+        </header>
+        <h3
+          id={`${fieldId}-title`}
+          tabIndex={-1}
+          data-row-focus
+          className="mt-1 break-words text-[15px] font-semibold leading-snug text-slate-900 focus:outline-none dark:text-slate-100"
+        >
+          {approval.title ?? fallbackTitle}
+        </h3>
+        {review ? (
+          <>
+            <Envelope approval={approval} />
+            {!editing && review.draft.bodyText.trim() && (
+              <p
+                data-mail-preview
+                className="mt-1 line-clamp-2 break-words text-sm leading-relaxed text-slate-500 dark:text-slate-400"
+              >
+                {oneLine(review.draft.bodyText)}
+              </p>
+            )}
+          </>
+        ) : (
+          <FormError
+            message="This email review could not be displayed. Refresh and prepare a new email."
+            className="mt-2"
           />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-rose-600 hover:text-rose-700 dark:text-rose-400"
-            loading={busy === "discard"}
-            disabled={busy !== null}
-            onClick={() => void decide("reject")}
+        )}
+        {detailsOpen && !editing && (
+          <MailDetails id={detailsId} company={company} approval={approval} />
+        )}
+
+        {editSession && (
+          <form
+            ref={editorFormRef}
+            aria-label="Edit email"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save();
+            }}
+            className="mt-3 space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/5"
           >
-            <Trash2 size={14} /> Discard
-          </Button>
-        </div>
-      )}
+            {stale && (
+              <div
+                role="alert"
+                className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+              >
+                <p>
+                  A newer version of this email is available. Your unsaved edits remain below so you
+                  can copy them before reloading.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2"
+                  loading={busy === "reload"}
+                  disabled={busy !== null}
+                  onClick={() => void reloadLatest()}
+                >
+                  Discard edits and reload latest
+                </Button>
+              </div>
+            )}
+            <Input
+              label="To"
+              name="to"
+              defaultValue={editSession.draft.to}
+              disabled={busy !== null}
+              autoFocus
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label="Cc"
+                name="cc"
+                defaultValue={editSession.draft.cc}
+                disabled={busy !== null}
+              />
+              <Input
+                label="Bcc"
+                name="bcc"
+                defaultValue={editSession.draft.bcc}
+                disabled={busy !== null}
+              />
+            </div>
+            <Input
+              label="Subject"
+              name="subject"
+              defaultValue={editSession.draft.subject}
+              disabled={busy !== null}
+            />
+            <Textarea
+              label="Email"
+              name="bodyText"
+              className="min-h-[220px]"
+              defaultValue={editSession.draft.bodyText}
+              disabled={busy !== null}
+              hint="Saving updates this Genosyn review only. It does not create a mailbox draft."
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                size="sm"
+                loading={busy === "save"}
+                disabled={busy !== null || stale}
+              >
+                <CheckCircle2 size={14} /> Save changes
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy !== null}
+                onClick={() => {
+                  stopEditing();
+                  setError(null);
+                  returnFocusToEditButton();
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
+
+        <FormError message={error} className="mt-3" />
+        {!editing && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              loading={busy === "send"}
+              disabled={busy !== null || !review}
+              onClick={() => void decide("approve")}
+            >
+              <Send size={14} /> Send now
+            </Button>
+            <Button
+              ref={editButtonRef}
+              size="sm"
+              variant="secondary"
+              disabled={busy !== null || !review}
+              onClick={startEditing}
+            >
+              <Pencil size={14} /> Edit email
+            </Button>
+            <ApprovalDiscussButton
+              company={company}
+              approval={approval}
+              label="Ask employee to edit"
+              disabled={busy !== null}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-rose-600 hover:text-rose-700 dark:text-rose-400"
+              loading={busy === "discard"}
+              disabled={busy !== null}
+              onClick={() => void decide("reject")}
+              title="Don't send it. It stays in Decision history."
+            >
+              <Trash2 size={14} /> Discard
+            </Button>
+          </div>
+        )}
+      </article>
     </li>
   );
 }
 
+/**
+ * A reviewed email as one status line — Sending, Sent, Not sent, Discarded —
+ * with its story and the exact email behind Details. Close (on the active
+ * stack) takes it off; History keeps it.
+ */
 export function MailReviewOutcome({
   company,
   approval,
@@ -586,114 +664,56 @@ export function MailReviewOutcome({
   onClose?: () => void;
   refreshNotice?: React.ReactNode;
 }) {
-  const sent = approval.status === "approved" && Boolean(approval.mailOutcome);
-  const notSent =
-    approval.status === "execution_failed" && approval.mailDeliveryStatus === "not_sent";
-  const unverified =
-    (approval.status === "approved" && !approval.mailOutcome) ||
-    (approval.status === "execution_failed" && !notSent);
-  const statusTitle = sent
-    ? "Sent"
-    : notSent
-      ? "Not sent"
-      : unverified
-        ? "Send outcome unverified"
-        : approval.status === "rejected"
-          ? "Discarded"
-          : approval.status === "executing"
-            ? "Sending"
-            : approval.status === "expired"
-              ? "Expired"
-              : "Waiting";
-  const outcome = (
-    <ReviewTimelineItem
-      icon={
-        sent
-          ? Send
-          : unverified || notSent
-            ? AlertTriangle
-            : approval.status === "rejected"
-              ? Trash2
-              : CheckCircle2
-      }
-      title={statusTitle}
-      meta={formatRelative(approval.decidedAt ?? approval.requestedAt)}
-      tone={sent ? "success" : unverified ? "warning" : notSent ? "danger" : "neutral"}
-    >
-      {approval.status === "executing" && (
-        <p className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <Spinner size={14} /> The reviewed email is being sent. Its delivery result will appear
-          here.
-        </p>
-      )}
-      {sent && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          The exact reviewed email was sent. No mailbox draft was created first.
-        </p>
-      )}
-      {approval.status === "rejected" && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Nothing was saved to the mailbox or sent.
-        </p>
-      )}
-      {approval.status === "execution_failed" && (
-        <FormError
-          message={
-            approval.errorMessage ??
-            (notSent
-              ? "The email was not sent. Review the source before preparing another email."
-              : "Genosyn could not confirm whether the email completed. Check the source before preparing another email.")
-          }
-        />
-      )}
-      {approval.status === "approved" && unverified && (
-        <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-          Genosyn has no record that the mailbox accepted this email. Check the source before
-          preparing or sending another email.
-        </p>
-      )}
-    </ReviewTimelineItem>
-  );
-
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const fieldId = React.useId();
+  const detailsId = `${fieldId}-details`;
+  const status = mailReviewStatusLine(approval);
   return (
-    <li
-      id={`review-${approval.id}`}
-      className={
-        onClose
-          ? "scroll-mt-4 bg-white px-4 py-5 sm:px-5 dark:bg-slate-900"
-          : "scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
-      }
-    >
-      <article aria-labelledby={`review-${approval.id}-title`}>
-        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <h3
-            id={`review-${approval.id}-title`}
-            className="text-sm font-semibold text-slate-800 dark:text-slate-100"
-          >
-            {approval.title ?? "Email review"}
-          </h3>
-          <span>· {approval.employee?.name ?? "Deleted AI Employee"}</span>
-          {onClose && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label="Close review"
-              onClick={onClose}
-              className="ml-auto shrink-0"
+    <li id={`review-${approval.id}`} data-stack-row className="scroll-mt-4 px-4 py-3.5 sm:px-5">
+      <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
+          <StatusIcon status={status} />
+          <div className="min-w-0 flex-1">
+            <h3
+              id={`${fieldId}-title`}
+              tabIndex={-1}
+              data-row-focus
+              className="line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-900 focus:outline-none dark:text-slate-100"
             >
-              <X size={14} /> Close
-            </Button>
-          )}
+              {approval.title ?? "Email review"}
+            </h3>
+            <StatusText status={status} className="mt-0.5" />
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1">
+              <span className="mr-1 text-xs text-slate-500 dark:text-slate-400">
+                Email · {approval.employee?.name ?? "Deleted AI Employee"} ·{" "}
+                {formatRelative(approval.decidedAt ?? approval.requestedAt)}
+              </span>
+              <DetailsButton
+                open={detailsOpen}
+                controls={detailsId}
+                onToggle={() => setDetailsOpen((open) => !open)}
+              />
+            </div>
+          </div>
+          {onClose && <CloseRowButton label="Close review" onClose={onClose} />}
         </div>
-        <Timeline company={company} approval={approval} outcome={outcome} />
-        {refreshNotice}
-        {onClose && (
-          <p className="mt-4 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            Close removes this card from the active stack. Its timeline stays in history
-            {approval.status === "executing" ? ", and sending continues." : "."}
-          </p>
+        {detailsOpen && (
+          <MailDetails
+            id={detailsId}
+            company={company}
+            approval={approval}
+            settled
+            problem={
+              approval.status === "execution_failed"
+                ? (approval.errorMessage ??
+                  (approval.mailDeliveryStatus === "not_sent"
+                    ? "The email was not sent. Review the source before preparing another email."
+                    : "Genosyn could not confirm whether the email completed. Check the source before preparing another email."))
+                : null
+            }
+          />
         )}
+        {refreshNotice}
       </article>
     </li>
   );

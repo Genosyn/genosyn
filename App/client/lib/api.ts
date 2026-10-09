@@ -724,6 +724,13 @@ export type Decision = {
   companyId: string;
   title: string;
   body: string;
+  /**
+   * The asking employee's one or two plain sentences for a busy owner. Null
+   * on older rows, where the stack derives a line (`shared/decisionSummary.ts`).
+   */
+  summary: string | null;
+  /** Its recommended answer and why, in one sentence. Null on older rows. */
+  recommendation: string | null;
   options: DecisionOption[];
   status: DecisionStatus;
   urgency: DecisionUrgency;
@@ -743,7 +750,10 @@ export type Decision = {
   /** On a pending question: the AI decider currently holding it. */
   routedToEmployee: { id: string; name: string; slug: string } | null;
   pickupStatus: DecisionPickupStatus;
+  /** Everything the pickup session said, step by step — or why none ran. */
   pickupSummary: string | null;
+  /** The pickup's final report alone. Null on older rows and unfinished pickups. */
+  pickupReport: string | null;
   pickupStartedAt: string | null;
   pickupFinishedAt: string | null;
   /** While future, the pending Decision is hidden from human attention surfaces. */

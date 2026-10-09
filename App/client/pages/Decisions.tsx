@@ -16,7 +16,7 @@ import {
 import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
 import { decisionStackOffBanner } from "../lib/decisionStack";
 import { errorMessage } from "../lib/errors";
-import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
+import { StackList } from "@/components/decisions/StackList";
 import {
   StackSearch,
   StackSection,
@@ -48,14 +48,18 @@ import { EnabledToggle } from "./RevenueSignals";
  * The Decision Stack — every question an AI Employee raised for a Member, and
  * every email or work review, that is still waiting on someone.
  *
+ * It reads as a short list: one compact row per item — who asks, the question,
+ * one plain line, the recommendation and the answers — with everything else
+ * behind each row's Details. Email reviews gather under one heading.
+ *
  * The split that matters is **assigned to you** versus
  * **anyone can answer**: an employee that named a Member did so because that
  * person holds the context, and burying those in one long list is how a
  * question addressed to somebody specific sits for three days.
  *
- * A card you act on stays where it is while you follow it — answering starts
- * the employee's work session, and its report comes back onto the card — until
- * you close it. Everything already settled lives on its own page,
+ * A row you answer collapses to a status line that follows the work until you
+ * close it. Dismiss, Snooze, Discard and Don’t do this take the row off in the
+ * same click. Everything already settled lives on its own page,
  * `DecisionHistory`, so this one only ever holds what still needs someone. A
  * link to a settled item (`#decision-<id>`, `#review-<id>`) is sent on there.
  */
@@ -256,6 +260,14 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
     },
     [reloadWork],
   );
+  // The mixed list holds both kinds; each row refreshes the feed it came from.
+  const reloadAfterAction = React.useCallback(
+    (announcement: string | undefined, kind: "decision" | "review") =>
+      kind === "decision"
+        ? reloadDecisionsAfterAction(announcement)
+        : reloadReviewsAfterAction(announcement),
+    [reloadDecisionsAfterAction, reloadReviewsAfterAction],
+  );
 
   async function retryDecisions() {
     setRetryingDecisions(true);
@@ -366,10 +378,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       />
       {routingOpen && <RoutingModal company={company} onClose={() => setRoutingOpen(false)} />}
       <p className="mb-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        Major choices that need your judgment. Your AI Employees handle routine preparation within
-        their Grants. Reviewed email replies stay in Genosyn until an owner or admin sends or
-        discards them. After you act, follow the timeline here and close the card when you are done;
-        it stays in{" "}
+        What your AI Employees need from you. Answered and dismissed items move to{" "}
         <Link
           to={`/c/${company.slug}/decisions/history`}
           className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
@@ -471,51 +480,31 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
                   : `Needs you (${needsYou.length})`
               }
             >
-              <Stack>
-                {needsYou.map((item) => (
-                  <DecisionStackCard
-                    key={item.key}
-                    company={company}
-                    item={item}
-                    followUps={followUps}
-                    onResolved={
-                      item.kind === "decision"
-                        ? reloadDecisionsAfterAction
-                        : reloadReviewsAfterAction
-                    }
-                  />
-                ))}
-              </Stack>
+              <StackList
+                company={company}
+                items={needsYou}
+                followUps={followUps}
+                onResolved={reloadAfterAction}
+                viewerId={me.id}
+              />
             </StackSection>
           )}
 
           {assignedElsewhere.length > 0 && (
             <StackSection title={`Assigned to other Members (${assignedElsewhere.length})`}>
-              <Stack>
-                {assignedElsewhere.map((d) => (
-                  <DecisionStackCard
-                    key={d.id}
-                    company={company}
-                    item={decisionItem(d)}
-                    followUps={followUps}
-                    onResolved={reloadDecisionsAfterAction}
-                    canAnswer={company.role === "owner" || company.role === "admin"}
-                  />
-                ))}
-              </Stack>
+              <StackList
+                company={company}
+                items={assignedElsewhere.map(decisionItem)}
+                followUps={followUps}
+                onResolved={reloadDecisionsAfterAction}
+                canAnswer={company.role === "owner" || company.role === "admin"}
+                viewerId={me.id}
+              />
             </StackSection>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-function Stack({ children }: { children: React.ReactNode }) {
-  return (
-    <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
-      {children}
-    </ul>
   );
 }
 

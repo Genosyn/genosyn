@@ -54,6 +54,10 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "expired", label: "Expired (legacy)" },
 ];
 
+/** History reads as the stack does: one framed list of compact rows. */
+const HISTORY_LIST =
+  "divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900";
+
 /** When a row was settled — the time it shows, and the order the page reads in. */
 function settledAt(decision: Decision): number {
   return Date.parse(decision.decidedAt ?? decision.createdAt) || 0;
@@ -370,7 +374,7 @@ export default function DecisionHistory({ company, me }: { company: Company; me:
                   Nothing in this state yet.
                 </div>
               ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul data-stack-list className={HISTORY_LIST}>
                   {shown.map((d) => (
                     <DecisionOutcome
                       key={d.id}
@@ -378,6 +382,7 @@ export default function DecisionHistory({ company, me }: { company: Company; me:
                       decision={d}
                       onRestored={afterRestore}
                       canRestore={!d.assignee || d.assignee.id === me.id || canReview}
+                      viewerId={me.id}
                     />
                   ))}
                 </ul>
@@ -387,7 +392,7 @@ export default function DecisionHistory({ company, me }: { company: Company; me:
 
           {matchingReviews.length > 0 && (
             <StackSection title="Email and work reviews">
-              <ul className="space-y-3">
+              <ul data-stack-list className={HISTORY_LIST}>
                 {matchingReviews.map((approval) =>
                   approval.kind === "mail_send" ? (
                     <MailReviewOutcome key={approval.id} company={company} approval={approval} />

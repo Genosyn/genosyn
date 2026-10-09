@@ -331,6 +331,23 @@ The switch and the screen only remove noise: they never answer a question,
 grant authority, or touch an Approval, an email or work review, or a Decision
 already waiting, which stays answerable.
 
+**An employee asks few Decisions, and each one is a short row.** Before the
+screen, the intake refuses a question the same employee already has waiting —
+the same wording, the same Run, email thread or chat, or the same Routine's
+subject — and points it at the one waiting, and it caps each employee at three
+waiting at once (`services/decisionDuplicates.ts`); neither costs a model call
+or pages anyone. `request_decision` takes the question as a plain title plus a
+short `summary` and `recommendation` written for a busy owner
+(`shared/decisionSummary.ts` holds the limits and derives the same lines from
+older rows). The stack, its History and Home show one compact row per item,
+with everything else behind a single Details disclosure; a pickup stores its
+final message as `Decision.pickupReport` apart from the step log, so an
+answered row collapses to one status line. Dismiss, Snooze, Discard and Don't
+do this take a row off the active stack in the same click; answers, sends and
+approvals are followed until Close. None of this touches an Approval: every
+email and work review still gets its own human answer, and grouping them under
+one heading never batches that answer.
+
 **A mailbox's AI analysis instructions act; its suggested buttons do not.** The
 AI Employee that reads each newly-arrived email (`services/mail/analysis.ts`)
 proposes one-click buttons that run only when a Member presses them, with that

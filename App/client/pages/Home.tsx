@@ -63,7 +63,7 @@ import { runExplanationLabel, runExplanationPrompt } from "@/lib/runStatus";
 import { useAskAi } from "@/components/askAi/AskAiProvider";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
-import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
+import { StackList } from "@/components/decisions/StackList";
 import {
   compareStackItems,
   decisionItem,
@@ -460,6 +460,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   data={data}
                   followUps={decisionFollowUps}
                   onResolved={reloadPendingDecisions}
+                  viewerId={me.id}
                 />
                 <RepositoryWorkCard
                   key={company.id}
@@ -758,11 +759,13 @@ function ActiveDecisions({
   data,
   followUps,
   onResolved,
+  viewerId,
 }: {
   company: Company;
   data: HomeData;
   followUps: DecisionFollowUps;
   onResolved: (announcement?: string) => Promise<void> | void;
+  viewerId: string;
 }) {
   const [editingReviewIds, setEditingReviewIds] = React.useState<string[]>([]);
   const previewKeys = React.useRef<string[]>([]);
@@ -842,26 +845,16 @@ function ActiveDecisions({
         >
           All decisions <ChevronRight size={12} />
         </Link>
-        <p className="w-full text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {following > 0
-            ? "Follow what happens here. Close each card when you are done reviewing it."
-            : canReview
-              ? "Answer your AI Employees and review work. Cards stay here until you close them."
-              : "Answer your AI Employees. Follow the outcome here until you close it."}
-        </p>
       </div>
-      <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-        {preview.map((item) => (
-          <DecisionStackCard
-            key={item.key}
-            company={company}
-            item={item}
-            followUps={followUps}
-            onResolved={onResolved}
-            onEditingChange={handleReviewEditingChange}
-          />
-        ))}
-      </ul>
+      <StackList
+        bare
+        company={company}
+        items={preview}
+        followUps={followUps}
+        onResolved={(announcement) => onResolved(announcement)}
+        onEditingChange={handleReviewEditingChange}
+        viewerId={viewerId}
+      />
       {hidden > 0 && (
         <Link
           to={href}
