@@ -645,6 +645,49 @@ async function stackReady(page: Page) {
   await page.getByRole("heading", { name: "Decision stack", exact: true }).waitFor();
 }
 
+const FOLLOW_KEY = "genosyn.decisionFollowUps.v1:company:viewer";
+
+/** What this browser remembers following, exactly as stored. */
+async function followed(page: Page): Promise<unknown> {
+  return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), FOLLOW_KEY);
+}
+
+/** Wait until the row is remembered as seen finished. */
+async function seenStored(page: Page, key: string) {
+  await page.waitForFunction(
+    ({ storage, key }) =>
+      (JSON.parse(localStorage.getItem(storage) ?? "[]") as Array<Record<string, unknown>>).some(
+        (ref) => `${ref.kind}-${ref.id}` === key && ref.seen === true,
+      ),
+    { storage: FOLLOW_KEY, key },
+  );
+}
+
+/** Pretend the tab went to the background, or came back, the way the browser reports it. */
+async function setTabVisible(page: Page, visible: boolean) {
+  // A string, not a function: the test runner's name helpers would not exist in the page.
+  await page.evaluate(`(() => {
+    const state = ${JSON.stringify(visible ? "visible" : "hidden")};
+    Object.defineProperty(document, "visibilityState", { configurable: true, get() { return state; } });
+    document.dispatchEvent(new Event("visibilitychange"));
+  })()`);
+}
+
+/** An answer this Member gave earlier, as the server returns it later. */
+function answered(changes: Partial<Decision> = {}): Decision {
+  return decision({
+    status: "decided",
+    chosenOptionId: "sign",
+    chosenOptionLabel: "Sign at 10% off",
+    decidedAt: hoursAgo(1),
+    decidedByUserId: VIEWER.id,
+    decidedBy: VIEWER,
+    pickupStatus: "running",
+    pickupStartedAt: hoursAgo(1),
+    ...changes,
+  });
+}
+
 /** The row has left the page — not merely re-rendered. */
 async function gone(locator: Locator) {
   await locator.waitFor({ state: "detached" });
@@ -871,6 +914,209 @@ try {
       await button(card, "Close decision").click();
       await gone(card);
       await row(page, ID.legacy).waitFor();
+      await page.close();
+    },
+  );
+
+  await check(
+    "a finished answer needs no Close: two clicks to answer, it stays while read, and the next visit leaves it to History",
+    async () => {
+      const fx = await open({ rows: [decision(), legacyDecision()] });
+      const { page } = fx;
+      let clicks = 0;
+      const card = row(page, ID.contract);
+      await card.waitFor();
+      await card.getByText("Sign at 10% off", { exact: true }).click();
+      clicks += 1;
+      await button(card, "Confirm: Sign at 10% off").click();
+      clicks += 1;
+      await statusLine(card)
+        .getByText(/Alex Rivera is on it$/)
+        .waitFor();
+      // Followed while the work runs; nothing is marked seen yet.
+      assert.deepEqual(await followed(page), [{ kind: "decision", id: ID.contract }]);
+      fx.update(ID.contract, {
+        pickupStatus: "done",
+        pickupSummary: "Signed the renewal and sent Acme the countersigned copy.",
+        pickupReport: "Signed the renewal and sent Acme the countersigned copy.",
+        pickupFinishedAt: NOW.toISOString(),
+      });
+      await statusLine(card).getByText("Done", { exact: true }).waitFor({ timeout: 15_000 });
+      await seenStored(page, `decision-${ID.contract}`);
+      // Nothing disappears under the reader: the line stays for this visit,
+      // with Close still there for anyone who wants it gone now.
+      await page.waitForTimeout(500);
+      assert.equal(await card.isVisible(), true);
+      await button(card, "Close decision").waitFor();
+      assert.deepEqual(await followed(page), [{ kind: "decision", id: ID.contract, seen: true }]);
+      // The next visit leaves it behind without a Close.
+      await page.reload();
+      await stackReady(page);
+      await row(page, ID.legacy).waitFor();
+      assert.equal(await row(page, ID.contract).count(), 0);
+      assert.deepEqual(await followed(page), [], "the follow list forgets it");
+      assert.equal(clicks, 2, "answering took two clicks and nothing else");
+      await page.getByRole("link", { name: "Decision history", exact: true }).click();
+      await page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+      assert.match(
+        await statusLine(row(page, ID.contract)).innerText(),
+        /^Done · Signed the renewal and sent Acme the countersigned copy\.$/,
+      );
+      assert.deepEqual(
+        fx.writes.map((write) => write.path),
+        [`/api/companies/company/decisions/${ID.contract}/decide`],
+        "leaving the stack writes nothing",
+      );
+      await page.close();
+    },
+  );
+
+  await check(
+    "work that finishes in a background tab is only marked seen once the tab is shown",
+    async () => {
+      const fx = await open({
+        rows: [answered(), legacyDecision()],
+        following: [{ kind: "decision", id: ID.contract }],
+      });
+      const { page } = fx;
+      const card = row(page, ID.contract);
+      await statusLine(card)
+        .getByText(/Alex Rivera is on it$/)
+        .waitFor();
+      await setTabVisible(page, false);
+      fx.update(ID.contract, {
+        pickupStatus: "done",
+        pickupReport: "Signed the renewal.",
+        pickupSummary: "Signed the renewal.",
+      });
+      // A refresh still lands while hidden (the tab regains focus later).
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await statusLine(card).getByText("Done", { exact: true }).waitFor();
+      await page.waitForTimeout(400);
+      assert.deepEqual(
+        await followed(page),
+        [{ kind: "decision", id: ID.contract }],
+        "nobody has seen it yet",
+      );
+      await setTabVisible(page, true);
+      await seenStored(page, `decision-${ID.contract}`);
+      await page.reload();
+      await row(page, ID.legacy).waitFor();
+      assert.equal(await row(page, ID.contract).count(), 0);
+      await page.close();
+    },
+  );
+
+  await check(
+    "a row that finished while you were away shows once on Home, then the stack leaves it behind",
+    async () => {
+      const fx = await open({
+        path: "/c/acme",
+        rows: [
+          answered({ pickupStatus: "done", pickupReport: "Signed the renewal." }),
+          legacyDecision(),
+        ],
+        following: [{ kind: "decision", id: ID.contract }],
+      });
+      const { page } = fx;
+      const section = page.locator("section", {
+        has: page.getByRole("heading", { name: "Active decisions", exact: true }),
+      });
+      const card = row(page, ID.contract);
+      assert.match(await statusLine(card).innerText(), /^Done · Signed the renewal\.$/);
+      await section.getByText("1 following", { exact: false }).waitFor();
+      await seenStored(page, `decision-${ID.contract}`);
+      await section.getByRole("link", { name: /All decisions/ }).click();
+      await stackReady(page);
+      await row(page, ID.legacy).waitFor();
+      assert.equal(await row(page, ID.contract).count(), 0, "seen on Home, gone from the stack");
+      assert.equal(
+        await page.getByRole("heading", { name: /following/ }).count(),
+        0,
+        "nothing left to follow",
+      );
+      await page.close();
+    },
+  );
+
+  await check(
+    "a row that couldn’t finish stays across visits until Close, then stays gone",
+    async () => {
+      const fx = await open({
+        rows: [
+          answered({
+            pickupStatus: "failed",
+            pickupSummary: "The e-signature service rejected the document. Nothing was signed.",
+          }),
+        ],
+        following: [{ kind: "decision", id: ID.contract }],
+      });
+      const { page } = fx;
+      const card = row(page, ID.contract);
+      assert.match(
+        await statusLine(card).innerText(),
+        /^Couldn’t finish · The e-signature service rejected the document\.$/,
+      );
+      await page.waitForTimeout(400);
+      assert.deepEqual(await followed(page), [{ kind: "decision", id: ID.contract }]);
+      await page.reload();
+      await statusLine(row(page, ID.contract)).getByText("Couldn’t finish").waitFor();
+      const close = button(row(page, ID.contract), "Close decision");
+      await close.focus();
+      await page.keyboard.press("Enter");
+      await gone(row(page, ID.contract));
+      assert.deepEqual(await followed(page), []);
+      await page.reload();
+      await page.getByRole("heading", { name: "Decision stack is clear" }).waitFor();
+      assert.equal(await row(page, ID.contract).count(), 0);
+      await page.close();
+    },
+  );
+
+  await check(
+    "a sent email and approved work that finished leave on the next visit; a send that failed stays",
+    async () => {
+      const sentAt = hoursAgo(0.5);
+      const fx = await open({
+        rows: [],
+        reviews: [
+          mailReview(ID.mailA, 0, {
+            status: "approved",
+            decidedAt: sentAt,
+            mailDeliveryStatus: "sent",
+            mailOutcome: { sentMessageId: "m", providerMessageRef: "p", sentAt },
+          }),
+          mailReview(ID.mailB, 1, {
+            status: "execution_failed",
+            decidedAt: sentAt,
+            mailDeliveryStatus: "not_sent",
+            errorMessage: "The mailbox refused the message.",
+          }),
+          workReview({
+            status: "approved",
+            decidedAt: sentAt,
+            outcomeSummary: "Fixed the discount validation; the Checks passed.",
+            outcomeRunId: "run-7",
+          }),
+        ],
+        following: [
+          { kind: "review", id: ID.mailA },
+          { kind: "review", id: ID.mailB },
+          { kind: "review", id: ID.work },
+        ],
+      });
+      const { page } = fx;
+      await statusLine(reviewRow(page, ID.mailA)).getByText("Sent", { exact: true }).waitFor();
+      await statusLine(reviewRow(page, ID.mailB)).getByText("Not sent", { exact: true }).waitFor();
+      await statusLine(reviewRow(page, ID.work)).getByText("Done", { exact: true }).waitFor();
+      await seenStored(page, `review-${ID.mailA}`);
+      await seenStored(page, `review-${ID.work}`);
+      await page.reload();
+      await statusLine(reviewRow(page, ID.mailB)).getByText("Not sent", { exact: true }).waitFor();
+      assert.equal(await reviewRow(page, ID.mailA).count(), 0);
+      assert.equal(await reviewRow(page, ID.work).count(), 0);
+      assert.deepEqual(await followed(page), [{ kind: "review", id: ID.mailB }]);
+      assert.deepEqual(fx.writes, [], "nothing is sent or approved again");
       await page.close();
     },
   );
@@ -1293,6 +1539,30 @@ try {
       await page.keyboard.press("Enter");
       await statusLine(card).getByText("You chose “Counter at 5%”").waitFor();
       assert.deepEqual(fx.writes.at(-1)?.body, { optionId: "counter" });
+      await page.close();
+    },
+  );
+
+  await check(
+    "keyboard: Enter on the picked answer confirms it, without tabbing to Confirm",
+    async () => {
+      const fx = await open({ rows: [decision()] });
+      const { page } = fx;
+      const card = row(page, ID.contract);
+      await card.waitFor();
+      await card.getByRole("radio").first().focus();
+      await page.keyboard.press("ArrowRight");
+      assert.equal(await card.getByRole("radio", { name: /^Counter at 5%/ }).isChecked(), true);
+      assert.deepEqual(fx.writes, [], "moving between answers records nothing");
+      await page.keyboard.press("Enter");
+      await statusLine(card).getByText("You chose “Counter at 5%”").waitFor();
+      assert.deepEqual(fx.writes, [
+        {
+          method: "POST",
+          path: `/api/companies/company/decisions/${ID.contract}/decide`,
+          body: { optionId: "counter" },
+        },
+      ]);
       await page.close();
     },
   );

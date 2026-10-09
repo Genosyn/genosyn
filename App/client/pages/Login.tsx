@@ -176,6 +176,7 @@ export default function Login() {
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoFocus
           required
         />
         <Input

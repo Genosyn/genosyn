@@ -59,9 +59,13 @@ export function EmployeeStep({
   React.useEffect(loadTemplates, [loadTemplates]);
 
   function selectTemplate(template: EmployeeTemplate) {
+    const previous = templates?.find((t) => t.id === selectedId);
     setSelectedId(template.id);
-    // Never clobber a name the member typed themselves.
-    setName((current) => (current.trim() === "" ? template.name : current));
+    // A name the last template filled in follows the new pick, as on the hire
+    // page; one the member typed themselves is never clobbered.
+    setName((current) =>
+      current.trim() === "" || current === previous?.name ? template.name : current,
+    );
     setRole(template.role);
   }
 

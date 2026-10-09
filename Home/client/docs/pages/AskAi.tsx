@@ -20,8 +20,10 @@ export function AskAi() {
         Press <Strong>Ask AI</Strong> in the top bar, or <Code>⌘J</Code> on a Mac and{" "}
         <Code>Ctrl J</Code> elsewhere. The panel docks beside the page you are on, so you can keep
         reading while you ask; drag its left edge to resize it. On a phone it opens full screen
-        under the top bar. Press <Strong>Ask AI</Strong> again, or the <Strong>×</Strong>, to close
-        it — any reply still being written carries on and is there when you reopen.
+        under the top bar. Opening it, starting a <Strong>New conversation</Strong> or picking one
+        from the list puts the cursor in the message box, ready for your question. Press{" "}
+        <Strong>Ask AI</Strong> again, or the <Strong>×</Strong>, to close it — any reply still
+        being written carries on and is there when you reopen.
       </P>
 
       <H2 id="who-answers">Choose who answers</H2>
@@ -41,6 +43,10 @@ export function AskAi() {
           otherwise whoever the page naturally belongs to — a Routine&apos;s or Run&apos;s owner, a
           Todo&apos;s AI assignee, the employee whose page you are on, the employee that raised a
           Decision;
+        </LI>
+        <LI>
+          otherwise, when only one AI Employee has a connected AI Model, that employee — there is
+          nobody else to ask, so the To line names them and needs no <Code>@</Code>;
         </LI>
         <LI>otherwise nobody, and Ask AI asks you to tag someone.</LI>
       </UL>

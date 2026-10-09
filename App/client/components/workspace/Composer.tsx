@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { ButtonSpinner } from "@/components/ui/Spinner";
 import type { Company } from "@/lib/api";
+import { focusOnArrival } from "@/lib/composerFocus";
 import { errorMessage } from "@/lib/errors";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { Mentionable, WorkspaceAttachment, WorkspaceMessage, workspaceApi } from "@/lib/workspace";
@@ -62,6 +63,11 @@ export type ChannelComposerHandle = {
   /** Whether there is unsent work in here worth warning about. */
   hasDraft: () => boolean;
   focus: () => void;
+  /**
+   * Focus the box as someone arrives at the room — unless they are on a
+   * touch device or already typing somewhere. True when focus moved.
+   */
+  focusOnArrival: () => boolean;
 };
 
 export const ChannelComposer = React.forwardRef<
@@ -133,6 +139,7 @@ export const ChannelComposer = React.forwardRef<
       },
       hasDraft: () => draft.trim() !== "" || attachments.length > 0,
       focus: () => textRef.current?.focus(),
+      focusOnArrival: () => focusOnArrival(textRef.current),
     }),
     [resourceQuery, mentionOpen, emojiOpen, draft, attachments.length],
   );
@@ -467,7 +474,11 @@ export const ChannelComposer = React.forwardRef<
           {emojiOpen && (
             <EmojiPicker
               onPick={(e) => setDraft((d) => d + e)}
-              onClose={() => setEmojiOpen(false)}
+              onClose={() => {
+                setEmojiOpen(false);
+                // Back to the message: picking an emoji is a pause in typing.
+                window.requestAnimationFrame(() => textRef.current?.focus());
+              }}
               className={compact ? "left-2 right-2" : undefined}
               compact={compact}
             />

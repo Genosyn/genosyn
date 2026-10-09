@@ -176,7 +176,17 @@ export default function FinanceProducts() {
               {products.map((p) => (
                 <tr key={p.id} className={p.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">{p.name}</div>
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(p)}
+                        className="text-left font-medium text-slate-900 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-100"
+                      >
+                        {p.name}
+                      </button>
+                    ) : (
+                      <div className="font-medium text-slate-900 dark:text-slate-100">{p.name}</div>
+                    )}
                     {p.description && (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         {p.description}

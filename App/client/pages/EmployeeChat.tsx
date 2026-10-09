@@ -23,6 +23,7 @@ import {
   Sparkles,
   Trash2,
   X,
+  Square,
   Zap,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import {
   shouldRenderQueuedMessage,
   useEmployeeSession,
 } from "../lib/chatSessions";
+import { focusOnArrival } from "../lib/composerFocus";
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -515,6 +517,18 @@ export default function EmployeeChat() {
   }
 
   /**
+   * Stop the reply in flight without sending anything. The partial reply is
+   * kept and marked interrupted, exactly as when a follow-up interrupts it;
+   * the cursor goes back to the box, since a correction usually comes next.
+   */
+  async function stopReply() {
+    setComposerError(null);
+    inputRef.current?.focus();
+    const err = await actions.interruptActiveTurn(company.id, emp.id, activeConvId);
+    if (err) setComposerError(err);
+  }
+
+  /**
    * Stop the reply in flight in this thread so an already-queued follow-up
    * goes now.
    *
@@ -571,6 +585,15 @@ export default function EmployeeChat() {
   // badge paints one frame of the previous thread's reading under the new
   // thread's title. Every other per-thread surface is already behind this flag.
   const visibleContextUsage = isLoadingMessages ? null : contextUsage;
+
+  // Arriving at a thread — from the roster, a link, the thread list, a staged
+  // hand-off — puts the cursor in the message box, after any draft already in
+  // it, so the first message needs no click into the box. Skipped on touch
+  // devices and whenever the person is already typing somewhere else.
+  const composerShown = !activeConv?.legacyUnclaimed;
+  React.useEffect(() => {
+    if (composerShown) focusOnArrival(inputRef.current);
+  }, [emp.id, activeConvId, newConversationIntent, composerShown]);
 
   React.useEffect(() => {
     // Hydration belongs to a completed load of *this* thread, so leaving one
@@ -762,6 +785,7 @@ export default function EmployeeChat() {
             onSubmit={() => send()}
             error={composerError}
             onInterruptAndSend={() => send(undefined, { interrupt: true })}
+            onStop={() => void stopReply()}
             isResponding={isActiveResponse}
             // Queueing is per thread, so a follow-up typed here only ever
             // waits behind this conversation's own reply — and stopping lands
@@ -1583,6 +1607,7 @@ function Composer({
   onSubmit,
   error,
   onInterruptAndSend,
+  onStop,
   isResponding,
   canInterrupt,
   interrupting,
@@ -1606,6 +1631,8 @@ function Composer({
   error: string | null;
   /** Stop the reply in flight and put this message at the head of the queue. */
   onInterruptAndSend: () => void;
+  /** Stop the reply in flight without sending anything. */
+  onStop: () => void;
   isResponding: boolean;
   /** The thread on screen is the one replying, so a stop lands where it reads. */
   canInterrupt: boolean;
@@ -1624,6 +1651,8 @@ function Composer({
   employeeSlug: string;
 }) {
   const canSend = value.trim().length > 0 || attachments.length > 0;
+  /** A reply is running here and nothing is typed: the send button stops it. */
+  const stopping = isResponding && canInterrupt && !canSend;
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
@@ -1764,6 +1793,8 @@ function Composer({
           }
           onPaste={onPaste}
           onKeyDown={(e) => {
+            // Enter and the arrows belong to an input method mid-composition.
+            if (e.nativeEvent.isComposing) return;
             if (resourceQuery !== null && references.length > 0) {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -1806,21 +1837,51 @@ function Composer({
           className="flex-1 resize-none self-center bg-transparent px-1 py-1 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           style={{ maxHeight: 200 }}
         />
+        {/* With a reply running and nothing typed, the one button stops it —
+            no throwaway message needed. Typing turns it back into Queue. One
+            element either way, so focus stays put as it changes. */}
         <button
-          type="submit"
-          disabled={!canSend}
-          aria-label={isResponding ? "Queue message" : "Send message"}
-          title={isResponding ? "Queue message" : "Send message"}
+          type={stopping ? "button" : "submit"}
+          onClick={stopping ? onStop : undefined}
+          disabled={stopping ? interrupting : !canSend}
+          aria-label={
+            stopping
+              ? interrupting
+                ? `Stopping ${empName}`
+                : `Stop ${empName}`
+              : isResponding
+                ? "Queue message"
+                : "Send message"
+          }
+          title={
+            stopping
+              ? `Stop ${empName}’s reply. What it wrote so far is kept.`
+              : isResponding
+                ? "Queue message"
+                : "Send message"
+          }
           className={
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition " +
-            (canSend
-              ? isResponding
-                ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
-                : "bg-indigo-600 text-white hover:bg-indigo-700"
-              : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-600")
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition disabled:cursor-not-allowed " +
+            (stopping
+              ? "bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-70 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white"
+              : canSend
+                ? isResponding
+                  ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+                : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-600")
           }
         >
-          {isResponding ? <Clock size={14} /> : <Send size={14} />}
+          {stopping ? (
+            interrupting ? (
+              <ButtonSpinner size={14} />
+            ) : (
+              <Square size={11} fill="currentColor" aria-hidden="true" />
+            )
+          ) : isResponding ? (
+            <Clock size={14} />
+          ) : (
+            <Send size={14} />
+          )}
         </button>
         {resourceQuery !== null && (
           <ResourceReferencePicker

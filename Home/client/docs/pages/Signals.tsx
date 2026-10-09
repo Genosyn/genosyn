@@ -43,7 +43,8 @@ export function Signals() {
           Pick the <Strong>Connection</Strong> to run against: any Postgres, MySQL or ClickHouse
           connection you have added under{" "}
           <DocLink to="/docs/integrations">Revenue → Integrations</DocLink>, the same ones{" "}
-          <DocLink to="/docs/explore">Explore</DocLink> uses.
+          <DocLink to="/docs/explore">Explore</DocLink> uses. With only one, it arrives picked.
+          Creating the signal opens it, switched off until you turn it on.
         </LI>
         <LI>
           Write the <Strong>query</Strong>, and map its columns (below).

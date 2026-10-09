@@ -6,6 +6,7 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "@/components/ui/Avat
 import { Button, buttonClassName } from "@/components/ui/Button";
 import type { Company, Notification, NotificationEntityKind } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
+import { companyNotificationLink } from "../../../shared/notificationLink";
 
 /**
  * What a notification actually says, without leaving Home to find out.
@@ -67,6 +68,7 @@ export function NotificationPeekModal({
     : null;
 
   const when = new Date(notification.createdAt);
+  const href = companyNotificationLink(company.slug, notification.link);
 
   return (
     <Modal
@@ -77,14 +79,14 @@ export function NotificationPeekModal({
       size="lg"
       footer={
         <>
-          {notification.link && (
+          {href && (
             <Link
-              to={notification.link}
+              to={href}
               className={buttonClassName({ variant: "secondary", size: "sm" })}
               onClick={onClose}
             >
               <ExternalLink size={14} />
-              {destinationLabel(notification.entityKind, notification.link)}
+              {destinationLabel(notification.entityKind, href)}
             </Link>
           )}
           <Button size="sm" onClick={onClose}>

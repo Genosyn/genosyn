@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Calendar, Handshake, Plus, Search } from "lucide-react";
 import { api } from "../lib/api";
 import type { Partnership, RevenueClassification } from "../lib/revenue";
@@ -22,6 +22,7 @@ function dateLabel(iso: string | null): string {
 
 export default function RevenuePartnerships() {
   const { company } = useOutletContext<RevenueOutletCtx>();
+  const navigate = useNavigate();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [rows, setRows] = React.useState<Partnership[] | null>(null);
@@ -129,8 +130,10 @@ export default function RevenuePartnerships() {
         types={types}
         statuses={statuses}
         onCreated={(partnership) => {
+          // Straight to the new partnership, where its contacts and context
+          // get added — not back to the list.
           setCreating(false);
-          setRows((current) => (current ? [partnership, ...current] : [partnership]));
+          navigate(`${sectionUrl}/partnerships/${partnership.id}`);
         }}
       />
     </div>

@@ -185,7 +185,15 @@ export default function FinanceVendors() {
               {vendors.map((v) => (
                 <tr key={v.id} className={v.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">{v.name}</div>
+                    {/* Opens the vendor: to edit, or read-only for a Member who
+                      cannot change finances — what the row's own button does. */}
+                    <button
+                      type="button"
+                      onClick={() => setEditing(v)}
+                      className="text-left font-medium text-slate-900 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-100"
+                    >
+                      {v.name}
+                    </button>
                     {v.taxNumber && (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         Tax #: {v.taxNumber}

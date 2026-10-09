@@ -1,8 +1,8 @@
 import React from "react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Archive, Building2, ExternalLink, Plus, Search, Users } from "lucide-react";
 import { api, type Employee, type Member } from "../lib/api";
-import type { RevenueAccount } from "../lib/revenue";
+import type { RevenueAccount, RevenueAccountRecord } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -24,6 +24,7 @@ const STATUS_CLASS: Record<AccountStatus, string> = {
 
 export default function RevenueAccounts() {
   const { company } = useOutletContext<RevenueOutletCtx>();
+  const navigate = useNavigate();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [rows, setRows] = React.useState<RevenueAccount[] | null>(null);
@@ -179,9 +180,11 @@ export default function RevenueAccounts() {
         base={base}
         members={members}
         employees={employees}
-        onCreated={() => {
+        onCreated={(account) => {
+          // Straight to the new account, where its contacts, deals and notes
+          // get added — not back to a list to search for it.
           setCreating(false);
-          void reload();
+          navigate(`${sectionUrl}/accounts/${account.id}`);
         }}
       />
     </div>
@@ -201,7 +204,7 @@ function NewAccountModal({
   base: string;
   members: Member[];
   employees: Employee[];
-  onCreated: () => void;
+  onCreated: (account: RevenueAccountRecord) => void;
 }) {
   const [name, setName] = React.useState("");
   const [domain, setDomain] = React.useState("");
@@ -219,7 +222,7 @@ function NewAccountModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`${base}/accounts`, {
+      const created = await api.post<RevenueAccountRecord>(`${base}/accounts`, {
         name,
         domain,
         websiteUrl,
@@ -230,7 +233,7 @@ function NewAccountModal({
         ownerEmployeeId: owner.startsWith("employee:") ? owner.slice(9) : null,
         notes,
       });
-      onCreated();
+      onCreated(created);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

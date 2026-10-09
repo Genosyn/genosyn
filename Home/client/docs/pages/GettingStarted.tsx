@@ -32,9 +32,10 @@ export function GettingStarted() {
       </UL>
       <P>
         Both are required before hiring an AI Employee. If you created a company earlier without
-        them, the guide opens <Strong>What is your company here to do?</Strong> first. Fill in both
-        fields and choose <Strong>Save and continue</Strong>. You can refine them later in{" "}
-        <Strong>Settings → Company</Strong>.
+        them, the guide opens <Strong>What is your company here to do?</Strong> first, with the
+        cursor in the first empty field. Fill in both fields and choose{" "}
+        <Strong>Save and continue</Strong>, or press <Code>⌘/Ctrl+Enter</Code> in either box. You
+        can refine them later in <Strong>Settings → Company</Strong>.
       </P>
       <P>
         The company is home to its Members, AI Employees, Connections, and work. To create another
@@ -54,7 +55,8 @@ export function GettingStarted() {
         <LI>
           Under <Strong>Hire your first AI Employee</Strong>, pick a starting role or enter your own{" "}
           <Strong>Name</Strong> and <Strong>Role</Strong>. Starting roles include Executive
-          Assistant, Sales Development Rep, Research Analyst, and Operations Coordinator.
+          Assistant, Sales Development Rep, Research Analyst, and Operations Coordinator. Picking a
+          different role swaps in its suggested name too, unless you typed your own.
         </LI>
         <LI>
           Choose <Strong>Hire AI Employee</Strong>. A role template provides a{" "}

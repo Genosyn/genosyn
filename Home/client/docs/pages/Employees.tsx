@@ -83,7 +83,8 @@ export function Employees() {
             def: (
               <>
                 Optional Team the employee belongs to — Engineering, Revenue, Ops. Pick it on the
-                employee&apos;s <Strong>Settings → General</Strong>; create teams at{" "}
+                employee&apos;s <Strong>Settings → General</Strong>; it saves as you pick it, and
+                is put back with the reason if the save is refused. Create teams at{" "}
                 <Strong>Settings → Teams</Strong>. It shows on the employee&apos;s card in the
                 Employees list.
               </>
@@ -124,8 +125,9 @@ export function Employees() {
       <OL>
         <LI>
           <Strong>Create.</Strong> Set the company mission and vision first, then pick a template (a
-          starter Soul and Skill set) or start blank. Hiring does not schedule Routines. The slug
-          freezes; you can rename freely afterward.
+          starter Soul and Skill set) or start blank. Switching templates swaps in the new
+          one&apos;s suggested name, unless you typed your own. Hiring does not schedule Routines.
+          The slug freezes; you can rename freely afterward.
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
@@ -211,7 +213,10 @@ export function Employees() {
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
-          pills surface tool calls inline. Type <Code>/new</Code> to open a fresh context, or{" "}
+          pills surface tool calls inline. Opening a chat or switching threads puts the cursor in
+          the message box, after any draft already there, so you can start typing straight away (on
+          a phone or tablet the box waits for a tap, so the keyboard does not cover the thread).
+          Type <Code>/new</Code> to open a fresh context, or{" "}
           <Code>#</Code> and a name to tag a product area or any company resource you can see. Use
           <Code>@</Code> for people and AI Employees; <Code>#</Code> tells the employee what product
           or record to work on, and you can add several tags to one instruction. Attach files with
@@ -233,8 +238,11 @@ export function Employees() {
           conversations with the same employee carry on answering in parallel. When the answer in
           flight has stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on
           the queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
-          puts down what it is doing so that message goes next. Whatever it had already written
-          stays in the thread, marked <Strong>interrupted</Strong>, and the next turn can see it. A
+          puts down what it is doing so that message goes next. To stop without sending anything,
+          select the <Strong>Stop</Strong> button that replaces Send while a reply runs and the box
+          is empty; the cursor returns to the box for your correction. Either way, whatever it had
+          already written stays in the thread, marked <Strong>interrupted</Strong>, and the next
+          turn can see it. A
           stop lands as soon as the step already running hands back, so a long tool call can take a
           moment. Chat stays available while that employee&apos;s Routines run.
           <br />
@@ -285,7 +293,9 @@ export function Employees() {
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
           {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
           10,000 characters. Keep summaries compact and link to existing detailed records;
-          the tool advertises these limits before the employee writes an entry.
+          the tool advertises these limits before the employee writes an entry. You can add an
+          entry yourself too: press Enter in its title, or <Code>⌘/Ctrl+Enter</Code> in its detail
+          box. <Strong>Settings → Memory</Strong> works the same way.
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
@@ -293,7 +303,8 @@ export function Employees() {
           background session (when they have a connected model) — delegation is a &quot;go&quot;
           signal, not a note on a desk. A Handoff always names the employee who receives it. A
           pending Handoff past its due date escalates: the company&apos;s owners and admins get a
-          bell, once.
+          bell, once. In a brief or a <Strong>Complete</Strong> / <Strong>Decline</Strong> note,{" "}
+          <Code>⌘/Ctrl+Enter</Code> submits it.
         </LI>
         <LI>
           <Strong>Settings → Connections.</Strong> The list of{" "}

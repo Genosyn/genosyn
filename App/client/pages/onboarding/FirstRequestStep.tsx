@@ -113,6 +113,13 @@ export function FirstRequestStep({
           label="Or write your own"
           value={customPrompt}
           onChange={(e) => setCustomPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter opens the chat with it, as the button does.
+            if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+            if (e.nativeEvent.isComposing || !customPrompt.trim()) return;
+            e.preventDefault();
+            openChat(customPrompt.trim());
+          }}
           placeholder={`What should ${employee.name} help with first?`}
           rows={3}
           className="min-h-24"

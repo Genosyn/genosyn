@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import createDOMPurify from "dompurify";
 import {
   Archive,
@@ -47,6 +47,7 @@ import { AttachmentBar, useMailAttachments } from "../components/MailAttachments
 import { allAttachmentIndexes, draftEditorIsDirty, withoutAttachment } from "../lib/draftEditor";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
+import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { clsx } from "../components/ui/clsx";
 import { MailReviewTimeline } from "@/pages/MailReviewTimeline";
 import { currentMailAnalysis, mergeMailThreadUpdate } from "@/lib/mailReview";
@@ -150,8 +151,17 @@ export default function MailThreadView() {
   const { threadId } = useParams();
   const background = useBackgroundAction();
   const navigate = useNavigate();
+  const location = useLocation();
   const scrolledToHandover = React.useRef<string | null>(null);
   const loadSeq = React.useRef(0);
+  /**
+   * The thread the Member just marked unread. Opening a thread marks it read;
+   * without this, a reload seeing it unread again would undo their choice.
+   */
+  const keptUnread = React.useRef<string | null>(null);
+  /** This thread's keyboard actions, current as of the last render; null while loading. */
+  const shortcuts = React.useRef<((key: string) => boolean) | null>(null);
+  const replyRef = React.useRef<ReplyComposerHandle>(null);
   const requestScope = `${company.id}:${threadId ?? ""}`;
   const activeRequestScope = React.useRef(requestScope);
   React.useLayoutEffect(() => {
@@ -236,6 +246,7 @@ export default function MailThreadView() {
     setHandoverDetailsOpen(false);
     setHandOpen(false);
     scrolledToHandover.current = null;
+    keptUnread.current = null;
     setExpanded(new Set());
     void load();
     return () => {
@@ -281,12 +292,26 @@ export default function MailThreadView() {
     return () => window.cancelAnimationFrame(frame);
   }, [handovers]);
 
-  // Opening a thread marks it read, like every mail client.
+  // Opening a thread marks it read, like every mail client — unless the
+  // Member just marked it unread, which this must never quietly reverse.
   React.useEffect(() => {
-    if (!thread || !thread.unread) return;
+    if (!thread || !thread.unread || keptUnread.current === thread.id) return;
     mailApi.threadAction(company.id, thread.id, "markRead").catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread?.id, thread?.unread]);
+
+  // The keys the mail guide lists work in an open thread too: e archive,
+  // # trash, s star, u mark unread, r reply, a reply all.
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(event)) return;
+      // A menu (Labels) owns its own letters while it is open.
+      if (document.querySelector('[role="menu"]')) return;
+      if (shortcuts.current?.(event.key)) event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // The thread is already in the URL. Its newest unsent draft is what Ask AI
   // should mean by "this draft".
@@ -298,7 +323,14 @@ export default function MailThreadView() {
   );
 
   const base = `/c/${company.slug}/mail`;
+  // Back to wherever this thread was opened from — the folder, label or search
+  // it sat in — or the inbox when it was opened straight from a link.
+  const leave = () => {
+    if (location.key === "default") navigate(base, { replace: true });
+    else navigate(-1);
+  };
 
+  shortcuts.current = null;
   if (notFound) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16 text-center text-sm text-slate-500">
@@ -333,7 +365,10 @@ export default function MailThreadView() {
   const act = (action: ThreadActionName, opts?: { labelId?: string; labelName?: string }) => {
     const snapshot = thread;
     setThread(applyThreadAction(thread, action, opts?.labelId));
-    if (action === "trash") navigate(base);
+    // Archiving, trashing or marking unread is done with the thread: go back
+    // to the list it came from instead of leaving a Back click to do.
+    if (action === "markUnread") keptUnread.current = thread.id;
+    if (action === "archive" || action === "trash" || action === "markUnread") leave();
 
     background(() => mailApi.threadAction(company.id, thread.id, action, opts), {
       title: "Couldn’t update the email",
@@ -352,6 +387,34 @@ export default function MailThreadView() {
   };
 
   const latestAnalysis = currentMailAnalysis(analyses, thread.aiReview);
+  const canReply = !inTrash && messages.some((m) => !m.isDraft);
+  // "Edit" in the Drafts queue opens that draft's editor on arrival.
+  const editDraftId = (location.state as { editDraftId?: unknown } | null)?.editDraftId;
+  shortcuts.current = (key) => {
+    switch (key) {
+      case "e":
+        if (!inInbox || inTrash) return false;
+        act("archive");
+        return true;
+      case "#":
+        if (inTrash) return false;
+        act("trash");
+        return true;
+      case "s":
+        act(starred ? "unstar" : "star");
+        return true;
+      case "u":
+        act("markUnread");
+        return true;
+      case "r":
+      case "a":
+        if (!canReply) return false;
+        replyRef.current?.open(key === "a");
+        return true;
+      default:
+        return false;
+    }
+  };
 
   return (
     <div className="flex min-h-full flex-col xl:h-full xl:min-h-0 xl:flex-row xl:overflow-hidden">
@@ -360,9 +423,10 @@ export default function MailThreadView() {
           {/* Header */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
-              onClick={() => navigate(-1)}
+              onClick={leave}
               className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
               title="Back"
+              aria-label="Back"
             >
               <ArrowLeft size={16} />
             </button>
@@ -487,6 +551,7 @@ export default function MailThreadView() {
               companySlug={company.slug}
               financeAccess={company.financeAccess}
               onChanged={load}
+              onArchived={leave}
             />
           )}
 
@@ -541,6 +606,7 @@ export default function MailThreadView() {
                   draft={m}
                   companyId={company.id}
                   accountId={account.id}
+                  startEditing={m.id === editDraftId}
                   onChanged={load}
                 />
               ) : (
@@ -565,8 +631,9 @@ export default function MailThreadView() {
           </div>
 
           {/* Reply composer */}
-          {!inTrash && messages.some((m) => !m.isDraft) && (
+          {canReply && (
             <ReplyComposer
+              ref={replyRef}
               companyId={company.id}
               accountId={account.id}
               thread={thread}
@@ -602,6 +669,7 @@ function HeaderAction({
   return (
     <button
       title={title}
+      aria-label={title}
       onClick={() => void onClick()}
       className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
     >
@@ -741,16 +809,19 @@ function DraftCard({
   draft,
   companyId,
   accountId,
+  startEditing = false,
   onChanged,
 }: {
   draft: MailMessage;
   companyId: string;
   accountId: string;
+  /** Open with the editor showing — the Drafts queue's Edit asked for it. */
+  startEditing?: boolean;
   onChanged: () => Promise<void>;
 }) {
   const background = useBackgroundAction();
   const dialog = useDialog();
-  const [editing, setEditing] = React.useState(false);
+  const [editing, setEditing] = React.useState(startEditing);
   const [to, setTo] = React.useState(draft.toEmails);
   const [subject, setSubject] = React.useState(draft.subject);
   const [body, setBody] = React.useState(draft.bodyText);
@@ -898,6 +969,8 @@ function DraftCard({
             rows={8}
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            // Editing a draft almost always means changing its words.
+            autoFocus
           />
           <div className="flex flex-wrap items-center gap-2">
             {keptAttachments.map((a) => (
@@ -981,21 +1054,31 @@ function DraftCard({
 
 // ───────────────────────────── reply composer ─────────────────────────────
 
-function ReplyComposer({
-  companyId,
-  accountId,
-  thread,
-  onSent,
-  onDraftSaved,
-}: {
-  companyId: string;
-  accountId: string;
-  thread: MailThread;
-  onSent: () => Promise<void>;
-  onDraftSaved: () => Promise<void>;
-}) {
+/** Lets the thread's `r` and `a` keys open the reply box. */
+type ReplyComposerHandle = { open: (all: boolean) => void };
+
+const ReplyComposer = React.forwardRef<
+  ReplyComposerHandle,
+  {
+    companyId: string;
+    accountId: string;
+    thread: MailThread;
+    onSent: () => Promise<void>;
+    onDraftSaved: () => Promise<void>;
+  }
+>(function ReplyComposer({ companyId, accountId, thread, onSent, onDraftSaved }, ref) {
   const [open, setOpen] = React.useState(false);
   const [replyAll, setReplyAll] = React.useState(false);
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      open: (all: boolean) => {
+        setReplyAll(all);
+        setOpen(true);
+      },
+    }),
+    [],
+  );
   const [recipients, setRecipients] = React.useState<{ to: string; cc: string } | null>(null);
   const [body, setBody] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -1129,7 +1212,7 @@ function ReplyComposer({
       </div>
     </div>
   );
-}
+});
 
 // ───────────────────────────── handovers ─────────────────────────────
 
@@ -1273,7 +1356,11 @@ function HandToAiModal({
       .grants(companyId, accountId)
       .then((res) => {
         setGrants(res.direct);
-        setEmployeeId(res.direct[0]?.employeeId ?? "");
+        // Start on someone who can actually work the thread: a read-only
+        // grant (enough for AI analysis) can't draft, and would leave Hand
+        // over disabled until the Member picked someone else.
+        const capable = res.direct.find((grant) => grant.accessLevel !== "read");
+        setEmployeeId((capable ?? res.direct[0])?.employeeId ?? "");
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }, [open, companyId, accountId]);

@@ -4,6 +4,7 @@ import { api, type Company } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Textarea } from "@/components/ui/Textarea";
+import { submitFormOnModEnter } from "@/lib/keyboard";
 import { StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
 export function CompanyStep({
@@ -17,6 +18,10 @@ export function CompanyStep({
   const [vision, setVision] = React.useState(company.vision);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // The cursor starts in the first box still empty, for those who can edit.
+  const canEdit = company.role !== "member";
+  const focusMission = canEdit && !company.mission.trim();
+  const focusVision = canEdit && !focusMission && !company.vision.trim();
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -51,10 +56,12 @@ export function CompanyStep({
           label="Mission"
           value={mission}
           onChange={(event) => setMission(event.target.value)}
+          onKeyDown={submitFormOnModEnter}
           placeholder="What do you do, for whom, and why?"
           rows={3}
           className="!min-h-24"
           maxLength={2000}
+          autoFocus={focusMission}
           required
           disabled={saving}
         />
@@ -62,15 +69,17 @@ export function CompanyStep({
           label="Vision"
           value={vision}
           onChange={(event) => setVision(event.target.value)}
+          onKeyDown={submitFormOnModEnter}
           placeholder="What should be true when the company succeeds?"
           rows={3}
           className="!min-h-24"
           maxLength={2000}
+          autoFocus={focusVision}
           required
           disabled={saving}
         />
         <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-          You can refine these later in Settings → Company.
+          You can refine these later in Settings → Company. ⌘/Ctrl+Enter saves.
         </p>
         <FormError message={error} />
         <StepFooter>

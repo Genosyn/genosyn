@@ -9,8 +9,10 @@ import type { DecisionStackItem } from "./useDecisionFollowUps";
  * row collapses to a single status line that follows the work: "You chose
  * “Bid” · Alex is on it", then "Done · Registered on BidNet". Everything the
  * old cards streamed (every narration line, every timeline step) stays behind
- * the row's Details. These functions are pure so the wording is pinned by
- * tests, and so Home, the stack and History all say the same thing.
+ * the row's Details. A row that finished cleanly leaves the stack once it has
+ * been seen (`stackItemPhase`); one that ended with a problem waits for Close.
+ * These functions are pure so the wording is pinned by tests, and so Home,
+ * the stack and History all say the same thing.
  */
 
 /**
@@ -211,6 +213,44 @@ export function workReviewStatusLine(approval: Approval): StatusLine {
     case "expired":
       return { label: "Expired", text: "The work did not start.", tone: "neutral", working: false };
   }
+}
+
+/**
+ * Where an item on the stack stands, for deciding whether its row still needs
+ * a place there:
+ *
+ * - `waiting` — nobody has answered or reviewed it yet.
+ * - `working` — answered, sent or approved, and the work is still going (or
+ *   has not started): there is something left to follow.
+ * - `finished` — it ended as asked: done, sent, the answer saved, or set
+ *   aside. Once someone has seen that line the row has nothing left to say,
+ *   so it leaves the stack the next time it opens; History keeps it.
+ * - `attention` — it ended with a problem (couldn’t finish, not sent, not
+ *   confirmed, or it can no longer be read). That row stays until Close, so a
+ *   problem is never tidied away unseen.
+ */
+export type StackItemPhase = "waiting" | "working" | "finished" | "attention";
+
+function phaseOf(status: StatusLine): Exclude<StackItemPhase, "waiting"> {
+  if (status.working || status.tone === "progress") return "working";
+  if (status.tone === "warning" || status.tone === "danger") return "attention";
+  return "finished";
+}
+
+export function stackItemPhase(item: DecisionStackItem): StackItemPhase {
+  if (item.kind === "loading") return item.error ? "attention" : "working";
+  if (item.kind === "decision") {
+    return item.decision.status === "pending"
+      ? "waiting"
+      : phaseOf(decisionStatusLine(item.decision));
+  }
+  const outcome = item.outcome;
+  if (!outcome || outcome.status === "pending") return "waiting";
+  return phaseOf(
+    item.approval.kind === "mail_send"
+      ? mailReviewStatusLine(outcome)
+      : workReviewStatusLine(outcome),
+  );
 }
 
 /** A stack entry: one item, or a run of reviews of one kind shown under one heading. */

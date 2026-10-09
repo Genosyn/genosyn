@@ -8,6 +8,7 @@ import {
   groupHeading,
   groupStackItems,
   mailReviewStatusLine,
+  stackItemPhase,
   workReviewStatusLine,
 } from "./stackStatus.js";
 import {
@@ -561,5 +562,156 @@ describe("stack order", () => {
     assert.equal(stackItemWorking(decisionItem(decision({ pickupStatus: "done" }))), false);
     assert.equal(stackItemPending(reviewItem(approval())), true);
     assert.equal(stackItemWorking(reviewItem(approval(), approval({ status: "executing" }))), true);
+  });
+});
+
+describe("stackItemPhase", () => {
+  const work = (changes: Partial<Approval> = {}) =>
+    approval({
+      kind: "proactive_work",
+      review: {
+        kind: "work",
+        revision: "w",
+        context: "",
+        plan: "Fix it.",
+        source: {
+          routineId: null,
+          runId: null,
+          conversationId: null,
+          mailThreadId: null,
+          mailAccountId: null,
+          mailHandoverId: null,
+        },
+      },
+      ...changes,
+    });
+  const sent = { sentMessageId: "m", providerMessageRef: "p", sentAt: "2026-10-09T08:00:00.000Z" };
+
+  test("a question nobody has answered is waiting", () => {
+    assert.equal(stackItemPhase(decisionItem(decision({ status: "pending" }))), "waiting");
+    // Snoozed is still waiting; the stack hides it until it comes back.
+    assert.equal(
+      stackItemPhase(
+        decisionItem(decision({ status: "pending", snoozedUntil: "2026-10-10T00:00:00.000Z" })),
+      ),
+      "waiting",
+    );
+  });
+
+  test("an answer is followed while the work has not started or is under way", () => {
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "none" }))), "working");
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "running" }))), "working");
+  });
+
+  test("an answer finishes when the work is done or the answer is saved", () => {
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "done" }))), "finished");
+    assert.equal(
+      stackItemPhase(
+        decisionItem(decision({ pickupStatus: "done", pickupReport: "Registered on BidNet." })),
+      ),
+      "finished",
+    );
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "skipped" }))), "finished");
+  });
+
+  test("work that could not finish needs attention, so it waits for Close", () => {
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "failed" }))), "attention");
+  });
+
+  test("a question set aside is finished: dismissed by someone, or withdrawn", () => {
+    assert.equal(
+      stackItemPhase(decisionItem(decision({ status: "cancelled", pickupStatus: "none" }))),
+      "finished",
+    );
+    assert.equal(
+      stackItemPhase(
+        decisionItem(
+          decision({ status: "cancelled", decidedByUserId: null, decidedBy: null, note: "Moot." }),
+        ),
+      ),
+      "finished",
+    );
+  });
+
+  test("an email review: waiting, sending, sent, and every problem", () => {
+    assert.equal(stackItemPhase(reviewItem(approval())), "waiting");
+    assert.equal(stackItemPhase(reviewItem(approval(), approval())), "waiting");
+    assert.equal(
+      stackItemPhase(reviewItem(approval(), approval({ status: "executing" }))),
+      "working",
+    );
+    assert.equal(
+      stackItemPhase(
+        reviewItem(
+          approval(),
+          approval({ status: "approved", mailDeliveryStatus: "sent", mailOutcome: sent }),
+        ),
+      ),
+      "finished",
+    );
+    assert.equal(
+      stackItemPhase(reviewItem(approval(), approval({ status: "rejected" }))),
+      "finished",
+    );
+    assert.equal(
+      stackItemPhase(reviewItem(approval(), approval({ status: "expired" }))),
+      "finished",
+    );
+    // Approved without a recorded send is never treated as sent.
+    assert.equal(
+      stackItemPhase(reviewItem(approval(), approval({ status: "approved", mailOutcome: null }))),
+      "attention",
+    );
+    assert.equal(
+      stackItemPhase(
+        reviewItem(
+          approval(),
+          approval({ status: "execution_failed", mailDeliveryStatus: "not_sent" }),
+        ),
+      ),
+      "attention",
+    );
+    assert.equal(
+      stackItemPhase(
+        reviewItem(
+          approval(),
+          approval({ status: "execution_failed", mailDeliveryStatus: "unverified" }),
+        ),
+      ),
+      "attention",
+    );
+  });
+
+  test("a work review: waiting, under way, done, and every problem", () => {
+    assert.equal(stackItemPhase(reviewItem(work())), "waiting");
+    assert.equal(stackItemPhase(reviewItem(work(), work({ status: "executing" }))), "working");
+    assert.equal(
+      stackItemPhase(
+        reviewItem(work(), work({ status: "approved", outcomeSummary: "Fixed and checked." })),
+      ),
+      "finished",
+    );
+    assert.equal(
+      stackItemPhase(reviewItem(work(), work({ status: "approved", outcomeRunId: "run-1" }))),
+      "finished",
+    );
+    assert.equal(stackItemPhase(reviewItem(work(), work({ status: "rejected" }))), "finished");
+    assert.equal(stackItemPhase(reviewItem(work(), work({ status: "expired" }))), "finished");
+    // Approved with no Run and no report: the outcome is not confirmed.
+    assert.equal(stackItemPhase(reviewItem(work(), work({ status: "approved" }))), "attention");
+    assert.equal(
+      stackItemPhase(reviewItem(work(), work({ status: "execution_failed" }))),
+      "attention",
+    );
+  });
+
+  test("a row that is still loading is followed; one that cannot be read needs attention", () => {
+    const loading: DecisionStackItem = {
+      kind: "loading",
+      key: "decision-x",
+      reference: { kind: "decision", id: "x" },
+    };
+    assert.equal(stackItemPhase(loading), "working");
+    assert.equal(stackItemPhase({ ...loading, error: "Decision not found" }), "attention");
   });
 });

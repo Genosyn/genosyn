@@ -996,8 +996,9 @@ export default function RepositoryFiles() {
 
   async function commit() {
     // The button is disabled in both of these cases, so reaching here means a
-    // stray keypress rather than a person to explain anything to.
-    if (!message.trim() || selected.size === 0) return;
+    // stray keypress rather than a person to explain anything to — or ⌘Enter
+    // pressed again while the first commit is still going.
+    if (!message.trim() || selected.size === 0 || committing) return;
     setCommitError(null);
     setCommitting(true);
     try {
@@ -1410,7 +1411,14 @@ export default function RepositoryFiles() {
                 // reads as the literal word "ValidationError", so the limit is
                 // enforced where it can still be understood.
                 maxLength={MAX_COMMIT_MESSAGE_CHARS}
-                placeholder="Describe the change…"
+                onKeyDown={(event) => {
+                  // The same "I mean it" key as a work-session brief.
+                  if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+                  if (event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  void commit();
+                }}
+                placeholder="Describe the change… (⌘/Ctrl+Enter commits)"
                 aria-label="What changed"
                 disabled={changes.length === 0}
                 className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:ring-indigo-500/25"

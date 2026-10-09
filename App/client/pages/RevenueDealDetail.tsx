@@ -33,6 +33,8 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { submitFormOnModEnter } from "../lib/keyboard";
+import { dateTimeLocalToIso, defaultFollowUpDue } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
@@ -540,7 +542,11 @@ function DealTaskModal({
   onCreated: () => void;
 }) {
   const [subject, setSubject] = React.useState(deal.nextStep || `Follow up on ${deal.title}`);
-  const [dueAt, setDueAt] = React.useState(isoDateTimeLocal(deal.nextFollowUpAt));
+  // The deal's own follow-up date when it has one, else the next working
+  // morning — Due is required, and an empty box only sends people to a picker.
+  const [dueAt, setDueAt] = React.useState(
+    () => isoDateTimeLocal(deal.nextFollowUpAt) || defaultFollowUpDue(),
+  );
   const [reminderAt, setReminderAt] = React.useState(
     isoDateTimeLocal(deal.followUpReminderAt),
   );
@@ -559,8 +565,8 @@ function DealTaskModal({
     try {
       await api.post(`${base}/follow-ups`, {
         subject,
-        dueAt: dueAt || null,
-        reminderAt: reminderAt || null,
+        dueAt: dateTimeLocalToIso(dueAt),
+        reminderAt: dateTimeLocalToIso(reminderAt),
         priority,
         recurrenceRule: recurrenceRule || null,
         dealId: deal.id,
@@ -835,99 +841,113 @@ function DealFields({
     onSave(body, (current) => ({ ...current, ...next }));
   }
 
+  // A form, so Enter in any box saves once something has changed. Until then
+  // there is no Save button, and Enter does nothing.
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
         Details
       </h2>
-      <div className="space-y-3">
-        <Input
-          label="Amount"
-          value={draft.amount}
-          inputMode="decimal"
-          onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
-        />
-        <Input
-          label="Expected close"
-          type="date"
-          value={draft.expectedCloseDate}
-          onChange={(e) => setDraft({ ...draft, expectedCloseDate: e.target.value })}
-        />
-        <Input
-          label="Next step"
-          value={draft.nextStep}
-          maxLength={500}
-          placeholder="What has to happen next?"
-          onChange={(e) => setDraft({ ...draft, nextStep: e.target.value })}
-        />
-        <Input
-          label="Next follow-up"
-          type="datetime-local"
-          value={draft.nextFollowUpAt}
-          onChange={(e) => setDraft({ ...draft, nextFollowUpAt: e.target.value })}
-        />
-        <Input
-          label="Follow-up reminder"
-          type="datetime-local"
-          value={draft.followUpReminderAt}
-          onChange={(e) => setDraft({ ...draft, followUpReminderAt: e.target.value })}
-        />
-        <Select
-          label="Source"
-          value={draft.source}
-          onChange={(e) => setDraft({ ...draft, source: e.target.value })}
-        >
-          <option value="">Not set</option>
-          {sources.map((source) => (
-            <option key={source.id} value={source.value}>
-              {source.label}
-            </option>
-          ))}
-        </Select>
-        <Input
-          label="Probability override"
-          type="number"
-          min={0}
-          max={100}
-          value={draft.probability}
-          placeholder="Inherits the stage default"
-          onChange={(e) => setDraft({ ...draft, probability: e.target.value })}
-        />
-        <Select
-          label="Owner"
-          value={draft.owner}
-          onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
-        >
-          <option value="">Unassigned</option>
-          {members.map((m) => (
-            <option key={m.userId} value={`user:${m.userId}`}>
-              {m.name ?? m.email ?? "Teammate"}
-            </option>
-          ))}
-          {employees.map((e) => (
-            <option key={e.id} value={`ai:${e.id}`}>
-              {e.name} (AI)
-            </option>
-          ))}
-        </Select>
-        <Textarea
-          label="Description"
-          value={draft.description}
-          className="min-h-[110px]"
-          placeholder="What are they buying, and why now?"
-          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-        />
-      </div>
-      {dirty && (
-        <div className="mt-3 flex justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setDraft(initial)}>
-            Reset
-          </Button>
-          <Button size="sm" onClick={save}>
-            Save changes
-          </Button>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          save();
+        }}
+      >
+        <div className="space-y-3">
+          <Input
+            label="Amount"
+            value={draft.amount}
+            inputMode="decimal"
+            onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
+          />
+          <Input
+            label="Expected close"
+            type="date"
+            value={draft.expectedCloseDate}
+            onChange={(e) => setDraft({ ...draft, expectedCloseDate: e.target.value })}
+          />
+          <Input
+            label="Next step"
+            value={draft.nextStep}
+            maxLength={500}
+            placeholder="What has to happen next?"
+            onChange={(e) => setDraft({ ...draft, nextStep: e.target.value })}
+          />
+          <Input
+            label="Next follow-up"
+            type="datetime-local"
+            value={draft.nextFollowUpAt}
+            onChange={(e) => setDraft({ ...draft, nextFollowUpAt: e.target.value })}
+          />
+          <Input
+            label="Follow-up reminder"
+            type="datetime-local"
+            value={draft.followUpReminderAt}
+            onChange={(e) => setDraft({ ...draft, followUpReminderAt: e.target.value })}
+          />
+          <Select
+            label="Source"
+            value={draft.source}
+            onChange={(e) => setDraft({ ...draft, source: e.target.value })}
+          >
+            <option value="">Not set</option>
+            {sources.map((source) => (
+              <option key={source.id} value={source.value}>
+                {source.label}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Probability override"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.probability}
+            placeholder="Inherits the stage default"
+            onChange={(e) => setDraft({ ...draft, probability: e.target.value })}
+          />
+          <Select
+            label="Owner"
+            value={draft.owner}
+            onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
+          >
+            <option value="">Unassigned</option>
+            {members.map((m) => (
+              <option key={m.userId} value={`user:${m.userId}`}>
+                {m.name ?? m.email ?? "Teammate"}
+              </option>
+            ))}
+            {employees.map((e) => (
+              <option key={e.id} value={`ai:${e.id}`}>
+                {e.name} (AI)
+              </option>
+            ))}
+          </Select>
+          <Textarea
+            label="Description"
+            value={draft.description}
+            className="min-h-[110px]"
+            placeholder="What are they buying, and why now?"
+            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+          />
         </div>
-      )}
+        {dirty && (
+          <div className="mt-3 flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setDraft(initial)}
+            >
+              Reset
+            </Button>
+            <Button type="submit" size="sm">
+              Save changes
+            </Button>
+          </div>
+        )}
+      </form>
     </section>
   );
 }
@@ -986,10 +1006,13 @@ function Committee({
                     .join(" · ") || "No role recorded"}
                 </div>
               </div>
+              {/* Shown on hover, on keyboard focus, and always on touch
+                screens, where there is no hover to reveal it. */}
               <button
+                type="button"
                 onClick={() => onRemove(link)}
                 aria-label={`Remove ${link.contact?.name ?? "contact"}`}
-                className="rounded p-1 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                className="rounded p-1 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400 [@media(hover:none)]:opacity-100"
               >
                 <Trash2 size={13} />
               </button>
@@ -1090,7 +1113,8 @@ function Composer({
         <Textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="What happened?"
+          onKeyDown={submitFormOnModEnter}
+          placeholder="What happened? ⌘/Ctrl+Enter logs it."
           className="min-h-[80px]"
           aria-label="Details"
         />

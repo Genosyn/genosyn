@@ -357,7 +357,10 @@ with everything else behind a single Details disclosure; a pickup stores its
 final message as `Decision.pickupReport` apart from the step log, so an
 answered row collapses to one status line. Dismiss, Snooze, Discard and Don't
 do this take a row off the active stack in the same click; answers, sends and
-approvals are followed until Close. None of this touches an Approval: every
+approvals are followed while the work runs, and a row that finished cleanly
+leaves on the next visit once its line has been on screen
+(`stackItemPhase`, `useDecisionFollowUps().markSeen`) — only a row that ended
+with a problem waits for Close. None of this touches an Approval: every
 email and work review still gets its own human answer, and grouping them under
 one heading never batches that answer.
 

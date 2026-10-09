@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   Company,
@@ -8,6 +9,7 @@ import {
   Me,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { focusOnArrival } from "../lib/composerFocus";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -203,6 +205,14 @@ function InitiativeCard({
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const noteRef = React.useRef<HTMLTextAreaElement>(null);
+  const confirmId = React.useId();
+
+  // The confirm panel opens with the cursor in its note, so a note and
+  // ⌘/Ctrl+Enter finish it. The panel is still the confirm step.
+  React.useEffect(() => {
+    if (confirm && noteRef.current) focusOnArrival(noteRef.current);
+  }, [confirm]);
 
   async function decide(action: "accept" | "decline") {
     setBusy(true);
@@ -308,7 +318,13 @@ function InitiativeCard({
         {initiative.status === "accepted" && initiative.createdRoutineId && (
           <div className="text-xs text-slate-400 dark:text-slate-500">
             Routine created — it now runs on {employee?.name ?? "the proposer"}&apos;s schedule
-            like any other.
+            like any other.{" "}
+            <Link
+              to={`/c/${company.slug}/routines?routine=${initiative.createdRoutineId}`}
+              className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Open the Routine
+            </Link>
           </div>
         )}
 
@@ -325,23 +341,37 @@ function InitiativeCard({
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+              <div
+                role="group"
+                aria-labelledby={confirmId}
+                className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+              >
+                <div
+                  id={confirmId}
+                  className="text-sm font-medium text-slate-800 dark:text-slate-200"
+                >
                   {confirm === "accept"
                     ? "Accept this initiative? The Routine above is created right away, owned by the proposing employee."
                     : "Decline this initiative? Nothing is created."}
                 </div>
                 <Textarea
+                  ref={noteRef}
                   label="Note (optional)"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+                    if (e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    if (!busy) void decide(confirm);
+                  }}
                   className="min-h-[60px]"
                   placeholder={
                     confirm === "accept"
                       ? "Anything the employee should know about this acceptance."
                       : "Why not — the employee learns from this."
                   }
-                  hint="The employee reads this note in its journal."
+                  hint="The employee reads this note in its journal. ⌘/Ctrl+Enter confirms."
                 />
                 <div className="flex gap-2">
                   <Button

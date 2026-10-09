@@ -456,6 +456,14 @@ function CreateSignalModal({
     setSaving(false);
   }, [open]);
 
+  // One database connection leaves nothing to choose, so it arrives chosen.
+  // Nothing runs on create: a new signal starts disabled.
+  React.useEffect(() => {
+    if (open && connections.length === 1) {
+      setConnectionId((current) => current || connections[0].id);
+    }
+  }, [open, connections]);
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;

@@ -105,7 +105,10 @@ function renderCell(value: unknown): string {
 
 export default function RevenueSignalDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
-  const { id } = useParams();
+  // The route names it `:signalId` (App.tsx); reading `id` asked the API for
+  // `/signals/undefined`, so this page never loaded.
+  const params = useParams();
+  const id = params.signalId ?? params.id ?? "";
   const background = useBackgroundAction();
 
   const [signal, setSignal] = React.useState<Signal | null>(null);

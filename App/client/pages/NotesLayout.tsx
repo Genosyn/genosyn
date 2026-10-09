@@ -68,7 +68,9 @@ export default function NotesLayout({ company }: { company: Company }) {
           notebookSlug: notebook.slug,
         });
         await refresh();
-        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
+        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`, {
+          state: { newNote: true },
+        });
       } catch (err) {
         void dialog.error(err, { title: "Couldn’t create the page" });
       } finally {
@@ -87,7 +89,9 @@ export default function NotesLayout({ company }: { company: Company }) {
           parentSlug: parent.slug,
         });
         await refresh();
-        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
+        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`, {
+          state: { newNote: true },
+        });
       } catch (err) {
         void dialog.error(err, { title: "Couldn’t create the sub-page" });
       } finally {
@@ -182,6 +186,7 @@ function Sidebar({
   creatingIn: string | null;
   creatingNotebook: "header" | "empty" | null;
 }) {
+  const navigate = useNavigate();
   const notesByNotebook = React.useMemo(() => {
     const m = new Map<string, Note[]>();
     for (const n of notes) {
@@ -233,6 +238,16 @@ function Sidebar({
             <input
               value={filter}
               onChange={(e) => onFilter(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter opens the best match, so finding a page is type + Enter.
+                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                const first = filteredFlat?.[0];
+                const nb = first && notebooks.find((x) => x.id === first.notebookId);
+                if (!first || !nb) return;
+                e.preventDefault();
+                navigate(`/c/${company.slug}/notes/${nb.slug}/${first.slug}`);
+              }}
+              aria-label="Quick find"
               placeholder="Quick find"
               className="w-full rounded-md border border-transparent bg-slate-100/70 py-1.5 pl-7 pr-2 text-sm text-slate-700 placeholder:text-slate-400 hover:bg-slate-100 focus:border-slate-300 focus:bg-white focus:outline-none dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:bg-slate-800 dark:focus:border-slate-600 dark:focus:bg-slate-900"
             />
@@ -393,7 +408,7 @@ function NotebookSection({
             onClick={onCreateNote}
             disabled={creatingIn === notebook.id}
             aria-busy={creatingIn === notebook.id || undefined}
-            className="ml-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 group-hover/nb:flex dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 opacity-0 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:opacity-100 group-hover/nb:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
             title="New page in this notebook"
             aria-label="New page in this notebook"
           >
@@ -496,7 +511,7 @@ function NoteRow({
             onClick={() => onCreateChild(node)}
             disabled={creatingIn === node.id}
             aria-busy={creatingIn === node.id || undefined}
-            className="ml-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 group-hover:flex dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 opacity-0 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
             title="New sub-page"
             aria-label="New sub-page"
           >

@@ -76,9 +76,10 @@ export default function RoutineNew({ company }: { company: Company }) {
       );
       await refresh();
       const emp = employees.find((x) => x.id === employeeId);
+      // The brief is the next thing to write, so that is where it lands.
       navigate(
         emp
-          ? `/c/${company.slug}/routines/${emp.slug}/${created.slug}`
+          ? `/c/${company.slug}/routines/${emp.slug}/${created.slug}?tab=brief`
           : `/c/${company.slug}/routines`,
         { replace: true },
       );

@@ -32,7 +32,7 @@ import { applyWorkspaceMessageEvent, mergeWorkspaceMessages } from "../lib/works
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
-import { ChannelComposer } from "../components/workspace/Composer";
+import { ChannelComposer, type ChannelComposerHandle } from "../components/workspace/Composer";
 import { initials, MessageList } from "../components/workspace/MessageList";
 import { TypingPill, useChannelTyping } from "../components/workspace/TypingPill";
 import { Button } from "../components/ui/Button";
@@ -764,6 +764,13 @@ function ChannelView({
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
   const typers = useChannelTyping(channel.id, me.id);
+  const composerRef = React.useRef<ChannelComposerHandle>(null);
+
+  // Opening a channel or DM — from the list, a link, or one just created —
+  // puts the cursor in its message box, so the first message needs no click.
+  React.useEffect(() => {
+    composerRef.current?.focusOnArrival();
+  }, [channel.id]);
 
   React.useLayoutEffect(() => {
     if (messages === null) return;
@@ -949,6 +956,7 @@ function ChannelView({
       )}
 
       <ChannelComposer
+        ref={composerRef}
         company={company}
         channel={{
           id: channel.id,
@@ -1084,7 +1092,7 @@ function NewChannelModal({
   }, [open]);
 
   async function create() {
-    if (!name.trim()) return;
+    if (!name.trim() || creating) return;
     setCreating(true);
     setError(null);
     try {
@@ -1103,27 +1111,45 @@ function NewChannelModal({
     }
   }
 
+  // Enter in either text field creates the channel. The modal is not a form:
+  // its privacy and member buttons would submit one.
+  function createOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void create();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Create a channel">
       <div className="space-y-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+          <label
+            htmlFor="new-channel-name"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+          >
             Name
           </label>
           <input
+            id="new-channel-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={createOnEnter}
             placeholder="general"
             className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+          <label
+            htmlFor="new-channel-topic"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+          >
             Topic (optional)
           </label>
           <input
+            id="new-channel-topic"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
+            onKeyDown={createOnEnter}
             placeholder="Team updates and announcements"
             className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
@@ -1259,6 +1285,14 @@ function NewDMModal({
       e.name.toLowerCase().includes(q.toLowerCase()) ||
       e.slug.toLowerCase().includes(q.toLowerCase()),
   );
+  // With the search narrowed to one person, Enter opens the conversation —
+  // never a guess between several.
+  const onlyMatch =
+    q.trim() && users.length + emps.length === 1
+      ? users[0]
+        ? { name: users[0].name, target: { targetUserId: users[0].id } }
+        : { name: emps[0].name, target: { targetEmployeeId: emps[0].id } }
+      : null;
 
   return (
     <Modal open={open} onClose={onClose} title="Start a direct message">
@@ -1267,9 +1301,21 @@ function NewDMModal({
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            if (onlyMatch && !openingId) void openWith(onlyMatch.target);
+          }}
+          aria-label="Search teammates or AI employees"
+          aria-describedby={onlyMatch ? "new-dm-enter-hint" : undefined}
           placeholder="Search teammates or AI employees"
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
+        {onlyMatch && (
+          <p id="new-dm-enter-hint" className="text-xs text-slate-500 dark:text-slate-400">
+            Press Enter to message {onlyMatch.name}.
+          </p>
+        )}
         <FormError message={error} />
         <div className="max-h-80 space-y-3 overflow-y-auto">
           {users.length > 0 && (
@@ -1374,7 +1420,7 @@ function ChannelSettingsModal({
   }, [channel.id, channel.name, channel.topic, company.id, open]);
 
   async function saveGeneral() {
-    if (!name.trim()) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
     setGeneralError(null);
     try {
@@ -1383,6 +1429,10 @@ function ChannelSettingsModal({
         topic: topic.trim(),
       });
       onChanged(updated);
+      // Members and the webhook already apply as they change, so a saved
+      // name is the last thing to do here: the modal closing is the
+      // confirmation, and the header shows the new name.
+      onClose();
     } catch (error) {
       setGeneralError(errorMessage(error));
     } finally {
@@ -1434,23 +1484,42 @@ function ChannelSettingsModal({
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            <label
+              htmlFor="channel-settings-name"
+              className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
               Name
             </label>
             <input
+              id="channel-settings-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                void saveGeneral();
+              }}
               maxLength={80}
               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            <label
+              htmlFor="channel-settings-topic"
+              className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
               Topic
             </label>
             <textarea
+              id="channel-settings-topic"
               value={topic}
               onChange={(event) => setTopic(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+                if (event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                void saveGeneral();
+              }}
               maxLength={280}
               rows={2}
               className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"

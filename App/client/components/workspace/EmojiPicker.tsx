@@ -67,6 +67,13 @@ export function EmojiPicker({
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            // A modal around the picker may already have handled Escape.
+            if (e.key !== "Escape" || e.defaultPrevented) return;
+            e.preventDefault();
+            onClose();
+          }}
+          aria-label="Filter emoji by category"
           placeholder="Filter by category"
           className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />

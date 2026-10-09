@@ -51,7 +51,17 @@ export function Routines() {
         <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the top bar to ask about it. Each
         AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
-        filtered to them.
+        filtered to them — and <Strong>New routine</Strong> from that slice starts with them as the
+        owner. A new routine opens on its <Strong>Brief</Strong> tab, ready for its instructions,
+        and <Code>⌘S</Code> saves the brief. The status in a row&apos;s <Strong>Last run</Strong>{" "}
+        column opens that Run directly.
+      </P>
+      <P>
+        Owners and admins pause or resume a routine from the switch beside{" "}
+        <Strong>Run now</Strong> at the top of its page — one click, no Save; the{" "}
+        <Strong>Enabled</Strong> box under Settings follows it. While a{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> covers the routine,{" "}
+        <Strong>Run now</Strong> is disabled and its tooltip names the Standdown.
       </P>
       <P>
         If the list, employee roster, or folders cannot refresh, Genosyn keeps the last loaded
@@ -150,7 +160,8 @@ export function Routines() {
       <Callout kind="info" title="Deleting a folder never deletes routines.">
         Its routines and subfolders move up to the folder&apos;s own parent — which for a top-level
         folder means they become Unfiled. The confirmation says exactly where they will land before
-        you press the button.
+        you press the button. An empty folder has nothing to move, so it is deleted without a
+        confirmation.
       </Callout>
       <H3 id="filing-routines">Filing routines</H3>
       <P>

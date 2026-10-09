@@ -287,6 +287,26 @@ export function ownerIdsFromKey(key: string): {
   return { ownerId: null, ownerEmployeeId: null };
 }
 
+const DEALS_VIEW_KEY = "genosyn.revenue.dealsView";
+
+/** Board or List, as this browser last left the Deals page. */
+function readDealsView(): "board" | "list" {
+  try {
+    return window.localStorage.getItem(DEALS_VIEW_KEY) === "list" ? "list" : "board";
+  } catch {
+    // Storage blocked: start on the board, as before.
+    return "board";
+  }
+}
+
+function writeDealsView(view: "board" | "list"): void {
+  try {
+    window.localStorage.setItem(DEALS_VIEW_KEY, view);
+  } catch {
+    // Storage blocked: the choice lasts this visit only.
+  }
+}
+
 export default function RevenueDeals() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const navigate = useNavigate();
@@ -296,7 +316,11 @@ export default function RevenueDeals() {
   const base = `/api/companies/${company.id}/revenue`;
   const dealsPath = `/c/${company.slug}/revenue/deals`;
 
-  const [view, setView] = React.useState<"board" | "list">("board");
+  const [view, setViewState] = React.useState<"board" | "list">(readDealsView);
+  const setView = React.useCallback((next: "board" | "list") => {
+    setViewState(next);
+    writeDealsView(next);
+  }, []);
   const [board, setBoard] = React.useState<BoardColumn[] | null>(null);
   const [boardError, setBoardError] = React.useState(false);
   const [rows, setRows] = React.useState<Deal[] | null>(null);

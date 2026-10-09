@@ -111,6 +111,8 @@ function CustomerForm({ company }: { company: Company }) {
   const { customerSlug } = useParams();
   const isEdit = Boolean(customerSlug);
   const customersUrl = `/c/${company.slug}/customers`;
+  // Where Back, Cancel and Save lead: the customer being edited, or the list.
+  const customerUrl = customerSlug ? `${customersUrl}/${customerSlug}` : customersUrl;
 
   const [ready, setReady] = React.useState(!isEdit);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -284,12 +286,17 @@ function CustomerForm({ company }: { company: Company }) {
             sortOrder: i,
           }),
         );
-        await api.post(`/api/companies/${company.id}/customers`, {
+        const created = await api.post<Customer>(`/api/companies/${company.id}/customers`, {
           ...baseBody,
           contacts: inlineContacts,
         });
+        // Straight to the customer just made, where invoices, contracts and
+        // people get added — not back to the list to search for them.
+        navigate(`${customersUrl}/${created.slug}`);
+        return;
       }
-      navigate(customersUrl);
+      // An edit returns to the customer it changed. A rename keeps the slug.
+      navigate(customerUrl);
     } catch (err) {
       setSaveError(errorMessage(err));
     } finally {
@@ -340,7 +347,8 @@ function CustomerForm({ company }: { company: Company }) {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            to={customersUrl}
+            to={customerUrl}
+            aria-label={isEdit ? "Back to the customer" : "Back to customers"}
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
@@ -350,7 +358,7 @@ function CustomerForm({ company }: { company: Company }) {
           </h1>
         </div>
         <div className="flex gap-2">
-          <Link to={customersUrl}>
+          <Link to={customerUrl}>
             <Button type="button" variant="secondary" disabled={busy}>
               Cancel
             </Button>
@@ -372,6 +380,7 @@ function CustomerForm({ company }: { company: Company }) {
               onChange={(e) => setName(e.target.value)}
               required
               maxLength={120}
+              autoFocus={!isEdit}
             />
           </div>
           <Input

@@ -180,9 +180,21 @@ export function mentionedRosterIds(
 }
 
 /**
+ * The one AI Employee who can answer, when there is exactly one with a
+ * connected AI Model — nobody else could be asked, so there is nothing to
+ * choose. Null otherwise.
+ */
+export function soleAnswerer(roster: Array<Pick<AskAiRosterEntry, "id" | "hasModel">>): string | null {
+  const ready = roster.filter((entry) => entry.hasModel);
+  return ready.length === 1 ? ready[0].id : null;
+}
+
+/**
  * Who a message will go to, mirroring the server's order so the composer's
  * "Asking …" line is never a guess: mentions, then the picked employees, then
- * whoever answered the last turn, then the page's natural owner.
+ * whoever answered the last turn, then the page's natural owner — and, when
+ * only one AI Employee can answer at all, that one. The panel sends the last
+ * as an explicit pick, so the server asks exactly who the line names.
  */
 export function plannedTargets(args: {
   draft: string;
@@ -208,5 +220,8 @@ export function plannedTargets(args: {
     ]);
     if (answered.length > 0) return answered.slice(0, 5);
   }
-  return known(args.defaults).slice(0, 5);
+  const owners = known(args.defaults);
+  if (owners.length > 0) return owners.slice(0, 5);
+  const sole = soleAnswerer(args.roster);
+  return sole ? [sole] : [];
 }

@@ -53,7 +53,16 @@
     "test:mail-analysis-instructions": "tsx scripts/test-mail-analysis-instructions.ts",
     "test:decision-stack-settings": "tsx scripts/test-decision-stack-settings.ts",
     "test:decision-stack-rows": "tsx scripts/test-decision-stack-rows.ts",
-    "test:employees-roster": "tsx scripts/test-employees-roster.ts"
+    "test:employees-roster": "tsx scripts/test-employees-roster.ts",
+    "test:clicks-chat": "tsx scripts/test-clicks-chat.ts",
+    "test:clicks-mail": "tsx scripts/test-clicks-mail.ts",
+    "test:clicks-tasks": "tsx scripts/test-clicks-tasks.ts",
+    "test:clicks-routines": "tsx scripts/test-clicks-routines.ts",
+    "test:clicks-employees": "tsx scripts/test-clicks-employees.ts",
+    "test:clicks-revenue": "tsx scripts/test-clicks-revenue.ts",
+    "test:clicks-home": "tsx scripts/test-clicks-home.ts",
+    "test:clicks-settings": "tsx scripts/test-clicks-settings.ts",
+    "test:clicks-finance": "tsx scripts/test-clicks-finance.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

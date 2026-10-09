@@ -179,6 +179,9 @@ export function ModelSetupForm({
               label={needsKey ? "API key" : "Replace API key (optional)"}
               type="password"
               autoComplete="off"
+              // Connecting a model is pasting a key: start there, not on the
+              // provider list above it (editing leaves focus alone).
+              autoFocus={mode === "create"}
               value={apiKey}
               onChange={(e) => {
                 clearDiscovery();

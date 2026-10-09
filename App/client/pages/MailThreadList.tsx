@@ -22,6 +22,12 @@ import {
   mailApi,
   shortMailDate,
 } from "../lib/mail";
+import {
+  mailListKey,
+  rememberReturnCursor,
+  returnCursorIndex,
+  takeReturnCursor,
+} from "../lib/mailCursor";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { errorMessage } from "../lib/errors";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
@@ -66,6 +72,8 @@ export default function MailThreadList() {
 
   const [threads, setThreads] = React.useState<MailThread[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  /** This list, as the cursor memory knows it. */
+  const listKey = mailListKey({ accountId: account.id, view, label, q });
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [moreError, setMoreError] = React.useState<string | null>(null);
@@ -95,8 +103,12 @@ export default function MailThreadList() {
       setThreads((prev) => (append && prev ? [...prev, ...res.threads] : res.threads));
       setNextBefore(res.nextBefore);
       setLoadError(null);
+      // Back from a thread: the cursor returns to it, or — when it was just
+      // archived or trashed — to the row that took its place.
+      const back = append ? null : takeReturnCursor(listKey);
+      if (back) setCursor(returnCursorIndex(back, res.threads));
     },
-    [company.id, account.id, view, label, q, draftsReview],
+    [company.id, account.id, view, label, q, draftsReview, listKey],
   );
 
   React.useEffect(() => {
@@ -187,6 +199,19 @@ export default function MailThreadList() {
   const anchorRef = React.useRef<string | null>(null);
 
   const rows = React.useMemo(() => threads ?? [], [threads]);
+
+  // Opening a thread replaces this list; note the row the cursor was on so
+  // coming back — with Back, or after archiving it — lands in the same place.
+  const leaving = React.useRef({ listKey, rows, cursor });
+  leaving.current = { listKey, rows, cursor };
+  React.useEffect(
+    () => () => {
+      const { listKey: key, rows: list, cursor: index } = leaving.current;
+      const row = list[index];
+      if (row) rememberReturnCursor({ key, threadId: row.id, index });
+    },
+    [],
+  );
   const selectedCount = selectedIds.size;
   const allSelected = rows.length > 0 && selectedCount === rows.length;
 
@@ -1023,6 +1048,7 @@ export function ThreadRow({
   return (
     <li
       data-thread-idx={index}
+      data-cursor={focused ? "true" : undefined}
       onMouseEnter={onFocus}
       className={clsx(
         "group relative flex items-center gap-2 pl-3 sm:gap-2.5 sm:pl-4",

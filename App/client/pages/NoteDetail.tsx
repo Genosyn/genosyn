@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   Check,
   Eye,
@@ -81,8 +81,11 @@ export default function NoteDetail({ company }: { company: Company }) {
     notebookSlug: string;
   }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
   const dialog = useDialog();
+  const titleRef = React.useRef<HTMLInputElement>(null);
+  const editorWrapRef = React.useRef<HTMLDivElement>(null);
 
   const [note, setNote] = React.useState<Note | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -128,6 +131,17 @@ export default function NoteDetail({ company }: { company: Company }) {
   }, [company.id, noteSlug]);
 
   useLiveRefetch("note", refresh);
+
+  // A page just created arrives with its "Untitled" title selected, so typing
+  // names it; Enter then moves on to the body.
+  const isNewNote = Boolean((location.state as { newNote?: unknown } | null)?.newNote);
+  const loadedNoteId = note?.id ?? null;
+  React.useEffect(() => {
+    if (!isNewNote || !loadedNoteId) return;
+    titleRef.current?.focus();
+    titleRef.current?.select();
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [isNewNote, loadedNoteId, navigate, location.pathname, location.search]);
 
   const dirty =
     saved !== null &&
@@ -440,8 +454,16 @@ export default function NoteDetail({ company }: { company: Company }) {
           </div>
 
           <input
+            ref={titleRef}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter finishes the title and starts the page.
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              editorWrapRef.current?.querySelector<HTMLElement>("[data-block-id]")?.focus();
+            }}
+            aria-label="Page title"
             placeholder="Untitled"
             className="w-full border-0 bg-transparent p-0 text-[2.5rem] font-bold leading-[1.2] tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-0 dark:text-slate-50 dark:placeholder:text-slate-700"
           />
@@ -470,12 +492,14 @@ export default function NoteDetail({ company }: { company: Company }) {
           {!note.lastEditedBy?.name && <div className="mb-10" />}
 
           {/* The editor sits flush with the page — no border, no card. */}
-          <BlockEditor
-            value={body}
-            onChange={setBody}
-            onSave={save}
-            placeholder="Type '/' for commands, or just start writing…"
-          />
+          <div ref={editorWrapRef}>
+            <BlockEditor
+              value={body}
+              onChange={setBody}
+              onSave={save}
+              placeholder="Type '/' for commands, or just start writing…"
+            />
+          </div>
         </div>
       </div>
 

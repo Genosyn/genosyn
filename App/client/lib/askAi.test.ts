@@ -6,6 +6,7 @@ import {
   mentionQueryAtCaret,
   mentionedRosterIds,
   plannedTargets,
+  soleAnswerer,
   type AskAiMessage,
   type AskAiRosterEntry,
 } from "./askAi.js";
@@ -102,5 +103,49 @@ describe("plannedTargets mirrors who the server will ask", () => {
     assert.deepEqual(plannedTargets({ ...base, draft: "hi", defaults: ["e-kim"] }), ["e-kim"]);
     assert.deepEqual(plannedTargets({ ...base, draft: "hi", defaults: ["gone"] }), []);
     assert.deepEqual(plannedTargets({ ...base, draft: "hi" }), []);
+  });
+});
+
+describe("with only one AI Employee able to answer, nobody needs tagging", () => {
+  const base = { picked: [] as string[], messages: [] as AskAiMessage[], defaults: [] as string[] };
+  const noModel = (id: string, slug = id) => ({ ...entry(id, slug), hasModel: false });
+
+  test("soleAnswerer names the one employee with a connected AI Model", () => {
+    assert.equal(soleAnswerer([entry("e-alex")]), "e-alex");
+    assert.equal(soleAnswerer([entry("e-alex"), noModel("e-sam")]), "e-alex");
+    assert.equal(soleAnswerer([entry("e-alex"), entry("e-sam")]), null);
+    assert.equal(soleAnswerer([noModel("e-alex")]), null);
+    assert.equal(soleAnswerer([]), null);
+  });
+
+  test("the composer addresses them when nothing else names anyone", () => {
+    assert.deepEqual(plannedTargets({ ...base, roster: [entry("e-alex")], draft: "hi" }), [
+      "e-alex",
+    ]);
+    assert.deepEqual(
+      plannedTargets({ ...base, roster: [entry("e-alex"), noModel("e-sam")], draft: "hi" }),
+      ["e-alex"],
+    );
+  });
+
+  test("anything that names someone still wins: a mention, a pick, the last answerer, the page", () => {
+    const two = [entry("e-alex", "alex"), noModel("e-sam", "sam")];
+    assert.deepEqual(plannedTargets({ ...base, roster: two, draft: "@sam hi" }), ["e-sam"]);
+    assert.deepEqual(plannedTargets({ ...base, roster: two, draft: "hi", picked: ["e-sam"] }), [
+      "e-sam",
+    ]);
+    assert.deepEqual(plannedTargets({ ...base, roster: two, draft: "hi", defaults: ["e-sam"] }), [
+      "e-sam",
+    ]);
+    const messages = [
+      msg({ id: "u1", role: "user" }),
+      msg({ id: "a1", role: "assistant", turnId: "u1", employeeId: "e-sam", status: "ok" }),
+    ];
+    assert.deepEqual(plannedTargets({ ...base, roster: two, draft: "next", messages }), ["e-sam"]);
+  });
+
+  test("with several who can answer, or none, the composer still asks for an @", () => {
+    assert.deepEqual(plannedTargets({ ...base, roster, draft: "hi" }), []);
+    assert.deepEqual(plannedTargets({ ...base, roster: [noModel("e-alex")], draft: "hi" }), []);
   });
 });

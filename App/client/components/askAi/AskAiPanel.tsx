@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import type { Company, MessageAction } from "@/lib/api";
+import { focusOnArrival } from "@/lib/composerFocus";
 import {
   askAiApi,
   askAiModelLabel,
@@ -26,6 +27,7 @@ import {
   mentionQueryAtCaret,
   mentionedRosterIds,
   plannedTargets,
+  soleAnswerer,
   type AskAiContextItem,
   type AskAiContextPreview,
   type AskAiConversation,
@@ -128,6 +130,8 @@ export function AskAiPanel({ company }: { company: Company }) {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [indexError, setIndexError] = React.useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+  /** Counts the times the Member moved to a conversation here, to focus its box. */
+  const [paneFocus, setPaneFocus] = React.useState(0);
   const creatingRef = React.useRef(false);
 
   const refreshIndex = React.useCallback(async () => {
@@ -176,6 +180,8 @@ export function AskAiPanel({ company }: { company: Company }) {
 
   const startNew = React.useCallback(async () => {
     setHistoryOpen(false);
+    // Either way the next thing is typing the question.
+    setPaneFocus((count) => count + 1);
     const current = conversations?.find((c) => c.id === activeId);
     // An untouched conversation is already "new"; don't stack empty ones.
     if (current && !current.title) return;
@@ -312,6 +318,7 @@ export function AskAiPanel({ company }: { company: Company }) {
                     onClick={() => {
                       setActiveId(c.id);
                       setHistoryOpen(false);
+                      setPaneFocus((count) => count + 1);
                     }}
                     className="min-w-0 flex-1 text-left"
                   >
@@ -353,6 +360,7 @@ export function AskAiPanel({ company }: { company: Company }) {
           conversationId={activeId}
           initialRoster={roster}
           pageLabel={sectionLabel}
+          focusKey={askAi.focusVersion + paneFocus}
           onSent={() => void refreshIndex().catch(() => undefined)}
         />
       )}
@@ -416,12 +424,19 @@ function ConversationPane({
   conversationId,
   initialRoster,
   pageLabel,
+  focusKey,
   onSent,
 }: {
   company: Company;
   conversationId: string;
   initialRoster: AskAiRosterEntry[];
   pageLabel: string | null;
+  /**
+   * Changes whenever the Member opens the panel, starts a conversation or
+   * picks one, so the box takes focus then — and only then: a panel that
+   * reopens itself after a reload leaves the page's focus alone.
+   */
+  focusKey: number;
   onSent: () => void;
 }) {
   const askAi = useAskAi();
@@ -545,6 +560,15 @@ function ConversationPane({
       el.setSelectionRange(el.value.length, el.value.length);
     });
   }, [pendingVersion, takePending]);
+
+  React.useEffect(() => {
+    if (focusKey <= 0) return;
+    const frame = requestAnimationFrame(() => {
+      // Opening Ask AI is a request to type in it, even from another box.
+      focusOnArrival(textareaRef.current, { overTyping: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusKey]);
 
   React.useEffect(() => {
     requestAnimationFrame(() => {
@@ -860,7 +884,11 @@ function ConversationPane({
           onRestore={() => setExcluded([])}
         />
 
-        <div className="relative mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+        <div
+          role="group"
+          aria-label="Recipients"
+          className="relative mb-2 flex flex-wrap items-center gap-1.5 text-[11px]"
+        >
           <span className="text-slate-400">To</span>
           {targetEntries.length === 0 && (
             <span className="text-amber-600 dark:text-amber-400">
@@ -880,14 +908,17 @@ function ConversationPane({
               />
               {entry.name}
               {!entry.hasModel && <span className="text-amber-600"> · no model</span>}
-              <button
-                type="button"
-                onClick={() => toggleTarget(entry.id)}
-                className="rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                aria-label={`Remove ${entry.name}`}
-              >
-                <X size={10} />
-              </button>
+              {/* The only AI Employee who can answer has nobody to swap with. */}
+              {soleAnswerer(roster) !== entry.id && (
+                <button
+                  type="button"
+                  onClick={() => toggleTarget(entry.id)}
+                  className="rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+                  aria-label={`Remove ${entry.name}`}
+                >
+                  <X size={10} />
+                </button>
+              )}
             </span>
           ))}
           <button

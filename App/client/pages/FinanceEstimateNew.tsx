@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -15,6 +15,7 @@ import {
   TaxRate,
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import { initialCustomerPick, requestedCustomerPick } from "../lib/customerPick";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -96,6 +97,11 @@ function EstimateForm() {
   const navigate = useNavigate();
   const { estimateSlug } = useParams();
   const isEdit = Boolean(estimateSlug);
+  // From a customer's page the link names them (`?customerId=`), so the form
+  // starts with them rather than the first customer in the list.
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = isEdit ? null : requestedCustomerPick(searchParams);
+  const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -156,9 +162,13 @@ function EstimateForm() {
           setLines(
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
-        } else if (c.length > 0) {
-          setCustomerId(c[0].id);
-          setCurrency(c[0].currency || "USD");
+        } else {
+          const initial = initialCustomerPick(c, requestedCustomerId);
+          setRequestedCustomerUnavailable(initial.requestedUnavailable);
+          if (initial.customer) {
+            setCustomerId(initial.customer.id);
+            setCurrency(initial.customer.currency || "USD");
+          }
         }
         setReady(true);
       } catch (err) {
@@ -166,7 +176,7 @@ function EstimateForm() {
         setReady(true);
       }
     })();
-  }, [company.id, estimateSlug, isEdit]);
+  }, [company.id, estimateSlug, isEdit, requestedCustomerId]);
 
   function changeCustomer(id: string) {
     setCustomerId(id);
@@ -178,8 +188,13 @@ function EstimateForm() {
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
 
+  // The line Add line just made, so its description takes the cursor. Lines
+  // already there — and every line on an edit page — never take focus.
+  const [newLineKey, setNewLineKey] = React.useState<string | null>(null);
   function addLine() {
-    setLines((ls) => [...ls, emptyLine()]);
+    const line = emptyLine();
+    setLines((ls) => [...ls, line]);
+    setNewLineKey(line.key);
   }
   function removeLine(idx: number) {
     setLines((ls) => (ls.length === 1 ? ls : ls.filter((_, i) => i !== idx)));
@@ -409,6 +424,11 @@ function EstimateForm() {
                 </option>
               ))}
             </Select>
+            {requestedCustomerUnavailable && !customerId && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                The customer you came from is archived or no longer exists. Choose who to bill.
+              </p>
+            )}
           </div>
           <Input
             label="Issue date"
@@ -528,6 +548,8 @@ function EstimateForm() {
                         <textarea
                           value={l.description}
                           onChange={(e) => patchLine(i, { description: e.target.value })}
+                          autoFocus={l.key === newLineKey}
+                          aria-label={`Line ${i + 1} description`}
                           placeholder="Item description"
                           rows={2}
                           className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"

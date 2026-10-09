@@ -1,4 +1,5 @@
 import React from "react";
+import { focusOnArrival } from "../../lib/composerFocus";
 import { useComposerFileDrop } from "../../lib/fileDrop";
 import { useChatAttachments } from "../../lib/stagedChatAttachments";
 import { ChatAttachments } from "../chat/ChatAttachments";
@@ -468,6 +469,12 @@ export function TldrQuestions({
   const presets = TLDR_QUESTION_PRESETS.filter((p) => !asked.has(p.toLowerCase()));
   const atCap = data ? questions.length >= data.maxQuestions : false;
   const canAsk = Boolean(data?.canAsk) && !atCap;
+
+  // "Ask a question" opens the box with the cursor in it. The box exists only
+  // once the questions load (canAsk), so this waits for it.
+  React.useEffect(() => {
+    if (open && canAsk && askRef.current) focusOnArrival(askRef.current, { overTyping: true });
+  }, [open, canAsk]);
 
   // Nothing to load and nothing to ask with: stay silent rather than render a
   // heading over an empty region.
@@ -1130,6 +1137,7 @@ const Composer = React.forwardRef<
         maxLength={maxLength}
         disabled={busy}
         placeholder={placeholder}
+        aria-label={placeholder}
         onPaste={onPaste}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {

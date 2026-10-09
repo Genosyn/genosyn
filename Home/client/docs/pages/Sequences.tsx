@@ -49,7 +49,8 @@ export function Sequences() {
           Pick the <Strong>mailbox</Strong> every touch sends from — one of the accounts connected
           under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI Employee</Strong>
           {" "}
-          that writes them.
+          that writes them. With only one of either, it arrives picked. Creating the sequence
+          opens it, as a draft with auto-send off.
         </LI>
         <LI>
           Write the <Strong>Brief</Strong>. Who this is for, what you sell, what a good reply looks

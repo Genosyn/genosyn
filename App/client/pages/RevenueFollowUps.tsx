@@ -1,21 +1,18 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import {
-  BookmarkPlus,
-  Bot,
-  CalendarCheck,
-  Check,
-  Clock3,
-  Plus,
-  Trash2,
-  User,
-  X,
-} from "lucide-react";
+import { BookmarkPlus, Bot, CalendarCheck, Check, Plus, Trash2, User, X } from "lucide-react";
 import { api, type Employee, type Member } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import type { FollowUpItem, FollowUpView, FollowUpViewFilters } from "../lib/revenue";
+import {
+  dateTimeLocalToIso,
+  defaultFollowUpDue,
+  type FollowUpItem,
+  type FollowUpView,
+  type FollowUpViewFilters,
+} from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { useFocusAfterDelete } from "../components/useFocusAfterDelete";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -53,7 +50,13 @@ function itemUrl(companySlug: string, item: FollowUpItem): string | null {
     return `/c/${companySlug}/revenue/partnerships/${item.partnershipId}`;
   }
   if (item.contactId) return `/c/${companySlug}/revenue/contacts/${item.contactId}`;
+  if (item.customerId) return `/c/${companySlug}/revenue/accounts/${item.customerId}`;
   return null;
+}
+
+/** A row's key: a task, a deal and a partnership can never share one. */
+function followUpKey(item: FollowUpItem): string {
+  return `${item.source}:${item.id}`;
 }
 
 export default function RevenueFollowUps() {
@@ -114,8 +117,17 @@ export default function RevenueFollowUps() {
   const [rows, setRows] = React.useState<FollowUpItem[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
-  const [completingId, setCompletingId] = React.useState<string | null>(null);
+  const [completing, setCompleting] = React.useState<ReadonlySet<string>>(() => new Set());
+  const [announcement, setAnnouncement] = React.useState("");
   const [creating, setCreating] = React.useState(false);
+  const newFollowUpRef = React.useRef<HTMLButtonElement>(null);
+  const rowKeys = React.useMemo(
+    () => rows?.map((row) => ({ id: followUpKey(row) })) ?? null,
+    [rows],
+  );
+  // Done takes the row off the queue; focus moves on to the next row's Done,
+  // the one above, or New follow-up when the queue is clear.
+  const focusAfterDone = useFocusAfterDelete(rowKeys, newFollowUpRef);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
 
@@ -289,25 +301,52 @@ export default function RevenueFollowUps() {
 
   useLiveRefetch(["activity", "deal", "partnership"], reload);
 
+  /**
+   * Done, from the row itself. A task is completed. A deal or partnership row
+   * is that record's own next follow-up, so Done clears its date and reminder —
+   * what Complete in the bulk bar does to the same rows — and the deal or
+   * partnership itself is untouched.
+   */
   async function complete(item: FollowUpItem) {
-    if (item.source !== "task") return;
-    setCompletingId(item.id);
+    const key = followUpKey(item);
+    if (completing.has(key)) return;
+    setCompleting((current) => new Set(current).add(key));
     try {
-      await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
-      setRows((current) => current?.filter((row) => row.id !== item.id) ?? current);
+      if (item.source === "task") {
+        await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
+      } else if (item.source === "deal") {
+        await api.patch(`${base}/deals/${item.dealId ?? item.id}`, {
+          nextFollowUpAt: null,
+          followUpReminderAt: null,
+        });
+      } else {
+        await api.patch(`${base}/partnerships/${item.partnershipId ?? item.id}`, {
+          nextFollowUpAt: null,
+          reminderAt: null,
+        });
+      }
+      focusAfterDone.rowDeleted(key);
+      setRows((current) => current?.filter((row) => followUpKey(row) !== key) ?? current);
+      setSelected((current) => {
+        if (!current.has(key)) return current;
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+      setAnnouncement(`Done: ${item.title}.`);
     } catch (error) {
       void dialog.error(error, { title: "Couldn’t complete the follow-up" });
     } finally {
-      setCompletingId(null);
+      setCompleting((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
-  function selectedKey(item: FollowUpItem): string {
-    return `${item.source}:${item.id}`;
-  }
-
   function toggleSelected(item: FollowUpItem) {
-    const key = selectedKey(item);
+    const key = followUpKey(item);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -451,7 +490,7 @@ export default function RevenueFollowUps() {
             One queue for due work across tasks, deals, and partnerships.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>
+        <Button ref={newFollowUpRef} onClick={() => setCreating(true)}>
           <Plus size={15} /> New follow-up
         </Button>
       </div>
@@ -768,6 +807,9 @@ export default function RevenueFollowUps() {
         </div>
       )}
 
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
       {loadError && <FormError message={loadError} />}
       {rows === null ? (
         <div className="flex justify-center py-20">
@@ -784,6 +826,8 @@ export default function RevenueFollowUps() {
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             {rows.map((item) => {
               const to = itemUrl(company.slug, item);
+              const key = followUpKey(item);
+              const busy = completing.has(key);
               return (
                 <div
                   key={`${item.source}-${item.id}`}
@@ -791,28 +835,30 @@ export default function RevenueFollowUps() {
                 >
                   <input
                     type="checkbox"
-                    checked={selected.has(selectedKey(item))}
+                    checked={selected.has(followUpKey(item))}
                     onChange={() => toggleSelected(item)}
                     aria-label={`Select ${item.title}`}
                     className="h-4 w-4 rounded border-slate-300 text-indigo-600"
                   />
-                  {item.source === "task" ? (
-                    <button
-                      type="button"
-                      onClick={() => void complete(item)}
-                      disabled={completingId === item.id}
-                      aria-busy={completingId === item.id || undefined}
-                      className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
-                      aria-label={`Complete ${item.title}`}
-                    >
-                      {completingId === item.id ? <ButtonSpinner size={14} /> : <Check size={14} />}
-                    </button>
-                  ) : (
-                    <Clock3
-                      size={17}
-                      className={item.overdue ? "text-rose-500" : "text-slate-400"}
-                    />
-                  )}
+                  {/* Busy rather than disabled while it runs: a disabled
+                    button drops focus, and this one holds it until its row is
+                    gone and focus can move to the next. */}
+                  <button
+                    type="button"
+                    ref={focusAfterDone.deleteButtonRef(key)}
+                    onClick={() => void complete(item)}
+                    aria-disabled={busy || undefined}
+                    aria-busy={busy || undefined}
+                    className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
+                    aria-label={`Complete ${item.title}`}
+                    title={
+                      item.source === "task"
+                        ? "Complete"
+                        : `Done — clears this ${item.source}’s next follow-up`
+                    }
+                  >
+                    {busy ? <ButtonSpinner size={14} /> : <Check size={14} />}
+                  </button>
                   <div className="min-w-0 flex-1">
                     {to ? (
                       <Link
@@ -892,7 +938,13 @@ function NewFollowUpModal({
 }) {
   const [subject, setSubject] = React.useState("");
   const [bodyText, setBodyText] = React.useState("");
-  const [dueAt, setDueAt] = React.useState("");
+  const [dueAt, setDueAt] = React.useState(() => defaultFollowUpDue());
+  // The default is worked out when the dialog opens, so a page left open
+  // overnight still offers the next working day — unless the person chose.
+  const dueChosen = React.useRef(false);
+  React.useEffect(() => {
+    if (open && !dueChosen.current) setDueAt(defaultFollowUpDue());
+  }, [open]);
   const [reminderAt, setReminderAt] = React.useState("");
   const [priority, setPriority] = React.useState("normal");
   const [assignee, setAssignee] = React.useState("");
@@ -909,8 +961,8 @@ function NewFollowUpModal({
       await api.post(`${base}/follow-ups`, {
         subject,
         bodyText,
-        dueAt: dueAt || null,
-        reminderAt: reminderAt || null,
+        dueAt: dateTimeLocalToIso(dueAt),
+        reminderAt: dateTimeLocalToIso(reminderAt),
         priority,
         assignedUserId: assignee.startsWith("user:") ? assignee.slice(5) : null,
         assignedEmployeeId: isEmployee ? assignee.slice(9) : null,
@@ -918,7 +970,8 @@ function NewFollowUpModal({
       });
       setSubject("");
       setBodyText("");
-      setDueAt("");
+      dueChosen.current = false;
+      setDueAt(defaultFollowUpDue());
       setReminderAt("");
       setAssignee("");
       setRecurrence("");
@@ -950,7 +1003,10 @@ function NewFollowUpModal({
             label="Due"
             type="datetime-local"
             value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
+            onChange={(e) => {
+              dueChosen.current = true;
+              setDueAt(e.target.value);
+            }}
             required
           />
           <Input

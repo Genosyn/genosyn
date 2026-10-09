@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Users, Wrench } from "lucide-react";
 import { api, Company, Employee, SkillWithMeta } from "../lib/api";
+import { newSkillPath } from "../lib/newItemPath";
 import { ContextualLayout } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -53,7 +54,7 @@ export default function SkillsLayout({ company }: { company: Company }) {
           company={company}
           skills={skills}
           employees={employees}
-          onNew={() => navigate(`/c/${company.slug}/skills/new`)}
+          onNew={(href) => navigate(href)}
         />
       }
     >
@@ -79,7 +80,7 @@ function Sidebar({
   company: Company;
   skills: SkillWithMeta[] | null;
   employees: Employee[];
-  onNew: () => void;
+  onNew: (href: string) => void;
 }) {
   const location = useLocation();
   const base = `/c/${company.slug}/skills`;
@@ -100,7 +101,9 @@ function Sidebar({
           <Wrench size={14} /> Skills
         </div>
         <button
-          onClick={onNew}
+          onClick={() =>
+            onNew(newSkillPath(company.slug, { employee: onIndex ? activeEmployee : null }))
+          }
           className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           title="New skill"
           aria-label="New skill"

@@ -143,7 +143,8 @@ export function Tldrs() {
       <P>
         Standing questions cover what you always want to know. For anything else, ask on the spot:
         choose <Strong>Ask a question</Strong> on a briefing. If it already has questions, open{" "}
-        <Strong>Questions</Strong>, then choose <Strong>Ask a question</Strong>.
+        <Strong>Questions</Strong>, then choose <Strong>Ask a question</Strong>. The cursor lands in
+        the question box, and Enter asks.
       </P>
       <UL>
         <LI>

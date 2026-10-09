@@ -57,9 +57,10 @@ import { EnabledToggle } from "./RevenueSignals";
  * person holds the context, and burying those in one long list is how a
  * question addressed to somebody specific sits for three days.
  *
- * A row you answer collapses to a status line that follows the work until you
- * close it. Dismiss, Snooze, Discard and Don’t do this take the row off in the
- * same click. Everything already settled lives on its own page,
+ * A row you answer collapses to a status line that follows the work; once it
+ * finishes cleanly and has been seen, the next visit leaves it to History
+ * (a problem waits for Close). Dismiss, Snooze, Discard and Don’t do this take
+ * the row off in the same click. Everything already settled lives on its own page,
  * `DecisionHistory`, so this one only ever holds what still needs someone. A
  * link to a settled item (`#decision-<id>`, `#review-<id>`) is sent on there.
  */

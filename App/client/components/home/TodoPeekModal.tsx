@@ -60,7 +60,8 @@ export function TodoPeekModal({
   // the board does — two quick picker changes otherwise land out of order.
   const mutationSeq = React.useRef<Map<string, number>>(new Map());
 
-  const boardHref = `/c/${company.slug}/tasks/p/${row.project.slug}`;
+  // The board opens with this todo beside it, not as a list to search.
+  const boardHref = `/c/${company.slug}/tasks/p/${row.project.slug}?todo=${encodeURIComponent(row.id)}`;
 
   React.useEffect(() => {
     setFocusedId(row.id);
@@ -204,6 +205,11 @@ export function TodoPeekModal({
             onPatch={(patchBody) => patchTodo(todo, patchBody)}
             onPatchTodo={patchTodo}
             onOpenTodo={setFocusedId}
+            // The review buttons in the body resolve the todo you came for
+            // just as the footer's do, and close the peek the same way.
+            onReviewResolved={(status) => {
+              if (status === "done" && todo.id === row.id) onClose();
+            }}
             onCreated={(created) => {
               // Into the modal's own list first — `onChanged` only refetches
               // Home, which is not where the subtask section reads from.

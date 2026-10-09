@@ -43,6 +43,7 @@ import {
 } from "../lib/customerOverview";
 import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
+import { withCustomerPick } from "../lib/customerPick";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
 import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
@@ -953,7 +954,9 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Invoices"
             count={invoices.length}
             newLabel="New invoice"
-            newTo={canWrite ? `${financeBase}/invoices/new` : undefined}
+            newTo={
+              canWrite ? withCustomerPick(`${financeBase}/invoices/new`, customer.id) : undefined
+            }
             emptyText="No invoices for this customer yet."
             first
           >
@@ -987,7 +990,9 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Estimates"
             count={estimates.length}
             newLabel="New estimate"
-            newTo={canWrite ? `${financeBase}/estimates/new` : undefined}
+            newTo={
+              canWrite ? withCustomerPick(`${financeBase}/estimates/new`, customer.id) : undefined
+            }
             emptyText="No estimates for this customer yet."
           >
             {estimates.length > 0 && (
@@ -1086,6 +1091,7 @@ function CustomerOverview({ company }: { company: Company }) {
               <CustomerSignaturesList
                 envelopes={relationship.envelopes}
                 companySlug={company.slug}
+                customerId={customer.id}
               />
             </div>
           ) : (

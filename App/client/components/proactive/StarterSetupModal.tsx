@@ -30,8 +30,16 @@ export function StarterSetupModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [employeeId, setEmployeeId] = React.useState("");
-  const [accountId, setAccountId] = React.useState("");
+  // With one AI Employee, or one mailbox, there is nothing to choose: they
+  // start chosen. Readiness and assignment checks below still apply.
+  const [employeeId, setEmployeeId] = React.useState(
+    overview.employees.length === 1 ? overview.employees[0].id : "",
+  );
+  const [accountId, setAccountId] = React.useState(
+    recipe.requirements.includes("mail") && overview.mailboxes.length === 1
+      ? overview.mailboxes[0].id
+      : "",
+  );
   const delivery = "draft" as const;
   const [instruction, setInstruction] = React.useState(recipe.brief);
   const [saving, setSaving] = React.useState(false);

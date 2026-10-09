@@ -154,7 +154,10 @@ export function Revenue() {
         hold for them, on every send path. It is separate from — and checked alongside — the
         address-level suppression list described in{" "}
         <DocLink to="/docs/deliverability">Deliverability</DocLink>. Archiving a contact hides them
-        from the list without removing them from historical activities and deals.
+        from the list without removing them from historical activities and deals. On a
+        contact&apos;s page <Strong>Archive</Strong> takes one click and turns into{" "}
+        <Strong>Restore</Strong>, the undo; marking someone do not contact still asks first. The
+        contact&apos;s <Strong>Account</Strong> links straight to that account.
       </P>
 
       <H2 id="account-merge">Archive or merge a core record</H2>
@@ -195,6 +198,12 @@ export function Revenue() {
         {" "}
         <Strong>Probability</Strong> is inherited from the stage unless you override it. See{" "}
         <DocLink to="/docs/revenue-operations#follow-ups">Follow-ups</DocLink>.
+      </P>
+      <P>
+        On a deal&apos;s page, Enter in any <Strong>Details</Strong> box saves once something has
+        changed, and <Code>⌘/Ctrl+Enter</Code> in the activity box logs the note, call, or meeting.
+        The buying committee&apos;s remove button shows on hover, on keyboard focus, and always on a
+        touch screen; removing someone still asks first.
       </P>
       <Callout kind="tip" title="Assigning a deal to an AI Employee starts work.">
         Ownership can be an AI Employee, and it is not decoration. Handing a deal to one kicks off a
@@ -254,7 +263,8 @@ export function Revenue() {
       <P>
         Each column header carries its count and its total value, and the board totals both the raw
         and the probability-weighted pipeline. Filter by owner to see one person&apos;s — or one AI
-        employee&apos;s — book.
+        employee&apos;s — book. <Strong>Board</Strong> or <Strong>List</Strong> stays as you last
+        left it in this browser.
       </P>
 
       <H2 id="timeline">The activity timeline</H2>

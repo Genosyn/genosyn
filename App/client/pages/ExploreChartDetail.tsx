@@ -22,6 +22,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { anotherDialogIsOpen } from "../lib/keyboard";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 import { ExploreDataBrowser } from "../components/explore/ExploreDataBrowser";
@@ -246,6 +247,31 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   function markDirty() {
     if (!dirty) setDirty(true);
   }
+
+  // ⌘/Ctrl+S saves from anywhere in the editor — the title, the description,
+  // the chart controls — not only the SQL box, and the browser's own Save Page
+  // dialog never opens over it. One save at a time: a held key or a quick
+  // second press never creates a chart twice.
+  const saveShortcut = React.useRef<() => void>(() => {});
+  const shortcutSaving = React.useRef(false);
+  saveShortcut.current = () => {
+    if (saving || shortcutSaving.current || (!isNew && !dirty)) return;
+    shortcutSaving.current = true;
+    void save().finally(() => {
+      shortcutSaving.current = false;
+    });
+  };
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      if (event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (event.repeat || anotherDialogIsOpen()) return;
+      saveShortcut.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   async function runSql(sqlOverride = sql, connectionOverride = connectionId) {
     if (!connectionOverride) {
@@ -529,7 +555,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
                 SQL
               </span>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                ⌘/Ctrl + Enter to run
+                ⌘/Ctrl + Enter to run · ⌘/Ctrl + S to save
               </span>
             </div>
             <Button onClick={() => void runSql()} size="sm" loading={running}>
@@ -552,10 +578,6 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                 event.preventDefault();
                 void runSql();
-              }
-              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-                event.preventDefault();
-                void save();
               }
             }}
             className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"

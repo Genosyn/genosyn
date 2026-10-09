@@ -41,7 +41,10 @@ export function Bases() {
       />
       <P>
         One field per table is the <Strong>primary field</Strong> (the amber key icon) — its value
-        is the record&apos;s title wherever the record is referenced.
+        is the record&apos;s title wherever the record is referenced. <Strong>Add row</Strong>{" "}
+        opens the new row&apos;s primary field for typing. In the grid, Enter edits the focused
+        cell; Enter (<Code>⌘/Ctrl+Enter</Code> in long text) saves it and leaves focus on the
+        cell, and <Code>Esc</Code> puts the old value back.
       </P>
       <P>
         To act on several rows at once, select them with the checkbox that takes a row&apos;s

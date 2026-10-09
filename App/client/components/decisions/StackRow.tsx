@@ -201,6 +201,14 @@ export function focusAfterRemoval(row: HTMLElement | null): () => void {
       if (heading?.isConnected) {
         if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
         heading.focus();
+        return;
+      }
+      // The section went with its last row (Home hides an empty Active
+      // decisions): land on the main region, as a closing modal does, rather
+      // than leaving focus on <body>, where the next Tab starts over.
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        document.getElementById("main-content")?.focus({ preventScroll: true });
       }
     });
   };

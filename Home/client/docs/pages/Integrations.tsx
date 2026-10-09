@@ -196,7 +196,9 @@ export function Integrations() {
       <P>
         Open <Code>Settings → Integrations</Code> whenever you want the complete company-wide
         catalog. Connecting, reconnecting, checking, renaming, granting, and disconnecting work the
-        same way in either view.
+        same way in either view. For a key-based Integration, the connect form fills in the Label
+        and puts the cursor in the first credential field, so pasting the key and pressing Enter
+        connects it.
       </P>
 
       <H2 id="how-tools-show-up">How tools show up</H2>

@@ -16164,7 +16164,8 @@ async function notifyTodoReviewByEmployee(args: {
     kind: "todo_review_requested",
     title: `${actorEmployeeName} requested your review on ${ref}`,
     body: todo.title,
-    link: `/c/${company.slug}/tasks/p/${project.slug}`,
+    // `?todo=` opens it beside the board, ready to approve or push back.
+    link: `/c/${company.slug}/tasks/p/${project.slug}?todo=${todo.id}`,
     actorKind: "ai",
     actorId: actorEmployeeId,
     entityKind: "todo",

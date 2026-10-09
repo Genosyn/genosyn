@@ -145,9 +145,12 @@ function ReviewCard({
 }) {
   const navigate = useNavigate();
   const waitingSince = formatRelative(item.updatedAt);
+  // Straight to this todo beside its board, comments and all.
+  const todoHref = item.project
+    ? `/c/${company.slug}/tasks/p/${item.project.slug}?todo=${encodeURIComponent(item.id)}`
+    : null;
   const openInProject = () => {
-    if (!item.project) return;
-    navigate(`/c/${company.slug}/tasks/p/${item.project.slug}`);
+    if (todoHref) navigate(todoHref);
   };
 
   return (
@@ -155,7 +158,7 @@ function ReviewCard({
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
         {item.project && (
           <Link
-            to={`/c/${company.slug}/tasks/p/${item.project.slug}`}
+            to={todoHref ?? `/c/${company.slug}/tasks/p/${item.project.slug}`}
             className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
             title={item.project.name}
           >

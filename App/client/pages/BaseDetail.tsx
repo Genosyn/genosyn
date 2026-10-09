@@ -619,6 +619,8 @@ function Grid({
   const [sortOpen, setSortOpen] = React.useState(false);
   const [hideOpen, setHideOpen] = React.useState(false);
   const [addingRow, setAddingRow] = React.useState(false);
+  // The row Add row just made: it opens with its first cell ready to type.
+  const [autoEditRowId, setAutoEditRowId] = React.useState<string | null>(null);
   const [deletingRowId, setDeletingRowId] = React.useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
   const filterBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -636,6 +638,12 @@ function Grid({
   }, [activeView, fields, records]);
 
   const focusAfterDelete = useFocusAfterDelete(visibleRecords, addRowBtnRef);
+
+  // Once the new row has mounted with its cell open, forget it, so a later
+  // remount (a filter toggled off and on) never reopens that cell.
+  React.useEffect(() => {
+    setAutoEditRowId((current) => (current ? null : current));
+  }, [visibleRecords]);
 
   // Hidden fields are stored on the view; primary fields are never hidden so
   // a row always has a recognisable label.
@@ -728,10 +736,11 @@ function Grid({
   async function addRow() {
     setAddingRow(true);
     try {
-      await api.post<BaseRecord>(
+      const created = await api.post<BaseRecord>(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows`,
         { data: {} },
       );
+      setAutoEditRowId(created.id);
       await onReload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t add the row" });
@@ -1007,6 +1016,14 @@ function Grid({
                     deleting={deletingRowId === r.id}
                     deleteButtonRef={focusAfterDelete.deleteButtonRef(r.id)}
                     onExpand={() => onOpenRecord(r.id)}
+                    startEditingFieldId={
+                      // A new row opens on its primary field, unless that is
+                      // a checkbox, which has nothing to type.
+                      r.id === autoEditRowId
+                        ? (visibleFields.find((f) => f.isPrimary && f.type !== "checkbox")?.id ??
+                          null)
+                        : null
+                    }
                   />
                 ))}
                 <tr>
@@ -1278,6 +1295,7 @@ function Row({
   deleting,
   deleteButtonRef,
   onExpand,
+  startEditingFieldId = null,
 }: {
   index: number;
   record: BaseRecord;
@@ -1291,8 +1309,23 @@ function Row({
   deleting: boolean;
   deleteButtonRef: React.Ref<HTMLButtonElement>;
   onExpand: () => void;
+  /** A row Add row just made opens with this cell ready to type. */
+  startEditingFieldId?: string | null;
 }) {
-  const [editingField, setEditingField] = React.useState<string | null>(null);
+  const [editingField, setEditingField] = React.useState<string | null>(startEditingFieldId);
+  const cells = React.useRef(new Map<string, HTMLTableCellElement>());
+
+  // Closing an editor (Enter, Esc, a commit) unmounts the box that had focus.
+  // Unless the person has moved on — clicked another cell — focus returns to
+  // the cell, so the keyboard carries on from where it was.
+  function closeEditor(fieldId: string) {
+    setEditingField(null);
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      cells.current.get(fieldId)?.focus();
+    });
+  }
 
   return (
     <tr
@@ -1373,6 +1406,16 @@ function Row({
                   onPatchCell(f.id, null);
                 }
               }
+              // Enter on a focused cell edits it, as a click does.
+              if (e.key === "Enter" && !editing && e.target === e.currentTarget) {
+                e.preventDefault();
+                if (f.type === "checkbox") onPatchCell(f.id, !value);
+                else setEditingField(f.id);
+              }
+            }}
+            ref={(cell) => {
+              if (cell) cells.current.set(f.id, cell);
+              else cells.current.delete(f.id);
             }}
             tabIndex={0}
           >
@@ -1384,7 +1427,7 @@ function Row({
                 resourceOptions={resourceOptions}
                 autoFocus
                 onCommit={(next) => onPatchCell(f.id, next)}
-                onClose={() => setEditingField(null)}
+                onClose={() => closeEditor(f.id)}
               />
             ) : (
               <div className="flex h-full items-center px-2 text-sm">

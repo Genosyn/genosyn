@@ -181,7 +181,8 @@ export function Improvement() {
         nav group. Each one renders as a before/after diff of the target document beside the
         rationale and evidence, with two buttons — <Strong>Apply</Strong> and{" "}
         <Strong>Reject</Strong> — and an optional note that travels with the decision. Owners and
-        admins decide; any Member can read the queue.
+        admins decide; any Member can read the queue. Either button opens its confirmation with the
+        cursor in the note; <Code>⌘/Ctrl+Enter</Code> there confirms.
       </P>
       <P>
         Apply refuses when the target changed since the proposal was written —{" "}

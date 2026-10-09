@@ -22,7 +22,11 @@ export function Tasks() {
         from its key. Inside a project, todos move through six statuses — <Code>backlog</Code>,{" "}
         <Code>todo</Code>, <Code>in_progress</Code>, <Code>in_review</Code>, <Code>done</Code>,{" "}
         <Code>cancelled</Code> — in either a <Strong>list</Strong> or a drag-and-drop{" "}
-        <Strong>board</Strong> view. Each todo carries:
+        <Strong>board</Strong> view. The view you pick is remembered for next time (a phone always
+        starts on the list). A new project opens with the cursor in <Strong>Add a todo</Strong>,
+        so its first todos are just typing and Enter; on any project, <Code>c</Code> jumps there
+        too, and <Code>Esc</Code> closes an open todo. Once you have a few projects, type in{" "}
+        <Strong>Filter projects</Strong> and press Enter to open the top match. Each todo carries:
       </P>
       <KeyList
         rows={[
@@ -157,8 +161,13 @@ export function Tasks() {
         Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of
         {" "}
         <Code>done</Code>. You&apos;ll get a notification (and a push notification on your phone, if
-        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>), and the todo
-        waits in your Review queue until you sign it off.
+        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>) that opens the todo
+        itself, ready to approve or push back, and the todo
+        waits in your Review queue until you sign it off. <Strong>Open in project</Strong> there
+        (and <Strong>Open the board</Strong> from Home) opens that todo beside its board. In the
+        todo&apos;s panel, <Strong>Approve &amp; mark done</Strong> closes the panel and returns
+        you to the row, while <Strong>Push back</Strong> leaves the cursor in the comment box for
+        your reason.
       </Callout>
       <P>
         The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI

@@ -182,6 +182,7 @@ export function MailAnalysisCard({
   companySlug,
   financeAccess,
   onChanged,
+  onArchived,
 }: {
   analysis: MailAnalysis;
   companyId: string;
@@ -190,6 +191,8 @@ export function MailAnalysisCard({
   financeAccess: FinanceAccess;
   /** Reload the thread after a proposed action changes its surrounding state. */
   onChanged: () => void;
+  /** The suggested Archive went through: the thread view returns to its list. */
+  onArchived?: () => void;
 }) {
   const dialog = useDialog();
   const navigate = useNavigate();
@@ -241,6 +244,7 @@ export function MailAnalysisCard({
       setNotice(!result.navigateTo && action.kind === "draft_reply" ? result.message : null);
       onChanged();
       if (result.navigateTo) navigate(`/c/${companySlug}${result.navigateTo}`);
+      else if (action.kind === "thread_action" && action.action === "archive") onArchived?.();
     } catch (err) {
       void dialog.error(err, { title: `Couldn\u2019t run \u201C${action.label}\u201D` });
     } finally {

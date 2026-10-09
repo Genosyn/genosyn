@@ -114,7 +114,7 @@ export default function Signup() {
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />
         {invitationToken ? (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p id="signup-invitation-hint" className="text-sm text-slate-600 dark:text-slate-300">
             Use the email address this invitation was sent to. Verify your email, then return to the
             invitation to join the company.
           </p>
@@ -124,14 +124,18 @@ export default function Signup() {
           autoComplete="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          autoFocus
           required
         />
+        {/* The cursor starts in Name, past the invitation's hint, so the
+          Email field — the one the hint is about — reads it out. */}
         <Input
           label="Email"
           type="email"
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          aria-describedby={invitationToken ? "signup-invitation-hint" : undefined}
           required
         />
         <Input

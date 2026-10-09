@@ -17,6 +17,7 @@ import {
   HandoffStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { submitFormOnModEnter } from "../lib/keyboard";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -385,6 +386,7 @@ function NewHandoffModal({
             className="min-h-[120px] rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            onKeyDown={submitFormOnModEnter}
             placeholder="Context, what's already tried, what success looks like."
           />
         </label>
@@ -439,6 +441,8 @@ function TransitionHandoffModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // ⌘Enter can submit while the first request is still going.
+    if (saving) return;
     setError(null);
     setSaving(true);
     try {
@@ -472,6 +476,7 @@ function TransitionHandoffModal({
             className="min-h-[100px] rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             value={note}
             onChange={(e) => setNote(e.target.value)}
+            onKeyDown={submitFormOnModEnter}
             placeholder={
               action === "complete"
                 ? "What you did. Both sides see this in their journal."

@@ -29,6 +29,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { STANDDOWNS_CHANGED_EVENT } from "@/components/StanddownBanner";
+import { newRoutinePath } from "../lib/newItemPath";
 import { childrenByParent } from "../lib/routineFolders";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
@@ -172,7 +173,7 @@ function CompanyRoutinesLayout({ company }: { company: Company }) {
           folders={ctx.folders}
           unfiledCount={ctx.unfiledCount}
           maxFolderDepth={ctx.maxFolderDepth}
-          onNew={() => navigate(`/c/${company.slug}/routines/new`)}
+          onNew={(href) => navigate(href)}
           onChanged={refresh}
         />
       }
@@ -242,7 +243,8 @@ function Sidebar({
   folders: RoutineFolder[];
   unfiledCount: number;
   maxFolderDepth: number;
-  onNew: () => void;
+  /** Open the new-routine form at `href`, carrying this list's folder and employee. */
+  onNew: (href: string) => void;
   onChanged: () => Promise<void>;
 }) {
   const location = useLocation();
@@ -328,15 +330,17 @@ function Sidebar({
     }
     const subfolders = childrenOf.get(folder.id)?.length ?? 0;
     if (subfolders > 0) contents.push(`${subfolders} subfolder${subfolders === 1 ? "" : "s"}`);
-    const ok = await dialog.confirm({
-      title: `Delete “${folder.name}”?`,
-      message: contents.length
-        ? `${contents.join(" and ")} will move to ${destination}. Nothing is deleted.`
-        : "The folder is empty, so nothing else changes.",
-      confirmLabel: "Delete folder",
-      variant: "danger",
-    });
-    if (!ok) return;
+    // An empty folder holds nothing to lose or move, so it goes in one click;
+    // one with routines or subfolders still says where they will end up.
+    if (contents.length > 0) {
+      const ok = await dialog.confirm({
+        title: `Delete “${folder.name}”?`,
+        message: `${contents.join(" and ")} will move to ${destination}. Nothing is deleted.`,
+        confirmLabel: "Delete folder",
+        variant: "danger",
+      });
+      if (!ok) return;
+    }
     try {
       await api.del(`/api/companies/${company.id}/routine-folders/${folder.id}`);
       await onChanged();
@@ -479,7 +483,14 @@ function Sidebar({
             {creatingFolder === "header" ? <ButtonSpinner size={14} /> : <FolderPlus size={14} />}
           </button>
           <button
-            onClick={onNew}
+            onClick={() =>
+              onNew(
+                newRoutinePath(company.slug, {
+                  folder: onIndex ? activeFolder : null,
+                  employee: onIndex ? activeEmployee : null,
+                }),
+              )
+            }
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="New routine"
             aria-label="New routine"

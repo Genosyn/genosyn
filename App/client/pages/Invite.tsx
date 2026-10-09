@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { AuthShell } from "./Login";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
-import { invitationAuthPath } from "../lib/invitationNavigation";
+import { invitationAuthPath, joinedCompanyPath } from "../lib/invitationNavigation";
 
 export default function Invite({ authenticated = true }: { authenticated?: boolean }) {
   const { token } = useParams();
@@ -16,11 +16,15 @@ export default function Invite({ authenticated = true }: { authenticated?: boole
     setError(null);
     setLoading(true);
     try {
-      await api.post("/api/invitations/accept", { token });
+      const joined = await api.post<{ companyId: string; companySlug?: string }>(
+        "/api/invitations/accept",
+        { token },
+      );
       // The authenticated app caches the caller's memberships. A full
-      // navigation refreshes that state so a first-time invitee lands in the
-      // company they just joined instead of the onboarding screen.
-      window.location.assign("/");
+      // navigation refreshes that state, and lands in the company just
+      // joined — not the onboarding screen, nor another company the invitee
+      // already belongs to.
+      window.location.assign(joinedCompanyPath(joined.companySlug));
     } catch (err) {
       setError((err as Error).message);
     } finally {

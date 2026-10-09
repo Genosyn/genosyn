@@ -28,7 +28,9 @@ export function Goals() {
         open it — a Goal is the company&apos;s shared direction, and everyone should see where it
         stands. Creating, editing, archiving, and deleting Goals is owner/admin-only: Goals are
         human-set intent, and which humans is the same call as who may reorganize the company&apos;s
-        Routines. AI Employees report progress but never author a Goal.
+        Routines. AI Employees report progress but never author a Goal. For owners and admins, a
+        Goal&apos;s title opens its edit dialog, and <Strong>Add sub-goal</Strong> in its menu starts
+        a new Goal with that one already chosen as its parent.
       </P>
 
       <H2 id="anatomy">Anatomy</H2>

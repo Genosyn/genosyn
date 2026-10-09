@@ -3,6 +3,13 @@ import {
   resolveRecurringInvoiceName,
   type RecurringInvoiceNameSource,
 } from "../../shared/recurringInvoiceName.js";
+import {
+  CUSTOMER_PICK_PARAM,
+  initialCustomerPick,
+  requestedCustomerPick,
+  withCustomerPick,
+  type InitialCustomerPick,
+} from "./customerPick.js";
 
 /**
  * The pure half of the recurring invoice form (`FinanceRecurringInvoiceNew`):
@@ -64,27 +71,23 @@ export function recurringInvoiceNameToSave(
   return resolveRecurringInvoiceName(state.value, customer);
 }
 
-/** The query parameter that picks the customer on the New recurring invoice form. */
-export const RECURRING_INVOICE_CUSTOMER_PARAM = "customerId";
+/**
+ * The query parameter that picks the customer on the New recurring invoice
+ * form — the one every new-document form reads (`lib/customerPick.ts`).
+ */
+export const RECURRING_INVOICE_CUSTOMER_PARAM = CUSTOMER_PICK_PARAM;
 
 /** Link to the New recurring invoice form, optionally starting with one customer picked. */
 export function newRecurringInvoicePath(financeBase: string, customerId?: string | null): string {
-  const path = `${financeBase}/recurring-invoices/new`;
-  if (!customerId) return path;
-  return `${path}?${new URLSearchParams({ [RECURRING_INVOICE_CUSTOMER_PARAM]: customerId })}`;
+  return withCustomerPick(`${financeBase}/recurring-invoices/new`, customerId);
 }
 
 /** The customer a link to the form asked for, or null when it asked for none. */
 export function requestedRecurringInvoiceCustomerId(params: URLSearchParams): string | null {
-  const value = params.get(RECURRING_INVOICE_CUSTOMER_PARAM)?.trim();
-  return value ? value : null;
+  return requestedCustomerPick(params);
 }
 
-export type InitialRecurringInvoiceCustomer<C> = {
-  customer: C | null;
-  /** The link asked for a customer the form cannot offer (archived, deleted, or another company's). */
-  requestedUnavailable: boolean;
-};
+export type InitialRecurringInvoiceCustomer<C> = InitialCustomerPick<C>;
 
 /**
  * The customer a new schedule starts with: the one the link asked for, else the
@@ -96,9 +99,5 @@ export function initialRecurringInvoiceCustomer<C extends { id: string }>(
   customers: readonly C[],
   requestedId: string | null,
 ): InitialRecurringInvoiceCustomer<C> {
-  if (requestedId) {
-    const requested = customers.find((customer) => customer.id === requestedId) ?? null;
-    return { customer: requested, requestedUnavailable: requested === null };
-  }
-  return { customer: customers[0] ?? null, requestedUnavailable: false };
+  return initialCustomerPick(customers, requestedId);
 }
