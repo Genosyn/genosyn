@@ -155,6 +155,13 @@ bump version numbers or tag manually.
 
 ---
 
+## Reporting a security issue
+
+Please don't open a public issue or pull request for a vulnerability. Email
+**security@genosyn.com** instead — see [`SECURITY.md`](./SECURITY.md).
+
+---
+
 ## License
 
 By contributing, you agree your contributions are licensed under the [Apache License 2.0](./LICENSE).

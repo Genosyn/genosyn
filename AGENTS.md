@@ -81,13 +81,26 @@ genosyn/
 ├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
 │                # Home site at /install.sh and /genosyn via a sync step in
 │                # Home's predev/prebuild scripts.
+├── .oss-scanner/ # Anthropic OSS Scanner enrollment: the Dockerfile it builds
+│                 # and the threat model it reads. See below.
 ├── package.json # Root npm commands for SaaS Helm deployments (no dependencies).
 ├── AGENTS.md    # This file.
 ├── VISION.md    # Where Genosyn is going, stated plainly. Read with this file.
+├── SECURITY.md  # How to report a vulnerability (security@genosyn.com).
 └── CLAUDE.md    # Pointer to this file.
 ```
 
 Agents should never invent a new top-level folder without updating this file.
+
+### About `.oss-scanner/`
+
+Anthropic's [OSS Scanner](https://github.com/anthropics/oss-scanner) builds
+`.oss-scanner/Dockerfile` from the repo root (network on, checkout at `/src`),
+scans the image offline with `.oss-scanner/threat_model.md` as its guide, and
+emails findings to security@genosyn.com. Keep the Dockerfile building when the
+build changes (a new package, a Node bump, a native dependency) and the threat
+model current when the trust model changes (a new unauthenticated route, role,
+or by-design behavior). `App/server/ossScanner.test.ts` pins the contract.
 
 ### About `CLI/`
 
