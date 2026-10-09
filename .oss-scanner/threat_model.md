@@ -359,14 +359,18 @@ B=http://127.0.0.1:8471; J='Content-Type: application/json'
 curl -s -c owner.jar -H "$J" $B/api/auth/signup \
   -d '{"email":"owner@example.test","password":"owner-password-1","name":"Owner"}'
 curl -s -b owner.jar -H "$J" $B/api/companies -d '{"name":"Acme"}'      # -> {"id": "<cid>", ...}
-# A Member: invite, sign up with the invited address, accept with the token from the log
+# A Member: invite, sign up with the invited address, then accept with the
+# token at the end of the /invite/... link the log shows
 curl -s -b owner.jar -H "$J" $B/api/companies/<cid>/invitations -d '{"email":"member@example.test"}'
 curl -s -c member.jar -H "$J" $B/api/auth/signup \
   -d '{"email":"member@example.test","password":"member-password-1","name":"Member"}'
-curl -s -b member.jar -H "$J" $B/api/invitations/accept -d '{"token":"<token from /invite/<token>>"}'
-# Make a Member an admin (owner only), and mint a personal API key
+curl -s -b member.jar -H "$J" $B/api/invitations/accept -d '{"token":"<invitation token>"}'
+# Make a Member an admin (owner only; <uid> is the userId from GET .../members)
+curl -s -b owner.jar $B/api/companies/<cid>/members
 curl -s -b owner.jar -X PATCH -H "$J" $B/api/companies/<cid>/members/<uid> -d '{"role":"admin"}'
-curl -s -b owner.jar -H "$J" $B/api/companies/<cid>/api-keys -d '{"name":"test"}'   # Bearer gen_...
+# Mint a personal API key: send the response's "token" (gen_...) as
+# "Authorization: Bearer <token>"; its "prefix" is only a label
+curl -s -b owner.jar -H "$J" $B/api/companies/<cid>/api-keys -d '{"name":"test"}'
 ```
 
 For cross-company tests, sign up a second owner and create a second Company.
