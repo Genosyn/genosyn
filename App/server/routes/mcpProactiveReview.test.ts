@@ -386,6 +386,42 @@ test("a complete plan queues one pending work Approval without performing the pr
   await assertNoWorkStarted();
 });
 
+test("a repeated plan names the review it already has with the article its status takes", async () => {
+  // Read "already has a approved review" while the article was hard-coded.
+  const args = {
+    humanDecisionReason:
+      "The checkout incident affects customer payments and needs authorization for a production-facing Repository change.",
+    title: "Investigate Acme's checkout bug",
+    context: "Acme reported checkout failing after yesterday's release; confirm impact first.",
+    plan: "Inspect the granted Repository, reproduce the reported failure, prepare a focused fix and relevant tests, then leave the branch for Member review.",
+  };
+  type Reply = { approvalId: string; status: string; note: string };
+  // The source Routine drafts mail, so its review token carries that restriction.
+  const bearer = mint({ mailDeliveryMode: "draft" });
+  const created = await tool<Reply>("request_work_review", args, bearer);
+  assert.equal(created.status, 200);
+  assert.equal(created.body.status, "pending");
+  assert.match(created.body.note, /^Work proposed in the Decision stack\./);
+  for (const [status, named] of [
+    ["approved", "an approved review"],
+    ["rejected", "a rejected review"],
+    ["execution_failed", "an execution_failed review"],
+    ["executing", "an executing review"],
+  ] as const) {
+    await AppDataSource.getRepository(Approval).update({ id: created.body.approvalId }, { status });
+    const repeated = await tool<Reply>("request_work_review", args, bearer);
+    assert.equal(repeated.status, 200, status);
+    assert.equal(repeated.body.approvalId, created.body.approvalId, status);
+    assert.equal(repeated.body.status, status);
+    assert.ok(
+      repeated.body.note.startsWith(`This work already has ${named}. No new request was created.`),
+      repeated.body.note,
+    );
+  }
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 1);
+  await assertNoWorkStarted();
+});
+
 test("review submission cannot be invoked from an ordinary employee turn or a review-only self assessment", async () => {
   const args = {
     humanDecisionReason:

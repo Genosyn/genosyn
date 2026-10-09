@@ -8,6 +8,7 @@ import {
   recurringInvoicePatchSchema,
 } from "../routes/finance.js";
 import { subsidiaryWriteSchema } from "../routes/subsidiaries.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 const companyParams = z.object({ cid: z.string().uuid() });
@@ -202,7 +203,7 @@ for (const document of [
   registry.registerPath({
     method: "patch",
     path: `/api/companies/{cid}/${document.path}/{slug}`,
-    summary: `Edit a ${document.label}`,
+    summary: `Edit ${withIndefiniteArticle(document.label)}`,
     description:
       "Requires full Finance access. Subsidiary selection, customer, issue date, currency, and lines can change only while the document is a draft. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. An issued document's issuer cannot change.",
     tags: ["Finance"],

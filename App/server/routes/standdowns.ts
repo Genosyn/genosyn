@@ -17,6 +17,7 @@ import {
   placeStanddown,
   serializeStanddown,
 } from "../services/standdowns.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 
 /**
  * The stop button's HTTP surface (M58) — place a **Standdown**, lift it, and
@@ -146,7 +147,7 @@ const placeSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["scopeId"],
-        message: `A ${value.scope} standdown must name its target`,
+        message: `${withIndefiniteArticle(value.scope, { capitalized: true })} standdown must name its target`,
       });
     }
   });

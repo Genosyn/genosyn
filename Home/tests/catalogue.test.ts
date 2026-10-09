@@ -8,7 +8,11 @@ import { POSTS, postDate, TOPICS } from "../client/blog/posts.js";
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
 import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
 import { ROLES, ROLE_DISCIPLINES, findRole } from "../client/roles/data.js";
-import { SHOWCASE_USE_CASES, getUseCasesForProduct } from "../client/products/useCases.js";
+import {
+  PRODUCT_USE_CASES,
+  SHOWCASE_USE_CASES,
+  getUseCasesForProduct,
+} from "../client/products/useCases.js";
 import * as VISION from "../client/vision/data.js";
 
 type SiteMetaModule = typeof import("../client/lib/siteMeta.js");
@@ -417,6 +421,24 @@ describe("route metadata and LLM indexes", () => {
       const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
       assert.doesNotMatch(code, /<main[\s>]/, `${file}: renders a <main> inside the page <main>`);
     }
+  });
+
+  // The prototype is a picture, so this one line is all a screen reader hears
+  // of it. A hard-coded "a" read "Genosyn running a Operations Lead use case".
+  test("the prototype's screen-reader line suits every use case role", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../client/products/ProductPrototype.tsx", import.meta.url)),
+      "utf8",
+    );
+    assert.match(
+      source,
+      /Genosyn running the \{activeUseCase\.role\} use case in \{activeProduct\.name\}\./,
+    );
+    assert.doesNotMatch(source, /\ban? \{activeUseCase\.role\}/);
+    assert.ok(
+      PRODUCT_USE_CASES.some((useCase) => /^[AEIOU]/.test(useCase.role)),
+      "a role that would have taken 'an' is still in the catalogue",
+    );
   });
 
   test("every product hero docs CTA points at a real docs page", () => {

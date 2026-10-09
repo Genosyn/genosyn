@@ -152,6 +152,37 @@ function mailHandoverEntry(): WorkEntry {
   );
 }
 
+/** A conversation in which the mailbox's written instructions took steps on their own. */
+function instructionStepsEntry(): WorkEntry {
+  const at = new Date(fixtureNow.getTime() - 2 * 3_600_000).toISOString();
+  return entryFixture(
+    {},
+    {
+      id: "chat:inbox-triage",
+      kind: "chat",
+      at,
+      endedAt: null,
+      title: "Replied in Inbox triage",
+      subject: "Inbox triage",
+      detail: "",
+      run: null,
+      effects: [
+        "mail.analysis.automatic",
+        "mail.analysis.automatic",
+        "mail.analysis.automatic_failed",
+        "mail.analysis.automatic",
+      ].map((action, index) => ({
+        action,
+        targetType: "mail_inbound_analysis",
+        targetId: `analysis-${index}`,
+        targetLabel: `Spring sale ${index + 1}`,
+        at,
+      })),
+      effectCount: 4,
+    },
+  );
+}
+
 function timeline(allEntries: WorkEntry[], query: URLSearchParams): WorkTimeline {
   const employeeId = query.get("employeeId");
   const since = query.get("since") ?? new Date(fixtureNow.getTime() - 86400000).toISOString();
@@ -548,6 +579,38 @@ try {
     });
     await page.close();
   });
+  for (const width of [1440, 375]) {
+    await check(
+      `a conversation names the email instructions it followed with one article at ${width}px`,
+      async () => {
+        // The sentence once read "followed an an email instruction", and
+        // "followed 3 an email instructions" for several.
+        const { page } = await open(instructionStepsEntry());
+        if (width < 1440) await page.setViewportSize({ width, height: 812 });
+        const dialog = await openDay(page);
+        await dialog.getByRole("button", { name: "Go to first work", exact: true }).click();
+        await dialog
+          .getByText(
+            "In that thread it followed 3 email instructions and could not follow an email instruction.",
+            { exact: true },
+          )
+          .waitFor();
+        const text = await dialog.innerText();
+        assert.equal(text.match(/Followed an email instruction · Spring sale/g)?.length, 3, text);
+        assert.equal(
+          text.match(/Could not follow an email instruction · Spring sale 3/g)?.length,
+          1,
+        );
+        assert.doesNotMatch(text, /\b(?:an?|the) (?:an?|the)\b|\d (?:an?|the)\b/i);
+        await fitsViewport(page);
+        await page.screenshot({
+          path: path.join(output, `email-instruction-steps-${width}.png`),
+          fullPage: true,
+        });
+        await page.close();
+      },
+    );
+  }
   await check(
     "opening a bubble fetches only that employee's calendar day and keeps the outcome visible",
     async () => {

@@ -173,6 +173,32 @@ describe("analyseFingerprint", () => {
     assert.equal(onMac?.severity, "blocking");
   });
 
+  test("software WebGL names the claimed platform with the article it takes", () => {
+    // An unrecognisable user agent read "under a unknown claim" while the article was hard-coded.
+    for (const [userAgent, platform, claim] of [
+      [
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141.0.0.0",
+        "MacIntel",
+        "a macos claim",
+      ],
+      ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141.0.0.0", "Win32", "a windows claim"],
+      ["Mozilla/5.0 (Unrecognisable) Chrome/141.0.0.0", "", "an unknown claim"],
+    ] as const) {
+      const finding = analyseFingerprint(
+        healthy({ webglRenderer: "SwiftShader", userAgent, platform, uaDataPlatform: "" }),
+      ).find((f) => f.id === "software-webgl");
+      assert.equal(
+        finding?.detail,
+        `WebGL renderer is "SwiftShader", a software rasteriser under ${claim}.`,
+        claim,
+      );
+    }
+    const onLinux = analyseFingerprint(healthy({ webglRenderer: "SwiftShader" })).find(
+      (f) => f.id === "software-webgl",
+    );
+    assert.equal(onLinux?.detail, `WebGL renderer is "SwiftShader", a software rasteriser.`);
+  });
+
   test("empty languages and a tiny screen are advisory, not blocking", () => {
     const findings = analyseFingerprint(
       healthy({ languages: [], screen: { width: 800, height: 600 } }),

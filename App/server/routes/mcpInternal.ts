@@ -458,6 +458,7 @@ import {
   uniqueRecurringInvoiceSlug,
 } from "../services/recurringInvoices.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
   createEstimateDraft,
   displayEstimateStatus,
@@ -6897,7 +6898,7 @@ mcpInternalRouter.post(
           targetType: "revenue_operation",
           targetId: result.job.id,
           targetLabel: input.resourceType,
-          journalTitle: `${req.mcpEmployee!.name} queued a ${input.resourceType} bulk operation`,
+          journalTitle: `${req.mcpEmployee!.name} queued ${withIndefiniteArticle(input.resourceType)} bulk operation`,
           metadata: {
             action: input.action.type,
             mode: input.mode,
@@ -13027,7 +13028,7 @@ mcpInternalRouter.post(
       note:
         approval.status === "pending"
           ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
-          : `This work already has a ${approval.status} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
+          : `This work already has ${withIndefiniteArticle(approval.status)} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
     });
   },
 );

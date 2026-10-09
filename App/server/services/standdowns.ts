@@ -7,6 +7,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Standdown, type StanddownScope, type StanddownSource } from "../db/entities/Standdown.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { recordAudit } from "./audit.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { createNotifications } from "./notifications.js";
@@ -436,7 +437,10 @@ async function assertScopeTargetExists(
       throw new StanddownError("A company standdown covers everything and names nothing");
     return;
   }
-  if (!scopeId) throw new StanddownError(`A ${scopeNoun(scope)} standdown must name its target`);
+  if (!scopeId) {
+    const named = withIndefiniteArticle(scopeNoun(scope), { capitalized: true });
+    throw new StanddownError(`${named} standdown must name its target`);
+  }
   if (scope === "employee") {
     const employee = await AppDataSource.getRepository(AIEmployee).countBy({
       id: scopeId,

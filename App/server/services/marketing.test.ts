@@ -335,6 +335,59 @@ describe("Marketing lifecycle", () => {
       /only go live under an active Campaign/,
     );
   });
+
+  test("a refused move names the record with the article it takes", async () => {
+    // The Experiment's message read "A Experiment" while the article was hard-coded.
+    const companyId = testCompanyId();
+    const refusedWith = (message: string) => (error: unknown) => {
+      assert.ok(error instanceof MarketingValidationError);
+      assert.equal(error.message, message);
+      return true;
+    };
+    const campaign = await createMarketingCampaign(
+      companyId,
+      { name: "Articles", objective: "traffic" },
+      { userId: "member-1" },
+    );
+    await assert.rejects(
+      updateMarketingCampaign(companyId, campaign.id, { status: "active" }),
+      refusedWith(
+        "A Campaign cannot go from draft to active. From draft it can only become ready or archived.",
+      ),
+    );
+    const creative = await createMarketingCreative(
+      companyId,
+      { campaignId: campaign.id, name: "Proof-led" },
+      { userId: "member-1" },
+    );
+    await assert.rejects(
+      updateMarketingCreative(companyId, creative.id, { status: "active" }),
+      refusedWith(
+        "A Creative cannot go from draft to active. From draft it can only become review or retired.",
+      ),
+    );
+    const other = await createMarketingCreative(
+      companyId,
+      { campaignId: campaign.id, name: "Pain-led" },
+      { userId: "member-1" },
+    );
+    const experiment = await createMarketingExperiment(
+      companyId,
+      { campaignId: campaign.id, name: "Message test", creativeIds: [creative.id, other.id] },
+      { userId: "member-1" },
+    );
+    await assert.rejects(
+      updateMarketingExperiment(companyId, experiment.id, { status: "decided" }),
+      refusedWith(
+        "An Experiment cannot go from draft to decided. From draft it can only become running or stopped.",
+      ),
+    );
+    await updateMarketingExperiment(companyId, experiment.id, { status: "stopped" });
+    await assert.rejects(
+      updateMarketingExperiment(companyId, experiment.id, { status: "running" }),
+      refusedWith("An Experiment that is stopped is final and cannot become running."),
+    );
+  });
 });
 
 describe("Marketing Experiment decisions", () => {

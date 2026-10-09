@@ -168,6 +168,22 @@ describe("navigation screening", () => {
     }
   });
 
+  test("names a refused scheme without an article that cannot suit every scheme", () => {
+    // The singular read "refusing to open a about: URL" for about:blank.
+    for (const [url, reason] of [
+      ["about:blank", "refusing to open about: URLs"],
+      ["file:///etc/passwd", "refusing to open file: URLs"],
+      ["chrome://settings/passwords", "refusing to open chrome: URLs"],
+      ["edge://settings", "refusing to open edge: URLs"],
+      ["intent://scan", "refusing to open intent: URLs"],
+      ["javascript:alert(1)", "refusing to open javascript: URLs"],
+    ]) {
+      const verdict = agent.navigationAllowed(url, POLICY);
+      assert.equal(verdict.allow, false, url);
+      assert.equal(verdict.reason, reason, url);
+    }
+  });
+
   test("refuses Genosyn itself", () => {
     // It would arrive carrying nothing useful and everything risky: the human's
     // own Genosyn session lives in that browser.

@@ -6,6 +6,7 @@ import { LedgerEntry, type LedgerReviewStatus } from "../db/entities/LedgerEntry
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Company } from "../db/entities/Company.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { createNotifications } from "./notifications.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
@@ -197,7 +198,8 @@ async function validateReviewChanges(
       throw new Error("Only expense and revenue category lines can be reclassified here");
     }
     if (from.type !== to.type) {
-      throw new Error(`A ${from.type} line can only move to another ${from.type} account`);
+      const kind = withIndefiniteArticle(from.type, { capitalized: true });
+      throw new Error(`${kind} line can only move to another ${from.type} account`);
     }
     if (to.archivedAt) throw new Error(`Category ${to.code} ${to.name} is archived`);
     validated.push({

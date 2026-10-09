@@ -237,6 +237,59 @@ describe("Routine outcome blocks shared by the popup and employee day", () => {
   });
 });
 
+describe("steps a mailbox's instructions took", () => {
+  function instructionRow(action: string, index: number) {
+    return {
+      action,
+      targetType: "mail_inbound_analysis",
+      targetId: `analysis-${index}`,
+      targetLabel: `Spring sale ${index}`,
+      at,
+    };
+  }
+
+  function conversationWith(actions: string[]): WorkEntry {
+    return {
+      ...routineEntry(),
+      id: "chat:conversation-1",
+      kind: "chat",
+      title: "Replied in Inbox triage",
+      subject: "Inbox triage",
+      detail: "",
+      run: null,
+      effects: actions.map(instructionRow),
+      effectCount: actions.length,
+    };
+  }
+
+  test("one followed instruction reads once in the sentence and in the list", () => {
+    const text = visibleText(renderEntry(conversationWith(["mail.analysis.automatic"])));
+    assert.match(text, /In that thread it followed an email instruction\./);
+    assert.match(text, /Followed an email instruction · Spring sale 0/);
+    assert.doesNotMatch(text, /\b(?:an?|the) (?:an?|the)\b/i);
+  });
+
+  test("several steps are counted without an article beside the count", () => {
+    const text = visibleText(
+      renderEntry(
+        conversationWith([
+          "mail.analysis.automatic",
+          "mail.analysis.automatic",
+          "mail.analysis.automatic_failed",
+          "mail.analysis.automatic",
+        ]),
+      ),
+    );
+    assert.match(
+      text,
+      /In that thread it followed 3 email instructions and could not follow an email instruction\./,
+    );
+    assert.equal(text.match(/Followed an email instruction · Spring sale/g)?.length, 3);
+    assert.match(text, /Could not follow an email instruction · Spring sale 2/);
+    assert.doesNotMatch(text, /\b(?:an?|the) (?:an?|the)\b|\d (?:an?|the)\b/i);
+  });
+});
+
 describe("standalone change context", () => {
   test("renders the Email thread and trigger beneath a handover change", () => {
     const entry: WorkEntry = {

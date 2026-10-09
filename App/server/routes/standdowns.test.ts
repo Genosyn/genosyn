@@ -255,6 +255,26 @@ describe("scope validation", () => {
     assert.equal(unnamed.body.error, "ValidationError");
   });
 
+  test("a narrow standdown without a target names its scope with the article it takes", async () => {
+    // The employee scope read "A employee standdown" while the article was hard-coded.
+    for (const [scope, message] of [
+      ["employee", "An employee standdown must name its target"],
+      ["routine", "A routine standdown must name its target"],
+    ] as const) {
+      const refused = await call<{ error: string; issues: Array<{ message: string }> }>(
+        "POST",
+        "/standdowns",
+        { scope, reason: "stop it" },
+      );
+      assert.equal(refused.status, 400, scope);
+      assert.deepEqual(
+        refused.body.issues.map((issue) => issue.message),
+        [message],
+        scope,
+      );
+    }
+  });
+
   test("a target in another company is refused", async () => {
     const foreign = await insert(AIEmployee, {
       companyId: otherCompany.id,
