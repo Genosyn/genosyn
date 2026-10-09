@@ -44,6 +44,21 @@ export function RevenueOperations() {
         occurrence automatically.
       </P>
       <P>
+        Every row has a <Strong>Done</Strong> check. On a task it completes the task; on a deal or
+        partnership row it clears that record&apos;s next follow-up date and reminder, which is what
+        the bulk <Strong>Complete</Strong> does to the same rows, and leaves the deal or
+        partnership itself alone. The row leaves the queue and keyboard focus moves to the next
+        row&apos;s Done, so working down the list is Enter, Enter, Enter. A task about an account
+        alone links to that account.
+      </P>
+      <P>
+        <Strong>New follow-up</Strong> opens due at 09:00 on the next working day (a follow-up made
+        on Friday is due Monday), so a subject and Enter create one; change <Strong>Due</Strong>{" "}
+        for any other time. The deal page&apos;s <Strong>Follow-up task</Strong> starts on the
+        deal&apos;s own follow-up date, or the same next working morning when it has none. Times
+        are saved as the moment you picked in your own time zone.
+      </P>
+      <P>
         Filter by arbitrary assignee or unassigned, priority, resource type and ID, status, due-date
         range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel, reassign,
         reprioritize, or reschedule them together. For filter-wide dry runs and rollback, use{" "}
@@ -82,6 +97,11 @@ export function RevenueOperations() {
         company name too, because a person&apos;s employer and the legal billing entity can differ.
         Accounts with linked Revenue or finance history cannot be hard-deleted; archive them so
         their timeline remains intact.
+      </P>
+      <P>
+        Creating an account opens it, ready for its contacts and deals. <Strong>Archive</Strong>{" "}
+        on an account&apos;s page takes one click: nothing is lost, the archived banner appears at
+        once, and the same button becomes <Strong>Restore</Strong> — the undo.
       </P>
 
       <H2 id="custom-fields">Typed custom fields</H2>
@@ -173,7 +193,8 @@ export function RevenueOperations() {
       <P>
         Partnerships are not deals. Open <Code>Revenue → Partnerships</Code> for a partner-specific
         record with controlled type and status, a separate follow-up date, integration and channel
-        context, notes, custom fields, documents, and its own activity timeline.
+        context, notes, custom fields, documents, and its own activity timeline. Creating a
+        partnership opens it.
       </P>
       <P>
         Add multiple Revenue contacts, choose one primary contact, and mark every address that

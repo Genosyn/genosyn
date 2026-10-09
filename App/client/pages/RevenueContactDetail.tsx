@@ -142,6 +142,7 @@ export default function RevenueContactDetail() {
   const [retrying, setRetrying] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [enrolling, setEnrolling] = React.useState(false);
+  const [announcement, setAnnouncement] = React.useState("");
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [accounts, setAccounts] = React.useState<RevenueAccount[]>([]);
@@ -233,19 +234,19 @@ export default function RevenueContactDetail() {
     );
   }
 
-  async function toggleArchive() {
+  /**
+   * Archive needs no confirm: nothing is lost — they stay on every activity
+   * and deal they are part of — and the button turns into Restore where the
+   * pointer already is, which is the undo.
+   */
+  function toggleArchive() {
     if (!contact) return;
     const archived = !contact.archivedAt;
-    if (archived) {
-      const confirmed = await dialog.confirm({
-        title: `Archive ${contact.name}?`,
-        message:
-          "They stay on every activity and deal they are already part of, and stop appearing in the contact list. You can restore them at any time.",
-        confirmLabel: "Archive",
-      });
-      if (!confirmed) return;
-    }
     const before = contact.archivedAt;
+    const name = contact.name || "this contact";
+    setAnnouncement(
+      archived ? `Archived ${name}. Restore puts them back.` : `Restored ${name}.`,
+    );
     patchContact({ archivedAt: archived ? new Date().toISOString() : null });
     background(
       () =>
@@ -258,7 +259,10 @@ export default function RevenueContactDetail() {
         title: "Couldn’t update this contact",
         error: (err) => `${errorMessage(err)} The change was undone.`,
         onSuccess: () => load(),
-        onError: () => patchContact({ archivedAt: before }),
+        onError: () => {
+          setAnnouncement("");
+          patchContact({ archivedAt: before });
+        },
       },
     );
   }
@@ -420,7 +424,7 @@ export default function RevenueContactDetail() {
           <Button variant="secondary" onClick={() => void toggleDoNotContact()}>
             <Ban size={14} /> {contact.doNotContact ? "Allow contact" : "Do not contact"}
           </Button>
-          <Button variant="secondary" onClick={() => void toggleArchive()}>
+          <Button variant="secondary" onClick={toggleArchive}>
             {contact.archivedAt ? (
               <>
                 <ArchiveRestore size={14} /> Restore
@@ -433,6 +437,10 @@ export default function RevenueContactDetail() {
           </Button>
         </div>
       </div>
+
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
 
       {blocked && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
@@ -570,6 +578,7 @@ export default function RevenueContactDetail() {
             <DetailRow
               label="Account"
               value={contact.customerId ? contact.companyName || "Linked account" : ""}
+              to={contact.customerId ? `${base}/accounts/${contact.customerId}` : undefined}
             />
           </dl>
         </div>
@@ -634,12 +643,18 @@ export default function RevenueContactDetail() {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, to }: { label: string; value: string; to?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs text-slate-400 dark:text-slate-500">{label}</dt>
       <dd className="capitalize text-slate-700 dark:text-slate-200">
-        {value || <span className="text-slate-400 dark:text-slate-500">—</span>}
+        {value && to ? (
+          <Link to={to} className="text-indigo-600 hover:underline dark:text-indigo-400">
+            {value}
+          </Link>
+        ) : (
+          value || <span className="text-slate-400 dark:text-slate-500">—</span>
+        )}
       </dd>
     </div>
   );

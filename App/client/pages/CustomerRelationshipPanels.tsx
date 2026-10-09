@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Mail, Phone, Plus } from "lucide-react";
 import { CustomerContact, Employee, formatMoney, Member } from "../lib/api";
+import { withCustomerPick } from "../lib/customerPick";
 import type { Meeting } from "../lib/meetings";
 import {
   formatSignatureDate,
@@ -283,9 +284,12 @@ export function CustomerMeetingsList({
 export function CustomerSignaturesList({
   envelopes,
   companySlug,
+  customerId,
 }: {
   envelopes: SignatureEnvelope[];
   companySlug: string;
+  /** Starts a new request with this customer linked. */
+  customerId?: string;
 }) {
   return (
     <section>
@@ -294,7 +298,7 @@ export function CustomerSignaturesList({
         count={envelopes.length}
         action={
           <Link
-            to={`/c/${companySlug}/signatures/new`}
+            to={withCustomerPick(`/c/${companySlug}/signatures/new`, customerId)}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
           >
             <Plus size={12} /> New request

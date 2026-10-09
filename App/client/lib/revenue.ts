@@ -66,6 +66,44 @@ export type FollowUpItem = {
   recurrenceRule: string | null;
 };
 
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** A local time in a `datetime-local` box's own format, `YYYY-MM-DDTHH:mm`. */
+export function dateTimeLocalValue(date: Date): string {
+  return (
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}` +
+    `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+  );
+}
+
+/**
+ * When a new follow-up is due unless someone says otherwise: 09:00 local time
+ * on the next working day — tomorrow, or Monday when tomorrow falls on a
+ * weekend. The Due box opens filled with it, so a follow-up takes a subject and
+ * Enter rather than a trip through the date picker.
+ */
+export function defaultFollowUpDue(now: Date = new Date()): string {
+  const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0, 0);
+  const day = due.getDay();
+  if (day === 6) due.setDate(due.getDate() + 2);
+  else if (day === 0) due.setDate(due.getDate() + 1);
+  return dateTimeLocalValue(due);
+}
+
+/**
+ * A `datetime-local` value as the instant it means to the person who typed it.
+ * The box holds wall time with no zone, which the server would otherwise read
+ * in its own zone. Empty is null; a value that is not a date goes as typed, for
+ * the server to refuse by name.
+ */
+export function dateTimeLocalToIso(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
+
 export type FollowUpViewFilters = {
   state?: "all" | "overdue" | "today" | "upcoming";
   q?: string;

@@ -53,7 +53,8 @@ export function Customers() {
       <P>
         A <Strong>Customer</Strong> row is the account across its whole lifecycle. Create a prospect
         from <Code>Revenue → Accounts</Code> before it has finance activity, or create a customer
-        directly from <Code>Customers → New customer</Code>. Issuing the first invoice promotes a
+        directly from <Code>Customers → New customer</Code>, which opens the customer once created;
+        saving an edit returns to the customer too. Issuing the first invoice promotes a
         prospect to customer automatically. The same row carries the company name, domain,
         firmographics, owner, billing email, tax ID, default currency, and invoice address.
       </P>
@@ -167,11 +168,15 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.{" "}
-          <Code>New recurring invoice</Code> opens a schedule for this customer, named after it (see{" "}
-          <DocLink to="/docs/finance#recurring-names">naming a schedule</DocLink>).
+          <Code>New invoice</Code> and <Code>New estimate</Code> open with this customer and their
+          currency picked, and <Code>New recurring invoice</Code> opens a schedule for this
+          customer, named after it (see{" "}
+          <DocLink to="/docs/finance#recurring-names">naming a schedule</DocLink>). A customer who
+          has since been archived is never swapped for another: the form picks nobody and says so.
         </LI>
         <LI>
-          <Strong>Documents</Strong> — contracts, signature requests, and files.
+          <Strong>Documents</Strong> — contracts, signature requests, and files.{" "}
+          <Code>New request</Code> starts a signature request linked to this customer.
         </LI>
       </UL>
       <P>

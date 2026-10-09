@@ -550,6 +550,15 @@ function CreateSequenceModal({
     setSaving(false);
   }, [open]);
 
+  // One AI Employee or one mailbox leaves nothing to choose, so it arrives
+  // chosen. Nothing goes out on create: a new sequence is a draft with
+  // auto-send off.
+  React.useEffect(() => {
+    if (!open) return;
+    if (employees.length === 1) setEmployeeId((current) => current || employees[0].id);
+    if (accounts.length === 1) setMailAccountId((current) => current || accounts[0].id);
+  }, [open, employees, accounts]);
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim() || !employeeId || !mailAccountId) return;

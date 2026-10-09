@@ -6,7 +6,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
-import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
@@ -15,6 +15,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { api, type Customer, type Employee, type FinanceAccess, type Member } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import { errorMessage } from "../lib/errors";
 import {
   canTakeAccountMergeSource,
   type RevenueAccount,
@@ -80,7 +81,6 @@ export default function RevenueAccountDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const { accountId = "" } = useParams();
   const navigate = useNavigate();
-  const dialog = useDialog();
   const background = useBackgroundAction();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
@@ -98,6 +98,7 @@ export default function RevenueAccountDetail() {
     notes: "",
   });
   const [busy, setBusy] = React.useState(false);
+  const [announcement, setAnnouncement] = React.useState("");
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -153,18 +154,25 @@ export default function RevenueAccountDetail() {
     }
   }
 
-  async function toggleArchive() {
+  /**
+   * Archive needs no confirm: every Contact, Deal, invoice, document and
+   * activity stays linked, the banner says so at once, and the button turns
+   * into Restore where the pointer already is — the undo.
+   */
+  function toggleArchive() {
     if (!detail) return;
     const archived = !detail.account.archivedAt;
-    if (archived) {
-      const confirmed = await dialog.confirm({
-        title: `Archive ${detail.account.name}?`,
-        message:
-          "The Account leaves default lists, but every Contact, Deal, invoice, document, and activity stays linked. You can restore it at any time.",
-        confirmLabel: "Archive Account",
-      });
-      if (!confirmed) return;
-    }
+    const before = detail.account.archivedAt;
+    const setArchivedAt = (archivedAt: string | null) =>
+      setDetail((current) =>
+        current ? { ...current, account: { ...current.account, archivedAt } } : current,
+      );
+    setArchivedAt(archived ? new Date().toISOString() : null);
+    setAnnouncement(
+      archived
+        ? `Archived ${detail.account.name}. Restore puts it back.`
+        : `Restored ${detail.account.name}.`,
+    );
     background(
       () =>
         api.post<RevenueAccountRecord>(
@@ -172,7 +180,12 @@ export default function RevenueAccountDetail() {
         ),
       {
         title: `Couldn’t ${archived ? "archive" : "restore"} this Account`,
+        error: (err) => `${errorMessage(err)} The change was undone.`,
         onSuccess: () => void load(),
+        onError: () => {
+          setAnnouncement("");
+          setArchivedAt(before);
+        },
       },
     );
   }
@@ -239,7 +252,7 @@ export default function RevenueAccountDetail() {
             <Merge size={14} />
             Merge
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => void toggleArchive()}>
+          <Button size="sm" variant="secondary" onClick={toggleArchive}>
             {account.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
             {account.archivedAt ? "Restore" : "Archive"}
           </Button>
@@ -251,10 +264,13 @@ export default function RevenueAccountDetail() {
           <FormError message={error} />
         </div>
       )}
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
       {account.archivedAt && (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
           This Account is archived. Its full Revenue and Finance history is preserved, and it can
-          still be merged into an active Account.
+          still be merged into an active Account. Restore brings it back.
         </div>
       )}
 

@@ -2,7 +2,7 @@ import React from "react";
 import { Bot, FileText, UploadCloud, X } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { Breadcrumbs } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { api, type Customer } from "@/lib/api";
 import { customerOptionLabel } from "@/lib/customerLabel";
+import { initialCustomerPick, requestedCustomerPick } from "@/lib/customerPick";
 import {
   signatureDateInputToEndOfDayIso,
   type SignatureEnvelope,
@@ -44,13 +45,25 @@ export default function SignatureNew() {
   const titleCustomizedRef = React.useRef(false);
   const fileCheckRef = React.useRef(0);
   const routeBase = `/c/${company.slug}/signatures`;
+  // From a customer's page the link names them (`?customerId=`). The customer
+  // is optional here, so without one the request starts with nobody linked.
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = requestedCustomerPick(searchParams);
 
   React.useEffect(() => {
     void api
       .get<Customer[] | { customers: Customer[] }>(`/api/companies/${company.id}/customers`)
-      .then((result) => setCustomers(Array.isArray(result) ? result : result.customers))
+      .then((result) => {
+        const rows = Array.isArray(result) ? result : result.customers;
+        setCustomers(rows);
+        const initial = initialCustomerPick(rows, requestedCustomerId, { fallbackToFirst: false });
+        if (initial.customer) {
+          const id = initial.customer.id;
+          setCustomerId((current) => current || id);
+        }
+      })
       .catch(() => setCustomers([]));
-  }, [company.id]);
+  }, [company.id, requestedCustomerId]);
 
   async function choose(next: File | undefined) {
     if (!next) return;

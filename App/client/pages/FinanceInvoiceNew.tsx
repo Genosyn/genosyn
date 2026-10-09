@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -15,6 +15,7 @@ import {
   TaxRate,
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import { initialCustomerPick, requestedCustomerPick } from "../lib/customerPick";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -101,6 +102,11 @@ function InvoiceForm() {
   const navigate = useNavigate();
   const { invoiceSlug } = useParams();
   const isEdit = Boolean(invoiceSlug);
+  // From a customer's page the link names them (`?customerId=`), so the form
+  // starts with them rather than the first customer in the list.
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = isEdit ? null : requestedCustomerPick(searchParams);
+  const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -159,9 +165,13 @@ function InvoiceForm() {
           setLines(
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
-        } else if (c.length > 0) {
-          setCustomerId(c[0].id);
-          setCurrency(c[0].currency || "USD");
+        } else {
+          const initial = initialCustomerPick(c, requestedCustomerId);
+          setRequestedCustomerUnavailable(initial.requestedUnavailable);
+          if (initial.customer) {
+            setCustomerId(initial.customer.id);
+            setCurrency(initial.customer.currency || "USD");
+          }
         }
         setReady(true);
       } catch (err) {
@@ -169,7 +179,7 @@ function InvoiceForm() {
         setReady(true);
       }
     })();
-  }, [company.id, invoiceSlug, isEdit]);
+  }, [company.id, invoiceSlug, isEdit, requestedCustomerId]);
 
   // When the customer changes, also adopt their default currency (the user
   // can override before saving).
@@ -414,6 +424,11 @@ function InvoiceForm() {
                 </option>
               ))}
             </Select>
+            {requestedCustomerUnavailable && !customerId && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                The customer you came from is archived or no longer exists. Choose who to bill.
+              </p>
+            )}
           </div>
           <Input
             label="Issue date"
