@@ -21,6 +21,7 @@ import { recordAudit } from "./audit.js";
 import { createNotifications, markEntityNotificationsRead } from "./notifications.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { withHumanDecisionReason } from "./humanDecisionGuidance.js";
+import { DecisionStackOffError, isDecisionStackEnabled } from "./decisionStackSettings.js";
 import { toSlug } from "../lib/slug.js";
 
 /**
@@ -44,6 +45,11 @@ import { toSlug } from "../lib/slug.js";
  *  - **Nothing here performs the action.** Deciding writes a row, a journal
  *    entry and an audit event. Whatever the employee does next runs under its
  *    own authority and hits its own gates.
+ *  - **Nothing is stacked while the company has the stack off.** New questions
+ *    arrive through `decisionIntake.ts`, which also screens them against the
+ *    company's instructions; `createDecision` re-checks the switch at the
+ *    moment of writing. Answering, dismissing and restoring the questions
+ *    already waiting never depend on it.
  */
 
 /** Hard ceiling on options, so the stack stays a decision and not a survey. */
@@ -494,7 +500,12 @@ export async function createDecision(params: {
   mailThreadId?: string | null;
   /** Server-owned origin ceiling. False stores a human-only answer with no automatic AI continuation. */
   automaticContinuation?: boolean;
+  /** What the Decision stack screen concluded (`decisionIntake.ts`), kept on the audit row. */
+  screening?: Record<string, unknown>;
 }): Promise<{ decision: Decision; options: DecisionOption[] }> {
+  // Checked at the moment of writing, not only at intake: an admin switching
+  // the stack off while a question was being screened still wins.
+  if (!(await isDecisionStackEnabled(params.companyId))) throw new DecisionStackOffError();
   const options = normalizeDecisionOptions(params.options);
   if (options.length === 0) {
     throw new Error("A decision needs at least one option a human can choose.");
@@ -548,7 +559,11 @@ export async function createDecision(params: {
     targetType: "decision",
     targetId: decision.id,
     targetLabel: decision.title,
-    metadata: { options: options.map((o) => o.label), urgency: decision.urgency },
+    metadata: {
+      options: options.map((o) => o.label),
+      urgency: decision.urgency,
+      ...(params.screening ? { screening: params.screening } : {}),
+    },
   });
 
   // M53: a DecisionPolicy rule may route the question to an AI decider, which

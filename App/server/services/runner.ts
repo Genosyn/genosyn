@@ -13,6 +13,7 @@ import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronM
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
+import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { selfReviewToolScope } from "./proactive/reviewPolicy.js";
 import { createRunDeadlineNotice } from "./runDeadlineNotice.js";
@@ -729,14 +730,11 @@ async function prepareRoutineRun(
             priorAttemptBlock,
             checksBlock,
           );
-      const deliveryMessage = deliveryPolicy.mailDeliveryMode
-        ? deliveryPolicy.mailDeliveryMode === "review" ||
-          deliveryPolicy.mailDeliveryMode === "draft"
-          ? `${routineMessage}\n\nAny customer email — a reply or a fresh outbound message — must use request_mail_review and return to the Decision stack with its exact recipients, subject, body and files. Do not send it and do not create a Gmail or IMAP draft. Starting separate automation is also unavailable. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks otherwise.`
-          : deliveryPolicy.mailDeliveryMode === "triage"
-            ? `${routineMessage}\n\nThis Routine may only file the source email: label, archive, star, or mark it read. Do not compose a reply, create a Gmail or IMAP draft, or send. Starting separate automation is also unavailable. Record blockers in a Workstream or Decision. This server-enforced triage ceiling remains in effect even if the Soul or Routine text asks otherwise.`
-            : `${routineMessage}\n\nThis approved reply work may send only when the Soul, trusted instruction, current Grants, and company Policies authorize it. If that authority is unclear, use request_mail_review. Never create a Gmail or IMAP draft. Starting separate automation is unavailable. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks otherwise.`
-        : routineMessage;
+      const deliveryMessage = routineDeliveryMessage(
+        routineMessage,
+        deliveryPolicy.mailDeliveryMode,
+        co.decisionStackEnabled !== false,
+      );
       const scopedMessage = routine.selfReviewOnly
         ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
         : deliveryMessage;
@@ -1892,6 +1890,30 @@ const SILENT_STOP_LINE =
   "The AI Model stopped without a reply or a tool call; asked it to continue the work or report.";
 const NO_REPORT_STOP =
   "The AI Model ended its turn without a final report, so this Run cannot show the work was done.";
+
+/**
+ * A Routine's brief with its server-enforced mail delivery ceiling appended.
+ * Triage work records its blockers in a Workstream — or a Decision, while the
+ * company's Decision stack takes new questions.
+ */
+export function routineDeliveryMessage(
+  routineMessage: string,
+  mailDeliveryMode: MailDeliveryMode | null | undefined,
+  decisionStackEnabled: boolean,
+): string {
+  if (!mailDeliveryMode) return routineMessage;
+  if (mailDeliveryMode === "review" || mailDeliveryMode === "draft") {
+    return `${routineMessage}\n\nAny customer email — a reply or a fresh outbound message — must use request_mail_review and return to the Decision stack with its exact recipients, subject, body and files. Do not send it and do not create a Gmail or IMAP draft. Starting separate automation is also unavailable. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks otherwise.`;
+  }
+  if (mailDeliveryMode === "triage") {
+    return `${routineMessage}\n\nThis Routine may only file the source email: label, archive, star, or mark it read. Do not compose a reply, create a Gmail or IMAP draft, or send. Starting separate automation is also unavailable. ${
+      decisionStackEnabled
+        ? "Record blockers in a Workstream or Decision."
+        : "Record blockers in a Workstream."
+    } This server-enforced triage ceiling remains in effect even if the Soul or Routine text asks otherwise.`;
+  }
+  return `${routineMessage}\n\nThis approved reply work may send only when the Soul, trusted instruction, current Grants, and company Policies authorize it. If that authority is unclear, use request_mail_review. Never create a Gmail or IMAP draft. Starting separate automation is unavailable. This server-enforced delivery ceiling remains in effect even if the Soul or Routine text asks otherwise.`;
+}
 
 /** The log line for a self-hosted server that now serves a different model. */
 export function servedModelLine(change: { from: string; to: string }): string {

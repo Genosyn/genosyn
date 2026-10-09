@@ -764,6 +764,32 @@ export type Decision = {
  * reads are member-level, mutations admin-gated. Live-sync rides the
  * "decision" kind.
  */
+/**
+ * Decision stack → Settings. Served by
+ * `/api/companies/:cid/decision-stack/settings`: reads are member-level,
+ * changes owner/admin. `instructions` is what the box shows — the company's
+ * own text, or the default while `usingDefaultInstructions`. Live-sync rides
+ * the "decision" kind.
+ */
+export type DecisionStackSettings = {
+  /** Whether AI Employees may raise new Decisions. On by default. */
+  enabled: boolean;
+  instructions: string;
+  usingDefaultInstructions: boolean;
+  /** Decisions still waiting — they stay answerable while the stack is off. */
+  pendingDecisions: number;
+  /** Whether this viewer may change these settings. */
+  canManage: boolean;
+};
+
+export const decisionStackApi = {
+  settings: (companyId: string) =>
+    api.get<DecisionStackSettings>(`/api/companies/${companyId}/decision-stack/settings`),
+  /** `instructions: null` puts the company back on the default text. */
+  update: (companyId: string, patch: { enabled?: boolean; instructions?: string | null }) =>
+    api.patch<DecisionStackSettings>(`/api/companies/${companyId}/decision-stack/settings`, patch),
+};
+
 export type DecisionPolicyDeciderKind = "employee" | "manager";
 export type DecisionPolicyRule = {
   id: string;

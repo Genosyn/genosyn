@@ -1,7 +1,8 @@
 import { config } from "../../config.js";
 import { appVersion } from "../lib/version.js";
 import { STATIC_TOOLS } from "./toolManifest.js";
-import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { isDecisionStackEnabled } from "../services/decisionStackSettings.js";
 
 /**
  * JSON-RPC (Model Context Protocol) message handling for the built-in `genosyn`
@@ -121,16 +122,24 @@ async function handleMessage(msg: unknown, token: string): Promise<JsonRpcRespon
         return ok(rpcId, {});
       case "tools/list": {
         const integration = await loadIntegrationTools(token);
+        // A company that switched its Decision stack off is not offered
+        // `request_decision`; the seam refuses it either way.
+        const info = resolveMcpToken(token);
+        const mayRaiseDecisions = info
+          ? await isDecisionStackEnabled(info.companyId).catch(() => true)
+          : true;
         const tools: Array<{
           name: string;
           description: string;
           inputSchema: unknown;
         }> = [
-          ...STATIC_TOOLS.map((t) => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-          })),
+          ...STATIC_TOOLS.filter((t) => t.name !== "request_decision" || mayRaiseDecisions).map(
+            (t) => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema,
+            }),
+          ),
           ...integration.map((t) => ({
             name: t.name,
             description: t.description,

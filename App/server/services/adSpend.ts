@@ -5,6 +5,7 @@ import { Budget } from "../db/entities/Budget.js";
 import type { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import type { IntegrationRuntimeContext } from "../integrations/types.js";
 import { notifyBudgetExhaustedOnce } from "./companyPolicies.js";
+import { isDecisionStackEnabled } from "./decisionStackSettings.js";
 
 /**
  * Host side of the ads authorized-spend ledger. The identity (connection,
@@ -71,10 +72,14 @@ export function makeAdSpendLedger(args: {
           .reduce((sum, r) => sum + r.amountMinor, 0);
         if (spent + amountMinor > budget.amountMinor) {
           void notifyBudgetExhaustedOnce(budget).catch(() => undefined);
+          // Only point at the Decision stack while it takes new questions.
+          const ask = (await isDecisionStackEnabled(connection.companyId).catch(() => true))
+            ? "Ask a human to raise the budget (a Decision is the right way)"
+            : "Note in your work report that the budget needs raising (owners and admins are notified)";
           return (
             `Refused by the budget "${budget.name}": this month's envelope holds ` +
             `${budget.amountMinor - spent} of ${budget.amountMinor} minor units and the change needs ${amountMinor}. ` +
-            "Ask a human to raise the budget (a Decision is the right way), or wait for the month to roll over. Do not retry."
+            `${ask}, or wait for the month to roll over. Do not retry.`
           );
         }
       }

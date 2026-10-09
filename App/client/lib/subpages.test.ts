@@ -396,12 +396,31 @@ describe("subpage search", () => {
     assert.equal(sections[0].item.key, "settings");
     assert.equal(pagesFirst, false);
     // Pages named for the word lead; the section's own pages follow as context.
-    assert.deepEqual(paths(pages).slice(0, 3), [
+    assert.deepEqual(paths(pages).slice(0, 4), [
+      "/decisions/settings",
       "/tldrs/settings",
       "/mail/settings",
       "/finance/settings",
     ]);
-    assert.equal(pages[3].page.section, "settings");
+    assert.equal(pages[4].page.section, "settings");
+  });
+
+  test("finds Decision stack settings by what people want to do there, for every Member", () => {
+    for (const query of [
+      "decision stack settings",
+      "turn off decisions",
+      "decision instructions",
+      "fewer questions",
+    ]) {
+      for (const viewer of [OWNER, MEMBER_NONE]) {
+        const { pages } = palette(query, viewer);
+        assert.equal(pages[0]?.page.path, "/decisions/settings", `${query} (${viewer.role})`);
+      }
+    }
+    const settings = page("/decisions/settings");
+    assert.equal(settings.navLabel, "Settings");
+    assert.equal(settings.rail, true);
+    assert.equal(canOpenSubpage(settings, MEMBER_NONE), true, "read-only for Members, not hidden");
   });
 
   test("opens a page named exactly for the query ahead of its section", () => {

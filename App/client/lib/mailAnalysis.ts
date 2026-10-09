@@ -7,10 +7,10 @@ import type {
   MailAssistantRosterEntry,
 } from "./mail";
 import {
-  mailAnalysisInstructionLines,
-  mailAnalysisInstructionsProblem,
-  sameMailAnalysisInstructions,
+  MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH,
+  MAX_MAIL_ANALYSIS_INSTRUCTION_LINES,
 } from "../../shared/mailAnalysisInstructions";
+import { instructionsEdit, type InstructionsEditState } from "./instructionsEdit";
 
 /**
  * Presentation rules for AI triage of inbound mail.
@@ -317,29 +317,15 @@ export function analysisInstructionsEdit(args: {
   draft: string;
   saved: string;
   usingDefault: boolean;
-}): {
-  dirty: boolean;
-  /** Why the draft cannot be saved, or null. */
-  problem: string | null;
-  canSave: boolean;
-  /** Restore default is offered once the saved text is the mailbox's own. */
-  canRestore: boolean;
-  /** "2 instructions" — what the reader will be given, counted as the server will. */
-  countLabel: string;
-} {
-  const dirty = !sameMailAnalysisInstructions(args.draft, args.saved);
-  const problem = mailAnalysisInstructionsProblem(args.draft);
-  const count = mailAnalysisInstructionLines(args.draft).length;
-  return {
-    dirty,
-    problem,
-    canSave: dirty && !problem,
-    canRestore: !args.usingDefault,
-    countLabel:
-      count === 0
-        ? "No instructions — new mail gets a summary and suggestions only"
-        : `${count} instruction${count === 1 ? "" : "s"}`,
-  };
+}): InstructionsEditState {
+  return instructionsEdit({
+    ...args,
+    limits: {
+      maxLength: MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH,
+      maxLines: MAX_MAIL_ANALYSIS_INSTRUCTION_LINES,
+    },
+    emptyLabel: "No instructions — new mail gets a summary and suggestions only",
+  });
 }
 
 // ───────────────────────────── automatic steps ─────────────────────────────

@@ -304,6 +304,60 @@ describe("proposing actions from an answer", () => {
   });
 });
 
+describe("buttons while the Decision stack is off", () => {
+  /** Capture the proposal turn's prompt and the kinds its tool accepts. */
+  function capturing(actions: unknown) {
+    const seen: { system: string; kinds: string[] } = { system: "", kinds: [] };
+    const seam: RestrictedSeam = async (params) => {
+      seen.system = params.system;
+      const tool = params.tools.find((t) => t.name === "submit_actions");
+      assert.ok(tool);
+      const schema = tool.inputSchema as {
+        properties: { actions: { items: { properties: { kind: { enum: string[] } } } } };
+      };
+      seen.kinds = schema.properties.actions.items.properties.kind.enum;
+      await tool.run({ actions } as Record<string, unknown>);
+      return { status: "ok", finalText: "", steps: 1 };
+    };
+    return { seam, seen };
+  }
+
+  const proposals = [
+    { kind: "decision", label: "Ask about the scrape", intent: "Stack a Decision asking whether to stop the scrape." },
+    { kind: "todo", label: "Open a Todo", intent: "Open a Todo to revisit the scrape next month." },
+  ];
+
+  test("on: a Decision button can be offered", async () => {
+    const f = await fixture();
+    const { seam, seen } = capturing(proposals);
+    const rows = await propose(f, seam);
+    assert.match(seen.system, /stacking a Decision for a human to answer/);
+    assert.ok(seen.kinds.includes("decision"));
+    assert.deepEqual(
+      rows.map((row) => row.kind),
+      ["decision", "todo"],
+    );
+  });
+
+  test("off: no Decision button is offered, and one proposed anyway is dropped", async () => {
+    const f = await fixture();
+    await AppDataSource.getRepository(Company).update(
+      { id: f.company.id },
+      { decisionStackEnabled: false },
+    );
+    const { seam, seen } = capturing(proposals);
+    const rows = await propose(f, seam);
+    assert.doesNotMatch(seen.system, /stacking a Decision for a human to answer/);
+    assert.match(seen.system, /turned the Decision stack off, so never propose stacking a Decision/);
+    assert.doesNotMatch(seen.system, /`decision` for a question a human must answer/);
+    assert.deepEqual(seen.kinds, ["routine", "todo", "project", "other"]);
+    assert.deepEqual(
+      rows.map((row) => row.kind),
+      ["todo"],
+    );
+  });
+});
+
 describe("authority on a button", () => {
   test("only routine actions are owner/admin gated", () => {
     assert.equal(actionRunnableBy("routine", false), false);

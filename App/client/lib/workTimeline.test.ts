@@ -571,6 +571,13 @@ describe("email analysis timeline details", () => {
     }
   });
 
+  test("says a question was kept off the Decision stack, not 'Screen out decision'", () => {
+    assert.equal(humanizeWorkAction("decision.screen_out", "decision"), "Kept off the Decision stack");
+    assert.equal(humanizeWorkAction("decision.screen_out", ""), "Kept off the Decision stack");
+    // The ordinary Decision rows keep their generic wording.
+    assert.equal(humanizeWorkAction("decision.create", "decision"), "Created decision");
+  });
+
   test("humanizes analysis audit actions even inside an ordinary effect list", () => {
     assert.equal(
       humanizeWorkAction("mail.analysis.started", "mail_inbound_analysis"),
@@ -965,6 +972,55 @@ describe("what an entry changed", () => {
 
   test("says nothing at all when the ledger recorded nothing", () => {
     assert.equal(workEffectPhrase(entryOf()), "");
+  });
+
+  test("says a question was kept off the Decision stack, in one and in many", () => {
+    assert.equal(
+      workEffectPhrase(
+        entryOf({ effects: [effect("decision.screen_out", "decision")], effectCount: 1 }),
+      ),
+      "kept a question off the Decision stack",
+    );
+    assert.equal(
+      workEffectPhrase(
+        entryOf({
+          effects: [
+            effect("decision.screen_out", "decision"),
+            effect("decision.create", "decision"),
+            effect("decision.screen_out", "decision"),
+          ],
+          effectCount: 3,
+        }),
+      ),
+      "kept 2 questions off the Decision stack and created a decision",
+    );
+  });
+});
+
+describe("a question kept off the Decision stack", () => {
+  test("reads as what happened: nothing was asked", () => {
+    const entry = entryOf({
+      kind: "effect",
+      run: null,
+      at: "2026-09-03T09:21:00.000Z",
+      title: "Rename the VIP label",
+      subject: "Rename the VIP label",
+      detail: "decision.screen_out",
+    });
+    const headline = workNarrative(entry).headline;
+    assert.match(headline, /^Rey kept “Rename the VIP label” off the Decision stack at /);
+    assert.match(headline, /\.$/);
+  });
+
+  test("still reads when the question had no title", () => {
+    const entry = entryOf({
+      kind: "effect",
+      run: null,
+      title: "",
+      subject: "",
+      detail: "decision.screen_out",
+    });
+    assert.match(workNarrative(entry).headline, /^Rey kept a question off the Decision stack/);
   });
 });
 

@@ -46,6 +46,7 @@ import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
 import { improvementRouter } from "./routes/improvement.js";
 import { decisionPoliciesRouter } from "./routes/decisionPolicies.js";
+import { decisionStackSettingsRouter } from "./routes/decisionStackSettings.js";
 import { autonomyRouter } from "./routes/autonomy.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { companyPoliciesRouter } from "./routes/companyPolicies.js";
@@ -412,6 +413,9 @@ async function main() {
   app.use("/api/companies/:cid", goalsRouter);
   app.use("/api/companies/:cid", improvementRouter);
   app.use("/api/companies/:cid", decisionPoliciesRouter);
+  // Decision stack → Settings: the switch for new Decisions and the
+  // instructions every new one is checked against. Owner/admin to change.
+  app.use("/api/companies/:cid", decisionStackSettingsRouter);
   app.use("/api/companies/:cid", autonomyRouter);
   app.use("/api/companies/:cid", budgetsRouter);
   app.use("/api/companies/:cid", companyPoliciesRouter);

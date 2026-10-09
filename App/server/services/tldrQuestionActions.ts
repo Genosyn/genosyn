@@ -17,6 +17,7 @@ import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool } from "./agent/types.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
 import { CHAT_HARD_TIMEOUT_MS } from "./chat.js";
+import { isDecisionStackEnabled } from "./decisionStackSettings.js";
 import { emitResourceChange } from "./resourceEvents.js";
 
 /**
@@ -151,7 +152,7 @@ const proposalSchema = z
 
 type Proposal = z.infer<typeof proposalSchema>["actions"][number];
 
-function proposeSystemPrompt(employee: AIEmployee): string {
+function proposeSystemPrompt(employee: AIEmployee, decisionStackEnabled = true): string {
   return [
     `You are ${employee.name}, ${employee.role}. You have just answered a teammate's question about a company briefing you wrote. Your only job now is to turn your own answer into at most ${MAX_ACTIONS_PER_ANSWER} one-click buttons.`,
     "",
@@ -161,10 +162,14 @@ function proposeSystemPrompt(employee: AIEmployee): string {
     "",
     "## What makes a good button",
     "Propose an action only where your answer named something concrete and specific to this company. Vague encouragement — 'review the process', 'keep monitoring' — is not an action; return an empty list rather than padding one.",
-    "Each button must be something an AI Employee can actually carry out in Genosyn: writing or changing a Routine, opening a Todo, starting a Project, or stacking a Decision for a human to answer.",
+    decisionStackEnabled
+      ? "Each button must be something an AI Employee can actually carry out in Genosyn: writing or changing a Routine, opening a Todo, starting a Project, or stacking a Decision for a human to answer."
+      : "Each button must be something an AI Employee can actually carry out in Genosyn: writing or changing a Routine, opening a Todo, or starting a Project. The company has turned the Decision stack off, so never propose stacking a Decision.",
     "`label` is the button text: imperative, at most a few words, and specific — 'Pause the nightly scrape' beats 'Do it'. Never write 'Discuss' or 'Ask me' as a label; a Discuss button already exists.",
     "`intent` is one sentence naming exactly what will be done if it is pressed, including which Routine, Project, or Todo it touches. The teammate reads this before pressing, and pressing sends this sentence back to you as their instruction — so write it as the whole request, and never rely on anything you did not put in it.",
-    "Choose `kind` by what the action creates: `routine` for scheduled work, `todo` for one task, `project` for a new workstream, `decision` for a question a human must answer, `other` for anything else.",
+    decisionStackEnabled
+      ? "Choose `kind` by what the action creates: `routine` for scheduled work, `todo` for one task, `project` for a new workstream, `decision` for a question a human must answer, `other` for anything else."
+      : "Choose `kind` by what the action creates: `routine` for scheduled work, `todo` for one task, `project` for a new workstream, `other` for anything else.",
     "Prefer changing existing work over inventing new work: pausing or narrowing a Routine that is not earning its keep is usually a better button than adding another one.",
     "Call submit_actions exactly once. Do not answer in prose.",
   ].join("\n");
@@ -202,6 +207,10 @@ export async function proposeQuestionActions(params: {
 }): Promise<TldrQuestionAction[]> {
   const answer = params.answer.trim();
   if (!answer) return [];
+  // A button that asks the employee to stack a Decision would only meet a
+  // refusal while the company has the Decision stack off, so none is offered.
+  const decisionStackEnabled = await isDecisionStackEnabled(params.companyId).catch(() => true);
+  const kinds = TLDR_ACTION_KINDS.filter((kind) => decisionStackEnabled || kind !== "decision");
 
   let submitted: Proposal[] | null = null;
   const submitTool: AgentTool = {
@@ -217,7 +226,7 @@ export async function proposeQuestionActions(params: {
           items: {
             type: "object",
             properties: {
-              kind: { type: "string", enum: [...TLDR_ACTION_KINDS] },
+              kind: { type: "string", enum: kinds },
               label: { type: "string", maxLength: ACTION_LABEL_CHARS },
               intent: { type: "string", maxLength: ACTION_INTENT_CHARS },
             },
@@ -249,7 +258,7 @@ export async function proposeQuestionActions(params: {
     const result = await (params.runRestricted ?? runRestrictedEmployeeAgent)({
       model: params.model,
       employeeId: params.employee.id,
-      system: proposeSystemPrompt(params.employee),
+      system: proposeSystemPrompt(params.employee, decisionStackEnabled),
       messages: [
         {
           role: "user",
@@ -275,6 +284,7 @@ export async function proposeQuestionActions(params: {
     const seen = new Set<string>();
     const rows: TldrQuestionAction[] = [];
     for (const proposal of proposals) {
+      if (!kinds.includes(proposal.kind)) continue;
       const label = clean(proposal.label, ACTION_LABEL_CHARS);
       const intent = clean(proposal.intent, ACTION_INTENT_CHARS);
       if (!label || !intent) continue;

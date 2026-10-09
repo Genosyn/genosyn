@@ -78,13 +78,15 @@ export function Decisions() {
 
       <H2 id="active-and-history">Active and History</H2>
       <P>
-        The <Strong>Decision stack</Strong> has two pages in its side menu. <Strong>Active</Strong>{" "}
-        holds only what still needs someone: waiting questions, email reviews, and work reviews,
-        plus the cards you are following after acting on them. <Strong>History</Strong> keeps
-        everything already settled: answered, dismissed, and expired Decisions, each with what the
-        AI Employee did next, and for owners and admins the email and work reviews that were sent,
-        discarded, approved, or declined. On a phone, open the side menu from the top bar, or use
-        the <Strong>Decision history</Strong> link on the Active page.
+        The <Strong>Decision stack</Strong> has three pages in its side menu.{" "}
+        <Strong>Active</Strong> holds only what still needs someone: waiting questions, email
+        reviews, and work reviews, plus the cards you are following after acting on them.{" "}
+        <Strong>History</Strong> keeps everything already settled: answered, dismissed, and expired
+        Decisions, each with what the AI Employee did next, and for owners and admins the email and
+        work reviews that were sent, discarded, approved, or declined.{" "}
+        <DocLink to="/docs/decisions#settings">Settings</DocLink> decides which questions reach
+        you. On a phone, open the side menu from the top bar, or use the{" "}
+        <Strong>Decision history</Strong> link on the Active page.
       </P>
       <UL>
         <LI>
@@ -100,6 +102,42 @@ export function Decisions() {
           wherever that item is now: on Active while it waits, on History once it is settled.
         </LI>
       </UL>
+
+      <H2 id="settings">Settings: which questions reach you</H2>
+      <P>
+        Open <Strong>Settings</Strong> in the Decision stack&apos;s side menu. Every Member can read
+        it; only owners and admins can change it.
+      </P>
+      <P>
+        <Strong>Let AI Employees add decisions</Strong> is on by default. Turn it off and AI
+        Employees stop adding questions. When they reach a choice they would have asked about, they
+        follow their instructions and Policies, take only steps that are easy to undo, note open
+        questions in their work reports, and never take a consequential step they lack authority
+        for. Questions already waiting stay in the stack to answer, snooze, or dismiss, and the
+        stack shows <Strong>The Decision stack is off</Strong>. Email and work reviews still arrive:
+        they are Approvals that hold an action for you, not Decisions. Turn it back on to take new
+        questions again.
+      </P>
+      <P>
+        <Strong>Which questions belong</Strong> holds your <Strong>Instructions</Strong>: plain
+        language, one instruction per line, up to 30. It starts with a default that asks only about
+        spending, contracts, legal, security or reputation risks, conflicting policies, the
+        company&apos;s direction, and anything hard to undo. A <Strong>Default</Strong> pill shows
+        while you follow it. Edit the text and select <Strong>Save instructions</Strong> (or press
+        ⌘/Ctrl+Enter), <Strong>Cancel</Strong> to drop an edit, or{" "}
+        <Strong>Restore default</Strong>. Leave the box empty to let every question through.
+      </P>
+      <P>
+        AI Employees read your instructions before they ask. Every new question is also checked
+        against them by the asking employee&apos;s own AI Model before it is added. A question your
+        instructions keep off is never created and pages nobody: the employee is told which
+        instruction applied and handles it within the authority it already has. That
+        employee&apos;s work timeline says it kept the question off the Decision stack, and the
+        audit log records it, so you can tune the wording. If the check cannot run — no AI Model
+        connected, the model is busy or fails, or no answer within a minute — the question reaches
+        the stack as before. Existing companies start with the stack on and the default
+        instructions.
+      </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
       <UL>

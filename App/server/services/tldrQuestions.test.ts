@@ -310,6 +310,34 @@ describe("asking a question about a TLDR", () => {
     assert.match(system, /no tools on this turn/);
   });
 
+  test("proposes a decision a human owes only while the Decision stack takes questions", async () => {
+    const f = await fixture();
+    const systems: string[] = [];
+    const answer = (prompt: string) =>
+      runTldrQuestionTurn({
+        companyId: f.company.id,
+        tldrId: f.tldr.id,
+        prompt,
+        userId: f.owner.id,
+        requesterSessionVersion: 1,
+        callbacks: recorder().callbacks,
+        runRestricted: answeringAgent("Pause the scrape.", (_p, s, _names, turn) => {
+          if (turn === ANSWER_TURN) systems.push(s);
+        }),
+      });
+
+    await answer("What should change?");
+    assert.match(systems[0], /a Todo to open, a decision a human owes\./);
+
+    await AppDataSource.getRepository(Company).update(
+      { id: f.company.id },
+      { decisionStackEnabled: false },
+    );
+    await answer("What else should change?");
+    assert.doesNotMatch(systems[1], /decision a human owes/);
+    assert.match(systems[1], /a Routine to add or pause, a Todo to open\./);
+  });
+
   test("caps the number of cards per briefing", async () => {
     const f = await fixture();
     for (let i = 0; i < MAX_QUESTIONS_PER_TLDR; i += 1) {

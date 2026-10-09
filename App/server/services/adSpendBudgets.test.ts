@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { Budget } from "../db/entities/Budget.js";
+import { Company } from "../db/entities/Company.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Notification } from "../db/entities/Notification.js";
 import { Membership } from "../db/entities/Membership.js";
@@ -55,6 +56,21 @@ async function spend(amountMinor: number, over: Partial<AdSpendEvent> = {}): Pro
 }
 
 describe("checkBudgets", () => {
+  test("the refusal points at the Decision stack only while it takes new questions", async () => {
+    await insert(Company, { id: companyId, name: "Acme", slug: `acme-${companyId}`, ownerId: "owner" });
+    await insert(Budget, { companyId, name: "Ads month", amountMinor: 10_000 });
+    await spend(8_000);
+    const on = (await ledger().checkBudgets(5_000)) ?? "";
+    assert.match(on, /Ask a human to raise the budget \(a Decision is the right way\)/);
+
+    await AppDataSource.getRepository(Company).update({ id: companyId }, { decisionStackEnabled: false });
+    const off = (await ledger().checkBudgets(5_000)) ?? "";
+    assert.doesNotMatch(off, /Decision/);
+    assert.match(off, /Note in your work report that the budget needs raising/);
+    assert.match(off, /Refused by the budget "Ads month"/);
+    assert.match(off, /Do not retry\.$/);
+  });
+
   test("no budgets, no cost — and headroom passes", async () => {
     assert.equal(await ledger().checkBudgets(5_000), null);
     await insert(Budget, { companyId, name: "Ads month", amountMinor: 10_000 });

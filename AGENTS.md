@@ -311,6 +311,26 @@ preparation creates no provider draft and sends no mail. A human approves one
 major work plan; current Grants and delivery limits still apply. Neither an AI
 decision policy nor a Waiver can authorize that plan.
 
+**The Decision stack can be switched off, and it screens what it takes.**
+Owners and admins set both at Decision stack → Settings
+(`Company.decisionStackEnabled`, `Company.decisionStackInstructions`;
+`services/decisionStackSettings.ts`): whether AI Employees may raise new
+Decisions (on by default), and plain-language instructions every new Decision
+is checked against (null means the default text in
+`shared/decisionStackInstructions.ts`; `""` means none). Every Decision comes
+through one door, `services/decisionIntake.ts` — do not add another path that
+creates a `Decision` row. Off, `request_decision` is hidden from every tool
+list and refused with what to do instead, and briefings stop promising it. On,
+the asking employee's own AI Model checks the question in a restricted
+one-tool turn (`services/decisionScreening.ts`); a question kept off is never
+created, is audited as `decision.screen_out`, and the employee is told to stay
+within its existing authority. A keep-off must cite one of the company's own
+instructions, and the screen fails open — no instructions, no connected model,
+a busy subscription model, an error or a timeout lets the question through.
+The switch and the screen only remove noise: they never answer a question,
+grant authority, or touch an Approval, an email or work review, or a Decision
+already waiting, which stays answerable.
+
 **A mailbox's AI analysis instructions act; its suggested buttons do not.** The
 AI Employee that reads each newly-arrived email (`services/mail/analysis.ts`)
 proposes one-click buttons that run only when a Member presses them, with that

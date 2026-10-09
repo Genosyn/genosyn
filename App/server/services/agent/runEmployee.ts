@@ -41,7 +41,8 @@ import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
-import { proactiveReviewToolScope, PROACTIVE_REVIEW_BRIEF } from "../proactive/workReviewPolicy.js";
+import { proactiveReviewBrief, proactiveReviewToolScope } from "../proactive/workReviewPolicy.js";
+import { decisionStackStateOf, getDecisionStackState } from "../decisionStackSettings.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -219,8 +220,14 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
     proactiveReviewToolScope(tokenInfo?.proactiveReview);
-  if (tokenInfo?.proactiveReview)
-    params = { ...params, system: `${params.system}\n\n${PROACTIVE_REVIEW_BRIEF}` };
+  if (tokenInfo?.proactiveReview) {
+    // The brief follows the company's live Decision stack settings, so a
+    // review never promises `request_decision` while the stack is off.
+    const decisionStack =
+      (await getDecisionStackState(tokenInfo.companyId).catch(() => null)) ??
+      decisionStackStateOf({});
+    params = { ...params, system: `${params.system}\n\n${proactiveReviewBrief(decisionStack)}` };
+  }
   if (reviewScope) {
     params = {
       ...params,

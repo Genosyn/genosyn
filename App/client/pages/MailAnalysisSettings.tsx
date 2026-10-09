@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, CheckCircle2, RotateCcw, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 
 import {
   MailAnalysisInstructionsState,
@@ -12,13 +12,12 @@ import {
   analysisReadinessNote,
 } from "../lib/mailAnalysis";
 import { MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH } from "../../shared/mailAnalysisInstructions";
-import { Button } from "../components/ui/Button";
+import { InstructionsEditor } from "../components/InstructionsEditor";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { Textarea } from "../components/ui/Textarea";
 import { errorMessage } from "../lib/errors";
 
 /**
@@ -237,9 +236,8 @@ export function MailAnalysisSettingsCard({
 }
 
 /**
- * The instructions box. Free text on purpose — people say what they want in
- * their own words, one line each — with the default already in it, so the
- * first thing anyone sees is a working example rather than an empty field.
+ * The mailbox's instructions box — the shared `InstructionsEditor`, told what
+ * mailbox instructions are for and everything they can do on their own.
  */
 function AnalysisInstructions({
   companyId,
@@ -257,144 +255,34 @@ function AnalysisInstructions({
   busyElsewhere: boolean;
   onSaved: (state: MailAnalysisInstructionsState) => void;
 }) {
-  const [draft, setDraft] = React.useState(saved);
-  const [busy, setBusy] = React.useState<"save" | "restore" | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const fieldId = React.useId();
-  const hintId = React.useId();
-
-  // A save (or Restore default) hands down new text; show it. Edits typed
-  // since are the person's, so only a change in what was saved replaces them.
-  const lastSaved = React.useRef(saved);
-  React.useEffect(() => {
-    if (lastSaved.current === saved) return;
-    lastSaved.current = saved;
-    setDraft(saved);
-  }, [saved]);
-
-  const edit = analysisInstructionsEdit({ draft, saved, usingDefault });
-
-  const submit = async (instructions: string | null, kind: "save" | "restore") => {
-    if (busy || busyElsewhere) return;
-    setBusy(kind);
-    setError(null);
-    try {
-      const result = await mailApi.patchAnalysisSettings(companyId, accountId, { instructions });
-      lastSaved.current = result.instructions;
-      setDraft(result.instructions);
-      onSaved({
-        instructions: result.instructions,
-        usingDefaultInstructions: result.usingDefaultInstructions,
-      });
-    } catch (err) {
-      setError(
-        errorMessage(
-          err,
-          kind === "restore"
-            ? "Couldn’t restore the default instructions"
-            : "Couldn’t save the instructions",
-        ),
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
-    <form
-      className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (edit.canSave) void submit(draft, "save");
+    <InstructionsEditor
+      saved={saved}
+      usingDefault={usingDefault}
+      edit={analysisInstructionsEdit}
+      busyElsewhere={busyElsewhere}
+      maxLength={MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH}
+      placeholder={"For example:\nStar emails from customers that need a reply."}
+      description="Every new email is checked against these. Write what you want in your own words, one instruction per line."
+      hint={
+        <>
+          On its own, the AI employee can only star, mark as read, archive, add a label your
+          instruction names, or unsubscribe when the email has a verified one-click unsubscribe
+          (Gmail mailboxes). It never replies, sends, forwards or deletes. Everything it does
+          shows on the email, and all but an unsubscribe can be undone there. Leave the box empty
+          to only get a summary and suggestions.
+        </>
+      }
+      onSave={async (instructions) => {
+        const result = await mailApi.patchAnalysisSettings(companyId, accountId, { instructions });
+        return { instructions: result.instructions, usingDefault: result.usingDefaultInstructions };
       }}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <label
-          htmlFor={fieldId}
-          className="text-sm font-medium text-slate-700 dark:text-slate-300"
-        >
-          Instructions
-        </label>
-        {usingDefault && !edit.dirty && (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-            Default
-          </span>
-        )}
-      </div>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        Every new email is checked against these. Write what you want in your own words, one
-        instruction per line.
-      </p>
-      <div className="mt-2">
-        <Textarea
-          id={fieldId}
-          aria-describedby={hintId}
-          value={draft}
-          rows={4}
-          maxLength={MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH}
-          spellCheck
-          disabled={busy !== null}
-          className="min-h-[104px] leading-6"
-          placeholder={"For example:\nStar emails from customers that need a reply."}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setError(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              if (edit.canSave) void submit(draft, "save");
-            }
-          }}
-        />
-      </div>
-      <p id={hintId} className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-        On its own, the AI employee can only star, mark as read, archive, add a label your
-        instruction names, or unsubscribe when the email has a verified one-click unsubscribe
-        (Gmail mailboxes). It never replies, sends, forwards or deletes. Everything it does shows
-        on the email, and all but an unsubscribe can be undone there. Leave the box empty to only
-        get a summary and suggestions.
-      </p>
-      <FormError message={error ?? (edit.dirty ? edit.problem : null)} className="mt-2" />
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button
-          type="submit"
-          size="sm"
-          loading={busy === "save"}
-          disabled={!edit.canSave || busy !== null || busyElsewhere}
-        >
-          Save instructions
-        </Button>
-        {edit.dirty && (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={busy !== null}
-            onClick={() => {
-              setDraft(saved);
-              setError(null);
-            }}
-          >
-            Cancel
-          </Button>
-        )}
-        {edit.canRestore && (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            loading={busy === "restore"}
-            disabled={busy !== null || busyElsewhere}
-            onClick={() => void submit(null, "restore")}
-          >
-            <RotateCcw size={14} /> Restore default
-          </Button>
-        )}
-        <span className="text-xs text-slate-400 sm:ml-auto dark:text-slate-500">
-          {edit.countLabel}
-        </span>
-      </div>
-    </form>
+      onSaved={(result) =>
+        onSaved({
+          instructions: result.instructions,
+          usingDefaultInstructions: result.usingDefault,
+        })
+      }
+    />
   );
 }
