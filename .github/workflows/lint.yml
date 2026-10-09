@@ -3,6 +3,8 @@ name: Lint
 on:
   # A fixed release-candidate branch can finish validation while main advances.
   workflow_dispatch:
+  # The OSS Scanner files have no workflow of their own: App's
+  # server/ossScanner.test.ts guards them, so a change to them runs this one.
   push:
     branches: [main]
     paths:
@@ -11,6 +13,10 @@ on:
       - "Connect/**"
       - "Home/**"
       - ".github/workflows/lint.yml"
+      - ".oss-scanner/**"
+      - ".dockerignore"
+      - ".nvmrc"
+      - "SECURITY.md"
   pull_request:
     paths:
       - "App/**"
@@ -18,6 +24,10 @@ on:
       - "Connect/**"
       - "Home/**"
       - ".github/workflows/lint.yml"
+      - ".oss-scanner/**"
+      - ".dockerignore"
+      - ".nvmrc"
+      - "SECURITY.md"
 
 concurrency:
   group: lint-${{ github.ref }}
