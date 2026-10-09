@@ -2,10 +2,13 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Archive,
+  Ban,
   Bot,
   Check,
+  CircleAlert,
   FileText,
   Lock,
+  MailCheck,
   MailX,
   Receipt,
   RefreshCw,
@@ -13,9 +16,10 @@ import {
   Sparkles,
   Star,
   Tag,
+  Undo2,
 } from "lucide-react";
 
-import { MailAnalysis, MailAnalysisAction, mailApi } from "../lib/mail";
+import { MailAnalysis, MailAnalysisAction, MailAnalysisAutoAction, mailApi } from "../lib/mail";
 import type { FinanceAccess } from "../lib/api";
 import {
   CATEGORY_TONE_CLASSES,
@@ -25,6 +29,10 @@ import {
   analysisActionHint,
   analysisCategoryLabel,
   analysisCategoryTone,
+  automaticActionNote,
+  automaticActionTitle,
+  automaticActionTone,
+  automaticActionUndoable,
 } from "../lib/mailAnalysis";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
@@ -61,6 +69,113 @@ function iconFor(action: MailAnalysisAction): React.ReactNode {
   return ACTION_ICONS[action.kind] ?? <Sparkles size={13} />;
 }
 
+const AUTO_ICONS: Record<MailAnalysisAutoAction["action"], React.ReactNode> = {
+  star: <Star size={13} />,
+  markRead: <MailCheck size={13} />,
+  archive: <Archive size={13} />,
+  applyLabel: <Tag size={13} />,
+  unsubscribe: <MailX size={13} />,
+  other: <Ban size={13} />,
+};
+
+/**
+ * What the mailbox's instructions did to this email on their own.
+ *
+ * Shown above the buttons because it already happened: a thread that left the
+ * inbox, or a sender that was unsubscribed from, has to say so where the
+ * person is looking, in their own instruction's words, with the way back.
+ */
+function AutomaticSteps({
+  steps,
+  undoingId,
+  disabled,
+  onUndo,
+}: {
+  steps: MailAnalysisAutoAction[];
+  undoingId: string | null;
+  disabled: boolean;
+  onUndo: (step: MailAnalysisAutoAction) => void;
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-violet-200/80 bg-white/70 px-3 py-2 dark:border-violet-500/20 dark:bg-slate-950/40">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-500/80 dark:text-violet-300/70">
+        Your instructions
+      </p>
+      <ul className="mt-1 divide-y divide-violet-100 dark:divide-violet-500/10">
+        {steps.map((step) => {
+          const tone = automaticActionTone(step);
+          const note = automaticActionNote(step);
+          return (
+            <li key={step.id} className="flex items-start gap-2 py-1.5 text-xs">
+              <span
+                className={clsx(
+                  "mt-0.5 shrink-0",
+                  tone === "done" && "text-emerald-600 dark:text-emerald-400",
+                  tone === "working" && "text-violet-500 dark:text-violet-300",
+                  tone === "failed" && "text-red-600 dark:text-red-400",
+                  tone === "muted" && "text-slate-400 dark:text-slate-500",
+                )}
+              >
+                {tone === "working" ? (
+                  <Spinner size={13} />
+                ) : tone === "failed" ? (
+                  <CircleAlert size={13} />
+                ) : (
+                  AUTO_ICONS[step.action] ?? <Sparkles size={13} />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p
+                  className={clsx(
+                    "font-medium",
+                    tone === "muted"
+                      ? "text-slate-500 dark:text-slate-400"
+                      : "text-slate-800 dark:text-slate-100",
+                  )}
+                >
+                  {automaticActionTitle(step)}
+                </p>
+                {step.reason && step.status !== "skipped" && (
+                  <p className="text-slate-500 dark:text-slate-400">{step.reason}</p>
+                )}
+                {note && (
+                  <p
+                    className={clsx(
+                      tone === "failed"
+                        ? "text-red-700 dark:text-red-300"
+                        : "text-slate-500 dark:text-slate-400",
+                    )}
+                  >
+                    {note}
+                  </p>
+                )}
+                {step.instruction && (
+                  <p className="break-words text-[11px] text-slate-400 dark:text-slate-500">
+                    Your instruction: &ldquo;{step.instruction}&rdquo;
+                  </p>
+                )}
+              </div>
+              {automaticActionUndoable(step) && (
+                <button
+                  type="button"
+                  onClick={() => onUndo(step)}
+                  disabled={disabled}
+                  aria-busy={undoingId === step.id || undefined}
+                  aria-label={`Undo: ${automaticActionTitle(step)}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:text-violet-200 dark:hover:bg-violet-500/15"
+                >
+                  {undoingId === step.id ? <ButtonSpinner size={12} /> : <Undo2 size={12} />}
+                  Undo
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function MailAnalysisCard({
   analysis,
   companyId,
@@ -81,12 +196,30 @@ export function MailAnalysisCard({
   const [row, setRow] = React.useState(analysis);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [retrying, setRetrying] = React.useState(false);
+  const [undoingId, setUndoingId] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => setRow(analysis), [analysis]);
 
+  const undo = async (step: MailAnalysisAutoAction) => {
+    if (undoingId || busyId || retrying) return;
+    setUndoingId(step.id);
+    setNotice(null);
+    try {
+      const result = await mailApi.undoAutomaticAction(companyId, row.id, step.id);
+      // The step reading "— undone" is the confirmation; the thread reloads
+      // so the star, the label or the inbox reflects it too.
+      setRow(result.analysis);
+      onChanged();
+    } catch (err) {
+      void dialog.error(err, { title: `Couldn’t undo “${automaticActionTitle(step)}”` });
+    } finally {
+      setUndoingId(null);
+    }
+  };
+
   const run = async (action: MailAnalysisAction) => {
-    if (busyId || retrying || action.executedAt) return;
+    if (busyId || retrying || undoingId || action.executedAt) return;
     if (analysisActionBlockedReason(action, financeAccess)) return;
     const confirmation = analysisActionConfirm(action);
     if (confirmation) {
@@ -116,7 +249,7 @@ export function MailAnalysisCard({
   };
 
   const retry = async () => {
-    if (retrying || busyId) return;
+    if (retrying || busyId || undoingId) return;
     setRetrying(true);
     setNotice(null);
     try {
@@ -162,6 +295,8 @@ export function MailAnalysisCard({
   }
 
   const tone = CATEGORY_TONE_CLASSES[analysisCategoryTone(row.category)];
+  // A row written before instructions existed (or by an older server) has none.
+  const automaticSteps = row.automaticActions ?? [];
 
   return (
     <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/50 p-4 shadow-sm dark:border-violet-500/25 dark:bg-violet-500/5">
@@ -184,7 +319,7 @@ export function MailAnalysisCard({
             </span>
             <button
               onClick={() => void retry()}
-              disabled={retrying || busyId !== null}
+              disabled={retrying || busyId !== null || undoingId !== null}
               aria-busy={retrying || undefined}
               title="Read this email again"
               className="ml-auto rounded p-1 text-violet-400 hover:bg-violet-100 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-violet-500/15 dark:hover:text-violet-200"
@@ -193,6 +328,15 @@ export function MailAnalysisCard({
             </button>
           </div>
           <p className="text-sm text-slate-700 dark:text-slate-200">{row.summary}</p>
+
+          {automaticSteps.length > 0 && (
+            <AutomaticSteps
+              steps={automaticSteps}
+              undoingId={undoingId}
+              disabled={undoingId !== null || busyId !== null || retrying}
+              onUndo={(step) => void undo(step)}
+            />
+          )}
 
           <FormSuccess message={notice} className="mt-2 text-xs" />
 
@@ -208,7 +352,9 @@ export function MailAnalysisCard({
                 return (
                   <button
                     key={action.id}
-                    disabled={spent || Boolean(blocked) || busyId !== null || retrying}
+                    disabled={
+                      spent || Boolean(blocked) || busyId !== null || retrying || undoingId !== null
+                    }
                     aria-busy={busyId === action.id || undefined}
                     onClick={() => void run(action)}
                     title={spent ? "Already done" : (blocked ?? analysisActionHint(action))}

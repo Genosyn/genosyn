@@ -11,14 +11,21 @@ import { dateTimeColumnType } from "./columnTypes.js";
 export type MailInboundAnalysisStatus = "running" | "succeeded" | "failed";
 
 /**
- * One AI Employee's read of one inbound email, and the action buttons it
- * proposed off the back of it.
+ * One AI Employee's read of one inbound email, the action buttons it
+ * proposed off the back of it, and what the mailbox's instructions had done
+ * to the email automatically.
  *
  * Every message that arrives in a mailbox with AI analysis switched on gets a
  * row here: a short category, a one-line summary a human can scan, and up to
  * a handful of one-click next steps. The buttons never fire by themselves —
  * they run through the ordinary human routes when a Member presses them, with
  * that Member's authority, exactly like the per-email chat's suggestions.
+ *
+ * `autoActionsJson` is the record of the other half: the steps the mailbox's
+ * written instructions asked for and the server allowed (star, mark read,
+ * archive, a named label, a verified unsubscribe), each with the instruction
+ * it followed and what became of it. It is written by the arrival read only,
+ * and a later re-read keeps it, because it is history rather than a verdict.
  *
  * `messageId` is unique, which makes the row both the result and the replay
  * guard: re-analysing a message updates its verdict in place instead of
@@ -76,6 +83,13 @@ export class MailInboundAnalysis {
   /** Serialized `MailAnalysisAction[]`, each with its server-verified target. */
   @Column({ type: "text", default: "[]" })
   actionsJson!: string;
+
+  /**
+   * Serialized `MailAnalysisAutoAction[]` — what the mailbox's instructions
+   * did to this email on its own, and why. See `services/mail/analysisAutomation.ts`.
+   */
+  @Column({ type: "text", default: "[]" })
+  autoActionsJson!: string;
 
   @Column({ type: "text", default: "" })
   errorMessage!: string;

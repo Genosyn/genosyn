@@ -550,6 +550,27 @@ describe("email analysis timeline details", () => {
     assert.equal(workEntryKindLabel(run), "Routine run");
   });
 
+  test("says what the mailbox's instructions had an employee do, not 'automatic analysis'", () => {
+    assert.equal(
+      humanizeWorkAction("mail.analysis.automatic", "mail_inbound_analysis"),
+      "Followed an email instruction",
+    );
+    assert.equal(
+      humanizeWorkAction("mail.analysis.automatic_failed", "mail_inbound_analysis"),
+      "Could not follow an email instruction",
+    );
+    assert.equal(
+      humanizeWorkAction("mail.analysis.automatic_undo", ""),
+      "Undid an automatic email step",
+    );
+    // An instruction step is a change the employee made, not an analysis attempt.
+    for (const detail of ["mail.analysis.automatic", "mail.analysis.automatic_failed"]) {
+      const entry = { ...analysisEntry(), detail };
+      assert.equal(workEmailAnalysisPhase(entry), null, detail);
+      assert.equal(workEntryKindLabel(entry), "Change", detail);
+    }
+  });
+
   test("humanizes analysis audit actions even inside an ordinary effect list", () => {
     assert.equal(
       humanizeWorkAction("mail.analysis.started", "mail_inbound_analysis"),

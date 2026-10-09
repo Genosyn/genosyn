@@ -5,7 +5,6 @@ import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import {
   EmployeeMailAccountGrant,
   MAIL_ACCESS_LEVELS,
@@ -74,6 +73,12 @@ import {
 import { mailReviewsForThreads, type MailReviewSummary } from "../services/mail/reviewStatus.js";
 import { mailReviewTimeline } from "../services/mail/reviewTimeline.js";
 import { executeAnalysisAction } from "../services/mail/analysisActions.js";
+import { undoAutomaticAnalysisAction } from "../services/mail/analysisAutomation.js";
+import {
+  MailAnalysisSettingsError,
+  readMailAnalysisSettings,
+  updateMailAnalysisSettings,
+} from "../services/mail/analysisSettings.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
 import { decodeHtmlEntities } from "../services/mail/gmailClient.js";
 import {
@@ -87,7 +92,6 @@ import {
   handoverGrantError,
   retryMailHandover,
 } from "../services/mail/handovers.js";
-import { mailboxRoster } from "../services/mail/roster.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import {
   applyMailScope,
@@ -147,9 +151,11 @@ mailRouter.use(requireCompanyMember);
  *     Pausing stops sync and inbound automation without constraining any tool,
  *     so resuming only restores what was configured. A Standdown is the stop
  *     instrument;
- *   - AI analysis settings. The reader must already hold a Grant on this
- *     mailbox, gets one submission tool, and only proposes; its buttons run
- *     with the pressing Member's authority;
+ *   - AI analysis settings, instructions included. The reader must already
+ *     hold a Grant on this mailbox and gets one submission tool. Its buttons
+ *     run with the pressing Member's authority; the instructions can only
+ *     star, mark read, archive, add a label they name, or send a verified
+ *     one-click unsubscribe, on new mail, under the reader's own Draft Grant;
  *   - rules, handovers, drafts, sending and Sync now: ordinary use of the
  *     inbox, each bounded by the employee's Grant where an employee is involved.
  *
@@ -1800,10 +1806,12 @@ mailRouter.get("/mail/accounts/:aid/grant-candidates", async (req, res) => {
 // ───────────────────────── AI analysis of inbound mail ─────────────────────────
 //
 // Analysis itself runs off the inbound automation queue — see
-// `services/mail/analysis.ts`. These routes are the human side of it: the
-// mailbox setting, a manual re-read, and pressing one of the buttons. A
-// button always executes with the Member's own authority through the ordinary
-// services, never with the analysing employee's.
+// `services/mail/analysis.ts`, and `analysisAutomation.ts` for the steps the
+// mailbox's instructions take on their own. These routes are the human side
+// of it: the mailbox setting, a manual re-read, pressing one of the buttons,
+// and undoing an automatic step. A button or an undo always executes with the
+// Member's own authority through the ordinary services, never with the
+// analysing employee's.
 
 async function loadAnalysis(
   cid: string,
@@ -1820,34 +1828,15 @@ async function loadAnalysis(
 }
 
 /**
- * The mailbox's triage setting, plus everything the pickers need and — the
- * part a Member actually wants — who would read the next email that arrives.
- * A setting page that shows a toggle but not its consequence is how "it's on,
- * why is nothing happening?" happens.
+ * The mailbox's triage setting, its instructions, everything the pickers need
+ * and — the part a Member actually wants — who would read the next email that
+ * arrives. See `services/mail/analysisSettings.ts`.
  */
 mailRouter.get("/mail/accounts/:aid/ai-analysis", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const account = await loadAccount(cid, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const [roster, reader] = await Promise.all([
-    mailboxRoster(cid, account.id),
-    resolveAnalysisReader(account),
-  ]);
-  res.json({
-    enabled: account.aiAnalysisEnabled,
-    employeeId: account.aiAnalysisEmployeeId,
-    modelId: account.aiAnalysisModelId,
-    roster,
-    resolved: reader
-      ? {
-          employeeId: reader.employee.id,
-          employeeName: reader.employee.name,
-          modelId: reader.model.id,
-          modelLabel: reader.model.model,
-          accessLevel: reader.accessLevel,
-        }
-      : null,
-  });
+  res.json(await readMailAnalysisSettings(account));
 });
 
 const aiAnalysisSettingsSchema = z
@@ -1855,12 +1844,17 @@ const aiAnalysisSettingsSchema = z
     enabled: z.boolean().optional(),
     employeeId: z.string().uuid().nullable().optional(),
     modelId: z.string().uuid().nullable().optional(),
+    // Null goes back to the default instructions. The precise limits — length,
+    // number of lines, printable text — are the service's, so they answer in
+    // a sentence; this bound only stops an absurd body at the door.
+    instructions: z.string().max(20_000).nullable().optional(),
   })
   .strict();
 
 // Open to every Member. It chooses among employees an owner or admin already
-// granted on this mailbox (checked here, and again at read time by
-// `resolveAnalysisReader`), so it cannot widen anyone's access.
+// granted on this mailbox (checked by the service, and again at read time by
+// `resolveAnalysisReader`), and its instructions can only reach the short list
+// of steps the reader's own Grant allows, so it cannot widen anyone's access.
 mailRouter.patch(
   "/mail/accounts/:aid/ai-analysis",
   validateBody(aiAnalysisSettingsSchema),
@@ -1868,78 +1862,20 @@ mailRouter.patch(
     const cid = (req.params as Record<string, string>).cid;
     const account = await loadAccount(cid, req.params.aid as string);
     if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof aiAnalysisSettingsSchema>;
-
-    if (body.employeeId) {
-      const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: body.employeeId,
-        companyId: cid,
-      });
-      if (!employee) return res.status(400).json({ error: "Unknown AI Employee" });
-      const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
-        employeeId: employee.id,
-        accountId: account.id,
-      });
-      if (!grant) {
-        return res.status(400).json({
-          error: `${employee.name} has no access to ${account.address}. Grant it under AI access first.`,
-        });
+    try {
+      res.json(
+        await updateMailAnalysisSettings(
+          account,
+          req.body as z.infer<typeof aiAnalysisSettingsSchema>,
+          req.userId ?? null,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof MailAnalysisSettingsError) {
+        return res.status(400).json({ error: err.message });
       }
+      throw err;
     }
-    // A pinned model must belong to whoever will actually be reading — the
-    // employee named in this same request when there is one, otherwise the
-    // one already on the row. Otherwise the pin is dead on arrival and the
-    // read quietly falls back to a different brain than the picker shows.
-    const modelOwnerId =
-      body.employeeId !== undefined ? body.employeeId : account.aiAnalysisEmployeeId;
-    if (body.modelId) {
-      if (!modelOwnerId) {
-        return res
-          .status(400)
-          .json({ error: "Choose an AI Employee before pinning one of their models." });
-      }
-      const model = await AppDataSource.getRepository(AIModel).findOneBy({
-        id: body.modelId,
-        employeeId: modelOwnerId,
-      });
-      if (!model) return res.status(400).json({ error: "That AI Model is not this employee's" });
-    }
-
-    if (body.enabled !== undefined) account.aiAnalysisEnabled = body.enabled;
-    if (body.employeeId !== undefined) {
-      account.aiAnalysisEmployeeId = body.employeeId;
-      // Changing who reads orphans a pin aimed at the previous employee.
-      if (body.modelId === undefined) account.aiAnalysisModelId = null;
-    }
-    if (body.modelId !== undefined) account.aiAnalysisModelId = body.modelId;
-    await AppDataSource.getRepository(MailAccount).save(account);
-
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "mail.analysis.settings",
-      targetType: "mail_account",
-      targetId: account.id,
-      targetLabel: account.address,
-      metadata: {
-        enabled: account.aiAnalysisEnabled,
-        employeeId: account.aiAnalysisEmployeeId,
-        modelId: account.aiAnalysisModelId,
-      },
-    });
-    const reader = await resolveAnalysisReader(account);
-    res.json({
-      account: serializeMailAccount(account),
-      resolved: reader
-        ? {
-            employeeId: reader.employee.id,
-            employeeName: reader.employee.name,
-            modelId: reader.model.id,
-            modelLabel: reader.model.model,
-            accessLevel: reader.accessLevel,
-          }
-        : null,
-    });
   },
 );
 
@@ -2017,3 +1953,39 @@ mailRouter.post("/mail/analyses/:id/actions/:actionId", requireBrowserSession, a
     });
   }
 });
+
+const undoAutomaticActionParamsSchema = z.object({
+  cid: z.string().min(1),
+  id: z.string().uuid(),
+  autoId: z.string().regex(/^auto-\d{1,2}$/, "Unknown automatic action"),
+});
+
+/**
+ * Take back one step the mailbox's instructions took on their own — unstar,
+ * mark unread, return to the inbox, remove the label — with the pressing
+ * Member's authority, the way they would have done it by hand. Browser session
+ * only, like the buttons beside it.
+ */
+mailRouter.post(
+  "/mail/analyses/:id/automatic/:autoId/undo",
+  requireBrowserSession,
+  validateParams(undoAutomaticActionParamsSchema),
+  validateBody(z.object({}).strict()),
+  async (req, res) => {
+    const { cid, id, autoId } = req.params as z.infer<typeof undoAutomaticActionParamsSchema>;
+    const found = await loadAnalysis(cid, id);
+    if (!found) return res.status(404).json({ error: "Analysis not found" });
+    try {
+      const result = await undoAutomaticAnalysisAction(found.account, found.analysis, autoId, {
+        userId: req.userId!,
+      });
+      res.json({ analysis: serializeAnalysis(result.analysis), message: result.message });
+    } catch (err) {
+      // A refusal and a mail server that would not take the change back are
+      // both the Member's to read and retry.
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "That step could not be undone",
+      });
+    }
+  },
+);

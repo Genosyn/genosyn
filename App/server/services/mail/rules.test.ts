@@ -501,6 +501,94 @@ describe("AI rule execution", () => {
 });
 
 describe("unsubscribe action isolation", () => {
+  async function instructionsRecord(
+    account: MailAccount,
+    thread: MailThread,
+    message: MailMessage,
+    status: string,
+  ): Promise<void> {
+    await insert(MailInboundAnalysis, {
+      companyId: COMPANY_ID,
+      accountId: account.id,
+      threadId: thread.id,
+      messageId: message.id,
+      status: "succeeded",
+      category: "marketing",
+      autoActionsJson: JSON.stringify([
+        {
+          id: "auto-0",
+          action: "unsubscribe",
+          instruction: "Unsubscribe me automatically from marketing emails.",
+          reason: "A newsletter.",
+          status,
+        },
+      ]),
+    });
+  }
+
+  test("a rule stands down when the mailbox's instructions already unsubscribed this message", async () => {
+    const { account, thread, message } = await mailboxFixture();
+    await instructionsRecord(account, thread, message, "done");
+    const rule = await createRule(account, {
+      name: "Newsletters",
+      conditions: { from: "acme" },
+      actions: [{ type: "unsubscribe" }],
+    });
+    let calls = 0;
+    await runRulesForNewMessage(
+      account,
+      message.id,
+      () => {},
+      () => {},
+      {
+        unsubscribe: async () => {
+          calls += 1;
+          return { host: "lists.acme.example", status: 200 };
+        },
+      },
+    );
+    assert.equal(calls, 0, "the sender is never asked twice for one message");
+    const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      action: "mail.rule.unsubscribe",
+      targetId: rule.id,
+    });
+    const metadata = JSON.parse(audit.metadataJson) as Record<string, unknown>;
+    assert.equal(metadata.skipped, "already_unsubscribed_by_instructions");
+    assert.equal(metadata.messageId, message.id);
+    assert.equal(
+      (await AppDataSource.getRepository(MailRule).findOneByOrFail({ id: rule.id })).matchCount,
+      1,
+      "the rule still matched",
+    );
+  });
+
+  test("a rule still unsubscribes when the instructions' attempt never went out", async () => {
+    for (const status of ["skipped", "failed", "pending"]) {
+      await resetTestDb();
+      const { account, thread, message } = await mailboxFixture();
+      await instructionsRecord(account, thread, message, status);
+      await createRule(account, {
+        name: "Newsletters",
+        conditions: { from: "acme" },
+        actions: [{ type: "unsubscribe" }],
+      });
+      let calls = 0;
+      await runRulesForNewMessage(
+        account,
+        message.id,
+        () => {},
+        () => {},
+        {
+          unsubscribe: async () => {
+            calls += 1;
+            return { host: "lists.acme.example", status: 200 };
+          },
+        },
+      );
+      assert.equal(calls, 1, status);
+    }
+  });
+
   test("two matching rules make at most one irreversible unsubscribe attempt", async () => {
     const { account, message } = await mailboxFixture();
     const first = await createRule(account, {

@@ -10,6 +10,7 @@ import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
@@ -22,6 +23,8 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { GmailMailbox } from "../services/mail/mailbox/gmail.js";
+import { DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS } from "../../shared/mailAnalysisInstructions.js";
 import { mailRouter } from "./mail.js";
 
 type SerializedAction = Record<string, unknown> & {
@@ -719,6 +722,362 @@ describe("inbound mail analysis HTTP API", () => {
     assert.deepEqual(
       otherView.body.analyses.map((row) => row.messageId),
       [elsewhere.id],
+    );
+  });
+});
+
+// ───────────────────────────── instructions ─────────────────────────────
+
+type InstructionsState = {
+  instructions: string;
+  usingDefaultInstructions: boolean;
+};
+
+type AutomaticStep = {
+  id: string;
+  action: string;
+  status: string;
+  instruction: string;
+  reason: string;
+  detail?: string;
+  undoneAt?: string;
+};
+
+type UndoOutcome = {
+  analysis: SerializedAnalysis & { automaticActions: AutomaticStep[] };
+  message: string;
+};
+
+describe("the AI analysis instructions over HTTP", () => {
+  const settingsPath = () => `/mail/accounts/${account.id}/ai-analysis`;
+
+  async function storedInstructions(): Promise<string | null> {
+    return (
+      await AppDataSource.getRepository(MailAccount).findOneByOrFail({ id: account.id })
+    ).aiAnalysisInstructions;
+  }
+
+  test("starts every mailbox on the default instructions", async () => {
+    const fresh = await call<AnalysisSettings & InstructionsState>("GET", settingsPath());
+    assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
+    assert.equal(fresh.body.instructions, DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS);
+    assert.equal(fresh.body.usingDefaultInstructions, true);
+    assert.match(fresh.body.instructions, /Unsubscribe me automatically from marketing emails/);
+    assert.match(fresh.body.instructions, /Star emails that need my response/);
+  });
+
+  test("saves the box, reads it back, and restores the default", async () => {
+    const saved = await call<AnalysisSettingsPatch & InstructionsState>("PATCH", settingsPath(), {
+      instructions: "Star mail from Ana.  \r\nArchive receipts.\r\n",
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.instructions, "Star mail from Ana.\nArchive receipts.");
+    assert.equal(saved.body.usingDefaultInstructions, false);
+    assert.equal(saved.body.account.id, account.id);
+    assert.equal(await storedInstructions(), "Star mail from Ana.\nArchive receipts.");
+
+    const read = await call<AnalysisSettings & InstructionsState>("GET", settingsPath());
+    assert.equal(read.body.instructions, "Star mail from Ana.\nArchive receipts.");
+    assert.equal(read.body.usingDefaultInstructions, false);
+
+    const restored = await call<AnalysisSettingsPatch & InstructionsState>("PATCH", settingsPath(), {
+      instructions: null,
+    });
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    assert.equal(restored.body.instructions, DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS);
+    assert.equal(restored.body.usingDefaultInstructions, true);
+    assert.equal(await storedInstructions(), null);
+  });
+
+  test("an emptied box stays empty rather than falling back to the default", async () => {
+    const cleared = await call<AnalysisSettingsPatch & InstructionsState>("PATCH", settingsPath(), {
+      instructions: "",
+    });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal(cleared.body.instructions, "");
+    assert.equal(cleared.body.usingDefaultInstructions, false);
+    const read = await call<AnalysisSettings & InstructionsState>("GET", settingsPath());
+    assert.equal(read.body.instructions, "");
+    assert.equal(await storedInstructions(), "");
+  });
+
+  test("changes the instructions alongside the other settings in one request", async () => {
+    await grantMailbox(ada, { accessLevel: "draft" });
+    const both = await call<AnalysisSettingsPatch & InstructionsState>("PATCH", settingsPath(), {
+      enabled: true,
+      employeeId: ada.id,
+      instructions: "Archive receipts.",
+    });
+    assert.equal(both.status, 200, JSON.stringify(both.body));
+    assert.equal(both.body.account.aiAnalysisEmployeeId, ada.id);
+    assert.equal(both.body.instructions, "Archive receipts.");
+  });
+
+  test("refuses instructions it cannot store, in a sentence, and changes nothing", async () => {
+    await call("PATCH", settingsPath(), { instructions: "Star mail from Ana." });
+    for (const [instructions, error] of [
+      ["x".repeat(4_001), "Keep the instructions under 4,000 characters."],
+      [
+        Array.from({ length: 31 }, (_, index) => `Rule ${index}`).join("\n"),
+        "Keep it to 30 instructions or fewer, one per line.",
+      ],
+      ["Star\u0000 mail", "Instructions can only contain printable characters."],
+    ] as const) {
+      const refused = await call<ApiError>("PATCH", settingsPath(), {
+        enabled: false,
+        instructions,
+      });
+      assert.equal(refused.status, 400, JSON.stringify(refused.body));
+      assert.equal(refused.body.error, error);
+    }
+    const after = await call<AnalysisSettings & InstructionsState>("GET", settingsPath());
+    assert.equal(after.body.enabled, true, "a refused request changes nothing at all");
+    assert.equal(after.body.instructions, "Star mail from Ana.");
+  });
+
+  test("rejects a body that is not text at the door", async () => {
+    for (const instructions of [42, ["Star mail"], { text: "Star mail" }, "x".repeat(20_001)]) {
+      const rejected = await call<ApiError>("PATCH", settingsPath(), { instructions });
+      assert.equal(rejected.status, 400, JSON.stringify(rejected.body));
+      assert.equal(rejected.body.error, "ValidationError");
+    }
+    assert.equal(await storedInstructions(), null);
+  });
+
+  test("records who changed the instructions, word for word", async () => {
+    await call("PATCH", settingsPath(), { instructions: "Archive receipts." });
+    const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      action: "mail.analysis.settings",
+    });
+    assert.equal(audit.actorUserId, owner.id);
+    assert.equal(audit.targetId, account.id);
+    const metadata = JSON.parse(audit.metadataJson) as Record<string, unknown>;
+    assert.equal(metadata.instructions, "Archive receipts.");
+    assert.equal(metadata.instructionsDefault, false);
+  });
+
+  test("another company's mailbox and its instructions are out of reach", async () => {
+    const otherCompany = await insert(Company, {
+      name: "Other Company",
+      slug: `other-instructions-${randomUUID()}`,
+      ownerId: owner.id,
+    });
+    const foreign = await insert(MailAccount, {
+      companyId: otherCompany.id,
+      connectionId: randomUUID(),
+      address: "other@example.com",
+      status: "paused",
+      aiAnalysisInstructions: "Star mail from the board.",
+    });
+    const read = await call<ApiError>("GET", `/mail/accounts/${foreign.id}/ai-analysis`);
+    assert.equal(read.status, 404);
+    const write = await call<ApiError>("PATCH", `/mail/accounts/${foreign.id}/ai-analysis`, {
+      instructions: "Archive everything.",
+    });
+    assert.equal(write.status, 404);
+    const untouched = await AppDataSource.getRepository(MailAccount).findOneByOrFail({
+      id: foreign.id,
+    });
+    assert.equal(untouched.aiAnalysisInstructions, "Star mail from the board.");
+  });
+
+  test("a signed-out visitor or an outsider cannot read or change them", async () => {
+    actingUserId = null;
+    assert.equal((await call("GET", settingsPath())).status, 401);
+    assert.equal((await call("PATCH", settingsPath(), { instructions: "Archive all." })).status, 401);
+    const outsider = await insert(User, {
+      email: `instructions-outsider-${randomUUID()}@example.com`,
+      name: "Outsider",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    actingUserId = outsider.id;
+    assert.equal((await call("PATCH", settingsPath(), { instructions: "Archive all." })).status, 403);
+    assert.equal(await storedInstructions(), null);
+  });
+});
+
+describe("undoing an automatic step over HTTP", () => {
+  async function automaticAnalysis(steps: Array<Record<string, unknown>>) {
+    const thread = await createThread({ subject: "Spring sale" });
+    const message = await createMessage(thread, { subject: "Spring sale" });
+    const analysis = await createAnalysis(message, {
+      category: "marketing",
+      summary: "A shop newsletter.",
+      autoActionsJson: JSON.stringify(steps),
+    });
+    return { thread, message, analysis };
+  }
+
+  const done = (action: string, overrides: Record<string, unknown> = {}) => ({
+    id: "auto-0",
+    action,
+    instruction: "Star emails that need my response and look important.",
+    reason: "Asks for a reply.",
+    status: "done",
+    appliedAt: "2026-10-09T09:00:00.000Z",
+    ...overrides,
+  });
+
+  test("takes a star back through the Member's own session, once", async (t) => {
+    const flagged: unknown[][] = [];
+    t.mock.method(GmailMailbox.prototype, "setFlagged", async (...args: unknown[]) => {
+      flagged.push(args);
+    });
+    t.mock.method(GmailMailbox.prototype, "readThreadState", async () => []);
+    const { thread, analysis } = await automaticAnalysis([done("star")]);
+
+    const undone = await call<UndoOutcome>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(undone.status, 200, JSON.stringify(undone.body));
+    assert.equal(undone.body.message, "Unstarred");
+    assert.equal(undone.body.analysis.automaticActions[0].status, "undone");
+    assert.match(undone.body.analysis.automaticActions[0].undoneAt ?? "", /^\d{4}-/);
+    assert.deepEqual(flagged, [[thread.gmailThreadId, false]]);
+
+    const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      action: "mail.analysis.automatic_undo",
+    });
+    assert.equal(audit.actorUserId, owner.id);
+    assert.equal(audit.targetId, analysis.id);
+
+    const again = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(again.status, 400);
+    assert.equal(again.body.error, "That was already undone.");
+    assert.equal(flagged.length, 1);
+  });
+
+  test("a mail server that refuses keeps the step undoable", async (t) => {
+    t.mock.method(GmailMailbox.prototype, "moveToInbox", async () => {
+      throw new Error("Gmail is unavailable right now.");
+    });
+    const { analysis } = await automaticAnalysis([done("archive")]);
+    const refused = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(refused.status, 400);
+    assert.equal(refused.body.error, "Gmail is unavailable right now.");
+    const stored = await AppDataSource.getRepository(MailInboundAnalysis).findOneByOrFail({
+      id: analysis.id,
+    });
+    assert.equal((JSON.parse(stored.autoActionsJson) as AutomaticStep[])[0].status, "done");
+  });
+
+  test("refuses what cannot be undone, in a sentence", async () => {
+    const { analysis } = await automaticAnalysis([
+      done("unsubscribe", { targetHost: "lists.shop.example" }),
+      done("star", { id: "auto-1", status: "skipped", detail: "x" }),
+    ]);
+    const unsubscribe = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(unsubscribe.status, 400);
+    assert.match(unsubscribe.body.error ?? "", /An unsubscribe can't be undone/);
+    const skipped = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-1/undo`,
+    );
+    assert.equal(skipped.status, 400);
+    assert.equal(skipped.body.error, "Only a step that was carried out can be undone.");
+    const missing = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-7/undo`,
+    );
+    assert.equal(missing.status, 400);
+    assert.equal(missing.body.error, "That automatic action is not on this email.");
+  });
+
+  test("validates the path and the body", async () => {
+    const { analysis } = await automaticAnalysis([done("star")]);
+    for (const path of [
+      `/mail/analyses/${analysis.id}/automatic/star/undo`,
+      `/mail/analyses/${analysis.id}/automatic/auto-123/undo`,
+      `/mail/analyses/not-a-uuid/automatic/auto-0/undo`,
+    ]) {
+      const rejected = await call<ApiError>("POST", path);
+      assert.equal(rejected.status, 400, path);
+      assert.equal(rejected.body.error, "ValidationError", path);
+    }
+    const extra = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+      { status: "pending" },
+    );
+    assert.equal(extra.status, 400);
+    assert.equal(extra.body.error, "ValidationError");
+  });
+
+  test("hides an unknown analysis and another company's", async () => {
+    const unknown = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${randomUUID()}/automatic/auto-0/undo`,
+    );
+    assert.equal(unknown.status, 404);
+    assert.equal(unknown.body.error, "Analysis not found");
+
+    const otherCompany = await insert(Company, {
+      name: "Other Company",
+      slug: `other-undo-${randomUUID()}`,
+      ownerId: owner.id,
+    });
+    const thread = await createThread();
+    const foreignMessage = await createMessage(thread, { companyId: otherCompany.id });
+    const foreign = await createAnalysis(foreignMessage, {
+      companyId: otherCompany.id,
+      autoActionsJson: JSON.stringify([done("star")]),
+    });
+    const crossCompany = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${foreign.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(crossCompany.status, 404);
+  });
+
+  test("needs a signed-in Member of the company", async () => {
+    const { analysis } = await automaticAnalysis([done("star")]);
+    actingUserId = null;
+    const anonymous = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(anonymous.status, 401);
+    const outsider = await insert(User, {
+      email: `undo-outsider-${randomUUID()}@example.com`,
+      name: "Outsider",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    actingUserId = outsider.id;
+    const forbidden = await call<ApiError>(
+      "POST",
+      `/mail/analyses/${analysis.id}/automatic/auto-0/undo`,
+    );
+    assert.equal(forbidden.status, 403);
+  });
+
+  test("the thread view carries what the instructions did", async () => {
+    const { thread } = await automaticAnalysis([
+      done("star"),
+      done("archive", { id: "auto-1", status: "failed", detail: "No." }),
+    ]);
+    const view = await call<{ analyses: Array<{ automaticActions: AutomaticStep[] }> }>(
+      "GET",
+      `/mail/threads/${thread.id}`,
+    );
+    assert.equal(view.status, 200, JSON.stringify(view.body));
+    assert.deepEqual(
+      view.body.analyses[0].automaticActions.map((step) => [step.action, step.status]),
+      [
+        ["star", "done"],
+        ["archive", "failed"],
+      ],
     );
   });
 });

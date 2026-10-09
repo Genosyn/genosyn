@@ -18,7 +18,7 @@ export type MailAnalysisWorkDetails = {
 };
 
 export const MAIL_ANALYSIS_PURPOSE =
-  "Classifies the incoming email, summarizes what it asks for, and suggests next steps. This analysis does not send email or carry out the suggestions.";
+  "Classifies the incoming email, summarizes what it asks for, and suggests next steps. This analysis does not send email or carry out the suggestions. Steps the mailbox's own instructions ask for (star, mark read, archive, label or unsubscribe) are recorded on the email.";
 
 /** Redact before truncating, so a clipped credential cannot evade the shared grammar. */
 export function analysisPreview(value: unknown, limit: number): string {

@@ -1,6 +1,16 @@
 import { formatMoney, type FinanceAccess } from "./api";
 import { MAIL_ANALYSIS_FINANCE_KINDS } from "./mail";
-import type { MailAccessLevel, MailAnalysisAction, MailAssistantRosterEntry } from "./mail";
+import type {
+  MailAccessLevel,
+  MailAnalysisAction,
+  MailAnalysisAutoAction,
+  MailAssistantRosterEntry,
+} from "./mail";
+import {
+  mailAnalysisInstructionLines,
+  mailAnalysisInstructionsProblem,
+  sameMailAnalysisInstructions,
+} from "../../shared/mailAnalysisInstructions";
 
 /**
  * Presentation rules for AI triage of inbound mail.
@@ -270,7 +280,10 @@ export function analysisReadinessNote(args: {
 }): { tone: "ok" | "warn" | "off"; text: string } {
   const canManageAccess = args.canManageAccess ?? true;
   if (!args.enabled) {
-    return { tone: "off", text: "New mail arrives without a summary or action buttons." };
+    return {
+      tone: "off",
+      text: "New mail arrives without a summary, action buttons, or automatic steps.",
+    };
   }
   if (!args.resolved) {
     return {
@@ -286,9 +299,118 @@ export function analysisReadinessNote(args: {
   return args.resolved.accessLevel === "read"
     ? {
         tone: "warn",
-        text: `${base} On Read access they can summarise and triage, but cannot prepare a reply for Needs you — ${
+        text: `${base} On Read access they can summarise and suggest next steps, but cannot prepare a reply for Needs you or carry out your instructions — ${
           canManageAccess ? "raise them" : "an owner or admin can raise them"
         } to Draft for that.`,
       }
     : { tone: "ok", text: base };
+}
+
+// ───────────────────────────── instructions ─────────────────────────────
+
+/**
+ * The state of the instructions box while someone edits it. "Unchanged" uses
+ * the same rule the server stores by, so trailing spaces or a Windows line
+ * ending never light up Save for nothing.
+ */
+export function analysisInstructionsEdit(args: {
+  draft: string;
+  saved: string;
+  usingDefault: boolean;
+}): {
+  dirty: boolean;
+  /** Why the draft cannot be saved, or null. */
+  problem: string | null;
+  canSave: boolean;
+  /** Restore default is offered once the saved text is the mailbox's own. */
+  canRestore: boolean;
+  /** "2 instructions" — what the reader will be given, counted as the server will. */
+  countLabel: string;
+} {
+  const dirty = !sameMailAnalysisInstructions(args.draft, args.saved);
+  const problem = mailAnalysisInstructionsProblem(args.draft);
+  const count = mailAnalysisInstructionLines(args.draft).length;
+  return {
+    dirty,
+    problem,
+    canSave: dirty && !problem,
+    canRestore: !args.usingDefault,
+    countLabel:
+      count === 0
+        ? "No instructions — new mail gets a summary and suggestions only"
+        : `${count} instruction${count === 1 ? "" : "s"}`,
+  };
+}
+
+// ───────────────────────────── automatic steps ─────────────────────────────
+
+const AUTO_STEP_WORDS: Record<
+  MailAnalysisAutoAction["action"],
+  { verb: string; done: string; working: string }
+> = {
+  star: { verb: "star", done: "Starred", working: "Starring" },
+  markRead: { verb: "mark read", done: "Marked read", working: "Marking read" },
+  archive: { verb: "archive", done: "Archived", working: "Archiving" },
+  applyLabel: { verb: "label", done: "Labelled", working: "Labelling" },
+  unsubscribe: { verb: "unsubscribe", done: "Unsubscribed", working: "Unsubscribing" },
+  other: { verb: "do this", done: "Done", working: "Working" },
+};
+
+/**
+ * What happened, in two or three words. Built from the server's step name and
+ * status — never the model's words — so it cannot claim something that did
+ * not happen.
+ */
+export function automaticActionTitle(step: MailAnalysisAutoAction): string {
+  const words = AUTO_STEP_WORDS[step.action] ?? AUTO_STEP_WORDS.other;
+  const label = step.action === "applyLabel" && step.labelName ? ` “${step.labelName}”` : "";
+  switch (step.status) {
+    case "done":
+      return `${words.done}${label}`;
+    case "undone":
+      return `${words.done}${label} — undone`;
+    case "pending":
+    case "running":
+      return `${words.working}${label}…`;
+    case "failed":
+      return `Couldn’t ${words.verb}${label}`;
+    case "skipped":
+    default:
+      return step.action === "other"
+        ? "Not something Genosyn does on its own"
+        : `Didn’t ${words.verb}${label}`;
+  }
+}
+
+/** The server's line under the title: where it went, or why it did not. */
+export function automaticActionNote(step: MailAnalysisAutoAction): string | null {
+  if (step.status === "done" && step.action === "unsubscribe") {
+    return step.targetHost
+      ? `Sent to ${step.targetHost}. An unsubscribe can’t be undone.`
+      : "An unsubscribe can’t be undone.";
+  }
+  if (step.status === "skipped" || step.status === "failed") return step.detail || null;
+  return null;
+}
+
+/** Whether the email offers Undo for this step. Mirrors the server's rule. */
+export function automaticActionUndoable(step: MailAnalysisAutoAction): boolean {
+  return step.status === "done" && step.action !== "unsubscribe" && step.action !== "other";
+}
+
+/** The tone of the step's icon: it happened, it is happening, or it did not. */
+export function automaticActionTone(
+  step: MailAnalysisAutoAction,
+): "done" | "working" | "muted" | "failed" {
+  switch (step.status) {
+    case "done":
+      return "done";
+    case "pending":
+    case "running":
+      return "working";
+    case "failed":
+      return "failed";
+    default:
+      return "muted";
+  }
 }

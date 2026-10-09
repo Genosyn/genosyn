@@ -50,6 +50,7 @@
     "test:resources-ai-access": "tsx scripts/test-resources-ai-access.ts",
     "test:routines-ai-access": "tsx scripts/test-routines-ai-access.ts",
     "test:mail-sender-name": "tsx scripts/test-mail-sender-name.ts",
+    "test:mail-analysis-instructions": "tsx scripts/test-mail-analysis-instructions.ts",
     "test:employees-roster": "tsx scripts/test-employees-roster.ts"
   },
   "dependencies": {

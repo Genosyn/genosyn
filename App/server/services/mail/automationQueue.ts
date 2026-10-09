@@ -7,6 +7,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { dispatchEmailReceived } from "../pipelines/events.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { analyzeInboundMessage, recoverInterruptedMailAnalyses } from "./analysis.js";
+import { applyAutomaticAnalysisActions } from "./analysisAutomation.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
@@ -43,6 +44,7 @@ type MailAutomationRunOptions = {
 type MailDefaultEffectsDependencies = {
   reconcileDefaults?: typeof reconcileProactiveDefaults;
   analyzeInbound?: typeof analyzeInboundMessage;
+  applyInstructions?: typeof applyAutomaticAnalysisActions;
   applyRules?: typeof runRulesForNewMessage;
   dispatchReceived?: typeof dispatchEmailReceived;
 };
@@ -89,12 +91,46 @@ export async function runDefaultMailEffects(
   // Going first also means the buttons a human wants are ready before a rule's
   // handover or a Pipeline that may run for hours.
   await assertRunnable();
-  await (dependencies.analyzeInbound ?? analyzeInboundMessage)(account, message).catch((error) => {
+  const analysis = await (dependencies.analyzeInbound ?? analyzeInboundMessage)(
+    account,
+    message,
+    {},
+    // This is the arrival: the one read allowed to record steps for the
+    // mailbox's instructions. A person's "read again" never is.
+    { arrival: true },
+  ).catch((error) => {
     // Triage is an enrichment. A mailbox whose model is down still gets its
     // rules and its Pipelines; the analysis row already recorded the failure.
     // eslint-disable-next-line no-console
     console.error(`[mail] AI analysis for message ${message.id} failed:`, error);
+    return null;
   });
+
+  // The steps the mailbox's instructions asked for are real effects on the
+  // mailbox — and, for an unsubscribe, on the sender — so unlike the read
+  // they ARE fenced: each runs only after `beforeEffect`, and a pause stops
+  // the rest. They go before the rules so a Rule that would send the same
+  // unsubscribe request can see it was already sent. The step runner asks
+  // `assertRunnable` itself before anything else, so a pause landing right
+  // after the read marks the steps skipped (and visible as such) instead of
+  // leaving them looking in progress until Resume replays the read.
+  if (analysis) {
+    try {
+      await (dependencies.applyInstructions ?? applyAutomaticAnalysisActions)(
+        account,
+        message,
+        analysis.id,
+        { assertRunnable, beforeEffect },
+      );
+    } catch (error) {
+      // A pause, a lost lease or a disconnect stops the chain exactly as it
+      // would anywhere else. Anything else cost only these steps, which have
+      // recorded their own failure; rules and Pipelines still run.
+      await assertRunnable();
+      // eslint-disable-next-line no-console
+      console.error(`[mail] instructions for message ${message.id} failed:`, error);
+    }
+  }
 
   await assertRunnable();
   await (dependencies.applyRules ?? runRulesForNewMessage)(
