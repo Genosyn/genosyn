@@ -197,7 +197,12 @@ import {
   readBrowserActionPayload,
 } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
-import { MAX_DECISION_OPTIONS, cancelDecision, createDecision } from "../services/decisions.js";
+import { MAX_DECISION_OPTIONS, cancelDecision } from "../services/decisions.js";
+import {
+  DECISION_STACK_OFF_MESSAGE,
+  KEPT_OFF_STACK_NOTE,
+  raiseDecision,
+} from "../services/decisionIntake.js";
 import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/decisionRouting.js";
 import { WakeupError, cancelWakeup, scheduleWakeup } from "../services/wakeups.js";
 import {
@@ -1092,7 +1097,12 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         employeeId: req.mcpEmployee.id,
       });
       return res.status(403).json({
-        error: `The company policy "${policy.title}" forbids ${toolName}. Do not retry or work around it — raise a Decision if you believe the policy is wrong here.`,
+        error: `The company policy "${policy.title}" forbids ${toolName}. Do not retry or work around it — ${
+          // Only point at the Decision stack while it takes new questions.
+          req.mcpCompany.decisionStackEnabled === false
+            ? "note it in your Workstream or work report"
+            : "raise a Decision"
+        } if you believe the policy is wrong here.`,
       });
     }
     const routineRefusal = await routineWriteRefusal(req, toolName);
@@ -1127,11 +1137,17 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
  * The static tool catalogue. This route + `mcp/toolManifest.ts` are the single
  * source of truth; the runtime registry imports STATIC_TOOLS directly, so this
  * endpoint is retained mainly for external/manifest consumers. The list is
- * identical for every employee; integration-backed tools are discovered
- * separately via `/integrations/_list`.
+ * identical for every employee, except that a company with its Decision stack
+ * switched off is not offered `request_decision`; integration-backed tools are
+ * discovered separately via `/integrations/_list`.
  */
-mcpInternalRouter.post("/manifest", (_req: McpRequest, res: Response) => {
-  res.json({ tools: STATIC_TOOLS });
+mcpInternalRouter.post("/manifest", (req: McpRequest, res: Response) => {
+  const mayRaiseDecisions = req.mcpCompany?.decisionStackEnabled !== false;
+  res.json({
+    tools: mayRaiseDecisions
+      ? STATIC_TOOLS
+      : STATIC_TOOLS.filter((tool) => tool.name !== "request_decision"),
+  });
 });
 
 async function journal(employeeId: string, title: string, body = ""): Promise<void> {
@@ -13064,6 +13080,13 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
 
+    // Switched off at Decision stack → Settings: refuse before anything else,
+    // with what to do instead. `raiseDecision` re-checks, and so does the
+    // write itself, so no path around this seam creates a row either.
+    if (co.decisionStackEnabled === false) {
+      return res.status(403).json({ error: DECISION_STACK_OFF_MESSAGE });
+    }
+
     // An assignee has to be a Member of *this* company: resolving a handle
     // company-wide would otherwise let an employee address a stranger, and a
     // silently-dropped assignee would look like it worked.
@@ -13093,9 +13116,12 @@ mcpInternalRouter.post(
     }
 
     try {
-      const { decision, options } = await createDecision({
+      // Every question is checked against the company's Decision stack
+      // instructions before it is stacked (`services/decisionIntake.ts`).
+      const raised = await raiseDecision({
         companyId: co.id,
         employeeId: self.id,
+        employee: self,
         title: body.title,
         body: body.body,
         humanDecisionReason: body.humanDecisionReason,
@@ -13109,6 +13135,22 @@ mcpInternalRouter.post(
         automaticContinuation:
           !req.mcpProactiveReview && mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
       });
+      if (raised.outcome === "stack_off") {
+        return res.status(403).json({ error: DECISION_STACK_OFF_MESSAGE });
+      }
+      if (raised.outcome === "kept_off") {
+        // Not an error: the company's own instructions answered, and nothing
+        // was created. The note says what to do instead and grants nothing.
+        return res.json({
+          decisionId: null,
+          status: "kept_off_stack",
+          stacked: false,
+          reason: raised.screen.reason,
+          instruction: `${raised.screen.instructionNumber}. ${raised.screen.instruction}`,
+          note: KEPT_OFF_STACK_NOTE,
+        });
+      }
+      const { decision, options } = raised;
       await journal(
         self.id,
         `Asked for a decision: ${decision.title}`,

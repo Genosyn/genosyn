@@ -247,8 +247,9 @@ export function Vocabulary() {
               <>
                 A consequential choice an AI Employee needs a human to make, with the options it
                 will act on. Routine research and reversible housekeeping stay with the employee.
-                A Member answers; unlike an Approval, nothing is executed on your behalf. See{" "}
-                <DocLink to="/docs/decisions">Decision stack</DocLink>.
+                A Member answers; unlike an Approval, nothing is executed on your behalf. Owners
+                and admins decide which questions belong, or switch new ones off, in the stack&apos;s{" "}
+                <DocLink to="/docs/decisions#settings">Settings</DocLink>.
               </>
             ),
           },

@@ -293,6 +293,26 @@ const EMAIL_INSTRUCTION_STEPS = new Map<string, { verb: string; target: string }
   ["mail.analysis.automatic_undo", { verb: "Undid", target: "an automatic email step" }],
 ]);
 
+/**
+ * A question the company's Decision stack instructions kept off the stack
+ * (`services/decisionIntake.ts`). The generic split would read
+ * `decision.screen_out` as "Screen out decision", which hides that nothing was
+ * asked — the part someone tuning their instructions needs to see. It does not
+ * fit "verb a target" either, so it carries its own sentence parts.
+ */
+const DECISION_STACK_STEPS = new Map<string, { verb: string; target: string }>([
+  ["decision.screen_out", { verb: "Kept off", target: "the Decision stack" }],
+]);
+
+/** Effect-list phrases for the actions that cannot be said as "verb a target". */
+const WORK_ACTION_PHRASES = new Map<string, (count: number) => string>([
+  [
+    "decision.screen_out",
+    (count) =>
+      `kept ${count === 1 ? "a question" : `${count} questions`} off the Decision stack`,
+  ],
+]);
+
 /** An effect-ledger action split into the two words a sentence needs. */
 function splitWorkAction(action: string, targetType: string): { verb: string; target: string } {
   const analysis = EMAIL_ANALYSIS_PHASES.get(action);
@@ -304,6 +324,8 @@ function splitWorkAction(action: string, targetType: string): { verb: string; ta
   }
   const instructionStep = EMAIL_INSTRUCTION_STEPS.get(action);
   if (instructionStep) return instructionStep;
+  const decisionStep = DECISION_STACK_STEPS.get(action);
+  if (decisionStep) return decisionStep;
   const actionParts = action.split(/[.:/]/).filter(Boolean);
   const operation = readableWords(actionParts.at(-1) ?? action);
   const target = readableWords(targetType || actionParts.at(-2) || "record");
@@ -555,13 +577,17 @@ export function workEffectPhrase(
   entry: Pick<WorkEntry, "effects" | "effectCount">,
   maxGroups = 3,
 ): string {
-  const groups = new Map<string, { verb: string; target: string; count: number }>();
+  const groups = new Map<
+    string,
+    { verb: string; target: string; count: number; phrase?: (count: number) => string }
+  >();
   for (const effect of entry.effects) {
     const { verb, target } = splitWorkAction(effect.action, effect.targetType);
-    const key = `${verb}|${target}`;
+    const phrase = WORK_ACTION_PHRASES.get(effect.action);
+    const key = phrase ? `phrase|${effect.action}` : `${verb}|${target}`;
     const seen = groups.get(key);
     if (seen) seen.count += 1;
-    else groups.set(key, { verb, target, count: 1 });
+    else groups.set(key, { verb, target, count: 1, phrase });
   }
   const ordered = [...groups.values()];
   const shown = ordered.slice(0, maxGroups);
@@ -569,9 +595,11 @@ export function workEffectPhrase(
     ordered.slice(maxGroups).reduce((total, group) => total + group.count, 0) +
     Math.max(0, entry.effectCount - entry.effects.length);
   const parts = shown.map((group) =>
-    group.count === 1
-      ? `${group.verb.toLowerCase()} ${withArticle(group.target)}`
-      : `${group.verb.toLowerCase()} ${group.count} ${pluralNoun(group.target)}`,
+    group.phrase
+      ? group.phrase(group.count)
+      : group.count === 1
+        ? `${group.verb.toLowerCase()} ${withArticle(group.target)}`
+        : `${group.verb.toLowerCase()} ${group.count} ${pluralNoun(group.target)}`,
   );
   if (withheld > 0) {
     parts.push(`made ${withheld} other ${withheld === 1 ? "change" : "changes"}`);
@@ -806,6 +834,9 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
               ? `could not complete an Email handover${named ? ` for ${named}` : ""}${when}.`
               : `updated an Email handover${named ? ` for ${named}` : ""}${when}.`;
         context = [entry.source.label, entry.source.detail].filter(Boolean).join(" · ");
+      } else if (entry.detail === "decision.screen_out") {
+        // Nothing was asked: the company's instructions kept the question off.
+        clause = `kept ${named || "a question"} off the Decision stack${when}.`;
       } else {
         const action = humanizeWorkAction(entry.detail, "");
         clause = `${action.charAt(0).toLowerCase()}${action.slice(1)}${named ? ` ${named}` : ""}${when}.`;

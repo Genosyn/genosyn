@@ -15,6 +15,7 @@ import {
 } from "../../db/entities/MailHandover.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { workBlocked } from "../standdowns.js";
+import { isDecisionStackEnabled } from "../decisionStackSettings.js";
 import { composeHandoverPrompt, handoverDeliveryMode } from "./handoverPrompt.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
@@ -370,7 +371,9 @@ export async function runHandover(
     const promptMessages = latestInbound
       ? [...messages.filter((message) => message.id !== latestInbound.id), latestInbound]
       : messages;
-    const prompt = composeHandoverPrompt(handover, account, thread, promptMessages);
+    const prompt = composeHandoverPrompt(handover, account, thread, promptMessages, {
+      decisionStackEnabled: await isDecisionStackEnabled(account.companyId),
+    });
     await withAuditContext({ mailThreadId: thread.id, mailHandoverId: handover.id }, () =>
       recordAudit({
         companyId: account.companyId,

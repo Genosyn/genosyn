@@ -44,6 +44,24 @@ export class Company {
   @Column({ type: "text", default: "" })
   proactiveDefaultsJson!: string;
 
+  /**
+   * Whether AI Employees may raise new Decisions. On by default. Turning it
+   * off hides and refuses `request_decision`; Decisions already waiting stay
+   * answerable, and Approvals, email reviews and work reviews are untouched —
+   * those are system gates, not Decisions. See `services/decisionStackSettings.ts`.
+   */
+  @Column({ type: "boolean", default: true })
+  decisionStackEnabled!: boolean;
+
+  /**
+   * The Decision stack's instructions, written by an owner or admin: every
+   * new Decision is checked against them before it is stacked. Null follows
+   * the current default text in `shared/decisionStackInstructions.ts`; an
+   * empty string is a deliberate "no instructions".
+   */
+  @Column({ type: "text", nullable: true })
+  decisionStackInstructions!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

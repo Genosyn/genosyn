@@ -490,6 +490,19 @@ async function open(options: FixtureOptions = {}) {
         }
         return route.fulfill({ json: approvalRows });
       }
+      // The stack reads its own switch for the "off" banner; this suite runs
+      // with the Decision stack on (its own browser test covers off).
+      if (url.pathname === `${apiBase}/decision-stack/settings`) {
+        return route.fulfill({
+          json: {
+            enabled: true,
+            instructions: "Only ask us about big decisions.",
+            usingDefaultInstructions: false,
+            pendingDecisions: 0,
+            canManage: false,
+          },
+        });
+      }
       if (url.pathname === `${apiBase}/onboarding-status`)
         return route.fulfill({
           json: {

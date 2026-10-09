@@ -511,6 +511,16 @@ export async function prepareCodexRuntime(modelId: string): Promise<CodexRuntime
 }
 
 /**
+ * Whether a turn holds, or waits for, this subscription model's lock right
+ * now. A server-side check that needs the model *during* another turn — the
+ * Decision screen runs while the asking employee's own turn waits on its tool
+ * call — must not queue behind that turn: it would wait for itself.
+ */
+export function subscriptionModelBusy(modelId: string): boolean {
+  return modelLockTails.has(modelId);
+}
+
+/**
  * Managed ChatGPT refresh tokens rotate. Serialize turns using the same model
  * so two copied temporary auth files can never race and invalidate each other.
  */

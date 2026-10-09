@@ -233,13 +233,13 @@ describe("SectionRailLinks", () => {
     );
   });
 
-  test("keeps the Decision stack's Active and History apart", () => {
-    const at = (path: string) =>
+  test("keeps the Decision stack's Active, History and Settings apart", () => {
+    const at = (path: string, viewer?: { role: "owner" | "admin" | "member" }) =>
       links(
         renderAt(
           path,
           "decisions/*",
-          h(SectionRailLinks, { section: "decisions", companySlug: "acme" }),
+          h(SectionRailLinks, { section: "decisions", companySlug: "acme", viewer }),
         ),
       );
     assert.deepEqual(
@@ -247,11 +247,21 @@ describe("SectionRailLinks", () => {
       [
         { href: "/c/acme/decisions", text: "Active", current: true },
         { href: "/c/acme/decisions/history", text: "History", current: false },
+        { href: "/c/acme/decisions/settings", text: "Settings", current: false },
       ],
     );
     assert.deepEqual(
       at("decisions/history").filter((l) => l.current).map((l) => l.text),
       ["History"],
+    );
+    assert.deepEqual(
+      at("decisions/settings").filter((l) => l.current).map((l) => l.text),
+      ["Settings"],
+    );
+    // A Member can open Settings too: it is read-only for them, not hidden.
+    assert.deepEqual(
+      at("decisions", { role: "member" }).map((l) => l.text),
+      ["Active", "History", "Settings"],
     );
   });
 

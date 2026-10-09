@@ -7,7 +7,15 @@
  * the same limits, the same notion of "unchanged", and the same split into
  * numbered instructions — the numbers the model cites are the numbers this
  * file assigns, so a disagreement would attribute an action to the wrong line.
+ * The rules themselves are the ones every instructions box follows
+ * (`instructionsText.ts`); this file holds the mailbox's default and limits.
  */
+import {
+  instructionsTextLines,
+  instructionsTextProblem,
+  normalizeInstructionsText,
+  sameInstructionsText,
+} from "./instructionsText.js";
 
 /**
  * What a mailbox follows until someone writes their own. Kept short and
@@ -31,21 +39,8 @@ export const MAX_MAIL_ANALYSIS_INSTRUCTION_LINES = 30;
  * ends. Words and inner blank lines are left exactly as typed.
  */
 export function normalizeMailAnalysisInstructions(value: string): string {
-  return value
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/\s+$/, ""))
-    .join("\n")
-    .replace(/^\n+/, "")
-    .replace(/\n+$/, "");
+  return normalizeInstructionsText(value);
 }
-
-/**
- * A list marker people type out of habit: `-`, `*`, `•`, a dash, or `1.` /
- * `1)`, followed by a space (or nothing, on a line that is only the marker).
- * "-5% coupons" and "1.5x" are words, not markers, and are left alone.
- */
-const LIST_MARKER = /^\s*(?:[-*•–—]|\d{1,3}[.)])(?:\s+|$)/;
 
 /**
  * The instructions one per line, without list markers, skipping blank lines.
@@ -53,11 +48,7 @@ const LIST_MARKER = /^\s*(?:[-*•–—]|\d{1,3}[.)])(?:\s+|$)/;
  * older or a direct database edit still yields a bounded list.
  */
 export function mailAnalysisInstructionLines(value: string): string[] {
-  return normalizeMailAnalysisInstructions(value)
-    .split("\n")
-    .map((line) => line.replace(LIST_MARKER, "").trim())
-    .filter(Boolean)
-    .slice(0, MAX_MAIL_ANALYSIS_INSTRUCTION_LINES);
+  return instructionsTextLines(value, MAX_MAIL_ANALYSIS_INSTRUCTION_LINES);
 }
 
 /**
@@ -65,29 +56,13 @@ export function mailAnalysisInstructionLines(value: string): string[] {
  * Checked on the normalized text, which is what would be stored.
  */
 export function mailAnalysisInstructionsProblem(value: string): string | null {
-  const text = normalizeMailAnalysisInstructions(value);
-  if (text.length > MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH) {
-    return `Keep the instructions under ${MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH.toLocaleString(
-      "en-US",
-    )} characters.`;
-  }
-  // Tabs and new lines are how people lay text out; anything else below a
-  // space is a broken paste or a probe, and the prompt is no place for it.
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(text)) {
-    return "Instructions can only contain printable characters.";
-  }
-  const lines = text
-    .split("\n")
-    .map((line) => line.replace(LIST_MARKER, "").trim())
-    .filter(Boolean);
-  if (lines.length > MAX_MAIL_ANALYSIS_INSTRUCTION_LINES) {
-    return `Keep it to ${MAX_MAIL_ANALYSIS_INSTRUCTION_LINES} instructions or fewer, one per line.`;
-  }
-  return null;
+  return instructionsTextProblem(value, {
+    maxLength: MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH,
+    maxLines: MAX_MAIL_ANALYSIS_INSTRUCTION_LINES,
+  });
 }
 
 /** Whether two versions of the box say the same thing once stored. */
 export function sameMailAnalysisInstructions(left: string, right: string): boolean {
-  return normalizeMailAnalysisInstructions(left) === normalizeMailAnalysisInstructions(right);
+  return sameInstructionsText(left, right);
 }

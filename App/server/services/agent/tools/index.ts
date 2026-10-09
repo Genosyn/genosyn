@@ -57,7 +57,9 @@ import { proactiveReviewToolScope } from "../../proactive/workReviewPolicy.js";
  *   should not take alone is, by construction, not in a state where it thinks
  *   to search the catalogue for permission to stop — it guesses instead. Its
  *   read-back partners (`list_decisions`, `cancel_decision`) defer: by the time
- *   you are collecting an answer you already know the tool exists.
+ *   you are collecting an answer you already know the tool exists. A company
+ *   that switches its Decision stack off gets no `request_decision` at all —
+ *   `loadGenosynTools` drops it before this list is consulted.
  *
  * Coding and browser tools are resident too, but for a different reason — see
  * where they are added below.

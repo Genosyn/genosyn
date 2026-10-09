@@ -1,9 +1,20 @@
 import React from "react";
-import { Plus, Settings2, Trash2 } from "lucide-react";
+import { PauseCircle, Plus, Settings2, Trash2 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
-import { api, Approval, Company, Decision, DecisionPolicyRule, Employee, Me } from "../lib/api";
+import {
+  api,
+  Approval,
+  Company,
+  Decision,
+  DecisionPolicyRule,
+  DecisionStackSettings,
+  Employee,
+  Me,
+  decisionStackApi,
+} from "../lib/api";
 import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
+import { decisionStackOffBanner } from "../lib/decisionStack";
 import { errorMessage } from "../lib/errors";
 import { DecisionStackCard } from "@/components/decisions/DecisionStackCard";
 import {
@@ -79,6 +90,21 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const workRequest = React.useRef(0);
   const followUps = useDecisionFollowUps(company, me.id);
   const clearClosedFollowUps = followUps.clearClosed;
+  // Whether new questions are paused (Decision stack → Settings). Only the
+  // banner reads it; a failed read simply shows no banner, never an error in
+  // front of the questions people came here to answer.
+  const [stackSettings, setStackSettings] = React.useState<DecisionStackSettings | null>(null);
+  const reloadStackSettings = React.useCallback(async () => {
+    try {
+      setStackSettings(await decisionStackApi.settings(company.id));
+    } catch {
+      setStackSettings(null);
+    }
+  }, [company.id]);
+  React.useEffect(() => {
+    void reloadStackSettings();
+  }, [reloadStackSettings]);
+  useLiveRefetch("decision", reloadStackSettings);
 
   // A link resolves once per navigation: the first load that finds its target
   // decides whether it is read here or in History. Closing the card, a live
@@ -357,6 +383,12 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           {resolutionNotice.message}
         </div>
       )}
+      {stackSettings && !stackSettings.enabled && (
+        <StackOffBanner
+          companySlug={company.slug}
+          canManage={stackSettings.canManage}
+        />
+      )}
       {visibleRows.length || visibleWork.length ? (
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <StackSearch
@@ -484,6 +516,33 @@ function Stack({ children }: { children: React.ReactNode }) {
     <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
       {children}
     </ul>
+  );
+}
+
+/**
+ * Says, above everything else, that new questions are paused — and what is
+ * not: the questions already here stay answerable, and email and work
+ * reviews keep arriving, because those are gates, not Decisions.
+ */
+function StackOffBanner({ companySlug, canManage }: { companySlug: string; canManage: boolean }) {
+  const banner = decisionStackOffBanner({ canManage });
+  return (
+    <div
+      role="status"
+      className="mb-5 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-100"
+    >
+      <PauseCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="font-medium">{banner.title}</p>
+        <p className="mt-0.5 leading-relaxed text-amber-800 dark:text-amber-200">{banner.text}</p>
+        <Link
+          to={`/c/${companySlug}/decisions/settings`}
+          className="mt-1 inline-block font-medium text-amber-900 underline underline-offset-2 hover:text-amber-700 dark:text-amber-100 dark:hover:text-white"
+        >
+          {banner.link}
+        </Link>
+      </div>
+    </div>
   );
 }
 

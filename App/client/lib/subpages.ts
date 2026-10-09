@@ -207,6 +207,21 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "undismiss",
       ],
     },
+    // Open to every Member, read-only for Members: the switch and the
+    // instructions are owner/admin changes, but anyone may see them.
+    {
+      label: "Decision stack settings",
+      navLabel: "Settings",
+      path: "/decisions/settings",
+      icon: Settings2,
+      keywords: [
+        "turn off decisions",
+        "disable decision stack",
+        "decision instructions",
+        "which questions",
+        "fewer questions",
+      ],
+    },
   ],
   tldrs: [
     { label: "Briefings", path: "/tldrs", icon: FileText, keywords: ["tldr feed", "recaps"] },

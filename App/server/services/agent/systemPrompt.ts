@@ -3,7 +3,12 @@ import type { Company } from "../../db/entities/Company.js";
 import type { RoutineAccessLevel } from "../../db/entities/EmployeeRoutineGrant.js";
 import type { Skill } from "../../db/entities/Skill.js";
 import { getAgentSettings } from "../runtimeSettings.js";
-import { HUMAN_DECISION_GUIDANCE } from "../humanDecisionGuidance.js";
+import {
+  DECISION_STACK_OFF_GUIDANCE,
+  HUMAN_DECISION_GUIDANCE,
+  decisionStackInstructionsGuidance,
+} from "../humanDecisionGuidance.js";
+import { decisionStackStateOf, type DecisionStackState } from "../decisionStackSettings.js";
 import { composeStanddownContext } from "../standdowns.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
@@ -98,6 +103,10 @@ export function composeEmployeeSystemPrompt(args: {
       args.parallelDelegationAvailable,
       args.codingToolsAvailable,
       args.routineAccess,
+      // Read off the Company row the seam already loaded: whether the stack
+      // takes new questions, and the instructions every question is checked
+      // against before it is stacked.
+      decisionStackStateOf(co),
     ),
   );
   // The company's mission and vision are the topmost layer of intent — the
@@ -199,12 +208,20 @@ export function composeRepositoryWorkSystemPrompt(args: {
  * usual "use the writers, never duplicate"; at read + run the writers are not
  * in the working set at all (`gatherEmployeeTools`), so the line says what is
  * refused and what still works instead of promising tools that would only 403.
+ *
+ * The Decision lines follow the company's Decision stack settings the same
+ * way. On, the employee reads the company's own instructions next to the
+ * general guidance, so it can hold back a question before the server-side
+ * screen does. Off, `request_decision` is not in the working set and the
+ * server refuses it, so the line says so and what to do instead — while the
+ * email and work reviews, which are Approvals and not Decisions, stay.
  */
 export function toolsBriefing(
   surface: PromptSurface,
   parallelDelegationAvailable: boolean,
   codingToolsAvailable = codingRuntimeAvailability().available,
   routineAccess: RoutineAccessLevel = "write",
+  decisionStack: Pick<DecisionStackState, "enabled" | "instructions"> = decisionStackStateOf({}),
 ): string {
   const isChat = surface === "chat";
   // When discovery is off (the revert flag), every tool is loaded and there is
@@ -239,7 +256,9 @@ export function toolsBriefing(
     lines.push(
       "Automatic continuation: for work spanning multiple pages or batches, use `save_run_checkpoint` after each completed batch. " +
         "Record completed and remaining items, a fixed review window, stable source IDs/cursors, unresolved truncated items, and the exact next step in resume. " +
-        "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. " +
+        (decisionStack.enabled
+          ? "Use state continue while actionable work remains, blocked when access or a human Decision is required, and complete only when all intended work is done. "
+          : "Use state continue while actionable work remains, blocked when access or a person's input is required, and complete only when all intended work is done. ") +
         "The progressKey must identify the last fully processed item or source position; keep it unchanged if no real progress occurred. " +
         "Substantively review or process at most five source records or conversations per batch. " +
         "Compact discovery listings may use the tool's supported bounded page sizes; retry the same page with a smaller limit if its output is truncated. " +
@@ -294,33 +313,54 @@ export function toolsBriefing(
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
-    "- " + HUMAN_DECISION_GUIDANCE,
-    "- `request_decision` for a major choice that needs human judgment; include humanDecisionReason " +
-      "with the concrete stakes and why the existing instructions cannot settle it. Use `request_work_review` " +
-      "for major proactive work that needs human authorization, and `request_mail_review` for an exact customer email " +
-      "a human can edit, send, or discard from the Decision stack. A mail review is not a provider " +
-      "draft: never create a Gmail or IMAP draft for the same reply or fresh message. Use `revise_work_review` or " +
-      "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed work; a " +
-      "customer request or a discovered issue does not expand your authority. Check existing " +
-      "Decisions before adding another about the same issue. For a Decision, use a short, concrete action and " +
-      "subject as the title, such as 'Choose Acme's multi-year contract terms'. Begin the body with " +
-      "what happened, why it matters and your recommended next " +
-      "step in plain language. Include source links, what you checked, what remains unknown and " +
-      "the scope and cost of the proposed work. Offer 2–3 distinct choices with short action labels " +
-      "and a sentence explaining what you will do " +
-      "for each. Recommend at most one; include a way to defer or decline. If you need a name, " +
-      "date, price or document, ask for that exact information in the option detail and say it " +
-      "belongs in the answer note. A choice such as 'Provide reviewers' does not supply their " +
-      "names: never treat a click as evidence you received missing information. Use normal " +
-      "urgency unless you can name a near-term deadline or immediate harm. Then stop that line of " +
-      "work and end your turn. An answer normally starts a fresh session briefed with the choice " +
-      "and note; preparation-only Decisions record the answer without starting work. " +
-      "Ask only when a major decision needs human input" +
-      (isChat
-        ? " and the teammate is not in front of you — in a live chat, just ask them."
-        : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +
-          "is how you stop instead of guessing."),
   );
+
+  if (decisionStack.enabled) {
+    const instructions = decisionStackInstructionsGuidance(decisionStack.instructions);
+    lines.push(
+      "- " + HUMAN_DECISION_GUIDANCE,
+      ...(instructions ? ["- " + instructions] : []),
+      "- `request_decision` for a major choice that needs human judgment; include humanDecisionReason " +
+        "with the concrete stakes and why the existing instructions cannot settle it. Use `request_work_review` " +
+        "for major proactive work that needs human authorization, and `request_mail_review` for an exact customer email " +
+        "a human can edit, send, or discard from the Decision stack. A mail review is not a provider " +
+        "draft: never create a Gmail or IMAP draft for the same reply or fresh message. Use `revise_work_review` or " +
+        "`revise_mail_review` only to update your own pending card after requested changes. Stay within this turn's allowed work; a " +
+        "customer request or a discovered issue does not expand your authority. Check existing " +
+        "Decisions before adding another about the same issue. For a Decision, use a short, concrete action and " +
+        "subject as the title, such as 'Choose Acme's multi-year contract terms'. Begin the body with " +
+        "what happened, why it matters and your recommended next " +
+        "step in plain language. Include source links, what you checked, what remains unknown and " +
+        "the scope and cost of the proposed work. Offer 2–3 distinct choices with short action labels " +
+        "and a sentence explaining what you will do " +
+        "for each. Recommend at most one; include a way to defer or decline. If you need a name, " +
+        "date, price or document, ask for that exact information in the option detail and say it " +
+        "belongs in the answer note. A choice such as 'Provide reviewers' does not supply their " +
+        "names: never treat a click as evidence you received missing information. Use normal " +
+        "urgency unless you can name a near-term deadline or immediate harm. Then stop that line of " +
+        "work and end your turn. An answer normally starts a fresh session briefed with the choice " +
+        "and note; preparation-only Decisions record the answer without starting work. " +
+        "Ask only when a major decision needs human input" +
+        (isChat
+          ? " and the teammate is not in front of you — in a live chat, just ask them."
+          : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +
+            "is how you stop instead of guessing."),
+    );
+  } else {
+    lines.push(
+      "- " + DECISION_STACK_OFF_GUIDANCE,
+      "- Use `request_work_review` for major proactive work that needs human authorization, and " +
+        "`request_mail_review` for an exact customer email a human can edit, send, or discard from the " +
+        "Decision stack. A mail review is not a provider draft: never create a Gmail or IMAP draft for " +
+        "the same reply or fresh message. Use `revise_work_review` or `revise_mail_review` only to " +
+        "update your own pending card after requested changes. Stay within this turn's allowed work; a " +
+        "customer request or a discovered issue does not expand your authority." +
+        (isChat
+          ? " In a live chat you can still ask the teammate in front of you."
+          : " A routine's brief was written in advance and there is nobody to ask mid-run, so record " +
+            "what is blocked instead of guessing."),
+    );
+  }
 
   if (parallelDelegationAvailable) {
     lines.push(

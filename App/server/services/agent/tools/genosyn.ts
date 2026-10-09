@@ -4,6 +4,7 @@ import { buildFamilyAliases } from "./familyAliases.js";
 import type { AgentTool, ToolResult } from "../types.js";
 import { resolveMcpToken } from "../../mcpTokens.js";
 import { canReportRunFailure } from "../../runFailureReport.js";
+import { isDecisionStackEnabled } from "../../decisionStackSettings.js";
 
 /**
  * The built-in `genosyn` tools — routines, todos, journal, memory, bases, chat
@@ -88,10 +89,19 @@ export async function loadGenosynTools(
       ),
   }));
 
-  const mayReportRunFailure = canReportRunFailure(resolveMcpToken(token));
+  const tokenInfo = resolveMcpToken(token);
+  const mayReportRunFailure = canReportRunFailure(tokenInfo);
+  // A company that switched its Decision stack off is never offered
+  // `request_decision`: the seam refuses it, and a working set that still
+  // showed it would invite the model to try. Reading, retracting and answering
+  // the Decisions already waiting stay available.
+  const mayRaiseDecisions = tokenInfo
+    ? await isDecisionStackEnabled(tokenInfo.companyId).catch(() => true)
+    : true;
   const staticTools: AgentTool[] = [...familyTools, ...passthroughTools].filter(
     (tool) =>
-      !["mark_run_failed", "save_run_checkpoint"].includes(tool.name) || mayReportRunFailure,
+      (!["mark_run_failed", "save_run_checkpoint"].includes(tool.name) || mayReportRunFailure) &&
+      (tool.name !== "request_decision" || mayRaiseDecisions),
   );
 
   // The retired family names, resolvable but never advertised. They dispatch
