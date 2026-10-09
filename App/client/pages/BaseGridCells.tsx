@@ -253,6 +253,7 @@ export function CellEditor({
     case "longtext":
       return (
         <TextAreaEditor
+          label={field.name}
           value={typeof value === "string" ? value : ""}
           onCommit={(v) => {
             onCommit(v);
@@ -264,6 +265,7 @@ export function CellEditor({
     case "number":
       return (
         <NumberEditor
+          label={field.name}
           value={typeof value === "number" ? value : null}
           onCommit={(v) => {
             onCommit(v);
@@ -318,6 +320,7 @@ export function CellEditor({
     default:
       return (
         <TextEditor
+          label={field.name}
           type={field.type === "email" ? "email" : field.type === "url" ? "url" : "text"}
           value={typeof value === "string" ? value : ""}
           onCommit={(v) => {
@@ -331,11 +334,13 @@ export function CellEditor({
 }
 
 function TextEditor({
+  label,
   value,
   onCommit,
   autoFocus,
   type,
 }: {
+  label: string;
   value: string;
   onCommit: (v: string) => void;
   autoFocus?: boolean;
@@ -344,6 +349,7 @@ function TextEditor({
   const [v, setV] = React.useState(value);
   return (
     <input
+      aria-label={label}
       autoFocus={autoFocus}
       type={type}
       value={v}
@@ -359,10 +365,12 @@ function TextEditor({
 }
 
 function TextAreaEditor({
+  label,
   value,
   onCommit,
   autoFocus,
 }: {
+  label: string;
   value: string;
   onCommit: (v: string) => void;
   autoFocus?: boolean;
@@ -370,6 +378,7 @@ function TextAreaEditor({
   const [v, setV] = React.useState(value);
   return (
     <textarea
+      aria-label={label}
       autoFocus={autoFocus}
       rows={3}
       value={v}
@@ -386,10 +395,12 @@ function TextAreaEditor({
 }
 
 function NumberEditor({
+  label,
   value,
   onCommit,
   autoFocus,
 }: {
+  label: string;
   value: number | null;
   onCommit: (v: number | null) => void;
   autoFocus?: boolean;
@@ -397,6 +408,7 @@ function NumberEditor({
   const [v, setV] = React.useState(value === null ? "" : String(value));
   return (
     <input
+      aria-label={label}
       autoFocus={autoFocus}
       inputMode="decimal"
       value={v}

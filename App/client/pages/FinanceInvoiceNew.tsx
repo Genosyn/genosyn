@@ -193,8 +193,13 @@ function InvoiceForm() {
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
 
+  // The line Add line just made, so its description takes the cursor. Lines
+  // already there — and every line on an edit page — never take focus.
+  const [newLineKey, setNewLineKey] = React.useState<string | null>(null);
   function addLine() {
-    setLines((ls) => [...ls, emptyLine()]);
+    const line = emptyLine();
+    setLines((ls) => [...ls, line]);
+    setNewLineKey(line.key);
   }
   function removeLine(idx: number) {
     setLines((ls) => (ls.length === 1 ? ls : ls.filter((_, i) => i !== idx)));
@@ -548,6 +553,8 @@ function InvoiceForm() {
                         <textarea
                           value={l.description}
                           onChange={(e) => patchLine(i, { description: e.target.value })}
+                          autoFocus={l.key === newLineKey}
+                          aria-label={`Line ${i + 1} description`}
                           placeholder="Item description"
                           rows={2}
                           className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"

@@ -109,8 +109,9 @@ export function Explore() {
         </LI>
         <LI>
           Write or refine the SQL, then click <Code>Run</Code>. <Code>Cmd/Ctrl + Enter</Code> runs
-          from the editor; <Code>Cmd/Ctrl + S</Code> saves. Query errors and the elapsed time stay
-          inline so you can iterate without leaving the page.
+          from the editor; <Code>Cmd/Ctrl + S</Code> saves from anywhere on the page, the title and
+          description included. Query errors and the elapsed time stay inline so you can iterate
+          without leaving the page.
         </LI>
         <LI>
           After a successful Run, Explore may suggest a Number, Line, or Bar visualization from the
@@ -161,9 +162,9 @@ export function Explore() {
           description, then create it.
         </LI>
         <LI>
-          Click <Code>Add chart</Code> and choose a saved Chart. Charts already on the Dashboard are
-          marked and cannot be added twice. If none exists yet, jump straight to the Chart editor
-          from the picker.
+          Click <Code>Add chart</Code> and choose a saved Chart — no need to enter{" "}
+          <Code>Edit</Code> first. Charts already on the Dashboard are marked and cannot be added
+          twice. If none exists yet, jump straight to the Chart editor from the picker.
         </LI>
         <LI>
           In <Code>Edit</Code> mode, use the arrow controls to move a card and the named size menus

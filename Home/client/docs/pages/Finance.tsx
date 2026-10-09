@@ -49,6 +49,8 @@ export function Finance() {
         <LI>
           <Strong>Catalog</Strong> — reusable <Code>Products</Code> and <Code>Tax rates</Code>,
           snapshotted onto every line so editing a product never rewrites historical documents.
+          Click a product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open
+          it.
         </LI>
         <LI>
           <Strong>Ledger</Strong> — chart of accounts, journal entries, trial balance, P&amp;L /
@@ -104,7 +106,9 @@ export function Finance() {
       <OL>
         <LI>
           <Strong>Draft</Strong> — fully editable. Click <Code>New estimate</Code>, pick a customer,
-          add line items, save. The slug looks like <Code>edraft-xxxxxx</Code> until issue.
+          add line items, save. <Code>Add line</Code> on any invoice, estimate, recurring invoice,
+          or bill puts the cursor in the new line&apos;s description. The slug looks like{" "}
+          <Code>edraft-xxxxxx</Code> until issue.
         </LI>
         <LI>
           <Strong>Sent</Strong> — clicking <Code>Issue</Code> (or <Code>Issue &amp; send</Code> to

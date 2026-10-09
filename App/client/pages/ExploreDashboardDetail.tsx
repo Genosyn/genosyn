@@ -335,6 +335,11 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
           <Share2 size={14} /> Share
         </Button>
+        {/* Adding a card changes nothing already there, so it needs no Edit
+          mode; removing and rearranging cards still do. */}
+        <Button size="sm" onClick={() => setPicking(true)}>
+          <Plus size={14} /> Add chart
+        </Button>
         <Button
           variant={editing ? "primary" : "secondary"}
           size="sm"
@@ -358,11 +363,6 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         {editing && (
           <Button variant="secondary" size="sm" onClick={() => openFormula()}>
             <Calculator size={14} /> Add formula
-          </Button>
-        )}
-        {editing && (
-          <Button size="sm" onClick={() => setPicking(true)}>
-            <Plus size={14} /> Add chart
           </Button>
         )}
       </header>
