@@ -120,7 +120,7 @@ RUN cd /src/Home; \
 # App: a fixed, security-focused slice of the unit suite, run exactly as
 # `npm test` runs it (node:test through tsx with the same --import). The whole
 # suite takes CI about 30 minutes, too long for the scanner's 45-minute build;
-# this slice takes about 4 minutes on 10 cores. It covers the auth and
+# this slice takes 4 to 8 minutes on 10 cores. It covers the auth and
 # authorization middleware, crypto and outbound-request helpers, the MCP
 # protocol, this image's own contract, and the services and routes guarding
 # sign-in, sessions, delegation, Approvals, Standdowns, the Vault, tenancy,
