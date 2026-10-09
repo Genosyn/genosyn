@@ -25,6 +25,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { Standdown } from "../db/entities/Standdown.js";
 import { User } from "../db/entities/User.js";
 import { Workstream } from "../db/entities/Workstream.js";
 import { errorHandler } from "../middleware/error.js";
@@ -33,6 +34,7 @@ import { kickoffDecision } from "../services/decisionKickoff.js";
 import { decideDecision } from "../services/decisions.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { PROACTIVE_REVIEW_TOOLS } from "../services/proactive/workReviewPolicy.js";
+import { refreshStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -87,6 +89,7 @@ beforeEach(async () => {
   tokens.clear();
   configuredMcpRequests = 0;
   await resetTestDb();
+  await refreshStanddowns();
   owner = await insert(User, {
     email: "proactive-owner@example.test",
     name: "Owner",
@@ -146,6 +149,8 @@ async function request<T = Record<string, unknown>>(
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
     },
     body: JSON.stringify(args),
+    // A handler that never answers fails here, not at the server's 300s timeout.
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
@@ -436,6 +441,64 @@ test("review submission cannot be invoked from an ordinary employee turn or a re
   assert.equal((await tool("request_work_review", args, selfReview)).status, 403);
   assert.equal(await AppDataSource.getRepository(Approval).count(), 0);
   await assertNoWorkStarted();
+});
+
+/** A complete plan, so only the live source can refuse it. */
+const workReview = {
+  humanDecisionReason:
+    "The checkout incident affects customer payments and needs authorization for a production-facing Repository change.",
+  title: "Investigate Acme's checkout bug",
+  context: "Acme reported checkout failing after yesterday's release; confirm impact first.",
+  plan: "Inspect the granted Repository, reproduce the reported failure, prepare a focused fix and relevant tests, then leave the branch for Member review.",
+};
+
+async function assertWorkReviewRefused(bearer: string, reason: RegExp): Promise<void> {
+  const refused = await tool<{ error: string }>("request_work_review", workReview, bearer);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, reason);
+  assert.equal(await AppDataSource.getRepository(Approval).count(), 0);
+  await assertNoWorkStarted();
+}
+
+for (const scope of ["company", "employee", "routine"] as const) {
+  test(`a Standdown at ${scope} scope refuses a work review with an error instead of leaving it unanswered`, async () => {
+    await insert(Standdown, {
+      companyId: company.id,
+      scope,
+      scopeId: { company: null, employee: employee.id, routine: routine.id }[scope],
+      reason: "Stop proactive work",
+      placedAt: new Date(),
+    });
+    await refreshStanddowns();
+    await assertWorkReviewRefused(mint({ mailDeliveryMode: "draft" }), /under a Standdown/);
+  });
+}
+
+test("a disabled source Routine refuses a work review with an error", async () => {
+  await AppDataSource.getRepository(Routine).update({ id: routine.id }, { enabled: false });
+  await assertWorkReviewRefused(mint({ mailDeliveryMode: "draft" }), /disabled or removed/);
+});
+
+test("a review token without its Routine's delivery restriction is refused with an error", async () => {
+  // The Routine drafts mail, and the default token carries no mailDeliveryMode.
+  await assertWorkReviewRefused(token, /review restriction must be preserved/);
+});
+
+test("a storage failure while listing work reviews answers without its detail, and the next listing recovers", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  t.mock.method(
+    AppDataSource.getRepository(Approval),
+    "findBy",
+    async () => {
+      throw new Error("Synthetic database detail that must not reach the caller");
+    },
+    { times: 1 },
+  );
+  assert.deepEqual(await tool("list_work_reviews"), {
+    status: 500,
+    body: { error: "Internal server error" },
+  });
+  assert.deepEqual(await tool("list_work_reviews"), { status: 200, body: [] });
 });
 
 test("a review Decision stays human-only and answering it cannot start a pickup session", async () => {

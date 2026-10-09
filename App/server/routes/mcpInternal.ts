@@ -13006,30 +13006,38 @@ mcpInternalRouter.post(
         .status(403)
         .json({ error: "Work reviews are submitted from a proactive review turn." });
     const body = req.body as z.infer<typeof workReviewSchema>;
-    const approval = await createProactiveWorkApproval({
-      companyId: req.mcpCompany!.id,
-      employeeId: req.mcpEmployee!.id,
-      title: body.title,
-      context: withHumanDecisionReason(body.context, body.humanDecisionReason),
-      plan: body.plan,
-      origin: {
-        routineId: req.mcpRoutineId,
-        runId: req.mcpRunId,
-        conversationId: req.mcpConversationId,
-        mailThreadId: req.mcpMailThreadId,
-        mailHandoverId: req.mcpMailHandoverId,
-        mailDeliveryMode: req.mcpMailDeliveryMode,
-        selfReviewOnly: req.mcpSelfReviewOnly,
-      },
-    });
-    return res.json({
-      approvalId: approval.id,
-      status: approval.status,
-      note:
-        approval.status === "pending"
-          ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
-          : `This work already has ${withIndefiniteArticle(approval.status)} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
-    });
+    // The service rechecks the live source (a Standdown, the Routine's switch,
+    // its delivery restriction) and throws when it no longer allows the work.
+    try {
+      const approval = await createProactiveWorkApproval({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        title: body.title,
+        context: withHumanDecisionReason(body.context, body.humanDecisionReason),
+        plan: body.plan,
+        origin: {
+          routineId: req.mcpRoutineId,
+          runId: req.mcpRunId,
+          conversationId: req.mcpConversationId,
+          mailThreadId: req.mcpMailThreadId,
+          mailHandoverId: req.mcpMailHandoverId,
+          mailDeliveryMode: req.mcpMailDeliveryMode,
+          selfReviewOnly: req.mcpSelfReviewOnly,
+        },
+      });
+      return res.json({
+        approvalId: approval.id,
+        status: approval.status,
+        note:
+          approval.status === "pending"
+            ? "Work proposed in the Decision stack. Only an owner or admin can approve it. Finish this review without performing the work; the approved plan starts separately after approval."
+            : `This work already has ${withIndefiniteArticle(approval.status)} review. No new request was created. Read list_work_reviews and the live source; do not repeat the work or its proposal without changed evidence.`,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Could not request the work review.",
+      });
+    }
   },
 );
 
@@ -13043,13 +13051,20 @@ mcpInternalRouter.post("/tools/revise_work_review", (_req: McpRequest, res) =>
 mcpInternalRouter.post(
   "/tools/list_work_reviews",
   validateBody(z.object({}).strict()),
-  async (req: McpRequest, res) =>
-    res.json(
-      await listProactiveWorkReviews({
-        companyId: req.mcpCompany!.id,
-        employeeId: req.mcpEmployee!.id,
-      }),
-    ),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await listProactiveWorkReviews({
+          companyId: req.mcpCompany!.id,
+          employeeId: req.mcpEmployee!.id,
+        }),
+      );
+    } catch (error) {
+      // Reconciliation absorbs stale sources, so only an infrastructure
+      // failure reaches here; the error handler keeps its detail in the log.
+      next(error);
+    }
+  },
 );
 
 const requestDecisionSchema = z
