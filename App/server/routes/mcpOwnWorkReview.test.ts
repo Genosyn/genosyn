@@ -150,6 +150,8 @@ async function request<T = Record<string, unknown>>(
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
     },
     body: JSON.stringify(args),
+    // A handler that never answers fails here, not at the server's 300s timeout.
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
@@ -278,6 +280,23 @@ test("the callback returns only the authenticated employee's packet and no priva
   assert.equal((await tool("get_own_work_review", {}, untrusted)).status, 403);
   const wrongCompany = mint({}, employee.id, randomUUID());
   assert.equal((await tool("get_own_work_review", {}, wrongCompany)).status, 401);
+});
+
+test("a storage failure while assembling the packet answers without its detail, and the next read recovers", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  t.mock.method(
+    AppDataSource.getRepository(AIEmployee),
+    "existsBy",
+    async () => {
+      throw new Error("Synthetic database detail that must not reach the caller");
+    },
+    { times: 1 },
+  );
+  assert.deepEqual(await tool("get_own_work_review"), {
+    status: 500,
+    body: { error: "Internal server error" },
+  });
+  assert.equal((await tool("get_own_work_review")).status, 200);
 });
 
 test("interactive Member delegation for the packet remains admin-only and follows live membership", async () => {
@@ -431,6 +450,29 @@ test("a review creates its bound tracking record and can update it without copyi
     JSON.stringify(entries.map((entry) => ({ title: entry.title, body: entry.body }))),
     /PRIVATE-/,
   );
+});
+
+test("a storage failure while updating review tracking keeps its state, and the next update lands", async (t) => {
+  const workstream = await ownTracking();
+  const stored = () =>
+    AppDataSource.getRepository(Workstream).findOneByOrFail({ id: workstream.id });
+  t.mock.method(console, "error", () => undefined);
+  t.mock.method(
+    AppDataSource.getRepository(Workstream),
+    "findOneBy",
+    async () => {
+      throw new Error("Synthetic database detail that must not reach the caller");
+    },
+    { times: 1 },
+  );
+  const update = { workstreamId: workstream.id, stateDoc: "PRIVATE-UPDATED-STATE" };
+  assert.deepEqual(await tool("update_workstream", update), {
+    status: 500,
+    body: { error: "Internal server error" },
+  });
+  assert.equal((await stored()).stateDoc, "PRIVATE-REVIEW-STATE");
+  assert.equal((await tool("update_workstream", update)).status, 200);
+  assert.equal((await stored()).stateDoc, "PRIVATE-UPDATED-STATE");
 });
 
 test("review tracking cannot bind to business work or modify unbound, unrelated or foreign records", async () => {

@@ -11,6 +11,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineFolder } from "../db/entities/RoutineFolder.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
@@ -97,6 +98,8 @@ async function tool<T = Record<string, unknown>>(
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(args),
+    // A handler that never answers fails here, not at the server's 300s timeout.
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
@@ -351,6 +354,61 @@ describe("an AI Employee cannot schedule work that never happens", () => {
     for (const routine of saved) {
       assert.notEqual(routine.nextRunAt, null, `${routine.cronExpr} saved with no next run`);
     }
+  });
+});
+
+/**
+ * Express 4 ignores the promise an async handler returns, so a catch that
+ * rethrew anything but a folder error left the tool call unanswered until the
+ * server's request timeout.
+ */
+describe("a storage failure while filing a routine answers instead of hanging", () => {
+  const internalError = { status: 500, body: { error: "Internal server error" } };
+  const reportsFolder = () =>
+    insert(RoutineFolder, { companyId: company.id, name: "Reports", slug: "reports" });
+
+  test("create_routine creates nothing, and the next call files the routine", async (t) => {
+    const folder = await reportsFolder();
+    t.mock.method(console, "error", () => undefined);
+    t.mock.method(
+      AppDataSource.getRepository(RoutineFolder),
+      "findOneBy",
+      async () => {
+        throw new Error("Synthetic database detail that must not reach the caller");
+      },
+      { times: 1 },
+    );
+    const args = { name: "Digest", cronExpr: "0 9 * * 1", folder: folder.id };
+
+    assert.deepEqual(await tool("create_routine", args), internalError);
+    assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
+
+    const created = await tool<{ routine: { folder: string | null } }>("create_routine", args);
+    assert.equal(created.status, 200);
+    assert.equal(created.body.routine.folder, "Reports");
+  });
+
+  test("update_routine leaves the routine unfiled, and the next call files it", async (t) => {
+    const folder = await reportsFolder();
+    const routine = await addRoutine({ name: "Digest", slug: "digest" });
+    t.mock.method(console, "error", () => undefined);
+    t.mock.method(
+      AppDataSource.getRepository(RoutineFolder),
+      "findOneBy",
+      async () => {
+        throw new Error("Synthetic database detail that must not reach the caller");
+      },
+      { times: 1 },
+    );
+    const args = { routineId: routine.id, folder: folder.id };
+
+    assert.deepEqual(await tool("update_routine", args), internalError);
+    const unfiled = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+    assert.equal(unfiled.folderId, null);
+
+    const updated = await tool<{ routine: { folder: string | null } }>("update_routine", args);
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.routine.folder, "Reports");
   });
 });
 
