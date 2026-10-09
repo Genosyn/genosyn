@@ -126,7 +126,9 @@ export default function NotebookDetail({ company }: { company: Company }) {
         notebookSlug: notebook.slug,
       });
       await refresh();
-      navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
+      navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`, {
+        state: { newNote: true },
+      });
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the page" });
     } finally {

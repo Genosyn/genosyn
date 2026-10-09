@@ -86,6 +86,7 @@ export function TodoDetailBody({
   onPatchTodo,
   onOpenTodo,
   onCreated,
+  onReviewResolved,
 }: {
   todo: Todo;
   allTodos: Todo[];
@@ -99,6 +100,8 @@ export function TodoDetailBody({
   onPatchTodo: (t: Todo, patch: Partial<Todo>) => void;
   onOpenTodo: (id: string) => void;
   onCreated: (t: Todo) => void;
+  /** A review was approved (`done`) or pushed back (`in_progress`) from the panel. */
+  onReviewResolved?: (status: "done" | "in_progress") => void;
 }) {
   const [title, setTitle] = React.useState(todo.title);
   const [desc, setDesc] = React.useState(todo.description);
@@ -294,7 +297,21 @@ export function TodoDetailBody({
       </div>
 
       {todo.status === "in_review" && (
-        <ReviewPanel todo={todo} canEdit={canEdit} onPatch={onPatch} />
+        <ReviewPanel
+          todo={todo}
+          canEdit={canEdit}
+          onPatch={onPatch}
+          onResolved={(status) => {
+            // A push-back usually comes with a reason: the cursor waits in
+            // the comment box for it.
+            if (status === "in_progress") {
+              window.requestAnimationFrame(() =>
+                document.getElementById(`todo-comment-${todo.id}`)?.focus(),
+              );
+            }
+            onReviewResolved?.(status);
+          }}
+        />
       )}
 
       {todo.recurrence !== "none" && (
@@ -353,6 +370,7 @@ export function TodoDetailPanel(props: {
   onDelete: () => void;
   onOpenTodo: (id: string) => void;
   onCreated: (t: Todo) => void;
+  onReviewResolved?: (status: "done" | "in_progress") => void;
 }) {
   const { todo, project, canEdit, onClose, onDelete } = props;
   return (
@@ -552,10 +570,13 @@ export function ReviewPanel({
   todo,
   canEdit,
   onPatch,
+  onResolved,
 }: {
   todo: Todo;
   canEdit: boolean;
   onPatch: (patch: Partial<Todo>) => void;
+  /** Called after either resolution, so the surface around it can move on. */
+  onResolved?: (status: "done" | "in_progress") => void;
 }) {
   const assigneeName = todo.assignee?.name ?? "the assignee";
   const reviewerName = todo.reviewer?.name;
@@ -590,7 +611,10 @@ export function ReviewPanel({
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
             size="sm"
-            onClick={() => onPatch({ status: "done" })}
+            onClick={() => {
+              onPatch({ status: "done" });
+              onResolved?.("done");
+            }}
             title="Approve and mark this todo done"
           >
             <Check size={13} /> Approve &amp; mark done
@@ -598,7 +622,10 @@ export function ReviewPanel({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => onPatch({ status: "in_progress" })}
+            onClick={() => {
+              onPatch({ status: "in_progress" });
+              onResolved?.("in_progress");
+            }}
             title={
               assigneeIsAi
                 ? "Send back to the AI assignee for another pass"
@@ -887,6 +914,7 @@ export function CommentThread({
           />
           <textarea
             ref={composerRef}
+            id={`todo-comment-${todo.id}`}
             value={body}
             onPaste={onPaste}
             onChange={(e) => {

@@ -49,8 +49,9 @@ export function Resources() {
       </P>
       <UL>
         <LI>
-          <Strong>Paste a URL</Strong> — Genosyn fetches the page and extracts its readable text.
-          The text is a snapshot taken at that moment; it does not re-fetch later.
+          <Strong>Paste a URL</Strong> — paste it and press Enter; Genosyn fetches the page and
+          extracts its readable text. The text is a snapshot taken at that moment; it does not
+          re-fetch later.
         </LI>
         <LI>
           <Strong>Paste text</Strong> — a transcript, an email thread, anything you can copy. This

@@ -55,6 +55,7 @@ import {
   type WorkSessionModelOverride,
 } from "@/lib/workSessionModel";
 import type { ChatAttachment, ModelEffort } from "@/lib/api";
+import { firstBracketPlaceholder } from "@/lib/composerFocus";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -772,6 +773,7 @@ export function NewSessionPane({
   const [starting, setStarting] = React.useState(false);
   const [startError, setStartError] = React.useState<string | null>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
+  const briefRef = React.useRef<HTMLTextAreaElement>(null);
   const submitting = React.useRef(false);
   const attachments = useChatAttachments({
     scopeKey: `${currentUserId}:${repoId}`,
@@ -912,7 +914,21 @@ export function NewSessionPane({
               <button
                 key={starter.label}
                 type="button"
-                onClick={() => setInstruction(starter.prompt)}
+                onClick={() => {
+                  setInstruction(starter.prompt);
+                  // Into the brief with "[describe …]" selected, so the first
+                  // keystroke replaces it.
+                  window.requestAnimationFrame(() => {
+                    const brief = briefRef.current;
+                    if (!brief) return;
+                    brief.focus();
+                    const [start, end] = firstBracketPlaceholder(starter.prompt) ?? [
+                      starter.prompt.length,
+                      starter.prompt.length,
+                    ];
+                    brief.setSelectionRange(start, end);
+                  });
+                }}
                 className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/30 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
               >
                 {starter.label}
@@ -928,6 +944,7 @@ export function NewSessionPane({
             }
           >
             <textarea
+              ref={briefRef}
               value={instruction}
               onPaste={onPaste}
               disabled={starting}

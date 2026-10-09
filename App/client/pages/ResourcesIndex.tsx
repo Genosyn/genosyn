@@ -1035,6 +1035,14 @@ function NewResourceModal({
     }
   }
 
+  // Paste a URL, press Enter. The modal is not a form — its tab buttons would
+  // submit one — so the URL fields submit themselves.
+  function addOnEnter(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing || busy) return;
+    event.preventDefault();
+    void submit();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Add resource" size="lg">
       <div className="flex flex-col gap-4">
@@ -1057,12 +1065,14 @@ function NewResourceModal({
               placeholder="https://example.com/article"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={addOnEnter}
               autoFocus
             />
             <Input
               label="Title (optional — defaults to the page title)"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={addOnEnter}
               placeholder="Founders' guide to pricing"
             />
           </>

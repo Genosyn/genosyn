@@ -1,6 +1,7 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { shouldIgnoreShortcut } from "@/lib/keyboard";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   LayoutList,
@@ -113,11 +114,42 @@ function countActive(f: Filters): number {
   return f.statuses.size + f.priorities.size + f.assignees.size;
 }
 
+const VIEW_STORAGE_KEY = "genosyn.tasks.view";
+
+/**
+ * List or Board, as the Member last left it. The board is five fixed-width
+ * columns, so on a narrow screen it would scroll sideways — there the list
+ * always comes first.
+ */
+function readTasksView(): "list" | "board" {
+  try {
+    if (
+      window.localStorage.getItem(VIEW_STORAGE_KEY) === "board" &&
+      window.matchMedia("(min-width: 768px)").matches
+    ) {
+      return "board";
+    }
+  } catch {
+    // Storage blocked: start on the list, as before.
+  }
+  return "list";
+}
+
+function writeTasksView(view: "list" | "board"): void {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+  } catch {
+    // Remembering is a convenience; the choice still applies on this visit.
+  }
+}
+
 // ───────────────────────── main page ─────────────────────────────────────────
 
 export default function ProjectDetail({ company, me }: { company: Company; me: Me }) {
   const { pSlug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const background = useBackgroundAction();
   const dialog = useDialog();
   const { reload: reloadProjects } = useTasks();
@@ -125,7 +157,11 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
   const [data, setData] = React.useState<ProjectTodos | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [members, setMembers] = React.useState<Member[]>([]);
-  const [view, setView] = React.useState<"list" | "board">("list");
+  const [view, setViewState] = React.useState<"list" | "board">(readTasksView);
+  const setView = (next: "list" | "board") => {
+    setViewState(next);
+    writeTasksView(next);
+  };
   const [peekId, setPeekId] = React.useState<string | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
   const [filters, setFilters] = React.useState<Filters>(emptyFilters);
@@ -181,21 +217,39 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
     setFilters(emptyFilters());
   }, [pSlug]);
 
-  // Global `c` shortcut to jump to the new-todo input, `/` for filter focus.
-  // Ignore when any other input is focused so typing stays normal.
+  // `?todo=<id>` opens that todo beside the board — the Review queue, Home and
+  // links land on the todo itself, not on the board to hunt for it. Read
+  // once and stripped, so Back and a later click don't fight over it.
+  const todoParam = searchParams.get("todo");
+  React.useEffect(() => {
+    if (!todoParam) return;
+    setPeekId(todoParam);
+    setSearchParams(
+      (params) => {
+        params.delete("todo");
+        return params;
+      },
+      { replace: true },
+    );
+  }, [todoParam, setSearchParams]);
+
+  // A project just created lands ready for its first todo.
+  const focusComposer = Boolean(
+    (location.state as { focusComposer?: unknown } | null)?.focusComposer,
+  );
+  const loaded = data !== null;
+  React.useEffect(() => {
+    if (!focusComposer || !loaded) return;
+    addInputRef.current?.focus();
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [focusComposer, loaded, navigate, location.pathname, location.search]);
+
+  // Global `c` shortcut to jump to the new-todo input, Esc to close the
+  // peek. The shared guard keeps them out of fields and dialogs, and leaves
+  // the second key of a `G` navigation chord to navigation.
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT" ||
-          t.isContentEditable)
-      ) {
-        return;
-      }
+      if (shouldIgnoreShortcut(e)) return;
       if (e.key === "c") {
         // Read-only viewers have no composer to focus — leave `c` alone.
         if (!canEdit) return;
@@ -443,6 +497,21 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
           onPatchTodo={patchTodo}
           onDelete={() => deleteTodo(peekTodo)}
           onOpenTodo={setPeekId}
+          onReviewResolved={(status) => {
+            if (status !== "done") return;
+            // Approved: nothing left to do here, so the panel closes and focus
+            // goes back to the todo's row (the board's cards are not
+            // focusable, so the add-todo box there).
+            const id = peekTodo.id;
+            setPeekId(null);
+            window.requestAnimationFrame(() => {
+              const target =
+                document.querySelector<HTMLElement>(`[data-todo-title="${id}"]`) ??
+                addInputRef.current ??
+                document.getElementById("main-content");
+              target?.focus();
+            });
+          }}
           onCreated={(t) => {
             setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
             reloadProjects();
@@ -1040,6 +1109,7 @@ function TodoRow({
           />
         ) : (
           <button
+            data-todo-title={todo.id}
             onDoubleClick={(e) => {
               // Rename is a write — read-only viewers just open the peek.
               if (!canEdit) return;

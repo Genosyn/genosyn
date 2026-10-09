@@ -29,7 +29,8 @@ export default function ProjectNew({ company }: { company: Company }) {
         key: key || undefined,
       });
       await reload();
-      navigate(`/c/${companySlug}/tasks/p/${p.slug}`);
+      // Land ready to add the first todo.
+      navigate(`/c/${companySlug}/tasks/p/${p.slug}`, { state: { focusComposer: true } });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -66,6 +67,7 @@ export default function ProjectNew({ company }: { company: Company }) {
               onChange={(e) => setName(e.target.value)}
               placeholder="Engineering"
               required
+              autoFocus
             />
             <Input
               label="Key (optional)"

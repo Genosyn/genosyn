@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { shouldFocusOnArrival, type ArrivalFocusContext } from "./composerFocus.js";
+import {
+  firstBracketPlaceholder,
+  shouldFocusOnArrival,
+  type ArrivalFocusContext,
+} from "./composerFocus.js";
 
 /**
  * Arriving at a chat thread, a channel or the Ask AI panel puts the cursor in
@@ -62,5 +66,27 @@ describe("shouldFocusOnArrival", () => {
       shouldFocusOnArrival(focused, { ...desk, active: focused as unknown as Element }),
       false,
     );
+  });
+});
+
+describe("firstBracketPlaceholder", () => {
+  test("selects the first [placeholder], brackets included", () => {
+    const text = "Investigate and fix this bug: [describe what is going wrong]. Add a test.";
+    const range = firstBracketPlaceholder(text);
+    assert.ok(range);
+    assert.equal(text.slice(range[0], range[1]), "[describe what is going wrong]");
+  });
+
+  test("only the first of several", () => {
+    const text = "Rewrite [file and section] for [audience and goal].";
+    const range = firstBracketPlaceholder(text);
+    assert.ok(range);
+    assert.equal(text.slice(range[0], range[1]), "[file and section]");
+  });
+
+  test("none to select: the caller puts the cursor at the end", () => {
+    assert.equal(firstBracketPlaceholder("Review these documents for contradictions."), null);
+    assert.equal(firstBracketPlaceholder("Empty [] brackets are not a placeholder."), null);
+    assert.equal(firstBracketPlaceholder("Never across a line [break\nhere]."), null);
   });
 });

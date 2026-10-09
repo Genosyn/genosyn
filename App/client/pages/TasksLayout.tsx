@@ -107,6 +107,14 @@ export default function TasksLayout({ company }: { company: Company }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              const first = filtered?.[0];
+              if (!first) return;
+              e.preventDefault();
+              navigate(`/c/${company.slug}/tasks/p/${first.slug}`);
+            }}
+            aria-label="Filter projects"
             placeholder="Filter projects…"
             className="w-full rounded-md border border-slate-200 bg-slate-50 py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
           />

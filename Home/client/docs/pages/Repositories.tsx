@@ -198,7 +198,8 @@ export function Repositories() {
 
       <H2 id="version-control">Commit, branch, and history</H2>
       <P>
-        Commit everything that changed or only the paths you select, with a message. The commit is
+        Commit everything that changed or only the paths you select, with a message — select{" "}
+        <Strong>Commit</Strong>, or press <Code>⌘/Ctrl+Enter</Code> in the message. The commit is
         attributed to <Strong>you</Strong>: <Code>git log</Code> shows the Member&apos;s name and
         email as the author, not the server. Commits are also recorded in the company audit log.
       </P>
@@ -252,7 +253,9 @@ export function Repositories() {
       <H3 id="quick-start">Start with a useful brief</H3>
       <P>
         The quick-start surface keeps the employee picker and brief together. Suggested briefs give
-        you a concrete starting point; choose one to adapt it, or write your own in plain language.
+        you a concrete starting point; choose one and its part in brackets, such as{" "}
+        <Code>[describe what is going wrong]</Code>, is already selected in the brief, so you just
+        type over it. Or write your own in plain language.
         An unfinished text brief is saved for this repository until the session starts. Paste a
         screenshot into the brief, drag files onto it, or choose{" "}
         <Strong>Attach files or paste an image</Strong>. Review the image previews and remove

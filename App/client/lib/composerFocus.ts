@@ -48,6 +48,17 @@ export function shouldFocusOnArrival(
   return !context.dialogOpen;
 }
 
+/**
+ * The first `[fill this in]` placeholder in a prompt template, as a selection
+ * range including its brackets — so picking a starter leaves the part to
+ * replace selected, and the first keystroke replaces it. Null when there is
+ * none (the cursor then goes to the end).
+ */
+export function firstBracketPlaceholder(text: string): [start: number, end: number] | null {
+  const match = /\[[^\]\n]+\]/.exec(text);
+  return match ? [match.index, match.index + match[0].length] : null;
+}
+
 /** A mouse or trackpad is the primary pointer, so a keyboard is at hand. */
 export function hasFinePointer(): boolean {
   return (
