@@ -3,7 +3,13 @@ import type { Approval, Company, Decision, HomeApproval } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { useLiveRefetch } from "@/components/CompanySocket";
 
-type Reference = { kind: "decision" | "review"; id: string };
+/**
+ * One row this Member follows, by identity only. `seen` marks a row whose work
+ * finished cleanly and whose final line has been on screen: the next visit
+ * leaves it behind instead of asking for a Close.
+ */
+type Reference = { kind: "decision" | "review"; id: string; seen?: true };
+export type FollowReference = Reference;
 export type DecisionStackItem = (
   | { kind: "decision"; key: string; decision: Decision }
   | { kind: "review"; key: string; approval: HomeApproval; outcome?: Approval }
@@ -54,27 +60,59 @@ export function compareStackItems(a: DecisionStackItem, b: DecisionStackItem): n
   return rank(a) - rank(b) || (Date.parse(at(a)) || 0) - (Date.parse(at(b)) || 0);
 }
 
-function readReferences(key: string): Reference[] | null {
+/**
+ * The stored follow list, validated: identities only, each once, and `seen`
+ * kept only as `true`. Null when the value cannot be parsed at all.
+ */
+export function parseFollowReferences(raw: string | null): Reference[] | null {
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
-    if (!Array.isArray(value)) return [];
-    const seen = new Set<string>();
-    return value.filter((item): item is Reference => {
-      if (
-        !item ||
-        (item.kind !== "decision" && item.kind !== "review") ||
-        typeof item.id !== "string" ||
-        !/^[a-zA-Z0-9-]{1,100}$/.test(item.id)
-      )
-        return false;
-      const id = `${item.kind}-${item.id}`;
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
+    value = JSON.parse(raw ?? "[]");
   } catch {
     return null;
   }
+  if (!Array.isArray(value)) return [];
+  const keys = new Set<string>();
+  return value.flatMap((item: unknown): Reference[] => {
+    if (!item || typeof item !== "object") return [];
+    const { kind, id, seen } = item as Record<string, unknown>;
+    if (
+      (kind !== "decision" && kind !== "review") ||
+      typeof id !== "string" ||
+      !/^[a-zA-Z0-9-]{1,100}$/.test(id)
+    )
+      return [];
+    const key = `${kind}-${id}`;
+    if (keys.has(key)) return [];
+    keys.add(key);
+    return [seen === true ? { kind, id, seen: true } : { kind, id }];
+  });
+}
+
+/** What a new visit follows: rows already seen finished are left behind. */
+export function unseenReferences(references: Reference[]): Reference[] {
+  return references.filter((ref) => !ref.seen);
+}
+
+/** The list with row `key` marked seen, or null when that changes nothing. */
+export function markReferenceSeen(references: Reference[], key: string): Reference[] | null {
+  let changed = false;
+  const next = references.map((ref) => {
+    if (ref.seen || `${ref.kind}-${ref.id}` !== key) return ref;
+    changed = true;
+    return { ...ref, seen: true as const };
+  });
+  return changed ? next : null;
+}
+
+function readReferences(key: string): Reference[] | null {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  return parseFollowReferences(raw);
 }
 
 function restore(
@@ -158,7 +196,7 @@ export function useDecisionFollowUps(company: Company, memberId: string) {
   const scope = `${storageKey}:${canReview}`;
   const [state, setState] = React.useState(() => ({
     scope,
-    items: restore(readReferences(storageKey) ?? [], canReview),
+    items: restore(unseenReferences(readReferences(storageKey) ?? []), canReview),
     hiddenKeys: new Set<string>(),
   }));
   const current = React.useRef(state);
@@ -261,7 +299,12 @@ export function useDecisionFollowUps(company: Company, memberId: string) {
 
   React.useEffect(() => {
     const requestVersions = versions.current;
-    publish(restore(readReferences(storageKey) ?? [], canReview), new Set());
+    const stored = readReferences(storageKey);
+    const kept = unseenReferences(stored ?? []);
+    // A row whose finished line was seen on an earlier visit has nothing left
+    // to show: it is History's now, without anyone pressing Close.
+    if (stored && kept.length < stored.length) saveReferences(storageKey, kept);
+    publish(restore(kept, canReview), new Set());
     void refresh();
     const onFocus = () => void refresh();
     const onStorage = (event: StorageEvent) => {
@@ -304,7 +347,10 @@ export function useDecisionFollowUps(company: Company, memberId: string) {
       if (activeScope.current !== scope || current.current.scope !== scope) return;
       if (!canReview && reference(item).kind === "review") return;
       versions.current.set(item.key, (versions.current.get(item.key) ?? 0) + 1);
-      const references = readReferences(storageKey) ?? current.current.items.map(reference);
+      // Following afresh starts unseen, whatever an older entry said.
+      const references = (readReferences(storageKey) ?? current.current.items.map(reference)).map(
+        (ref) => (`${ref.kind}-${ref.id}` === item.key ? { kind: ref.kind, id: ref.id } : ref),
+      );
       if (!references.some((ref) => `${ref.kind}-${ref.id}` === item.key))
         references.push(reference(item));
       const hiddenKeys = new Set(current.current.hiddenKeys);
@@ -334,6 +380,22 @@ export function useDecisionFollowUps(company: Company, memberId: string) {
   const close = React.useCallback((key: string) => remove(key, true), [remove]);
   const forget = React.useCallback((key: string) => remove(key, false), [remove]);
 
+  /**
+   * Row `key` finished cleanly and its last line is on screen. It stays for the
+   * rest of this visit — nothing disappears under the reader — and the next
+   * visit, on Home or the stack, leaves it behind. Only rows this Member
+   * follows are marked; anything else is a no-op.
+   */
+  const markSeen = React.useCallback(
+    (key: string) => {
+      if (activeScope.current !== scope || current.current.scope !== scope) return;
+      const references = readReferences(storageKey);
+      const next = references && markReferenceSeen(references, key);
+      if (next) saveReferences(storageKey, next);
+    },
+    [scope, storageKey],
+  );
+
   // A Close hides any older pending snapshot until the parent successfully
   // reloads that feed. These markers are memory-only and scoped to this Member.
   const clearClosed = React.useCallback(
@@ -353,7 +415,7 @@ export function useDecisionFollowUps(company: Company, memberId: string) {
     () => (state.scope === scope ? state.hiddenKeys : new Set<string>()),
     [scope, state],
   );
-  return { items, hiddenKeys, remember, update, close, forget, clearClosed, refresh };
+  return { items, hiddenKeys, remember, update, close, forget, clearClosed, refresh, markSeen };
 }
 
 export type DecisionFollowUps = ReturnType<typeof useDecisionFollowUps>;

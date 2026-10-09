@@ -8,6 +8,7 @@ import { DecisionOutcome } from "@/components/decisions/DecisionOutcome";
 import { MailReviewCard, MailReviewOutcome } from "@/components/decisions/MailReviewCard";
 import { CloseRowButton } from "@/components/decisions/StackRow";
 import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
+import { stackItemPhase } from "@/components/decisions/stackStatus";
 import {
   decisionItem,
   reviewItem,
@@ -20,10 +21,12 @@ import {
  *
  * Acting on an item decides what happens to its slot. An answer, a Send or an
  * Approve is followed: the row collapses to a status line that updates as the
- * work goes on, until Close. A Dismiss, a Snooze, a Discard or a Don’t do this
- * has nothing left to follow, so the row leaves the stack in that same click
- * and focus moves to the next row — dismissed and declined items are in
- * History, snoozed ones come back on their own.
+ * work goes on. Once that work finishes cleanly and the line has been on
+ * screen, the next visit leaves the row behind — no Close needed — while a
+ * row that ended with a problem stays until Close. A Dismiss, a Snooze, a
+ * Discard or a Don’t do this has nothing left to follow, so the row leaves the
+ * stack in that same click and focus moves to the next row — dismissed and
+ * declined items are in History, snoozed ones come back on their own.
  */
 export function DecisionStackCard({
   company,
@@ -47,6 +50,19 @@ export function DecisionStackCard({
   grouped?: boolean;
 }) {
   const [retrying, setRetrying] = React.useState(false);
+  const finished = stackItemPhase(item) === "finished" && !item.refreshError;
+  const markSeen = followUps.markSeen;
+  React.useEffect(() => {
+    if (!finished) return;
+    // Seen means shown: work that finishes in a background tab has not been
+    // read by anyone yet, so it is marked when the tab comes back.
+    const mark = () => {
+      if (document.visibilityState === "visible") markSeen(item.key);
+    };
+    mark();
+    document.addEventListener("visibilitychange", mark);
+    return () => document.removeEventListener("visibilitychange", mark);
+  }, [finished, item.key, markSeen]);
   const close = () => {
     followUps.close(item.key);
     void onResolved();

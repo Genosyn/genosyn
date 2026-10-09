@@ -1094,7 +1094,7 @@ try {
     },
   );
   await check(
-    "Home keeps resolved reviews in place until Close and restores them after reload",
+    "Home follows resolved reviews: the running one survives a reload, the seen sent one is left behind",
     async () => {
       const work = workReview();
       const mail = mailReview();
@@ -1149,16 +1149,27 @@ try {
       const saved = await fixture.page.evaluate(() =>
         localStorage.getItem("genosyn.decisionFollowUps.v1:company:member"),
       );
+      // The sent email finished and its line was on screen, so it is remembered
+      // as seen; the approved work is still under way.
       assert.deepEqual(JSON.parse(saved ?? "null"), [
         { kind: "review", id: work.id },
-        { kind: "review", id: mail.id },
+        { kind: "review", id: mail.id, seen: true },
       ]);
       assert.doesNotMatch(saved ?? "", /checkout|Acme|customer@/);
       await fixture.page.reload({ waitUntil: "commit" });
       await statusLine(reviewCard(fixture.page, work.id))
         .getByText("Approved", { exact: true })
         .waitFor();
-      await reviewCard(fixture.page, mail.id).getByText("Sent", { exact: true }).waitFor();
+      // Sent and already seen: the next visit leaves it to History, no Close needed.
+      assert.equal(await reviewCard(fixture.page, mail.id).count(), 0);
+      assert.deepEqual(
+        JSON.parse(
+          (await fixture.page.evaluate(() =>
+            localStorage.getItem("genosyn.decisionFollowUps.v1:company:member"),
+          )) ?? "null",
+        ),
+        [{ kind: "review", id: work.id }],
+      );
       work.status = "approved";
       work.outcomeSummary = "Prepared and checked the checkout fix. Ready for review.";
       work.outcomeRunId = "approved-run";
@@ -1174,18 +1185,11 @@ try {
       await (await details(fixture.page, reviewCard(fixture.page, work.id)))
         .getByText(work.outcomeSummary, { exact: true })
         .waitFor();
+      // Close still takes a finished row off at once.
       await reviewCard(fixture.page, work.id)
         .getByRole("button", { name: "Close review", exact: true })
         .click();
       await reviewCard(fixture.page, work.id).waitFor({ state: "detached" });
-      assert.equal(
-        await reviewCard(fixture.page, mail.id).count(),
-        1,
-        "closing one review preserves its neighbor",
-      );
-      await reviewCard(fixture.page, mail.id)
-        .getByRole("button", { name: "Close review", exact: true })
-        .click();
       await fixture.page
         .getByRole("heading", { name: "Nothing needs you right now", exact: true })
         .waitFor();

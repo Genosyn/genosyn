@@ -109,10 +109,18 @@ export function Decisions() {
         read <em>Couldn&apos;t finish</em>, <em>Answer saved</em>, <em>Sent</em>,{" "}
         <em>Not sent</em> or <em>Send not confirmed</em>. <Strong>Details</Strong> on that row
         holds your answer and guidance, the employee&apos;s report, and{" "}
-        <Strong>Show the full log</Strong> for every step it took. Select the{" "}
-        <Strong>×</Strong> (<em>Close</em>) on the row when you have seen enough; it does not cancel
-        work. Rows you are following stay across refreshes in this browser, separately for each
-        Member and company.
+        <Strong>Show the full log</Strong> for every step it took.
+      </P>
+      <P>
+        You do not need to close a row. Once its work has finished cleanly (<em>Done</em>,{" "}
+        <em>Sent</em>, <em>Answer saved</em>) and you have seen that line, it stays for the rest of
+        that visit and is gone the next time you open Home or the stack; History keeps it. A row
+        that ended with a problem — <em>Couldn&apos;t finish</em>, <em>Not sent</em>,{" "}
+        <em>Send not confirmed</em> or <em>Outcome not confirmed</em> — stays until you select its{" "}
+        <Strong>×</Strong> (<em>Close</em>), so a problem is never tidied away unseen. Select the{" "}
+        <Strong>×</Strong> any time to take a row off at once; it does not cancel work. Rows you are
+        following stay across refreshes in this browser, separately for each Member and company,
+        and work that finishes while the tab is in the background waits until you look.
       </P>
       <P>
         <Strong>Dismiss</Strong>, <Strong>Snooze</Strong>, <Strong>Discard</Strong> and{" "}
@@ -217,8 +225,8 @@ export function Decisions() {
         </LI>
         <LI>
           Select <Strong>Send now</Strong> to send the exact reviewed version; the row then reads{" "}
-          <em>Sent</em> until you close it. <Strong>Discard</Strong> records that it should not be
-          sent and takes the row off the stack in the same click.
+          <em>Sent</em> and is gone the next time you open the stack. <Strong>Discard</Strong>{" "}
+          records that it should not be sent and takes the row off the stack in the same click.
         </LI>
       </UL>
       <Callout kind="info" title="This is not a mailbox draft.">
@@ -406,8 +414,8 @@ export function Decisions() {
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">
-        <Strong>Active decisions</Strong> disappears from Home once nothing is waiting and you have
-        closed the rows you were following. The full queue remains on the{" "}
+        <Strong>Active decisions</Strong> disappears from Home once nothing is waiting and the rows
+        you were following have finished. The full queue remains on the{" "}
         <Strong>Decision stack</Strong> page, and everything settled on its{" "}
         <Strong>History</Strong> page.
       </Callout>
