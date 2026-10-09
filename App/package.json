@@ -56,7 +56,8 @@
     "test:employees-roster": "tsx scripts/test-employees-roster.ts",
     "test:clicks-chat": "tsx scripts/test-clicks-chat.ts",
     "test:clicks-mail": "tsx scripts/test-clicks-mail.ts",
-    "test:clicks-tasks": "tsx scripts/test-clicks-tasks.ts"
+    "test:clicks-tasks": "tsx scripts/test-clicks-tasks.ts",
+    "test:clicks-routines": "tsx scripts/test-clicks-routines.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

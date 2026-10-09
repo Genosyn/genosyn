@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { Search, Wrench } from "lucide-react";
 import { Company, SkillWithMeta } from "../lib/api";
+import { newSkillPath } from "../lib/newItemPath";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -25,6 +26,8 @@ export default function SkillsIndex({ company }: { company: Company }) {
   const employeeSlug = searchParams.get("employee");
   const selectedTagId = searchParams.get("tag");
   const employee = skills.find((s) => s.employee?.slug === employeeSlug)?.employee ?? null;
+  // From one employee's skills, a new skill is theirs from the start.
+  const newSkillHref = newSkillPath(company.slug, { employee: employeeSlug });
 
   const scoped = employeeSlug ? skills.filter((s) => s.employee?.slug === employeeSlug) : skills;
   const availableTags = React.useMemo(() => {
@@ -55,7 +58,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
       <TopBar
         title={employee ? `${employee.name}'s skills` : "Skills"}
         right={
-          <Button onClick={() => navigate(`/c/${company.slug}/skills/new`)}>New skill</Button>
+          <Button onClick={() => navigate(newSkillHref)}>New skill</Button>
         }
       />
 
@@ -66,7 +69,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
           title="No skills yet"
           description="A skill is a markdown playbook an AI employee follows — how you qualify a lead, how you close the books, how you triage a bug report."
           action={
-            <Button onClick={() => navigate(`/c/${company.slug}/skills/new`)}>New skill</Button>
+            <Button onClick={() => navigate(newSkillHref)}>New skill</Button>
           }
         />
       ) : (

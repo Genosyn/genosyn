@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { api, Company, RoutineFolder, RoutineWithMeta, Run } from "../lib/api";
+import { newRoutinePath } from "../lib/newItemPath";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -263,10 +264,12 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   const selectedIds = shownIds.filter((id) => selected.has(id));
   const allShownSelected = shownIds.length > 0 && selectedIds.length === shownIds.length;
 
-  // Creating from inside a folder should land there, not in the unfiled pile.
-  const newRoutineHref = `/c/${company.slug}/routines/new${
-    folder ? `?folder=${encodeURIComponent(folder.slug)}` : ""
-  }`;
+  // Creating from inside a folder should land there, not in the unfiled pile —
+  // and from one employee's routines, with that employee as the owner.
+  const newRoutineHref = newRoutinePath(company.slug, {
+    folder: folder?.slug,
+    employee: employeeSlug,
+  });
 
   const title = folder
     ? folder.name
@@ -788,18 +791,39 @@ function RoutineRow({
 
       <div className="min-w-0">
         {r.lastRun ? (
-          <div className="flex items-center gap-2">
-            <RunStatusChip status={r.lastRun.status} errorKind={r.lastRun.errorKind} size="xs" />
-            {r.lastRun.status !== "reviewed" && r.lastRun.outcomeVerdict && (
-              <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
-            )}
-            <span
-              className="truncate text-xs text-slate-400 dark:text-slate-500"
-              title={new Date(r.lastRun.startedAt).toLocaleString()}
-            >
-              {timeAgo(r.lastRun.startedAt)}
-            </span>
-          </div>
+          (() => {
+            const lastRun = (
+              <>
+                <RunStatusChip
+                  status={r.lastRun.status}
+                  errorKind={r.lastRun.errorKind}
+                  size="xs"
+                />
+                {r.lastRun.status !== "reviewed" && r.lastRun.outcomeVerdict && (
+                  <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
+                )}
+                <span
+                  className="truncate text-xs text-slate-400 dark:text-slate-500"
+                  title={new Date(r.lastRun.startedAt).toLocaleString()}
+                >
+                  {timeAgo(r.lastRun.startedAt)}
+                </span>
+              </>
+            );
+            // The last Run opens straight from the list: why it failed is
+            // one click away, not open-then-Runs.
+            return to ? (
+              <Link
+                to={`${to}?run=${encodeURIComponent(r.lastRun.id)}`}
+                className="flex min-w-0 items-center gap-2 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+              >
+                <span className="sr-only">Open the last Run of {r.name}: </span>
+                {lastRun}
+              </Link>
+            ) : (
+              <div className="flex items-center gap-2">{lastRun}</div>
+            );
+          })()
         ) : (
           <span className="text-xs text-slate-400 dark:text-slate-500">Never run</span>
         )}

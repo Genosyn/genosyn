@@ -62,7 +62,7 @@ import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import {
@@ -124,6 +124,15 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
   const [startingRun, setStartingRun] = React.useState(false);
   const dialog = useDialog();
+  const background = useBackgroundAction();
+  /**
+   * The header switch's value while a pause or resume is on its way. Tied to
+   * the routine it was flipped on: this page is not rebuilt when the Member
+   * moves to another routine.
+   */
+  const [enabledDraft, setEnabledDraft] = React.useState<{ id: string; enabled: boolean } | null>(
+    null,
+  );
   // Ask AI docks beside every page now; with it open the routine has roughly
   // a phone's width, and two-column tab layouts stop being two columns.
   const askAiOpen = Boolean(useAskAi()?.open);
@@ -216,6 +225,37 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const emp = routine.employee;
   const brokenSchedule = routine.enabled && routine.nextRunAt === null;
   const compact = askAiOpen;
+  // Every routine write is admin-only on the server; Members see the state.
+  const canManage = company.role === "owner" || company.role === "admin";
+  const enabled = enabledDraft?.id === routine.id ? enabledDraft.enabled : routine.enabled;
+  const standdownTitle = routine.standdown
+    ? `${
+        routine.standdown.scope === "company"
+          ? "Company"
+          : routine.standdown.scope === "employee"
+            ? "AI Employee"
+            : "Routine"
+      } Standdown: ${routine.standdown.reason}`
+    : undefined;
+
+  /**
+   * Pause or resume in one click from the header — reversible, so no
+   * confirmation; the switch moves at once and snaps back, with the reason,
+   * if the server refuses.
+   */
+  function setRoutineEnabled(next: boolean) {
+    if (!routine) return;
+    const id = routine.id;
+    setEnabledDraft({ id, enabled: next });
+    const settle = () =>
+      setEnabledDraft((draft) => (draft?.id === id && draft.enabled === next ? null : draft));
+    background(() => api.patch(`/api/companies/${company.id}/routines/${id}`, { enabled: next }), {
+      title: next ? "Couldn’t resume the routine" : "Couldn’t pause the routine",
+      error: (err) => `${errorMessage(err)} The switch was put back.`,
+      onSuccess: () => void Promise.resolve(refresh()).finally(settle),
+      onError: settle,
+    });
+  }
 
   return (
     // The left column takes the page's scroll off `<main>` so Ask AI, docked
@@ -238,7 +278,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
               <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
                 {routine.name}
               </h1>
-              {!routine.enabled && (
+              {!enabled && (
                 <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <Pause size={10} /> paused
                 </span>
@@ -284,8 +324,24 @@ export default function RoutineDetail({ company }: { company: Company }) {
               />
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button onClick={() => void runNow()} loading={startingRun}>
+          <div className="flex shrink-0 items-center gap-3">
+            {canManage && (
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <EnabledToggle
+                  enabled={enabled}
+                  label={enabled ? "Pause this routine" : "Resume this routine"}
+                  onChange={setRoutineEnabled}
+                />
+                {enabled ? "Active" : "Paused"}
+              </label>
+            )}
+            {/* A Standdown refuses manual Runs too; say so instead of an error. */}
+            <Button
+              onClick={() => void runNow()}
+              loading={startingRun}
+              disabled={Boolean(routine.standdown)}
+              title={standdownTitle}
+            >
               <Play size={14} /> Run now
             </Button>
           </div>
@@ -967,7 +1023,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
   }, [company.id, routine.id, loadAttempt]);
 
   async function save() {
-    if (content === null) return;
+    if (content === null || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -999,7 +1055,14 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
           What this employee should actually do each time the routine fires. Folded into the prompt
           on every run.
         </p>
-        <MarkdownEditor value={content} onChange={setContent} rows={18} />
+        <MarkdownEditor
+          value={content}
+          onChange={setContent}
+          rows={18}
+          onSave={() => {
+            if (dirty) void save();
+          }}
+        />
         <FormError message={error} />
         <div className="flex items-center gap-2">
           <Button onClick={save} loading={saving} disabled={!dirty}>
@@ -1008,6 +1071,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
           {dirty && (
             <span className="text-xs text-slate-400 dark:text-slate-500">Unsaved changes</span>
           )}
+          <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
         </div>
       </CardBody>
     </Card>
@@ -1394,6 +1458,11 @@ function SettingsTab({
     setCronExpr(routine.cronExpr);
   }, [routine.id, routine.cronExpr]);
   const [enabled, setEnabled] = React.useState(routine.enabled);
+  // Re-seeded like the schedule: the header switch, or an AI Employee pausing
+  // the routine, must not be undone by a later Save here.
+  React.useEffect(() => {
+    setEnabled(routine.enabled);
+  }, [routine.id, routine.enabled]);
   // "" is the unfiled choice — the routine sits in no folder at all.
   const [folderId, setFolderId] = React.useState(routine.folderId ?? "");
 
