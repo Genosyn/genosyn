@@ -217,6 +217,8 @@ async function call(tool: string, body: unknown = {}, bearer: string | null = to
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
+    // A handler that never answers fails here, not at the server's 300s timeout.
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as ToolBody };
@@ -756,6 +758,32 @@ describe("Excel refusals leave no partial result", () => {
     assert.equal(await AppDataSource.getRepository(Attachment).count(), 1);
     assert.deepEqual(drainAttachmentsForToken(token), []);
   });
+
+  for (const tool of ["read_xlsx", "edit_xlsx"]) {
+    test(`${tool}: a storage failure answers without its detail or a partial result, and the next call recovers`, async (t) => {
+      const source = await store();
+      // A workbook this turn already opened skips the upload lookup, so the
+      // failure lands on loading it, inside the tool's own error handling.
+      noteAttachmentForToken(token, source.id);
+      const body = tool === "read_xlsx" ? { attachmentId: source.id } : edits(source.id);
+      t.mock.method(console, "error", () => undefined);
+      t.mock.method(
+        AppDataSource.getRepository(Attachment),
+        "findOneBy",
+        async () => {
+          throw new Error("Synthetic database detail that must not reach the caller");
+        },
+        { times: 1 },
+      );
+      assert.deepEqual(await call(tool, body), {
+        status: 500,
+        body: { error: "Internal server error" },
+      });
+      await assertNoOutput(source.id);
+      const recovered = await call(tool, body);
+      assert.equal(recovered.status, 200, recovered.body.error);
+    });
+  }
 
   test("read schema refuses missing, unknown, oversized and wrongly typed parameters", async () => {
     const source = await store();

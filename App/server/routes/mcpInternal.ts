@@ -8704,7 +8704,7 @@ const createRoutineSchema = z
 mcpInternalRouter.post(
   "/tools/create_routine",
   validateBody(createRoutineSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof createRoutineSchema>;
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
@@ -8738,7 +8738,7 @@ mcpInternalRouter.post(
         folder = await resolveFolderPath(co.id, body.folder, { create: true });
       }
     } catch (err) {
-      if (!(err instanceof RoutineFolderError)) throw err;
+      if (!(err instanceof RoutineFolderError)) return next(err);
       return res.status(400).json({ error: err.message });
     }
 
@@ -8804,7 +8804,7 @@ const updateRoutineSchema = z
 mcpInternalRouter.post(
   "/tools/update_routine",
   validateBody(updateRoutineSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof updateRoutineSchema>;
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
@@ -8840,7 +8840,7 @@ mcpInternalRouter.post(
           : null;
         routine.folderId = folder?.id ?? null;
       } catch (err) {
-        if (!(err instanceof RoutineFolderError)) throw err;
+        if (!(err instanceof RoutineFolderError)) return next(err);
         return res.status(400).json({ error: err.message });
       }
     }
@@ -9185,7 +9185,7 @@ const updateGoalProgressSchema = z
 mcpInternalRouter.post(
   "/tools/update_goal_progress",
   validateBody(updateGoalProgressSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof updateGoalProgressSchema>;
     const co = req.mcpCompany!;
     const goal = await resolveGoal(co.id, body.goal);
@@ -9203,7 +9203,7 @@ mcpInternalRouter.post(
       });
       res.json({ goal: serializeGoal(saved) });
     } catch (err) {
-      if (!(err instanceof GoalError)) throw err;
+      if (!(err instanceof GoalError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -9246,13 +9246,13 @@ async function resolveOwnRevisionTarget(
 mcpInternalRouter.post(
   "/tools/get_own_work_review",
   validateBody(z.object({}).strict()),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     try {
       res.json(
         boundWorkReviewPacket(await getOwnWorkReview(req.mcpCompany!.id, req.mcpEmployee!.id)),
       );
     } catch (err) {
-      if (!(err instanceof OwnWorkReviewError)) throw err;
+      if (!(err instanceof OwnWorkReviewError)) return next(err);
       res.status(err.status).json({ error: err.message });
     }
   },
@@ -9261,7 +9261,7 @@ mcpInternalRouter.post(
 mcpInternalRouter.post(
   "/tools/propose_revision",
   validateBody(proposeRevisionSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof proposeRevisionSchema>;
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
@@ -9319,7 +9319,7 @@ mcpInternalRouter.post(
         note: "Pending human review — the company's owners and admins have been notified. Nothing changes until someone applies it.",
       });
     } catch (err) {
-      if (!(err instanceof RevisionError)) throw err;
+      if (!(err instanceof RevisionError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -10621,7 +10621,7 @@ const listJournalSchema = z
 mcpInternalRouter.post(
   "/tools/list_journal",
   validateBody(listJournalSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof listJournalSchema>;
     const target = await resolveEmployee(req.mcpCompany!, req.mcpEmployee!, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Employee not found" });
@@ -10634,7 +10634,7 @@ mcpInternalRouter.post(
       if (!result) return res.status(404).json({ error: "Employee not found" });
       res.json(result);
     } catch (err) {
-      if (!(err instanceof JournalEvidenceError)) throw err;
+      if (!(err instanceof JournalEvidenceError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -10652,7 +10652,7 @@ const getJournalEntrySchema = z
 mcpInternalRouter.post(
   "/tools/get_journal_entry",
   validateBody(getJournalEntrySchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof getJournalEntrySchema>;
     const target = await resolveEmployee(req.mcpCompany!, req.mcpEmployee!, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Journal entry not found" });
@@ -10665,7 +10665,7 @@ mcpInternalRouter.post(
       if (!result) return res.status(404).json({ error: "Journal entry not found" });
       res.json(result);
     } catch (err) {
-      if (!(err instanceof JournalEvidenceError)) throw err;
+      if (!(err instanceof JournalEvidenceError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -13383,7 +13383,7 @@ const scheduleWakeupSchema = z
 mcpInternalRouter.post(
   "/tools/schedule_wakeup",
   validateBody(scheduleWakeupSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof scheduleWakeupSchema>;
     const at = body.at
       ? new Date(body.at)
@@ -13411,7 +13411,7 @@ mcpInternalRouter.post(
         note: "Scheduled. A fresh session of yours starts then, briefed with your note — you do not need to keep anything in mind meanwhile.",
       });
     } catch (err) {
-      if (!(err instanceof WakeupError)) throw err;
+      if (!(err instanceof WakeupError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -13444,7 +13444,7 @@ const createWorkstreamSchema = z
 mcpInternalRouter.post(
   "/tools/create_workstream",
   validateBody(createWorkstreamSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof createWorkstreamSchema>;
     try {
       const workstream = await createWorkstream({
@@ -13480,7 +13480,7 @@ mcpInternalRouter.post(
       });
       res.json({ workstream: serializeWorkstream(workstream) });
     } catch (err) {
-      if (!(err instanceof WorkstreamError)) throw err;
+      if (!(err instanceof WorkstreamError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -13498,7 +13498,7 @@ const updateWorkstreamSchema = z
 mcpInternalRouter.post(
   "/tools/update_workstream",
   validateBody(updateWorkstreamSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof updateWorkstreamSchema>;
     try {
       if (req.mcpSelfReviewOnly)
@@ -13550,7 +13550,7 @@ mcpInternalRouter.post(
               : `Closed as ${workstream.status}.`,
       });
     } catch (err) {
-      if (!(err instanceof WorkstreamError)) throw err;
+      if (!(err instanceof WorkstreamError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -13706,7 +13706,7 @@ const proposeInitiativeSchema = z
 mcpInternalRouter.post(
   "/tools/propose_initiative",
   validateBody(proposeInitiativeSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof proposeInitiativeSchema>;
     try {
       const initiative = await proposeInitiative({
@@ -13730,7 +13730,7 @@ mcpInternalRouter.post(
         note: "Filed for review — the admins have been paged. Nothing exists until a human accepts; carry on with your current work.",
       });
     } catch (err) {
-      if (!(err instanceof InitiativeError)) throw err;
+      if (!(err instanceof InitiativeError)) return next(err);
       res.status(400).json({ error: err.message });
     }
   },
@@ -16960,7 +16960,7 @@ const editXlsxSchema = z
 mcpInternalRouter.post(
   "/tools/read_xlsx",
   validateBody(readXlsxSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof readXlsxSchema>;
     if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
       return res.status(404).json({ error: "Attachment not found" });
@@ -16970,7 +16970,7 @@ mcpInternalRouter.post(
       const workbook = await readXlsx(loaded.bytes, body);
       return res.json({ filename: loaded.row.filename, ...workbook });
     } catch (error) {
-      if (!(error instanceof XlsxError || error instanceof XmlParseError)) throw error;
+      if (!(error instanceof XlsxError || error instanceof XmlParseError)) return next(error);
       return res.status(error.status).json({ error: error.message });
     }
   },
@@ -16979,7 +16979,7 @@ mcpInternalRouter.post(
 mcpInternalRouter.post(
   "/tools/edit_xlsx",
   validateBody(editXlsxSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof editXlsxSchema>;
     if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
       return res.status(404).json({ error: "Attachment not found" });
@@ -16992,7 +16992,7 @@ mcpInternalRouter.post(
       loaded = await loadXlsxAttachment(body.attachmentId, co.id);
       edited = await editXlsx(loaded.bytes, body.edits);
     } catch (error) {
-      if (!(error instanceof XlsxError || error instanceof XmlParseError)) throw error;
+      if (!(error instanceof XlsxError || error instanceof XmlParseError)) return next(error);
       return res.status(error.status).json({ error: error.message });
     }
     if (edited.bytes.length > ATTACHMENTS_MAX_BYTES) {
