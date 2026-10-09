@@ -14,6 +14,7 @@ import {
   type AskAiContextKind,
   type AskAiContextRef,
 } from "../../../shared/askAi.js";
+import { withIndefiniteArticle } from "../../../shared/indefiniteArticle.js";
 import { hasBaseGrant } from "../bases.js";
 import { getFinanceGrant } from "../financeGrants.js";
 import { getMarketingGrant } from "../marketing.js";
@@ -470,7 +471,7 @@ export async function renderAskAiContext(args: {
       parts.push(
         "",
         `## ${kindLabel} (withheld)`,
-        `The teammate has a ${kindLabel.toLowerCase()} open, but ${withheldReason(item.gate)}, so its contents are not shown to you. Do not guess at them.${item.withheldHint ? ` ${item.withheldHint}` : ""}`,
+        `The teammate has ${withIndefiniteArticle(kindLabel.toLowerCase())} open, but ${withheldReason(item.gate)}, so its contents are not shown to you. Do not guess at them.${item.withheldHint ? ` ${item.withheldHint}` : ""}`,
       );
       return;
     }

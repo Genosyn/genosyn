@@ -29,6 +29,7 @@
  * profile is where it gets fixed.
  */
 
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
   browserIdentity,
   chromeContextOptions,
@@ -299,7 +300,7 @@ export function analyseFingerprint(report: FingerprintReport): FingerprintFindin
       id: "software-webgl",
       severity: claimed === "linux" ? "advisory" : "blocking",
       detail: `WebGL renderer is "${report.webglRenderer}", a software rasteriser${
-        claimed !== "linux" ? ` under a ${claimed} claim` : ""
+        claimed !== "linux" ? ` under ${withIndefiniteArticle(claimed)} claim` : ""
       }.`,
     });
   }

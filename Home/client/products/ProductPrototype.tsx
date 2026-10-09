@@ -566,9 +566,10 @@ export function ProductPrototype({
       data-playing={playing}
       className={`prototype-shell overflow-hidden bg-slate-50 ${className}`}
     >
-      {/* The mock remains a picture; its playback controls are real UI. */}
+      {/* The mock remains a picture; its playback controls are real UI. "The"
+          suits every role, where "a" read "a Operations Lead use case". */}
       <span className="sr-only">
-        Genosyn running a {activeUseCase.role} use case in {activeProduct.name}.
+        Genosyn running the {activeUseCase.role} use case in {activeProduct.name}.
       </span>
 
       <div aria-hidden className="pointer-events-none select-none">

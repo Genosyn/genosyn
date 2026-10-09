@@ -375,6 +375,21 @@ describe("placeStanddown", () => {
     assert.equal((await listStanddowns(companyId, { active: true })).length, 3);
   });
 
+  test("a narrow standdown without a target names the scope with its article", async () => {
+    // The employee scope read "A AI Employee standdown" while the article was hard-coded.
+    for (const [scope, message] of [
+      ["employee", "An AI Employee standdown must name its target"],
+      ["routine", "A Routine standdown must name its target"],
+    ] as const) {
+      await assert.rejects(
+        placeStanddown({ companyId, scope, reason: "No target.", placedByUserId: ownerId }),
+        (err: unknown) => err instanceof StanddownError && err.message === message,
+        scope,
+      );
+    }
+    assert.equal((await listStanddowns(companyId, { active: true })).length, 0);
+  });
+
   test("validates the scope target against this company", async () => {
     await assert.rejects(
       placeStanddown({

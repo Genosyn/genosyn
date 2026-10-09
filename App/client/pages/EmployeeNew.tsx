@@ -20,6 +20,7 @@ import {
   UserRound,
   Workflow,
 } from "lucide-react";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle";
 import { api, Company, Employee, EmployeeTemplate } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -764,7 +765,7 @@ function AboutStep({
           />
           <AnswerField
             label="What can they decide without asking?"
-            hint={`What calls should ${name} make independently as a ${role}?`}
+            hint={`What calls should ${name} make independently as ${withIndefiniteArticle(role)}?`}
             placeholder={`Drafting replies, triaging tickets, flagging churn risk. Never sends or publishes.`}
             value={answers.autonomy}
             onChange={(v) => set("autonomy", v)}

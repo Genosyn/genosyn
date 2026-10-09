@@ -399,6 +399,37 @@ describe("renderAskAiContext", () => {
     assert.equal(rendered.visible.length, 0);
   });
 
+  test("names every withheld kind with the article its label takes", async () => {
+    // These read "a email", "a ai employee", "a invoice"… while the article was hard-coded.
+    const takesAn: Record<string, string> = {
+      employee: "an ai employee",
+      mail_thread: "an email",
+      revenue_account: "an account",
+      invoice: "an invoice",
+      estimate: "an estimate",
+      initiative: "an initiative",
+    };
+    for (const kind of ASK_AI_CONTEXT_KINDS) {
+      const rendered = await renderAskAiContext({
+        companyId: COMPANY_ID,
+        employeeId: "e-1",
+        page: { path: "/x", label: null },
+        items: [item({ kind, label: `${ASK_AI_KIND_LABELS[kind]} Q3 plan` })],
+        check: deny,
+      });
+      const named = takesAn[kind] ?? `a ${ASK_AI_KIND_LABELS[kind].toLowerCase()}`;
+      assert.ok(
+        rendered.text.includes(`The teammate has ${named} open, but `),
+        `${kind}: ${rendered.text}`,
+      );
+      assert.doesNotMatch(
+        rendered.text,
+        /\ba [aeiou]|\ban [^aeiou\s]|\b(?:a|an) (?:a|an)\b/i,
+        kind,
+      );
+    }
+  });
+
   test("keeps one record bounded and the whole block within budget", async () => {
     const huge = "x".repeat(MAX_ASK_AI_ITEM_BODY_CHARS + 500);
     const one = await renderAskAiContext({

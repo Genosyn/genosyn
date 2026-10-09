@@ -25,6 +25,7 @@ import {
   type MarketingExperimentStatus,
 } from "../db/entities/MarketingExperiment.js";
 import { MarketingPerformanceSnapshot } from "../db/entities/MarketingPerformanceSnapshot.js";
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
   MARKETING_DEFAULT_WINDOW_DAYS,
   campaignMetrics,
@@ -263,10 +264,11 @@ function assertTransition<T extends string>(
   if (from === to) return;
   if (!transitions[from].includes(to)) {
     const allowed = transitions[from];
+    const subject = withIndefiniteArticle(noun, { capitalized: true });
     throw new MarketingValidationError(
       allowed.length
-        ? `A ${noun} cannot go from ${from} to ${to}. From ${from} it can only become ${allowed.join(" or ")}.`
-        : `A ${noun} that is ${from} is final and cannot become ${to}.`,
+        ? `${subject} cannot go from ${from} to ${to}. From ${from} it can only become ${allowed.join(" or ")}.`
+        : `${subject} that is ${from} is final and cannot become ${to}.`,
     );
   }
 }

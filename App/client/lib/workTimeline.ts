@@ -1,3 +1,4 @@
+import { withIndefiniteArticle } from "../../shared/indefiniteArticle";
 import type {
   WorkEmployeeSummary,
   WorkEntry,
@@ -242,7 +243,8 @@ export function employeeWorkStatusLabel(
   }
 }
 
-const ACTION_VERBS: Record<string, string> = {
+/** How the generic split says an operation. Exported so tests read every verb. */
+export const WORK_ACTION_VERBS: Readonly<Record<string, string>> = {
   add: "Added",
   approve: "Approved",
   archive: "Archived",
@@ -283,61 +285,82 @@ function readableWords(value: string): string {
 }
 
 /**
- * Steps a mailbox's written instructions took on their own. The generic split
- * would read `mail.analysis.automatic` as "Automatic analysis", which says
- * nothing about what happened.
+ * How one ledger action is said, in the two places it appears: as a line in a
+ * list of changes ("Created invoice", "Followed an email instruction") and
+ * counted inside a sentence ("created 2 invoices", "followed an email
+ * instruction").
  */
-const EMAIL_INSTRUCTION_STEPS = new Map<string, { verb: string; target: string }>([
-  ["mail.analysis.automatic", { verb: "Followed", target: "an email instruction" }],
-  ["mail.analysis.automatic_failed", { verb: "Could not follow", target: "an email instruction" }],
-  ["mail.analysis.automatic_undo", { verb: "Undid", target: "an automatic email step" }],
-]);
+export type WorkActionWording = { label: string; phrase: (count: number) => string };
 
 /**
- * A question the company's Decision stack instructions kept off the stack
- * (`services/decisionIntake.ts`). The generic split would read
- * `decision.screen_out` as "Screen out decision", which hides that nothing was
- * asked — the part someone tuning their instructions needs to see. It does not
- * fit "verb a target" either, so it carries its own sentence parts.
+ * "an email instruction" / "2 email instructions". Nouns stay bare in the
+ * tables and get an article or a count only here and in a list line: the email
+ * instruction steps once stored "an email instruction" and read "followed an
+ * an email instruction".
  */
-const DECISION_STACK_STEPS = new Map<string, { verb: string; target: string }>([
-  ["decision.screen_out", { verb: "Kept off", target: "the Decision stack" }],
-]);
+function countedNoun(count: number, noun: string): string {
+  return count === 1 ? withIndefiniteArticle(noun) : `${count} ${pluralNoun(noun)}`;
+}
 
-/** Effect-list phrases for the actions that cannot be said as "verb a target". */
-const WORK_ACTION_PHRASES = new Map<string, (count: number) => string>([
+/**
+ * An action that reads "verb a target", where `target` is a bare noun.
+ * `article` keeps the article in the list line as well, for a target that
+ * reads oddly without one there: "Followed an email instruction".
+ */
+function verbTarget(verb: string, target: string, article = false): WorkActionWording {
+  return {
+    label: [verb, article ? withIndefiniteArticle(target) : target].filter(Boolean).join(" "),
+    phrase: (count) => `${verb.toLowerCase()} ${countedNoun(count, target)}`,
+  };
+}
+
+/**
+ * Ledger actions the generic split would say badly, worded here instead. Tests
+ * read every entry, so one added later is held to the same grammar.
+ */
+export const WORK_ACTION_WORDING: ReadonlyMap<string, WorkActionWording> = new Map<
+  string,
+  WorkActionWording
+>([
+  // An email analysis attempt, which is not a change it made.
+  ["mail.analysis.started", verbTarget("Started", "email analysis")],
+  ["mail.analysis.completed", verbTarget("Completed", "email analysis")],
+  ["mail.analysis.failed", verbTarget("Could not complete", "email analysis")],
+  // Steps a mailbox's written instructions took on their own. The generic
+  // split would read `mail.analysis.automatic` as "Automatic analysis", which
+  // says nothing about what happened.
+  ["mail.analysis.automatic", verbTarget("Followed", "email instruction", true)],
+  ["mail.analysis.automatic_failed", verbTarget("Could not follow", "email instruction", true)],
+  ["mail.analysis.automatic_undo", verbTarget("Undid", "automatic email step", true)],
+  // A question the company's Decision stack instructions kept off the stack
+  // (`services/decisionIntake.ts`). "Screen out decision" would hide that
+  // nothing was asked, and it does not read as "verb a target" either.
   [
     "decision.screen_out",
-    (count) =>
-      `kept ${count === 1 ? "a question" : `${count} questions`} off the Decision stack`,
+    {
+      label: "Kept off the Decision stack",
+      phrase: (count) => `kept ${countedNoun(count, "question")} off the Decision stack`,
+    },
   ],
 ]);
 
-/** An effect-ledger action split into the two words a sentence needs. */
-function splitWorkAction(action: string, targetType: string): { verb: string; target: string } {
-  const analysis = EMAIL_ANALYSIS_PHASES.get(action);
-  if (analysis) {
-    return {
-      verb: analysis === "failed" ? "Could not complete" : capitalize(analysis),
-      target: "email analysis",
-    };
-  }
-  const instructionStep = EMAIL_INSTRUCTION_STEPS.get(action);
-  if (instructionStep) return instructionStep;
-  const decisionStep = DECISION_STACK_STEPS.get(action);
-  if (decisionStep) return decisionStep;
+/** An effect-ledger action, worded for a list line and for a sentence. */
+function workActionWording(action: string, targetType: string): WorkActionWording {
+  const worded = WORK_ACTION_WORDING.get(action);
+  if (worded) return worded;
   const actionParts = action.split(/[.:/]/).filter(Boolean);
   const operation = readableWords(actionParts.at(-1) ?? action);
-  const target = readableWords(targetType || actionParts.at(-2) || "record");
-  const verb =
-    ACTION_VERBS[operation] ?? `${operation.charAt(0).toUpperCase()}${operation.slice(1)}`;
-  return { verb, target };
+  const target = readableWords(targetType) || readableWords(actionParts.at(-2) ?? "") || "record";
+  // Own keys only: "constructor" is an operation name, not Object's.
+  const verb = Object.hasOwn(WORK_ACTION_VERBS, operation)
+    ? WORK_ACTION_VERBS[operation]
+    : capitalize(operation);
+  return verbTarget(verb, target);
 }
 
 /** Turn an effect-ledger action such as `invoice.create` into reader-facing copy. */
 export function humanizeWorkAction(action: string, targetType: string): string {
-  const { verb, target } = splitWorkAction(action, targetType);
-  return [verb, target].filter(Boolean).join(" ");
+  return workActionWording(action, targetType).label;
 }
 
 /** Reader-facing detail copy where a source stores a compact status token. */
@@ -511,20 +534,19 @@ function joinList(parts: string[]): string {
   return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
+/** "invoices", "companies", "addresses", "email analyses". Only the last word changes. */
 function pluralNoun(noun: string): string {
   const words = noun.split(" ");
   const last = words[words.length - 1] ?? "";
   if (!last) return noun;
-  const plural = /(?:s|x|z|ch|sh)$/.test(last)
-    ? `${last}es`
-    : /[^aeiou]y$/.test(last)
-      ? `${last.slice(0, -1)}ies`
-      : `${last}s`;
+  const plural = /sis$/.test(last)
+    ? `${last.slice(0, -2)}es`
+    : /(?:s|x|z|ch|sh)$/.test(last)
+      ? `${last}es`
+      : /[^aeiou]y$/.test(last)
+        ? `${last.slice(0, -1)}ies`
+        : `${last}s`;
   return [...words.slice(0, -1), plural].join(" ");
-}
-
-function withArticle(noun: string): string {
-  return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 }
 
 function capitalize(text: string): string {
@@ -577,30 +599,20 @@ export function workEffectPhrase(
   entry: Pick<WorkEntry, "effects" | "effectCount">,
   maxGroups = 3,
 ): string {
-  const groups = new Map<
-    string,
-    { verb: string; target: string; count: number; phrase?: (count: number) => string }
-  >();
+  // Changes that read the same in the list are counted together.
+  const groups = new Map<string, { wording: WorkActionWording; count: number }>();
   for (const effect of entry.effects) {
-    const { verb, target } = splitWorkAction(effect.action, effect.targetType);
-    const phrase = WORK_ACTION_PHRASES.get(effect.action);
-    const key = phrase ? `phrase|${effect.action}` : `${verb}|${target}`;
-    const seen = groups.get(key);
+    const wording = workActionWording(effect.action, effect.targetType);
+    const seen = groups.get(wording.label);
     if (seen) seen.count += 1;
-    else groups.set(key, { verb, target, count: 1, phrase });
+    else groups.set(wording.label, { wording, count: 1 });
   }
   const ordered = [...groups.values()];
   const shown = ordered.slice(0, maxGroups);
   const withheld =
     ordered.slice(maxGroups).reduce((total, group) => total + group.count, 0) +
     Math.max(0, entry.effectCount - entry.effects.length);
-  const parts = shown.map((group) =>
-    group.phrase
-      ? group.phrase(group.count)
-      : group.count === 1
-        ? `${group.verb.toLowerCase()} ${withArticle(group.target)}`
-        : `${group.verb.toLowerCase()} ${group.count} ${pluralNoun(group.target)}`,
-  );
+  const parts = shown.map((group) => group.wording.phrase(group.count));
   if (withheld > 0) {
     parts.push(`made ${withheld} other ${withheld === 1 ? "change" : "changes"}`);
   }

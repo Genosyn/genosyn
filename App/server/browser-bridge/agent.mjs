@@ -202,8 +202,9 @@ export function navigationAllowed(url, policy) {
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     // file:// would read the human's disk; chrome:// reaches settings and
-    // the profile's saved passwords.
-    return { allow: false, reason: `refusing to open a ${parsed.protocol} URL` };
+    // the profile's saved passwords. Plural, so no article has to suit the
+    // scheme: "a about: URL" is what the singular said for about:blank.
+    return { allow: false, reason: `refusing to open ${parsed.protocol} URLs` };
   }
   if (policy.appOrigin) {
     try {

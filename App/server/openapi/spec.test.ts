@@ -3,9 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { indefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { buildOpenApiDocument } from "./spec.js";
 
 type Operation = {
+  summary?: string;
   description?: string;
   parameters?: Array<{
     in?: string;
@@ -112,6 +114,44 @@ test("Finance documents expose subsidiary selection and admin-managed legal enti
   }
   assert.ok(document.components?.schemas?.DocumentIssuerSnapshot);
   assert.ok(document.components?.schemas?.Subsidiary);
+});
+
+test("Finance document operations name the document with the article it takes", () => {
+  const document = buildOpenApiDocument();
+  const base = "/api/companies/{cid}";
+  // These read "Edit a invoice" and "Edit a estimate" while the article was hard-coded.
+  assert.equal(
+    operationAt(document, `${base}/invoices/{slug}`, "patch").summary,
+    "Edit an invoice",
+  );
+  assert.equal(
+    operationAt(document, `${base}/estimates/{slug}`, "patch").summary,
+    "Edit an estimate",
+  );
+  assert.equal(operationAt(document, `${base}/invoices`).summary, "Create a draft invoice");
+  assert.equal(operationAt(document, `${base}/estimates`).summary, "Create a draft estimate");
+});
+
+test("every summary and description puts the article its next word takes", () => {
+  const document = buildOpenApiDocument();
+  let checked = 0;
+  for (const { method, operation, route } of operations(document)) {
+    for (const text of [operation.summary, operation.description]) {
+      if (!text) continue;
+      const where = `${method.toUpperCase()} ${route}`;
+      assert.doesNotMatch(text, /\b(?:a|an|the)\s+(?:a|an|the)\b/i, `${where}: doubled article`);
+      for (const [, article, word] of text.matchAll(/\b(a|an)\s+([A-Za-z]+)/gi)) {
+        assert.equal(
+          article.toLowerCase(),
+          indefiniteArticle(word),
+          `${where}: "${article} ${word}"`,
+        );
+        checked += 1;
+      }
+    }
+  }
+  // The scan has to have read real prose for a pass to mean anything.
+  assert.ok(checked > 50, `only ${checked} articles were checked`);
 });
 
 test("Recurring invoice names default to the customer on create and stay put on edit", () => {

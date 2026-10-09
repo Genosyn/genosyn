@@ -35,6 +35,8 @@ import {
   workNarrativeText,
   workOverflowLabel,
   workRelativeTime,
+  WORK_ACTION_VERBS,
+  WORK_ACTION_WORDING,
   WORK_ENTRY_KINDS,
   WORK_KIND_META,
 } from "./workTimeline.js";
@@ -91,6 +93,70 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
 /** Everything a row puts in front of a reader, as one blob. */
 function rowText(entry: WorkEntry): string {
   return [workNarrativeText(entry), entry.detail, WORK_KIND_META[entry.kind].label].join(" ");
+}
+
+/** One ledger row, as the server sends it under an entry. */
+function ledgerRow(action: string, targetType = "") {
+  return { action, targetType, targetId: null, targetLabel: "", at: "2026-09-03T12:00:00.000Z" };
+}
+
+/** An entry whose ledger holds `count` rows of the same action. */
+function repeatedRows(
+  count: number,
+  action: string,
+  targetType = "",
+  over: Partial<WorkEntry> = {},
+) {
+  return entryOf({
+    effects: Array.from({ length: count }, () => ledgerRow(action, targetType)),
+    effectCount: count,
+    ...over,
+  });
+}
+
+/**
+ * The article a reader expects before a word, written out here rather than
+ * borrowed from `shared/indefiniteArticle.ts` so the two can disagree: the
+ * vowel-letter rule, plus the words in these sentences that break it.
+ */
+const SAID_WITH_A_CONSONANT = new Set([
+  "euro",
+  "one",
+  "union",
+  "unique",
+  "unit",
+  "url",
+  "usage",
+  "user",
+  "utility",
+]);
+const SAID_WITH_A_VOWEL = new Set(["heir", "honest", "hour"]);
+
+function expectedArticle(word: string): "a" | "an" {
+  const lower = word.toLowerCase();
+  if (SAID_WITH_A_CONSONANT.has(lower)) return "a";
+  if (SAID_WITH_A_VOWEL.has(lower)) return "an";
+  return /^[aeiou]/.test(lower) ? "an" : "a";
+}
+
+/**
+ * Fails on any article a reader would trip over: two in a row ("an an email
+ * instruction", "the a"), one beside a count ("2 an email instructions", "a 2
+ * invoices"), or one that does not suit how the next word sounds ("a email",
+ * "an step").
+ */
+function assertArticlesRead(text: string): void {
+  assert.doesNotMatch(text, /\b(?:a|an|the)\s+(?:a|an|the)\b/i, `doubled article: "${text}"`);
+  assert.doesNotMatch(text, /\b(?:a|an|the)\s+\d/i, `article before a count: "${text}"`);
+  assert.doesNotMatch(text, /\d\s+(?:a|an|the)\b/i, `article after a count: "${text}"`);
+  for (const [, article, word] of text.matchAll(/\b(a|an)\s+([A-Za-z]+)/gi)) {
+    assert.equal(article.toLowerCase(), expectedArticle(word), `"${article} ${word}" in "${text}"`);
+  }
+}
+
+/** How many times "a" or "an" appears as a word. */
+function indefiniteArticles(text: string): number {
+  return text.match(/\b(?:a|an)\b/gi)?.length ?? 0;
 }
 
 describe("day grouping", () => {
@@ -993,6 +1059,460 @@ describe("what an entry changed", () => {
         }),
       ),
       "kept 2 questions off the Decision stack and created a decision",
+    );
+  });
+});
+
+describe("the steps a mailbox's instructions took, said once", () => {
+  // The reported sentence: a label that carried its own article had another
+  // one added in front of it, and a count added in front of both.
+  test("one followed instruction reads 'followed an email instruction', not 'an an'", () => {
+    const phrase = workEffectPhrase(
+      repeatedRows(1, "mail.analysis.automatic", "mail_inbound_analysis"),
+    );
+    assert.equal(phrase, "followed an email instruction");
+    assert.doesNotMatch(phrase, /an an/);
+  });
+
+  for (const count of [2, 3, 7, 12, 100]) {
+    test(`${count} followed instructions read as a count with no article beside it`, () => {
+      const phrase = workEffectPhrase(
+        repeatedRows(count, "mail.analysis.automatic", "mail_inbound_analysis"),
+      );
+      assert.equal(phrase, `followed ${count} email instructions`);
+      assert.doesNotMatch(phrase, /\ban?\b/);
+    });
+  }
+
+  test("a step that could not be followed reads the same way in one and in many", () => {
+    const action = "mail.analysis.automatic_failed";
+    assert.equal(
+      workEffectPhrase(repeatedRows(1, action, "mail_inbound_analysis")),
+      "could not follow an email instruction",
+    );
+    assert.equal(
+      workEffectPhrase(repeatedRows(4, action, "mail_inbound_analysis")),
+      "could not follow 4 email instructions",
+    );
+  });
+
+  test("an undone step reads the same way in one and in many", () => {
+    const action = "mail.analysis.automatic_undo";
+    assert.equal(
+      workEffectPhrase(repeatedRows(1, action, "mail_inbound_analysis")),
+      "undid an automatic email step",
+    );
+    assert.equal(
+      workEffectPhrase(repeatedRows(2, action, "mail_inbound_analysis")),
+      "undid 2 automatic email steps",
+    );
+  });
+
+  test("followed, failed and undone steps stay separate groups in one sentence", () => {
+    const phrase = workEffectPhrase(
+      entryOf({
+        effects: [
+          ledgerRow("mail.analysis.automatic", "mail_inbound_analysis"),
+          ledgerRow("mail.analysis.automatic_failed", "mail_inbound_analysis"),
+          ledgerRow("mail.analysis.automatic", "mail_inbound_analysis"),
+          ledgerRow("mail.analysis.automatic_undo", "mail_inbound_analysis"),
+        ],
+        effectCount: 4,
+      }),
+    );
+    assert.equal(
+      phrase,
+      "followed 2 email instructions, could not follow an email instruction and undid an automatic email step",
+    );
+    assertArticlesRead(phrase);
+  });
+
+  test("a followed instruction sits beside other changes and the withheld tail", () => {
+    const phrase = workEffectPhrase(
+      entryOf({
+        effects: [
+          ledgerRow("invoice.create", "invoice"),
+          ledgerRow("mail.analysis.automatic", "mail_inbound_analysis"),
+          ledgerRow("mail.send", "email"),
+          ledgerRow("todo.complete", "todo"),
+        ],
+        effectCount: 9,
+      }),
+    );
+    assert.equal(
+      phrase,
+      "created an invoice, followed an email instruction, sent an email and made 6 other changes",
+    );
+    assertArticlesRead(phrase);
+  });
+
+  test("a conversation that followed instructions says so in its narrative", () => {
+    const chat = (count: number) =>
+      repeatedRows(count, "mail.analysis.automatic", "mail_inbound_analysis", {
+        kind: "chat",
+        run: null,
+      });
+    assert.ok(
+      workNarrative(chat(1)).body.includes("In that thread it followed an email instruction."),
+      workNarrativeText(chat(1)),
+    );
+    assert.ok(
+      workNarrative(chat(3)).body.includes("In that thread it followed 3 email instructions."),
+      workNarrativeText(chat(3)),
+    );
+  });
+
+  test("a repository session that followed instructions says so in its narrative", () => {
+    const session = repeatedRows(2, "mail.analysis.automatic", "mail_inbound_analysis", {
+      kind: "work_session",
+      run: null,
+    });
+    assert.ok(
+      workNarrative(session).body.includes("It followed 2 email instructions."),
+      workNarrativeText(session),
+    );
+  });
+
+  test("a standalone step keeps its list wording in the headline", () => {
+    const entry = entryOf({
+      kind: "effect",
+      run: null,
+      title: "Pricing for the autumn launch",
+      subject: "Pricing for the autumn launch",
+      detail: "mail.analysis.automatic",
+    });
+    assert.match(
+      workNarrative(entry).headline,
+      /^Rey followed an email instruction “Pricing for the autumn launch” at .+\.$/,
+    );
+  });
+
+  test("several email analyses take the irregular plural", () => {
+    for (const [action, verb] of [
+      ["mail.analysis.started", "started"],
+      ["mail.analysis.completed", "completed"],
+      ["mail.analysis.failed", "could not complete"],
+    ] as const) {
+      assert.equal(workEffectPhrase(repeatedRows(1, action)), `${verb} an email analysis`);
+      assert.equal(workEffectPhrase(repeatedRows(2, action)), `${verb} 2 email analyses`);
+      assert.doesNotMatch(workEffectPhrase(repeatedRows(5, action)), /analysises/);
+    }
+  });
+});
+
+describe("every worded action reads with one article", () => {
+  // Iterates the real table, so an action worded later is held to the same
+  // grammar without anyone remembering to add it here.
+  const counts = [1, 2, 3, 7, 12, 100];
+
+  test("the table still covers the actions the timeline is known to word", () => {
+    for (const action of [
+      "mail.analysis.started",
+      "mail.analysis.completed",
+      "mail.analysis.failed",
+      "mail.analysis.automatic",
+      "mail.analysis.automatic_failed",
+      "mail.analysis.automatic_undo",
+      "decision.screen_out",
+    ]) {
+      assert.ok(WORK_ACTION_WORDING.has(action), action);
+    }
+  });
+
+  for (const [action, wording] of WORK_ACTION_WORDING) {
+    test(`${action} has one article for one, and none beside a count`, () => {
+      for (const count of counts) {
+        const phrase = workEffectPhrase(repeatedRows(count, action, "mail_inbound_analysis"));
+        assert.equal(phrase, wording.phrase(count), `${action} × ${count}`);
+        assertArticlesRead(phrase);
+        if (count === 1) {
+          assert.equal(indefiniteArticles(phrase), 1, phrase);
+        } else {
+          assert.equal(indefiniteArticles(phrase), 0, phrase);
+          assert.match(phrase, new RegExp(`\\b${count} \\w`), phrase);
+        }
+        // It sits mid-sentence: "In that thread it followed an email instruction."
+        assert.match(phrase, /^[a-z]/, phrase);
+      }
+    });
+
+    test(`${action} has one list line, whatever the target type`, () => {
+      const label = humanizeWorkAction(action, "mail_inbound_analysis");
+      assert.equal(label, wording.label);
+      for (const targetType of ["", "decision", "an_email", "the_record"]) {
+        assert.equal(humanizeWorkAction(action, targetType), label, targetType);
+      }
+      assertArticlesRead(label);
+      assert.match(label, /^[A-Z]/);
+      assert.ok(indefiniteArticles(label) <= 1, label);
+    });
+
+    test(`${action} counts every row once, whichever target type each row carries`, () => {
+      const phrase = workEffectPhrase(
+        entryOf({
+          effects: [
+            ledgerRow(action, "mail_inbound_analysis"),
+            ledgerRow(action, ""),
+            ledgerRow(action, "decision"),
+          ],
+          effectCount: 3,
+        }),
+      );
+      assert.equal(phrase, wording.phrase(3));
+    });
+  }
+
+  const nowIso = "2026-09-03T12:00:00.000Z";
+  const at = "2026-09-03T11:00:00.000Z";
+  for (const kind of WORK_ENTRY_KINDS) {
+    test(`a ${kind} entry narrates every worded action with readable articles`, () => {
+      for (const [action, wording] of WORK_ACTION_WORDING) {
+        for (const count of [1, 2, 7]) {
+          const entry = repeatedRows(count, action, "mail_inbound_analysis", {
+            kind,
+            at,
+            run: kind === "run" ? entryOf().run : null,
+            title: "Pricing for the autumn launch",
+            subject: "Pricing for the autumn launch",
+            detail: kind === "effect" ? action : "",
+          });
+          const text = workNarrativeText(entry, { nowIso }).replace(workClock(at), "");
+          assertArticlesRead(text);
+          if (kind === "chat") {
+            assert.ok(text.includes(`In that thread it ${wording.phrase(count)}.`), text);
+          }
+          if (kind === "work_session")
+            assert.ok(text.includes(`It ${wording.phrase(count)}.`), text);
+        }
+      }
+    });
+  }
+});
+
+describe("every generic verb, counted", () => {
+  // Target types the server records, chosen to cover each article and each
+  // plural rule: [target type, list line, one, many].
+  const targets = [
+    ["invoice", "invoice", "an invoice", "invoices"],
+    ["estimate", "estimate", "an estimate", "estimates"],
+    ["employee", "employee", "an employee", "employees"],
+    ["approval", "approval", "an approval", "approvals"],
+    ["activity", "activity", "an activity", "activities"],
+    ["initiative", "initiative", "an initiative", "initiatives"],
+    ["accounting_period", "accounting period", "an accounting period", "accounting periods"],
+    [
+      "external_chat_identity",
+      "external chat identity",
+      "an external chat identity",
+      "external chat identities",
+    ],
+    ["api_key", "api key", "an api key", "api keys"],
+    ["user", "user", "a user", "users"],
+    [
+      "mail_inbound_analysis",
+      "mail inbound analysis",
+      "a mail inbound analysis",
+      "mail inbound analyses",
+    ],
+    ["company", "company", "a company", "companies"],
+    ["journal_entry", "journal entry", "a journal entry", "journal entries"],
+    [
+      "mail_draft_send_batch",
+      "mail draft send batch",
+      "a mail draft send batch",
+      "mail draft send batches",
+    ],
+    [
+      "vault_member_access",
+      "vault member access",
+      "a vault member access",
+      "vault member accesses",
+    ],
+    ["customerProfile", "customer profile", "a customer profile", "customer profiles"],
+    ["deal-stage", "deal stage", "a deal stage", "deal stages"],
+  ] as const;
+
+  test("no verb carries an article of its own", () => {
+    for (const [operation, verb] of Object.entries(WORK_ACTION_VERBS)) {
+      assert.doesNotMatch(verb, /\b(?:a|an|the)\b/i, operation);
+      assert.match(verb, /^[A-Z]/, operation);
+    }
+  });
+
+  for (const [operation, verb] of Object.entries(WORK_ACTION_VERBS)) {
+    test(`${operation} says "${verb.toLowerCase()}" with the right article and plural`, () => {
+      const action = `ledger.${operation}`;
+      for (const [targetType, line, one, many] of targets) {
+        assert.equal(humanizeWorkAction(action, targetType), `${verb} ${line}`);
+        const single = workEffectPhrase(repeatedRows(1, action, targetType));
+        assert.equal(single, `${verb.toLowerCase()} ${one}`);
+        assertArticlesRead(single);
+        for (const count of [2, 7, 100]) {
+          const several = workEffectPhrase(repeatedRows(count, action, targetType));
+          assert.equal(several, `${verb.toLowerCase()} ${count} ${many}`);
+          assertArticlesRead(several);
+        }
+      }
+    });
+  }
+});
+
+describe("a or an by how a target sounds", () => {
+  for (const [targetType, one] of [
+    // A vowel letter said with a consonant.
+    ["user", "a user"],
+    ["usage_record", "a usage record"],
+    ["unit", "a unit"],
+    ["union_contract", "a union contract"],
+    ["unique_link", "a unique link"],
+    ["utility_bill", "a utility bill"],
+    ["one_time_link", "a one time link"],
+    ["euro_payment", "a euro payment"],
+    ["url", "a url"],
+    // A consonant letter said with a vowel.
+    ["hour_log", "an hour log"],
+    ["honest_review", "an honest review"],
+    // The ordinary rule, including the "un-" words that keep their vowel.
+    ["email", "an email"],
+    ["update", "an update"],
+    ["unread_count", "an unread count"],
+    ["uninstall", "an uninstall"],
+    ["step", "a step"],
+    ["question", "a question"],
+  ] as const) {
+    test(`says "${one}"`, () => {
+      assert.equal(
+        workEffectPhrase(repeatedRows(1, "ledger.create", targetType)),
+        `created ${one}`,
+      );
+    });
+  }
+});
+
+describe("sentences that already read correctly", () => {
+  for (const [name, effects, expected] of [
+    [
+      "one of each",
+      [ledgerRow("invoice.create", "invoice"), ledgerRow("mail.send", "email")],
+      "created an invoice and sent an email",
+    ],
+    ["a consonant target", [ledgerRow("connection.invoke", "connection")], "used a connection"],
+    ["a vowel target", [ledgerRow("integration.use", "integration")], "used an integration"],
+    ["a two-word verb", [ledgerRow("todo:comment", "todo")], "commented on a todo"],
+    ["a target derived from the action", [ledgerRow("note.publish")], "published a note"],
+    ["no target at all", [ledgerRow("archive")], "archived a record"],
+    [
+      "an unknown operation",
+      [ledgerRow("billing.reconcile", "bank_account")],
+      "reconcile a bank account",
+    ],
+    [
+      "two operations that read the same",
+      [
+        ledgerRow("note.edit", "note"),
+        ledgerRow("note.update", "note"),
+        ledgerRow("note.write", "note"),
+      ],
+      "updated 3 notes",
+    ],
+    [
+      "an analysis attempt",
+      [ledgerRow("mail.analysis.completed", "mail_inbound_analysis")],
+      "completed an email analysis",
+    ],
+    [
+      "a question kept off the stack",
+      [ledgerRow("decision.screen_out", "decision")],
+      "kept a question off the Decision stack",
+    ],
+    [
+      "awkward plurals",
+      [
+        ledgerRow("company.edit", "company"),
+        ledgerRow("company.edit", "company"),
+        ledgerRow("address.add", "address"),
+        ledgerRow("address.add", "address"),
+      ],
+      "updated 2 companies and added 2 addresses",
+    ],
+  ] as const) {
+    test(`keeps ${name}: "${expected}"`, () => {
+      assert.equal(
+        workEffectPhrase(entryOf({ effects: [...effects], effectCount: effects.length })),
+        expected,
+      );
+    });
+  }
+
+  for (const [action, label, one, two] of [
+    [
+      "mail.analysis.started",
+      "Started email analysis",
+      "started an email analysis",
+      "started 2 email analyses",
+    ],
+    [
+      "mail.analysis.completed",
+      "Completed email analysis",
+      "completed an email analysis",
+      "completed 2 email analyses",
+    ],
+    [
+      "mail.analysis.failed",
+      "Could not complete email analysis",
+      "could not complete an email analysis",
+      "could not complete 2 email analyses",
+    ],
+    [
+      "mail.analysis.automatic",
+      "Followed an email instruction",
+      "followed an email instruction",
+      "followed 2 email instructions",
+    ],
+    [
+      "mail.analysis.automatic_failed",
+      "Could not follow an email instruction",
+      "could not follow an email instruction",
+      "could not follow 2 email instructions",
+    ],
+    [
+      "mail.analysis.automatic_undo",
+      "Undid an automatic email step",
+      "undid an automatic email step",
+      "undid 2 automatic email steps",
+    ],
+    [
+      "decision.screen_out",
+      "Kept off the Decision stack",
+      "kept a question off the Decision stack",
+      "kept 2 questions off the Decision stack",
+    ],
+  ] as const) {
+    test(`${action} keeps its list line "${label}"`, () => {
+      assert.equal(humanizeWorkAction(action, "mail_inbound_analysis"), label);
+      assert.equal(workEffectPhrase(repeatedRows(1, action)), one);
+      assert.equal(workEffectPhrase(repeatedRows(2, action)), two);
+    });
+  }
+
+  test("ordinary list lines keep their terse wording without an article", () => {
+    assert.equal(humanizeWorkAction("invoice.create", "invoice"), "Created invoice");
+    assert.equal(humanizeWorkAction("mail.send", "email"), "Sent email");
+    assert.equal(humanizeWorkAction("user.update", "user"), "Updated user");
+  });
+
+  test("a target type that reads as nothing falls back to the action's own noun", () => {
+    assert.equal(humanizeWorkAction("invoice.create", "__"), "Created invoice");
+    assert.equal(workEffectPhrase(repeatedRows(1, "invoice.create", "__")), "created an invoice");
+    assert.equal(humanizeWorkAction("create", "--"), "Created record");
+    assert.equal(workEffectPhrase(repeatedRows(1, "create", "--")), "created a record");
+  });
+
+  test("an operation named like an Object member is still just a word", () => {
+    assert.equal(humanizeWorkAction("ledger.constructor", "record"), "Constructor record");
+    assert.equal(
+      workEffectPhrase(repeatedRows(2, "ledger.constructor", "record")),
+      "constructor 2 records",
     );
   });
 });

@@ -16,6 +16,7 @@ import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
 import { Membership } from "../db/entities/Membership.js";
@@ -1116,6 +1117,25 @@ async function finishedBulkJob(operationId: string) {
   }
   return assert.fail(`bulk job ${operationId} never finished`);
 }
+
+test("a queued bulk job is journaled with the article its record kind takes", async () => {
+  // Read "queued a account bulk operation" while the article was hard-coded.
+  const account = await insert(Customer, {
+    companyId: company.id,
+    name: "Acme account",
+    slug: "acme-account",
+  });
+  const queued = await aiCall("start_revenue_bulk_job", {
+    ...accountFieldUpdate([account.id], { name: "Acme renamed" }),
+    idempotencyKey: "journal-article",
+  });
+  assert.equal(queued.status, 202, queued.body.error);
+  await finishedBulkJob((queued.body.job as { id: string }).id);
+  const titles = (
+    await AppDataSource.getRepository(JournalEntry).findBy({ employeeId: employee.id })
+  ).map((entry) => entry.title);
+  assert.deepEqual(titles, ["Revenue analyst queued an account bulk operation"]);
+});
 
 test("Account tools set billing details only with an invoice Finance Grant, in a Member's chat too", async () => {
   const source = await insert(Customer, {

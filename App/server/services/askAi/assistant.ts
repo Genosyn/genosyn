@@ -14,6 +14,7 @@ import {
   type AskAiContextKind,
   type AskAiContextRef,
 } from "../../../shared/askAi.js";
+import { withIndefiniteArticle } from "../../../shared/indefiniteArticle.js";
 import {
   attachmentImageContextForMessages,
   inlineAttachmentsForMessage,
@@ -568,7 +569,7 @@ async function contextMarker(
     const gate = typeof item.gate === "string" ? parseGateKey(item.gate) : null;
     const visible = gate ? Boolean(await check(gate)) : false;
     const kind = ASK_AI_KIND_LABELS[item.kind]?.toLowerCase() ?? "record";
-    labels.push(visible ? item.label : `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind} you cannot see`);
+    labels.push(visible ? item.label : `${withIndefiniteArticle(kind)} you cannot see`);
   }
   const where = context.pageLabel ? `${context.pageLabel} (${context.path})` : context.path;
   return labels.length > 0
