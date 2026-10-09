@@ -127,8 +127,23 @@ function timeoutSeconds(command: string): number | null {
  * behavior through the environment, so a step can be made to see a failing
  * test, a test that hits its bound, a crashing or silent server, and so on.
  * `npx` and `apt-get` refuse outright: no simulated step may install anything.
+ *
+ * The fake App server is a single Node process, like the real one, so a
+ * SIGTERM cannot land between it and a child still writing its data
+ * directory. Like the real App, it writes that directory while it boots and
+ * only then answers health checks (FAKE_READY), which is what the boot check
+ * relies on when it deletes the directory after stopping the server.
  */
-const REAL_SLEEP = ["/bin/sleep", "/usr/bin/sleep"].find((candidate) => fs.existsSync(candidate));
+const FAKE_APP_SERVER = [
+  'const fs = require("node:fs");',
+  'const mode = process.env.FAKE_SERVER || "crash";',
+  'fs.mkdirSync("data", { recursive: true });',
+  'fs.writeFileSync("data/.instance-secrets.json", "{}");',
+  "console.log(`fake server: ${mode}`);",
+  'if (mode !== "serve") process.exit(1);',
+  'fs.writeFileSync(process.env.FAKE_READY, "");',
+  "setTimeout(() => {}, 30_000);",
+];
 const FAKE_TOOLS: Record<string, string[]> = {
   timeout: [
     "#!/bin/sh",
@@ -156,13 +171,14 @@ const FAKE_TOOLS: Record<string, string[]> = {
   node: [
     "#!/bin/sh",
     'if [ "$1" = "-p" ]; then echo "${FAKE_NODE_PRINT:-}"; exit 0; fi',
-    "# The App writes its database and instance secrets as it boots.",
-    "mkdir -p data && echo '{}' > data/.instance-secrets.json",
-    'echo "fake server: ${FAKE_SERVER:-crash}"',
-    `if [ "\${FAKE_SERVER:-crash}" = serve ]; then exec ${REAL_SLEEP ?? "sleep"} 30; fi`,
-    "exit 1",
+    'exec "$FAKE_REAL_NODE" "$FAKE_SERVER_SCRIPT"',
   ],
-  curl: ["#!/bin/sh", 'exit "${FAKE_CURL_EXIT:-7}"'],
+  curl: [
+    "#!/bin/sh",
+    "# Nothing answers until the fake server is up; then the scenario decides.",
+    '[ -e "$FAKE_READY" ] || exit 7',
+    'exit "${FAKE_CURL_EXIT:-7}"',
+  ],
   sleep: ["#!/bin/sh", "exit 0"],
   npx: [
     "#!/bin/sh",
@@ -211,6 +227,8 @@ function simulate(
   for (const [name, lines] of Object.entries(FAKE_TOOLS)) {
     fs.writeFileSync(path.join(bin, name), `${lines.join("\n")}\n`, { mode: 0o755 });
   }
+  const serverScript = path.join(sandbox, "fake-server.cjs");
+  fs.writeFileSync(serverScript, `${FAKE_APP_SERVER.join("\n")}\n`);
   prepare?.(src);
 
   const command = instruction.raw
@@ -221,7 +239,14 @@ function simulate(
 
   const result = spawnSync("/bin/sh", ["-c", command], {
     cwd,
-    env: { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: sandbox, ...env },
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      HOME: sandbox,
+      FAKE_REAL_NODE: process.execPath,
+      FAKE_SERVER_SCRIPT: serverScript,
+      FAKE_READY: path.join(sandbox, "ready"),
+      ...env,
+    },
     encoding: "utf8",
     timeout: 60_000,
   });
@@ -574,8 +599,15 @@ describe("the OSS Scanner image (.oss-scanner/Dockerfile)", () => {
     ] as const) {
       const result = simulate(bootRun, env);
       assert.equal(result.status, 0, `${scenario} must not fail the build: ${result.output}`);
-      if (healthy) assert.doesNotMatch(result.output, /WARNING/, scenario);
-      else assert.match(result.output, /WARNING/, `${scenario} must be reported as a WARNING`);
+      if (healthy) {
+        assert.doesNotMatch(result.output, /WARNING/, scenario);
+        // The step prints the server's log, proof that it booted and wrote the
+        // data the step then had to delete. (A server that crashes or never
+        // answers may be stopped before it gets that far.)
+        assert.match(result.output, /fake server: serve/, `${scenario}: the server never ran`);
+      } else {
+        assert.match(result.output, /WARNING/, `${scenario} must be reported as a WARNING`);
+      }
       assert.ok(
         !fs.existsSync(path.join(result.src, "App", "data")),
         `${scenario}: the throwaway database and instance secrets must not stay in the image`,
