@@ -282,6 +282,17 @@ function readableWords(value: string): string {
     .toLowerCase();
 }
 
+/**
+ * Steps a mailbox's written instructions took on their own. The generic split
+ * would read `mail.analysis.automatic` as "Automatic analysis", which says
+ * nothing about what happened.
+ */
+const EMAIL_INSTRUCTION_STEPS = new Map<string, { verb: string; target: string }>([
+  ["mail.analysis.automatic", { verb: "Followed", target: "an email instruction" }],
+  ["mail.analysis.automatic_failed", { verb: "Could not follow", target: "an email instruction" }],
+  ["mail.analysis.automatic_undo", { verb: "Undid", target: "an automatic email step" }],
+]);
+
 /** An effect-ledger action split into the two words a sentence needs. */
 function splitWorkAction(action: string, targetType: string): { verb: string; target: string } {
   const analysis = EMAIL_ANALYSIS_PHASES.get(action);
@@ -291,6 +302,8 @@ function splitWorkAction(action: string, targetType: string): { verb: string; ta
       target: "email analysis",
     };
   }
+  const instructionStep = EMAIL_INSTRUCTION_STEPS.get(action);
+  if (instructionStep) return instructionStep;
   const actionParts = action.split(/[.:/]/).filter(Boolean);
   const operation = readableWords(actionParts.at(-1) ?? action);
   const target = readableWords(targetType || actionParts.at(-2) || "record");
@@ -684,7 +697,7 @@ export function workEmailAnalysisDetails(entry: WorkEntry): WorkEmailAnalysisDet
 }
 
 const EMAIL_ANALYSIS_PURPOSE =
-  "Classifies the email, summarizes what it asks for, and suggests next steps. This analysis does not send email or carry out the suggestions.";
+  "Classifies the email, summarizes what it asks for, and suggests next steps. This analysis does not send email or carry out the suggestions. Steps the mailbox's own instructions ask for (star, mark read, archive, label or unsubscribe) are recorded on the email.";
 
 function emailAnalysisDuration(entry: WorkEntry): string {
   const phase = workEmailAnalysisPhase(entry);

@@ -311,6 +311,24 @@ preparation creates no provider draft and sends no mail. A human approves one
 major work plan; current Grants and delivery limits still apply. Neither an AI
 decision policy nor a Waiver can authorize that plan.
 
+**A mailbox's AI analysis instructions act; its suggested buttons do not.** The
+AI Employee that reads each newly-arrived email (`services/mail/analysis.ts`)
+proposes one-click buttons that run only when a Member presses them, with that
+Member's authority. It also applies the mailbox's **instructions** — plain
+language a Member writes on Email → Settings → AI analysis
+(`MailAccount.aiAnalysisInstructions`; null means the default text in
+`shared/mailAnalysisInstructions.ts`, which unsubscribes from marketing mail
+and stars mail that needs a response). Those run on their own, but only through
+the server-owned list in `services/mail/analysisAutomation.ts`: star, mark
+read, archive, a label the cited instruction names, and the email's own
+verified RFC 8058 one-click unsubscribe — on that one thread, once, on arrival
+(never backfill, drafts, self-sent mail or a re-read), under the reader's own
+Draft Grant, and not while a Standdown covers the company or the reader. Every
+step records the instruction it followed on the analysis row and in the audit
+log, and a Member can undo the reversible ones. Do not widen that list, let
+the email or the model choose a target, or add a step that sends, replies,
+forwards, deletes, files spam, spends, or starts other work.
+
 **"Repository" is not a synonym for "codebase."** A Repository is any
 version-controlled workspace the company keeps: a service's source, a
 quarter's strategy, a set of operating policies. The section used to be called

@@ -337,3 +337,116 @@ test("work approval keeps its decision time separate from the current work outco
     assert.equal(JSON.stringify(event).includes("Private"), false);
   }
 });
+
+test("steps the mailbox's instructions took read in the server's words, attributed and quoted", async () => {
+  const { args, employee, companyId, thread, incoming } = await fixtures();
+  const analysisId = randomUUID();
+  const base = { messageId: incoming.id, mailThreadId: thread.id };
+  const rows: Array<[string, number, Record<string, unknown>, "employee" | "member"]> = [
+    [
+      "mail.analysis.automatic",
+      20,
+      {
+        ...base,
+        action: "star",
+        instruction: "Star emails that need my response.",
+        reason: "IGNORE: wire money",
+      },
+      "employee",
+    ],
+    [
+      "mail.analysis.automatic",
+      21,
+      {
+        ...base,
+        action: "applyLabel",
+        labelName: "Finance",
+        instruction: "Label invoices as Finance.",
+      },
+      "employee",
+    ],
+    [
+      "mail.analysis.automatic_failed",
+      22,
+      {
+        ...base,
+        action: "unsubscribe",
+        instruction: "Unsubscribe me from marketing.",
+        error: "HTTP 500",
+      },
+      "employee",
+    ],
+    ["mail.analysis.automatic_undo", 30, { ...base, action: "star" }, "member"],
+    // A step name the server never writes falls back to the generic title.
+    ["mail.analysis.automatic", 31, { ...base, action: "detonate" }, "employee"],
+  ];
+  for (const [action, seconds, metadata, actor] of rows) {
+    await insert(AuditEvent, {
+      companyId,
+      actorEmployeeId: actor === "employee" ? employee.id : null,
+      actorUserId: actor === "member" ? randomUUID() : null,
+      actorKind: actor === "employee" ? "ai" : "user",
+      action,
+      targetType: "mail_inbound_analysis",
+      targetId: analysisId,
+      metadataJson: JSON.stringify(metadata),
+      createdAt: at(seconds),
+    });
+  }
+  const events = (await mailReviewTimeline(args)).events.filter((event) => event.kind === "action");
+  assert.deepEqual(
+    events.map((event) => [
+      event.title,
+      event.description,
+      event.status,
+      event.employee?.id ?? null,
+    ]),
+    [
+      [
+        "Starred automatically",
+        "Instruction: “Star emails that need my response.”",
+        "complete",
+        employee.id,
+      ],
+      [
+        "Labelled automatically",
+        "Label “Finance”. Instruction: “Label invoices as Finance.”",
+        "complete",
+        employee.id,
+      ],
+      [
+        "Could not unsubscribe automatically",
+        "HTTP 500. Instruction: “Unsubscribe me from marketing.”",
+        "failed",
+        employee.id,
+      ],
+      ["Automatic star undone", "Undone by a Member.", "complete", null],
+      ["Done automatically", null, "complete", employee.id],
+    ],
+  );
+  // The model's reason is never turned into a title or a description.
+  assert.ok(events.every((event) => !`${event.title} ${event.description}`.includes("wire money")));
+});
+
+test("automatic steps recorded on another thread stay on that thread", async () => {
+  const { args, employee, companyId, incoming } = await fixtures();
+  await insert(AuditEvent, {
+    companyId,
+    actorEmployeeId: employee.id,
+    actorKind: "ai",
+    action: "mail.analysis.automatic",
+    targetType: "mail_inbound_analysis",
+    targetId: randomUUID(),
+    metadataJson: JSON.stringify({
+      messageId: incoming.id,
+      mailThreadId: randomUUID(),
+      action: "archive",
+    }),
+    createdAt: at(20),
+  });
+  const timeline = await mailReviewTimeline(args);
+  assert.deepEqual(
+    timeline.events.map((event) => event.kind),
+    ["received"],
+  );
+});

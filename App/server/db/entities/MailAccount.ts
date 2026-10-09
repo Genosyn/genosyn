@@ -146,9 +146,12 @@ export class MailAccount {
   backfilledCount!: number;
 
   /**
-   * Whether an AI Employee reads each newly-arrived message and proposes
-   * one-click next steps for it. On by default: a mailbox nobody configured
-   * should still arrive useful, and the buttons never act on their own.
+   * Whether an AI Employee reads each newly-arrived message, proposes
+   * one-click next steps for it, and follows `aiAnalysisInstructions`. On by
+   * default: a mailbox nobody configured should still arrive useful. The
+   * buttons never act on their own; only the instructions do, and only
+   * through the short list of reversible triage steps and verified
+   * unsubscribe that `services/mail/analysisAutomation.ts` allows.
    */
   @Column({ type: "boolean", default: true })
   aiAnalysisEnabled!: boolean;
@@ -165,6 +168,20 @@ export class MailAccount {
   /** Pinned brain for the read. Null inherits the employee's active model. */
   @Column({ type: "varchar", nullable: true })
   aiAnalysisModelId!: string | null;
+
+  /**
+   * What the reader should do with each newly-arrived email, in the mailbox
+   * owners' own words, one instruction per line — "Unsubscribe me
+   * automatically from marketing emails."
+   *
+   * Null means "the default instructions", not a stored copy of them, so a
+   * mailbox nobody customised keeps following the current default as it is
+   * improved, and Restore default is simply writing null back. An empty
+   * string is a deliberate choice of no instructions: the email still gets
+   * its summary and buttons, and nothing runs on its own.
+   */
+  @Column({ type: "text", nullable: true })
+  aiAnalysisInstructions!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;

@@ -467,6 +467,25 @@ export type MailAnalysisAction = {
   executedAt?: string;
 };
 
+/**
+ * One step the mailbox's instructions took on their own (or tried to).
+ * `instruction` is the owner's own line; `reason` is the AI Employee's;
+ * `detail` is always the server's — why it was skipped or failed, or the host
+ * an unsubscribe reached.
+ */
+export type MailAnalysisAutoAction = {
+  id: string;
+  action: "star" | "markRead" | "archive" | "applyLabel" | "unsubscribe" | "other";
+  labelName?: string;
+  instruction: string;
+  reason: string;
+  status: "pending" | "running" | "done" | "skipped" | "failed" | "undone";
+  detail?: string;
+  targetHost?: string;
+  appliedAt?: string;
+  undoneAt?: string;
+};
+
 export type MailAnalysis = {
   id: string;
   threadId: string;
@@ -477,6 +496,8 @@ export type MailAnalysis = {
   category: string;
   summary: string;
   actions: MailAnalysisAction[];
+  /** What the mailbox's instructions did to this email when it arrived. */
+  automaticActions: MailAnalysisAutoAction[];
   errorMessage: string;
   createdAt: string;
   finishedAt: string | null;
@@ -491,7 +512,15 @@ export type MailAnalysisReader = {
   accessLevel: MailAccessLevel;
 };
 
-export type MailAnalysisSettings = {
+/** The instructions half of the AI analysis setting, as the server stores it. */
+export type MailAnalysisInstructionsState = {
+  /** What the box shows: the mailbox's own text, or the default. */
+  instructions: string;
+  /** True while the mailbox follows the default rather than its own text. */
+  usingDefaultInstructions: boolean;
+};
+
+export type MailAnalysisSettings = MailAnalysisInstructionsState & {
   enabled: boolean;
   employeeId: string | null;
   modelId: string | null;
@@ -807,12 +836,17 @@ export const mailApi = {
   patchAnalysisSettings: (
     cid: string,
     aid: string,
-    input: { enabled?: boolean; employeeId?: string | null; modelId?: string | null },
+    input: {
+      enabled?: boolean;
+      employeeId?: string | null;
+      modelId?: string | null;
+      /** Null puts the mailbox back on the default instructions. */
+      instructions?: string | null;
+    },
   ) =>
-    api.patch<{ account: MailAccount; resolved: MailAnalysisReader | null }>(
-      `${base(cid)}/accounts/${aid}/ai-analysis`,
-      input,
-    ),
+    api.patch<
+      { account: MailAccount; resolved: MailAnalysisReader | null } & MailAnalysisInstructionsState
+    >(`${base(cid)}/accounts/${aid}/ai-analysis`, input),
   /** Read one message again — after a model outage, or a wrong first verdict. */
   analyzeMessage: (cid: string, mid: string) =>
     api.post<{ analysis: MailAnalysis }>(`${base(cid)}/messages/${mid}/analyze`, {}),
@@ -820,6 +854,12 @@ export const mailApi = {
   runAnalysisAction: (cid: string, analysisId: string, actionId: string) =>
     api.post<{ analysis: MailAnalysis; navigateTo: string | null; message: string }>(
       `${base(cid)}/analyses/${analysisId}/actions/${encodeURIComponent(actionId)}`,
+      {},
+    ),
+  /** Take back one step the instructions took on their own. Member authority. */
+  undoAutomaticAction: (cid: string, analysisId: string, autoActionId: string) =>
+    api.post<{ analysis: MailAnalysis; message: string }>(
+      `${base(cid)}/analyses/${analysisId}/automatic/${encodeURIComponent(autoActionId)}/undo`,
       {},
     ),
 

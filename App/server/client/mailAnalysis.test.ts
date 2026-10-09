@@ -10,13 +10,19 @@ import {
   analysisCategoryLabel,
   analysisCategoryTone,
   analysisEmployeeOptions,
+  analysisInstructionsEdit,
   analysisReadinessNote,
+  automaticActionNote,
+  automaticActionTitle,
+  automaticActionTone,
+  automaticActionUndoable,
 } from "../../client/lib/mailAnalysis.js";
 import {
   MAIL_ANALYSIS_CATEGORIES,
   MAIL_ANALYSIS_FINANCE_KINDS,
   type MailAccessLevel,
   type MailAnalysisAction,
+  type MailAnalysisAutoAction,
   type MailAssistantModel,
   type MailAssistantRosterEntry,
 } from "../../client/lib/mail.js";
@@ -25,6 +31,11 @@ import {
   MAIL_ANALYSIS_CATEGORIES as SERVER_MAIL_ANALYSIS_CATEGORIES,
   MAIL_ANALYSIS_FINANCE_KINDS as SERVER_MAIL_ANALYSIS_FINANCE_KINDS,
 } from "../services/mail/analysis.js";
+import {
+  MAIL_ANALYSIS_AUTOMATIC_KINDS as SERVER_MAIL_ANALYSIS_AUTOMATIC_KINDS,
+  autoActionUndoable as serverAutoActionUndoable,
+} from "../services/mail/analysisAutomation.js";
+import { DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS } from "../../shared/mailAnalysisInstructions.js";
 import { financeAccessFor } from "../middleware/financeAccess.js";
 
 function assistantModel(overrides: Partial<MailAssistantModel> = {}): MailAssistantModel {
@@ -467,7 +478,10 @@ describe("analysis readiness note", () => {
         enabled: false,
         resolved: { employeeName: "Jamie", modelLabel: "claude-sonnet", accessLevel: "draft" },
       }),
-      { tone: "off", text: "New mail arrives without a summary or action buttons." },
+      {
+        tone: "off",
+        text: "New mail arrives without a summary, action buttons, or automatic steps.",
+      },
     );
   });
 
@@ -487,7 +501,7 @@ describe("analysis readiness note", () => {
     assert.equal(note.tone, "warn");
     assert.equal(
       note.text,
-      "Jamie reads new mail on claude-sonnet. On Read access they can summarise and triage, but cannot prepare a reply for Needs you — raise them to Draft for that.",
+      "Jamie reads new mail on claude-sonnet. On Read access they can summarise and suggest next steps, but cannot prepare a reply for Needs you or carry out your instructions — raise them to Draft for that.",
     );
     assert.match(note.text, /Draft/);
   });
@@ -617,5 +631,259 @@ describe("the finance-gated kinds across the server and client", () => {
         `${kind} is gated but is not in the action vocabulary`,
       );
     }
+  });
+});
+
+// ───────────────────────────── the instructions box ─────────────────────────────
+
+describe("the instructions box while someone edits it", () => {
+  test("has nothing to save until the words change", () => {
+    const untouched = analysisInstructionsEdit({
+      draft: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      usingDefault: true,
+    });
+    assert.deepEqual(untouched, {
+      dirty: false,
+      problem: null,
+      canSave: false,
+      canRestore: false,
+      countLabel: "2 instructions",
+    });
+  });
+
+  test("does not light up Save for trailing spaces or a Windows line ending", () => {
+    const edit = analysisInstructionsEdit({
+      draft: `${DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS.replace("\n", "   \r\n")}\n\n`,
+      saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      usingDefault: true,
+    });
+    assert.equal(edit.dirty, false);
+    assert.equal(edit.canSave, false);
+  });
+
+  test("lets a real change be saved, and counts the instructions as the server will", () => {
+    const edit = analysisInstructionsEdit({
+      draft: `${DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS}\n\n- Archive shipping notifications.`,
+      saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      usingDefault: true,
+    });
+    assert.equal(edit.dirty, true);
+    assert.equal(edit.canSave, true);
+    assert.equal(edit.countLabel, "3 instructions");
+    assert.equal(
+      analysisInstructionsEdit({ draft: "Star mail.", saved: "", usingDefault: false }).countLabel,
+      "1 instruction",
+    );
+  });
+
+  test("an emptied box can be saved and says what that means", () => {
+    const edit = analysisInstructionsEdit({
+      draft: "  \n",
+      saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      usingDefault: true,
+    });
+    assert.equal(edit.canSave, true);
+    assert.equal(edit.countLabel, "No instructions — new mail gets a summary and suggestions only");
+  });
+
+  test("blocks Save with the reason when the text cannot be stored", () => {
+    const tooMany = analysisInstructionsEdit({
+      draft: Array.from({ length: 31 }, (_, index) => `Rule ${index}`).join("\n"),
+      saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+      usingDefault: true,
+    });
+    assert.equal(tooMany.dirty, true);
+    assert.equal(tooMany.problem, "Keep it to 30 instructions or fewer, one per line.");
+    assert.equal(tooMany.canSave, false);
+  });
+
+  test("offers Restore default only once the mailbox has its own text", () => {
+    assert.equal(
+      analysisInstructionsEdit({ draft: "x", saved: "x", usingDefault: false }).canRestore,
+      true,
+    );
+    assert.equal(
+      analysisInstructionsEdit({ draft: "", saved: "", usingDefault: false }).canRestore,
+      true,
+      "an emptied box can go back to the default too",
+    );
+    assert.equal(
+      analysisInstructionsEdit({
+        draft: "edited",
+        saved: DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
+        usingDefault: true,
+      }).canRestore,
+      false,
+      "unsaved edits to the default are reverted with Cancel instead",
+    );
+  });
+});
+
+describe("the readiness note and the instructions", () => {
+  test("tells a Read-access reader's mailbox that the instructions will not be carried out", () => {
+    const note = analysisReadinessNote({
+      enabled: true,
+      resolved: { employeeName: "Jamie", modelLabel: "claude-sonnet", accessLevel: "read" },
+      canManageAccess: false,
+    });
+    assert.equal(note.tone, "warn");
+    assert.match(note.text, /carry out your instructions/);
+    assert.match(note.text, /an owner or admin can raise them to Draft/);
+  });
+
+  test("says nothing automatic happens while analysis is off", () => {
+    assert.match(
+      analysisReadinessNote({ enabled: false, resolved: null }).text,
+      /without a summary, action buttons, or automatic steps/,
+    );
+  });
+});
+
+// ───────────────────────────── what the instructions did ─────────────────────────────
+
+function autoStep(
+  action: MailAnalysisAutoAction["action"],
+  status: MailAnalysisAutoAction["status"],
+  overrides: Partial<MailAnalysisAutoAction> = {},
+): MailAnalysisAutoAction {
+  return {
+    id: `auto-${action}`,
+    action,
+    instruction: "Star emails that need my response and look important.",
+    reason: "Asks for a reply by Friday.",
+    status,
+    ...overrides,
+  };
+}
+
+const AUTO_KINDS: MailAnalysisAutoAction["action"][] = [
+  "star",
+  "markRead",
+  "archive",
+  "applyLabel",
+  "unsubscribe",
+];
+const AUTO_STATUSES: MailAnalysisAutoAction["status"][] = [
+  "pending",
+  "running",
+  "done",
+  "skipped",
+  "failed",
+  "undone",
+];
+
+describe("what an automatic step says", () => {
+  test("names what happened in the server's words, for every step and outcome", () => {
+    const titles = Object.fromEntries(
+      AUTO_KINDS.map((kind) => [
+        kind,
+        AUTO_STATUSES.map((status) =>
+          automaticActionTitle(
+            autoStep(kind, status, kind === "applyLabel" ? { labelName: "Finance" } : {}),
+          ),
+        ),
+      ]),
+    );
+    assert.deepEqual(titles, {
+      star: ["Starring…", "Starring…", "Starred", "Didn’t star", "Couldn’t star", "Starred — undone"],
+      markRead: [
+        "Marking read…",
+        "Marking read…",
+        "Marked read",
+        "Didn’t mark read",
+        "Couldn’t mark read",
+        "Marked read — undone",
+      ],
+      archive: [
+        "Archiving…",
+        "Archiving…",
+        "Archived",
+        "Didn’t archive",
+        "Couldn’t archive",
+        "Archived — undone",
+      ],
+      applyLabel: [
+        "Labelling “Finance”…",
+        "Labelling “Finance”…",
+        "Labelled “Finance”",
+        "Didn’t label “Finance”",
+        "Couldn’t label “Finance”",
+        "Labelled “Finance” — undone",
+      ],
+      unsubscribe: [
+        "Unsubscribing…",
+        "Unsubscribing…",
+        "Unsubscribed",
+        "Didn’t unsubscribe",
+        "Couldn’t unsubscribe",
+        "Unsubscribed — undone",
+      ],
+    });
+  });
+
+  test("never echoes the model's words as the title", () => {
+    const step = autoStep("star", "done", { reason: "I SENT $10,000 TO THE VENDOR" });
+    assert.equal(automaticActionTitle(step), "Starred");
+  });
+
+  test("calls a step off the list what it is", () => {
+    assert.equal(
+      automaticActionTitle(autoStep("other", "skipped")),
+      "Not something Genosyn does on its own",
+    );
+  });
+
+  test("says where an unsubscribe went, and that it is final", () => {
+    assert.equal(
+      automaticActionNote(autoStep("unsubscribe", "done", { targetHost: "lists.shop.example" })),
+      "Sent to lists.shop.example. An unsubscribe can’t be undone.",
+    );
+    assert.equal(
+      automaticActionNote(autoStep("unsubscribe", "done")),
+      "An unsubscribe can’t be undone.",
+    );
+  });
+
+  test("shows the server's reason for a step that was skipped or failed", () => {
+    assert.equal(
+      automaticActionNote(autoStep("star", "skipped", { detail: "AI work is stood down: Audit" })),
+      "AI work is stood down: Audit",
+    );
+    assert.equal(
+      automaticActionNote(autoStep("archive", "failed", { detail: "Gmail said no." })),
+      "Gmail said no.",
+    );
+    assert.equal(automaticActionNote(autoStep("archive", "failed")), null);
+    for (const status of ["pending", "running", "done", "undone"] as const) {
+      assert.equal(automaticActionNote(autoStep("star", status, { detail: "x" })), null, status);
+    }
+  });
+
+  test("tones a step by its outcome", () => {
+    assert.deepEqual(
+      AUTO_STATUSES.map((status) => automaticActionTone(autoStep("star", status))),
+      ["working", "working", "done", "muted", "failed", "muted"],
+    );
+  });
+
+  test("offers Undo for exactly the steps the server will take back", () => {
+    for (const action of [...AUTO_KINDS, "other" as const]) {
+      for (const status of AUTO_STATUSES) {
+        const step = autoStep(action, status);
+        assert.equal(
+          automaticActionUndoable(step),
+          serverAutoActionUndoable(step),
+          `${action}/${status}`,
+        );
+      }
+    }
+  });
+
+  test("knows every step the server can take", () => {
+    assert.deepEqual(
+      [...AUTO_KINDS].sort(),
+      [...SERVER_MAIL_ANALYSIS_AUTOMATIC_KINDS].sort(),
+    );
   });
 });

@@ -370,6 +370,29 @@ describe("mail routes — the admin gate stays scoped", () => {
     assert.deepEqual(await grantLevels(), [[employee.id, "read"]]);
   });
 
+  test("a member may write the mailbox's instructions, which cannot widen any Grant", async () => {
+    actingUserId = memberId;
+    const saved = await call<{ instructions: string; usingDefaultInstructions: boolean }>(
+      "PATCH",
+      `/mail/accounts/${account.id}/ai-analysis`,
+      { instructions: "Star mail from our accountant." },
+    );
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.instructions, "Star mail from our accountant.");
+    assert.equal(saved.body.usingDefaultInstructions, false);
+    // Writing instructions is not granting access: no Grant appears, and an
+    // instruction can only act through a Grant an owner or admin already gave.
+    assert.deepEqual(await grantLevels(), []);
+
+    const restored = await call<{ usingDefaultInstructions: boolean }>(
+      "PATCH",
+      `/mail/accounts/${account.id}/ai-analysis`,
+      { instructions: null },
+    );
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    assert.equal(restored.body.usingDefaultInstructions, true);
+  });
+
   test("a member may still write a rule for the mailbox", async () => {
     actingUserId = memberId;
     const created = await call<{ rule: { name: string } }>(

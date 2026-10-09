@@ -25,6 +25,7 @@ import {
   type MailRuleAiDecision,
 } from "./aiRuleEvaluator.js";
 import { createMailHandover, hasActiveRuleHandover } from "./handovers.js";
+import { unsubscribedByInstructions } from "./analysisAutomation.js";
 import { unsubscribeFromMessage, type MailUnsubscribeResult } from "./unsubscribe.js";
 
 /**
@@ -471,6 +472,25 @@ async function applyRuleAction(
       await performThreadAction(account, thread, "archive");
       return;
     case "unsubscribe": {
+      // The mailbox's AI analysis instructions run before the rules and may
+      // already have sent this exact request. It is irreversible and tells the
+      // sender the address is live, so it is never sent twice for one message.
+      if (await unsubscribedByInstructions(message.id)) {
+        await recordAudit({
+          companyId: account.companyId,
+          actorKind: "system",
+          action: "mail.rule.unsubscribe",
+          targetType: "mail_rule",
+          targetId: rule.id,
+          targetLabel: rule.name,
+          metadata: {
+            threadId: thread.id,
+            messageId: message.id,
+            skipped: "already_unsubscribed_by_instructions",
+          },
+        });
+        return;
+      }
       const result = await (dependencies.unsubscribe ?? unsubscribeFromMessage)(account, message);
       await recordAudit({
         companyId: account.companyId,

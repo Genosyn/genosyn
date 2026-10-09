@@ -78,6 +78,9 @@ const AUDIT_ACTIONS: Record<
   "mail.analysis.create_invoice": { kind: "action", title: "Invoice created", finance: true },
   "mail.analysis.unsubscribe": { kind: "action", title: "Unsubscribed from sender" },
   "mail.analysis.thread_action": { kind: "action", title: "Email filing updated" },
+  "mail.analysis.automatic": { kind: "action", title: "Done automatically" },
+  "mail.analysis.automatic_failed": { kind: "action", title: "Automatic step failed" },
+  "mail.analysis.automatic_undo": { kind: "action", title: "Automatic step undone" },
   "note.create": { kind: "action", title: "Note created" },
   "note.update": { kind: "action", title: "Note updated" },
   "revenue.follow_up.create": { kind: "action", title: "Follow-up created" },
@@ -90,6 +93,70 @@ const AUDIT_ACTIONS: Record<
   "revenue.deal.update": { kind: "action", title: "Deal updated" },
   "revenue.activity.create": { kind: "action", title: "Activity added" },
 };
+
+/**
+ * Titles for a step the mailbox's instructions took, keyed by the server's own
+ * step name. The model's words never become a title: the instruction quoted in
+ * the description is the owner's, and the step is one of five the server knows.
+ */
+const AUTOMATIC_STEP_TITLES: Record<string, { done: string; failed: string; undone: string }> = {
+  star: {
+    done: "Starred automatically",
+    failed: "Could not star automatically",
+    undone: "Automatic star undone",
+  },
+  markRead: {
+    done: "Marked read automatically",
+    failed: "Could not mark read automatically",
+    undone: "Marked unread again",
+  },
+  archive: {
+    done: "Archived automatically",
+    failed: "Could not archive automatically",
+    undone: "Moved back to the inbox",
+  },
+  applyLabel: {
+    done: "Labelled automatically",
+    failed: "Could not label automatically",
+    undone: "Automatic label removed",
+  },
+  unsubscribe: {
+    done: "Unsubscribed automatically",
+    failed: "Could not unsubscribe automatically",
+    undone: "Automatic step undone",
+  },
+};
+
+function automaticStepEvent(
+  action: string,
+  metadata: Record<string, unknown> | null,
+): { title: string; description: string; failed: boolean } | null {
+  const phase =
+    action === "mail.analysis.automatic"
+      ? "done"
+      : action === "mail.analysis.automatic_failed"
+        ? "failed"
+        : action === "mail.analysis.automatic_undo"
+          ? "undone"
+          : null;
+  if (!phase) return null;
+  const step = typeof metadata?.action === "string" ? AUTOMATIC_STEP_TITLES[metadata.action] : null;
+  const text = (value: unknown, limit: number) =>
+    typeof value === "string" && value.trim() ? redactSensitiveText(value).slice(0, limit) : "";
+  const instruction = text(metadata?.instruction, 240);
+  const label = text(metadata?.labelName, 100);
+  const error = phase === "failed" ? text(metadata?.error, 300) : "";
+  const parts = [
+    label ? `Label “${label}”.` : "",
+    error ? (/[.!?]$/.test(error) ? error : `${error}.`) : "",
+    phase === "undone" ? "Undone by a Member." : instruction ? `Instruction: “${instruction}”` : "",
+  ].filter(Boolean);
+  return {
+    title: step?.[phase] ?? AUDIT_ACTIONS[action].title,
+    description: parts.join(" "),
+    failed: phase === "failed",
+  };
+}
 
 function jsonObject(value: string | null): Record<string, unknown> | null {
   try {
@@ -567,9 +634,18 @@ export async function mailReviewTimeline(args: {
       );
       continue;
     }
+    const metadata = jsonObject(audit.metadataJson);
+    const automatic = automaticStepEvent(audit.action, metadata);
+    if (automatic) {
+      add(`action:${audit.id}`, spec.kind, audit.createdAt, automatic.title, {
+        employeeId: audit.actorEmployeeId,
+        description: automatic.description || null,
+        status: automatic.failed ? "failed" : "complete",
+      });
+      continue;
+    }
     const estimate = audit.targetId ? estimateById.get(audit.targetId) : null;
     const invoice = audit.targetId ? invoiceById.get(audit.targetId) : null;
-    const metadata = jsonObject(audit.metadataJson);
     const generatedPath =
       typeof metadata?.resultPath === "string" &&
       /^\/finance\/(estimates|invoices)\/[a-z0-9-]+(?:\/edit)?$/.test(metadata.resultPath)

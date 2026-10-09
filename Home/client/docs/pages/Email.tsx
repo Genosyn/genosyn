@@ -12,8 +12,9 @@ export function Email() {
             mail like a normal client. Gmail, Outlook, Fastmail, iCloud, Zoho, your company&apos;s
             Exchange server, or a mail server you run yourself. Then put your{" "}
             <DocLink to="/docs/employees">AI Employees</DocLink> on it: chat with them right beside
-            the inbox, hand them threads to draft answers, and set <Strong>rules</Strong> that use
-            static filters or AI judgment to act on new mail. Everything syncs both ways.
+            the inbox, hand them threads to draft answers, write <Strong>instructions</Strong> in
+            your own words for every new email, and set <Strong>rules</Strong> that use static
+            filters or AI judgment to act on new mail. Everything syncs both ways.
           </>
         }
       />
@@ -401,7 +402,8 @@ export function Email() {
         Analysis uses the message text and attachment names; it does not inspect attachment
         contents or carry out the suggested actions. Open the linked email to review and use them.
         Older entries without a retained result say so instead of showing a later review&apos;s
-        findings.
+        findings. A step your <DocLink to="/docs/email#analysis-instructions">instructions</DocLink>{" "}
+        took shows separately, as <Strong>Followed an email instruction</Strong>.
       </P>
       <P>What a button does when you press it:</P>
       <UL>
@@ -432,9 +434,10 @@ export function Email() {
           written.
         </LI>
       </UL>
-      <Callout kind="tip" title="Nothing runs by itself.">
-        Analysis only ever <em>proposes</em>. Each button is checked against the pressing
-        Member&apos;s access and the employee&apos;s Grant. An employee on <Strong>Draft</Strong>{" "}
+      <Callout kind="tip" title="Buttons wait for you.">
+        A button only ever <em>proposes</em>; the only thing that runs by itself is your own{" "}
+        <DocLink to="/docs/email#analysis-instructions">instructions</DocLink>. Each button is
+        checked against the pressing Member&apos;s access and the employee&apos;s Grant. An employee on <Strong>Draft</Strong>{" "}
         can prepare a reply, but only an owner or admin can send its Decision-stack review. What you
         see under each label is the fact the server checked, not the employee&apos;s claim about it:
         the total an invoice adds up to or the host an unsubscribe would talk to. Buttons that
@@ -451,6 +454,76 @@ export function Email() {
         It also cannot choose its own affordances: whether <Strong>Unsubscribe</Strong>
         may be offered at all is decided by Genosyn before the employee ever sees the email.
       </P>
+      <H3 id="analysis-instructions">Instructions — what happens on its own</H3>
+      <P>
+        Under <Strong>Email → Settings → AI analysis</Strong>, the <Strong>Instructions</Strong>{" "}
+        box says, in your own words, what should happen to your mail. Every new email is checked
+        against it by the same AI Employee that reads it. A mailbox starts with these two, marked{" "}
+        <Strong>Default</Strong>:
+      </P>
+      <UL>
+        <LI>Unsubscribe me automatically from marketing emails.</LI>
+        <LI>Star emails that need my response and look important.</LI>
+      </UL>
+      <P>
+        Change them, add your own — one instruction per line, up to 30 — and press{" "}
+        <Strong>Save instructions</Strong> (or <Code>⌘ Enter</Code> / <Code>Ctrl Enter</Code>).{" "}
+        <Strong>Cancel</Strong> throws away unsaved edits, and <Strong>Restore default</Strong>{" "}
+        puts the default back; a mailbox on the default picks up any improvements to its wording.
+        Leave the box empty and new mail gets only its summary and suggested buttons.
+      </P>
+      <P>
+        On its own, the AI Employee can only do five things, and only to the email it is reading:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Star</Strong>, <Strong>mark as read</Strong>, or <Strong>archive</Strong> the
+          thread.
+        </LI>
+        <LI>
+          <Strong>Add a label</Strong> your instruction names — &ldquo;Label invoices as
+          Finance&rdquo; can add <em>Finance</em>, never a label the email suggested, and never a
+          system folder such as Inbox, Spam or Trash. On an IMAP mailbox a label is a folder, so
+          this moves the thread there.
+        </LI>
+        <LI>
+          <Strong>Unsubscribe</Strong>, through the email&apos;s own verified one-click unsubscribe
+          — the same check as the button, so only on Gmail mailboxes, and never for mail the
+          employee read as spam, because unsubscribing tells the sender your address is real.
+        </LI>
+      </UL>
+      <P>
+        It never replies, sends, forwards, deletes, files spam, raises an invoice or hands the
+        thread to anyone by itself. When an instruction asks for one of those, the employee offers
+        it as a button instead, for you to press.
+      </P>
+      <P>
+        Everything it did shows on the email, under <Strong>Your instructions</Strong>: what it
+        did, why, and which of your instructions it followed. <Strong>Undo</Strong> takes back a
+        star, a read mark, an archive or a label, with your own access; an unsubscribe cannot be
+        undone. A step that did not happen says why — for example, the email had no verified
+        unsubscribe link. Each step also appears in the{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and the audit log,
+        under the employee that read the email.
+      </P>
+      <Callout kind="info" title="When the instructions run.">
+        Once, as a new email arrives — never on the mail imported when you connected the mailbox,
+        on drafts, or on mail you sent, and not when you ask for an email to be read again (the
+        refresh button on its AI summary, or <Strong>Try again</Strong>), which only refreshes the
+        summary and suggestions. They run under the reading employee&apos;s own{" "}
+        <DocLink to="/docs/email#access">AI access</DocLink>, which must be <Strong>Draft</Strong>{" "}
+        or higher: on <Strong>Read</Strong>, the instructions only shape the suggestions. Nothing
+        runs while a <DocLink to="/docs/standdowns">Standdown</DocLink> covers the company or that
+        employee, while the mailbox is paused, or once you turn analysis off; a step whose
+        instruction you changed before it ran is skipped. If a{" "}
+        <DocLink to="/docs/email#rules">rule</DocLink> would unsubscribe from the same email, the
+        request is sent only once.
+      </Callout>
+      <P>
+        Mailboxes connected before instructions existed start on the default too, from the next
+        email that arrives. Clear the box, or turn AI analysis off, if you would rather they did
+        nothing on their own.
+      </P>
       <H3 id="analysis-settings">Choosing who reads, and turning it off</H3>
       <P>
         <Strong>Email → Settings → AI analysis</Strong> is on for every mailbox. Leave the employee
@@ -459,14 +532,15 @@ export function Email() {
         when you want a particular voice on your replies, and pin one of their{" "}
         <DocLink to="/docs/models">models</DocLink> when you want a particular brain. The card
         always tells you who would read the next email to arrive, so an on switch never means
-        nothing is happening. Turn it off and new mail simply arrives plain. Any member can change
-        this card. It only chooses among employees an owner or admin has already given{" "}
+        nothing is happening. Turn it off and new mail simply arrives plain, and the instructions
+        stop too. Any member can change this card, instructions included. It only chooses among
+        employees an owner or admin has already given{" "}
         <DocLink to="/docs/email#access">AI access</DocLink>, so it cannot widen what they can do.
       </P>
-      <Callout kind="info" title="Read access categorises; Draft access can prepare replies.">
-        An employee on <Strong>Read</Strong> can summarise and triage but will not offer to write a
-        reply. Raise them to <Strong>Draft</Strong> under{" "}
-        <DocLink to="/docs/email#access">AI access</DocLink> for that.
+      <Callout kind="info" title="Read access summarises; Draft access can act.">
+        An employee on <Strong>Read</Strong> can summarise and suggest next steps, but will not
+        offer to write a reply or carry out your instructions. Raise them to <Strong>Draft</Strong>{" "}
+        under <DocLink to="/docs/email#access">AI access</DocLink> for that.
       </Callout>
 
       <H2 id="assistant">Ask AI about an email</H2>
@@ -674,11 +748,20 @@ export function Email() {
         instead: even a standards-shaped endpoint controlled by an attacker could confirm that your
         address is active.
       </Callout>
-      <Callout kind="info" title="Rules never fire on your backfill.">
-        Connecting a mailbox imports history quietly; rules only run on genuinely new mail after
-        that, and never on drafts or your own sent messages — so connecting an account can&apos;t
-        stampede an employee with hundreds of historical handovers.
+      <Callout kind="info" title="Rules and instructions never fire on your backfill.">
+        Connecting a mailbox imports history quietly; rules and{" "}
+        <DocLink to="/docs/email#analysis-instructions">instructions</DocLink> only run on
+        genuinely new mail after that, and never on drafts or your own sent messages — so
+        connecting an account can&apos;t stampede an employee with hundreds of historical
+        handovers or unsubscribe you from years of old newsletters.
       </Callout>
+      <P>
+        Rules or instructions? A rule is exact: these conditions, these actions, every time. The
+        AI analysis instructions are the plain-language version — one line each, read by the
+        employee as each email arrives, and limited to starring, marking read, archiving,
+        labelling and safe unsubscribe. They work together: when both would unsubscribe from the
+        same email, the request is sent only once.
+      </P>
 
       <H3 id="routines">Rules vs. Routines</H3>
       <P>
