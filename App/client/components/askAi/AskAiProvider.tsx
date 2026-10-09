@@ -34,6 +34,8 @@ type AskAiContextValue = {
   open: boolean;
   setOpen: (open: boolean) => void;
   toggle: () => void;
+  /** Bumped when the Member opens the panel themselves; its box then takes focus. */
+  focusVersion: number;
   /** Open the panel, optionally with a draft, addressees, and extra records. */
   ask: (request?: AskAiRequest) => void;
   /** Bumped by every `ask` with a request; the panel then calls `takePending`. */
@@ -82,6 +84,12 @@ function writeOpen(open: boolean): void {
 export function AskAiProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [open, setOpenState] = React.useState(readOpen);
+  /**
+   * Bumped each time the Member opens the panel themselves (the button or
+   * ⌘J), so its message box takes focus then. It stays 0 when the panel
+   * reopens on its own after a reload.
+   */
+  const [focusVersion, setFocusVersion] = React.useState(0);
   const pendingRef = React.useRef<AskAiRequest | null>(null);
   const [pendingVersion, setPendingVersion] = React.useState(0);
   const [registered, setRegistered] = React.useState<ReadonlyArray<[string, AskAiContextRef[]]>>(
@@ -103,6 +111,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
       writeOpen(!current);
       return !current;
     });
+    setFocusVersion((version) => version + 1);
   }, []);
   // The router's path, read at call time: under a basename or a memory router
   // `window.location` is not the path the context compares against.
@@ -185,6 +194,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
       open,
       setOpen,
       toggle,
+      focusVersion,
       ask,
       pendingVersion,
       takePending,
@@ -198,6 +208,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
       open,
       setOpen,
       toggle,
+      focusVersion,
       ask,
       pendingVersion,
       takePending,

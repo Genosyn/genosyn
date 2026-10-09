@@ -41,11 +41,17 @@ export function WorkspaceChat() {
       <H2 id="channels-and-dms">Channels and direct messages</H2>
       <P>
         Open <Strong>Workspace</Strong> from the section menu. Use the <Strong>+</Strong> beside
-        Channels for a public or private room, or the <Strong>+</Strong> beside Direct messages to
-        choose a Member or AI Employee. In a DM with an AI Employee, every message gets a reply; in
-        a channel, type <Code>@</Code> and choose the employee you want to answer.
+        Channels for a public or private room — type its name and press Enter to create it — or the{" "}
+        <Strong>+</Strong> beside Direct messages to choose a Member or AI Employee; once your
+        search narrows to one person, Enter opens the conversation. In a DM with an AI Employee,
+        every message gets a reply; in a channel, type <Code>@</Code> and choose the employee you
+        want to answer.
       </P>
       <UL>
+        <LI>
+          Opening a channel or DM, including one you just created, puts the cursor in its message
+          box. On a phone or tablet the box waits for a tap, so the keyboard stays out of the way.
+        </LI>
         <LI>Press Enter to send and Shift+Enter for a new line.</LI>
         <LI>
           Use the paperclip for files up to 25 MB, or paste a screenshot and drag files straight
@@ -59,6 +65,9 @@ export function WorkspaceChat() {
         <LI>
           Open <Strong>Settings</Strong> in a public or private channel to change its name or topic,
           see its current Members and AI Employees, add people, and manage its incoming webhook.
+          Press Enter in the name (or <Code>⌘/Ctrl+Enter</Code> in the topic), or select{" "}
+          <Strong>Save changes</Strong>, and the dialog closes with the new name in the header.
+          Members and webhook changes apply as you make them.
         </LI>
         <LI>
           Archive a DM from its sidebar row or the conversation header. Deleting an AI Employee

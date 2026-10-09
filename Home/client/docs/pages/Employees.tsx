@@ -211,7 +211,10 @@ export function Employees() {
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
-          pills surface tool calls inline. Type <Code>/new</Code> to open a fresh context, or{" "}
+          pills surface tool calls inline. Opening a chat or switching threads puts the cursor in
+          the message box, after any draft already there, so you can start typing straight away (on
+          a phone or tablet the box waits for a tap, so the keyboard does not cover the thread).
+          Type <Code>/new</Code> to open a fresh context, or{" "}
           <Code>#</Code> and a name to tag a product area or any company resource you can see. Use
           <Code>@</Code> for people and AI Employees; <Code>#</Code> tells the employee what product
           or record to work on, and you can add several tags to one instruction. Attach files with
@@ -233,8 +236,11 @@ export function Employees() {
           conversations with the same employee carry on answering in parallel. When the answer in
           flight has stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on
           the queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
-          puts down what it is doing so that message goes next. Whatever it had already written
-          stays in the thread, marked <Strong>interrupted</Strong>, and the next turn can see it. A
+          puts down what it is doing so that message goes next. To stop without sending anything,
+          select the <Strong>Stop</Strong> button that replaces Send while a reply runs and the box
+          is empty; the cursor returns to the box for your correction. Either way, whatever it had
+          already written stays in the thread, marked <Strong>interrupted</Strong>, and the next
+          turn can see it. A
           stop lands as soon as the step already running hands back, so a long tool call can take a
           moment. Chat stays available while that employee&apos;s Routines run.
           <br />
