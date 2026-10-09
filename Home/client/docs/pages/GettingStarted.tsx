@@ -55,7 +55,8 @@ export function GettingStarted() {
         <LI>
           Under <Strong>Hire your first AI Employee</Strong>, pick a starting role or enter your own{" "}
           <Strong>Name</Strong> and <Strong>Role</Strong>. Starting roles include Executive
-          Assistant, Sales Development Rep, Research Analyst, and Operations Coordinator.
+          Assistant, Sales Development Rep, Research Analyst, and Operations Coordinator. Picking a
+          different role swaps in its suggested name too, unless you typed your own.
         </LI>
         <LI>
           Choose <Strong>Hire AI Employee</Strong>. A role template provides a{" "}

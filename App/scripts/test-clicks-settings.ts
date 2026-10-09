@@ -231,4 +231,63 @@ await app.check(
   },
 );
 
+await app.check(
+  "Onboarding: switching hire templates swaps the name a template filled in, never a typed one",
+  async () => {
+    const template = (id: string, name: string, role: string) => ({
+      id,
+      name,
+      role,
+      category: "Sales",
+      tagline: `${role} work.`,
+      skills: [],
+      routines: [],
+    });
+    const view = await app.open({
+      path: "/c/acme/onboarding",
+      routes: [
+        [
+          "GET",
+          `${API}/onboarding-status`,
+          () => ({
+            complete: false,
+            employee: null,
+            modelConnected: false,
+            routineCount: 0,
+            scheduledRoutineCount: 0,
+            nextRunAt: null,
+            skillCount: 0,
+            mailGranted: false,
+            mailAccessLevel: null,
+            nextStep: "employee",
+          }),
+        ],
+        ["GET", `${API}/employees`, () => []],
+        [
+          "GET",
+          /\/employee-templates/,
+          () => [
+            template("sdr", "Sam", "Sales Development Rep"),
+            template("research-analyst", "Sage", "Research Analyst"),
+          ],
+        ],
+      ],
+    });
+    const { page } = view;
+    const name = page.getByLabel("Name", { exact: true });
+    await view.click(page.getByText("Sales Development Rep", { exact: true }).first());
+    assert.equal(await name.inputValue(), "Sam");
+    await view.click(page.getByText("Research Analyst", { exact: true }).first());
+    assert.equal(await name.inputValue(), "Sage", "the template's name follows the pick");
+    await name.fill("Robin");
+    await view.click(page.getByText("Sales Development Rep", { exact: true }).first());
+    assert.equal(await name.inputValue(), "Robin", "a typed name stays");
+    assert.equal(
+      await page.getByLabel("Role", { exact: true }).inputValue(),
+      "Sales Development Rep",
+    );
+    await page.close();
+  },
+);
+
 await app.finish();

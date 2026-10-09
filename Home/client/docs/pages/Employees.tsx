@@ -125,8 +125,9 @@ export function Employees() {
       <OL>
         <LI>
           <Strong>Create.</Strong> Set the company mission and vision first, then pick a template (a
-          starter Soul and Skill set) or start blank. Hiring does not schedule Routines. The slug
-          freezes; you can rename freely afterward.
+          starter Soul and Skill set) or start blank. Switching templates swaps in the new
+          one&apos;s suggested name, unless you typed your own. Hiring does not schedule Routines.
+          The slug freezes; you can rename freely afterward.
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
