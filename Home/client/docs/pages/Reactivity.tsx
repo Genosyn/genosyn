@@ -151,7 +151,9 @@ export function Reactivity() {
       </P>
       <P>
         Open <Strong>Initiatives</Strong> from the Proactive page to review what employees have
-        filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine. Exact duplicate
+        filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine, and the accepted
+        Initiative links to it. Accept and <Strong>Decline</Strong> open their confirmation with the
+        cursor in the optional note; <Code>⌘/Ctrl+Enter</Code> there confirms. Exact duplicate
         pending work and already accepted work are refused, including after the accepted Routine was
         paused or deleted. A declined Initiative needs changed work or new evidence before it can be
         filed again. The queue permits at most five pending Initiatives per employee. Improvements

@@ -161,7 +161,11 @@ export function Introduction() {
         reporting that nothing is waiting. Dismissing a TLDR removes it from your Home only; its
         history remains available, and colleagues keep seeing it until they dismiss it themselves.
         Use <Strong>Mark all as read</Strong> on <Strong>Needs your attention</Strong> to clear your
-        unread notifications together; they remain available in the bell&apos;s history. So the page
+        unread notifications together; they remain available in the bell&apos;s history, which the{" "}
+        <Strong>Unread notifications</Strong> counter and <Strong>Bell has history</Strong> open in
+        place (<Code>Esc</Code> closes the bell). An Approval or a review there opens straight into
+        its Approve and Reject, or <Strong>Approve &amp; mark done</Strong> and{" "}
+        <Strong>Push back</Strong>; every notification opens in the company it came from. So the page
         is only ever as long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that. The{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> stay available in

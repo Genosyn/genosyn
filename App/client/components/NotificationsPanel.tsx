@@ -24,6 +24,17 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "./ui/Avatar";
 import { useCompanySocketSubscription } from "./CompanySocket";
 import { useBackgroundAction } from "./ui/Dialog";
 import { useNavigationGuard } from "./NavigationGuard";
+import { companyNotificationLink } from "../../shared/notificationLink";
+
+/**
+ * Opens the bell from elsewhere on the page — Home's "Unread notifications"
+ * tile and its "Bell has history" link — with focus on the first row.
+ */
+export const OPEN_NOTIFICATIONS_EVENT = "genosyn:open-notifications";
+
+export function openNotifications(): void {
+  window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT));
+}
 
 /**
  * Bell + popover panel mounted in the top bar. Reads the per-user feed
@@ -40,6 +51,43 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
   const [count, setCount] = React.useState(0);
   const [items, setItems] = React.useState<Notification[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const bellRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const panelId = React.useId();
+  // Set when the page opened the bell, so focus follows it into the list
+  // once this opening's list has arrived.
+  const focusFirstRow = React.useRef(false);
+  const listedSinceOpen = React.useRef(false);
+
+  React.useEffect(() => {
+    const onOpen = () => {
+      focusFirstRow.current = true;
+      listedSinceOpen.current = false;
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_NOTIFICATIONS_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, onOpen);
+  }, []);
+
+  // Esc closes it and hands focus back to the bell, as the account and theme
+  // menus do.
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setOpen(false);
+      bellRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open || !focusFirstRow.current || !listedSinceOpen.current || loading) return;
+    focusFirstRow.current = false;
+    const first = panelRef.current?.querySelector<HTMLElement>("li button");
+    (first ?? panelRef.current)?.focus();
+  }, [open, loading, items]);
 
   const refreshCount = React.useCallback(async () => {
     try {
@@ -61,6 +109,7 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
       );
       setItems(r.notifications);
     } finally {
+      listedSinceOpen.current = true;
       setLoading(false);
     }
   }, [company.id]);
@@ -125,7 +174,8 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
         },
       );
     }
-    if (n.link && !navigationGuard.request(n.link)) navigate(n.link);
+    const href = companyNotificationLink(company.slug, n.link);
+    if (href && !navigationGuard.request(href)) navigate(href);
   }
 
   function handleMarkAll() {
@@ -145,10 +195,14 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
   return (
     <div className="relative">
       <button
+        ref={bellRef}
+        type="button"
         onClick={() => setOpen((o) => !o)}
         className="relative flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
         title={count > 0 ? `${count} unread` : "Notifications"}
         aria-label="Notifications"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
       >
         <Bell size={16} />
         {count > 0 && (
@@ -162,7 +216,14 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           {/* Anchored to the bell from sm up; pinned to the viewport edges on
               phones, where a 22rem panel would run off-screen. */}
-          <div className="fixed left-3 right-3 top-16 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] dark:border-slate-700 dark:bg-slate-900">
+          <div
+            ref={panelRef}
+            id={panelId}
+            role="region"
+            aria-label="Notifications"
+            tabIndex={-1}
+            className="fixed left-3 right-3 top-16 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg outline-none sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] dark:border-slate-700 dark:bg-slate-900"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">

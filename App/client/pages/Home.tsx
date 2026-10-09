@@ -63,6 +63,8 @@ import { runExplanationLabel, runExplanationPrompt } from "@/lib/runStatus";
 import { useAskAi } from "@/components/askAi/AskAiProvider";
 import { TldrBriefing } from "@/components/tldrs/TldrBriefing";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
+import { openNotifications } from "../components/NotificationsPanel";
+import { companyNotificationLink } from "../../shared/notificationLink";
 import { StackList } from "@/components/decisions/StackList";
 import {
   compareStackItems,
@@ -987,6 +989,17 @@ function statTotal(data: HomeData): number {
  * tile (the count was never the sensitive part) while the card, which would
  * have to name them, stays hidden.
  */
+/**
+ * A plain click on a link to Home's own notifications opens the bell where it
+ * is, rather than "navigating" to the page already showing. A new-tab click is
+ * left alone.
+ */
+function openBellInPlace(event: React.MouseEvent<HTMLAnchorElement>) {
+  if (!shouldOpenEventInPlace(event)) return;
+  event.preventDefault();
+  openNotifications();
+}
+
 function StatStrip({ company, data }: { company: Company; data: HomeData }) {
   const stats: {
     label: string;
@@ -994,13 +1007,16 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
     icon: React.ReactNode;
     to: string;
     accent: string;
+    onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
   }[] = [
     {
       label: "Unread notifications",
       value: data.unreadNotificationCount,
       icon: <AtSign size={15} />,
+      // Home is where this link already is; the click opens the bell instead.
       to: `/c/${company.slug}`,
       accent: "text-rose-600 bg-rose-100 dark:bg-rose-500/15 dark:text-rose-300",
+      onClick: openBellInPlace,
     },
     {
       label: "Todos assigned to you",
@@ -1031,6 +1047,7 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
         <Link
           key={s.label}
           to={s.to}
+          onClick={s.onClick}
           className="flex min-w-0 flex-1 basis-[calc(50%-0.375rem)] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 lg:basis-0"
         >
           <span
@@ -1364,6 +1381,7 @@ function HomeCard({
   headerAction,
   linkTo,
   linkLabel,
+  onLinkClick,
   children,
 }: {
   title: string;
@@ -1372,6 +1390,8 @@ function HomeCard({
   headerAction?: React.ReactNode;
   linkTo: string;
   linkLabel: string;
+  /** Handles a click on the header link in place, e.g. opening the bell. */
+  onLinkClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
   children: React.ReactNode;
 }) {
   return (
@@ -1393,6 +1413,7 @@ function HomeCard({
           {headerAction}
           <Link
             to={linkTo}
+            onClick={onLinkClick}
             className="flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
           >
             {linkLabel} <ChevronRight size={12} />
@@ -1588,7 +1609,20 @@ function AttentionCard({
    * next refetch, which is the harmless direction to fail in.
    */
   function open(n: NotificationRow) {
-    onOpen({ kind: "notification", notification: n });
+    // An approval or a review Home already holds opens straight into its own
+    // peek, where it is decided — not a note pointing somewhere else. Deciding
+    // is unchanged: the peek is the review, with its Approve or Reject.
+    const approval =
+      n.entityKind === "approval"
+        ? data.approvals.find((candidate) => candidate.id === n.entityId)
+        : undefined;
+    const review =
+      n.kind === "todo_review_requested" && n.entityKind === "todo"
+        ? data.reviewTodos.find((candidate) => candidate.id === n.entityId)
+        : undefined;
+    if (approval) onOpen({ kind: "approval", approval });
+    else if (review) onOpen({ kind: "todo", todo: review, review: true });
+    else onOpen({ kind: "notification", notification: n });
     background(
       () =>
         api.post(`/api/companies/${company.id}/notifications/mark-read`, {
@@ -1623,6 +1657,7 @@ function AttentionCard({
       }
       linkTo={`/c/${company.slug}`}
       linkLabel="Bell has history"
+      onLinkClick={openBellInPlace}
     >
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.notifications.map((n) => (
@@ -1631,7 +1666,7 @@ function AttentionCard({
               // Only a notification carrying a link has a full page to fall
               // back to; the rest are the notification itself, so the row
               // points at Home and the modal is the whole story.
-              to={n.link ?? `/c/${company.slug}`}
+              to={companyNotificationLink(company.slug, n.link) ?? `/c/${company.slug}`}
               onOpen={() => open(n)}
               className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >

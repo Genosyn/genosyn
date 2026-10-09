@@ -15,6 +15,7 @@ import { Approval } from "../db/entities/Approval.js";
 import { broadcastToCompany } from "./realtime.js";
 import { sendPushToUser } from "./push.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
+import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notificationLink.js";
 
 /**
  * Notification feed service. Generators (mention parser, todo-review hook,
@@ -75,6 +76,25 @@ export async function createNotifications(
 ): Promise<Notification[]> {
   if (inputs.length === 0) return [];
   const r = repo();
+  // A bare section path ("/goals") is stored inside its company
+  // ("/c/acme/goals"), so the bell, Home and a push all open the right page
+  // of the right company — the router sends a bare path to the first
+  // company's Home.
+  const bare = [
+    ...new Set(inputs.filter((i) => needsCompanyPrefix(i.link)).map((i) => i.companyId)),
+  ];
+  const slugs = new Map<string, string>();
+  if (bare.length > 0) {
+    const companies = await AppDataSource.getRepository(Company).find({
+      where: { id: In(bare) },
+      select: { id: true, slug: true },
+    });
+    for (const company of companies) slugs.set(company.id, company.slug);
+  }
+  const linkFor = (i: CreateNotificationInput): string | null => {
+    const slug = slugs.get(i.companyId);
+    return slug ? companyNotificationLink(slug, i.link) : (i.link ?? null);
+  };
   const rows = inputs.map((i) =>
     r.create({
       companyId: i.companyId,
@@ -82,7 +102,7 @@ export async function createNotifications(
       kind: i.kind,
       title: i.title,
       body: i.body ?? "",
-      link: i.link ?? null,
+      link: linkFor(i),
       actorKind: i.actorKind ?? null,
       actorId: i.actorId ?? null,
       entityKind: i.entityKind ?? null,

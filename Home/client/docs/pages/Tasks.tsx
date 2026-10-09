@@ -161,7 +161,8 @@ export function Tasks() {
         Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of
         {" "}
         <Code>done</Code>. You&apos;ll get a notification (and a push notification on your phone, if
-        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>), and the todo
+        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>) that opens the todo
+        itself, ready to approve or push back, and the todo
         waits in your Review queue until you sign it off. <Strong>Open in project</Strong> there
         (and <Strong>Open the board</Strong> from Home) opens that todo beside its board. In the
         todo&apos;s panel, <Strong>Approve &amp; mark done</Strong> closes the panel and returns

@@ -10,6 +10,7 @@ import {
   RevisionProposalStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { focusOnArrival } from "../lib/composerFocus";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -231,6 +232,14 @@ function ProposalCard({
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const noteRef = React.useRef<HTMLTextAreaElement>(null);
+  const confirmId = React.useId();
+
+  // The confirm panel opens with the cursor in its note, so a note and
+  // ⌘/Ctrl+Enter finish it. The panel is still the confirm step.
+  React.useEffect(() => {
+    if (confirm && noteRef.current) focusOnArrival(noteRef.current);
+  }, [confirm]);
 
   const diff = React.useMemo(
     () => (expanded ? diffLines(proposal.baseBody, proposal.proposedBody) : []),
@@ -347,23 +356,37 @@ function ProposalCard({
                   </Button>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                  <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                <div
+                  role="group"
+                  aria-labelledby={confirmId}
+                  className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+                >
+                  <div
+                    id={confirmId}
+                    className="text-sm font-medium text-slate-800 dark:text-slate-200"
+                  >
                     {confirm === "apply"
                       ? `Apply this revision? The proposed text replaces the current ${KIND_LABEL[proposal.kind]} right away.`
                       : "Reject this revision? The document stays as it is."}
                   </div>
                   <Textarea
+                    ref={noteRef}
                     label="Note (optional)"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+                      if (e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      if (!busy) void decide(confirm);
+                    }}
                     className="min-h-[60px]"
                     placeholder={
                       confirm === "apply"
                         ? "Anything the employee should know about this approval."
                         : "Why not — the employee learns from this."
                     }
-                    hint="The employee reads this note in its journal."
+                    hint="The employee reads this note in its journal. ⌘/Ctrl+Enter confirms."
                   />
                   <div className="flex gap-2">
                     <Button

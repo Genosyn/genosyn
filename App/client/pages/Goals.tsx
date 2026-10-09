@@ -141,8 +141,11 @@ export default function Goals({ company }: { company: Company; me: Me }) {
   const [rows, setRows] = React.useState<Goal[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
-  // `goal: null` is the create modal; a goal is the edit modal.
-  const [modal, setModal] = React.useState<{ goal: Goal | null } | null>(null);
+  // `goal: null` is the create modal (under `parentGoalId` for a sub-goal);
+  // a goal is the edit modal.
+  const [modal, setModal] = React.useState<{ goal: Goal | null; parentGoalId?: string } | null>(
+    null,
+  );
   const [reporting, setReporting] = React.useState<Goal | null>(null);
 
   const canManage = company.role === "owner" || company.role === "admin";
@@ -231,6 +234,7 @@ export default function Goals({ company }: { company: Company; me: Me }) {
               owner={goal.ownerEmployeeId ? (employeesById.get(goal.ownerEmployeeId) ?? null) : null}
               canManage={canManage}
               onEdit={(g) => setModal({ goal: g })}
+              onAddSubGoal={(g) => setModal({ goal: null, parentGoalId: g.id })}
               onReport={(g) => setReporting(g)}
               onChanged={reload}
             />
@@ -240,9 +244,10 @@ export default function Goals({ company }: { company: Company; me: Me }) {
 
       {modal && (
         <GoalModal
-          key={modal.goal?.id ?? "new"}
+          key={modal.goal?.id ?? `new:${modal.parentGoalId ?? ""}`}
           company={company}
           goal={modal.goal}
+          parentGoalId={modal.parentGoalId}
           goals={rows ?? []}
           employees={employees}
           onClose={() => setModal(null)}
@@ -278,6 +283,7 @@ function GoalRow({
   owner,
   canManage,
   onEdit,
+  onAddSubGoal,
   onReport,
   onChanged,
 }: {
@@ -287,6 +293,7 @@ function GoalRow({
   owner: Employee | null;
   canManage: boolean;
   onEdit: (goal: Goal) => void;
+  onAddSubGoal: (parent: Goal) => void;
   onReport: (goal: Goal) => void;
   onChanged: () => void;
 }) {
@@ -358,9 +365,22 @@ function GoalRow({
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                {goal.title}
-              </span>
+              {/* For those who can change it, the title opens Edit — the
+                thing a click on a goal is usually for. */}
+              {canManage ? (
+                <button
+                  type="button"
+                  onClick={() => onEdit(goal)}
+                  aria-label={`Edit ${goal.title}`}
+                  className="truncate text-left text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+                >
+                  {goal.title}
+                </button>
+              ) : (
+                <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {goal.title}
+                </span>
+              )}
               {goal.metricKind === "chart" && (
                 <span
                   className="shrink-0 rounded-full border border-slate-200 px-1.5 py-px text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400"
@@ -461,6 +481,16 @@ function GoalRow({
                       onEdit(goal);
                     }}
                   />
+                  {goal.status !== "archived" && (
+                    <MenuItem
+                      icon={<Plus size={14} />}
+                      label="Add sub-goal"
+                      onSelect={() => {
+                        close();
+                        onAddSubGoal(goal);
+                      }}
+                    />
+                  )}
                   {goal.status === "archived" ? (
                     <MenuItem
                       icon={<ArchiveRestore size={14} />}
@@ -504,6 +534,7 @@ function GoalRow({
 function GoalModal({
   company,
   goal,
+  parentGoalId: initialParentGoalId,
   goals,
   employees,
   onClose,
@@ -512,6 +543,8 @@ function GoalModal({
   company: Company;
   /** Null creates; a goal edits it. */
   goal: Goal | null;
+  /** A new goal's parent, when it is added from that goal's menu. */
+  parentGoalId?: string;
   goals: Goal[];
   employees: Employee[];
   onClose: () => void;
@@ -519,7 +552,9 @@ function GoalModal({
 }) {
   const [title, setTitle] = React.useState(goal?.title ?? "");
   const [description, setDescription] = React.useState(goal?.description ?? "");
-  const [parentGoalId, setParentGoalId] = React.useState(goal?.parentGoalId ?? "");
+  const [parentGoalId, setParentGoalId] = React.useState(
+    goal?.parentGoalId ?? initialParentGoalId ?? "",
+  );
   const [ownerEmployeeId, setOwnerEmployeeId] = React.useState(goal?.ownerEmployeeId ?? "");
   const [metricKind, setMetricKind] = React.useState<GoalMetricKind>(goal?.metricKind ?? "manual");
   const [chartId, setChartId] = React.useState(goal?.chartId ?? "");
