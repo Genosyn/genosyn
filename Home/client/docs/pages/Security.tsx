@@ -38,7 +38,8 @@ export function Security() {
         {" "}or <Strong>Sign in</Strong>. Use the email address that received it. A valid invitation
         lets that address register even when public sign-ups are closed. The verification email
         brings you back to <Strong>Accept invitation</Strong>; creating an account does not join
-        the company automatically.
+        the company automatically. Accepting opens the company you just joined, even when you
+        already belong to another.
       </P>
       <Callout kind="info" title="Instance administration needs a verified email.">
         Instance administration is closed to an unverified account — <Code>Admin</Code> answers

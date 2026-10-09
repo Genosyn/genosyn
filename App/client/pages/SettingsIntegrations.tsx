@@ -1403,6 +1403,7 @@ export function ApiKeyModal({
   const [fields, setFields] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const formId = React.useId();
 
   React.useEffect(() => {
     if (open && entry) {
@@ -1416,6 +1417,7 @@ export function ApiKeyModal({
 
   const isReconnect = reconnect !== null;
   const title = isReconnect ? `Reconnect ${reconnect.label}` : `Connect ${entry.name}`;
+  const fieldId = (key: string) => `${formId}-${key}`;
 
   return (
     <Modal open={open} onClose={onClose} title={title} size="lg">
@@ -1464,14 +1466,21 @@ export function ApiKeyModal({
             required
           />
         )}
-        {(entry.fields ?? []).map((f: IntegrationCatalogField) => (
+        {/* The Label arrives filled in, so the cursor starts in the first
+          credential — the field there is to paste. */}
+        {(entry.fields ?? []).map((f: IntegrationCatalogField, index: number) => (
           <div key={f.key}>
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            <label
+              htmlFor={fieldId(f.key)}
+              className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
               {f.label}
               {f.required && <span className="ml-1 text-red-500">*</span>}
             </label>
             {f.type === "textarea" ? (
               <textarea
+                id={fieldId(f.key)}
+                autoFocus={index === 0}
                 required={f.required}
                 placeholder={f.placeholder}
                 value={fields[f.key] ?? ""}
@@ -1481,6 +1490,8 @@ export function ApiKeyModal({
               />
             ) : (
               <input
+                id={fieldId(f.key)}
+                autoFocus={index === 0}
                 type={f.type === "password" ? "password" : "text"}
                 required={f.required}
                 placeholder={f.placeholder}

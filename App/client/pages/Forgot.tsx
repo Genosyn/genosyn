@@ -28,9 +28,14 @@ export default function Forgot() {
   return (
     <AuthShell title="Reset your password">
       {sent ? (
-        <div className="text-sm text-slate-600 dark:text-slate-300">
-          If an account exists for that email, a reset link has been sent. When SMTP is not
-          configured, check your server console for the reset URL.
+        <div className="flex flex-col gap-4 text-sm text-slate-600 dark:text-slate-300">
+          <p>
+            If an account exists for that email, a reset link has been sent. When SMTP is not
+            configured, check your server console for the reset URL.
+          </p>
+          <Link to="/login" className="text-sm text-slate-500 hover:text-indigo-600 dark:text-slate-400">
+            Back to sign in
+          </Link>
         </div>
       ) : (
         <form className="flex flex-col gap-4" onSubmit={submit}>
@@ -38,8 +43,10 @@ export default function Forgot() {
           <Input
             label="Email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoFocus
             required
           />
           <Button type="submit" loading={loading}>

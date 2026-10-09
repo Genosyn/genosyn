@@ -19,6 +19,7 @@ import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { clsx } from "../components/ui/clsx";
+import { submitFormOnModEnter } from "../lib/keyboard";
 import { AuthShell } from "./Login";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
@@ -111,6 +112,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           label="Mission"
           value={mission}
           onChange={(event) => setMission(event.target.value)}
+          onKeyDown={submitFormOnModEnter}
           placeholder="What do you do, for whom, and why?"
           rows={3}
           className="!min-h-24"
@@ -122,6 +124,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           label="Vision"
           value={vision}
           onChange={(event) => setVision(event.target.value)}
+          onKeyDown={submitFormOnModEnter}
           placeholder="What should be true when the company succeeds?"
           required
           rows={3}

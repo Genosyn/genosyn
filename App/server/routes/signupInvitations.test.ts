@@ -164,6 +164,7 @@ test("closed signup preserves invitation until email proof and explicit acceptan
   const accepted = await call("/api/invitations/accept", { token }, signup.cookie);
   assert.equal(accepted.status, 200);
   assert.equal(accepted.body.companyId, company.id);
+  assert.equal(accepted.body.companySlug, company.slug, "the client opens the company joined");
   const membership = await AppDataSource.getRepository(Membership).findOneByOrFail({
     userId: user.id,
     companyId: company.id,

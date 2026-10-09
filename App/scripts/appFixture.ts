@@ -246,7 +246,15 @@ export async function startApp(title: string) {
         json: { error: `Not in this fixture: ${method} ${url.pathname}` },
       });
     });
-    await page.goto(`${fixture.origin}/?path=${encodeURIComponent(options.path)}`);
+    if (options.signedOut) {
+      // Signed out, the App reads the document's own path to tell a sign-in
+      // page from a protected one, so the document is served at the path too.
+      const url = new URL(options.path, fixture.origin);
+      url.searchParams.set("path", options.path);
+      await page.goto(url.toString());
+    } else {
+      await page.goto(`${fixture.origin}/?path=${encodeURIComponent(options.path)}`);
+    }
     const location = async () => ((await page.getByTestId("location").textContent()) ?? "").trim();
     const view: AppView = {
       page,

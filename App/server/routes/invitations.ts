@@ -52,5 +52,7 @@ invitationsRouter.post("/accept", validateBody(acceptSchema), async (req, res) =
   }
   inv.acceptedAt = new Date();
   await invRepo.save(inv);
-  res.json({ companyId: inv.companyId });
+  // The slug lets the client open the company just joined: "/" lands on
+  // whichever membership comes first, often another company.
+  res.json({ companyId: inv.companyId, companySlug: company.slug });
 });

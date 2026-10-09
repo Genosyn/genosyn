@@ -8,6 +8,14 @@ export function invitationPath(token: string | null): string {
   return token ? `/invite/${encodeURIComponent(token)}` : "/";
 }
 
+/**
+ * Where accepting an invitation lands: the company just joined. Without its
+ * slug, "/" — which opens whichever membership comes first.
+ */
+export function joinedCompanyPath(companySlug: string | null | undefined): string {
+  return companySlug ? `/c/${encodeURIComponent(companySlug)}` : "/";
+}
+
 export function invitationAuthPath(page: "login" | "signup", token: string | null): string {
   return `/${page}${token ? `?invitation=${encodeURIComponent(token)}` : ""}`;
 }

@@ -5,6 +5,7 @@ import {
   invitationPath,
   invitationTokenFromPath,
   invitationTokenFromSearch,
+  joinedCompanyPath,
 } from "./invitationNavigation.js";
 
 test("signup, login and verification can return to the same invitation", () => {
@@ -36,4 +37,11 @@ test("ordinary login keeps its usual destination and unusable tokens are ignored
   assert.equal(invitationTokenFromSearch(`?invitation=${"a".repeat(513)}`), null);
   assert.equal(invitationTokenFromPath("/invite/%"), null);
   assert.equal(invitationTokenFromPath("/settings"), null);
+});
+
+test("accepting lands in the company joined, even for someone already in another", () => {
+  assert.equal(joinedCompanyPath("acme"), "/c/acme");
+  assert.equal(joinedCompanyPath("a b/c"), "/c/a%20b%2Fc", "a slug never escapes its segment");
+  assert.equal(joinedCompanyPath(undefined), "/", "an older server's answer still lands");
+  assert.equal(joinedCompanyPath(""), "/");
 });
