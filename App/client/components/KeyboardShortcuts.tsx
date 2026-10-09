@@ -57,6 +57,8 @@ const MAIL_SHORTCUTS: Array<{ key: string; label: string }> = [
   { key: "#", label: "Move to trash" },
   { key: "S", label: "Star" },
   { key: "U", label: "Mark read / unread" },
+  { key: "R", label: "Reply, in a conversation" },
+  { key: "A", label: "Reply all, in a conversation" },
   { key: "O", label: "Open a draft for review" },
   { key: "C", label: "Compose" },
   { key: "Esc", label: "Clear the selection" },

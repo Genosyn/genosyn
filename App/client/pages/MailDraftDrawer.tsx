@@ -193,6 +193,8 @@ export function MailDraftDrawer({
         <footer className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
           <Link
             to={`/c/${companySlug}/mail/t/${draft.threadId}`}
+            // Arrive with this draft's editor open and the cursor in it.
+            state={{ editDraftId: draft.id }}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
           >
             <ExternalLink size={13} /> Edit

@@ -1109,8 +1109,8 @@ function DraftRow({
           )}
         </button>
 
-        {/* Row actions, revealed on hover — mirrors the thread list. */}
-        <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+        {/* Row actions, revealed on hover or keyboard focus — mirrors the thread list. */}
+        <div className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
           <RowAction title="Open for review" onClick={onOpen}>
             <PanelRight size={14} />
           </RowAction>

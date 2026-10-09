@@ -179,7 +179,11 @@ export function Email() {
         <Strong>Compose</Strong> a new message — with file attachments if you need them, added from
         the Attach button or by pasting a screenshot straight into the message box. Star, archive,
         trash, mark read/unread, and apply labels all act on the whole thread and land on the mail
-        server immediately.
+        server immediately. <Strong>Archive</Strong>, <Strong>Move to trash</Strong> and{" "}
+        <Strong>Mark unread</Strong> finish with the thread, so they take you straight back to the
+        list you opened it from — the same folder, label or search, with your place kept — and a
+        thread you mark unread stays unread. <Strong>Back</Strong> on a thread you opened from a
+        link goes to the Inbox.
       </P>
       <P>
         Click an attachment on a saved draft to download it, including while editing the draft.
@@ -267,7 +271,9 @@ export function Email() {
         Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
         message, its attachments, the message it is replying to, and the Run that produced it — all
         in one panel, without leaving the queue. Its <Strong>Ask AI</Strong> button hands that draft
-        to <DocLink to="/docs/email#assistant">Ask AI</DocLink>.
+        to <DocLink to="/docs/email#assistant">Ask AI</DocLink>, and <Strong>Edit</Strong> opens the
+        thread with that draft&apos;s editor already open and the cursor in the message. A
+        row&apos;s quick actions appear when you hover it or Tab to it.
       </P>
 
       <H3 id="sending-in-bulk">Marking drafts to send, and sending everything</H3>
@@ -327,8 +333,12 @@ export function Email() {
         <Code>x</Code> selects, <Code>e</Code> archives — or sends, in Drafts — <Code>#</Code>{" "}
         trashes, <Code>s</Code> stars, <Code>u</Code> toggles read, <Code>o</Code> opens a draft for
         review, <Code>c</Code> composes from anywhere in mail, and <Code>Esc</Code> clears the
-        selection. Press <Code>?</Code> for the full list. Shortcuts pause automatically while you
-        are typing in a field or a dialog is open.
+        selection. Inside an open thread, <Code>e</Code>, <Code>#</Code>, <Code>s</Code> and{" "}
+        <Code>u</Code> do the same to that thread (archive, trash and mark unread return you to the
+        list, with the cursor on the next thread), while <Code>r</Code> and <Code>a</Code> open{" "}
+        <Strong>Reply</Strong> and <Strong>Reply all</Strong> with the cursor in the box. Press{" "}
+        <Code>?</Code> for the full list. Shortcuts pause automatically while you are typing in a
+        field or a dialog is open.
       </P>
       <P>
         The inbox has the same multi-select: tick rows — <Strong>shift-click</Strong> takes a range
@@ -587,8 +597,9 @@ export function Email() {
 
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
       <P>
-        Open any thread and click <Strong>Hand to AI</Strong>. Pick an employee, write a short
-        instruction, and choose what it should do:
+        Open any thread and click <Strong>Hand to AI</Strong>. Pick an employee — the dialog starts
+        on one whose access lets it draft, not one that can only read — write a short instruction,
+        and choose what it should do:
       </P>
       <UL>
         <LI>
