@@ -157,7 +157,10 @@ function hourLabel(hour: number): string {
 
 export default function RevenueSequenceDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
-  const { id } = useParams();
+  // The route names it `:sequenceId` (App.tsx); reading `id` asked the API for
+  // `/sequences/undefined`, so this page never loaded.
+  const params = useParams();
+  const id = params.sequenceId ?? params.id ?? "";
   const background = useBackgroundAction();
   const dialog = useDialog();
 
