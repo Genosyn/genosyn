@@ -153,9 +153,20 @@ export function Footer() {
           <p className="max-w-[62ch]">
             {`© ${__BUILD_YEAR__} HackerBay, Inc. Genosyn is open source under Apache 2.0 and provided without warranty. Some of it, and some of this site, was written with AI assistance — the source is public so you can check.`}
           </p>
-          <p className="shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
-            {`Genosyn v${__APP_VERSION__}`}
-          </p>
+          <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2">
+            {/* Google's OAuth consent screen requires the homepage to link the privacy policy. */}
+            <nav aria-label="Legal" className="flex items-center gap-5">
+              <Link href="/privacy" className="transition-colors duration-150 hover:text-ink">
+                Privacy
+              </Link>
+              <Link href="/terms" className="transition-colors duration-150 hover:text-ink">
+                Terms
+              </Link>
+            </nav>
+            <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-400">
+              {`Genosyn v${__APP_VERSION__}`}
+            </p>
+          </div>
         </div>
       </Container>
 

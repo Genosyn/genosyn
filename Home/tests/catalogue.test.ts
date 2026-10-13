@@ -357,8 +357,8 @@ describe("route metadata and LLM indexes", () => {
     assert.equal(new Set(paths).size, paths.length);
     assert.equal(
       routes.length,
-      5 + PRODUCTS.length + ROLES.length + POSTS.length + DOCS_FLAT.length,
-      "home + vision + products + roles + blog + generated product/role/post/docs routes",
+      7 + PRODUCTS.length + ROLES.length + POSTS.length + DOCS_FLAT.length,
+      "home + vision + products + roles + blog + privacy + terms + generated product/role/post/docs routes",
     );
     for (const path of [
       "/",
@@ -366,6 +366,8 @@ describe("route metadata and LLM indexes", () => {
       "/products",
       "/roles",
       "/blog",
+      "/privacy",
+      "/terms",
       ...PRODUCTS.map((product) => `/products/${product.slug}`),
       ...ROLES.map((role) => `/roles/${role.slug}`),
       ...POSTS.map((post) => `/blog/${post.slug}`),
@@ -405,6 +407,22 @@ describe("route metadata and LLM indexes", () => {
         `/products description omits ${product.name}`,
       );
     }
+  });
+
+  // Genosyn Connect's Google OAuth app names /privacy on its consent screen.
+  // Google's reviewers look for the Limited Use disclosure in Google's own
+  // words, and for a link to the policy from the homepage.
+  test("keeps the privacy policy Google's consent screen depends on", () => {
+    const read = (file: string) =>
+      readFileSync(fileURLToPath(new URL(file, import.meta.url)), "utf8").replace(/\s+/g, " ");
+    const privacy = read("../client/legal/PrivacyPage.tsx");
+    assert.match(
+      privacy,
+      /Genosyn&rsquo;s use and transfer to any other app of information received from Google APIs will adhere to the\{" "\} <ExtLink href="https:\/\/developers\.google\.com\/terms\/api-services-user-data-policy"> Google API Services User Data Policy <\/ExtLink> , including the Limited Use requirements\./,
+    );
+    const footer = read("../client/sections/Footer.tsx");
+    assert.match(footer, /href="\/privacy"/);
+    assert.match(footer, /href="\/terms"/);
   });
 
   // Both hero previews are pictures of the product, not real UI, and both are
