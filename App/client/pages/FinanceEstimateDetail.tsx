@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   Ban,
@@ -14,7 +16,15 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { api, displayEstimateStatus, Estimate, formatMoney, Invoice } from "../lib/api";
+import {
+  api,
+  displayEstimateStatus,
+  Estimate,
+  EstimateBulkAction,
+  EstimateBulkResult,
+  formatMoney,
+  Invoice,
+} from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -40,7 +50,8 @@ const STATUS_BADGE: Record<string, string> = {
 /**
  * Estimate detail. Renders the line items and exposes the lifecycle
  * actions (Issue / Send / Accept / Decline / Convert / Void / Delete)
- * appropriate to the current status. The printable HTML lives at a
+ * appropriate to the current status, plus Archive / Restore, which files the
+ * estimate in or out of the lists without touching any of that. The printable HTML lives at a
  * separate route so File → Print gives a clean PDF without app chrome.
  * A read-only Member gets the estimate and its PDF, and none of the actions
  * the server would refuse them.
@@ -54,7 +65,16 @@ export default function FinanceEstimateDetail() {
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<
-    null | "issue" | "send" | "accept" | "decline" | "convert" | "void" | "duplicate" | "delete"
+    | null
+    | "issue"
+    | "send"
+    | "accept"
+    | "decline"
+    | "convert"
+    | "void"
+    | "duplicate"
+    | "delete"
+    | EstimateBulkAction
   >(null);
   const [sendNotice, setSendNotice] = React.useState<string | null>(null);
 
@@ -240,6 +260,27 @@ export default function FinanceEstimateDetail() {
     }
   }
 
+  // Archiving is undone by restoring, so neither direction asks to confirm.
+  async function setArchived(action: EstimateBulkAction) {
+    if (!estimate) return;
+    setSendNotice(null);
+    setBusy(action);
+    try {
+      await api.post<EstimateBulkResult>(`/api/companies/${company.id}/estimates/bulk`, {
+        action,
+        ids: [estimate.id],
+      });
+      await reload();
+    } catch (err) {
+      void dialog.error(err, {
+        title:
+          action === "archive" ? "Couldn’t archive the estimate" : "Couldn’t restore the estimate",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function deleteDraft() {
     if (!estimate) return;
     const ok = await dialog.confirm({
@@ -289,6 +330,10 @@ export default function FinanceEstimateDetail() {
   const number = estimate.number || "DRAFT";
   const isConverted = !!estimate.invoiceId;
   const isTerminal = estimate.status === "void" || estimate.status === "declined" || isConverted;
+  const isArchived = !!estimate.archivedAt;
+  const archivedOn = estimate.archivedAt
+    ? new Date(estimate.archivedAt).toISOString().slice(0, 10)
+    : null;
 
   return (
     <div className="page-shell p-8">
@@ -319,6 +364,11 @@ export default function FinanceEstimateDetail() {
           >
             {ds}
           </span>
+          {isArchived && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:bg-slate-700/40 dark:text-slate-300">
+              <Archive size={10} /> Archived
+            </span>
+          )}
         </div>
         {canWrite ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -419,6 +469,14 @@ export default function FinanceEstimateDetail() {
                       duplicate();
                     }}
                   />
+                  <MenuItem
+                    icon={isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                    label={isArchived ? "Restore" : "Archive"}
+                    onSelect={() => {
+                      close();
+                      void setArchived(isArchived ? "restore" : "archive");
+                    }}
+                  />
                   {!isTerminal && estimate.status !== "draft" && (
                     <>
                       <MenuSeparator />
@@ -459,6 +517,29 @@ export default function FinanceEstimateDetail() {
       </div>
 
       <FormSuccess message={sendNotice} className="mb-4" />
+
+      {archivedOn && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/40">
+          <div className="flex min-w-[16rem] flex-1 items-start gap-2 text-slate-600 dark:text-slate-300">
+            <Archive size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <span>
+              Archived on {archivedOn}. It is listed under Estimates → Archived instead of the
+              status tabs and the customer&apos;s page; its status, number, and PDF are unchanged.
+            </span>
+          </div>
+          {canWrite && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void setArchived("restore")}
+              loading={busy === "restore"}
+              disabled={busy !== null}
+            >
+              <ArchiveRestore size={14} /> Restore
+            </Button>
+          )}
+        </div>
+      )}
 
       {isConverted && estimate.invoice && (
         <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm dark:border-violet-500/30 dark:bg-violet-500/10">
@@ -641,6 +722,7 @@ export default function FinanceEstimateDetail() {
             {estimate.voidedAt && (
               <li>Voided {new Date(estimate.voidedAt).toISOString().slice(0, 10)}</li>
             )}
+            {archivedOn && <li>Archived {archivedOn}</li>}
           </ul>
         </div>
       </div>

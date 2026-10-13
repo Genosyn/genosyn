@@ -1662,6 +1662,7 @@ function serializeEstimateFull(estimate: HydratedEstimate) {
     acceptedAt: estimate.acceptedAt,
     declinedAt: estimate.declinedAt,
     voidedAt: estimate.voidedAt,
+    archivedAt: estimate.archivedAt,
     invoice: estimate.invoice,
     lines: estimate.lines.map((line) => ({
       id: line.id,
@@ -2513,6 +2514,7 @@ const listEstimatesSchema = z
     ...quoteReadPage,
     customerSlug: z.string().min(1).max(200).optional(),
     status: z.enum(["draft", "sent", "accepted", "declined", "void"]).optional(),
+    includeArchived: z.boolean().default(false),
   })
   .strict();
 const getEstimateSchema = z.object({ estimateSlug: z.string().min(1).max(200) }).strict();

@@ -445,6 +445,59 @@ export async function duplicateEstimate(
   return recomputeEstimateTotals(draft);
 }
 
+// ──────────────────────────── Archive ─────────────────────────────────
+
+export type EstimateArchiveAction = "archive" | "restore";
+
+export type EstimateArchiveOutcome = {
+  /** Estimates whose archived state changed, in request order. */
+  changed: Estimate[];
+  /** Ids left as they were, each with the reason. */
+  skipped: Array<{ id: string; reason: string }>;
+};
+
+/**
+ * Archive or restore a set of estimates in one call — the list page's bulk
+ * action, and the single-row and detail-page actions too.
+ *
+ * Archiving files an estimate out of the default lists and nothing else:
+ * status, number, PDF, and any converted invoice stay exactly as they were,
+ * so any status can be archived and restoring puts it back unchanged. An id
+ * that is not this company's estimate, or is already in the requested state,
+ * is skipped with a reason rather than failing the rest of the batch.
+ */
+export async function setEstimatesArchived(
+  companyId: string,
+  ids: string[],
+  action: EstimateArchiveAction,
+): Promise<EstimateArchiveOutcome> {
+  const requested = [...new Set(ids)];
+  if (requested.length === 0) return { changed: [], skipped: [] };
+  const repo = AppDataSource.getRepository(Estimate);
+  const found = await repo.findBy({ companyId, id: In(requested) });
+  const byId = new Map(found.map((estimate) => [estimate.id, estimate]));
+  const archivedAt = action === "archive" ? new Date() : null;
+  const changed: Estimate[] = [];
+  const skipped: EstimateArchiveOutcome["skipped"] = [];
+  for (const id of requested) {
+    const estimate = byId.get(id);
+    if (!estimate) {
+      skipped.push({ id, reason: "Estimate not found" });
+    } else if (action === "archive" && estimate.archivedAt) {
+      skipped.push({ id, reason: "Already archived" });
+    } else if (action === "restore" && !estimate.archivedAt) {
+      skipped.push({ id, reason: "Not archived" });
+    } else {
+      estimate.archivedAt = archivedAt;
+      changed.push(estimate);
+    }
+  }
+  // `save` rather than a bulk UPDATE: the live-sync subscriber needs each
+  // row's companyId to tell open pages to refetch.
+  if (changed.length > 0) await repo.save(changed);
+  return { changed, skipped };
+}
+
 async function uniqueDraftEstimateSlug(companyId: string): Promise<string> {
   const repo = AppDataSource.getRepository(Estimate);
   for (let i = 0; i < 16; i += 1) {

@@ -302,6 +302,8 @@ test("accepted estimates require a current active Customer and no recorded conve
   await estimate({ convertedAt: day(-1) });
   await estimate({ acceptedAt: null });
   await estimate({ acceptedAt: day(1) });
+  // A Member filed it away — no longer an opportunity to chase.
+  await estimate({ archivedAt: day(-1) });
   await estimate({ customerId: randomUUID() });
   const archived = await insert(Customer, {
     companyId,

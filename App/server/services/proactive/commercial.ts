@@ -102,6 +102,9 @@ export async function getCommercialOpportunities(
         .andWhere("estimate.status = :status", { status: "accepted" })
         .andWhere("estimate.invoiceId IS NULL AND estimate.convertedAt IS NULL")
         .andWhere("estimate.acceptedAt <= :now", { now })
+        // A Member who archived the estimate has filed it away; it is no
+        // longer an opportunity to chase.
+        .andWhere("estimate.archivedAt IS NULL")
         .andWhere("customer.archivedAt IS NULL")
         .orderBy("estimate.acceptedAt", "ASC")
         .addOrderBy("estimate.id", "ASC")

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  estimateBulkSchema,
   estimateCreateSchema,
   estimatePatchSchema,
   invoiceCreateSchema,
@@ -64,8 +65,24 @@ const estimateResponse = documentIdentity
   .extend({
     status: z.enum(["draft", "sent", "accepted", "declined", "void"]),
     validUntil: z.string().datetime(),
+    archivedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "When the estimate was archived out of the default lists, or null. Archiving never changes its status.",
+      ),
   })
   .openapi("FinanceEstimate");
+const estimateBulkResult = z
+  .object({
+    action: z.enum(["archive", "restore"]),
+    succeeded: z.array(z.string().uuid()).describe("Estimates whose archived state changed."),
+    skipped: z
+      .array(z.object({ id: z.string(), reason: z.string() }))
+      .describe("Ids left as they were, each with the reason."),
+  })
+  .openapi("FinanceEstimateBulkResult");
 const recurringResponse = z
   .object({
     id: z.string().uuid(),
@@ -225,6 +242,31 @@ for (const document of [
     },
   });
 }
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/estimates/bulk",
+  summary: "Archive or restore estimates",
+  description:
+    "Requires full Finance access. Send action archive to file up to 500 estimates out of the default lists, or restore to bring archived estimates back. Archiving changes no status, number, PDF, or converted invoice, and archived estimates still open by slug. Ids that are not this company's estimates, or are already in the requested state, are returned in skipped instead of failing the request. List estimates with archived=true to include archived ones.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: {
+    params: companyParams,
+    body: { required: true, content: { "application/json": { schema: estimateBulkSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Which estimates changed and which were skipped",
+      content: { "application/json": { schema: estimateBulkResult } },
+    },
+    ...errors,
+    400: {
+      description: "Unknown action, or ids missing, malformed, or more than 500",
+      content: { "application/json": { schema: errorResponse } },
+    },
+  },
+});
 
 registry.registerPath({
   method: "post",

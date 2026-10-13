@@ -4650,12 +4650,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "list_estimates",
     readOnly: true,
     description:
-      "Find existing quotations before creating another. Returns compact company-scoped estimates with Customer, amount, notes preview, total and nextOffset. Pass customerSlug to narrow to one Customer; status filters the stored lifecycle status (sent/accepted can display as expired or invoiced). Use get_estimate for full lines and notes. Needs Read finance access.",
+      "Find existing quotations before creating another. Returns compact company-scoped estimates with Customer, amount, notes preview, total and nextOffset. Pass customerSlug to narrow to one Customer; status filters the stored lifecycle status (sent/accepted can display as expired or invoiced). Estimates a Member archived are hidden unless includeArchived is true. Use get_estimate for full lines and notes. Needs Read finance access.",
     inputSchema: {
       type: "object",
       properties: {
         customerSlug: { type: "string", maxLength: 200 },
         status: { type: "string", enum: ["draft", "sent", "accepted", "declined", "void"] },
+        includeArchived: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 100, default: 25 },
         offset: { type: "integer", minimum: 0, default: 0 },
       },

@@ -8,13 +8,18 @@ import { displayEstimateStatus, hydrateEstimates, loadEstimateBySlug } from "./e
 
 type Page = { limit: number; offset: number };
 
-/** Compact summaries let an employee find prior work before opening its full lines. */
+/**
+ * Compact summaries let an employee find prior work before opening its full
+ * lines. Archived estimates are ones a Member filed away, so they stay out of
+ * the list — the same as Finance → Estimates — unless the employee asks.
+ */
 export async function listQuoteEstimates(
   companyId: string,
-  input: Page & { customerSlug?: string; status?: EstimateStatus },
+  input: Page & { customerSlug?: string; status?: EstimateStatus; includeArchived?: boolean },
 ) {
   const where: FindOptionsWhere<Estimate> = { companyId };
   if (input.status) where.status = input.status;
+  if (!input.includeArchived) where.archivedAt = IsNull();
   if (input.customerSlug) {
     const customer = await loadCustomerBySlug(companyId, input.customerSlug);
     if (!customer) return null;
@@ -34,6 +39,7 @@ export async function listQuoteEstimates(
       number: estimate.number || null,
       status: displayEstimateStatus(estimate),
       storedStatus: estimate.status,
+      archived: !!estimate.archivedAt,
       customer: estimate.customer
         ? { name: estimate.customer.name, slug: estimate.customer.slug }
         : null,

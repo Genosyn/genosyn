@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../../../db/datasource.js";
 import { Account } from "../../../db/entities/Account.js";
 import { BankFeed } from "../../../db/entities/BankFeed.js";
@@ -244,8 +244,9 @@ async function customerItem(
       where: { companyId, customerId: customer.id, status: "sent" },
       select: ["id", "currency", "balanceCents", "dueDate"],
     }),
+    // Archived estimates are filed away, as on the customer page itself.
     AppDataSource.getRepository(Estimate).find({
-      where: { companyId, customerId: customer.id },
+      where: { companyId, customerId: customer.id, archivedAt: IsNull() },
       order: { createdAt: "DESC" },
       take: RECENT_DOCUMENTS + 1,
     }),
@@ -814,6 +815,12 @@ export const resolveEstimate: AskAiResolver = async ({ companyId, member, ref })
       ["Total", money(estimate.totalCents, cur)],
       ["Sent", estimate.sentAt ? stamp(estimate.sentAt) : estimate.status === "draft" ? "not yet" : null],
       ["Voided", estimate.voidedAt ? stamp(estimate.voidedAt) : null],
+      [
+        "Archived",
+        estimate.archivedAt
+          ? `${stamp(estimate.archivedAt)} — filed out of the lists by a Member; status unchanged`
+          : null,
+      ],
     ]),
     "",
     `### Line items (${hydrated?.lines.length ?? 0})`,

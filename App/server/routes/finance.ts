@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import multer from "multer";
 import cron from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
@@ -153,6 +153,7 @@ import {
   replaceEstimateLines,
   resolveEstimateRecipient,
   sendEstimateEmail,
+  setEstimatesArchived,
   voidEstimate,
 } from "../services/estimates.js";
 import {
@@ -2053,6 +2054,9 @@ financeRouter.get("/estimates", async (req, res) => {
   if (typeof status === "string" && status) where.status = status;
   const customerId = req.query.customerId;
   if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  // Archived estimates are filed away, so lists leave them out unless asked —
+  // the same `archived=true` that products, tax rates, and vendors take.
+  if (String(req.query.archived ?? "") !== "true") where.archivedAt = IsNull();
   const estimates = await AppDataSource.getRepository(Estimate).find({
     where,
     order: { createdAt: "DESC" },
@@ -2086,6 +2090,42 @@ financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req,
     });
     const [hydrated] = await hydrateEstimates(cid, [estimate]);
     res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+export const estimateBulkSchema = z.object({
+  action: z.enum(["archive", "restore"]),
+  ids: z.array(z.string().uuid()).min(1).max(500),
+});
+
+// Archive or restore many estimates at once. Ids rather than slugs: issuing a
+// draft re-slugs it, and a selection made a moment earlier must still land.
+financeRouter.post("/estimates/bulk", validateBody(estimateBulkSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof estimateBulkSchema>;
+  try {
+    const { changed, skipped } = await setEstimatesArchived(cid, body.ids, body.action);
+    if (changed.length > 0) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId,
+        action: `finance.estimate.${body.action}`,
+        targetType: "estimate",
+        targetId: changed[0].id,
+        targetLabel:
+          changed.length === 1
+            ? changed[0].number || "Draft estimate"
+            : `${changed.length} estimates`,
+        metadata: {
+          requested: body.ids.length,
+          changed: changed.length,
+          skipped: skipped.length,
+        },
+      });
+    }
+    res.json({ action: body.action, succeeded: changed.map((e) => e.id), skipped });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

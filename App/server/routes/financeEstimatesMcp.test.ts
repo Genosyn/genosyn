@@ -430,6 +430,39 @@ test("list_estimates filters Customer and stored status and refuses foreign Cust
   assert.equal((await aiCall({ customerSlug: "foreign-customer" }, "list_estimates")).status, 404);
 });
 
+test("list_estimates leaves out estimates a Member archived unless asked", async () => {
+  const active = await quotation({ createdAt: new Date("2026-09-02") });
+  const archived = await quotation({
+    createdAt: new Date("2026-09-01"),
+    archivedAt: new Date("2026-09-05T10:00:00Z"),
+  });
+  const rows = (body: Record<string, unknown>) =>
+    (body.estimates as Array<{ slug: string; archived: boolean }>).map((row) => [
+      row.slug,
+      row.archived,
+    ]);
+
+  const listed = await aiCall({}, "list_estimates");
+  assert.equal(listed.status, 200, listed.body.error);
+  assert.equal(listed.body.total, 1);
+  assert.deepEqual(rows(listed.body), [[active.slug, false]]);
+
+  const everything = await aiCall({ includeArchived: true }, "list_estimates");
+  assert.equal(everything.status, 200, everything.body.error);
+  assert.deepEqual(rows(everything.body), [
+    [active.slug, false],
+    [archived.slug, true],
+  ]);
+
+  // Archiving is filing, not deletion: the estimate still opens, and says so.
+  const opened = await aiCall({ estimateSlug: archived.slug }, "get_estimate");
+  assert.equal(opened.status, 200, opened.body.error);
+  assert.equal(
+    (opened.body.estimate as { archivedAt: string }).archivedAt,
+    "2026-09-05T10:00:00.000Z",
+  );
+});
+
 test("get_estimate returns full scoped line snapshots and notes without issuing anything", async () => {
   const quote = await quotation({ notes: "Complete " + "notes ".repeat(300) });
   await insert(EstimateLineItem, {

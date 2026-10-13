@@ -4825,6 +4825,8 @@ export type Estimate = {
   voidedAt: string | null;
   invoiceId: string | null;
   convertedAt: string | null;
+  /** Filed out of the default lists; status and actions are unaffected. */
+  archivedAt: string | null;
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -4835,6 +4837,14 @@ export type Estimate = {
 
 export type EstimateListItem = Omit<Estimate, "lines"> & {
   linesCount: number;
+};
+
+export type EstimateBulkAction = "archive" | "restore";
+
+export type EstimateBulkResult = {
+  action: EstimateBulkAction;
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
 };
 
 export type EstimateLineDraft = {

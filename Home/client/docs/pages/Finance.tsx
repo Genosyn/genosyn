@@ -154,6 +154,26 @@ export function Finance() {
         the duplicate, switch the customer in edit mode, and issue).
       </P>
 
+      <H3 id="estimates-archive">Archive</H3>
+      <P>
+        Archive the estimates you no longer need in front of you — expired quotes, declined ones,
+        drafts you may come back to — without deleting or voiding anything. In{" "}
+        <Code>Finance → Estimates</Code>, tick the checkbox beside each one (shift-click ticks a
+        range, and the header checkbox ticks every estimate in the current tab), then click{" "}
+        <Code>Archive</Code> in the bar that appears. One estimate can also be archived from its row
+        menu or from the <Code>More actions</Code> menu on its detail page. There is no
+        confirmation, because nothing is lost: archiving only files an estimate away.
+      </P>
+      <P>
+        An archived estimate keeps its number, status, PDF, and any converted invoice. It still
+        opens from its link, and every action on it works as before. It leaves the status tabs and
+        the customer&apos;s page for the <Code>Archived</Code> tab, where you can select estimates
+        and click <Code>Restore</Code> to bring them back — or use <Code>Restore</Code> on the
+        estimate itself. AI Employees see the same split: <Code>list_estimates</Code> leaves
+        archived estimates out unless asked to include them, and an archived estimate is never
+        suggested to them as an accepted quote still waiting to be converted.
+      </P>
+
       <H3 id="estimates-printing">Sending and printing</H3>
       <P>
         Every issued estimate has a Print / PDF view at{" "}
@@ -625,8 +645,9 @@ export function Finance() {
         <Code> list_estimates</Code>, inspect their line items and notes with{" "}
         <Code>get_estimate</Code>, and read approved prices from <Code>list_finance_products</Code>.
         Lists return a bounded page and the next offset. The product catalogue includes prices in
-        their original currency and available default tax rates; archived products are hidden by
-        default. Missing pricing or unavailable tax defaults need clarification, never an invented
+        their original currency and available default tax rates. Archived products, and estimates
+        a Member <a href="#estimates-archive">archived</a>, are hidden unless the employee passes{" "}
+        <Code>includeArchived</Code>. Missing pricing or unavailable tax defaults need clarification, never an invented
         amount.
       </P>
 

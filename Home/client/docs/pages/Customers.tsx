@@ -167,7 +167,10 @@ export function Customers() {
           transcripts, and summaries.
         </LI>
         <LI>
-          <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.{" "}
+          <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.
+          Estimates you{" "}
+          <DocLink to="/docs/finance#estimates-archive">archived</DocLink> are left out, here and
+          in the action-needed queue; find them under <Code>Finance → Estimates → Archived</Code>.{" "}
           <Code>New invoice</Code> and <Code>New estimate</Code> open with this customer and their
           currency picked, and <Code>New recurring invoice</Code> opens a schedule for this
           customer, named after it (see{" "}

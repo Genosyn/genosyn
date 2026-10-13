@@ -51,6 +51,7 @@ export type EstimateStatus = "draft" | "sent" | "accepted" | "declined" | "void"
 @Index(["companyId", "status"])
 @Index(["companyId", "customerId"])
 @Index(["companyId", "numberSeq"])
+@Index(["companyId", "archivedAt"])
 export class Estimate {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -135,6 +136,13 @@ export class Estimate {
 
   @Column({ type: dateTimeColumnType, nullable: true })
   convertedAt!: Date | null;
+
+  /** Filing, not a status: an archived estimate leaves the default lists
+   *  but keeps its number, status, PDF, and invoice link, and its actions
+   *  still work. Restoring clears it. Orthogonal to `status` so archiving
+   *  can never rewrite where an estimate stands with the customer. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  archivedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
