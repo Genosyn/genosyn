@@ -6,6 +6,7 @@ import { cronIsReadable } from "../lib/cron";
 import { ScheduleField } from "../components/ScheduleField";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
+import { RecordHistory } from "../components/RecordHistory";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction } from "../components/ui/Dialog";
@@ -653,6 +654,16 @@ export default function RevenueSignalDetail() {
           </div>
         )}
       </section>
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="signal"
+        targetId={signal.id}
+        noun="this signal"
+        milestones={[{ label: "Signal created", at: signal.createdAt, covers: ["create"] }]}
+      />
     </div>
   );
 }

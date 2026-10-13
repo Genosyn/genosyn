@@ -234,8 +234,9 @@ export function Finance() {
         <Code>To</Code> field to add or remove recipients, see the company&apos;s always-Cc
         recipients, add optional additional <Code>Cc</Code> recipients, include a one-off message,
         and choose whether to attach the invoice PDF. Separate multiple addresses with commas. Every
-        resend attempt then appears on the invoice&apos;s Activity feed with its delivery status, To
-        and Cc recipients, and attachment result.
+        resend attempt then appears in the invoice&apos;s{" "}
+        <DocLink to="/docs/security#record-history">History</DocLink> with who sent it, its
+        delivery status, To and Cc recipients, and attachment result.
       </P>
       <P>
         <Code>Duplicate</Code> works the same way as on estimates — from the row menu or the detail

@@ -18,6 +18,7 @@ import { TaxRate } from "../db/entities/TaxRate.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
 import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
+import { recordAudit } from "./audit.js";
 import { issueInvoice, sendInvoiceEmail } from "./finance.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
@@ -584,6 +585,43 @@ async function createInvoiceFromTemplate(
  * `issueInvoice` + `sendInvoiceEmail` paths a human would, so the ledger
  * and email log capture it identically.
  */
+/**
+ * Audit one step a schedule took on the invoice it bills — the rows the
+ * invoice's and the schedule's History read. A Member's Run now carries their
+ * id; the heartbeat has none, so its rows read as the Scheduler.
+ */
+async function auditScheduleStep(
+  ri: RecurringInvoice,
+  invoice: Invoice,
+  actorUserId: string | null,
+  step: "create" | "issue" | "send",
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  const actor = actorUserId
+    ? { actorUserId }
+    : { actorKind: "cron" as const, actorUserId: null };
+  await recordAudit({
+    ...actor,
+    companyId: ri.companyId,
+    action: `finance.invoice.${step}`,
+    targetType: "invoice",
+    targetId: invoice.id,
+    targetLabel: invoice.number || "Draft invoice",
+    metadata: { ...metadata, schedule: ri.name },
+  });
+  if (step === "create") {
+    await recordAudit({
+      ...actor,
+      companyId: ri.companyId,
+      action: "finance.recurring_invoice.run",
+      targetType: "recurring_invoice",
+      targetId: ri.id,
+      targetLabel: ri.name,
+      metadata: { totalCents: invoice.totalCents },
+    });
+  }
+}
+
 export async function generateInvoiceFromRecurring(
   ri: RecurringInvoice,
   actorUserId: string | null,
@@ -593,6 +631,9 @@ export async function generateInvoiceFromRecurring(
   emailError: string;
 }> {
   let invoice = await createInvoiceFromTemplate(ri, actorUserId);
+  await auditScheduleStep(ri, invoice, actorUserId, "create", {
+    totalCents: invoice.totalCents,
+  });
 
   // `autoSend` implies "issue and email"; otherwise the invoice stays as a
   // fresh draft and the user can review before sending.
@@ -600,6 +641,9 @@ export async function generateInvoiceFromRecurring(
   let emailError = "";
   if (ri.autoSend) {
     invoice = await issueInvoice(invoice, actorUserId);
+    await auditScheduleStep(ri, invoice, actorUserId, "issue", {
+      totalCents: invoice.totalCents,
+    });
     try {
       const result = await sendInvoiceEmail(ri.companyId, invoice, actorUserId);
       emailStatus = result.status;
@@ -608,6 +652,10 @@ export async function generateInvoiceFromRecurring(
       emailStatus = "failed";
       emailError = (err as Error).message;
     }
+    await auditScheduleStep(ri, invoice, actorUserId, "send", {
+      status: emailStatus,
+      errorMessage: emailError,
+    });
   }
   return { invoice, emailStatus, emailError };
 }
@@ -843,10 +891,16 @@ async function advanceRun(
         updateHeldRun(run, lockedUntil, { invoiceId: created.id }, manager),
       );
       run.invoiceId = invoice.id;
+      await auditScheduleStep(schedule, invoice, actorUserId, "create", {
+        totalCents: invoice.totalCents,
+      });
     }
     if (schedule.autoSend && invoice.status === "draft") {
       assertLeaseHeld();
       invoice = await issueInvoice(invoice, actorUserId);
+      await auditScheduleStep(schedule, invoice, actorUserId, "issue", {
+        totalCents: invoice.totalCents,
+      });
     }
   } catch (err) {
     if (err instanceof SchedulerLeaseLostError) throw err;
@@ -877,6 +931,10 @@ async function advanceRun(
       status = "failed";
       reason = messageOf(err);
     }
+    await auditScheduleStep(schedule, invoice, actorUserId, "send", {
+      status,
+      errorMessage: reason,
+    });
     if (status === "skipped") {
       // No email transport is configured; retrying cannot change that.
       return finishRun(

@@ -33,6 +33,7 @@ import {
 } from "../components/charts/ChartRenderer";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { RecordHistory } from "../components/RecordHistory";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ExploreDashboardDetailsModal } from "../components/explore/ExploreDashboardDetailsModal";
 import { ExploreFormulaModal } from "@/components/explore/ExploreFormulaModal";
@@ -68,6 +69,7 @@ type DashboardDetail = {
   slug: string;
   title: string;
   description: string;
+  createdAt?: string;
   cards: CardDTO[];
   charts: ChartDTO[];
 };
@@ -513,6 +515,16 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
             })}
           </div>
         )}
+
+        <RecordHistory
+          className="mx-auto mt-6 max-w-3xl"
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="dashboard"
+          targetId={data.id}
+          noun="this dashboard"
+          milestones={[{ label: "Dashboard created", at: data.createdAt, covers: ["create"] }]}
+        />
       </div>
 
       {picking && (

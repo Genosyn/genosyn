@@ -35,6 +35,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -127,7 +128,7 @@ export default function FinanceEstimateDetail() {
 
   async function send() {
     if (!estimate) return;
-    // Issuing a draft repaints the badge, the action row and the Activity list;
+    // Issuing a draft repaints the badge, the action row and the History feed;
     // a resend leaves the page byte-identical, so only that path earns a notice.
     const wasDraft = estimate.status === "draft";
     setSendNotice(null);
@@ -701,30 +702,27 @@ export default function FinanceEstimateDetail() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Activity
-          </h3>
-          <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
-            <li>Created {new Date(estimate.createdAt).toISOString().slice(0, 10)}</li>
-            {estimate.sentAt && (
-              <li>Sent {new Date(estimate.sentAt).toISOString().slice(0, 10)}</li>
-            )}
-            {estimate.acceptedAt && (
-              <li>Accepted {new Date(estimate.acceptedAt).toISOString().slice(0, 10)}</li>
-            )}
-            {estimate.declinedAt && (
-              <li>Declined {new Date(estimate.declinedAt).toISOString().slice(0, 10)}</li>
-            )}
-            {estimate.convertedAt && (
-              <li>Invoiced {new Date(estimate.convertedAt).toISOString().slice(0, 10)}</li>
-            )}
-            {estimate.voidedAt && (
-              <li>Voided {new Date(estimate.voidedAt).toISOString().slice(0, 10)}</li>
-            )}
-            {archivedOn && <li>Archived {archivedOn}</li>}
-          </ul>
-        </div>
+        <RecordHistory
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="estimate"
+          targetId={estimate.id}
+          noun="this estimate"
+          currency={estimate.currency}
+          milestones={[
+            { label: "Estimate created", at: estimate.createdAt, covers: ["create"] },
+            { label: "Estimate sent", at: estimate.sentAt, covers: ["issue", "send"] },
+            { label: "Estimate accepted", at: estimate.acceptedAt, covers: ["accept"] },
+            { label: "Estimate declined", at: estimate.declinedAt, covers: ["decline"] },
+            {
+              label: "Estimate converted to an invoice",
+              at: estimate.convertedAt,
+              covers: ["convert", "convert.invoice"],
+            },
+            { label: "Estimate voided", at: estimate.voidedAt, covers: ["void"] },
+            { label: "Estimate archived", at: estimate.archivedAt, covers: ["archive"] },
+          ]}
+        />
       </div>
     </div>
   );

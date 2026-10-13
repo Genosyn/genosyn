@@ -41,6 +41,7 @@ import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { splitAddressList } from "@/lib/addressList";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -67,23 +68,8 @@ type InvoiceEmailDetails = {
   source: "company_provider" | "global_smtp" | "console";
 };
 
-type InvoiceResendActivity = {
-  id: string;
-  createdAt: string;
-  status: "sent" | "skipped" | "failed";
-  toAddress: string;
-  ccAddress: string;
-  fromAddress: string;
-  replyTo: string;
-  pdfRequested: boolean;
-  pdfAttached: boolean;
-  hasMessage: boolean;
-  errorMessage: string;
-};
-
 type InvoiceDetailPayload = Invoice & {
   emailDetails: InvoiceEmailDetails;
-  resendActivities: InvoiceResendActivity[];
   writeOffs: InvoiceWriteOff[];
   creditApplications: CustomerCreditApplicationRow[];
 };
@@ -115,7 +101,6 @@ export default function FinanceInvoiceDetail() {
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [emailDetails, setEmailDetails] = React.useState<InvoiceEmailDetails | null>(null);
-  const [resendActivities, setResendActivities] = React.useState<InvoiceResendActivity[]>([]);
   const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
   const [creditApplications, setCreditApplications] = React.useState<
     CustomerCreditApplicationRow[]
@@ -148,7 +133,6 @@ export default function FinanceInvoiceDetail() {
       );
       setInvoice(inv);
       setEmailDetails(inv.emailDetails);
-      setResendActivities(inv.resendActivities);
       setWriteOffs(inv.writeOffs ?? []);
       setCreditApplications(inv.creditApplications ?? []);
       shown.current = true;
@@ -827,55 +811,20 @@ export default function FinanceInvoiceDetail() {
             )}
           </div>
         )}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Activity
-          </h3>
-          <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
-            <li>Created {new Date(invoice.createdAt).toISOString().slice(0, 10)}</li>
-            {invoice.sentAt && (
-              <li>Issued {new Date(invoice.sentAt).toISOString().slice(0, 10)}</li>
-            )}
-            {invoice.paidAt && <li>Paid {new Date(invoice.paidAt).toISOString().slice(0, 10)}</li>}
-            {invoice.voidedAt && (
-              <li>Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}</li>
-            )}
-            {resendActivities.map((activity) => (
-              <li key={activity.id} className="sm:col-span-2 lg:col-span-3">
-                <span
-                  className={
-                    activity.status === "sent"
-                      ? "font-medium text-slate-700 dark:text-slate-200"
-                      : activity.status === "failed"
-                        ? "font-medium text-red-600 dark:text-red-400"
-                        : "font-medium text-amber-700 dark:text-amber-400"
-                  }
-                >
-                  {activity.status === "sent"
-                    ? "Email resent"
-                    : activity.status === "failed"
-                      ? "Email resend failed"
-                      : "Email resend skipped"}
-                </span>{" "}
-                to {activity.toAddress || "the customer"} ·{" "}
-                {new Date(activity.createdAt).toLocaleString()}
-                {activity.pdfAttached && " · PDF attached"}
-                {activity.pdfRequested && !activity.pdfAttached && " · PDF unavailable"}
-                {activity.hasMessage && " · Custom message included"}
-                {activity.ccAddress && (
-                  <span className="block text-slate-400 dark:text-slate-500">
-                    Cc {activity.ccAddress}
-                  </span>
-                )}
-                {activity.fromAddress && (
-                  <span className="block text-slate-400 dark:text-slate-500">
-                    From {activity.fromAddress}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <RecordHistory
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="invoice"
+          targetId={invoice.id}
+          noun="this invoice"
+          currency={invoice.currency}
+          milestones={[
+            { label: "Invoice created", at: invoice.createdAt, covers: ["create"] },
+            { label: "Invoice issued", at: invoice.sentAt, covers: ["issue", "send"] },
+            { label: "Invoice paid", at: invoice.paidAt, covers: ["payment", "mark_paid"] },
+            { label: "Invoice voided", at: invoice.voidedAt, covers: ["void"] },
+          ]}
+        />
       </div>
 
       {showResend && emailDetails && (
@@ -1142,7 +1091,7 @@ function ResendInvoiceModal({
         `/api/companies/${companyId}/invoices/${invoice.slug}/send`,
         { to: toRecipients, cc: ccRecipients, message: message.trim(), attachPdf },
       );
-      // The modal closes on every outcome and the Activity list logs it; only
+      // The modal closes on every outcome and the History feed logs it; only
       // a partial or failed send carries a reason worth stopping the user for.
       if (result.send.status === "sent") {
         if (result.send.pdfRequested && !result.send.pdfAttached) {

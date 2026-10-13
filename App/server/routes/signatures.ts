@@ -408,6 +408,7 @@ signaturesRouter.delete(
     await deleteSignatureEnvelope({
       companyId: companyId(req),
       envelopeId: req.params.envelopeId,
+      actor: userActor(req),
     });
     res.status(204).end();
   }),

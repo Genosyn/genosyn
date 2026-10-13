@@ -20,6 +20,7 @@ import {
   upsertNotebookGrant,
 } from "../services/notes.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * Notebooks — the top-level grouping shown in the Notes sidebar. Every
@@ -116,6 +117,14 @@ notebooksRouter.post(
       createdByEmployeeId: null,
     });
     await repo.save(nb);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "notebook.create",
+      targetType: "notebook",
+      targetId: nb.id,
+      targetLabel: nb.title,
+    });
     const [hydrated] = await withCounts(cid, [nb]);
     res.json(hydrated);
   },
@@ -147,10 +156,25 @@ notebooksRouter.patch(
     const nb = await loadNotebook(cid, req.params.nbSlug);
     if (!nb) return res.status(404).json({ error: "Notebook not found" });
     const body = req.body as z.infer<typeof patchNotebookSchema>;
+    const fields: string[] = [];
+    if (body.title !== undefined && body.title !== nb.title) fields.push("title");
+    if (body.icon !== undefined && body.icon !== nb.icon) fields.push("icon");
     if (body.title !== undefined) nb.title = body.title;
     if (body.icon !== undefined) nb.icon = body.icon;
     if (body.sortOrder !== undefined) nb.sortOrder = body.sortOrder;
     await AppDataSource.getRepository(Notebook).save(nb);
+    // A drag-reorder alone isn't something the notebook's History needs.
+    if (fields.length > 0) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "notebook.update",
+        targetType: "notebook",
+        targetId: nb.id,
+        targetLabel: nb.title,
+        metadata: { fields },
+      });
+    }
     const [hydrated] = await withCounts(cid, [nb]);
     res.json(hydrated);
   },
@@ -178,6 +202,15 @@ notebooksRouter.delete("/notebooks/:nbSlug", async (req, res) => {
   await deleteGrantsForNotebook(nb.id);
   await deleteTagAssignments("notebook", nb.id);
   await AppDataSource.getRepository(Notebook).delete({ id: nb.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "notebook.delete",
+    targetType: "notebook",
+    targetId: nb.id,
+    targetLabel: nb.title,
+    metadata: { notes: notes.length },
+  });
   res.json({ ok: true });
 });
 
@@ -246,6 +279,15 @@ notebooksRouter.post(
       nb.id,
       body.accessLevel ?? "write",
     );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "notebook.grant",
+      targetType: "notebook",
+      targetId: nb.id,
+      targetLabel: nb.title,
+      metadata: { employee: emp.name, accessLevel: grant.accessLevel },
+    });
     const [hydrated] = await hydrateGrants(cid, [grant]);
     res.json(hydrated);
   },
@@ -269,6 +311,15 @@ notebooksRouter.patch(
     grant.accessLevel = body.accessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "notebook.access.update",
+      targetType: "notebook",
+      targetId: nb.id,
+      targetLabel: nb.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -286,6 +337,16 @@ notebooksRouter.delete(
     });
     if (!grant) return res.status(404).json({ error: "Grant not found" });
     await repo.delete({ id: grant.id });
+    const [revoked] = await hydrateGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "notebook.revoke",
+      targetType: "notebook",
+      targetId: nb.id,
+      targetLabel: nb.title,
+      metadata: { employee: revoked?.employee?.name ?? null },
+    });
     res.json({ ok: true });
   },
 );

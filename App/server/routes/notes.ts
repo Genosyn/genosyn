@@ -23,6 +23,8 @@ import {
   upsertNoteGrant,
 } from "../services/notes.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { recordAudit } from "../services/audit.js";
+import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 
 export const notesRouter = Router({ mergeParams: true });
 notesRouter.use(requireAuth);
@@ -240,6 +242,15 @@ notesRouter.post("/notes", validateBody(createNoteSchema), async (req, res) => {
     archivedAt: null,
   });
   await repo.save(note);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "note.create",
+    targetType: "note",
+    targetId: note.id,
+    targetLabel: note.title,
+    metadata: parentId ? { parentId } : undefined,
+  });
   const [hydrated] = await hydrateNotes(cid, [note]);
   res.json(hydrated);
 });
@@ -334,6 +345,12 @@ notesRouter.patch(
       }
     }
 
+    const previousParentId = note.parentId;
+    const wasArchived = note.archivedAt !== null;
+    const editedFields: string[] = [];
+    if (body.title !== undefined && body.title !== note.title) editedFields.push("title");
+    if (body.body !== undefined && body.body !== note.body) editedFields.push("body");
+    if (body.icon !== undefined && body.icon !== note.icon) editedFields.push("icon");
     if (body.title !== undefined) note.title = body.title;
     if (body.body !== undefined) note.body = body.body;
     if (body.icon !== undefined) note.icon = body.icon;
@@ -344,6 +361,28 @@ notesRouter.patch(
     note.lastEditedById = req.userId ?? null;
     note.lastEditedByEmployeeId = null;
     await repo.save(note);
+    const audit = {
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+    };
+    if (body.archived !== undefined && body.archived !== wasArchived) {
+      await recordAudit({ ...audit, action: body.archived ? "note.archive" : "note.restore" });
+    }
+    if (movingNotebook || note.parentId !== previousParentId) {
+      await recordAudit({ ...audit, action: "note.move" });
+    }
+    if (editedFields.length > 0) {
+      // The editor autosaves while someone types: one entry per editing
+      // stretch, not one per save.
+      await recordCoalescedAudit({
+        ...audit,
+        action: "note.update",
+        metadata: { fields: editedFields },
+      });
+    }
     const [hydrated] = await hydrateNotes(cid, [note]);
     res.json(hydrated);
   },
@@ -414,6 +453,14 @@ notesRouter.delete("/notes/:noteSlug", async (req, res) => {
   await deleteGrantsForNote(note.id);
   await deleteTagAssignments("note", note.id);
   await repo.delete({ id: note.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "note.delete",
+    targetType: "note",
+    targetId: note.id,
+    targetLabel: note.title,
+  });
   res.json({ ok: true });
 });
 
@@ -579,6 +626,15 @@ notesRouter.post(
       note.id,
       body.accessLevel ?? "write",
     );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "note.grant",
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+      metadata: { employee: emp.name, accessLevel: grant.accessLevel },
+    });
     const [hydrated] = await hydrateGrants(cid, [grant]);
     res.json(hydrated);
   },
@@ -602,6 +658,15 @@ notesRouter.patch(
     grant.accessLevel = body.accessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "note.access.update",
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -614,6 +679,16 @@ notesRouter.delete("/notes/:noteSlug/grants/:grantId", async (req, res) => {
   const grant = await repo.findOneBy({ id: req.params.grantId, noteId: note.id });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
+  const [revoked] = await hydrateGrants(cid, [grant]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "note.revoke",
+    targetType: "note",
+    targetId: note.id,
+    targetLabel: note.title,
+    metadata: { employee: revoked?.employee?.name ?? null },
+  });
   res.json({ ok: true });
 });
 

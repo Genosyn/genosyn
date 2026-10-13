@@ -25,6 +25,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { anotherDialogIsOpen } from "../lib/keyboard";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { RecordHistory } from "../components/RecordHistory";
 import { ExploreDataBrowser } from "../components/explore/ExploreDataBrowser";
 import {
   buildTablePreviewSql,
@@ -126,6 +127,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [dirty, setDirty] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [chartId, setChartId] = React.useState<string | null>(null);
+  const [chartCreatedAt, setChartCreatedAt] = React.useState<string | null>(null);
   const [schemaOpen, setSchemaOpen] = React.useState(isNew);
   const [suggestion, setSuggestion] = React.useState<VisualizationSuggestion | null>(null);
   const editorRef = React.useRef<HTMLTextAreaElement>(null);
@@ -162,6 +164,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     setSaveError(null);
     if (isNew) {
       setChartId(null);
+      setChartCreatedAt(null);
       setLoading(false);
       setTitle("Untitled chart");
       setDescription("");
@@ -175,6 +178,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       .get<ChartDTO>(`/api/companies/${company.id}/explore/charts/${slug}`)
       .then((c) => {
         setChartId(c.id);
+        setChartCreatedAt(c.createdAt);
         setTitle(c.title);
         setDescription(c.description);
         setConnectionId(c.connectionId);
@@ -684,6 +688,19 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
                   setVizConfig(c);
                   markDirty();
                 }}
+              />
+            </div>
+          )}
+
+          {chartId && (
+            <div className="border-t border-slate-200 p-4 dark:border-slate-700">
+              <RecordHistory
+                companyId={company.id}
+                companySlug={company.slug}
+                targetType="chart"
+                targetId={chartId}
+                noun="this chart"
+                milestones={[{ label: "Chart created", at: chartCreatedAt, covers: ["create"] }]}
               />
             </div>
           )}

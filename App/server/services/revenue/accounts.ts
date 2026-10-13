@@ -70,6 +70,18 @@ export type AccountMergePreview = {
  * phone, currency, and Annual Contract Value, which the entity documents as a
  * sales metric.
  */
+/**
+ * The audit `targetType` a Revenue record's History reads. An Account is the
+ * Customer row, but its History is `revenue_account` — member-readable,
+ * unlike the Finance Customer's — so rows written under it must name billing
+ * fields at most, never carry their values.
+ */
+export function revenueHistoryType(
+  resourceType: "account" | "contact" | "deal" | "partnership",
+): string {
+  return resourceType === "account" ? "revenue_account" : resourceType;
+}
+
 export const ACCOUNT_BILLING_FIELDS = [
   "email",
   "billingAddress",

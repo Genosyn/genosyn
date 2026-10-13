@@ -46,6 +46,7 @@ import {
   mergeTakesSourceBilling,
   previewRevenueAccountMerge,
   revenueBulkJobForViewer,
+  revenueHistoryType,
   revenueOperationForViewer,
   revenueOperationRowForViewer,
   setRevenueAccountArchived,
@@ -311,7 +312,7 @@ revenueOperationsRouter.post(
     if (setsAccountBilling(req.body) && !allowBillingWrite(req, res)) return;
     try {
       const row = await createRevenueAccount(cidOf(req), req.body, actorOf(req));
-      await audit(req, "revenue.account.create", "customer", row.id, row.name);
+      await audit(req, "revenue.account.create", "revenue_account", row.id, row.name);
       return res.status(201).json(accountForViewer(row, billingVisibleTo(req)));
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
@@ -329,7 +330,7 @@ for (const [action, archived] of [
       try {
         const row = await setRevenueAccountArchived(cidOf(req), req.params.id, archived);
         if (!row) return res.status(404).json({ error: "Account not found" });
-        await audit(req, `revenue.account.${action}`, "customer", row.id, row.name);
+        await audit(req, `revenue.account.${action}`, "revenue_account", row.id, row.name);
         return res.json(accountForViewer(row, billingVisibleTo(req)));
       } catch (error) {
         return res.status(409).json({ error: (error as Error).message });
@@ -382,13 +383,23 @@ revenueOperationsRouter.post(
       await audit(
         req,
         "revenue.account.merge",
-        "customer",
+        "revenue_account",
         result.source.id,
         `${result.source.name} → ${result.target.name}`,
         {
           targetAccountId: result.target.id,
           moved: result.counts,
         },
+      );
+      // The survivor's own History says what was folded into it — the source
+      // row's History is rarely reopened once its page redirects.
+      await audit(
+        req,
+        "revenue.account.merge",
+        "revenue_account",
+        result.target.id,
+        result.target.name,
+        { mergedFrom: result.source.name },
       );
       return res.json(accountMergePreviewForViewer(result, billingVisibleTo(req)));
     } catch (error) {
@@ -415,7 +426,7 @@ revenueOperationsRouter.patch(
     try {
       const row = await updateRevenueAccount(cidOf(req), req.params.id, req.body);
       if (!row) return res.status(404).json({ error: "Account not found" });
-      await audit(req, "revenue.account.update", "customer", row.id, row.name, {
+      await audit(req, "revenue.account.update", "revenue_account", row.id, row.name, {
         changes: Object.keys(req.body),
       });
       return res.json(accountForViewer(row, billingVisibleTo(req)));
@@ -494,7 +505,7 @@ revenueOperationsRouter.post(
       await audit(
         req,
         `revenue.${params.data.resourceType}.merge`,
-        params.data.resourceType,
+        revenueHistoryType(params.data.resourceType),
         result.source.id,
         `${result.source.label} → ${result.target.label}`,
         {
@@ -503,6 +514,14 @@ revenueOperationsRouter.post(
           moved: result.relationshipCounts,
           customValuesCopied: result.customValuesCopied,
         },
+      );
+      await audit(
+        req,
+        `revenue.${params.data.resourceType}.merge`,
+        revenueHistoryType(params.data.resourceType),
+        result.target.id,
+        result.target.label,
+        { mergedFrom: result.source.label },
       );
       return res.json(recordMergePreviewFor(req, result));
     } catch (error) {
@@ -2112,10 +2131,10 @@ revenueOperationsRouter.put(
       await audit(
         req,
         "revenue.custom_values.update",
-        resourceType.data,
+        revenueHistoryType(resourceType.data),
         req.params.resourceId,
         resourceType.data,
-        { keys: Object.keys(body.values), sourceType: body.provenance?.sourceType ?? "manual" },
+        { fields: Object.keys(body.values), sourceType: body.provenance?.sourceType ?? "manual" },
       );
       return res.json({ rows });
     } catch (error) {
@@ -2274,6 +2293,17 @@ revenueOperationsRouter.delete(
   "/revenue/partnerships/:id/contacts/:contactId",
   h(async (req, res) => {
     const removed = await removePartnershipContact(cidOf(req), req.params.id, req.params.contactId);
+    if (removed) {
+      const found = await getPartnership(cidOf(req), req.params.id);
+      await audit(
+        req,
+        "revenue.partnership.contact.remove",
+        "partnership",
+        req.params.id,
+        found?.partnership.name ?? "",
+        { contactId: req.params.contactId },
+      );
+    }
     return removed ? res.json({ ok: true }) : res.status(404).json({ error: "Contact not found" });
   }),
 );

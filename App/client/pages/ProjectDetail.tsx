@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Users,
   Eye,
+  History as HistoryIcon,
 } from "lucide-react";
 import {
   api,
@@ -50,6 +51,7 @@ import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { RecordHistory } from "../components/RecordHistory";
 import {
   AssigneeRef,
   AssigneePicker,
@@ -1429,7 +1431,7 @@ function ProjectSettingsModal({
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = React.useState<"general" | "access">("general");
+  const [tab, setTab] = React.useState<"general" | "access" | "history">("general");
   // A viewer served with `read` can't write anything here — the server would
   // 403 every one of these controls, so don't offer them.
   const canEdit = project.myAccessLevel !== "read";
@@ -1449,6 +1451,9 @@ function ProjectSettingsModal({
         <TabButton active={tab === "access"} onClick={() => setTab("access")}>
           <Users size={12} /> Access
         </TabButton>
+        <TabButton active={tab === "history"} onClick={() => setTab("history")}>
+          <HistoryIcon size={12} /> History
+        </TabButton>
       </div>
 
       {tab === "general" ? (
@@ -1466,7 +1471,7 @@ function ProjectSettingsModal({
           onSaved={onSaved}
           onDeleted={onDeleted}
         />
-      ) : (
+      ) : tab === "access" ? (
         <ProjectAccessTab
           company={company}
           project={project}
@@ -1476,6 +1481,16 @@ function ProjectSettingsModal({
           canEdit={canEdit}
           onClose={onClose}
           onSaved={onSaved}
+        />
+      ) : (
+        <RecordHistory
+          className="border-0 p-0 shadow-none"
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="project"
+          targetId={project.id}
+          noun="this project"
+          milestones={[{ label: "Project created", at: project.createdAt, covers: ["create"] }]}
         />
       )}
     </Modal>

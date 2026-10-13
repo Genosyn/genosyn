@@ -17,6 +17,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { Role } from "../db/entities/Membership.js";
 import { toSlug } from "../lib/slug.js";
 import {
+  baseFieldNamesFor,
   buildLinkOptionsFor,
   createBaseRecordRow,
   deleteBaseRecordWithContents,
@@ -49,6 +50,7 @@ import { findBaseTemplate } from "../services/baseTemplates.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import { ALL_RESOURCE_FIELD_TYPES, buildResourceOptionsFor } from "../services/baseResources.js";
 import { recordAudit } from "../services/audit.js";
+import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import {
   baseRecordUploadMiddleware,
   deleteBaseAttachmentBytes,
@@ -159,6 +161,15 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
     }),
   );
   if (template) await seedBaseFromTemplate(b.id, template);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base.create",
+    targetType: "base",
+    targetId: b.id,
+    targetLabel: b.name,
+    metadata: template ? { template: template.id } : undefined,
+  });
   res.json(b);
 });
 
@@ -186,12 +197,26 @@ basesRouter.patch("/bases/:baseSlug", validateBody(patchBaseSchema), async (req,
     if (await findBaseByName(cid, body.name, b.id)) {
       return res.status(409).json({ error: "A base with that name already exists" });
     }
-    b.name = body.name;
   }
+  const fields = (["name", "description", "icon", "color"] as const).filter(
+    (key) => body[key] !== undefined && body[key] !== b[key],
+  );
+  if (body.name !== undefined) b.name = body.name;
   if (body.description !== undefined) b.description = body.description;
   if (body.icon !== undefined) b.icon = body.icon;
   if (body.color !== undefined) b.color = body.color;
   await AppDataSource.getRepository(Base).save(b);
+  if (fields.length > 0) {
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base.update",
+      targetType: "base",
+      targetId: b.id,
+      targetLabel: b.name,
+      metadata: { fields },
+    });
+  }
   res.json(b);
 });
 
@@ -210,6 +235,15 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
   await deleteGrantsForBase(b.id);
   await deleteTagAssignments("base", b.id);
   await AppDataSource.getRepository(Base).delete({ id: b.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base.delete",
+    targetType: "base",
+    targetId: b.id,
+    targetLabel: b.name,
+    metadata: { tables: tables.length },
+  });
   res.json({ ok: true });
 });
 
@@ -338,6 +372,15 @@ basesRouter.post("/bases/:baseSlug/tables", validateBody(createTableSchema), asy
   );
   // Seed the default view so the grid has something to render against.
   await ensureDefaultView(saved.id);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base_table.create",
+    targetType: "base_table",
+    targetId: saved.id,
+    targetLabel: `${b.name}/${saved.name}`,
+    metadata: { baseId: b.id },
+  });
   res.json(saved);
 });
 
@@ -644,6 +687,15 @@ basesRouter.post(
     const body = req.body as z.infer<typeof createRowSchema>;
 
     const saved = await createBaseRecordRow(t.id, body.data ?? {});
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_record.create",
+      targetType: "base_record",
+      targetId: saved.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { baseId: b.id, tableId: t.id },
+    });
     res.json(hydrateRecord(saved));
   },
 );
@@ -684,6 +736,20 @@ basesRouter.patch(
     r.dataJson = JSON.stringify(data);
     if (body.sortOrder !== undefined) r.sortOrder = body.sortOrder;
     await AppDataSource.getRepository(BaseRecord).save(r);
+    const editedFieldIds = [...Object.keys(body.data ?? {}), ...(body.fieldId ? [body.fieldId] : [])];
+    if (editedFieldIds.length > 0) {
+      // Field names only — cell values stay out of the ledger. The grid saves
+      // cell by cell, so one actor's run of edits is one History entry.
+      await recordCoalescedAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "base_record.update",
+        targetType: "base_record",
+        targetId: r.id,
+        targetLabel: `${b.name}/${t.name}`,
+        metadata: { fields: await baseFieldNamesFor(t.id, editedFieldIds) },
+      });
+    }
     res.json(hydrateRecord(r));
   },
 );
@@ -704,6 +770,15 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId/rows/:rowId", async (req, r
   });
   if (!r) return res.status(404).json({ error: "Row not found" });
   await deleteBaseRecordWithContents(r, cid);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base_record.delete",
+    targetType: "base_record",
+    targetId: r.id,
+    targetLabel: `${b.name}/${t.name}`,
+    metadata: { baseId: b.id, tableId: t.id },
+  });
   res.json({ ok: true });
 });
 
@@ -750,6 +825,17 @@ basesRouter.post(
       recordId: In(ids),
     });
     await AppDataSource.getRepository(BaseRecord).delete({ id: In(ids) });
+    // One entry on the table rather than one per row: a deleted record has
+    // no page left to show its History on.
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_table.records.delete",
+      targetType: "base_table",
+      targetId: t.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { baseId: b.id, records: ids.length },
+    });
     res.json({ ok: true, deleted: ids.length });
   },
 );
@@ -970,6 +1056,15 @@ basesRouter.delete(
       return res.status(403).json({ error: "Not your comment" });
     }
     await repo.delete({ id: cmt.id });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_record_comment.delete",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: { commentId: cmt.id },
+    });
     res.json({ ok: true });
   },
 );
@@ -1063,6 +1158,15 @@ basesRouter.delete(
     const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
     if (co) await deleteBaseAttachmentBytes(row, co.slug);
     await repo.delete({ id: row.id });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_record_attachment.delete",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: { filename: row.filename },
+    });
     res.json({ ok: true });
   },
 );

@@ -23,6 +23,7 @@ import {
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { recordAudit } from "../services/audit.js";
+import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
   RESOURCE_MAX_BYTES,
@@ -666,6 +667,20 @@ resourcesRouter.patch("/resources/:slug", validateBody(patchSchema), async (req,
   if (body.tags !== undefined) {
     await replaceResourceTagNames(cid, "resource", row.id, body.tags);
   }
+  const fields = Object.keys(body);
+  if (fields.length > 0) {
+    // A text resource's body autosaves from the editor; one entry per
+    // stretch of edits, field names only.
+    await recordCoalescedAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "resource.update",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { fields },
+    });
+  }
   const [hydrated] = await hydrate(cid, [row], { includeBody: true });
   res.json(hydrated);
 });
@@ -762,6 +777,15 @@ resourcesRouter.post(
     if (!emp) return res.status(400).json({ error: "Unknown employee" });
     const grant = await upsertResourceGrant(emp.id, row.id, body.accessLevel ?? "read");
     const [hydrated] = await hydrateGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "resource.grant",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: emp.name, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -787,6 +811,15 @@ resourcesRouter.patch(
     grant.accessLevel = body.accessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "resource.access.update",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -802,6 +835,16 @@ resourcesRouter.delete("/resources/:slug/grants/:grantId", async (req, res) => {
   });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
+  const [revoked] = await hydrateGrants(cid, [grant]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "resource.revoke",
+    targetType: "resource",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: { employee: revoked?.employee?.name ?? null },
+  });
   res.json({ ok: true });
 });
 

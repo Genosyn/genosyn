@@ -7,10 +7,11 @@ import { Membership } from "../../db/entities/Membership.js";
 import { Signal } from "../../db/entities/Signal.js";
 import { SignalEvent } from "../../db/entities/SignalEvent.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import { recordAudit } from "../audit.js";
 import { countMissedSlots } from "../cronMath.js";
 import { createNotifications } from "../notifications.js";
 import { recordActivity } from "./activities.js";
-import { upsertContactByEmail } from "./contacts.js";
+import { findContactByEmail, upsertContactByEmail } from "./contacts.js";
 import { createDeal } from "./deals.js";
 import { enrollContact } from "./sequences.js";
 import { dedupeKeyFor, selectNewEvents, truncatePayload } from "./signalDedupe.js";
@@ -385,6 +386,7 @@ async function resolveSubject(
 
     if (!email) return { contactId: null, customerId: customer?.id ?? null };
 
+    const existed = (await findContactByEmail(signal.companyId, email)) !== null;
     const contact = await upsertContactByEmail(signal.companyId, {
       // Only used when the contact is new and nameless — `upsertContactByEmail`
       // never overwrites a name a human typed. The local part is a poor name
@@ -396,6 +398,18 @@ async function resolveSubject(
       customerId: customer?.id ?? null,
       source: `signal:${signal.slug}`,
     });
+
+    if (contact && !existed) {
+      await recordAudit({
+        companyId: signal.companyId,
+        actorKind: "cron",
+        action: "revenue.contact.create",
+        targetType: "contact",
+        targetId: contact.id,
+        targetLabel: contact.name,
+        metadata: { signal: signal.name },
+      });
+    }
 
     return {
       contactId: contact?.id ?? null,
@@ -684,6 +698,15 @@ async function actionCreateDeal(
   });
 
   event.dealId = deal.id;
+  await recordAudit({
+    companyId: signal.companyId,
+    actorKind: "cron",
+    action: "revenue.deal.create",
+    targetType: "deal",
+    targetId: deal.id,
+    targetLabel: deal.title,
+    metadata: { signal: signal.name, amountCents: deal.amountCents },
+  });
   return { status: "actioned", detail: `Opened deal ${deal.id}` };
 }
 
@@ -773,6 +796,14 @@ async function actionEnrollSequence(
       detail: `Not enrolled in sequence ${sequenceId}: ${reason}`,
     };
   }
+  await recordAudit({
+    companyId: signal.companyId,
+    actorKind: "cron",
+    action: "revenue.sequence.enroll",
+    targetType: "sequence",
+    targetId: sequenceId,
+    metadata: { enrolled: 1, signal: signal.name, contactId: event.contactId },
+  });
   return {
     status: "actioned",
     detail: `Enrolled in sequence ${sequenceId} (${result.enrollment.id})`,

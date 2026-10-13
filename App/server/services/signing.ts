@@ -54,6 +54,8 @@ import {
   SignatureRecipientRole,
 } from "../db/entities/SignatureRecipient.js";
 import { normalizeEmail } from "../lib/emailAddress.js";
+import { recordAudit } from "./audit.js";
+import { recordCoalescedAudit } from "./auditCoalesce.js";
 import { sendEmail } from "./email.js";
 import { companyDir, ensureDir } from "./paths.js";
 import { getPublicUrl } from "./publicUrl.js";
@@ -441,6 +443,34 @@ function normalizeActor(actor?: SigningActor): NormalizedActor {
     return { actorKind: actor.actorKind, actorId: actor.actorId ?? null };
   }
   return { actorKind: actor.kind, actorId: actor.id ?? null };
+}
+
+/**
+ * The envelope's History (`signature_envelope` in the audit ledger), written
+ * beside the signing event chain. The chain is the legal evidence a signer's
+ * certificate cites; this is who in the company drafted, sent, reminded or
+ * voided it, in the shape every other record's History reads.
+ */
+async function auditEnvelope(
+  actor: NormalizedActor,
+  action: string,
+  envelope: Pick<SignatureEnvelope, "id" | "companyId" | "title">,
+  metadata?: Record<string, unknown>,
+  opts: { coalesce?: boolean } = {},
+): Promise<void> {
+  const params = {
+    companyId: envelope.companyId,
+    actorKind: actor.actorKind === "recipient" ? ("system" as const) : actor.actorKind,
+    actorUserId: actor.actorKind === "user" ? actor.actorId : null,
+    actorEmployeeId: actor.actorKind === "ai" ? actor.actorId : null,
+    action: `signature_envelope.${action}`,
+    targetType: "signature_envelope",
+    targetId: envelope.id,
+    targetLabel: envelope.title,
+    metadata,
+  };
+  if (opts.coalesce) await recordCoalescedAudit(params);
+  else await recordAudit(params);
 }
 
 async function requireActorAccess(
@@ -834,6 +864,7 @@ async function createEnvelopeFromPdf(params: {
     await fs.promises.unlink(absolute).catch(() => undefined);
     throw error;
   }
+  await auditEnvelope(actor, "create", { id: envelopeId, companyId: params.company.id, title });
   return getSignatureEnvelopeDetail({ companyId: params.company.id, envelopeId });
 }
 
@@ -1322,7 +1353,7 @@ export async function updateSignatureEnvelopeDraft(params: {
   const actor = normalizeActor(params.actor);
   await requireActorAccess(params.companyId, actor, "draft");
   if (params.customerId !== undefined) await assertCustomer(params.companyId, params.customerId);
-  await AppDataSource.transaction(async (manager) => {
+  const updated = await AppDataSource.transaction(async (manager) => {
     const repository = manager.getRepository(SignatureEnvelope);
     const envelope = await findEnvelopeForUpdate(manager, params.companyId, params.envelopeId);
     if (!envelope) throw new SigningNotFoundError();
@@ -1381,7 +1412,13 @@ export async function updateSignatureEnvelopeDraft(params: {
         recipientsReplaced: params.recipients !== undefined,
       },
     });
+    return envelope;
   });
+  const fields = (
+    ["title", "message", "customerId", "routingMode", "expiresAt", "recipients", "fields"] as const
+  ).filter((key) => params[key] !== undefined);
+  // The draft editor saves as fields are placed; one entry per stretch.
+  await auditEnvelope(actor, "update", updated, { fields }, { coalesce: true });
   return getSignatureEnvelopeDetail(params);
 }
 
@@ -1789,6 +1826,9 @@ export async function sendSignatureEnvelope(params: {
     return { envelope: row, pending: selected.pending };
   });
   await deliverPending(company, activation.envelope, activation.pending, actor, false);
+  await auditEnvelope(actor, "send", activation.envelope, {
+    recipients: activation.pending.length,
+  });
   return getSignatureEnvelopeDetail(params);
 }
 
@@ -1832,12 +1872,14 @@ export async function remindSignatureRecipient(params: {
     return { envelope, recipient, token };
   });
   await deliverPending(company, envelope, [{ recipient, token }], actor, true);
+  await auditEnvelope(actor, "reminder.send", envelope, { recipient: recipient.name });
   return getSignatureEnvelopeDetail(params);
 }
 
 export async function deleteSignatureEnvelope(params: {
   companyId: string;
   envelopeId: string;
+  actor?: SigningActor;
 }): Promise<boolean> {
   const result = await AppDataSource.transaction(async (manager) => {
     const repository = manager.getRepository(SignatureEnvelope);
@@ -1860,10 +1902,12 @@ export async function deleteSignatureEnvelope(params: {
     });
     await repository.delete({ id: envelope.id, companyId: params.companyId });
     return {
+      envelope: { id: envelope.id, companyId: envelope.companyId, title: envelope.title },
       originalStorageKey: envelope.originalStorageKey,
       completedStorageKey: envelope.completedStorageKey,
     };
   });
+  await auditEnvelope(normalizeActor(params.actor), "delete", result.envelope);
   const company = await requireCompany(params.companyId);
   for (const storageKey of [result.originalStorageKey, result.completedStorageKey]) {
     if (!storageKey) continue;
@@ -1882,7 +1926,7 @@ export async function voidSignatureEnvelope(params: {
   const actor = normalizeActor(params.actor);
   await requireActorAccess(params.companyId, actor, "send");
   const reason = cleanText(params.reason ?? "", "Void reason", 2000, false);
-  await AppDataSource.transaction(async (manager) => {
+  const voided = await AppDataSource.transaction(async (manager) => {
     const repository = manager.getRepository(SignatureEnvelope);
     const envelope = await findEnvelopeForUpdate(manager, params.companyId, params.envelopeId);
     if (!envelope) throw new SigningNotFoundError();
@@ -1906,7 +1950,9 @@ export async function voidSignatureEnvelope(params: {
       actor,
       metadata: { reason },
     });
+    return envelope;
   });
+  await auditEnvelope(actor, "void", voided);
   return getSignatureEnvelopeDetail(params);
 }
 

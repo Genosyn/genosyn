@@ -16,6 +16,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { SkillsContext } from "./SkillsLayout";
 import { ResourceTagPicker } from "../components/TagPicker";
+import { RecordHistory } from "../components/RecordHistory";
 
 /**
  * One skill, in full: the playbook itself, and who knows it.
@@ -151,6 +152,16 @@ export default function SkillDetail({ company }: { company: Company }) {
       {tab === "settings" && (
         <SettingsTab company={company} skill={skill} onSaved={refresh} />
       )}
+
+      <RecordHistory
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="skill"
+        targetId={skill.id}
+        noun="this skill"
+        className="mt-6"
+        milestones={[{ label: "Skill created", at: skill.createdAt, covers: ["create"] }]}
+      />
     </div>
   );
 }

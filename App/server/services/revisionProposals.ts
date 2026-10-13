@@ -468,7 +468,63 @@ export async function applyRevisionProposal(
   });
   if (result instanceof RevisionError) throw result;
   await recordRevisionDecision(result.saved, reviewer.userId, result.targetOwnerId);
+  await recordRevisionOnTarget(result.saved, reviewer.userId);
   return result.saved;
+}
+
+/**
+ * The applied edit, logged on the record it changed — the Soul's employee,
+ * the Skill, or the Routine — so that record's History shows the Member who
+ * applied it. The decision row above targets the proposal itself.
+ */
+async function recordRevisionOnTarget(
+  proposal: RevisionProposal,
+  reviewerUserId: string | null,
+): Promise<void> {
+  try {
+    let target: { type: string; id: string; label: string; field: string } | null = null;
+    if (proposal.kind === "soul") {
+      const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: proposal.employeeId,
+        companyId: proposal.companyId,
+      });
+      if (employee) {
+        target = { type: "employee", id: employee.id, label: employee.name, field: "soulBody" };
+      }
+    } else if (proposal.kind === "skill" && proposal.targetId) {
+      const skill = await AppDataSource.getRepository(Skill).findOneBy({ id: proposal.targetId });
+      if (skill) target = { type: "skill", id: skill.id, label: skill.name, field: "body" };
+    } else if (proposal.targetId) {
+      const routine = await AppDataSource.getRepository(Routine).findOneBy({
+        id: proposal.targetId,
+      });
+      if (routine) {
+        target = {
+          type: "routine",
+          id: routine.id,
+          label: routine.name,
+          field: proposal.kind === "routine_body" ? "body" : "acceptanceCriteria",
+        };
+      }
+    }
+    if (!target) return;
+    await recordAudit({
+      companyId: proposal.companyId,
+      actorUserId: reviewerUserId,
+      action: `${target.type}.revision.apply`,
+      targetType: target.type,
+      targetId: target.id,
+      targetLabel: target.label,
+      metadata: {
+        fields: [target.field],
+        revisionProposalId: proposal.id,
+        proposerEmployeeId: proposal.employeeId,
+      },
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[revisions] failed to audit ${proposal.id} on its target:`, err);
+  }
 }
 
 export async function rejectRevisionProposal(

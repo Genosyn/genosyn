@@ -131,6 +131,24 @@ function userId(req: Request): string | null {
   return (req as unknown as { user?: { id?: string } }).user?.id ?? null;
 }
 
+/** One entry in a meeting's History, written by the Member behind `req`. */
+async function auditMeeting(
+  req: Request,
+  meeting: { id: string; title: string },
+  action: string,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  await recordAudit({
+    companyId: cid(req),
+    actorUserId: userId(req),
+    action: `meeting.${action}`,
+    targetType: "meeting",
+    targetId: meeting.id,
+    targetLabel: meeting.title,
+    metadata,
+  });
+}
+
 /**
  * Recordings are buffered in memory rather than streamed to multer's disk
  * store: `services/meetings/storage.ts` owns where a recording lives (it is
@@ -467,6 +485,7 @@ meetingsRouter.post(
       createdByUserId: userId(req),
       attendeeEmails: body.attendeeEmails,
     });
+    await auditMeeting(req, meeting, "create");
     res.status(201).json({ meeting: serializeMeeting(meeting) });
   }),
 );
@@ -523,6 +542,7 @@ meetingsRouter.post(
     // Transcription is minutes of work; the client watches `transcriptState`.
     processMeetingInBackground(cid(req), id);
     const meeting = await getMeeting(cid(req), id);
+    if (meeting) await auditMeeting(req, meeting, "recording.upload");
     res.json({ meeting: meeting ? serializeMeeting(meeting) : null });
   }),
 );
@@ -542,6 +562,7 @@ meetingsRouter.post(
     }
     processMeetingInBackground(cid(req), id);
     const meeting = await getMeeting(cid(req), id);
+    if (meeting) await auditMeeting(req, meeting, "transcript.add");
     res.json({ meeting: meeting ? serializeMeeting(meeting) : null });
   }),
 );
@@ -562,6 +583,7 @@ meetingsRouter.post(
     }
     const body = req.body as z.infer<typeof attendeesBody>;
     const added = await addParticipants(meeting, body.emails);
+    await auditMeeting(req, meeting, "attendees.add", { count: body.emails.length });
     // A new attendee is exactly the case where re-linking pays off: the person
     // may already be a Contact, and the call belongs on their timeline now.
     if (meeting.transcriptText.trim()) await linkMeeting(cid(req), id);
@@ -609,6 +631,7 @@ meetingsRouter.post(
       return;
     }
     const meeting = await getMeeting(cid(req), id);
+    if (meeting) await auditMeeting(req, meeting, "notetaker.start");
     res.json({ meeting: meeting ? serializeMeeting(meeting) : null });
   }),
 );
@@ -624,6 +647,7 @@ meetingsRouter.post(
       return;
     }
     const meeting = await getMeeting(cid(req), id);
+    if (meeting) await auditMeeting(req, meeting, "notetaker.stop");
     res.json({ meeting: meeting ? serializeMeeting(meeting) : null });
   }),
 );

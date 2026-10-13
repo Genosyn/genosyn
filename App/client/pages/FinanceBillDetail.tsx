@@ -22,6 +22,7 @@ import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -375,6 +376,21 @@ export default function FinanceBillDetail() {
               </div>
             )}
           </div>
+          <RecordHistory
+            className="mt-6"
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="bill"
+            targetId={bill.id}
+            noun="this bill"
+            currency={bill.currency}
+            milestones={[
+              { label: "Bill created", at: bill.createdAt, covers: ["create"] },
+              { label: "Bill issued", at: bill.receivedAt, covers: ["issue"] },
+              { label: "Bill paid", at: bill.paidAt, covers: ["payment"] },
+              { label: "Bill voided", at: bill.voidedAt, covers: ["void"] },
+            ]}
+          />
         </div>
 
         <div className="space-y-4">

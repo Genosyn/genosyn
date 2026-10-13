@@ -560,7 +560,18 @@ describe("trusted self-review provenance", () => {
           .soulBody,
         decision === "applied" ? proposal.proposedBody : "Be direct.",
       );
-      assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 1);
+      assert.equal(
+        await AppDataSource.getRepository(AuditEvent).countBy({ targetType: "revision_proposal" }),
+        1,
+      );
+      // An applied revision is also logged on the record it changed.
+      assert.equal(
+        await AppDataSource.getRepository(AuditEvent).countBy({
+          action: "employee.revision.apply",
+          targetId: employee.id,
+        }),
+        decision === "applied" ? 1 : 0,
+      );
       assert.equal(await AppDataSource.getRepository(JournalEntry).count(), 1);
       await assert.rejects(
         createRevisionProposal(

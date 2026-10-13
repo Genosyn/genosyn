@@ -9,6 +9,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "../components/RecordHistory";
 import { useBases } from "./BasesLayout";
 import {
   RecordCommentsSection,
@@ -221,6 +222,14 @@ export default function BaseRecordPage({ company }: { company: Company }) {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <RecordCommentsSection company={company} baseUrl={baseUrl} />
           </div>
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="base_record"
+            targetId={record.id}
+            noun="this record"
+            milestones={[{ label: "Record created", at: record.createdAt, covers: ["create"] }]}
+          />
         </div>
       </div>
     </div>

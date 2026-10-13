@@ -32,6 +32,7 @@ import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<RecurringInvoiceStatus, string> = {
@@ -532,6 +533,17 @@ export default function FinanceRecurringInvoiceDetail() {
           )}
         </div>
       )}
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="recurring_invoice"
+        targetId={ri.id}
+        noun="this recurring invoice"
+        currency={ri.currency}
+        milestones={[{ label: "Recurring invoice created", at: ri.createdAt, covers: ["create"] }]}
+      />
     </div>
   );
 }

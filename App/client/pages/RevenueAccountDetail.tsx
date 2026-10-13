@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, Building2, ExternalLink, Merge, UserRound } fr
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import { Breadcrumbs } from "../components/AppShell";
+import { RecordHistory } from "../components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -444,6 +445,17 @@ export default function RevenueAccountDetail() {
           resourceId={account.id}
         />
       </div>
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="revenue_account"
+        targetId={account.id}
+        noun="this account"
+        currency={account.currency}
+        milestones={[{ label: "Account created", at: account.createdAt, covers: ["create"] }]}
+      />
 
       <AccountMergeModal
         open={mergeOpen}

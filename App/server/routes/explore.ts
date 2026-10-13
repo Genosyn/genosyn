@@ -16,6 +16,7 @@ import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
+import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import { params } from "../lib/params.js";
 import {
   EXPLORE_PROVIDERS,
@@ -233,6 +234,7 @@ exploreRouter.patch("/explore/charts/:slug", validateBody(patchChartSchema), asy
   const row = await loadChart(cid, slug);
   if (!row) return res.status(404).json({ error: "Chart not found" });
   const body = req.body as z.infer<typeof patchChartSchema>;
+  const fields = Object.keys(body);
   if (body.title !== undefined) row.title = body.title;
   if (body.description !== undefined) row.description = body.description;
   if (body.connectionId !== undefined) {
@@ -252,6 +254,19 @@ exploreRouter.patch("/explore/charts/:slug", validateBody(patchChartSchema), asy
     row.vizConfig = JSON.stringify(body.vizConfig);
   }
   await AppDataSource.getRepository(Chart).save(row);
+  if (fields.length > 0) {
+    // The chart editor saves as the query and visual are tuned; one entry
+    // per stretch of edits, listing the fields only (never the SQL).
+    await recordCoalescedAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "chart.update",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { fields },
+    });
+  }
   res.json(serializeChart(row));
 });
 
@@ -409,9 +424,23 @@ exploreRouter.patch(
     const row = await loadDashboard(cid, slug);
     if (!row) return res.status(404).json({ error: "Dashboard not found" });
     const body = req.body as z.infer<typeof patchDashboardSchema>;
+    const fields = (["title", "description"] as const).filter(
+      (key) => body[key] !== undefined && body[key] !== row[key],
+    );
     if (body.title !== undefined) row.title = body.title;
     if (body.description !== undefined) row.description = body.description;
     await AppDataSource.getRepository(Dashboard).save(row);
+    if (fields.length > 0) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "dashboard.update",
+        targetType: "dashboard",
+        targetId: row.id,
+        targetLabel: row.title,
+        metadata: { fields },
+      });
+    }
     res.json(serializeDashboard(row));
   },
 );
@@ -482,6 +511,15 @@ exploreRouter.post(
       if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
       const body = req.body as z.infer<typeof createCardSchema>;
       const row = await createDashboardCard(dashboard, body);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "dashboard.card.add",
+        targetType: "dashboard",
+        targetId: dashboard.id,
+        targetLabel: dashboard.title,
+        metadata: body.chartId ? { chartId: body.chartId } : { formula: true },
+      });
       res.status(201).json(serializeCard(row));
     } catch (error) {
       if (error instanceof DashboardCardError) {
@@ -524,6 +562,15 @@ exploreRouter.delete("/explore/dashboards/:slug/cards/:cardId", async (req, res)
   const card = await repo.findOneBy({ id: cardId, dashboardId: dashboard.id });
   if (!card) return res.status(404).json({ error: "Card not found" });
   await repo.delete({ id: card.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "dashboard.card.remove",
+    targetType: "dashboard",
+    targetId: dashboard.id,
+    targetLabel: dashboard.title,
+    metadata: { cardId: card.id },
+  });
   res.json({ ok: true });
 });
 
@@ -661,6 +708,15 @@ exploreRouter.post(
       (body.accessLevel ?? "read") as ChartAccessLevel,
     );
     const [hydrated] = await hydrateChartGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: req.method === "POST" ? "chart.grant" : "chart.access.update",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -683,6 +739,15 @@ exploreRouter.patch(
     grant.accessLevel = body.accessLevel as ChartAccessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateChartGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: req.method === "POST" ? "chart.grant" : "chart.access.update",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -695,6 +760,16 @@ exploreRouter.delete("/explore/charts/:slug/grants/:grantId", async (req, res) =
   const grant = await repo.findOneBy({ id: grantId, chartId: row.id });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
+  const [revoked] = await hydrateChartGrants(cid, [grant]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "chart.revoke",
+    targetType: "chart",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: { employee: revoked?.employee?.name ?? null },
+  });
   res.json({ ok: true });
 });
 
@@ -751,6 +826,15 @@ exploreRouter.post(
       (body.accessLevel ?? "read") as ChartAccessLevel,
     );
     const [hydrated] = await hydrateDashboardGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: req.method === "POST" ? "dashboard.grant" : "dashboard.access.update",
+      targetType: "dashboard",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -769,6 +853,15 @@ exploreRouter.patch(
     grant.accessLevel = body.accessLevel as ChartAccessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateDashboardGrants(cid, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: req.method === "POST" ? "dashboard.grant" : "dashboard.access.update",
+      targetType: "dashboard",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -781,6 +874,16 @@ exploreRouter.delete("/explore/dashboards/:slug/grants/:grantId", async (req, re
   const grant = await repo.findOneBy({ id: grantId, dashboardId: row.id });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
+  const [revoked] = await hydrateDashboardGrants(cid, [grant]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "dashboard.revoke",
+    targetType: "dashboard",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: { employee: revoked?.employee?.name ?? null },
+  });
   res.json({ ok: true });
 });
 

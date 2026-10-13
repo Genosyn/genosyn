@@ -22,6 +22,10 @@ export type AuditActorKind = "user" | "system" | "webhook" | "cron" | "ai";
 // "What did this employee do, and when" — the filter the audit page grew and
 // the query a human needs to review a bad autonomous window.
 @Index(["companyId", "actorEmployeeId", "createdAt"])
+// One record's History (`services/recordHistory.ts`): every row that targeted
+// this invoice, routine or deal, newest first, without reading the company's
+// whole log to find them.
+@Index(["companyId", "targetType", "targetId", "createdAt"])
 export class AuditEvent {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

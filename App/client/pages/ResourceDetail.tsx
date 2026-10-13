@@ -52,6 +52,7 @@ import { isShareGrantPaused, resourceLibraryLevelsById } from "../lib/resourceAi
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { RecordHistory } from "../components/RecordHistory";
 
 /**
  * Resource detail — opinionated per source kind. The rule of thumb is
@@ -385,6 +386,16 @@ export default function ResourceDetail({ company }: { company: Company }) {
           {(row.sourceKind === "pdf" || row.sourceKind === "epub") && row.bodyText && (
             <ExtractedFallback bodyText={row.bodyText} />
           )}
+
+          <RecordHistory
+            className="mt-10"
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="resource"
+            targetId={row.id}
+            noun="this resource"
+            milestones={[{ label: "Resource added", at: row.createdAt, covers: ["create"] }]}
+          />
         </div>
       </div>
 

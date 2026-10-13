@@ -479,6 +479,23 @@ export async function moveDealToStage(
   return saved;
 }
 
+/**
+ * The stage names either side of a move, for an audit row a reader can follow
+ * without the stage ids (which a History digest drops). Null for a stage that
+ * has since gone.
+ */
+export async function dealStageNames(
+  companyId: string,
+  fromStageId: string | null,
+  toStageId: string,
+): Promise<{ fromStage: string | null; toStage: string | null }> {
+  const [from, to] = await Promise.all([
+    fromStageId ? getDealStage(companyId, fromStageId) : Promise.resolve(null),
+    getDealStage(companyId, toStageId),
+  ]);
+  return { fromStage: from?.name ?? null, toStage: to?.name ?? null };
+}
+
 export async function archiveDeal(
   companyId: string,
   id: string,

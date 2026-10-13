@@ -63,6 +63,7 @@ import { Select } from "../components/ui/Select";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
+import { RecordHistory } from "../components/RecordHistory";
 
 /**
  * The individual employee sub-pages. These were tabs on EmployeeDetail.tsx,
@@ -357,6 +358,14 @@ export function GeneralSettingsPage() {
         <EmployeeAvatarCard company={company} emp={emp} />
         <EmployeeBasicsCard company={company} emp={emp} />
         <EmployeeTeamCard company={company} emp={emp} />
+        <RecordHistory
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="employee"
+          targetId={emp.id}
+          noun="this employee"
+          milestones={[{ label: "Employee hired", at: emp.createdAt, covers: ["create"] }]}
+        />
         <EmployeeDangerZoneCard company={company} emp={emp} />
       </div>
     </>

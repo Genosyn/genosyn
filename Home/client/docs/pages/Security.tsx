@@ -339,6 +339,25 @@ export function Security() {
         effects in its Run log.
       </P>
 
+      <H2 id="record-history">A record&apos;s History</H2>
+      <P>
+        Detail pages across the product — invoices and estimates, customers, contacts and deals,
+        Routines and Skills, notes, Projects and their todos, and the rest — end with a{" "}
+        <Strong>History</Strong> feed: who changed that record, what they did, and when, newest
+        first and grouped by day. Each entry names its actor and marks what kind it is:{" "}
+        <Strong>Member</Strong> or <Strong>AI Employee</Strong>, or the scheduler, a webhook, or the
+        system. An AI Employee&apos;s entry links to the employee and, when it happened inside a
+        Routine, to that Run. Entries show which fields changed and short details such as an amount
+        or a recipient; the full recorded payload stays in the audit log.
+      </P>
+      <P>
+        History is read from the same audit rows, but only one record&apos;s, so anyone who can open
+        the record can read it: a finance record needs Finance read access, and a restricted
+        Project&apos;s History stays with that Project&apos;s members. Older records also show the
+        dates they carry, such as when an invoice was issued or paid, for changes made before who
+        made them was kept.
+      </P>
+
       <Callout kind="tip" title="SSO-only account?">
         Security changes require your current Genosyn password. If SSO created the account with no
         known password, use <Strong>Forgot password</Strong> once to set one, then return to{" "}

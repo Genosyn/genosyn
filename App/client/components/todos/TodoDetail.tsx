@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
+import { RecordHistory } from "@/components/RecordHistory";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -345,6 +346,19 @@ export function TodoDetailBody({
         companyId={companyId}
         companySlug={companySlug}
         canEdit={canEdit}
+      />
+
+      <RecordHistory
+        className="mt-6"
+        companyId={companyId}
+        companySlug={companySlug}
+        targetType="todo"
+        targetId={todo.id}
+        noun="this todo"
+        milestones={[
+          { label: "Todo created", at: todo.createdAt, covers: ["create"] },
+          { label: "Completed", at: todo.completedAt, covers: ["complete"] },
+        ]}
       />
     </div>
   );

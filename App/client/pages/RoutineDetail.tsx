@@ -99,6 +99,7 @@ import { RoutinesContext } from "./RoutinesLayout";
 import { useAskAi } from "../components/askAi/AskAiProvider";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { EnabledToggle } from "./RevenueSignals";
+import { RecordHistory } from "../components/RecordHistory";
 
 /**
  * One routine, in full: who runs it, when, on what brain, and how every past
@@ -666,6 +667,16 @@ function OverviewTab({
           )}
         </CardBody>
       </Card>
+
+      <RecordHistory
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="routine"
+        targetId={routine.id}
+        noun="this routine"
+        className={compact ? undefined : "md:col-span-2"}
+        milestones={[{ label: "Routine created", at: routine.createdAt, covers: ["create"] }]}
+      />
     </div>
   );
 }

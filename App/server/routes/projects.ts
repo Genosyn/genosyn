@@ -35,6 +35,8 @@ import {
   upsertProjectMember,
 } from "../services/projects.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { recordAudit } from "../services/audit.js";
+import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import {
   composeTodoMentionContext,
   createTodoDiscussionComment,
@@ -230,6 +232,15 @@ projectsRouter.post("/projects", validateBody(createProjectSchema), async (req, 
     todoCounter: 0,
   });
   await repo.save(p);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "project.create",
+    targetType: "project",
+    targetId: p.id,
+    targetLabel: p.name,
+    metadata: { key: p.key },
+  });
   res.json(p);
 });
 
@@ -290,6 +301,13 @@ projectsRouter.patch("/projects/:pSlug", validateBody(patchProjectSchema), async
   if (body.name !== undefined && (await findProjectByName(cid, body.name, p.id))) {
     return res.status(409).json({ error: "A project with that name already exists" });
   }
+  const fields: string[] = [];
+  if (body.name !== undefined && body.name !== p.name) fields.push("name");
+  if (body.description !== undefined && body.description !== p.description) {
+    fields.push("description");
+  }
+  if (body.key !== undefined && body.key.toUpperCase() !== p.key) fields.push("key");
+  const previousAccessMode = p.accessMode;
   if (body.name !== undefined) p.name = body.name;
   if (body.description !== undefined) p.description = body.description;
   if (body.key !== undefined) p.key = body.key.toUpperCase();
@@ -306,6 +324,23 @@ projectsRouter.patch("/projects/:pSlug", validateBody(patchProjectSchema), async
       await AppDataSource.getRepository(Project).save(p);
     }
   }
+  const audit = {
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    targetType: "project",
+    targetId: p.id,
+    targetLabel: p.name,
+  };
+  if (fields.length > 0) {
+    await recordAudit({ ...audit, action: "project.update", metadata: { fields } });
+  }
+  if (p.accessMode !== previousAccessMode) {
+    await recordAudit({
+      ...audit,
+      action: "project.access.update",
+      metadata: { accessMode: p.accessMode },
+    });
+  }
   res.json(p);
 });
 
@@ -320,6 +355,14 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
   await AppDataSource.getRepository(Todo).delete({ projectId: p.id });
   await deleteTagAssignments("project", p.id);
   await AppDataSource.getRepository(Project).delete({ id: p.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "project.delete",
+    targetType: "project",
+    targetId: p.id,
+    targetLabel: p.name,
+  });
   res.json({ ok: true });
 });
 
@@ -409,6 +452,15 @@ projectsRouter.post("/projects/:pSlug/access", validateBody(addAccessSchema), as
     body.accessLevel ?? "read",
   );
   const [hydrated] = await hydrateProjectMembers(cid, [row]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "project.grant",
+    targetType: "project",
+    targetId: p.id,
+    targetLabel: p.name,
+    metadata: { member: hydrated?.name ?? null, accessLevel: row.accessLevel },
+  });
   res.json(hydrated);
 });
 
@@ -452,6 +504,15 @@ projectsRouter.patch(
     row.accessLevel = body.accessLevel;
     await repo.save(row);
     const [hydrated] = await hydrateProjectMembers(cid, [row]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "project.access.update",
+      targetType: "project",
+      targetId: p.id,
+      targetLabel: p.name,
+      metadata: { member: hydrated?.name ?? null, accessLevel: row.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -470,6 +531,16 @@ projectsRouter.delete("/projects/:pSlug/access/:memberRowId", async (req, res) =
     return res.status(400).json({ error: "A project needs at least one person who can edit it" });
   }
   await repo.delete({ id: row.id });
+  const [revoked] = await hydrateProjectMembers(cid, [row]);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "project.revoke",
+    targetType: "project",
+    targetId: p.id,
+    targetLabel: p.name,
+    metadata: { member: revoked?.name ?? null },
+  });
   res.json({ ok: true });
 });
 
@@ -730,6 +801,15 @@ projectsRouter.post(
     void dispatchTodoCreated(cid, t.id).catch((err) => {
       console.error(`[pipelines] task event failed for ${t.id}:`, err);
     });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "todo.create",
+      targetType: "todo",
+      targetId: t.id,
+      targetLabel: todoLabel(p, t),
+      metadata: { projectId: p.id, status: t.status },
+    });
 
     // Assigning to an AI employee is the "go" signal — start a work session
     // in the background instead of letting the todo sit until a routine or a
@@ -751,6 +831,29 @@ projectsRouter.post(
     res.json(hydrated);
   },
 );
+
+function todoLabel(p: Project, t: Todo): string {
+  return `${p.key}-${t.number}: ${t.title}`;
+}
+
+/** Display name of whoever a todo is now assigned to, for its History. */
+async function assigneeName(cid: string, t: Todo): Promise<string | null> {
+  if (t.assigneeEmployeeId) {
+    const e = await AppDataSource.getRepository(AIEmployee).findOne({
+      where: { id: t.assigneeEmployeeId, companyId: cid },
+      select: { id: true, name: true },
+    });
+    return e?.name ?? null;
+  }
+  if (t.assigneeUserId) {
+    const u = await AppDataSource.getRepository(User).findOne({
+      where: { id: t.assigneeUserId },
+      select: { id: true, name: true },
+    });
+    return u?.name ?? null;
+  }
+  return null;
+}
 
 async function loadTodo(cid: string, tid: string) {
   const t = await AppDataSource.getRepository(Todo).findOneBy({ id: tid });
@@ -792,6 +895,19 @@ projectsRouter.patch(
     const body = req.body as z.infer<typeof patchTodoSchema>;
     const t = found.todo;
     const prevAssigneeEmployeeId = t.assigneeEmployeeId;
+    const before = {
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      assigneeEmployeeId: t.assigneeEmployeeId,
+      assigneeUserId: t.assigneeUserId,
+      reviewerEmployeeId: t.reviewerEmployeeId,
+      reviewerUserId: t.reviewerUserId,
+      dueAt: t.dueAt?.getTime() ?? null,
+      recurrence: t.recurrence,
+      parentTodoId: t.parentTodoId,
+      status: t.status,
+    };
 
     // Apply assignee + reviewer changes together so we can validate "only one
     // kind at a time" against the resulting state, and clear the other side
@@ -875,6 +991,7 @@ projectsRouter.patch(
     }
 
     await AppDataSource.getRepository(Todo).save(t);
+    await auditTodoPatch(cid, req.userId ?? null, found.project, t, before);
 
     // Notify the human reviewer when work first enters their queue. Skip if
     // the reviewer is themselves the one moving the card (no self-pings). An
@@ -925,6 +1042,80 @@ projectsRouter.patch(
     res.json(hydrated);
   },
 );
+
+/**
+ * One History entry per meaningful change on a todo: completing, reopening
+ * and (re)assigning read as their own sentences; everything else is an edit
+ * listing the fields. A drag that only reorders the column writes nothing.
+ */
+async function auditTodoPatch(
+  cid: string,
+  actorUserId: string | null,
+  project: Project,
+  t: Todo,
+  before: {
+    title: string;
+    description: string;
+    priority: string;
+    assigneeEmployeeId: string | null;
+    assigneeUserId: string | null;
+    reviewerEmployeeId: string | null;
+    reviewerUserId: string | null;
+    dueAt: number | null;
+    recurrence: string;
+    parentTodoId: string | null;
+    status: string;
+  },
+): Promise<void> {
+  const audit = {
+    companyId: cid,
+    actorUserId,
+    targetType: "todo",
+    targetId: t.id,
+    targetLabel: todoLabel(project, t),
+  };
+  if (t.status !== before.status) {
+    if (t.status === "done") await recordAudit({ ...audit, action: "todo.complete" });
+    else if (before.status === "done") {
+      await recordAudit({ ...audit, action: "todo.reopen", metadata: { status: t.status } });
+    } else {
+      await recordAudit({
+        ...audit,
+        action: "todo.update",
+        metadata: { fields: ["status"], status: t.status },
+      });
+    }
+  }
+  if (
+    t.assigneeEmployeeId !== before.assigneeEmployeeId ||
+    t.assigneeUserId !== before.assigneeUserId
+  ) {
+    await recordAudit({
+      ...audit,
+      action: "todo.assign",
+      metadata: { assignee: await assigneeName(cid, t) },
+    });
+  }
+  const fields: string[] = [];
+  if (t.title !== before.title) fields.push("title");
+  if (t.description !== before.description) fields.push("description");
+  if (t.priority !== before.priority) fields.push("priority");
+  if (
+    t.reviewerEmployeeId !== before.reviewerEmployeeId ||
+    t.reviewerUserId !== before.reviewerUserId
+  ) {
+    fields.push("reviewer");
+  }
+  if ((t.dueAt?.getTime() ?? null) !== before.dueAt) fields.push("dueAt");
+  if (t.recurrence !== before.recurrence) fields.push("recurrence");
+  if (t.parentTodoId !== before.parentTodoId) fields.push("parentTodo");
+  if (fields.length === 0) return;
+  // Title and description are typed into; coalesce a run of those saves.
+  const textOnly = fields.every((f) => f === "title" || f === "description");
+  const params = { ...audit, action: "todo.update", metadata: { fields } };
+  if (textOnly) await recordCoalescedAudit(params);
+  else await recordAudit(params);
+}
 
 async function spawnNextRecurrence(project: Project, completed: Todo): Promise<void> {
   const anchor = completed.dueAt ?? new Date();
@@ -983,6 +1174,15 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
   const ids = [found.todo.id, ...children.map((c) => c.id)];
   await AppDataSource.getRepository(TodoComment).delete({ todoId: In(ids) });
   await todoRepo.delete({ id: In(ids) });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "todo.delete",
+    targetType: "todo",
+    targetId: found.todo.id,
+    targetLabel: todoLabel(found.project, found.todo),
+    metadata: children.length > 0 ? { subtasks: children.length } : undefined,
+  });
   res.json({ ok: true });
 });
 

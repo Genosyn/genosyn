@@ -66,6 +66,7 @@ import { mcpInternalRouter } from "./routes/mcpInternal.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { vaultRouter } from "./routes/vault.js";
 import { auditRouter } from "./routes/audit.js";
+import { recordHistoryRouter } from "./routes/recordHistory.js";
 import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
 import { basesRouter } from "./routes/bases.js";
@@ -460,6 +461,8 @@ async function main() {
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);
+  // One record's History — Member-readable behind that record's own read bar.
+  app.use("/api/companies/:cid", recordHistoryRouter);
   // Per-company SSO settings (M56 Phase B).
   app.use("/api/companies/:cid", companySsoRouter);
   app.use("/api/companies/:cid", usageRouter);

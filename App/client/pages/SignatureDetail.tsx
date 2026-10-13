@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useLiveRefetch } from "@/components/CompanySocket";
+import { RecordHistory } from "@/components/RecordHistory";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import { PdfCanvasRenderer } from "@/components/signatures/PdfCanvasRenderer";
 import { Button } from "@/components/ui/Button";
@@ -835,6 +836,25 @@ export default function SignatureDetail() {
 
   const envelope = detail.envelope;
   const sourceUrl = `${base}/source`;
+  // Who in the company drafted, sent, reminded or voided this request — the
+  // signing audit trail beside it is the signers' side, kept for the
+  // certificate.
+  const history = (
+    <RecordHistory
+      companyId={company.id}
+      companySlug={company.slug}
+      targetType="signature_envelope"
+      targetId={envelope.id}
+      noun="this request"
+      milestones={[
+        { label: "Request drafted", at: envelope.createdAt, covers: ["create"] },
+        { label: "Sent for signature", at: envelope.sentAt, covers: ["send"] },
+        { label: "Signed by everyone", at: envelope.completedAt, covers: ["complete"] },
+        { label: "Declined", at: envelope.declinedAt, covers: ["decline"] },
+        { label: "Voided", at: envelope.voidedAt, covers: ["void"] },
+      ]}
+    />
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -966,6 +986,7 @@ export default function SignatureDetail() {
 
       {isDraft ? (
         <DraftEditor
+          history={history}
           detail={detail}
           customers={customers}
           recipients={recipients}
@@ -1018,6 +1039,7 @@ export default function SignatureDetail() {
         />
       ) : (
         <SentEnvelope
+          history={history}
           detail={detail}
           sourceUrl={envelope.status === "completed" ? `${base}/completed` : sourceUrl}
           acting={acting}
@@ -1063,6 +1085,8 @@ export default function SignatureDetail() {
 }
 
 type DraftEditorProps = {
+  /** The request's History, shown at the foot of the settings panel. */
+  history: React.ReactNode;
   detail: SignatureEnvelopeDetail;
   customers: Customer[];
   recipients: DraftRecipient[];
@@ -1791,6 +1815,7 @@ function DraftEditor(props: DraftEditorProps) {
               </div>
             )}
           </div>
+          <div className="mt-5">{props.history}</div>
         </aside>
       </div>
     </div>
@@ -1983,6 +2008,7 @@ function SendReadiness({
 }
 
 function SentEnvelope({
+  history,
   detail,
   sourceUrl,
   completedUrl,
@@ -1990,6 +2016,7 @@ function SentEnvelope({
   onRemind,
   onVoid,
 }: {
+  history: React.ReactNode;
   detail: SignatureEnvelopeDetail;
   sourceUrl: string;
   completedUrl: string;
@@ -2120,6 +2147,8 @@ function SentEnvelope({
             <XCircle size={14} /> Void request
           </Button>
         )}
+
+        <div className="mt-7">{history}</div>
       </aside>
     </div>
   );

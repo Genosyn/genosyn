@@ -38,6 +38,7 @@ import { Modal } from "../components/ui/Modal";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "../components/RecordHistory";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
@@ -422,6 +423,16 @@ export default function NotebookDetail({ company }: { company: Company }) {
               </div>
             </div>
           )}
+
+          <RecordHistory
+            className="mt-10"
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="notebook"
+            targetId={notebook.id}
+            noun="this notebook"
+            milestones={[{ label: "Notebook created", at: notebook.createdAt, covers: ["create"] }]}
+          />
         </div>
       </div>
 

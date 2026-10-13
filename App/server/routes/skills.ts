@@ -216,6 +216,15 @@ skillsRouter.put("/skills/:sid/readme", validateBody(readmeSchema), async (req, 
   if (!found) return res.status(404).json({ error: "Not found" });
   found.skill.body = (req.body as z.infer<typeof readmeSchema>).content;
   await AppDataSource.getRepository(Skill).save(found.skill);
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "skill.update",
+    targetType: "skill",
+    targetId: found.skill.id,
+    targetLabel: found.skill.name,
+    metadata: { employeeId: found.emp.id, fields: ["body"] },
+  });
   res.json({ ok: true });
 });
 

@@ -36,6 +36,7 @@ import { useModalChrome } from "../components/ui/ModalChrome";
 import { ButtonSpinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useFocusAfterDelete } from "../components/useFocusAfterDelete";
+import { RecordHistory } from "../components/RecordHistory";
 
 /**
  * Record detail surfaces. The slide-in drawer opens a Base record like a
@@ -190,6 +191,17 @@ export function RecordDetailDrawer({
 
           <div className="px-5 py-4">
             <RecordCommentsSection company={company} baseUrl={baseUrl} />
+          </div>
+
+          <div className="px-5 pb-5">
+            <RecordHistory
+              companyId={company.id}
+              companySlug={company.slug}
+              targetType="base_record"
+              targetId={record.id}
+              noun="this record"
+              milestones={[{ label: "Record created", at: record.createdAt, covers: ["create"] }]}
+            />
           </div>
         </div>
       </div>

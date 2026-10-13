@@ -267,6 +267,7 @@ import {
 } from "../services/integrations.js";
 import {
   buildLinkOptionsFor,
+  baseFieldNamesFor,
   createBaseRecordRow,
   deleteBaseRecordWithContents,
   deleteBaseTableWithContents,
@@ -557,6 +558,8 @@ import {
   addDealContact,
   createDeal,
   dealBoard,
+  dealStageNames,
+  getDeal,
   getHydratedDeal,
   listDealContacts,
   listDeals,
@@ -610,6 +613,7 @@ import {
   mergeRevenueAccounts,
   mergeTakesSourceBilling,
   revenueBulkJobForViewer,
+  revenueHistoryType,
   revenueOperationForViewer,
   revenueOperationRowForViewer,
   setRevenueAccountArchived,
@@ -2069,9 +2073,14 @@ mcpInternalRouter.post(
       targetId: c.id,
       targetLabel: c.name,
       journalTitle: `${req.mcpEmployee!.name} updated customer ${c.name}`,
-      metadata: emailChanged
-        ? { emailChanged: true, previousEmail, newEmail: c.email }
-        : { emailChanged: false },
+      metadata: {
+        fields: Object.keys(body).filter(
+          (k) => k !== "customerSlug" && body[k as keyof typeof body] !== undefined,
+        ),
+        ...(emailChanged
+          ? { emailChanged: true, previousEmail, newEmail: c.email }
+          : { emailChanged: false }),
+      },
     });
     res.json({ customer: serializeToolCustomer(c) });
   },
@@ -2488,6 +2497,9 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} updated recurring invoice ${schedule.name}`,
         journalBody: recurringInvoiceWriteNote(schedule),
         metadata: {
+          fields: Object.keys(body).filter(
+            (k) => k !== "recurringInvoiceSlug" && body[k as keyof typeof body] !== undefined,
+          ),
           status: schedule.status,
           cronExpr: schedule.cronExpr,
           frequency: schedule.frequency,
@@ -2871,7 +2883,17 @@ mcpInternalRouter.post(
     try {
       // Auto-issue drafts first (mints the number, posts DR AR / CR Revenue),
       // matching the human "Send" button.
-      if (inv.status === "draft") inv = await issueInvoice(inv, null);
+      if (inv.status === "draft") {
+        inv = await issueInvoice(inv, null);
+        await aiWriteTrail(req, {
+          action: "finance.invoice.issue",
+          targetType: "invoice",
+          targetId: inv.id,
+          targetLabel: inv.number || "Invoice",
+          journalTitle: `${req.mcpEmployee!.name} issued invoice ${inv.number || inv.slug}`,
+          metadata: { totalCents: inv.totalCents },
+        });
+      }
       const result = await sendInvoiceEmail(cid, inv, null, sendOptions);
       const [hydrated] = await hydrateInvoices(cid, [inv]);
       await aiWriteTrail(req, {
@@ -4322,6 +4344,7 @@ mcpInternalRouter.post(
     const cid = req.mcpCompany!.id;
     const body = req.body as z.infer<typeof moveDealStageSchema>;
     try {
+      const fromStageId = (await getDeal(cid, body.dealId))?.stageId ?? null;
       const deal = await moveDealToStage(cid, body.dealId, body.stageId, revenueActor(req), {
         lostReason: body.lostReason,
       });
@@ -4334,6 +4357,7 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} moved deal ${deal.title} (now ${deal.status})`,
         metadata: {
           stageId: deal.stageId,
+          ...(await dealStageNames(cid, fromStageId, deal.stageId)),
           status: deal.status,
           lostReason: deal.lostReason,
         },
@@ -5010,7 +5034,7 @@ mcpInternalRouter.post(
       const account = await createRevenueAccount(req.mcpCompany!.id, req.body, { userId: null });
       await aiWriteTrail(req, {
         action: "revenue.account.create",
-        targetType: "customer",
+        targetType: "revenue_account",
         targetId: account.id,
         targetLabel: account.name,
         journalTitle: `${req.mcpEmployee!.name} created account ${account.name}`,
@@ -5042,7 +5066,7 @@ mcpInternalRouter.post(
       if (!account) return res.status(404).json({ error: "Account not found" });
       await aiWriteTrail(req, {
         action: "revenue.account.update",
-        targetType: "customer",
+        targetType: "revenue_account",
         targetId: account.id,
         targetLabel: account.name,
         journalTitle: `${req.mcpEmployee!.name} updated account ${account.name}`,
@@ -5077,7 +5101,7 @@ mcpInternalRouter.post(
       if (!account) return res.status(404).json({ error: "Account not found" });
       await aiWriteTrail(req, {
         action: `revenue.account.${archived ? "archive" : "restore"}`,
-        targetType: "customer",
+        targetType: "revenue_account",
         targetId: account.id,
         targetLabel: account.name,
         journalTitle: `${req.mcpEmployee!.name} ${
@@ -5129,11 +5153,20 @@ mcpInternalRouter.post(
       );
       await aiWriteTrail(req, {
         action: "revenue.account.merge",
-        targetType: "customer",
+        targetType: "revenue_account",
         targetId: result.source.id,
         targetLabel: `${result.source.name} → ${result.target.name}`,
         journalTitle: `${req.mcpEmployee!.name} merged account ${result.source.name} into ${result.target.name}`,
         metadata: { targetAccountId: result.target.id, moved: result.counts },
+      });
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: "revenue.account.merge",
+        targetType: "revenue_account",
+        targetId: result.target.id,
+        targetLabel: result.target.name,
+        metadata: { mergedFrom: result.source.name, via: "mcp" },
       });
       const billingVisible = await employeeSeesAccountBilling(req);
       res.json(accountMergePreviewForViewer(result, billingVisible));
@@ -5475,12 +5508,12 @@ mcpInternalRouter.post(
       );
       await aiWriteTrail(req, {
         action: "revenue.custom_values.update",
-        targetType: body.resourceType,
+        targetType: revenueHistoryType(body.resourceType),
         targetId: body.resourceId,
         targetLabel: body.resourceType,
         journalTitle: `${req.mcpEmployee!.name} updated ${body.resourceType} custom fields`,
         metadata: {
-          keys: Object.keys(body.values),
+          fields: Object.keys(body.values),
           sourceType: body.provenance?.sourceType ?? "manual",
         },
       });
@@ -6455,11 +6488,20 @@ mcpInternalRouter.post(
       );
       await aiWriteTrail(req, {
         action: `revenue.${body.resourceType}.merge`,
-        targetType: body.resourceType,
+        targetType: revenueHistoryType(body.resourceType),
         targetId: result.source.id,
         targetLabel: `${result.source.label} → ${result.target.label}`,
         journalTitle: `${req.mcpEmployee!.name} merged ${result.source.label} into ${result.target.label}`,
         metadata: { operationId: result.operationId, moved: result.relationshipCounts },
+      });
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: `revenue.${body.resourceType}.merge`,
+        targetType: revenueHistoryType(body.resourceType),
+        targetId: result.target.id,
+        targetLabel: result.target.label,
+        metadata: { mergedFrom: result.source.label, via: "mcp" },
       });
       res.json(await recordMergePreviewForEmployee(req, result));
     } catch (error) {
@@ -10549,6 +10591,7 @@ mcpInternalRouter.post(
       t.parentTodoId = body.parentTodoId;
     }
     let justEnteredReview = false;
+    const statusBefore = t.status;
     if (body.status !== undefined) {
       const prev = t.status;
       t.status = body.status;
@@ -10595,14 +10638,26 @@ mcpInternalRouter.post(
       });
     }
 
+    // Completing and reopening read as their own sentences in the todo's
+    // History; the field list never carries the description's text.
+    const todoAction =
+      t.status !== statusBefore && t.status === "done"
+        ? "todo.complete"
+        : t.status !== statusBefore && statusBefore === "done"
+          ? "todo.reopen"
+          : "todo.update";
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
-      action: "todo.update",
+      action: todoAction,
       targetType: "todo",
       targetId: t.id,
       targetLabel: `${project.key}-${t.number}: ${t.title}`,
-      metadata: { via: "mcp", changes: body },
+      metadata: {
+        via: "mcp",
+        fields: Object.keys(body).filter((key) => key !== "todoId"),
+        status: t.status,
+      },
     });
     res.json({ todo: serializeTodo(t) });
   },
@@ -11033,7 +11088,7 @@ mcpInternalRouter.post(
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
-      action: "base_row.create",
+      action: "base_record.create",
       targetType: "base_record",
       targetId: saved.id,
       targetLabel: `${b.name}/${t.name}`,
@@ -11080,11 +11135,16 @@ mcpInternalRouter.post(
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
-      action: "base_row.update",
+      action: "base_record.update",
       targetType: "base_record",
       targetId: r.id,
       targetLabel: `${b.name}/${t.name}`,
-      metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+      metadata: {
+        via: "mcp",
+        baseId: b.id,
+        tableId: t.id,
+        fields: await baseFieldNamesFor(t.id, Object.keys(body.data)),
+      },
     });
     res.json({ row: hydrateRecord(r) });
   },
@@ -11116,7 +11176,7 @@ mcpInternalRouter.post(
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
-      action: "base_row.delete",
+      action: "base_record.delete",
       targetType: "base_record",
       targetId: r.id,
       targetLabel: `${b.name}/${t.name}`,
@@ -14100,6 +14160,7 @@ mcpInternalRouter.post(
       }
     }
 
+    const wasArchived = note.archivedAt !== null;
     if (body.title !== undefined) note.title = body.title;
     if (body.body !== undefined) note.body = body.body;
     if (body.icon !== undefined) note.icon = body.icon;
@@ -14110,15 +14171,26 @@ mcpInternalRouter.post(
     note.lastEditedByEmployeeId = self.id;
     await repo.save(note);
 
+    // Archiving and restoring read as their own History sentences; any other
+    // change is an edit listing the fields (never the body's text).
+    const archiveChanged = body.archived !== undefined && body.archived !== wasArchived;
+    const noteFields = (["title", "body", "icon", "parentSlug"] as const).filter(
+      (key) => body[key] !== undefined,
+    );
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
-      action: "note.update",
+      action: archiveChanged
+        ? body.archived
+          ? "note.archive"
+          : "note.restore"
+        : "note.update",
       targetType: "note",
       targetId: note.id,
       targetLabel: note.title,
       metadata: {
         via: "mcp",
+        fields: noteFields,
         archived: note.archivedAt !== null,
       },
     });
@@ -15512,7 +15584,10 @@ mcpInternalRouter.post(
       targetType: "resource",
       targetId: row.id,
       targetLabel: row.title,
-      metadata: { via: "mcp" },
+      metadata: {
+        via: "mcp",
+        fields: Object.keys(body).filter((key) => key !== "resourceSlug"),
+      },
     });
     await journal(
       self.id,
@@ -17926,7 +18001,7 @@ mcpInternalRouter.post(
       targetType: "chart",
       targetId: row.id,
       targetLabel: row.title,
-      metadata: { via: "mcp" },
+      metadata: { via: "mcp", fields: Object.keys(body).filter((key) => key !== "chartSlug") },
     });
     res.json({ chart: serializeChart(row) });
   },
@@ -19304,6 +19379,7 @@ async function auditMarketingTool(
   targetType: string,
   targetId: string,
   targetLabel: string,
+  metadata?: Record<string, unknown>,
 ): Promise<void> {
   await Promise.all([
     recordAudit({
@@ -19313,6 +19389,7 @@ async function auditMarketingTool(
       targetType,
       targetId,
       targetLabel,
+      metadata,
     }),
     journal(req.mcpEmployee!.id, action, targetLabel),
   ]);
@@ -19517,6 +19594,7 @@ mcpInternalRouter.post(
       "marketing_campaign",
       row.id,
       row.name,
+      { via: "mcp", fields: Object.keys(patch), status: row.status },
     );
     res.json(row);
   }),
@@ -19797,6 +19875,15 @@ mcpInternalRouter.post(
       res.status(400).json({ error: result.error });
       return;
     }
+    await recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action: "meeting.notetaker.start",
+      targetType: "meeting",
+      targetId: meeting.id,
+      targetLabel: meeting.title,
+      metadata: { via: "mcp" },
+    });
     const current = await getMeeting(req.mcpCompany!.id, meetingId);
     res.json({
       meeting: current ? serializeMeeting(current) : null,

@@ -19,6 +19,7 @@ import {
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { ButtonSpinner } from "../components/ui/Spinner";
+import { RecordHistory } from "../components/RecordHistory";
 import { api, type Employee, type IntegrationConnection } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -651,6 +652,16 @@ export function MarketingCampaignDetailPage() {
               ) : null}
             </dl>
           </section>
+
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="marketing_campaign"
+            targetId={campaign.id}
+            noun="this campaign"
+            currency={currency}
+            milestones={[{ label: "Campaign created", at: campaign.createdAt, covers: ["create"] }]}
+          />
         </div>
       </div>
     </div>

@@ -292,6 +292,15 @@ pipelinesRouter.post("/pipelines/:idOrSlug/run", validateBody(runSchema), async 
   const body = req.body as z.infer<typeof runSchema>;
   try {
     const run = await fireManually(p, body.payload ?? {});
+    await recordAudit({
+      companyId: p.companyId,
+      actorUserId: req.userId ?? null,
+      action: "pipeline.run.manual",
+      targetType: "pipeline",
+      targetId: p.id,
+      targetLabel: p.name,
+      metadata: { pipelineRunId: run.id },
+    });
     res.json({
       id: run.id,
       pipelineId: run.pipelineId,
@@ -398,6 +407,15 @@ pipelinesRouter.post(
     p.graphJson = serializeGraph(graph);
     syncScheduleFields(p);
     await AppDataSource.getRepository(Pipeline).save(p);
+    await recordAudit({
+      companyId: p.companyId,
+      actorUserId: req.userId ?? null,
+      action: "pipeline.webhook.rotate",
+      targetType: "pipeline",
+      targetId: p.id,
+      targetLabel: p.name,
+      metadata: { nodeId: body.nodeId },
+    });
     res.json({ token, graph });
   },
 );

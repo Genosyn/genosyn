@@ -643,6 +643,20 @@ routinesRouter.post("/routines/move", validateBody(moveSchema), async (req, res)
     targetLabel: `${routines.length} routine${routines.length === 1 ? "" : "s"}`,
     metadata: { routineIds, folderId: body.folderId },
   });
+  // The folder row above is the batch; each Routine also gets its own row so
+  // its History shows who filed it — but only when it actually changed folder.
+  for (const r of routines) {
+    if (r.folderId === body.folderId) continue;
+    await recordAudit({
+      companyId: co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.move",
+      targetType: "routine",
+      targetId: r.id,
+      targetLabel: r.name,
+      metadata: { fields: ["folderId"], folderId: body.folderId },
+    });
+  }
   res.json({ ok: true, moved: routines.length, folderId: body.folderId });
 });
 
@@ -721,6 +735,15 @@ routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (r
     if (!found) return res.status(404).json({ error: "Not found" });
     found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
     await AppDataSource.getRepository(Routine).save(found.routine);
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.update",
+      targetType: "routine",
+      targetId: found.routine.id,
+      targetLabel: found.routine.name,
+      metadata: { fields: ["body"] },
+    });
     res.json({ ok: true });
   } catch (err) {
     next(err);

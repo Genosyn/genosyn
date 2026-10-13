@@ -23,6 +23,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { RecordHistory } from "../components/RecordHistory";
 import { Panel, ProviderChip, StatusChip } from "../components/meetings/MeetingChips";
 import { errorMessage } from "../lib/errors";
 import {
@@ -523,6 +524,15 @@ export default function MeetingDetail() {
               </div>
             )}
           </section>
+
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="meeting"
+            targetId={meeting.id}
+            noun="this meeting"
+            milestones={[{ label: "Meeting added", at: meeting.createdAt, covers: ["create"] }]}
+          />
         </div>
       </div>
 

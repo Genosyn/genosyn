@@ -2,8 +2,11 @@ import React from "react";
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   Eye,
   FileText,
+  History,
   MoreHorizontal,
   Pencil,
   RotateCcw,
@@ -37,6 +40,7 @@ import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { RecordHistory } from "../components/RecordHistory";
 
 const EMOJI_PALETTE = [
   "📄",
@@ -102,6 +106,7 @@ export default function NoteDetail({ company }: { company: Company }) {
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
   const [iconPickerOpen, setIconPickerOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -499,6 +504,32 @@ export default function NoteDetail({ company }: { company: Company }) {
               onSave={save}
               placeholder="Type '/' for commands, or just start writing…"
             />
+          </div>
+
+          {/* History stays folded under the page so it never competes with
+              the writing; it only loads once someone opens it. */}
+          <div className="mt-16 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-expanded={historyOpen}
+              className="flex items-center gap-1.5 rounded-md px-1 py-1 text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+            >
+              {historyOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <History size={14} />
+              History
+            </button>
+            {historyOpen && (
+              <RecordHistory
+                className="mt-3"
+                companyId={company.id}
+                companySlug={company.slug}
+                targetType="note"
+                targetId={note.id}
+                noun="this note"
+                milestones={[{ label: "Note created", at: note.createdAt, covers: ["create"] }]}
+              />
+            )}
           </div>
         </div>
       </div>

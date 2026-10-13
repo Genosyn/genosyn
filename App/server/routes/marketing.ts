@@ -75,6 +75,7 @@ function audit(
   targetType: string,
   targetId: string,
   label: string,
+  metadata?: Record<string, unknown>,
 ) {
   return recordAudit({
     companyId: cid(req),
@@ -83,6 +84,7 @@ function audit(
     targetType,
     targetId,
     targetLabel: label,
+    metadata,
   });
 }
 
@@ -257,7 +259,10 @@ marketingRouter.patch(
   validateBody(marketingCampaignPatchSchema),
   h(async (req, res) => {
     const row = await updateMarketingCampaign(cid(req), req.params.campaignId, req.body);
-    await audit(req, "marketing.campaign.update", "marketing_campaign", row.id, row.name);
+    await audit(req, "marketing.campaign.update", "marketing_campaign", row.id, row.name, {
+      fields: Object.keys(req.body as Record<string, unknown>),
+      status: row.status,
+    });
     res.json(row);
   }),
 );

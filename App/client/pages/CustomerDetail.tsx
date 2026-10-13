@@ -50,6 +50,7 @@ import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
+import { RecordHistory } from "@/components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -805,6 +806,19 @@ function CustomerOverview({ company }: { company: Company }) {
                   </ul>
                 )}
               </section>
+
+              <RecordHistory
+                companyId={company.id}
+                companySlug={company.slug}
+                targetType="customer"
+                targetId={customer.id}
+                noun="this customer"
+                currency={customer.currency}
+                milestones={[
+                  { label: "Customer added", at: customer.createdAt, covers: ["create"] },
+                  { label: "Customer archived", at: customer.archivedAt, covers: ["archive"] },
+                ]}
+              />
             </div>
 
             <div className="min-w-0 space-y-6">

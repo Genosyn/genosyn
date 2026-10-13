@@ -18,6 +18,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -326,6 +327,21 @@ export default function FinanceCreditNoteDetail() {
           </ul>
         </div>
       )}
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="credit_note"
+        targetId={credit.id}
+        noun="this credit note"
+        currency={credit.currency}
+        milestones={[
+          { label: "Credit note created", at: credit.createdAt, covers: ["create"] },
+          { label: "Credit note issued", at: credit.issuedAt, covers: ["issue"] },
+          { label: "Credit note voided", at: credit.voidedAt, covers: ["void"] },
+        ]}
+      />
 
       {showApply && (
         <ApplyCreditModal

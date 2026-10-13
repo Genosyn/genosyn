@@ -16,6 +16,7 @@ import { api, Employee } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { mailApi, MailAccount } from "../lib/mail";
 import { Breadcrumbs } from "../components/AppShell";
+import { RecordHistory } from "../components/RecordHistory";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -949,6 +950,16 @@ export default function RevenueSequenceDetail() {
           </div>
         )}
       </section>
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="sequence"
+        targetId={sequence.id}
+        noun="this sequence"
+        milestones={[{ label: "Sequence created", at: sequence.createdAt, covers: ["create"] }]}
+      />
 
       <p className="mt-6 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
         <Bot size={12} />

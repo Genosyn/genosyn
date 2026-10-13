@@ -2,6 +2,7 @@ import React from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  FileClock,
   History,
   Pause,
   Play,
@@ -30,6 +31,7 @@ import {
   pipelineStatus,
 } from "@/pages/pipelines/pipelineUi";
 import { AsyncResourceTagPicker } from "@/components/TagPicker";
+import { RecordHistory } from "@/components/RecordHistory";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 export default function PipelineDetail({ company }: { company: Company }) {
@@ -57,7 +59,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [tab, setTab] = React.useState<"builder" | "runs">("builder");
+  const [tab, setTab] = React.useState<"builder" | "runs" | "changes">("builder");
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -463,6 +465,9 @@ export default function PipelineDetail({ company }: { company: Company }) {
           <TabButton active={tab === "runs"} icon={History} onClick={() => setTab("runs")}>
             Run history
           </TabButton>
+          <TabButton active={tab === "changes"} icon={FileClock} onClick={() => setTab("changes")}>
+            Changes
+          </TabButton>
         </div>
       </header>
 
@@ -534,12 +539,24 @@ export default function PipelineDetail({ company }: { company: Company }) {
             />
           </div>
         </div>
-      ) : (
+      ) : tab === "runs" ? (
         <PipelineRuns
           company={company}
           pipelineId={pipeline.id}
           onOpenBuilder={() => setTab("builder")}
         />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="pipeline"
+            targetId={pipeline.id}
+            noun="this pipeline"
+            className="mx-auto max-w-3xl"
+            milestones={[{ label: "Pipeline created", at: pipeline.createdAt, covers: ["create"] }]}
+          />
+        </div>
       )}
     </div>
   );

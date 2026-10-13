@@ -36,6 +36,7 @@ import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { dateTimeLocalToIso, defaultFollowUpDue } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
+import { RecordHistory } from "../components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -505,6 +506,15 @@ export default function RevenueDealDetail() {
             roles={classifications.filter((row) => row.kind === "committee_role")}
             onAdd={addCommitteeMember}
             onRemove={(link) => void removeCommitteeMember(link)}
+          />
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="deal"
+            targetId={deal.id}
+            noun="this deal"
+            currency={deal.currency}
+            milestones={[{ label: "Deal created", at: deal.createdAt, covers: ["create"] }]}
           />
         </div>
       </div>

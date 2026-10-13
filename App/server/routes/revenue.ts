@@ -71,6 +71,8 @@ import {
   archiveDeal,
   createDeal,
   dealBoard,
+  dealStageNames,
+  getDeal,
   getHydratedDeal,
   listDealContacts,
   listDeals,
@@ -655,6 +657,7 @@ revenueRouter.post(
     const cid = cidOf(req);
     const body = req.body as z.infer<typeof dealStageMoveSchema>;
     try {
+      const fromStageId = (await getDeal(cid, req.params.id))?.stageId ?? null;
       const deal = await moveDealToStage(cid, req.params.id, body.stageId, actorOf(req), {
         lostReason: body.lostReason,
       });
@@ -663,7 +666,12 @@ revenueRouter.post(
         req,
         "revenue.deal.stage",
         { type: "deal", id: deal.id, label: deal.title },
-        { stageId: deal.stageId, status: deal.status, lostReason: deal.lostReason },
+        {
+          stageId: deal.stageId,
+          ...(await dealStageNames(cid, fromStageId, deal.stageId)),
+          status: deal.status,
+          lostReason: deal.lostReason,
+        },
       );
       return res.json(await getHydratedDeal(cid, deal.id));
     } catch (err) {
@@ -1184,11 +1192,18 @@ revenueRouter.post(
       body.reason ?? "",
     );
     if (!enrollment) return res.status(404).json({ error: "Enrollment not found" });
+    // Targeted at the Sequence so the stop reads in its History; the
+    // enrolment itself has no page of its own.
+    const sequence = await getSequence(cidOf(req), enrollment.sequenceId);
     await audit(
       req,
       "revenue.enrollment.stop",
-      { type: "sequence_enrollment", id: enrollment.id },
-      { sequenceId: enrollment.sequenceId, reason: enrollment.stoppedReason },
+      { type: "sequence", id: enrollment.sequenceId, label: sequence?.name ?? "" },
+      {
+        enrollmentId: enrollment.id,
+        contactId: enrollment.contactId,
+        reason: enrollment.stoppedReason,
+      },
     );
     return res.json(enrollment);
   }),

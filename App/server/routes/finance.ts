@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { In, IsNull } from "typeorm";
 import multer from "multer";
@@ -259,6 +259,36 @@ for (const verb of ["get", "post", "put", "patch", "delete"] as const) {
   ) => original(path, verb === "get" ? requireFinanceRead : requireFinanceWrite, ...handlers);
 }
 
+/**
+ * Audit a Member's write to one finance record. These rows are what the
+ * record's History feed reads, so `targetType` is the `RECORD_HISTORY_TYPES`
+ * key, `targetId` the record's own id, and `metadata` stays compact (amounts
+ * in cents, statuses, the names of the fields an edit touched).
+ */
+function auditFinance(
+  req: Request,
+  action: string,
+  target: { type: string; id: string; label: string },
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  return recordAudit({
+    companyId: (req.params as Record<string, string>).cid,
+    actorUserId: req.userId ?? null,
+    action,
+    targetType: target.type,
+    targetId: target.id,
+    targetLabel: target.label,
+    metadata,
+  });
+}
+
+/** The fields a PATCH body set — what an `update` row names. */
+function changedKeys(body: object): string[] {
+  return Object.entries(body)
+    .filter(([, v]) => v !== undefined)
+    .map(([k]) => k);
+}
+
 // Reused throughout — ISO 4217 codes are 3 ASCII letters. We don't enforce
 // the full ISO list because Phase E (multi-currency) will introduce a
 // `Currency` table that does the validation properly.
@@ -404,6 +434,11 @@ financeRouter.post("/customers", validateBody(customerWriteSchema), async (req, 
     }
   }
 
+  await auditFinance(req, "finance.customer.create", {
+    type: "customer",
+    id: c.id,
+    label: c.name,
+  });
   const [hydrated] = await hydrateCustomers(cid, [c]);
   res.json(hydrated);
 });
@@ -585,6 +620,15 @@ financeRouter.patch(
       c.archivedAt = body.archived ? new Date() : null;
     }
     await AppDataSource.getRepository(Customer).save(c);
+    const { archived, ...edits } = body;
+    const target = { type: "customer", id: c.id, label: c.name };
+    const fields = changedKeys(edits);
+    if (fields.length > 0) {
+      await auditFinance(req, "finance.customer.update", target, { fields });
+    }
+    if (archived !== undefined) {
+      await auditFinance(req, archived ? "finance.customer.archive" : "finance.customer.restore", target);
+    }
     const [hydrated] = await hydrateCustomers(cid, [c]);
     res.json(hydrated);
   },
@@ -638,6 +682,7 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
   }
   await AppDataSource.getRepository(CustomerContact).delete({ customerId: c.id });
   await AppDataSource.getRepository(Customer).delete({ id: c.id });
+  await auditFinance(req, "finance.customer.delete", { type: "customer", id: c.id, label: c.name });
   res.json({ ok: true });
 });
 
@@ -673,6 +718,12 @@ financeRouter.post(
     });
     await repo.save(ct);
     if (ct.isPrimary) await clearOtherPrimaries(c.id, ct.id);
+    await auditFinance(
+      req,
+      "finance.customer.contact.add",
+      { type: "customer", id: c.id, label: c.name },
+      { contact: ct.name },
+    );
     res.json(ct);
   },
 );
@@ -699,6 +750,12 @@ financeRouter.patch(
     if (body.sortOrder !== undefined) ct.sortOrder = body.sortOrder;
     await repo.save(ct);
     if (ct.isPrimary) await clearOtherPrimaries(c.id, ct.id);
+    await auditFinance(
+      req,
+      "finance.customer.contact.update",
+      { type: "customer", id: c.id, label: c.name },
+      { contact: ct.name, fields: changedKeys(body) },
+    );
     res.json(ct);
   },
 );
@@ -714,6 +771,12 @@ financeRouter.delete("/customers/:slug/contacts/:contactId", async (req, res) =>
   });
   if (!ct) return res.status(404).json({ error: "Contact not found" });
   await repo.delete({ id: ct.id });
+  await auditFinance(
+    req,
+    "finance.customer.contact.remove",
+    { type: "customer", id: c.id, label: c.name },
+    { contact: ct.name },
+  );
   res.json({ ok: true });
 });
 
@@ -949,6 +1012,12 @@ financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, r
       lines: body.lines,
       createdById: req.userId ?? null,
     });
+    await auditFinance(
+      req,
+      "finance.invoice.create",
+      { type: "invoice", id: invoice.id, label: invoice.number || "Draft invoice" },
+      { totalCents: invoice.totalCents, currency: invoice.currency },
+    );
     const [hydrated] = await hydrateInvoices(cid, [invoice]);
     res.json(hydrated);
   } catch (err) {
@@ -1050,6 +1119,12 @@ financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (
     await replaceInvoiceLines(inv, body.lines);
   }
   const recomputed = await recomputeInvoiceTotals(inv);
+  await auditFinance(
+    req,
+    "finance.invoice.update",
+    { type: "invoice", id: inv.id, label: inv.number || "Draft invoice" },
+    { fields: changedKeys(body), totalCents: recomputed.totalCents },
+  );
   const [hydrated] = await hydrateInvoices(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -1070,6 +1145,11 @@ financeRouter.delete("/invoices/:slug", async (req, res) => {
     invoiceId: inv.id,
   });
   await AppDataSource.getRepository(Invoice).delete({ id: inv.id });
+  await auditFinance(req, "finance.invoice.delete", {
+    type: "invoice",
+    id: inv.id,
+    label: inv.number || "Draft invoice",
+  });
   res.json({ ok: true });
 });
 
@@ -1091,6 +1171,12 @@ financeRouter.post("/invoices/:slug/issue", async (req, res) => {
   }
   try {
     const issued = await issueInvoice(inv, req.userId ?? null);
+    await auditFinance(
+      req,
+      "finance.invoice.issue",
+      { type: "invoice", id: issued.id, label: issued.number || "Invoice" },
+      { totalCents: issued.totalCents },
+    );
     const [hydrated] = await hydrateInvoices(cid, [issued]);
     res.json(hydrated);
   } catch (err) {
@@ -1142,6 +1228,12 @@ financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), asyn
     if (inv.status === "draft") {
       inv = await issueInvoice(inv, req.userId ?? null);
       issuedHere = true;
+      await auditFinance(
+        req,
+        "finance.invoice.issue",
+        { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
+        { totalCents: inv.totalCents },
+      );
     }
   } catch (err) {
     return res.status(400).json({ error: (err as Error).message });
@@ -1190,6 +1282,19 @@ financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), asyn
           emailLogId: result.logId,
         },
       });
+    } else {
+      await auditFinance(
+        req,
+        "finance.invoice.send",
+        { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
+        {
+          status: result.status,
+          toAddress: result.toAddress,
+          ccAddress: result.ccAddress,
+          pdfAttached: result.pdfAttached,
+          errorMessage: result.errorMessage,
+        },
+      );
     }
     const [hydrated] = await hydrateInvoices(cid, [inv]);
     res.json({ invoice: hydrated, send: result });
@@ -1204,6 +1309,11 @@ financeRouter.post("/invoices/:slug/void", async (req, res) => {
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
   try {
     const voided = await voidInvoice(inv, req.userId ?? null);
+    await auditFinance(req, "finance.invoice.void", {
+      type: "invoice",
+      id: voided.id,
+      label: voided.number || "Invoice",
+    });
     const [hydrated] = await hydrateInvoices(cid, [voided]);
     res.json(hydrated);
   } catch (err) {
@@ -1220,6 +1330,18 @@ financeRouter.post("/invoices/:slug/duplicate", async (req, res) => {
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
   try {
     const draft = await duplicateInvoice(inv, req.userId ?? null);
+    await auditFinance(
+      req,
+      "finance.invoice.duplicate",
+      { type: "invoice", id: inv.id, label: inv.number || "Draft invoice" },
+      { copy: draft.slug },
+    );
+    await auditFinance(
+      req,
+      "finance.invoice.create",
+      { type: "invoice", id: draft.id, label: "Draft invoice" },
+      { duplicatedFrom: inv.number || inv.slug },
+    );
     const [hydrated] = await hydrateInvoices(cid, [draft]);
     res.json(hydrated);
   } catch (err) {
@@ -1378,7 +1500,7 @@ financeRouter.post(
         await postInvoicePayment(inv, paymentRow, req.userId ?? null);
       }
       if (excess > 0) {
-        await createOverpaymentCredit(
+        const credit = await createOverpaymentCredit(
           cid,
           {
             customerId: inv.customerId,
@@ -1388,6 +1510,12 @@ financeRouter.post(
             paidAt,
           },
           req.userId ?? null,
+        );
+        await auditFinance(
+          req,
+          "finance.credit_note.create",
+          { type: "credit_note", id: credit.id, label: credit.number },
+          { amountCents: excess, overpaidInvoice: inv.number || inv.slug },
         );
       }
     } catch (err) {
@@ -1400,6 +1528,19 @@ financeRouter.post(
       return res.status(400).json({ error: (err as Error).message });
     }
     const recomputed = await recomputeInvoiceTotals(inv);
+    await auditFinance(
+      req,
+      "finance.invoice.payment",
+      { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
+      {
+        amountCents: body.amountCents,
+        ...(excess > 0 ? { creditedCents: excess } : {}),
+        method: body.method ?? "other",
+        reference: body.reference ?? "",
+        balanceCents: recomputed.balanceCents,
+        status: recomputed.status,
+      },
+    );
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
     res.json(hydrated);
   },
@@ -1426,6 +1567,12 @@ financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   await reverseInvoicePayment(inv, p, req.userId ?? null);
   await payRepo.delete({ id: p.id });
   const recomputed = await recomputeInvoiceTotals(inv);
+  await auditFinance(
+    req,
+    "finance.invoice.payment.delete",
+    { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
+    { amountCents: p.amountCents, balanceCents: recomputed.balanceCents },
+  );
   const [hydrated] = await hydrateInvoices(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -2088,6 +2235,10 @@ financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req,
       lines: body.lines,
       createdById: req.userId ?? null,
     });
+    await auditFinance(req, "finance.estimate.create", { type: "estimate", id: estimate.id, label: estimate.number || "Draft estimate" }, {
+      totalCents: estimate.totalCents,
+      currency: estimate.currency,
+    });
     const [hydrated] = await hydrateEstimates(cid, [estimate]);
     res.json(hydrated);
   } catch (err) {
@@ -2107,22 +2258,11 @@ financeRouter.post("/estimates/bulk", validateBody(estimateBulkSchema), async (r
   const body = req.body as z.infer<typeof estimateBulkSchema>;
   try {
     const { changed, skipped } = await setEstimatesArchived(cid, body.ids, body.action);
-    if (changed.length > 0) {
-      await recordAudit({
-        companyId: cid,
-        actorUserId: req.userId,
-        action: `finance.estimate.${body.action}`,
-        targetType: "estimate",
-        targetId: changed[0].id,
-        targetLabel:
-          changed.length === 1
-            ? changed[0].number || "Draft estimate"
-            : `${changed.length} estimates`,
-        metadata: {
-          requested: body.ids.length,
-          changed: changed.length,
-          skipped: skipped.length,
-        },
+    // One row per estimate, so each one's History shows it was archived or
+    // restored — not only the first of the selection.
+    for (const e of changed) {
+      await auditFinance(req, `finance.estimate.${body.action}`, { type: "estimate", id: e.id, label: e.number || "Draft estimate" }, {
+        bulk: changed.length > 1,
       });
     }
     res.json({ action: body.action, succeeded: changed.map((e) => e.id), skipped });
@@ -2197,6 +2337,10 @@ financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async
     await replaceEstimateLines(est, body.lines);
   }
   const recomputed = await recomputeEstimateTotals(est);
+  await auditFinance(req, "finance.estimate.update", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, {
+    fields: changedKeys(body),
+    totalCents: recomputed.totalCents,
+  });
   const [hydrated] = await hydrateEstimates(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -2214,6 +2358,7 @@ financeRouter.delete("/estimates/:slug", async (req, res) => {
     estimateId: est.id,
   });
   await AppDataSource.getRepository(Estimate).delete({ id: est.id });
+  await auditFinance(req, "finance.estimate.delete", { type: "estimate", id: est.id, label: est.number || "Draft estimate" });
   res.json({ ok: true });
 });
 
@@ -2226,6 +2371,9 @@ financeRouter.post("/estimates/:slug/issue", async (req, res) => {
   }
   try {
     const issued = await issueEstimate(est, req.userId ?? null);
+    await auditFinance(req, "finance.estimate.issue", { type: "estimate", id: issued.id, label: issued.number || "Draft estimate" }, {
+      totalCents: issued.totalCents,
+    });
     const [hydrated] = await hydrateEstimates(cid, [issued]);
     res.json(hydrated);
   } catch (err) {
@@ -2253,6 +2401,9 @@ financeRouter.post("/estimates/:slug/send", async (req, res) => {
     if (est.status === "draft") {
       est = await issueEstimate(est, req.userId ?? null);
       issuedHere = true;
+      await auditFinance(req, "finance.estimate.issue", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, {
+        totalCents: est.totalCents,
+      });
     }
   } catch (err) {
     return res.status(400).json({ error: (err as Error).message });
@@ -2265,6 +2416,10 @@ financeRouter.post("/estimates/:slug/send", async (req, res) => {
     if (!issuedHere) return res.status(400).json({ error: errorMessage });
     send = { status: "failed", logId: "", errorMessage };
   }
+  await auditFinance(req, "finance.estimate.send", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, {
+    status: send.status,
+    errorMessage: send.errorMessage,
+  });
   // Express 4 does not catch a rejected async handler, so the tail stays
   // guarded too — an unanswered request is worse than an error.
   try {
@@ -2281,6 +2436,7 @@ financeRouter.post("/estimates/:slug/accept", async (req, res) => {
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   try {
     const updated = await acceptEstimate(est, req.userId ?? null);
+    await auditFinance(req, "finance.estimate.accept", { type: "estimate", id: updated.id, label: updated.number || "Draft estimate" });
     const [hydrated] = await hydrateEstimates(cid, [updated]);
     res.json(hydrated);
   } catch (err) {
@@ -2294,6 +2450,7 @@ financeRouter.post("/estimates/:slug/decline", async (req, res) => {
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   try {
     const updated = await declineEstimate(est, req.userId ?? null);
+    await auditFinance(req, "finance.estimate.decline", { type: "estimate", id: updated.id, label: updated.number || "Draft estimate" });
     const [hydrated] = await hydrateEstimates(cid, [updated]);
     res.json(hydrated);
   } catch (err) {
@@ -2307,6 +2464,7 @@ financeRouter.post("/estimates/:slug/void", async (req, res) => {
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   try {
     const voided = await voidEstimate(est, req.userId ?? null);
+    await auditFinance(req, "finance.estimate.void", { type: "estimate", id: voided.id, label: voided.number || "Draft estimate" });
     const [hydrated] = await hydrateEstimates(cid, [voided]);
     res.json(hydrated);
   } catch (err) {
@@ -2323,6 +2481,10 @@ financeRouter.post("/estimates/:slug/duplicate", async (req, res) => {
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   try {
     const draft = await duplicateEstimate(est, req.userId ?? null);
+    await auditFinance(req, "finance.estimate.duplicate", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, { copy: draft.slug });
+    await auditFinance(req, "finance.estimate.create", { type: "estimate", id: draft.id, label: draft.number || "Draft estimate" }, {
+      duplicatedFrom: est.number || est.slug,
+    });
     const [hydrated] = await hydrateEstimates(cid, [draft]);
     res.json(hydrated);
   } catch (err) {
@@ -2347,6 +2509,15 @@ financeRouter.post(
         est,
         req.userId ?? null,
         { dueInDays: body.dueInDays },
+      );
+      await auditFinance(req, "finance.estimate.convert.invoice", { type: "estimate", id: updated.id, label: updated.number || "Draft estimate" }, {
+        invoice: invoice.number || "Draft invoice",
+      });
+      await auditFinance(
+        req,
+        "finance.invoice.create",
+        { type: "invoice", id: invoice.id, label: invoice.number || "Draft invoice" },
+        { fromEstimate: updated.number || updated.slug, totalCents: invoice.totalCents },
       );
       const [hydrated] = await hydrateEstimates(cid, [updated]);
       res.json({ estimate: hydrated, invoice });
@@ -3809,6 +3980,10 @@ financeRouter.post("/bills", validateBody(billCreateSchema), async (req, res) =>
     await replaceBillLines(b, body.lines);
   }
   const recomputed = await recomputeBillTotals(b);
+  await auditFinance(req, "finance.bill.create", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
+    totalCents: recomputed.totalCents,
+    currency: recomputed.currency,
+  });
   const [hydrated] = await hydrateBills(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -3881,6 +4056,10 @@ financeRouter.patch("/bills/:slug", validateBody(billPatchSchema), async (req, r
   await AppDataSource.getRepository(Bill).save(b);
   if (body.lines !== undefined) await replaceBillLines(b, body.lines);
   const recomputed = await recomputeBillTotals(b);
+  await auditFinance(req, "finance.bill.update", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
+    fields: changedKeys(body),
+    totalCents: recomputed.totalCents,
+  });
   const [hydrated] = await hydrateBills(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -3897,6 +4076,7 @@ financeRouter.delete("/bills/:slug", async (req, res) => {
   await AppDataSource.getRepository(BillLineItem).delete({ billId: b.id });
   await AppDataSource.getRepository(BillPayment).delete({ billId: b.id });
   await AppDataSource.getRepository(Bill).delete({ id: b.id });
+  await auditFinance(req, "finance.bill.delete", { type: "bill", id: b.id, label: b.number || "Draft bill" });
   res.json({ ok: true });
 });
 
@@ -3907,6 +4087,7 @@ financeRouter.post("/bills/:slug/issue", async (req, res) => {
   if (b.status !== "draft") return res.status(409).json({ error: "Already issued" });
   try {
     const issued = await issueBill(b, req.userId ?? null);
+    await auditFinance(req, "finance.bill.issue", { type: "bill", id: issued.id, label: issued.number || "Draft bill" }, { totalCents: issued.totalCents });
     const [hydrated] = await hydrateBills(cid, [issued]);
     res.json(hydrated);
   } catch (err) {
@@ -3920,6 +4101,7 @@ financeRouter.post("/bills/:slug/void", async (req, res) => {
   if (!b) return res.status(404).json({ error: "Bill not found" });
   try {
     const voided = await voidBill(b, req.userId ?? null);
+    await auditFinance(req, "finance.bill.void", { type: "bill", id: voided.id, label: voided.number || "Draft bill" });
     const [hydrated] = await hydrateBills(cid, [voided]);
     res.json(hydrated);
   } catch (err) {
@@ -3979,6 +4161,13 @@ financeRouter.post("/bills/:slug/payments", validateBody(billPaymentSchema), asy
     return res.status(400).json({ error: (err as Error).message });
   }
   const recomputed = await recomputeBillTotals(b);
+  await auditFinance(req, "finance.bill.payment", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
+    amountCents: p.amountCents,
+    method: p.method,
+    reference: p.reference,
+    balanceCents: recomputed.balanceCents,
+    status: recomputed.status,
+  });
   const [hydrated] = await hydrateBills(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -4000,6 +4189,10 @@ financeRouter.delete("/bills/:slug/payments/:pid", async (req, res) => {
   await reverseBillPayment(b, p, req.userId ?? null);
   await repo.delete({ id: p.id });
   const recomputed = await recomputeBillTotals(b);
+  await auditFinance(req, "finance.bill.payment.delete", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
+    amountCents: p.amountCents,
+    balanceCents: recomputed.balanceCents,
+  });
   const [hydrated] = await hydrateBills(cid, [recomputed]);
   res.json(hydrated);
 });
@@ -4136,6 +4329,11 @@ financeRouter.post(
     if (body.lines && body.lines.length > 0) {
       await replaceRecurringInvoiceLines(ri, body.lines);
     }
+    await auditFinance(req, "finance.recurring_invoice.create", { type: "recurring_invoice", id: ri.id, label: ri.name }, {
+      frequency: ri.frequency,
+      status: ri.status,
+      autoSend: ri.autoSend,
+    });
     const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
     res.json(hydrated);
   },
@@ -4235,6 +4433,16 @@ financeRouter.patch(
     if (body.lines !== undefined) {
       await replaceRecurringInvoiceLines(ri, body.lines);
     }
+    const { status, ...edits } = body;
+    const target = { type: "recurring_invoice", id: ri.id, label: ri.name };
+    const fields = changedKeys(edits);
+    if (fields.length > 0) {
+      await auditFinance(req, "finance.recurring_invoice.update", target, { fields });
+    }
+    if (status !== undefined) {
+      const verb = status === "paused" ? "pause" : status === "ended" ? "close" : "resume";
+      await auditFinance(req, `finance.recurring_invoice.${verb}`, target, { status: ri.status });
+    }
     const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
     res.json(hydrated);
   },
@@ -4249,6 +4457,7 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
   });
   await AppDataSource.getRepository(RecurringInvoiceRun).delete({ recurringInvoiceId: ri.id });
   await AppDataSource.getRepository(RecurringInvoice).delete({ id: ri.id });
+  await auditFinance(req, "finance.recurring_invoice.delete", { type: "recurring_invoice", id: ri.id, label: ri.name });
   res.json({ ok: true });
 });
 
@@ -4320,6 +4529,10 @@ financeRouter.post("/recurring-invoices/:slug/duplicate", async (req, res) => {
   if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
   try {
     const copy = await duplicateRecurringInvoice(ri, req.userId ?? null);
+    await auditFinance(req, "finance.recurring_invoice.duplicate", { type: "recurring_invoice", id: ri.id, label: ri.name }, { copy: copy.name });
+    await auditFinance(req, "finance.recurring_invoice.create", { type: "recurring_invoice", id: copy.id, label: copy.name }, {
+      duplicatedFrom: ri.name,
+    });
     const [hydrated] = await hydrateRecurringInvoices(cid, [copy]);
     res.json(hydrated);
   } catch (err) {

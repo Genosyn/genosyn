@@ -365,6 +365,28 @@ repositoriesRouter.patch(
         },
       });
     }
+    // Everything else is an edit listing field names. A new token or SSH key
+    // reads as "credentials" — never the secret, never which one.
+    const editedFields = [
+      ...new Set(
+        Object.keys(body)
+          .filter((key) => key !== "commandMode" && key !== "allowedCommands")
+          .map((key) =>
+            key === "token" || key === "sshKey" || key === "httpsUsername" ? "credentials" : key,
+          ),
+      ),
+    ];
+    if (editedFields.length > 0) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "repository.update",
+        targetType: "repository",
+        targetId: row.id,
+        targetLabel: row.name,
+        metadata: { fields: editedFields },
+      });
+    }
     const [hydrated] = await hydrate(cid, [row]);
     res.json(hydrated);
   },
@@ -556,6 +578,15 @@ repositoriesRouter.patch(
     grant.accessLevel = (req.body as z.infer<typeof patchGrantSchema>).accessLevel;
     await repo.save(grant);
     const [hydrated] = await hydrateGrants(cid, row, [grant]);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "repository.access.update",
+      targetType: "repository",
+      targetId: row.id,
+      targetLabel: row.name,
+      metadata: { employee: hydrated?.employee?.name ?? null, accessLevel: grant.accessLevel },
+    });
     res.json(hydrated);
   },
 );
@@ -571,6 +602,19 @@ repositoriesRouter.delete("/repositories/:slug/grants/:grantId", async (req, res
   });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
+  const employee = await AppDataSource.getRepository(AIEmployee).findOne({
+    where: { id: grant.employeeId, companyId: cid },
+    select: { id: true, name: true },
+  });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "repository.revoke",
+    targetType: "repository",
+    targetId: row.id,
+    targetLabel: row.name,
+    metadata: { employee: employee?.name ?? null },
+  });
   res.json({ ok: true });
 });
 

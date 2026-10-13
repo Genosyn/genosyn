@@ -257,6 +257,8 @@ export type Employee = {
   } | null;
   /** How many models the employee has registered. Present on the list endpoint. */
   modelCount?: number;
+  /** When the employee was hired. Present on the detail endpoint. */
+  createdAt?: string;
 };
 
 export type Team = {
@@ -424,6 +426,7 @@ export type Routine = {
    */
   acceptanceCriteria?: string;
   tags: CompanyTag[];
+  createdAt?: string;
 };
 export type CatchUpPolicy = "once" | "skip";
 

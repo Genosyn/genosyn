@@ -25,6 +25,7 @@ import {
   ActivityTimeline,
   type RevenueActivity,
 } from "../components/revenue/ActivityTimeline";
+import { RecordHistory } from "../components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -609,6 +610,15 @@ export default function RevenueContactDetail() {
           resourceId={contact.id}
         />
       </div>
+      <RecordHistory
+        className="mt-5"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="contact"
+        targetId={contact.id}
+        noun="this contact"
+        milestones={[{ label: "Contact created", at: contact.createdAt, covers: ["create"] }]}
+      />
 
       {/* Both modals mount only while open, so their fields are seeded from
           the row as it stands the moment they are opened. */}

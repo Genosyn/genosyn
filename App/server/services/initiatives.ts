@@ -295,6 +295,17 @@ export async function acceptInitiative(
     targetLabel: initiative.title,
     metadata: { routineId: routine.id },
   });
+  // The Routine is a record of its own; its History starts with the Member
+  // who accepted the Initiative that created it.
+  await recordAudit({
+    companyId: initiative.companyId,
+    actorUserId: reviewer.userId,
+    action: "routine.create",
+    targetType: "routine",
+    targetId: routine.id,
+    targetLabel: routine.name,
+    metadata: { employeeId: employee.id, initiativeId: initiative.id, cronExpr: routine.cronExpr },
+  });
   await journalToEmployee(
     employee.id,
     `Your initiative "${initiative.title}" was accepted`,

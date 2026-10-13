@@ -38,6 +38,7 @@ import { errorMessage } from "../lib/errors";
 import { SyncBadge, signInLabel } from "./RepositoriesIndex";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { RecordHistory } from "../components/RecordHistory";
 
 /** What the Settings page's three choices are called on a summary card. */
 const COMMAND_MODE_LABEL: Record<RepositoryCommandMode, string> = {
@@ -548,6 +549,16 @@ export default function RepositoryOverview() {
           </>
         )}
       </section>
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="repository"
+        targetId={repo.id}
+        noun="this repository"
+        milestones={[{ label: "Repository added", at: repo.createdAt, covers: ["create"] }]}
+      />
 
       <ConnectForgeModal
         open={connectOpen}

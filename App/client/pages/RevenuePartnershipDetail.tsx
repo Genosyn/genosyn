@@ -8,6 +8,7 @@ import type {
   RevenueClassification,
 } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
+import { RecordHistory } from "../components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -261,6 +262,16 @@ export default function RevenuePartnershipDetail() {
               ))}
             </div>
           </section>
+          <RecordHistory
+            companyId={company.id}
+            companySlug={company.slug}
+            targetType="partnership"
+            targetId={detail.partnership.id}
+            noun="this partnership"
+            milestones={[
+              { label: "Partnership created", at: detail.partnership.createdAt, covers: ["create"] },
+            ]}
+          />
         </div>
 
         <section className="h-fit rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">

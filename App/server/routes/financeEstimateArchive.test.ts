@@ -137,7 +137,7 @@ test("the estimates list leaves archived estimates out unless archived=true", as
   assert.equal(opened.body.archivedAt, "2026-10-02T10:00:00.000Z");
 });
 
-test("bulk archive files the selection away, reports what it skipped, and audits once", async () => {
+test("bulk archive files the selection away, reports what it skipped, and audits each estimate", async () => {
   const draft = await quote();
   const sent = await quote({
     slug: "acme-corp-est-0001",
@@ -175,12 +175,16 @@ test("bulk archive files the selection away, reports what it skipped, and audits
     null,
   );
 
+  // One row per archived estimate, so each one's History shows it.
   const audits = await AppDataSource.getRepository(AuditEvent).findBy({ companyId: company.id });
-  assert.equal(audits.length, 1);
-  assert.equal(audits[0].action, "finance.estimate.archive");
-  assert.equal(audits[0].targetType, "estimate");
-  assert.equal(audits[0].targetLabel, "2 estimates");
-  assert.equal(audits[0].actorUserId, actingUserId);
+  assert.equal(audits.length, 2);
+  assert.deepEqual(audits.map((a) => a.targetId).sort(), [draft.id, sent.id].sort());
+  for (const a of audits) {
+    assert.equal(a.action, "finance.estimate.archive");
+    assert.equal(a.targetType, "estimate");
+    assert.equal(a.actorUserId, actingUserId);
+  }
+  assert.equal(audits.find((a) => a.targetId === sent.id)?.targetLabel, "ACME-CORP-EST-0001");
 
   const restored = await call("POST", "/estimates/bulk", { action: "restore", ids: [sent.id] });
   assert.equal(restored.status, 200, restored.body.error);

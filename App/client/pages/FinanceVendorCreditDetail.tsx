@@ -12,6 +12,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -193,6 +194,17 @@ export default function FinanceVendorCreditDetail() {
           </ul>
         </div>
       )}
+
+      <RecordHistory
+        className="mt-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        targetType="vendor_credit"
+        targetId={credit.id}
+        noun="this vendor credit"
+        currency={credit.currency}
+        milestones={[{ label: "Vendor credit created", at: credit.createdAt, covers: ["create", "issue"] }]}
+      />
 
       {showApply && (
         <VendorApplyModal companyId={company.id} creditSlug={credit.slug} currency={credit.currency} maxCents={credit.openCents} onClose={() => setShowApply(false)} onSaved={(fresh) => { setShowApply(false); setCredit(fresh); }} />

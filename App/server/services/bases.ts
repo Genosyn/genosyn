@@ -999,3 +999,17 @@ export function listTemplates() {
     tableNames: t.tables.map((tt) => tt.name),
   }));
 }
+
+/**
+ * Field names for a record's History: which columns an edit touched, never
+ * what was typed into them. Unknown ids (a field deleted mid-edit) drop out.
+ */
+export async function baseFieldNamesFor(tableId: string, fieldIds: string[]): Promise<string[]> {
+  const ids = [...new Set(fieldIds)].filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return [];
+  const fields = await AppDataSource.getRepository(BaseField).find({
+    where: { tableId, id: In(ids) },
+    select: { id: true, name: true },
+  });
+  return fields.map((f) => f.name);
+}

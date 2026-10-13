@@ -418,6 +418,7 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
     targetId: emp.id,
     targetLabel: emp.name,
     metadata: {
+      fields: Object.keys(body),
       before,
       after: { name: emp.name, role: emp.role, slug: emp.slug },
     },
@@ -575,6 +576,15 @@ employeesRouter.put("/:eid/soul", validateBody(soulSchema), async (req, res) => 
   if (!emp) return res.status(404).json({ error: "Not found" });
   emp.soulBody = (req.body as z.infer<typeof soulSchema>).content;
   await repo.save(emp);
+  await recordAudit({
+    companyId: emp.companyId,
+    actorUserId: req.userId ?? null,
+    action: "employee.soul.update",
+    targetType: "employee",
+    targetId: emp.id,
+    targetLabel: emp.name,
+    metadata: { fields: ["soulBody"] },
+  });
   res.json({ ok: true });
 });
 
@@ -617,6 +627,14 @@ employeesRouter.post("/:eid/avatar", avatarUploadMiddleware.single("file"), asyn
   emp.avatarKey = file.filename;
   await repo.save(emp);
   replaceAvatarFile(previousKey, file.filename);
+  await recordAudit({
+    companyId: emp.companyId,
+    actorUserId: req.userId ?? null,
+    action: "employee.avatar.upload",
+    targetType: "employee",
+    targetId: emp.id,
+    targetLabel: emp.name,
+  });
   res.json({ avatarKey: emp.avatarKey });
 });
 
@@ -631,5 +649,15 @@ employeesRouter.delete("/:eid/avatar", async (req, res) => {
   emp.avatarKey = null;
   await repo.save(emp);
   removeAvatarFile(previous);
+  if (previous) {
+    await recordAudit({
+      companyId: emp.companyId,
+      actorUserId: req.userId ?? null,
+      action: "employee.avatar.remove",
+      targetType: "employee",
+      targetId: emp.id,
+      targetLabel: emp.name,
+    });
+  }
   res.json({ ok: true });
 });
