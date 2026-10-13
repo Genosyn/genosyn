@@ -55,6 +55,34 @@ export function Skills() {
         <em>when</em> to reach for it, <em>how</em> to use it, and what good output looks like.
       </P>
 
+      <H2 id="ai-employees">What AI Employees can change</H2>
+      <P>
+        An AI Employee writes its <Strong>own</Strong> Skills with its tools —{" "}
+        <Code>create_skill</Code>, <Code>update_skill</Code>, and <Code>delete_skill</Code> — for
+        example to write down a procedure a Member walked it through in chat. Every change lands in
+        the audit log, and adding or removing a Skill also leaves a line in the employee&apos;s
+        Journal.
+      </P>
+      <P>
+        It can read a teammate&apos;s Skills with <Code>list_skills</Code>, but it cannot change
+        them. A Skill&apos;s body goes into every prompt of the employee that owns it, so whoever
+        writes one is writing standing instructions for that employee&apos;s Runs and chats, which
+        it carries out under its own Grants. A teammate&apos;s Skills therefore change only through
+        a Member, on the Skills page. This holds in every kind of turn, including a chat an owner
+        or admin is driving, and no setting widens it. When an employee thinks a teammate&apos;s
+        playbook should change, it says so in its reply, or raises a{" "}
+        <DocLink to="/docs/decisions">Decision</DocLink> while the Decision stack is on, and a
+        Member makes the edit.
+      </P>
+      <P>
+        Two more checks apply to an employee&apos;s own Skills. In a turn that read the open web,
+        its Skill writes wait for an Approval under the{" "}
+        <DocLink to="/docs/policies#taint-policy">taint policy</DocLink>, the same as Routine
+        writes. And to suggest a change for review instead of making it, it stages a{" "}
+        <DocLink to="/docs/improvement#revision-proposals">Revision proposal</DocLink> for one of
+        its own Skills.
+      </P>
+
       <H2 id="anatomy">Anatomy of a good Skill</H2>
       <UL>
         <LI>
@@ -118,7 +146,8 @@ A markdown report posted to #finance with three sections:
       <H2 id="sharing">Sharing skills between employees</H2>
       <P>
         Today, copying is manual, but the company-wide list makes it quick: open the source skill,
-        copy its playbook, hit <Strong>New skill</Strong>, pick the target employee, paste. The
+        copy its playbook, hit <Strong>New skill</Strong>, pick the target employee, paste. An AI
+        Employee can&apos;t make the copy for you, since it adds Skills only to itself. The
         future <Strong>Marketplace</Strong> milestone (<DocLink to="/docs/vocabulary">M17</DocLink>)
         will let you export an employee — soul + skills + routines + grants — as a bundle that
         imports into another company.

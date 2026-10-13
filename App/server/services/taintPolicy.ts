@@ -11,10 +11,11 @@ import { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.
  * honest cut. The open web is where hostile content meets side effects: a
  * page an employee fetched can address the model directly, and the two
  * things such content most wants are an outbound email and a persistent
- * foothold (a Routine that re-runs the injected instructions on a schedule).
+ * foothold (a Routine that re-runs the injected instructions on a schedule, or
+ * a Skill whose body joins every later system prompt of the employee).
  *
  * So: the web tools mark the turn's MCP token tainted, and the sink tools —
- * `send_mail` and the Routine writers — queue an Approval (kind
+ * `send_mail` and the Routine and Skill writers — queue an Approval (kind
  * `tainted_tool`) instead of executing when the turn is tainted. Approving
  * replays the verbatim call server-side through a fresh internal token, so
  * the handler that runs is exactly the one that would have run, audits and
@@ -41,6 +42,9 @@ export const TAINT_SINK_TOOLS = new Set([
   "create_routine",
   "update_routine",
   "delete_routine",
+  "create_skill",
+  "update_skill",
+  "delete_skill",
 ]);
 
 /** The sources that taint a turn. Marked at dispatch rather than on success —

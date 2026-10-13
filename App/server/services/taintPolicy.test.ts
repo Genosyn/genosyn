@@ -60,7 +60,18 @@ describe("taintGateApplies", () => {
     assert.equal(taintGateApplies(token, "create_routine"), true);
     // Reads and non-sinks stay free — the policy escalates side effects only.
     assert.equal(taintGateApplies(token, "list_goals"), false);
+    assert.equal(taintGateApplies(token, "list_skills"), false);
     assert.equal(taintGateApplies(undefined, "send_mail"), false);
+    revokeMcpToken(token);
+  });
+
+  test("holds every Skill writer, since a Skill body joins each later prompt of its owner", () => {
+    const token = issueMcpToken(employee.id, companyId, { authority: "employee" });
+    markTokenTainted(token);
+    for (const name of ["create_skill", "update_skill", "delete_skill"]) {
+      assert.ok(TAINT_SINK_TOOLS.has(name), name);
+      assert.equal(taintGateApplies(token, name), true, name);
+    }
     revokeMcpToken(token);
   });
 });
@@ -95,6 +106,13 @@ describe("parseTaintedToolPayload", () => {
           JSON.stringify({ tool: "delete_company", args: {}, employeeId: "e" }),
         ),
       /does not cover/,
+    );
+    // A held Skill write must stay replayable once approved.
+    assert.equal(
+      parseTaintedToolPayload(
+        JSON.stringify({ tool: "update_skill", args: { skillId: "s" }, employeeId: "e" }),
+      ).tool,
+      "update_skill",
     );
     assert.throws(() => parseTaintedToolPayload(null), /missing/);
     assert.throws(
