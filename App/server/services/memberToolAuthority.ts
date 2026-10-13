@@ -369,6 +369,17 @@ const ADMIN_TOOLS = [
   "create_commercial_value_proposal",
   "list_revenue_field_evidence",
   "review_revenue_field_evidence",
+  // Phone numbers. A number's texts carry the verification codes for the
+  // accounts its AI Employee signs into, and its calls carry what strangers
+  // said — the human routes are owner/admin for both reads and writes, and
+  // sending or calling spends company money from a company number.
+  "list_phone_numbers",
+  "send_text_message",
+  "list_text_messages",
+  "wait_for_text_message",
+  "place_phone_call",
+  "get_phone_call",
+  "list_phone_calls",
 ] as const;
 
 /**

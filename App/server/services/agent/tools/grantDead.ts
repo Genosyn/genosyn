@@ -32,6 +32,7 @@ import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnection
 import { EmployeeResourceLibraryGrant } from "../../../db/entities/EmployeeResourceLibraryGrant.js";
 import { EmployeeRoutineGrant } from "../../../db/entities/EmployeeRoutineGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
+import { PhoneNumber } from "../../../db/entities/PhoneNumber.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
 import { RESOURCE_WRITE_TOOLS } from "../../resourceLibraryAccess.js";
 import { ROUTINE_WRITE_TOOLS } from "../../routineAccess.js";
@@ -343,6 +344,20 @@ const RESOURCE_WRITE_GATED_TOOLS = new Set<string>(RESOURCE_WRITE_TOOLS);
  */
 const ROUTINE_WRITE_GATED_TOOLS = new Set<string>(ROUTINE_WRITE_TOOLS);
 
+/**
+ * The phone tools: every one of them starts from the numbers assigned to the
+ * employee, so an employee with none can only be told it has no number.
+ */
+const PHONE_GATED_TOOLS = new Set([
+  "list_phone_numbers",
+  "send_text_message",
+  "list_text_messages",
+  "wait_for_text_message",
+  "place_phone_call",
+  "get_phone_call",
+  "list_phone_calls",
+]);
+
 /** Explore's ad-hoc database tools need at least one Connection Grant. */
 const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
   "get_explore_schema",
@@ -372,6 +387,7 @@ export function assertGrantSetsResolve(): void {
     ...RESOURCE_WRITE_GATED_TOOLS,
     ...ROUTINE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
+    ...PHONE_GATED_TOOLS,
   ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
     throw new Error(
@@ -477,6 +493,10 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
     if (exploreConnections === 0) {
       for (const tool of EXPLORE_CONNECTION_GATED_TOOLS) dead.add(tool);
     }
+    const phoneNumbers = await AppDataSource.getRepository(PhoneNumber).count({
+      where: { employeeId },
+    });
+    if (phoneNumbers === 0) for (const tool of PHONE_GATED_TOOLS) dead.add(tool);
     return dead;
   } catch (error) {
     if (strict) throw error;

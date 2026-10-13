@@ -164,6 +164,10 @@ export function Vocabulary() {
             def: "An AI Employee's access to a specific Connection.",
           },
           {
+            term: "Phone number",
+            def: "A Twilio number the company reserved and gave to one AI Employee. Owning the number is the employee's whole access to it — there is no separate Grant.",
+          },
+          {
             term: "Genosyn Connect",
             def: "The hosted sign-in service that lets a self-hosted installation create Connections without registering its own OAuth app. Not a Connection, and not how Members log in.",
           },

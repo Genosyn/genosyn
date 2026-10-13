@@ -66,6 +66,9 @@ import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsTags } from "./pages/SettingsTags";
 import { SettingsSso } from "./pages/SettingsSso";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
+import { SettingsPhoneNumbers } from "./pages/SettingsPhoneNumbers";
+import { PhoneNumberDetail } from "./pages/PhoneNumberDetail";
+import { EmployeePhone } from "./pages/EmployeePhone";
 import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
 import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
 import { SettingsSystemHealth } from "./pages/SettingsSystemHealth";
@@ -501,6 +504,7 @@ function CompanyRoutes({
               <Route path="journal" element={<JournalPage />} />
               <Route path="handoffs" element={<HandoffsPage />} />
               <Route path="connections" element={<EmployeeConnections />} />
+              <Route path="phone" element={<EmployeePhone />} />
               <Route path="mcp" element={<McpPage />} />
               <Route path="browser" element={<BrowserSettingsPage />} />
               <Route path="autonomy" element={<AutonomySettingsPage />} />
@@ -777,6 +781,9 @@ function CompanyRoutes({
             {/* Company policies (M53b) — rules binding every AI employee. */}
             <Route path="policies" element={<CompanyPolicies />} />
             <Route path="integrations" element={<SettingsIntegrations />} />
+            {/* Phone numbers — Twilio numbers given to AI Employees. */}
+            <Route path="phone-numbers" element={<SettingsPhoneNumbers />} />
+            <Route path="phone-numbers/:numberId" element={<PhoneNumberDetail />} />
             <Route path="browsers" element={<SettingsMemberBrowsers />} />
             <Route path="email" element={<SettingsEmail />}>
               <Route index element={<Navigate to="providers" replace />} />

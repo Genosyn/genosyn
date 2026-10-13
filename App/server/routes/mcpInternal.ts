@@ -761,6 +761,18 @@ import {
   upsertDashboardGrant,
 } from "../services/explore.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
+import { formatPhoneNumber } from "../../shared/phone.js";
+import { phoneFailure } from "../services/phone/errors.js";
+import {
+  MAX_TOOL_WAIT_SECONDS,
+  toolGetCall,
+  toolListCalls,
+  toolListPhoneNumbers,
+  toolListTexts,
+  toolPlaceCall,
+  toolSendText,
+  toolWaitForText,
+} from "../services/phone/employeeTools.js";
 import { memberInternalCallbackPolicy, memberToolPolicy } from "../services/memberToolAuthority.js";
 
 /**
@@ -19889,5 +19901,203 @@ mcpInternalRouter.post(
       meeting: current ? serializeMeeting(current) : null,
       note: "The disclosed Google Meet guest is joining in the background. The host may need to admit it.",
     });
+  },
+);
+
+// ----- Phone numbers -----
+//
+// Every tool here starts from the numbers assigned to the calling AI Employee
+// right now — the assignment at Settings → Phone numbers is the whole Grant.
+// The logic lives in `services/phone/employeeTools.ts`.
+
+function phoneToolFailure(res: Response, next: NextFunction, err: unknown): void {
+  const known = phoneFailure(err);
+  if (known) {
+    res.status(known.status).json({ error: known.message });
+    return;
+  }
+  next(err);
+}
+
+/** Aborted when the caller hangs up on a long wait, so the wait stops too. */
+function abortOnDisconnect(res: Response): AbortSignal {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller.signal;
+}
+
+const phoneNumberArg = z.string().min(1).max(64);
+const phoneLimitArg = z.number().min(1).max(50).default(20).transform(Math.round);
+
+mcpInternalRouter.post(
+  "/tools/list_phone_numbers",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(await toolListPhoneNumbers(req.mcpEmployee!));
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const sendTextMessageSchema = z
+  .object({
+    to: phoneNumberArg,
+    body: z.string().min(1).max(5_000),
+    from: phoneNumberArg.optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/send_text_message",
+  validateBody(sendTextMessageSchema),
+  async (req: McpRequest, res, next) => {
+    const body = req.body as z.infer<typeof sendTextMessageSchema>;
+    try {
+      const result = await toolSendText({
+        employee: req.mcpEmployee!,
+        runId: req.mcpRunId ?? null,
+        ...body,
+      });
+      await journal(req.mcpEmployee!.id, `Texted ${formatPhoneNumber(result.to)}`, body.body);
+      res.json(result);
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const listTextMessagesSchema = z
+  .object({
+    direction: z.enum(["inbound", "outbound"]).optional(),
+    from: phoneNumberArg.optional(),
+    contains: z.string().min(1).max(200).optional(),
+    since: z.string().max(64).optional(),
+    limit: phoneLimitArg,
+    phoneNumber: phoneNumberArg.optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_text_messages",
+  validateBody(listTextMessagesSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await toolListTexts({
+          employee: req.mcpEmployee!,
+          ...(req.body as z.infer<typeof listTextMessagesSchema>),
+        }),
+      );
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const waitForTextMessageSchema = z
+  .object({
+    from: phoneNumberArg.optional(),
+    contains: z.string().min(1).max(200).optional(),
+    since: z.string().max(64).optional(),
+    timeoutSeconds: z.number().min(1).max(MAX_TOOL_WAIT_SECONDS).default(120),
+    phoneNumber: phoneNumberArg.optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/wait_for_text_message",
+  validateBody(waitForTextMessageSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await toolWaitForText({
+          employee: req.mcpEmployee!,
+          ...(req.body as z.infer<typeof waitForTextMessageSchema>),
+          signal: abortOnDisconnect(res),
+        }),
+      );
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const placePhoneCallSchema = z
+  .object({
+    to: phoneNumberArg,
+    brief: z.string().min(1).max(8_000),
+    openingLine: z.string().max(1_000).optional(),
+    from: phoneNumberArg.optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/place_phone_call",
+  validateBody(placePhoneCallSchema),
+  async (req: McpRequest, res, next) => {
+    const body = req.body as z.infer<typeof placePhoneCallSchema>;
+    try {
+      const result = await toolPlaceCall({
+        employee: req.mcpEmployee!,
+        runId: req.mcpRunId ?? null,
+        ...body,
+      });
+      await journal(req.mcpEmployee!.id, `Called ${formatPhoneNumber(result.to)}`, body.brief);
+      res.json(result);
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const getPhoneCallSchema = z
+  .object({
+    callId: z.string().uuid(),
+    waitSeconds: z.number().min(0).max(MAX_TOOL_WAIT_SECONDS).default(0),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_phone_call",
+  validateBody(getPhoneCallSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await toolGetCall({
+          employee: req.mcpEmployee!,
+          ...(req.body as z.infer<typeof getPhoneCallSchema>),
+        }),
+      );
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
+  },
+);
+
+const listPhoneCallsSchema = z
+  .object({
+    direction: z.enum(["inbound", "outbound"]).optional(),
+    limit: phoneLimitArg,
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_phone_calls",
+  validateBody(listPhoneCallsSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      res.json(
+        await toolListCalls({
+          employee: req.mcpEmployee!,
+          ...(req.body as z.infer<typeof listPhoneCallsSchema>),
+        }),
+      );
+    } catch (err) {
+      phoneToolFailure(res, next, err);
+    }
   },
 );

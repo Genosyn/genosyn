@@ -45,6 +45,7 @@ import { isModelConnected } from "../services/providers.js";
 import { effectiveActiveId } from "../services/models.js";
 import { removeDir, soulTemplate, skillTemplate } from "../services/files.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
+import { unassignPhoneNumbersForEmployee } from "../services/phone/numbers.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate, personalizeTemplateSoul } from "../services/templates.js";
 import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
@@ -468,6 +469,9 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(McpServer).delete({ employeeId: emp.id });
   await deleteEmployeeConversations(emp.id);
   await archiveEmployeeDirectMessages(emp.id);
+  // Phone numbers belong to the company: they stay reserved, unassigned, for
+  // the next employee an admin gives them to.
+  await unassignPhoneNumbersForEmployee(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeSigningGrant).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeVaultGrant).delete({ employeeId: emp.id });

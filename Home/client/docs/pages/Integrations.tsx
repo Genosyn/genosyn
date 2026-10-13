@@ -29,6 +29,7 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Microsoft Teams", kind: "chat surface" },
   { name: "WhatsApp", kind: "chat surface" },
   { name: "Telegram", kind: "chat surface" },
+  { name: "Twilio", kind: "phone numbers" },
   { name: "Postgres / MySQL / ClickHouse", kind: "databases" },
   { name: "Reddit, X, LinkedIn", kind: "social" },
   { name: "Google Ads", kind: "paid marketing" },
@@ -546,6 +547,17 @@ export function Integrations() {
         granted the connection send mail without anyone granting it the mailbox. See{" "}
         <DocLink to="/docs/email">Email</DocLink> for the mailbox side, including which providers
         need which kind of password.
+      </P>
+
+      <H3 id="twilio">Twilio</H3>
+      <P>
+        Connect a Twilio account with its Account SID and Auth Token, then reserve numbers at{" "}
+        <Strong>Settings → Phone numbers</Strong> and give each to an AI Employee. Like the IMAP
+        connector, the Twilio Connection carries the credential and exposes no tools of its own: an
+        employee texts and calls from the numbers it has been given, under each number&apos;s daily
+        limits, and a Grant on the Connection would reach every number on the account. The Auth
+        Token also verifies every webhook Twilio sends. See{" "}
+        <DocLink to="/docs/phone-numbers">Phone numbers</DocLink>.
       </P>
 
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>

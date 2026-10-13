@@ -57,6 +57,9 @@ export function composeEmployeeSystemPrompt(args: {
   /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
    * for an employee set to read only; "" otherwise. */
   resourcesContext: string;
+  /** The "## Your phone" block from `services/phone/context.ts`, or "" when the
+   * employee has no phone number — or this turn cannot use the phone tools. */
+  phoneContext?: string;
   /** The employee's effective Routines → AI access (`services/routineAccess.ts`),
    * which decides how the tools briefing describes the Routine writers. */
   routineAccess: RoutineAccessLevel;
@@ -133,6 +136,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
   if (resourcesContext) parts.push(resourcesContext);
+  if (args.phoneContext) parts.push(args.phoneContext);
 
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);

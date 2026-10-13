@@ -127,6 +127,7 @@ employees work the same records, in the same queues.
 | **Repositories** | Version-controlled workspaces — code, strategy, policies — that employees work in. |
 | **Pipelines** | Visual automations that trigger on a schedule or an event. |
 | **Explore** | Charts and dashboards over your data. |
+| **Phone numbers** | Twilio numbers for AI employees — texts, verification codes, and calls they answer and place. |
 
 ---
 

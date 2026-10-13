@@ -55,6 +55,7 @@ import {
 } from "../integrations/providers/forge/connection.js";
 import { listAccessibleForgeRepos } from "../integrations/providers/forge/discovery.js";
 import { discoverAppInstallations } from "../integrations/providers/github-app.js";
+import { countPhoneNumbersForConnection } from "../services/phone/numbers.js";
 
 /**
  * Company-scoped routes for the Integrations + Connections feature.
@@ -182,6 +183,14 @@ integrationsRouter.delete("/connections/:connId", async (req, res) => {
   const { cid, connId } = req.params as Record<string, string>;
   const existing = await getConnection(cid, connId);
   if (!existing) return res.status(404).json({ error: "Connection not found" });
+  // Twilio numbers bill every month and are managed only through this
+  // Connection, so it cannot be deleted from under them.
+  const numbers = await countPhoneNumbersForConnection(connId);
+  if (numbers > 0) {
+    return res.status(409).json({
+      error: `This Twilio account still has ${numbers} phone number${numbers === 1 ? "" : "s"} in Genosyn. Remove ${numbers === 1 ? "it" : "them"} at Settings → Phone numbers first.`,
+    });
+  }
   await deleteConnection(cid, connId);
   await recordAudit({
     companyId: cid,

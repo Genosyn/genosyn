@@ -222,6 +222,9 @@ import { TldrQuestionMessage } from "./entities/TldrQuestionMessage.js";
 import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
 import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
 import { CompanySso } from "./entities/CompanySso.js";
+import { PhoneNumber } from "./entities/PhoneNumber.js";
+import { PhoneMessage } from "./entities/PhoneMessage.js";
+import { PhoneCall } from "./entities/PhoneCall.js";
 
 const entities = [
   User,
@@ -448,6 +451,11 @@ const entities = [
   TldrStandingQuestion,
   // Per-company SSO (M56 Phase B).
   CompanySso,
+  // Phone numbers — Twilio numbers given to AI Employees, with their texts
+  // and calls.
+  PhoneNumber,
+  PhoneMessage,
+  PhoneCall,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

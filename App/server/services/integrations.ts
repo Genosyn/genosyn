@@ -251,7 +251,7 @@ export async function withConnectionCredentialMutation<T>(
  * the token there) and losing the status write is worse than losing a race
  * for the newest message.
  */
-async function markConnectionUnusable(args: {
+export async function markConnectionUnusable(args: {
   connection: IntegrationConnection;
   status: "error" | "expired";
   message: string;

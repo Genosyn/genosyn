@@ -189,6 +189,7 @@ code, UI copy, commits, and docs.
 | **Genosyn Connect** (the hosted sign-in service in `Connect/`; "Connect" for short) | Broker, Proxy, Sign-in provider (in product copy) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
+| **Phone number** (a Twilio number the company reserved and gave to one AI Employee — `PhoneNumber`; its texts are `PhoneMessage`, its calls `PhoneCall`) | Line, DID, Connection, Integration (of the number) |
 | **Decision** (a consequential choice an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
@@ -248,6 +249,21 @@ the rows behind it are `VaultSource`s, the page is not
 `PRODUCT_INTEGRATION_SCOPES`. Do not "fix" the inconsistency by adding it
 there — that would swap the page for the company Integration catalog and put
 Bitwarden back where the paragraph above says it must not go.
+
+**A Phone number's assignment is its Grant, and its callers are strangers.**
+The Twilio Connection only carries the account credential and exposes no tools
+(the IMAP rule: a Grant on the Connection would reach every number on the
+account). An AI Employee texts and calls through the built-in phone tools, from
+the numbers assigned to it right now, under each number's daily limits, and it
+reads only texts and calls from while a number was its own or had nobody. Anyone
+can call or text a number and caller ID is spoofable, so a call or an automatic
+text reply runs as a restricted, tool-less turn on the number's Member-written
+instructions (plus the employee's own brief on a call it placed) — never its
+Soul, Memory, Skills or company tools — exactly as an unlinked chat surface
+sender is answered (`services/phone/conversation.ts`). Do not add a path that
+treats a caller as a Member, give those turns company tools, or hang texting
+tools off the Twilio Connection. Texting and calling are delivery: they sit
+beside `send_mail` in the taint sinks and the mail-delivery send ceiling.
 
 **A Check is not a health check, and a Standdown is not `Routine.enabled`.**
 The word "check" had a second meaning in this codebase — one named condition on

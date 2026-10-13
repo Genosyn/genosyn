@@ -198,6 +198,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Reach an AI Employee from Slack, Microsoft Teams, WhatsApp, or Telegram — and link your account so it answers as you.",
       },
       {
+        path: "/docs/phone-numbers",
+        title: "Phone numbers",
+        blurb:
+          "Give an AI Employee its own Twilio number — texts, verification codes, and calls it answers and places.",
+      },
+      {
         path: "/docs/tldrs",
         title: "TLDRs",
         blurb:

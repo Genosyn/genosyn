@@ -75,6 +75,10 @@ import { backupDestinationsRouter } from "./routes/backupDestinations.js";
 import { adminRouter } from "./routes/admin.js";
 import { customJavaScriptRouter } from "./routes/customJavaScript.js";
 import { integrationsRouter } from "./routes/integrations.js";
+import { phoneRouter } from "./routes/phone.js";
+import { phoneWebhooksRouter } from "./routes/phoneWebhooks.js";
+import { PHONE_WEBHOOK_MOUNT } from "./services/phone/webhookUrls.js";
+import { bootPhone } from "./services/phone/sync.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
 // The mount path is imported rather than repeated: the same constant builds
@@ -227,6 +231,10 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[chat-surface] boot failed:", err);
   });
+  // Phone numbers: fetch the texts Twilio cannot push to this install, and
+  // re-point numbers' webhooks when the public URL changes. Also registers the
+  // automatic text reply, so it must run before any webhook can arrive.
+  bootPhone();
   // Email section (M25): Gmail sync heartbeat + handover queue recovery.
   // The heartbeat's first pass runs async, so like the chat surfaces it never
   // gates startup; handover recovery is a quick DB sweep.
@@ -277,6 +285,11 @@ async function main() {
   // header, so the session and trusted-origin middleware would reject every
   // delivery.
   app.use(CHAT_SURFACE_WEBHOOK_MOUNT, chatSurfaceWebhooksRouter);
+  // Phone number webhooks — Twilio's incoming texts and calls, the turns of a
+  // conversation, and delivery statuses. Same reasons as above: Twilio sends no
+  // cookie or Origin, and its signature (keyed by the number's Connection) is
+  // the only credential, checked by the router itself.
+  app.use(PHONE_WEBHOOK_MOUNT, phoneWebhooksRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
@@ -490,6 +503,10 @@ async function main() {
   // Integrations + Connections. Company-scoped because connections belong
   // to the company and are granted out to employees.
   app.use("/api/companies/:cid/integrations", integrationsRouter);
+
+  // Phone numbers — Twilio numbers given to AI Employees, with their texts and
+  // calls. Owner/admin only, reads included; see routes/phone.ts.
+  app.use("/api/companies/:cid/phone", phoneRouter);
 
   // External chat surfaces (M59) — who is talking to the company's bots, and
   // the webhook URL to paste into Microsoft's or Meta's console.

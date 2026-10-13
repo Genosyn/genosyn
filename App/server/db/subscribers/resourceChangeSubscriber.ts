@@ -274,6 +274,15 @@ const REGISTRY: Record<string, Mapping> = {
   AccountingPeriod: { kind: "period", company: "direct" },
   AdSpendEvent: { kind: "adspend", company: "direct" },
 
+  // ── Phone numbers ────────────────────────────────────────────────────────
+  // One kind for a number, its texts and its calls, scoped by the number: the
+  // page that shows a number's settings is the page that shows its activity,
+  // and a Trigger on "phone" scoped to one number fires on its new texts and
+  // calls without waking every other number's Routines.
+  PhoneNumber: { kind: "phone", company: "direct", scopeFk: "id" },
+  PhoneMessage: { kind: "phone", company: "direct", scopeFk: "phoneNumberId" },
+  PhoneCall: { kind: "phone", company: "direct", scopeFk: "phoneNumberId" },
+
   // ── Integrations, settings, org ──────────────────────────────────────────
   IntegrationConnection: { kind: "connection", company: "direct" },
   Secret: { kind: "secret", company: "direct" },

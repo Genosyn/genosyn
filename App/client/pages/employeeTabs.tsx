@@ -17,6 +17,7 @@ import {
   Handshake,
   Loader2,
   BookText,
+  Phone,
   Plug,
   PlugZap,
   Plus,
@@ -236,6 +237,7 @@ function settingsNavGroups(
       title: "Access",
       items: [
         { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
+        { to: "phone", icon: <Phone size={14} />, label: "Phone" },
         { to: "mcp", icon: <Plug size={14} />, label: "MCP" },
         { to: "browser", icon: <Globe size={14} />, label: "Browser" },
         { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },

@@ -38,6 +38,7 @@ const EXPECTED_PROVIDER_IDS = [
   "slack",
   "microsoft-teams",
   "whatsapp",
+  "twilio",
   "x",
   "reddit",
   "linkedin",
@@ -81,13 +82,17 @@ describe("Integration catalogue invariants", () => {
   /**
    * Connectors that carry a credential and expose no model-callable tools.
    *
-   * `imap` is the only one, and the omission is the point: an AI Employee
+   * `imap` was the first, and the omission is the point: an AI Employee
    * reaches an IMAP mailbox through `EmployeeMailAccountGrant`, which is
    * ranked read < draft < send per mailbox. A duplicate set of mail tools
    * hanging off the Connection grant would let an employee granted the
    * *connection* send mail without anyone granting it the *mailbox*.
    */
-  const CREDENTIAL_ONLY_PROVIDERS = new Set(["imap"]);
+  // `twilio` follows the same rule for phones: an AI Employee texts and calls
+  // from the Phone numbers it has been given, under each number's daily
+  // limits, and tools on the Connection would reach every number on the
+  // account.
+  const CREDENTIAL_ONLY_PROVIDERS = new Set(["imap", "twilio"]);
 
   test("every provider exposes unique, well-formed tool contracts", () => {
     const totalNames = new Set<string>();

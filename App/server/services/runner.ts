@@ -27,6 +27,7 @@ import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { materializeEmployeeRepositoryContext } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
+import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
@@ -663,12 +664,15 @@ async function prepareRoutineRun(
         log.line("[repos] automatic repository sync is disabled for this Run");
       }
       const financeContext = await composeFinanceContext(emp.id);
-      const [signingContext, revenueContext, marketingContext, resourcesContext] =
+      const [signingContext, revenueContext, marketingContext, resourcesContext, phoneContext] =
         await Promise.all([
           composeSigningContext({ companyId: co.id, employeeId: emp.id }),
           composeRevenueContext(emp.id),
           composeMarketingContext(emp.id),
           composeResourceLibraryContext(emp.id),
+          // A Run held to an email delivery ceiling cannot text or call, so
+          // it is not briefed that it can.
+          deliveryPolicy.mailDeliveryMode ? Promise.resolve("") : composePhoneContext(emp.id),
         ]);
       // Routines → AI access never stops a Run; it only changes how the tools
       // briefing describes the Routine writers this Run may not use.
@@ -690,6 +694,7 @@ async function prepareRoutineRun(
         revenueContext,
         marketingContext,
         resourcesContext,
+        phoneContext,
         routineAccess,
         surface: "routine",
         routineId: routine.id,

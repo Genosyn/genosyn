@@ -20,6 +20,7 @@ import { composePoliciesContext } from "./companyPolicies.js";
 import { materializeEmployeeRepositoryContext } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
+import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
@@ -760,20 +761,26 @@ export async function streamChatWithEmployee(
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
-    const [signingContext, revenueContext, marketingContext, resourcesContext] = await Promise.all([
-      contextAccess.signing && !repositoryWork
-        ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
-        : Promise.resolve(""),
-      contextAccess.revenue && !repositoryWork
-        ? composeRevenueContext(emp.id)
-        : Promise.resolve(""),
-      contextAccess.marketing && !repositoryWork
-        ? composeMarketingContext(emp.id)
-        : Promise.resolve(""),
-      contextAccess.resources && !repositoryWork
-        ? composeResourceLibraryContext(emp.id)
-        : Promise.resolve(""),
-    ]);
+    const [signingContext, revenueContext, marketingContext, resourcesContext, phoneContext] =
+      await Promise.all([
+        contextAccess.signing && !repositoryWork
+          ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
+          : Promise.resolve(""),
+        contextAccess.revenue && !repositoryWork
+          ? composeRevenueContext(emp.id)
+          : Promise.resolve(""),
+        contextAccess.marketing && !repositoryWork
+          ? composeMarketingContext(emp.id)
+          : Promise.resolve(""),
+        contextAccess.resources && !repositoryWork
+          ? composeResourceLibraryContext(emp.id)
+          : Promise.resolve(""),
+        // The phone tools are owner/admin under Member delegation, so the block
+        // follows the same line rather than promising a Member tools that 403.
+        privilegedToolSourcesAllowed && !repositoryWork && !options.mailDeliveryMode
+          ? composePhoneContext(emp.id)
+          : Promise.resolve(""),
+      ]);
     // Routines → AI access shapes the tools briefing below, so it is read only
     // when that prompt is composed. The setting holds whoever drives the turn.
     const routineAccess =
@@ -805,6 +812,7 @@ export async function streamChatWithEmployee(
             revenueContext,
             marketingContext,
             resourcesContext,
+            phoneContext,
             routineAccess,
             surface: "chat",
             parallelDelegationAvailable,

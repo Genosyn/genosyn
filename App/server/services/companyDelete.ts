@@ -143,6 +143,9 @@ import { ExchangeRate } from "../db/entities/ExchangeRate.js";
 import { FinanceProposal } from "../db/entities/FinanceProposal.js";
 import { Handoff } from "../db/entities/Handoff.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { PhoneCall } from "../db/entities/PhoneCall.js";
+import { PhoneMessage } from "../db/entities/PhoneMessage.js";
+import { PhoneNumber } from "../db/entities/PhoneNumber.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { Subsidiary } from "../db/entities/Subsidiary.js";
@@ -511,6 +514,14 @@ export async function deleteCompanyCascade(args: {
     // turns a sender on Slack or WhatsApp into an authorized Member of *this*
     // company, so it must not outlive the company it authorized into.
     await m.delete(ExternalChatIdentity, { companyId });
+    // Phone numbers and their texts and calls, before the Twilio Connections
+    // they were reserved through. Twilio itself is not touched here: the
+    // numbers stay on the Twilio account (their webhooks then answer 404), so
+    // an owner who wants them released removes them at Settings → Phone
+    // numbers first.
+    await m.delete(PhoneMessage, { companyId });
+    await m.delete(PhoneCall, { companyId });
+    await m.delete(PhoneNumber, { companyId });
     await m.delete(IntegrationConnection, { companyId });
     await m.delete(EmailLog, { companyId });
     await m.delete(EmailProvider, { companyId });

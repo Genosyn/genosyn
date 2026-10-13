@@ -21,6 +21,7 @@ import { telegramProvider } from "./providers/telegram.js";
 import { slackProvider } from "./providers/slack.js";
 import { microsoftTeamsProvider } from "./providers/microsoft-teams.js";
 import { whatsappProvider } from "./providers/whatsapp.js";
+import { twilioProvider } from "./providers/twilio.js";
 import { xProvider } from "./providers/x.js";
 import { redditProvider } from "./providers/reddit.js";
 import { linkedinProvider } from "./providers/linkedin.js";
@@ -57,6 +58,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [slackProvider.catalog.provider]: slackProvider,
   [microsoftTeamsProvider.catalog.provider]: microsoftTeamsProvider,
   [whatsappProvider.catalog.provider]: whatsappProvider,
+  [twilioProvider.catalog.provider]: twilioProvider,
   [xProvider.catalog.provider]: xProvider,
   [redditProvider.catalog.provider]: redditProvider,
   [linkedinProvider.catalog.provider]: linkedinProvider,

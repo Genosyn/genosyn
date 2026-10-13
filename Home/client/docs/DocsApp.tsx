@@ -30,6 +30,7 @@ import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
 import { AskAi } from "@/docs/pages/AskAi";
 import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
+import { PhoneNumbers } from "@/docs/pages/PhoneNumbers";
 import { Tldrs } from "@/docs/pages/Tldrs";
 import { Vault } from "@/docs/pages/Vault";
 import { VaultSources } from "@/docs/pages/VaultSources";
@@ -91,6 +92,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/deliverability": Deliverability,
   "/docs/workspace-chat": WorkspaceChat,
   "/docs/chat-surfaces": ChatSurfaces,
+  "/docs/phone-numbers": PhoneNumbers,
   "/docs/tldrs": Tldrs,
   "/docs/vault": Vault,
   "/docs/vault-sources": VaultSources,

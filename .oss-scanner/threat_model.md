@@ -68,6 +68,13 @@ trusted-origin check, is in `App/server/index.ts`.
      `App/server/routes/webhooks.ts`. Chat surfaces (Slack, Microsoft Teams,
      WhatsApp), which verify the platform's signature:
      `App/server/routes/chatSurfaceWebhooks.ts`.
+   - Phone number webhooks from Twilio (incoming texts and calls, call turns,
+     delivery and call statuses), which verify `X-Twilio-Signature` with the
+     Auth Token of the Connection that owns the number before acting:
+     `App/server/routes/phoneWebhooks.ts`. Callers and texters are strangers:
+     their words reach the AI Employee only through the restricted,
+     tool-less turns in `App/server/services/phone/conversation.ts`, never its
+     Soul, Memory or company tools.
    - Unsubscribe links (`App/server/routes/unsubscribe.ts`).
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
@@ -277,8 +284,8 @@ Most, roughly in order:
    returning it), `App/server/services/memberBrowsers.ts`, and
    `App/server/services/browserRequestBoundary.ts` (the App refuses its own
    API to the AI's browser, even with a Member's cookies).
-9. **Public routes**: forms, signing, webhooks, chat surfaces, unsubscribe,
-   and OAuth callbacks (listed above).
+9. **Public routes**: forms, signing, webhooks, chat surfaces, phone number
+   webhooks, unsubscribe, and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are
     served (Content-Type, Content-Disposition, sandboxing), document parsing,
     and archive extraction (`App/server/services/backups.ts`).

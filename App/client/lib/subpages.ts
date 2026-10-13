@@ -41,6 +41,7 @@ import {
   NotebookPen,
   Package,
   Percent,
+  Phone,
   PiggyBank,
   Plug,
   Plus,
@@ -877,6 +878,14 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Plug,
       navGroup: "Company",
       keywords: ["connections", "connectors", "oauth", "integration catalog"],
+    },
+    {
+      label: "Phone numbers",
+      path: "/settings/phone-numbers",
+      access: ADMIN,
+      icon: Phone,
+      navGroup: "Company",
+      keywords: ["twilio", "sms", "texts", "calls", "phone", "otp", "verification codes"],
     },
     {
       label: "Browsers",

@@ -41,6 +41,9 @@ import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
 import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
+import { PhoneCall } from "../db/entities/PhoneCall.js";
+import { PhoneMessage } from "../db/entities/PhoneMessage.js";
+import { PhoneNumber } from "../db/entities/PhoneNumber.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
 import { deleteCompanyCascade } from "./companyDelete.js";
 
@@ -78,6 +81,9 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   VendorRefund,
   WorkloadLease,
   ParallelWorkerResult,
+  PhoneNumber,
+  PhoneMessage,
+  PhoneCall,
 ];
 
 function requiredValue(type: unknown, companyId: string, property: string): unknown {

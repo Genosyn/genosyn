@@ -486,6 +486,19 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "Search the web, read a page, download a file to work on.",
     tools: ["search_web", "fetch_web_page", "download_web_file"],
   },
+  phone: {
+    label: "phone",
+    blurb: "Your own phone number: texts, verification codes, calls.",
+    tools: [
+      "list_phone_numbers",
+      "send_text_message",
+      "list_text_messages",
+      "wait_for_text_message",
+      "place_phone_call",
+      "get_phone_call",
+      "list_phone_calls",
+    ],
+  },
   repositories: {
     label: "repositories",
     blurb:
@@ -550,6 +563,24 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "notetaker",
     "google meet",
   ],
+  // Phone — people ask for these by the errand ("get the code they texted me",
+  // "ring the supplier"), and "sms", "otp" and "2fa" appear in no description.
+  list_phone_numbers: ["my phone number", "my number", "phone", "twilio"],
+  send_text_message: ["sms", "text", "text message", "send sms", "message a phone"],
+  list_text_messages: ["sms", "texts", "inbox", "received sms", "messages"],
+  wait_for_text_message: [
+    "otp",
+    "verification code",
+    "2fa",
+    "two-factor",
+    "one-time code",
+    "sms code",
+    "confirm phone",
+    "receive sms",
+  ],
+  place_phone_call: ["call", "phone call", "ring", "dial", "voice call", "call someone"],
+  get_phone_call: ["call transcript", "what was said", "call result", "voicemail"],
+  list_phone_calls: ["calls", "call log", "missed calls", "who called"],
   // Bases are the worst offender: nothing in their prose says "spreadsheet".
   list_bases: ["spreadsheet", "table", "grid", "database", "dataset"],
   get_base: ["spreadsheet", "table", "grid", "schema"],

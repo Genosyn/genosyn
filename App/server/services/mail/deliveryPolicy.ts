@@ -8,6 +8,10 @@ export function mailDeliveryAllowsDeferredWork(mode: MailDeliveryMode | null | u
 
 const SEND_TOOLS = new Set([
   "send_mail",
+  // Texting or calling is delivery too: a review-only email turn must not be
+  // able to reach the same person by phone instead.
+  "send_text_message",
+  "place_phone_call",
   "send_invoice",
   "send_estimate",
   "send_signature_envelope",

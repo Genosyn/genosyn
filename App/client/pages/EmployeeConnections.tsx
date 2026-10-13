@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import {
+  Phone,
   AlertCircle,
   BarChart3,
   BookOpen,
@@ -41,6 +42,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
  */
 
 const ICONS: Record<string, LucideIcon> = {
+  Phone,
   CreditCard,
   BarChart3,
   BookOpen,

@@ -2,6 +2,7 @@ import React from "react";
 import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
+  Phone,
   AlertCircle,
   Antenna,
   BarChart3,
@@ -83,6 +84,7 @@ import { resolveReconnectTarget } from "../lib/integrationReconnect";
  */
 
 const ICONS: Record<string, LucideIcon> = {
+  Phone,
   Antenna,
   Inbox,
   BarChart3,

@@ -34,6 +34,10 @@ export const TAINT_SINK_TOOLS = new Set([
   "open_repository_work_session_pull_request",
   "push_repository_work_session",
   "send_mail",
+  // A text or a call reaches a person outside the company exactly as an email
+  // does, so a page that read "now text this number" is held the same way.
+  "send_text_message",
+  "place_phone_call",
   "create_routine",
   "update_routine",
   "delete_routine",
