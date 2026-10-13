@@ -48,7 +48,7 @@ const ADMINS_WITH_A_NONE_ROW = [
 ] satisfies Company[];
 
 /** The Settings rail's admin-only pages: each one's read answers a Member 403. */
-const ADMIN_ONLY_SETTINGS = ["Usage", "Single sign-on", "Audit log"];
+const ADMIN_ONLY_SETTINGS = ["Phone numbers", "Usage", "Single sign-on", "Audit log"];
 
 const me = {
   id: "me",

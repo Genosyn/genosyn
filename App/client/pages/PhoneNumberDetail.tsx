@@ -1,9 +1,10 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
-import { api, type Employee } from "../lib/api";
+import { api, type Company, type Employee } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { phoneApi, type PhoneNumberDetailRow, type PhoneNumberRow } from "../lib/phone";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -14,6 +15,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { PhoneActivity } from "../components/phone/PhoneActivity";
 import { PhoneNumberSettingsForm } from "../components/phone/PhoneNumberSettingsForm";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { PhoneNumbersClosed } from "./SettingsPhoneNumbers";
 
 /**
  * One phone number: its texts and calls, and its settings. Reached from
@@ -21,6 +23,14 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
  */
 export function PhoneNumberDetail() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  // Same bar as the list it belongs to; see `SettingsPhoneNumbers`.
+  if (!canOpenSubpage(subpageAt("/settings/phone-numbers"), company)) {
+    return <PhoneNumbersClosed />;
+  }
+  return <PhoneNumberPage company={company} />;
+}
+
+function PhoneNumberPage({ company }: { company: Company }) {
   const { numberId = "" } = useParams();
   const navigate = useNavigate();
   const [number, setNumber] = React.useState<PhoneNumberDetailRow | null>(null);

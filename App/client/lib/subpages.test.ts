@@ -310,6 +310,7 @@ describe("subpage visibility", () => {
       "/routines/new",
       "/settings/audit",
       "/settings/email/logs",
+      "/settings/phone-numbers",
       "/settings/sso",
       "/settings/usage",
       "/skills/new",

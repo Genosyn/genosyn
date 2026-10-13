@@ -1,9 +1,10 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { MessageSquare, Phone, Plus, TriangleAlert } from "lucide-react";
-import { api, type Employee } from "../lib/api";
+import { api, type Company, type Employee } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { phoneApi, type PhoneNumberRow, type PhoneSetup } from "../lib/phone";
+import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -22,6 +23,29 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
  */
 export function SettingsPhoneNumbers() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  // Admin-only on the server. A Member arrives only by URL, since the rail and
+  // the palette leave the page out, so they get a note in place of the list,
+  // which never mounts to send a request that could only answer 403.
+  if (!canOpenSubpage(subpageAt("/settings/phone-numbers"), company)) {
+    return <PhoneNumbersClosed />;
+  }
+  return <PhoneNumbersList company={company} />;
+}
+
+/** What a Member sees at either Phone numbers page. */
+export function PhoneNumbersClosed() {
+  return (
+    <>
+      <TopBar title="Phone numbers" />
+      <EmptyState
+        title="Only owners and admins manage phone numbers"
+        description="Numbers cost the company money, and their texts carry the verification codes for the accounts AI Employees sign into. Ask an owner or admin if an AI Employee needs a number."
+      />
+    </>
+  );
+}
+
+function PhoneNumbersList({ company }: { company: Company }) {
   const navigate = useNavigate();
   const [setup, setSetup] = React.useState<PhoneSetup | null>(null);
   const [numbers, setNumbers] = React.useState<PhoneNumberRow[] | null>(null);

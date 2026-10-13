@@ -23,6 +23,7 @@ import { SettingsEmail } from "./SettingsEmail.js";
 import { SettingsEmailLogs } from "./SettingsEmailLogs.js";
 import SettingsLayout from "./SettingsLayout.js";
 import { SettingsSso } from "./SettingsSso.js";
+import { SettingsPhoneNumbers } from "./SettingsPhoneNumbers.js";
 import Usage from "./Usage.js";
 
 /**
@@ -135,6 +136,7 @@ function renderSettings(at: string, company: Company): string {
         element: h(SettingsLayout, { company, me, onCompaniesChanged: () => {} }),
       },
       h(Route, { path: "usage", element: h(Usage) }),
+      h(Route, { path: "phone-numbers", element: h(SettingsPhoneNumbers) }),
       h(Route, { path: "sso", element: h(SettingsSso) }),
       h(Route, { path: "audit", element: h(AuditLog) }),
       h(
@@ -199,6 +201,12 @@ const ADMIN_ONLY_SETTINGS: AdminOnlyPage[] = [
     heading: "Email",
     note: "Only owners and admins read the email logs",
     own: "Recipient, subject, or error",
+  },
+  {
+    path: "/settings/phone-numbers",
+    heading: "Phone numbers",
+    note: "Only owners and admins manage phone numbers",
+    own: "Give AI Employees their own phone numbers",
   },
 ];
 
