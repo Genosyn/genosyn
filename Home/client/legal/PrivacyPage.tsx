@@ -125,9 +125,8 @@ export function PrivacyPage() {
           <Code>userinfo.email</Code>), so your installation can show which account is connected.
         </LI>
         <LI>
-          <Strong>Gmail</Strong> (<Code>gmail.modify</Code>, <Code>gmail.settings.basic</Code>), so your
-          installation can read, organize, draft and send mail, and manage basic mail settings, on your
-          behalf.
+          <Strong>Gmail</Strong> (<Code>gmail.modify</Code>), so your installation can read, organize,
+          draft and send mail on your behalf.
         </LI>
       </UL>
       <P>

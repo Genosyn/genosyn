@@ -35,10 +35,7 @@ import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
 
 const issuer = "https://signin.example";
 const IDENTITY = ["https://www.googleapis.com/auth/userinfo.email", "openid"];
-const GMAIL = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
-];
+const GMAIL = ["https://www.googleapis.com/auth/gmail.modify"];
 const CALENDAR = "https://www.googleapis.com/auth/calendar";
 const TASKS = "https://www.googleapis.com/auth/tasks";
 const ANALYTICS = "https://www.googleapis.com/auth/analytics.readonly";
