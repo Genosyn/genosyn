@@ -238,6 +238,11 @@ import {
   routineWriteRefusalForActor,
   routineWriteRefusalForOwner,
 } from "../services/routineAccess.js";
+import {
+  skillCreateRefusal,
+  skillOwnerWriteRefusal,
+  skillWriteRefusal,
+} from "../services/skillAccess.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
@@ -1096,9 +1101,11 @@ mcpInternalRouter.use(restrictRepositoryWorkSessionTools);
  *  1. A company policy forbidding the tool refuses the call and records a
  *     `policy.violation` AuditEvent. One small indexed query per call.
  *  2. Routines → AI access refuses a Routine write the employee may not make
- *     (see {@link routineWriteRefusal}). Before the taint gate on purpose: the
- *     Routine writers are taint sinks, and a call that can only be refused
- *     must not be held for a human whose approval could not let it through.
+ *     (see {@link routineWriteRefusal}), and a Skill write aimed at a
+ *     teammate's Skill is refused (`services/skillAccess.ts`). Before the
+ *     taint gate on purpose: the Routine and Skill writers are taint sinks,
+ *     and a call that can only be refused must not be held for a human whose
+ *     approval could not let it through.
  *  3. The web tools mark the turn's token tainted — at dispatch, which is
  *     strictly more conservative than on success.
  *  4. A tainted turn calling a high-risk sink has the verbatim call queued
@@ -1128,6 +1135,13 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
     }
     const routineRefusal = await routineWriteRefusal(req, toolName);
     if (routineRefusal) return res.status(403).json({ error: routineRefusal });
+    const skillRefusal = await skillWriteRefusal({
+      company: req.mcpCompany,
+      employee: req.mcpEmployee,
+      toolName,
+      body: req.body,
+    });
+    if (skillRefusal) return res.status(403).json({ error: skillRefusal });
     if (getAgentSettings().taintPolicy !== "off" && req.mcpToken) {
       if (WEB_TAINT_SOURCES.has(toolName)) markTokenTainted(req.mcpToken);
       if (taintGateApplies(req.mcpToken, toolName)) {
@@ -8345,8 +8359,16 @@ mcpInternalRouter.post(
   },
 );
 
+// The three Skill writers act on the caller's own Skills only. A teammate's
+// Skills are readable through `list_skills` but change only through a Member,
+// because a Skill body is standing instructions in its owner's every prompt
+// (`services/skillAccess.ts`). The Policy/taint middleware refuses a teammate
+// write before the taint gate; each handler asks again once it holds the owner.
+
 const createSkillSchema = z
   .object({
+    // Kept so a caller naming itself still succeeds. Any other slug is refused:
+    // a Skill created here always belongs to the caller.
     employeeSlug: z.string().min(1).max(120).optional(),
     name: z.string().min(1).max(80),
     body: z.string().max(20_000).optional(),
@@ -8361,24 +8383,24 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof createSkillSchema>;
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
-    const target = await resolveEmployee(co, self, body.employeeSlug);
-    if (!target) return res.status(404).json({ error: "Employee not found" });
+    const refusal = skillCreateRefusal(co, self, body.employeeSlug);
+    if (refusal) return res.status(403).json({ error: refusal });
 
     const repo = AppDataSource.getRepository(Skill);
     const dup = await repo
       .createQueryBuilder("s")
-      .where("s.employeeId = :eid", { eid: target.id })
+      .where("s.employeeId = :eid", { eid: self.id })
       .andWhere("LOWER(s.name) = LOWER(:name)", { name: body.name.trim() })
       .getOne();
     if (dup) {
       return res.status(409).json({
-        error: `A skill named "${body.name}" already exists for ${target.name}`,
+        error: `A skill named "${body.name}" already exists for ${self.name}`,
       });
     }
     const baseSlug = toSlug(body.name) || "skill";
     let slug = baseSlug;
     let n = 1;
-    while (await repo.findOneBy({ employeeId: target.id, slug })) {
+    while (await repo.findOneBy({ employeeId: self.id, slug })) {
       n += 1;
       slug = `${baseSlug}-${n}`;
     }
@@ -8387,7 +8409,7 @@ mcpInternalRouter.post(
     if (!checkedToolset.ok) return res.status(400).json({ error: checkedToolset.error });
 
     const s = repo.create({
-      employeeId: target.id,
+      employeeId: self.id,
       name: body.name,
       slug,
       body: body.body?.trim() ? body.body : skillTemplate(body.name),
@@ -8402,10 +8424,10 @@ mcpInternalRouter.post(
       targetType: "skill",
       targetId: s.id,
       targetLabel: s.name,
-      metadata: { via: "mcp", employeeId: target.id },
+      metadata: { via: "mcp", employeeId: self.id },
     });
     await journal(
-      target.id,
+      self.id,
       `${self.name} added a skill: "${s.name}"`,
       "Created via the built-in MCP tool.",
     );
@@ -8439,6 +8461,8 @@ mcpInternalRouter.post(
       companyId: co.id,
     });
     if (!owner) return res.status(404).json({ error: "Skill not found" });
+    const refusal = skillOwnerWriteRefusal(co, self, owner);
+    if (refusal) return res.status(403).json({ error: refusal });
 
     if (body.name !== undefined && body.name.trim() !== skill.name) {
       const dup = await repo
@@ -8493,6 +8517,8 @@ mcpInternalRouter.post(
       companyId: co.id,
     });
     if (!owner) return res.status(404).json({ error: "Skill not found" });
+    const refusal = skillOwnerWriteRefusal(co, self, owner);
+    if (refusal) return res.status(403).json({ error: refusal });
 
     // Matches the REST delete, which has always done this. Skipping it here
     // orphaned a tag assignment row per tagged skill.

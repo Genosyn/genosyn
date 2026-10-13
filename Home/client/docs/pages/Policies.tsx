@@ -150,14 +150,20 @@ export function Policies() {
         whatever the page said.
       </P>
       <P>
-        A tainted turn calling a high-risk sink — <Code>send_mail</Code>, or{" "}
-        <Code>create_routine</Code> / <Code>update_routine</Code> / <Code>delete_routine</Code>, the
-        tools an injection would use to persist itself on a schedule — does not execute it. The
-        verbatim call is held as an <Strong>Approval</Strong> (kind <Code>tainted_tool</Code>) in
-        the same Approvals inbox as everything else, and the employee is told to carry on with its
-        unheld work. Reads are never gated — a tainted turn can keep researching freely. A Routine
-        write that <DocLink to="/docs/routines#ai-access">Routines → AI access</DocLink> refuses is
-        refused outright instead of held, since no approval could let it through.
+        A tainted turn calling a high-risk sink does not execute it. The sinks are{" "}
+        <Code>send_mail</Code>, and texting or calling from a{" "}
+        <DocLink to="/docs/phone-numbers">Phone number</DocLink> (<Code>send_text_message</Code>,{" "}
+        <Code>place_phone_call</Code>); the tools an injection would use to persist itself —{" "}
+        <Code>create_routine</Code> / <Code>update_routine</Code> / <Code>delete_routine</Code>,
+        which would re-run it on a schedule, and <Code>create_skill</Code> /{" "}
+        <Code>update_skill</Code> / <Code>delete_skill</Code>, which would put it in every later
+        prompt of the employee; and pushing a Repository work session or opening its pull request.
+        The verbatim call is held as an <Strong>Approval</Strong> (kind <Code>tainted_tool</Code>)
+        in the same Approvals inbox as everything else, and the employee is told to carry on with
+        its unheld work. Reads are never gated — a tainted turn can keep researching freely. A
+        write no approval could let through is refused outright instead of held: a Routine write
+        that <DocLink to="/docs/routines#ai-access">Routines → AI access</DocLink> refuses, or a
+        write to <DocLink to="/docs/skills#ai-employees">another employee&apos;s Skill</DocLink>.
       </P>
       <UL>
         <LI>

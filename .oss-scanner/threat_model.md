@@ -214,12 +214,12 @@ trusted-origin check, is in `App/server/index.ts`.
   exposed.
 - **Known, documented limits** of the taint policy
   (`App/server/services/taintPolicy.ts`): web tools taint a turn, and then the
-  sink tools (`send_mail`, Routine writers, Repository push and pull request)
-  need an Approval. Mail as a taint source, and connector compose tools, are
-  deliberately not covered yet. A report showing only that an injected email
-  or a connector compose tool sends without a taint Approval restates this.
-  It is a finding if the send also crosses a mail delivery mode, a Grant, or
-  an Approval that should have held.
+  sink tools (`send_mail`, texts and calls, Routine and Skill writers,
+  Repository push and pull request) need an Approval. Mail as a taint source,
+  and connector compose tools, are deliberately not covered yet. A report
+  showing only that an injected email or a connector compose tool sends
+  without a taint Approval restates this. It is a finding if the send also
+  crosses a mail delivery mode, a Grant, or an Approval that should have held.
 
 ## Components that matter most / least
 
@@ -438,6 +438,10 @@ self-hosted install: single-tenant, host execution, SQLite.
   Repository, Base, mailbox, or Project it was not granted. Also a Vault
   `use` Grant returning plaintext to the model, or Vault fill typing into
   another origin.
+- An AI Employee writing another employee's Skills. Its tools write only its
+  own (`App/server/services/skillAccess.ts`): a Skill's body is standing
+  instructions in every prompt of the employee that owns it, so a teammate's
+  Skills change only through a Member, whoever drives the turn.
 - Prompt injection (from email, web pages, documents, MCP results, or
   repository content) that makes the server cross one of its own ceilings.
   Examples: mail automation doing anything beyond its allowlist or choosing
