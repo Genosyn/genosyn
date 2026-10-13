@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
+import { In } from "typeorm";
 import type { Server } from "node:http";
 import { PDFDocument } from "pdf-lib";
 
@@ -329,6 +330,21 @@ describe("AI-native signature envelopes", () => {
     assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 0);
   });
 
+  /**
+   * The tools' own trail: one `signature.envelope.*` row per action, none for a
+   * refused call. The signing service also writes each envelope's History
+   * (`signature_envelope.*`), which this count leaves to its own tests.
+   */
+  const mcpTrailCount = () =>
+    AppDataSource.getRepository(AuditEvent).countBy({
+      action: In([
+        "signature.envelope.create",
+        "signature.envelope.send",
+        "signature.envelope.remind",
+        "signature.envelope.void",
+      ]),
+    });
+
   test("send, remind, and void require Send access and preserve recipient-only signing", async () => {
     await grantSigning("draft");
     const draft = await createDraft();
@@ -338,7 +354,7 @@ describe("AI-native signature envelopes", () => {
     const expectedUpdatedAt = String(draft.envelope.updatedAt);
     const denied = await aiCall("send_signature_envelope", { envelopeId, expectedUpdatedAt });
     assert.equal(denied.status, 403);
-    assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 1);
+    assert.equal(await mcpTrailCount(), 1);
 
     await grantSigning("send");
     const sent = await aiCall<{
@@ -375,7 +391,7 @@ describe("AI-native signature envelopes", () => {
         .tokenHash,
       null,
     );
-    assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 4);
+    assert.equal(await mcpTrailCount(), 4);
     assert.equal(
       await AppDataSource.getRepository(JournalEntry).countBy({ employeeId: employee.id }),
       4,
