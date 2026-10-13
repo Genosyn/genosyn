@@ -2,6 +2,7 @@ import { PRODUCTS, type ProductDef } from "@/products/data";
 import { ROLES, type RoleDef } from "@/roles/data";
 import { POSTS, type Post } from "@/blog/posts";
 import { DOCS_NAV } from "@/docs/nav";
+import { LEGAL_DOCS, LEGAL_UPDATED, type LegalDoc } from "@/legal/data";
 import { GITHUB_URL } from "@/lib/constants";
 
 /**
@@ -175,6 +176,31 @@ function roleRoute(role: RoleDef): RouteHead {
   };
 }
 
+function legalRoute(doc: LegalDoc): RouteHead {
+  return {
+    path: doc.path,
+    title: `${doc.title} · Genosyn`,
+    description: doc.description,
+    jsonLd: [
+      ORGANIZATION,
+      WEBSITE,
+      breadcrumbs([
+        { name: "Home", path: "/" },
+        { name: doc.title, path: doc.path },
+      ]),
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: doc.title,
+        url: `${SITE_URL}${doc.path}`,
+        description: doc.description,
+        dateModified: LEGAL_UPDATED,
+        isPartOf: { "@type": "WebSite", name: "Genosyn", url: SITE_URL },
+      },
+    ],
+  };
+}
+
 function productRoute(product: ProductDef): RouteHead {
   const path = `/products/${product.slug}`;
   return {
@@ -318,6 +344,7 @@ export function allRoutes(): RouteHead[] {
       ],
     },
     ...POSTS.map(postRoute),
+    ...LEGAL_DOCS.map(legalRoute),
     ...DOCS_NAV.flatMap((section) =>
       section.pages.map((page) => ({
         path: page.path,

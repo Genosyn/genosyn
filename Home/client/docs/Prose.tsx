@@ -185,7 +185,7 @@ export function KeyList({ rows }: { rows: Array<{ term: string; def: ReactNode }
 }
 
 /* Inline links are carried by an underline, not by weight or hue. */
-const INLINE_LINK =
+export const INLINE_LINK =
   "font-medium text-ink underline decoration-ink/25 decoration-1 underline-offset-[4px] transition-colors hover:decoration-ink";
 
 export function DocLink({ to, children }: { to: string; children?: ReactNode }) {

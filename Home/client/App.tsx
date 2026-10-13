@@ -22,6 +22,8 @@ import { RolesIndex } from "@/roles/RolesIndex";
 import { RolePage } from "@/roles/RolePage";
 import { findRole } from "@/roles/data";
 import { VisionPage } from "@/vision/VisionPage";
+import { PrivacyPage } from "@/legal/PrivacyPage";
+import { TermsPage } from "@/legal/TermsPage";
 import { usePathname } from "@/lib/router";
 import { applyHead } from "@/lib/head";
 import { findRouteHead } from "@/lib/siteMeta";
@@ -58,6 +60,14 @@ export function App() {
 
   if (path.replace(/\/+$/, "") === "/vision") {
     return <VisionPage />;
+  }
+
+  if (path.replace(/\/+$/, "") === "/privacy") {
+    return <PrivacyPage />;
+  }
+
+  if (path.replace(/\/+$/, "") === "/terms") {
+    return <TermsPage />;
   }
 
   return <Landing />;

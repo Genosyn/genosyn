@@ -68,6 +68,10 @@ export function Connect() {
         the app&apos;s client secret and asks Google. Connect stores nothing from a renewal.
         Connect never needs to reach your installation, so it works the same behind a firewall.
       </P>
+      <P>
+        The <DocLink to="/privacy">Privacy Policy</DocLink> covers what the service at{" "}
+        <Code>connect.genosyn.com</Code> processes and how it handles Google user data.
+      </P>
 
       <H2 id="what-it-offers">What it offers</H2>
       <P>
