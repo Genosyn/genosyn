@@ -158,20 +158,27 @@ export type RowSelection = {
  * classes: room on the left for the box, and a wash while it is ticked so a
  * selection reads at a glance. Nothing without a selection — on Home, or a
  * row that only shows an outcome — so those rows draw exactly as before.
+ *
+ * From `sm` up the box has a gutter of its own. A phone has no width to spare,
+ * so there the box sits at the start of the row's header line instead
+ * (`selectableHeaderClass`), and the question and buttons keep the full row.
  */
 export function selectableRowClass(selection: RowSelection | undefined): string | false {
   return (
     !!selection &&
-    clsx(
-      "relative pl-11 sm:pl-12",
-      selection.selected && "bg-indigo-50/60 dark:bg-indigo-500/[0.07]",
-    )
+    clsx("relative sm:pl-12", selection.selected && "bg-indigo-50/60 dark:bg-indigo-500/[0.07]")
   );
 }
 
+/** Room for the tick box at the start of a waiting row's header line, on a phone. */
+export function selectableHeaderClass(selection: RowSelection | undefined): string | false {
+  return !!selection && "pl-7 sm:pl-0";
+}
+
 /**
- * A waiting row's tick box for the stack's bulk bar, in the room
- * `selectableRowClass` leaves for it and level with the row's header line.
+ * A waiting row's tick box for the stack's bulk bar, level with the row's
+ * header line: in the gutter `selectableRowClass` leaves for it, or on a
+ * phone at the start of the header line `selectableHeaderClass` pads.
  */
 export function RowCheckbox({
   selection,

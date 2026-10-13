@@ -23,6 +23,7 @@ import {
   DetailsButton,
   RowCheckbox,
   focusAfterRemoval,
+  selectableHeaderClass,
   selectableRowClass,
   type RowSelection,
 } from "@/components/decisions/StackRow";
@@ -181,7 +182,12 @@ export function DecisionCard({
     >
       <RowCheckbox selection={selection} label={`Select ${headline.question}`} />
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
-        <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <header
+          className={clsx(
+            "flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400",
+            selectableHeaderClass(selection),
+          )}
+        >
           {decision.employee ? (
             <Avatar
               name={decision.employee.name}
@@ -328,7 +334,7 @@ export function DecisionCard({
                 dismiss this one.
               </p>
             )}
-            <div className="flex items-center gap-1 sm:ml-auto">
+            <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
               <DecisionDiscussButton
                 decision={decision}
                 open={discussing}

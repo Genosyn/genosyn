@@ -17,6 +17,7 @@ import {
   StatusIcon,
   StatusText,
   focusAfterRemoval,
+  selectableHeaderClass,
   selectableRowClass,
   type RowSelection,
 } from "@/components/decisions/StackRow";
@@ -223,7 +224,12 @@ export function WorkReviewCard({
         label={`Select ${approval.title ?? "Review proposed work"}`}
       />
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
-        <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <header
+          className={clsx(
+            "flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400",
+            selectableHeaderClass(selection),
+          )}
+        >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
             <ShieldCheck size={11} aria-hidden="true" />
           </span>
