@@ -99,11 +99,14 @@ export function useCloseOnPressOutside(
  * Positioning is fixed-coord relative to the viewport, computed from the
  * trigger's bounding rect. The menu sizes itself (no max-height math) and
  * caps to an 80vh scroll — fine for our lists which max out at ~dozens.
+ * It opens below the trigger; `side="top"` opens it above, for a trigger that
+ * sits at the bottom of the screen, like a floating bulk bar.
  */
 export function Menu({
   trigger,
   children,
   align = "left",
+  side = "bottom",
   width = 220,
   open: controlledOpen,
   onOpenChange,
@@ -115,6 +118,7 @@ export function Menu({
   }) => React.ReactNode;
   children: (close: () => void) => React.ReactNode;
   align?: "left" | "right";
+  side?: "bottom" | "top";
   width?: number;
   open?: boolean;
   onOpenChange?: (next: boolean) => void;
@@ -130,17 +134,23 @@ export function Menu({
   };
 
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null);
+  const [coords, setCoords] = React.useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+  } | null>(null);
 
   React.useLayoutEffect(() => {
     if (!open || !triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const top = r.bottom + 4;
+    // Above the trigger, the menu's bottom edge is pinned so it grows upward.
+    const vertical =
+      side === "top" ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 };
     const left = align === "left" ? r.left : r.right - width;
     // Clamp horizontally to keep the menu on-screen.
     const maxLeft = window.innerWidth - width - 8;
-    setCoords({ top, left: Math.max(8, Math.min(left, maxLeft)) });
-  }, [open, align, width]);
+    setCoords({ ...vertical, left: Math.max(8, Math.min(left, maxLeft)) });
+  }, [open, align, side, width]);
 
   const markPressInside = useCloseOnPressOutside(open, () => setOpen(false), triggerRef);
   useCloseOnEscape(open, () => setOpen(false));
@@ -158,7 +168,7 @@ export function Menu({
           <div
             role="menu"
             onMouseDownCapture={markPressInside}
-            style={{ top: coords.top, left: coords.left, width }}
+            style={{ top: coords.top, bottom: coords.bottom, left: coords.left, width }}
             className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
           >
             {children(() => setOpen(false))}

@@ -13,13 +13,17 @@ import {
   DetailSection,
   DetailsButton,
   DetailsPanel,
+  RowCheckbox,
   StatusIcon,
   StatusText,
   focusAfterRemoval,
+  selectableRowClass,
+  type RowSelection,
 } from "@/components/decisions/StackRow";
 import { workReviewStatusLine } from "@/components/decisions/stackStatus";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
+import { clsx } from "@/components/ui/clsx";
 import { formatRelative } from "@/components/decisions/relative";
 
 function workReview(approval: HomeApproval) {
@@ -134,7 +138,8 @@ function WorkDetails({
 /**
  * Proposed work as one short row: the title, why it needs a person, the plan
  * in a line or two, and Approve & start / Request changes / Don’t do this.
- * The full plan, the context and the source are behind Details.
+ * The full plan, the context and the source are behind Details. A selection
+ * can decline several plans, but never approves more than this one.
  */
 export function WorkReviewCard({
   company,
@@ -143,6 +148,7 @@ export function WorkReviewCard({
   onActionStart,
   onActionSettled,
   grouped = false,
+  selection,
 }: {
   company: Company;
   approval: HomeApproval;
@@ -152,6 +158,8 @@ export function WorkReviewCard({
   onActionSettled?: (approval: Approval, action: WorkReviewAction, leave: () => void) => void;
   /** Under a group's "2 work plans to review" heading, which already says what it is. */
   grouped?: boolean;
+  /** This row's tick box for the bulk bar; none where there is no bulk bar. */
+  selection?: RowSelection;
 }) {
   const [busy, setBusy] = React.useState<WorkReviewAction | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -208,8 +216,12 @@ export function WorkReviewCard({
       ref={rowRef}
       id={`review-${approval.id}`}
       data-stack-row
-      className="scroll-mt-4 px-4 py-4 sm:px-5"
+      className={clsx("scroll-mt-4 px-4 py-4 sm:px-5", selectableRowClass(selection))}
     >
+      <RowCheckbox
+        selection={selection}
+        label={`Select ${approval.title ?? "Review proposed work"}`}
+      />
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
         <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">

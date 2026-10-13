@@ -16,7 +16,9 @@ import {
 import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
 import { decisionStackOffBanner } from "../lib/decisionStack";
 import { errorMessage } from "../lib/errors";
-import { StackList } from "@/components/decisions/StackList";
+import { StackBulkBar } from "@/components/decisions/StackBulkBar";
+import { StackList, type StackListSelection } from "@/components/decisions/StackList";
+import { bulkTarget, type BulkTarget } from "@/components/decisions/stackBulk";
 import {
   StackSearch,
   StackSection,
@@ -26,6 +28,7 @@ import {
   stackLinkFromHash,
   useScrollToStackLink,
 } from "@/components/decisions/stackPage";
+import { groupStackItems } from "@/components/decisions/stackStatus";
 import {
   compareStackItems,
   decisionItem,
@@ -33,6 +36,7 @@ import {
   stackItemPending,
   useDecisionFollowUps,
 } from "@/components/decisions/useDecisionFollowUps";
+import { useStackBulk } from "@/components/decisions/useStackBulk";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
@@ -63,6 +67,10 @@ import { EnabledToggle } from "./RevenueSignals";
  * the row off in the same click. Everything already settled lives on its own page,
  * `DecisionHistory`, so this one only ever holds what still needs someone. A
  * link to a settled item (`#decision-<id>`, `#review-<id>`) is sent on there.
+ *
+ * Every waiting row the viewer may act on has a tick box, and a selection can
+ * be dismissed or snoozed together from the bulk bar (`useStackBulk`). That
+ * only ever takes rows off; answers, sends and approvals stay one row at a time.
  */
 
 function isFutureSnooze(decision: Decision, now: number): boolean {
@@ -92,6 +100,8 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const [retryingDecisions, setRetryingDecisions] = React.useState(false);
   const [retryingWork, setRetryingWork] = React.useState(false);
   const canReview = company.role === "owner" || company.role === "admin";
+  // Owners and admins may answer any Decision, including another Member's.
+  const canAnswerAssigned = canReview;
   const workRequest = React.useRef(0);
   const followUps = useDecisionFollowUps(company, me.id);
   const clearClosedFollowUps = followUps.clearClosed;
@@ -361,9 +371,38 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
       refreshError: followUps.items.find((followed) => followed.key === item.key)?.refreshError,
     }));
   const followingCount = needsYou.filter((item) => !stackItemPending(item)).length;
+  const assignedItems = assignedElsewhere.map(decisionItem);
+  // What a selection may act on, in the order the rows are drawn: reviews
+  // gather under their group heading, and other Members' questions come last.
+  const targets = [
+    ...groupStackItems(needsYou).flatMap((entry) =>
+      entry.kind === "item" ? [entry.item] : entry.items,
+    ),
+    ...(canAnswerAssigned ? assignedItems : []),
+  ]
+    .map(bulkTarget)
+    .filter((target): target is BulkTarget => target !== null);
+  const targetKeys = new Set(targets.map((target) => target.key));
+  const bulk = useStackBulk({
+    company,
+    targets,
+    followUps,
+    onDecisionsChanged: reload,
+    onReviewsChanged: reloadWork,
+    announce: (message) => setResolutionNotice({ message }),
+  });
+  const listSelection = (label: string): StackListSelection => ({
+    label,
+    selectable: (item) => targetKeys.has(item.key),
+    selected: bulk.keys,
+    toggle: bulk.toggle,
+    setMany: bulk.setMany,
+    disabled: bulk.busy !== null,
+  });
+  const selectedCount = bulk.selected.length;
 
   return (
-    <div className="page-shell p-4 sm:p-8">
+    <div className={clsx("page-shell p-4 sm:p-8", selectedCount > 0 && "pb-28 sm:pb-28")}>
       <TopBar
         title="Decision stack"
         right={
@@ -487,6 +526,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
                 followUps={followUps}
                 onResolved={reloadAfterAction}
                 viewerId={me.id}
+                selection={listSelection("Needs you")}
               />
             </StackSection>
           )}
@@ -495,15 +535,28 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
             <StackSection title={`Assigned to other Members (${assignedElsewhere.length})`}>
               <StackList
                 company={company}
-                items={assignedElsewhere.map(decisionItem)}
+                items={assignedItems}
                 followUps={followUps}
                 onResolved={reloadDecisionsAfterAction}
-                canAnswer={company.role === "owner" || company.role === "admin"}
+                canAnswer={canAnswerAssigned}
                 viewerId={me.id}
+                selection={
+                  canAnswerAssigned ? listSelection("Assigned to other Members") : undefined
+                }
               />
             </StackSection>
           )}
         </div>
+      )}
+      {selectedCount > 0 && (
+        <StackBulkBar
+          count={selectedCount}
+          canSnooze={bulk.selected.every((target) => target.kind === "decision")}
+          busy={bulk.busy}
+          onDismiss={bulk.dismiss}
+          onSnooze={bulk.snooze}
+          onClear={bulk.clear}
+        />
       )}
     </div>
   );

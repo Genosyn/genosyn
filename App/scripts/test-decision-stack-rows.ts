@@ -5,7 +5,8 @@
  * behind a single Details disclosure; answering into one status line that
  * follows the work (the report up front, the full log behind its own toggle);
  * Dismiss, Snooze, Discard and Don’t do this taking the row off in one click
- * with focus moving on; Undismiss in History; Discuss in the row; grouped
+ * with focus moving on; tick boxes and the bulk bar, which only ever dismiss,
+ * snooze, discard or decline; Undismiss in History; Discuss in the row; grouped
  * email reviews that keep their own Send now; Members' read-only rows; deep
  * links; keyboard access; dark mode; and phone widths without sideways
  * scrolling. The API is a deterministic fixture that stores what it is sent,
@@ -344,6 +345,8 @@ type Options = {
   pickupOnDecide?: Decision["pickupStatus"];
   /** Rows the Member follows already (from an earlier visit). */
   following?: Array<{ kind: "decision" | "review"; id: string }>;
+  /** Ids a bulk request skips, with the reason the server gives. */
+  bulkSkip?: Record<string, string>;
 };
 
 const browserErrors: string[] = [];
@@ -452,6 +455,56 @@ async function open(options: Options = {}): Promise<Fixture> {
         const { status, error } = failWrite;
         failWrite = null;
         return route.fulfill({ status, json: { error } });
+      }
+      // The bulk bar: each id under its own rules, the skipped ones with a reason.
+      if (pathname === `${base}/decisions/bulk` && method === "POST") {
+        const succeeded: string[] = [];
+        const skipped: Array<{ id: string; reason: string }> = [];
+        for (const id of body.ids as string[]) {
+          const row = rows.find((entry) => entry.id === id);
+          const reason =
+            options.bulkSkip?.[id] ??
+            (!row ? "Decision not found" : row.status !== "pending" ? "Already answered" : null);
+          if (reason || !row) {
+            skipped.push({ id, reason: reason ?? "Decision not found" });
+            continue;
+          }
+          if (body.action === "dismiss") {
+            Object.assign(row, {
+              status: "cancelled",
+              decidedAt: NOW.toISOString(),
+              decidedByUserId: VIEWER.id,
+              decidedBy: VIEWER,
+            });
+          } else {
+            row.snoozedUntil = new Date(
+              NOW.getTime() + SNOOZE_MS[String(body.duration)],
+            ).toISOString();
+          }
+          succeeded.push(id);
+        }
+        return route.fulfill({ json: { action: body.action, succeeded, skipped } });
+      }
+      if (pathname === `${base}/approvals/bulk` && method === "POST") {
+        assert.equal(body.action, "reject", "a selection only ever discards or declines");
+        const succeeded: string[] = [];
+        const skipped: Array<{ id: string; reason: string }> = [];
+        for (const item of body.items as Array<{ id: string; reviewRevision?: string }>) {
+          const row = reviews.find((entry) => entry.id === item.id);
+          const reason = options.bulkSkip?.[item.id] ?? (!row ? "Review not found" : null);
+          if (reason || !row) {
+            skipped.push({ id: item.id, reason: reason ?? "Review not found" });
+            continue;
+          }
+          assert.equal(
+            item.reviewRevision,
+            row.review?.revision,
+            "each review sends its own revision",
+          );
+          Object.assign(row, { status: "rejected", decidedAt: NOW.toISOString() });
+          succeeded.push(item.id);
+        }
+        return route.fulfill({ json: { action: body.action, succeeded, skipped } });
       }
       const act = pathname.match(/^\/api\/companies\/company\/decisions\/([^/]+)\/(\w+)$/);
       if (act && method === "POST") {
@@ -640,6 +693,8 @@ const reviewRow = (page: Page, id: string) => page.locator(`[id="review-${id}"]`
 const statusLine = (locator: Locator) => locator.locator("[data-status-line]");
 const button = (scope: Page | Locator, name: string | RegExp) =>
   scope.getByRole("button", { name, exact: typeof name === "string" });
+/** The floating bar a selection brings up. */
+const bulkBar = (page: Page) => page.getByRole("toolbar", { name: "Selected items" });
 
 async function stackReady(page: Page) {
   await page.getByRole("heading", { name: "Decision stack", exact: true }).waitFor();
@@ -1299,6 +1354,319 @@ try {
       await page.close();
     },
   );
+
+  await check(
+    "tick rows and Dismiss them together: one request, rows leave, focus moves on, History has them",
+    async () => {
+      const third = decision({
+        id: ID.assigned,
+        title: "Move the Q4 board meeting?",
+        createdAt: hoursAgo(1),
+      });
+      const fx = await open({ rows: [decision(), legacyDecision(), third] });
+      const { page } = fx;
+      await row(page, ID.contract).waitFor();
+      // Nothing is selected yet: no bar, and the strip offers Select all.
+      assert.equal(await bulkBar(page).count(), 0);
+      await page.getByText("Select all", { exact: true }).waitFor();
+      const contractBox = row(page, ID.contract).getByRole("checkbox", {
+        name: "Select Sign Acme's three-year renewal at 10% off?",
+        exact: true,
+      });
+      await contractBox.check();
+      await row(page, ID.legacy).getByRole("checkbox").check();
+      await bulkBar(page).getByText("2 selected", { exact: true }).waitFor();
+      assert.deepEqual(fx.writes, [], "ticking rows records nothing");
+      await shot(page, "bulk-selected");
+      // Decisions alone are dismissed at once: Undismiss brings them back.
+      await button(bulkBar(page), "Dismiss").click();
+      await gone(row(page, ID.contract));
+      await gone(row(page, ID.legacy));
+      assert.deepEqual(fx.writes, [
+        {
+          method: "POST",
+          path: "/api/companies/company/decisions/bulk",
+          body: { action: "dismiss", ids: [ID.legacy, ID.contract] },
+        },
+      ]);
+      await bulkBar(page).waitFor({ state: "detached" });
+      await page.waitForFunction(
+        (id) => document.activeElement?.closest(`[id="decision-${id}"]`) !== null,
+        ID.assigned,
+      );
+      await page
+        .getByRole("status")
+        .filter({ hasText: "2 decisions dismissed. They are in Decision history." })
+        .waitFor({ state: "attached" });
+      await page.getByRole("link", { name: "Decision history", exact: true }).click();
+      await page.getByRole("heading", { name: "Decision history", exact: true }).waitFor();
+      for (const id of [ID.contract, ID.legacy]) {
+        assert.match(await statusLine(row(page, id)).innerText(), /^Dismissed · By you$/);
+      }
+      await page.close();
+    },
+  );
+
+  await check(
+    "Select all, shift-click ranges and a group heading's box pick rows in on-screen order",
+    async () => {
+      const fx = await open({
+        rows: [decision()],
+        reviews: [
+          mailReview(ID.mailA, 0),
+          mailReview(ID.mailB, 1),
+          mailReview(ID.mailC, 2),
+          workReview(),
+        ],
+      });
+      const { page } = fx;
+      await reviewRow(page, ID.mailA).waitFor();
+      const box = (locator: Locator) => locator.getByRole("checkbox");
+      // Shift-click ticks the run from the last row ticked, as drawn.
+      await box(row(page, ID.contract)).check();
+      await box(reviewRow(page, ID.mailB)).click({ modifiers: ["Shift"] });
+      await bulkBar(page).getByText("3 selected", { exact: true }).waitFor();
+      assert.equal(await box(reviewRow(page, ID.mailA)).isChecked(), true);
+      assert.equal(await box(reviewRow(page, ID.mailC)).isChecked(), false);
+      // A review in the selection cannot be snoozed.
+      assert.equal(await button(bulkBar(page), /^Snooze/).isDisabled(), true);
+      // Select all ticks every waiting row, and again clears them.
+      const all = page.getByRole("checkbox", {
+        name: "Select every waiting item in Needs you",
+        exact: true,
+      });
+      await all.click();
+      await bulkBar(page).getByText("5 selected", { exact: true }).waitFor();
+      await all.click();
+      await bulkBar(page).waitFor({ state: "detached" });
+      // The heading over the emails ticks exactly them.
+      await page
+        .locator('[data-stack-group="mail"]')
+        .getByRole("checkbox", { name: "Select every waiting email", exact: true })
+        .check();
+      await bulkBar(page).getByText("3 selected", { exact: true }).waitFor();
+      for (const id of [ID.mailA, ID.mailB, ID.mailC]) {
+        assert.equal(await box(reviewRow(page, id)).isChecked(), true, id);
+      }
+      assert.equal(await box(row(page, ID.contract)).isChecked(), false);
+      assert.equal(await box(reviewRow(page, ID.work)).isChecked(), false);
+      // × clears it.
+      await button(bulkBar(page), "Clear selection").click();
+      await bulkBar(page).waitFor({ state: "detached" });
+      assert.deepEqual(fx.writes, []);
+      await page.close();
+    },
+  );
+
+  await check(
+    "discarding emails from a selection asks first, sends each one's revision, and never sends",
+    async () => {
+      const fx = await open({
+        rows: [decision()],
+        reviews: [mailReview(ID.mailA, 0), mailReview(ID.mailB, 1), mailReview(ID.mailC, 2)],
+      });
+      const { page } = fx;
+      const group = page.locator('[data-stack-group="mail"]');
+      await group.getByText("3 emails to review", { exact: true }).waitFor();
+      await group.getByRole("checkbox", { name: "Select every waiting email" }).check();
+      await button(bulkBar(page), "Dismiss").click();
+      const confirm = page.getByRole("dialog", { name: "Discard 3 emails?" });
+      await confirm
+        .getByText(
+          "3 emails are discarded and never sent. Each AI Employee is told. Discarded emails can’t be restored.",
+        )
+        .waitFor();
+      await shot(page, "bulk-confirm");
+      // Cancel changes nothing and keeps the selection.
+      await button(confirm, "Cancel").click();
+      await confirm.waitFor({ state: "detached" });
+      assert.deepEqual(fx.writes, []);
+      await bulkBar(page).getByText("3 selected", { exact: true }).waitFor();
+      await button(bulkBar(page), "Dismiss").click();
+      await button(
+        page.getByRole("dialog", { name: "Discard 3 emails?" }),
+        "Discard 3 emails",
+      ).click();
+      for (const id of [ID.mailA, ID.mailB, ID.mailC]) await gone(reviewRow(page, id));
+      assert.deepEqual(fx.writes, [
+        {
+          method: "POST",
+          path: "/api/companies/company/approvals/bulk",
+          body: {
+            action: "reject",
+            items: [
+              { id: ID.mailA, reviewRevision: "0".repeat(64) },
+              { id: ID.mailB, reviewRevision: "1".repeat(64) },
+              { id: ID.mailC, reviewRevision: "2".repeat(64) },
+            ],
+          },
+        },
+      ]);
+      assert.deepEqual(
+        fx.reviews.map((review) => review.status),
+        ["rejected", "rejected", "rejected"],
+        "nothing was approved or sent",
+      );
+      await row(page, ID.contract).waitFor();
+      await page
+        .getByRole("status")
+        .filter({ hasText: "3 emails discarded. They are in Decision history." })
+        .waitFor({ state: "attached" });
+      await page.close();
+    },
+  );
+
+  await check(
+    "a mixed selection confirms what happens to each kind, and a skipped row stays ticked with its reason",
+    async () => {
+      const fx = await open({
+        rows: [decision(), legacyDecision()],
+        reviews: [workReview()],
+        bulkSkip: { [ID.legacy]: "Assigned to another teammate" },
+      });
+      const { page } = fx;
+      await reviewRow(page, ID.work).waitFor();
+      await page.getByRole("checkbox", { name: "Select every waiting item in Needs you" }).check();
+      await bulkBar(page).getByText("3 selected", { exact: true }).waitFor();
+      await button(bulkBar(page), "Dismiss").click();
+      const confirm = page.getByRole("dialog", { name: "Dismiss 3 items?" });
+      await confirm
+        .getByText(
+          "2 decisions are dismissed without an answer. Undismiss in Decision history brings them back. 1 work plan is declined, and nothing in it is started. Each AI Employee is told. Declined plans can’t be restored.",
+        )
+        .waitFor();
+      await button(confirm, "Dismiss 3 items").click();
+      const skipped = page.getByRole("dialog", { name: "1 item wasn’t dismissed" });
+      await skipped
+        .getByText("Assigned to another teammate. The other 2 were dismissed.")
+        .waitFor();
+      await gone(row(page, ID.contract));
+      await gone(reviewRow(page, ID.work));
+      assert.deepEqual(
+        fx.writes.map((write) => ({ path: write.path, body: write.body })),
+        [
+          {
+            path: "/api/companies/company/decisions/bulk",
+            body: { action: "dismiss", ids: [ID.legacy, ID.contract] },
+          },
+          {
+            path: "/api/companies/company/approvals/bulk",
+            body: { action: "reject", items: [{ id: ID.work, reviewRevision: "w".repeat(64) }] },
+          },
+        ],
+      );
+      await skipped.getByRole("button", { name: "Close" }).last().click();
+      await skipped.waitFor({ state: "detached" });
+      // The skipped row is still here, still ticked, for another look.
+      assert.equal(await row(page, ID.legacy).getByRole("checkbox").isChecked(), true);
+      await bulkBar(page).getByText("1 selected", { exact: true }).waitFor();
+      await page.close();
+    },
+  );
+
+  await check(
+    "Snooze from the bar opens upward and puts every selected Decision away",
+    async () => {
+      const fx = await open({ rows: [decision(), legacyDecision()] });
+      const { page } = fx;
+      await row(page, ID.contract).waitFor();
+      await page.getByRole("checkbox", { name: "Select every waiting item in Needs you" }).check();
+      const snooze = button(bulkBar(page), /^Snooze/);
+      assert.equal(await snooze.isDisabled(), false);
+      await snooze.click();
+      const menu = page.getByRole("menu");
+      await menu.getByRole("menuitem", { name: "1 week" }).waitFor();
+      const menuBox = await menu.boundingBox();
+      const triggerBox = await snooze.boundingBox();
+      assert.ok(
+        menuBox && triggerBox && menuBox.y + menuBox.height <= triggerBox.y,
+        "the menu opens above the bar, on screen",
+      );
+      assert.ok(menuBox && menuBox.y >= 0, "the menu's top is on screen");
+      await menu.getByRole("menuitem", { name: "1 week" }).click();
+      await gone(row(page, ID.contract));
+      await gone(row(page, ID.legacy));
+      assert.deepEqual(fx.writes, [
+        {
+          method: "POST",
+          path: "/api/companies/company/decisions/bulk",
+          body: { action: "snooze", ids: [ID.legacy, ID.contract], duration: "one_week" },
+        },
+      ]);
+      await page
+        .getByRole("status")
+        .filter({ hasText: "2 decisions snoozed for 1 week." })
+        .waitFor({ state: "attached" });
+      await page.close();
+    },
+  );
+
+  await check(
+    "a Member can tick only what they may answer, and Home has no tick boxes",
+    async () => {
+      const assigned = decision({
+        id: ID.assigned,
+        title: "Approve the Q4 hiring plan?",
+        assignee: { id: "someone-else", name: "Priya Shah" },
+      });
+      const fx = await open({ role: "member", rows: [decision(), assigned] });
+      const { page } = fx;
+      await row(page, ID.assigned).waitFor();
+      assert.equal(await row(page, ID.contract).getByRole("checkbox").count(), 1);
+      assert.equal(await row(page, ID.assigned).getByRole("checkbox").count(), 0);
+      assert.equal(
+        await page.getByRole("checkbox", { name: /Assigned to other Members/ }).count(),
+        0,
+      );
+      await page.close();
+      const owner = await open({ role: "owner", rows: [decision(), assigned] });
+      await row(owner.page, ID.assigned).getByRole("checkbox").waitFor();
+      await owner.page.close();
+      const home = await open({
+        path: "/c/acme",
+        rows: [decision()],
+        reviews: [mailReview(ID.mailA, 0)],
+      });
+      await row(home.page, ID.contract).waitFor();
+      await reviewRow(home.page, ID.mailA).waitFor();
+      assert.equal(await home.page.locator("[data-stack-list]").getByRole("checkbox").count(), 0);
+      assert.equal(await bulkBar(home.page).count(), 0);
+      await home.page.close();
+    },
+  );
+
+  await check("phone width: the bulk bar fits and nothing scrolls sideways", async () => {
+    const fx = await open({
+      width: 375,
+      rows: [legacyDecision(), decision()],
+      reviews: [mailReview(ID.mailA, 0), mailReview(ID.mailB, 1)],
+    });
+    const { page } = fx;
+    await row(page, ID.legacy).waitFor();
+    await page.getByRole("checkbox", { name: "Select every waiting item in Needs you" }).check();
+    await bulkBar(page).getByText("4 selected", { exact: true }).waitFor();
+    for (const width of [375, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      const barBox = await bulkBar(page).boundingBox();
+      assert.ok(
+        barBox && barBox.x >= 0 && barBox.x + barBox.width <= width,
+        `the bar fits ${width}`,
+      );
+      const overflow = await bulkBar(page).evaluate(
+        (element) => element.scrollWidth - element.clientWidth,
+      );
+      assert.ok(overflow <= 0, `the bar's buttons spill out of it by ${overflow}px at ${width}`);
+      const clear = await button(bulkBar(page), "Clear selection").boundingBox();
+      assert.ok(
+        clear && barBox && clear.x + clear.width <= barBox.x + barBox.width,
+        `× is inside the bar at ${width}`,
+      );
+      await noSidewaysScroll(page, `the stack with a selection at ${width}`);
+    }
+    await page.setViewportSize({ width: 375, height: 900 });
+    await shot(page, "bulk-phone");
+    await page.close();
+  });
 
   await check(
     "History shows every outcome as one status line, with Details and filters",

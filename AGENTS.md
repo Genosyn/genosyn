@@ -362,7 +362,12 @@ leaves on the next visit once its line has been on screen
 (`stackItemPhase`, `useDecisionFollowUps().markSeen`) — only a row that ended
 with a problem waits for Close. None of this touches an Approval: every
 email and work review still gets its own human answer, and grouping them under
-one heading never batches that answer.
+one heading never batches that answer. The stack's bulk bar (`useStackBulk`,
+`POST /decisions/bulk`, `POST /approvals/bulk`) only takes ticked rows off
+without acting — Dismiss or Snooze for a Decision, Discard or Don't do this
+for a review — each under its own row's rules, with a changed review skipped.
+Never add a bulk answer, Send now or Approve & start: each is a gate a person
+passes one row at a time.
 
 **A mailbox's AI analysis instructions act; its suggested buttons do not.** The
 AI Employee that reads each newly-arrived email (`services/mail/analysis.ts`)

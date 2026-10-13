@@ -97,7 +97,8 @@ export function Decisions() {
       <P>
         When several emails are waiting they gather under one heading, such as{" "}
         <Strong>3 emails to review</Strong>; several work plans do the same. Each one keeps its own
-        buttons — a group never sends or approves two at once.
+        buttons — a group never sends or approves two at once. To clear several items together, see{" "}
+        <DocLink to="/docs/decisions#several-at-once">Dismiss several at once</DocLink>.
       </P>
 
       <H2 id="after-you-act">After you act</H2>
@@ -135,6 +136,42 @@ export function Decisions() {
         directly on Home; owners and admins can also review proposed work and email replies there.
         A row you are following, or an email you are editing, keeps its place while new items
         arrive. Select <Strong>All decisions</Strong> to open the full stack.
+      </P>
+
+      <H2 id="several-at-once">Dismiss several at once</H2>
+      <P>
+        On the <Strong>Decision stack</Strong> page every waiting row has a tick box. Tick the rows
+        you want to clear, use <Strong>Select all</Strong> at the top of a list, or tick the box
+        beside a heading such as <Strong>13 emails to review</Strong> to select every email in it.
+        Shift-click a second box to select every row in between. A bar at the bottom of the page
+        shows how many are selected:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Dismiss</Strong> takes every selected row off the stack without acting on it:
+          Decisions are dismissed, emails are discarded and never sent, and work plans are declined.
+          When the selection includes an email or a work plan, you confirm first, because those
+          cannot be restored. Decisions alone are dismissed at once; <Strong>Undismiss</Strong> on
+          the <Strong>History</Strong> page brings one back.
+        </LI>
+        <LI>
+          <Strong>Snooze</Strong> puts every selected Decision away for an hour, one or two days, a
+          week, or a month. It is available while only Decisions are selected.
+        </LI>
+        <LI>
+          <Strong>×</Strong> clears the selection.
+        </LI>
+      </UL>
+      <P>
+        The rows leave the stack at once, and each is handled exactly as its own button would
+        handle it: dismissed, discarded and declined items move to <Strong>History</Strong> and
+        their AI Employees are told, while snoozed Decisions come back on their own. Anything that
+        cannot be handled that way — a question someone answered meanwhile, one addressed to
+        another Member, or an email or plan that changed since you read it — is skipped, and a
+        message says why; rows still waiting stay ticked. There is no bulk answer,{" "}
+        <Strong>Send now</Strong> or <Strong>Approve &amp; start</Strong>: each of those stays one
+        row at a time. Only owners and admins see email and work reviews, so only they can discard
+        them; any Member can dismiss or snooze the Decisions they can answer.
       </P>
 
       <H2 id="active-and-history">Active and History</H2>

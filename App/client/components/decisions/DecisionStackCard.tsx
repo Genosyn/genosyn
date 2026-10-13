@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { DecisionCard } from "@/components/decisions/DecisionCard";
 import { DecisionOutcome } from "@/components/decisions/DecisionOutcome";
 import { MailReviewCard, MailReviewOutcome } from "@/components/decisions/MailReviewCard";
-import { CloseRowButton } from "@/components/decisions/StackRow";
+import { CloseRowButton, type RowSelection } from "@/components/decisions/StackRow";
 import { WorkReviewCard, WorkReviewOutcome } from "@/components/decisions/WorkReviewCard";
 import { stackItemPhase } from "@/components/decisions/stackStatus";
 import {
@@ -27,6 +27,9 @@ import {
  * Discard or a Don’t do this has nothing left to follow, so the row leaves the
  * stack in that same click and focus moves to the next row — dismissed and
  * declined items are in History, snoozed ones come back on their own.
+ *
+ * A waiting row can also carry a tick box (`selection`), which puts it in the
+ * stack page's selection for the bulk bar.
  */
 export function DecisionStackCard({
   company,
@@ -37,6 +40,7 @@ export function DecisionStackCard({
   onEditingChange,
   viewerId,
   grouped = false,
+  selection,
 }: {
   company: Company;
   item: DecisionStackItem;
@@ -48,6 +52,8 @@ export function DecisionStackCard({
   viewerId?: string | null;
   /** Under a group heading that already names the kind of review. */
   grouped?: boolean;
+  /** The row's tick box, while it waits; ignored once it shows an outcome. */
+  selection?: RowSelection;
 }) {
   const [retrying, setRetrying] = React.useState(false);
   const finished = stackItemPhase(item) === "finished" && !item.refreshError;
@@ -120,6 +126,7 @@ export function DecisionStackCard({
         company={company}
         decision={item.decision}
         canAnswer={canAnswer}
+        selection={selection}
         onActionStart={(action) => {
           // Only an answer has an outcome to follow.
           if (action === "answer") followUps.remember(item);
@@ -170,6 +177,7 @@ export function DecisionStackCard({
   const props = {
     company,
     approval: item.approval,
+    selection,
     onResolved,
     onActionStart: (action: "approve" | "reject") => {
       if (action === "approve") followUps.remember(item);

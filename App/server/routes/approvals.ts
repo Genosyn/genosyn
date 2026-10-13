@@ -33,6 +33,10 @@ import {
   redactApprovalSummary,
   rejectPendingApproval,
 } from "../services/approvals.js";
+import {
+  expectedReviewPayload,
+  rejectDecisionStackReviews,
+} from "../services/decisionStackReviews.js";
 
 /**
  * Human-in-the-loop inbox. Approval decisions are browser-session-only,
@@ -237,29 +241,49 @@ const editMailReviewSchema = z
     { message: "Change at least one email field." },
   );
 
+const reviewRevisionSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
 const approvalActionSchema = z
-  .object({
-    reviewRevision: z
-      .string()
-      .regex(/^[0-9a-f]{64}$/)
-      .optional(),
-  })
+  .object({ reviewRevision: reviewRevisionSchema.optional() })
   .strict()
   .default({});
 
-function expectedReviewPayload(
-  approval: Approval,
-  reviewRevision: string | undefined,
-): string | undefined | null {
-  const review =
-    approval.kind === "mail_send"
-      ? mailReviewDetails(approval)
-      : approval.kind === "proactive_work"
-        ? proactiveWorkReviewDetails(approval)
-        : null;
-  if (!review) return undefined;
-  return reviewRevision === review.revision ? (approval.payloadJson ?? "") : null;
-}
+const bulkReviewSchema = z
+  .object({
+    // Only the answer that does nothing: approving stays one review at a time.
+    action: z.literal("reject"),
+    items: z
+      .array(
+        z
+          .object({ id: z.string().uuid(), reviewRevision: reviewRevisionSchema.optional() })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
+
+/**
+ * Discard emails and decline work plans from a Decision-stack selection. Each
+ * review carries the revision the person read and is held to its own row's
+ * rules; one that fails them is skipped with its reason, never failing the
+ * rest. Nothing here sends or starts anything.
+ */
+approvalsRouter.post(
+  "/approvals/bulk",
+  ...approvalDecisionGuards,
+  validateBody(bulkReviewSchema),
+  async (req, res) => {
+    const { cid } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof bulkReviewSchema>;
+    const result = await rejectDecisionStackReviews({
+      companyId: cid,
+      userId: req.userId!,
+      items: body.items,
+    });
+    return res.json({ action: body.action, ...result });
+  },
+);
 
 approvalsRouter.patch(
   "/approvals/:id/mail-review",

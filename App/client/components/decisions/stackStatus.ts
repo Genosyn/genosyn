@@ -271,7 +271,9 @@ function reviewGroup(item: DecisionStackItem): "mail" | "work" | null {
  * Lay ordered items out for scanning: email reviews gather under one heading
  * where the first of them would stand, and work reviews likewise; Decisions
  * stay where their order puts them. Each review keeps its own controls — a
- * group is a heading, never one answer for several gates.
+ * group is a heading, never one send or approval for several gates. (On the
+ * stack page its tick box selects its rows for the bulk bar, which can only
+ * discard or decline them.)
  *
  * A kind with a single review still gets its group, unlabelled, so the row
  * keeps its place in the tree as reviews arrive and leave — an email being

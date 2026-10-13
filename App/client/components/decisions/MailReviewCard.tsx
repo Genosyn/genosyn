@@ -11,15 +11,19 @@ import {
   DetailSection,
   DetailsButton,
   DetailsPanel,
+  RowCheckbox,
   StatusIcon,
   StatusText,
   focusAfterRemoval,
+  selectableRowClass,
+  type RowSelection,
 } from "@/components/decisions/StackRow";
 import { mailReviewStatusLine } from "@/components/decisions/stackStatus";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
+import { clsx } from "@/components/ui/clsx";
 import { formatRelative } from "@/components/decisions/relative";
 
 function mailReview(approval: HomeApproval) {
@@ -270,7 +274,8 @@ function Envelope({ approval }: { approval: HomeApproval }) {
  * An email ready to send, as one short row: who it is for, the subject, the
  * first lines, and Send now / Edit email / Ask employee to edit / Discard.
  * The source, what the employee did first, and the full email are behind
- * Details. Each email is its own gate: grouping never sends two at once.
+ * Details. Each email is its own gate: grouping or selecting never sends two
+ * at once — a selection can only discard them.
  */
 export function MailReviewCard({
   company,
@@ -280,6 +285,7 @@ export function MailReviewCard({
   onActionSettled,
   onEditingChange,
   grouped = false,
+  selection,
 }: {
   company: Company;
   approval: HomeApproval;
@@ -290,6 +296,8 @@ export function MailReviewCard({
   onEditingChange?: (approvalId: string, editing: boolean) => void;
   /** Under a group's "3 emails to review" heading, which already says what it is. */
   grouped?: boolean;
+  /** This row's tick box for the bulk bar; none where there is no bulk bar. */
+  selection?: RowSelection;
 }) {
   const review = mailReview(approval);
   const fallbackTitle = review?.source.threadId ? "Customer reply" : "Email review";
@@ -451,8 +459,9 @@ export function MailReviewCard({
       ref={rowRef}
       id={`review-${approval.id}`}
       data-stack-row
-      className="scroll-mt-4 px-4 py-4 sm:px-5"
+      className={clsx("scroll-mt-4 px-4 py-4 sm:px-5", selectableRowClass(selection))}
     >
+      <RowCheckbox selection={selection} label={`Select ${approval.title ?? fallbackTitle}`} />
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
         <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">

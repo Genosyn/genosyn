@@ -9,6 +9,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import type { StatusLine, StatusTone } from "@/components/decisions/stackStatus";
@@ -144,6 +145,55 @@ export function CloseRowButton({ label, onClose }: { label: string; onClose: () 
   );
 }
 
+/** A waiting row's place in the stack's selection. */
+export type RowSelection = {
+  selected: boolean;
+  /** `extend` is a shift-click: the run from the last row ticked follows this one. */
+  onToggle: (extend: boolean) => void;
+  disabled?: boolean;
+};
+
+/**
+ * What a waiting row with a tick box adds to its own `px-4 py-4 sm:px-5`
+ * classes: room on the left for the box, and a wash while it is ticked so a
+ * selection reads at a glance. Nothing without a selection — on Home, or a
+ * row that only shows an outcome — so those rows draw exactly as before.
+ */
+export function selectableRowClass(selection: RowSelection | undefined): string | false {
+  return (
+    !!selection &&
+    clsx(
+      "relative pl-11 sm:pl-12",
+      selection.selected && "bg-indigo-50/60 dark:bg-indigo-500/[0.07]",
+    )
+  );
+}
+
+/**
+ * A waiting row's tick box for the stack's bulk bar, in the room
+ * `selectableRowClass` leaves for it and level with the row's header line.
+ */
+export function RowCheckbox({
+  selection,
+  label,
+}: {
+  selection?: RowSelection;
+  /** The box's accessible name: "Select" and what the row is about. */
+  label: string;
+}) {
+  if (!selection) return null;
+  return (
+    <span className="absolute left-4 top-4 flex h-5 items-center sm:left-5">
+      <Checkbox
+        checked={selection.selected}
+        disabled={selection.disabled}
+        label={label}
+        onChange={(event) => selection.onToggle((event.nativeEvent as MouseEvent).shiftKey)}
+      />
+    </span>
+  );
+}
+
 /** A labelled part of a row's Details. */
 export function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -210,6 +260,45 @@ export function focusAfterRemoval(row: HTMLElement | null): () => void {
       if (!active || active === document.body) {
         document.getElementById("main-content")?.focus({ preventScroll: true });
       }
+    });
+  };
+}
+
+/**
+ * When a selection's rows leave together, note where keyboard focus should
+ * land and return a function that puts it there once they are gone: the
+ * first row left after them, else the one before, else that list's heading.
+ * Call it while the rows are still on the page. Focus only moves if it went
+ * with them — the bulk bar closing under it — never away from somewhere the
+ * person still is.
+ */
+export function focusAfterRowsLeave(keys: Iterable<string>): () => void {
+  const leaving = new Set(keys);
+  if (leaving.size === 0 || typeof document === "undefined") return () => {};
+  const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-stack-row]"));
+  const first = rows.findIndex((row) => leaving.has(row.id));
+  if (first < 0) return () => {};
+  const ids = [...rows.slice(first + 1), ...rows.slice(0, first).reverse()]
+    .map((row) => row.id)
+    .filter((id) => id && !leaving.has(id));
+  const heading = rows[first].closest("section")?.querySelector<HTMLElement>("h2") ?? null;
+  return () => {
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      for (const id of ids) {
+        const target = document.getElementById(id)?.querySelector<HTMLElement>("[data-row-focus]");
+        if (target) {
+          target.focus();
+          return;
+        }
+      }
+      if (heading?.isConnected) {
+        if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+        heading.focus();
+        return;
+      }
+      document.getElementById("main-content")?.focus({ preventScroll: true });
     });
   };
 }

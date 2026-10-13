@@ -792,12 +792,38 @@ export type DecisionStackSettings = {
   canManage: boolean;
 };
 
+/** How long a snoozed Decision stays off the stack. */
+export type DecisionSnoozeDuration = "one_hour" | "one_day" | "two_days" | "one_week" | "one_month";
+
+/** What the stack's bulk bar can do to a selection — never answer, send or approve. */
+export type DecisionBulkRequest =
+  | { action: "dismiss"; ids: string[] }
+  | { action: "snooze"; ids: string[]; duration: DecisionSnoozeDuration };
+
+/** Which rows of a bulk request changed, and why the others were left as they were. */
+export type StackBulkResult = {
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
+};
+
 export const decisionStackApi = {
   settings: (companyId: string) =>
     api.get<DecisionStackSettings>(`/api/companies/${companyId}/decision-stack/settings`),
   /** `instructions: null` puts the company back on the default text. */
   update: (companyId: string, patch: { enabled?: boolean; instructions?: string | null }) =>
     api.patch<DecisionStackSettings>(`/api/companies/${companyId}/decision-stack/settings`, patch),
+  /** Dismiss or snooze up to 200 Decisions; each keeps its own row's rules. */
+  bulkDecisions: (companyId: string, body: DecisionBulkRequest) =>
+    api.post<StackBulkResult>(`/api/companies/${companyId}/decisions/bulk`, body),
+  /**
+   * Discard up to 200 email reviews and decline work reviews (owner/admin).
+   * Each sends the revision that was read; one that changed is skipped.
+   */
+  rejectReviews: (companyId: string, items: Array<{ id: string; reviewRevision?: string }>) =>
+    api.post<StackBulkResult>(`/api/companies/${companyId}/approvals/bulk`, {
+      action: "reject",
+      items,
+    }),
 };
 
 export type DecisionPolicyDeciderKind = "employee" | "manager";

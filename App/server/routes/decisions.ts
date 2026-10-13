@@ -7,6 +7,7 @@ import {
   getDecisionDiscussion,
   openDecisionDiscussion,
 } from "../services/decisionDiscussions.js";
+import { applyDecisionBulkAction } from "../services/decisionBulk.js";
 import { kickoffDecision } from "../services/decisionKickoff.js";
 import {
   cancelDecision,
@@ -48,11 +49,16 @@ const decideSchema = z
   .strict();
 
 const dismissSchema = z.object({ reason: z.string().max(4_000).optional() }).strict();
-const snoozeSchema = z
-  .object({
-    duration: z.enum(["one_hour", "one_day", "two_days", "one_week", "one_month"]),
-  })
-  .strict();
+const snoozeDurationSchema = z.enum(["one_hour", "one_day", "two_days", "one_week", "one_month"]);
+const snoozeSchema = z.object({ duration: snoozeDurationSchema }).strict();
+/** As many as the stack lists at once; the page sends a longer selection in parts. */
+const bulkIdsSchema = z.array(z.string().uuid()).min(1).max(200);
+const bulkSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("dismiss"), ids: bulkIdsSchema }).strict(),
+  z
+    .object({ action: z.literal("snooze"), ids: bulkIdsSchema, duration: snoozeDurationSchema })
+    .strict(),
+]);
 const restoreSchema = z.object({}).strict();
 const openDiscussionSchema = z.object({}).strict();
 
@@ -228,6 +234,24 @@ decisionsRouter.post(
     return res.json(dto);
   },
 );
+
+/**
+ * Dismiss or snooze a selection from the stack in one request. Each id is
+ * held to its own row's rules — assignee, tenant, still waiting — and one
+ * that fails them is skipped with its reason, never failing the rest. There
+ * is no bulk answer: answering starts work, one Decision at a time.
+ */
+decisionsRouter.post("/decisions/bulk", validateBody(bulkSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const body = req.body as z.infer<typeof bulkSchema>;
+  const result = await applyDecisionBulkAction({
+    ...body,
+    companyId: cid,
+    userId: req.userId!,
+    role: req.companyRole!,
+  });
+  return res.json({ action: body.action, ...result });
+});
 
 decisionsRouter.post(
   "/decisions/:id/restore",

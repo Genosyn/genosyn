@@ -9,7 +9,7 @@ import {
   MessageSquarePlus,
 } from "lucide-react";
 import { decisionHeadline } from "../../../shared/decisionSummary";
-import { api, Company, Decision, DecisionUrgency } from "@/lib/api";
+import { api, Company, Decision, DecisionSnoozeDuration, DecisionUrgency } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -19,7 +19,13 @@ import { clsx } from "@/components/ui/clsx";
 import { DecisionDetails } from "@/components/decisions/DecisionDetails";
 import { DecisionDiscussButton } from "@/components/decisions/DecisionDiscussButton";
 import { DecisionDiscussion } from "@/components/decisions/DecisionDiscussion";
-import { DetailsButton, focusAfterRemoval } from "@/components/decisions/StackRow";
+import {
+  DetailsButton,
+  RowCheckbox,
+  focusAfterRemoval,
+  selectableRowClass,
+  type RowSelection,
+} from "@/components/decisions/StackRow";
 import { useDecisionDiscussionOpen } from "@/components/decisions/useDecisionDiscussion";
 import { ReviewTimeline } from "@/components/decisions/ReviewTimeline";
 import { formatRelative } from "@/components/decisions/relative";
@@ -36,9 +42,8 @@ const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | nu
   },
 };
 
-type SnoozeDuration = "one_hour" | "one_day" | "two_days" | "one_week" | "one_month";
-
-const SNOOZE_OPTIONS: { duration: SnoozeDuration; label: string }[] = [
+/** The snooze presets, shared with the stack's bulk bar. */
+export const SNOOZE_OPTIONS: { duration: DecisionSnoozeDuration; label: string }[] = [
   { duration: "one_hour", label: "1 hour" },
   { duration: "one_day", label: "1 day" },
   { duration: "two_days", label: "2 days" },
@@ -69,7 +74,8 @@ function optionClass(tone: Decision["options"][number]["tone"], checked: boolean
  *
  * Answering is still two deliberate steps: pick an answer, then confirm it
  * (with guidance, if you have any). Dismiss and Snooze take the question off
- * the stack in the same click.
+ * the stack in the same click. On the stack page a tick box beside the row
+ * adds it to a selection that can be dismissed or snoozed together.
  */
 export function DecisionCard({
   company,
@@ -78,6 +84,7 @@ export function DecisionCard({
   onActionStart,
   onActionSettled,
   canAnswer = true,
+  selection,
 }: {
   company: Company;
   decision: Decision;
@@ -86,6 +93,8 @@ export function DecisionCard({
   /** Called with the server's row; `leave` puts focus where the row was once it is gone. */
   onActionSettled?: (decision: Decision, action: DecisionAction, leave: () => void) => void;
   canAnswer?: boolean;
+  /** This row's tick box for the bulk bar; none where there is no bulk bar. */
+  selection?: RowSelection;
 }) {
   const [pendingAction, setPendingAction] = React.useState<DecisionAction | null>(null);
   const submitting = React.useRef(false);
@@ -155,7 +164,7 @@ export function DecisionCard({
     );
   }
 
-  async function snooze(duration: SnoozeDuration, label: string) {
+  async function snooze(duration: DecisionSnoozeDuration, label: string) {
     await perform(
       "snooze",
       () => api.post<Decision>(`${base}/snooze`, { duration }),
@@ -168,8 +177,9 @@ export function DecisionCard({
       ref={rowRef}
       id={`decision-${decision.id}`}
       data-stack-row
-      className="scroll-mt-4 px-4 py-4 sm:px-5"
+      className={clsx("scroll-mt-4 px-4 py-4 sm:px-5", selectableRowClass(selection))}
     >
+      <RowCheckbox selection={selection} label={`Select ${headline.question}`} />
       <article aria-labelledby={`${fieldId}-title`} className="min-w-0">
         <header className="flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           {decision.employee ? (
