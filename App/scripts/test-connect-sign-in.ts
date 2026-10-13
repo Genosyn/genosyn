@@ -263,7 +263,6 @@ add(
     assert.equal(consent.get("access_type"), "offline");
     assert.deepEqual(consent.get("scope")!.split(" ").sort(), [
       "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.settings.basic",
       "https://www.googleapis.com/auth/userinfo.email",
       "openid",
     ]);

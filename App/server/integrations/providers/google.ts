@@ -63,11 +63,11 @@ export const GOOGLE_SCOPE_GROUPS: IntegrationScopeGroup[] = [
   {
     key: "mail",
     label: "Gmail",
-    description: "Read, draft, send, label email; manage filters/forwarding.",
-    scopes: [
-      "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.settings.basic",
-    ],
+    description: "Read, draft, send, and label email.",
+    // No tool manages Gmail settings, and Google's verification rejects a
+    // restricted scope the app does not use, so `gmail.settings.basic` is not
+    // requested. Genosyn Connect still accepts it from older installations.
+    scopes: ["https://www.googleapis.com/auth/gmail.modify"],
   },
   {
     key: "drive",

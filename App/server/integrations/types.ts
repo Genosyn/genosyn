@@ -63,8 +63,8 @@ export type IntegrationCatalogField = {
 };
 
 /**
- * A user-pickable bundle of provider scopes — e.g. "Mail" maps to
- * `gmail.modify` + `gmail.settings.basic`. Lets the connect/reconnect UI
+ * A user-pickable bundle of provider scopes — e.g. "Calendar" maps to
+ * `calendar`. Lets the connect/reconnect UI
  * show a short checkbox list ("Mail", "Calendar", "Drive") instead of
  * leaking raw OAuth URL strings into the form.
  */
