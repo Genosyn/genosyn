@@ -28,6 +28,11 @@ export type AskAiRequest = {
   employeeIds?: string[];
   /** Records to add for this request, beyond what the page publishes. */
   refs?: AskAiContextRef[];
+  /**
+   * Ask in a conversation of its own instead of the one on screen, so the
+   * question does not run on from whatever was asked there before.
+   */
+  newConversation?: boolean;
 };
 
 type AskAiContextValue = {
@@ -40,6 +45,8 @@ type AskAiContextValue = {
   ask: (request?: AskAiRequest) => void;
   /** Bumped by every `ask` with a request; the panel then calls `takePending`. */
   pendingVersion: number;
+  /** The waiting request, left waiting — the panel reads where it goes first. */
+  peekPending: () => AskAiRequest | null;
   takePending: () => AskAiRequest | null;
   /** Everything on screen right now, URL first, then page registrations. */
   refs: AskAiContextRef[];
@@ -130,6 +137,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
     },
     [setOpen],
   );
+  const peekPending = React.useCallback(() => pendingRef.current, []);
   const takePending = React.useCallback(() => {
     const taken = pendingRef.current;
     pendingRef.current = null;
@@ -197,6 +205,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
       focusVersion,
       ask,
       pendingVersion,
+      peekPending,
       takePending,
       refs,
       register,
@@ -211,6 +220,7 @@ export function AskAiProvider({ children }: { children: React.ReactNode }) {
       focusVersion,
       ask,
       pendingVersion,
+      peekPending,
       takePending,
       refs,
       register,

@@ -1207,12 +1207,14 @@ function FailedRoutinesAlert({
             </HomeRow>
             <button
               type="button"
-              // Ask AI explains it, with this Run in context; the routine's own
-              // employee answers by default because it wrote the log.
+              // Ask AI explains it in a new conversation, with this Run in
+              // context; the routine's own employee answers by default because
+              // it wrote the log.
               onClick={() =>
                 askAi?.ask({
                   refs: [{ kind: "run", id: r.runId }],
                   prompt: runExplanationPrompt(r.status),
+                  newConversation: true,
                 })
               }
               aria-label={`${runExplanationLabel(r.status)} ${r.routineName}`}

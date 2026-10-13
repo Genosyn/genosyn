@@ -225,3 +225,21 @@ export function plannedTargets(args: {
   const sole = soleAnswerer(args.roster);
   return sole ? [sole] : [];
 }
+
+/**
+ * The conversation a new one can be, without creating it: the one on screen
+ * if nothing has been sent in it, else any other nobody has written in, so
+ * asking again does not stack up empty conversations. The server titles a
+ * conversation from its first message; `sent` covers those written in since
+ * the list was fetched. Null means a new conversation has to be created.
+ */
+export function reusableConversationId(
+  conversations: Array<Pick<AskAiConversation, "id" | "title">>,
+  activeId: string | null,
+  sent: ReadonlySet<string>,
+): string | null {
+  const untouched = (c: Pick<AskAiConversation, "id" | "title">) => !c.title && !sent.has(c.id);
+  const active = conversations.find((c) => c.id === activeId);
+  if (active && untouched(active)) return active.id;
+  return conversations.find(untouched)?.id ?? null;
+}

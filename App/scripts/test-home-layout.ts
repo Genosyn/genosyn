@@ -978,9 +978,13 @@ async function askAiState(page: Page) {
     prompt: string | null;
     employeeIds: string[] | null;
     requestRefs: Array<{ kind: string; id: string }> | null;
+    newConversation: boolean | null;
   };
 }
-/** Ask AI is open about exactly this Run, with the question its status implies. */
+/**
+ * Ask AI is open about exactly this Run, in a new conversation, with the
+ * question its status implies.
+ */
 async function asksAiAbout(page: Page, runId: string, status: RunStatus) {
   const run = [{ kind: "run", id: runId }];
   const expected = {
@@ -989,6 +993,7 @@ async function asksAiAbout(page: Page, runId: string, status: RunStatus) {
     prompt: runExplanationPrompt(status),
     employeeIds: null,
     requestRefs: run,
+    newConversation: true,
   };
   await page
     .waitForFunction(
@@ -1244,7 +1249,14 @@ try {
         });
         assert.deepEqual(
           await askAiState(page),
-          { open: false, refs: [], prompt: null, employeeIds: null, requestRefs: null },
+          {
+            open: false,
+            refs: [],
+            prompt: null,
+            employeeIds: null,
+            requestRefs: null,
+            newConversation: null,
+          },
           "Ask AI stays closed until the Member asks",
         );
         const panel = card(page, "Routines needing attention");
@@ -1308,6 +1320,7 @@ try {
             prompt: null,
             employeeIds: null,
             requestRefs: null,
+            newConversation: null,
           },
           "the open Run is what Ask AI would be asked about",
         );

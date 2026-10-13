@@ -1141,10 +1141,12 @@ function RunLiveModalContent({
                   size="sm"
                   onClick={() => {
                     // The modal covers the panel, so hand the Run over and
-                    // get out of the way; it stays in Ask AI's context.
+                    // get out of the way; it stays in Ask AI's context. Asking
+                    // why it went wrong starts a conversation of its own.
                     askAi.ask({
                       refs: runRef,
                       prompt: needsAttention ? runExplanationPrompt(status) : undefined,
+                      newConversation: needsAttention,
                     });
                     onClose();
                   }}

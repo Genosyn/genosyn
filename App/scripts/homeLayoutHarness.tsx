@@ -58,6 +58,7 @@ function AskAiProbe() {
         prompt: request?.prompt ?? null,
         employeeIds: request?.employeeIds ?? null,
         requestRefs: request?.refs ?? null,
+        newConversation: request?.newConversation ?? null,
       })}
     </output>
   );

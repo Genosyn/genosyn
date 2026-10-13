@@ -6,6 +6,7 @@ import {
   mentionQueryAtCaret,
   mentionedRosterIds,
   plannedTargets,
+  reusableConversationId,
   soleAnswerer,
   type AskAiMessage,
   type AskAiRosterEntry,
@@ -147,5 +148,29 @@ describe("with only one AI Employee able to answer, nobody needs tagging", () =>
   test("with several who can answer, or none, the composer still asks for an @", () => {
     assert.deepEqual(plannedTargets({ ...base, roster, draft: "hi" }), []);
     assert.deepEqual(plannedTargets({ ...base, roster: [noModel("e-alex")], draft: "hi" }), []);
+  });
+});
+
+describe("a new conversation reuses one nobody has written in", () => {
+  const titled = (id: string) => ({ id, title: `About ${id}` });
+  const empty = (id: string) => ({ id, title: null });
+  const none = new Set<string>();
+
+  test("stays on the open conversation while it is still empty", () => {
+    assert.equal(reusableConversationId([titled("a"), empty("b"), empty("c")], "c", none), "c");
+  });
+
+  test("moves to another empty one rather than creating a second", () => {
+    assert.equal(reusableConversationId([titled("a"), empty("b")], "a", none), "b");
+  });
+
+  test("a conversation just written in counts before its title arrives", () => {
+    assert.equal(reusableConversationId([empty("b")], "b", new Set(["b"])), null);
+    assert.equal(reusableConversationId([empty("b"), empty("c")], "b", new Set(["b"])), "c");
+  });
+
+  test("creates one when every conversation has messages, or there are none", () => {
+    assert.equal(reusableConversationId([titled("a"), titled("b")], "a", none), null);
+    assert.equal(reusableConversationId([], null, none), null);
   });
 });

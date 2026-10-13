@@ -133,11 +133,13 @@ export function AskAi() {
       <P>
         Conversations are yours alone — not even an owner can read another Member&apos;s. The panel
         reopens on the conversation you left. Click its title to switch to an earlier one or delete
-        it, and press <Strong>+</Strong> for a new conversation. You can keep typing while an
-        employee is answering: <Strong>Queue message</Strong> lines up follow-ups, which send one at
-        a time once every answer to the message before has finished. If an answer fails, the queue
-        pauses until you continue it, and the failed answer offers <Strong>Try again</Strong>, which
-        asks the same employee about the same records again.
+        it, and press <Strong>+</Strong> for a new conversation. <Strong>Why did it fail?</Strong>{" "}
+        and <Strong>Why did it error?</Strong> on a <DocLink to="/docs/routines#runs">Run</DocLink>{" "}
+        always start a new one, so the explanation doesn&apos;t run on from an earlier question. You
+        can keep typing while an employee is answering: <Strong>Queue message</Strong> lines up
+        follow-ups, which send one at a time once every answer to the message before has finished.
+        If an answer fails, the queue pauses until you continue it, and the failed answer offers{" "}
+        <Strong>Try again</Strong>, which asks the same employee about the same records again.
       </P>
       <P>
         A reply belongs to the server, not to your browser tab. Closing the panel, navigating, or
@@ -163,8 +165,9 @@ export function AskAi() {
         Routine, the chat docked beside every email and in the Drafts review drawer, a Base&apos;s AI
         assistant, a signature request&apos;s Ask AI hand-off, and the &ldquo;Why did it
         fail?&rdquo; chat inside a Run. The <Strong>Why did it fail?</Strong> buttons are still
-        there; they now open Ask AI with the Run in context. Conversations from the old per-email
-        and per-Routine chats are not carried over. Hand-offs that start work rather than a chat —{" "}
+        there; they now open a new Ask AI conversation with the Run in context. Conversations from
+        the old per-email and per-Routine chats are not carried over. Hand-offs that start work
+        rather than a chat —{" "}
         <DocLink to="/docs/email#hand-to-ai">Hand to AI</DocLink> on an email, Proactive requests,
         and <DocLink to="/docs/help">Genosyn Help</DocLink> — work as before.{" "}
         <DocLink to="/docs/decisions#discussing">Discuss</DocLink> on a Decision keeps its own

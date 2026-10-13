@@ -27,6 +27,7 @@ import {
   mentionQueryAtCaret,
   mentionedRosterIds,
   plannedTargets,
+  reusableConversationId,
   soleAnswerer,
   type AskAiContextItem,
   type AskAiContextPreview,
@@ -72,7 +73,7 @@ import {
   askAiContextKey,
   type AskAiContextRef,
 } from "../../../shared/askAi";
-import { useAskAi } from "./AskAiProvider";
+import { useAskAi, type AskAiRequest } from "./AskAiProvider";
 import { MailSuggestionButtons } from "./MailSuggestionButtons";
 
 /**
@@ -116,6 +117,12 @@ function writeActive(companyId: string, id: string | null): void {
   }
 }
 
+/** The conversation the panel reopens on: the one the Member left, else the newest. */
+function reopenedId(companyId: string, conversations: AskAiConversation[]): string | null {
+  const stored = readActive(companyId);
+  return (conversations.find((c) => c.id === stored) ?? conversations[0])?.id ?? null;
+}
+
 export function AskAiPanel({ company }: { company: Company }) {
   const askAi = useAskAi();
   const location = useLocation();
@@ -133,6 +140,18 @@ export function AskAiPanel({ company }: { company: Company }) {
   /** Counts the times the Member moved to a conversation here, to focus its box. */
   const [paneFocus, setPaneFocus] = React.useState(0);
   const creatingRef = React.useRef(false);
+  /** Set while a request's new conversation is being opened, which the reopen waits for. */
+  const openingRef = React.useRef(false);
+  /** Conversations written in here, which the fetched list may not have titled yet. */
+  const sentRef = React.useRef(new Set<string>());
+  /** A request from elsewhere in the app, bound for the conversation it goes into. */
+  const [handoff, setHandoff] = React.useState<{
+    conversationId: string;
+    request: AskAiRequest;
+  } | null>(null);
+  const pendingVersion = askAi?.pendingVersion ?? 0;
+  const peekPending = askAi?.peekPending;
+  const takePending = askAi?.takePending;
 
   const refreshIndex = React.useCallback(async () => {
     const result = await askAiApi.index(company.id);
@@ -141,26 +160,26 @@ export function AskAiPanel({ company }: { company: Company }) {
     return result;
   }, [company.id]);
 
-  // Open on the conversation the Member left, else the newest, else a new one.
+  // Open on the conversation the Member left, else the newest, else a new one
+  // — unless a waiting request wants a new conversation, which it opens below.
   React.useEffect(() => {
     let cancelled = false;
     setIndexError(null);
     void (async () => {
       try {
         const result = await refreshIndex();
-        if (cancelled) return;
-        const stored = readActive(company.id);
-        const pick =
-          result.conversations.find((c) => c.id === stored) ?? result.conversations[0] ?? null;
+        if (cancelled || openingRef.current || peekPending?.()?.newConversation) return;
+        const pick = reopenedId(company.id, result.conversations);
+        // Neither overrides a conversation a request opened meanwhile.
         if (pick) {
-          setActiveId(pick.id);
+          setActiveId((current) => current ?? pick);
         } else if (!creatingRef.current) {
           creatingRef.current = true;
           try {
             const created = await askAiApi.create(company.id);
             if (cancelled) return;
-            setConversations([created]);
-            setActiveId(created.id);
+            setConversations((list) => [created, ...(list ?? [])]);
+            setActiveId((current) => current ?? created.id);
           } finally {
             creatingRef.current = false;
           }
@@ -172,27 +191,89 @@ export function AskAiPanel({ company }: { company: Company }) {
     return () => {
       cancelled = true;
     };
-  }, [company.id, refreshIndex]);
+  }, [company.id, refreshIndex, peekPending]);
 
   React.useEffect(() => {
     if (activeId) writeActive(company.id, activeId);
   }, [company.id, activeId]);
 
+  /** Move to a conversation nobody has written in, creating one if none is waiting. */
+  const openNew = React.useCallback(async (): Promise<string> => {
+    const reuse = reusableConversationId(conversations ?? [], activeId, sentRef.current);
+    if (reuse) {
+      setActiveId(reuse);
+      return reuse;
+    }
+    const created = await askAiApi.create(company.id);
+    setConversations((list) => [created, ...(list ?? [])]);
+    setActiveId(created.id);
+    return created.id;
+  }, [activeId, company.id, conversations]);
+
   const startNew = React.useCallback(async () => {
     setHistoryOpen(false);
     // Either way the next thing is typing the question.
     setPaneFocus((count) => count + 1);
-    const current = conversations?.find((c) => c.id === activeId);
-    // An untouched conversation is already "new"; don't stack empty ones.
-    if (current && !current.title) return;
     try {
-      const created = await askAiApi.create(company.id);
-      setConversations((list) => [created, ...(list ?? [])]);
-      setActiveId(created.id);
+      await openNew();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t start a new conversation" });
     }
-  }, [activeId, company.id, conversations, dialog]);
+  }, [openNew, dialog]);
+
+  // A request from elsewhere in the app ("Why did this Run fail?") goes into
+  // the conversation on screen, or into a new one when it asks for that.
+  React.useEffect(() => {
+    if (!peekPending || !takePending || !conversations) return;
+    const request = peekPending();
+    if (!request) return;
+    if (request.newConversation) {
+      takePending();
+      openingRef.current = true;
+      openNew()
+        .then(
+          (conversationId) => setHandoff({ conversationId, request }),
+          (err) => {
+            // A panel that opened just for this still needs a conversation.
+            const fallback = reopenedId(company.id, conversations);
+            setActiveId((current) => current ?? fallback);
+            if (activeId || fallback) {
+              void dialog.error(err, { title: "Couldn’t start a new conversation" });
+            } else {
+              setIndexError(errorMessage(err, "Could not open Ask AI"));
+            }
+          },
+        )
+        .finally(() => {
+          openingRef.current = false;
+        });
+    } else if (activeId) {
+      takePending();
+      setHandoff({ conversationId: activeId, request });
+    }
+  }, [
+    pendingVersion,
+    peekPending,
+    takePending,
+    conversations,
+    activeId,
+    openNew,
+    dialog,
+    company.id,
+  ]);
+
+  const takeHandoff = React.useCallback((request: AskAiRequest) => {
+    setHandoff((current) => (current?.request === request ? null : current));
+  }, []);
+
+  const markSent = React.useCallback(
+    (conversationId: string) => {
+      sentRef.current.add(conversationId);
+      // The server titles a conversation from its first message.
+      window.setTimeout(() => void refreshIndex().catch(() => undefined), 1_500);
+    },
+    [refreshIndex],
+  );
 
   const removeConversation = React.useCallback(
     async (id: string) => {
@@ -361,7 +442,9 @@ export function AskAiPanel({ company }: { company: Company }) {
           initialRoster={roster}
           pageLabel={sectionLabel}
           focusKey={askAi.focusVersion + paneFocus}
-          onSent={() => void refreshIndex().catch(() => undefined)}
+          request={handoff?.conversationId === activeId ? handoff.request : null}
+          onRequestTaken={takeHandoff}
+          onSent={markSent}
         />
       )}
     </aside>
@@ -425,6 +508,8 @@ function ConversationPane({
   initialRoster,
   pageLabel,
   focusKey,
+  request,
+  onRequestTaken,
   onSent,
 }: {
   company: Company;
@@ -437,7 +522,10 @@ function ConversationPane({
    * reopens itself after a reload leaves the page's focus alone.
    */
   focusKey: number;
-  onSent: () => void;
+  /** A request from elsewhere in the app for this conversation, until it is taken. */
+  request: AskAiRequest | null;
+  onRequestTaken: (request: AskAiRequest) => void;
+  onSent: (conversationId: string) => void;
 }) {
   const askAi = useAskAi();
   const navigate = useNavigate();
@@ -545,12 +633,9 @@ function ConversationPane({
   );
 
   // A request from elsewhere in the app ("Why did this run fail?").
-  const pendingVersion = askAi?.pendingVersion ?? 0;
-  const takePending = askAi?.takePending;
   React.useEffect(() => {
-    if (!takePending) return;
-    const request = takePending();
     if (!request) return;
+    onRequestTaken(request);
     if (request.prompt !== undefined) setDraft(request.prompt);
     if (request.employeeIds) setPicked(request.employeeIds);
     requestAnimationFrame(() => {
@@ -559,7 +644,7 @@ function ConversationPane({
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     });
-  }, [pendingVersion, takePending]);
+  }, [request, onRequestTaken]);
 
   React.useEffect(() => {
     if (focusKey <= 0) return;
@@ -662,7 +747,7 @@ function ConversationPane({
       setMentionQuery(null);
       setResourceQuery(null);
       textareaRef.current?.focus();
-      window.setTimeout(onSent, 1_500);
+      onSent(conversationId);
     },
     [
       pending,
@@ -680,6 +765,7 @@ function ConversationPane({
       selectedModelId,
       clearAttachments,
       onSent,
+      conversationId,
     ],
   );
 

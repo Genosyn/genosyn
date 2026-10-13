@@ -765,13 +765,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         Click <Strong>Why did it fail?</Strong> or <Strong>Why did it error?</Strong> beside a Run
-        on Home, or inside its Run modal. <DocLink to="/docs/ask-ai">Ask AI</DocLink> opens with that
-        Run in context and the question already typed: the AI Employee who ran the Routine reads the
+        on Home, or inside its Run modal. <DocLink to="/docs/ask-ai">Ask AI</DocLink> opens a new
+        conversation with that Run in context and the question already typed, so the answer never
+        runs on from whatever you asked before: the AI Employee who ran the Routine reads the
         Run&apos;s status, failure reason, outcome and Check verdicts, and the end of its log, then
         explains the cause, the evidence, and what to try next. It is told that an Error (an
         operational failure) is not a Failed Run (the work was not done), and not to retry, resume
-        or change anything unless you ask. Any Member can ask; follow-up questions stay in the same
-        conversation.
+        or change anything unless you ask. Any Member can ask; follow-up questions stay in that
+        conversation, and your earlier ones are still in Ask AI&apos;s list.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer
