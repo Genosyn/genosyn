@@ -6,12 +6,12 @@ import {
   CalendarClock,
   CheckCircle2,
   Circle,
+  GitBranch,
   Home,
   Mail,
   MessageSquare,
   Repeat,
   ScrollText,
-  ShieldCheck,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -106,10 +106,10 @@ const WHERE_THINGS_LIVE: Array<{ icon: LucideIcon; label: string; body: string; 
     to: "/routines",
   },
   {
-    icon: ShieldCheck,
-    label: "Approvals",
-    body: "Work you have gated — a Routine you marked, or spend over a limit — waits here for a human.",
-    to: "/approvals",
+    icon: GitBranch,
+    label: "Decision stack",
+    body: "Everything waiting on you — a question, a Routine you gated, spend over a limit — in one list.",
+    to: "/decisions",
   },
 ];
 
