@@ -370,7 +370,7 @@ try {
   await visible("Every 30 minutes");
   await visible("TLDR briefing");
   await visible("Daily · written by Avery");
-  await visible("You can change or pause any of these later in Proactive and TLDRs.");
+  await visible("You can change or pause any of these later in Proactive and What happened.");
   const standingSwitch = page.getByRole("switch", { name: "Set up standing work automatically" });
   assert.equal(await standingSwitch.getAttribute("aria-checked"), "true");
   await visible(

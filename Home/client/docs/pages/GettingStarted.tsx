@@ -164,7 +164,7 @@ export function GettingStarted() {
         <Strong>acceptance criteria</Strong>, and every completed Run is checked against it. A
         company that is brand new has little to report on yet, so a Run that says its inputs were
         missing or empty meets the bar. Read or change the criteria under{" "}
-        <Strong>Settings → Outcome check</Strong> on the Routine; see{" "}
+        <Strong>Settings → What counts as done</Strong> on the Routine; see{" "}
         <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink> for what grading
         costs.
       </P>

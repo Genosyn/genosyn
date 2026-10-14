@@ -580,8 +580,8 @@ export function RecommendationsStep({
               />
               <p className="text-sm leading-6 text-indigo-900/80 dark:text-indigo-200/80">
                 Selected Routines run on their schedules once an AI Model is connected, and each Run
-                is graded against a short definition of done (Settings → Outcome check). You can
-                edit or pause them any time from Routines.
+                is graded against a short definition of done (Settings → What counts as done). You
+                can edit or pause them any time from Routines.
                 {ready.length > 0 &&
                   ` ${ready.length} matching ${ready.length === 1 ? "Routine already exists" : "Routines already exist"} for ${employee.name}.`}
               </p>
@@ -1066,7 +1066,7 @@ function StandingWork({
 
       {hasRows && (
         <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-          You can change or pause any of these later in Proactive and TLDRs.
+          You can change or pause any of these later in Proactive and What happened.
         </p>
       )}
 
