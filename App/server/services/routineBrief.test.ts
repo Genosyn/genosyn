@@ -2,7 +2,35 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Routine } from "../db/entities/Routine.js";
 import { isUnwrittenRoutineBrief, routineTemplate } from "./files.js";
-import { awaitingRoutineBrief, writeRoutineBrief } from "./routineBrief.js";
+import { awaitingRoutineBrief, startingRoutineBrief, writeRoutineBrief } from "./routineBrief.js";
+
+describe("startingRoutineBrief", () => {
+  const routine = { name: "Digest", cronExpr: "0 9 * * 1-5" };
+  const outline = routineTemplate(routine.name, routine.cronExpr);
+
+  test("a brief that says something is the body, kept as written, and starts the Routine on", () => {
+    for (const brief of ["Post the digest.", "  Post the digest.\n"]) {
+      assert.deepEqual(startingRoutineBrief({ ...routine, brief }), {
+        body: brief,
+        enabled: true,
+      });
+    }
+  });
+
+  test("no brief, a blank one, or the starter outline untouched starts paused on the outline", () => {
+    for (const brief of [undefined, null, "", " \n\t", outline]) {
+      assert.deepEqual(startingRoutineBrief({ ...routine, brief }), {
+        body: outline,
+        enabled: false,
+      });
+    }
+  });
+
+  test("the outline carries the name and schedule the Routine was created with", () => {
+    const start = startingRoutineBrief({ name: "Month end", cronExpr: "0 8 1 * *" });
+    assert.match(start.body, /^# Month end\n\n\*\*Schedule:\*\* `0 8 1 \* \*`\n/);
+  });
+});
 
 describe("isUnwrittenRoutineBrief", () => {
   test("a blank brief and the starter outline, under any title and schedule, are unwritten", () => {

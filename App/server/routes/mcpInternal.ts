@@ -119,8 +119,8 @@ import {
 } from "../services/repositoryCommandRun.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
-import { isUnwrittenRoutineBrief, routineTemplate, skillTemplate } from "../services/files.js";
-import { writeRoutineBrief } from "../services/routineBrief.js";
+import { skillTemplate } from "../services/files.js";
+import { startingRoutineBrief, writeRoutineBrief } from "../services/routineBrief.js";
 import {
   folderPathFor,
   listFoldersWithMeta,
@@ -8828,10 +8828,13 @@ mcpInternalRouter.post(
       return res.status(400).json({ error: err.message });
     }
 
-    const brief = body.brief?.trim() ? body.brief : routineTemplate(body.name, body.cronExpr);
-    // Without a brief it waits paused, like a Routine made on the New routine
-    // page, and `update_routine` writing one switches it on.
-    const enabled = !isUnwrittenRoutineBrief(brief);
+    // Without a brief it waits paused, like one created through the API, and
+    // `update_routine` writing one switches it on.
+    const { body: brief, enabled } = startingRoutineBrief({
+      name: body.name,
+      cronExpr: body.cronExpr,
+      brief: body.brief,
+    });
     const r = repo.create({
       employeeId: target.id,
       name: body.name,

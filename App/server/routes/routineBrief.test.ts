@@ -12,8 +12,10 @@ import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
+import { routineTemplate } from "../services/files.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
+import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { routinesRouter } from "./routines.js";
 
 let server: Server;
@@ -361,5 +363,76 @@ describe("a Routine created without its brief", () => {
     });
     assert.deepEqual(await call("PUT", { content: "Revised brief" }), keptPaused);
     assert.equal((await savedRoutine()).enabled, false);
+  });
+});
+
+describe("a Routine created with its brief", () => {
+  type Created = { id: string; enabled: boolean; nextRunAt: string | null; body: string };
+  async function create(body: Record<string, unknown>) {
+    const response = await fetch(
+      `${baseUrl}/api/companies/${company.id}/employees/${employee.id}/routines`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Weekly digest", cronExpr: "0 9 * * 1-5", ...body }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    return { status: response.status, body: (await response.json()) as Created };
+  }
+  const row = (id: string) => AppDataSource.getRepository(Routine).findOneByOrFail({ id });
+  const routineCount = () => AppDataSource.getRepository(Routine).count();
+  const brief = "Post a digest of the week's merged pull requests to #engineering.\n";
+
+  test("starts on with that brief as its body and its next Run scheduled", async () => {
+    const created = await create({ brief });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.enabled, true);
+    assert.equal(created.body.body, brief);
+    assert.ok(created.body.nextRunAt, "the create scheduled its next Run");
+    const saved = await row(created.body.id);
+    assert.equal(saved.enabled, true);
+    assert.equal(saved.body, brief);
+    assert.ok(saved.nextRunAt);
+    assert.deepEqual(await call("GET", undefined, saved.id), {
+      status: 200,
+      body: { content: brief, awaitingBrief: false },
+    });
+  });
+
+  test("a blank brief, or the starter outline untouched, counts as no brief", async () => {
+    const outline = routineTemplate("Digest outline", "0 9 * * 1-5");
+    const cases: Array<[name: string, brief: string, body: string]> = [
+      ["Digest empty", "", routineTemplate("Digest empty", "0 9 * * 1-5")],
+      ["Digest spaces", "  \n\t", routineTemplate("Digest spaces", "0 9 * * 1-5")],
+      ["Digest outline", outline, outline],
+    ];
+    for (const [name, sent, body] of cases) {
+      const created = await create({ name, brief: sent });
+      assert.equal(created.status, 200, name);
+      assert.equal(created.body.enabled, false, name);
+      assert.equal(created.body.nextRunAt, null, name);
+      assert.equal((await row(created.body.id)).body, body, name);
+    }
+  });
+
+  test("accepts a brief of exactly the longest length and refuses one character more", async () => {
+    const longest = "x".repeat(MAX_ROUTINE_BRIEF_LENGTH);
+    const accepted = await create({ name: "Longest", brief: longest });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.enabled, true);
+    assert.equal((await row(accepted.body.id)).body, longest);
+
+    const before = await routineCount();
+    const refused = await create({ name: "Too long", brief: `${longest}x` });
+    assert.equal(refused.status, 400);
+    assert.equal(await routineCount(), before, "a refused create leaves no Routine behind");
+  });
+
+  test("refuses a brief that is not text", async () => {
+    for (const bad of [5, null, ["Post the digest."], { text: "Post the digest." }]) {
+      assert.equal((await create({ brief: bad })).status, 400, JSON.stringify(bad));
+    }
+    assert.equal(await routineCount(), 1, "only the Routine every test starts with");
   });
 });

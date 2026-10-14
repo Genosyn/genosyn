@@ -348,3 +348,20 @@ test("Revenue file-import and Finance proposal contracts reflect runtime require
   );
   assert.match(finance.description ?? "", /full \(write\) Finance access/i);
 });
+
+test("Creating a Routine documents the optional brief and the paused start without one", () => {
+  const document = buildOpenApiDocument();
+  const route = "/api/companies/{cid}/employees/{eid}/routines";
+  const create = operationAt(document, route);
+  const input = requestSchema(document, route, "application/json");
+
+  assert.deepEqual(input.required, ["name", "cronExpr"], "the brief is the one optional piece");
+  assert.equal(input.properties?.brief?.type, "string");
+  assert.equal(input.properties?.brief?.maxLength, 20_000);
+  assert.match(input.properties?.brief?.description ?? "", /starts paused/);
+  assert.match(create.description ?? "", /created paused/);
+  assert.match(create.description ?? "", /nothing runs before a real brief exists/);
+  for (const status of ["200", "400", "403", "404", "409"]) {
+    assert.ok(create.responses?.[status], `POST ${route} documents ${status}`);
+  }
+});
