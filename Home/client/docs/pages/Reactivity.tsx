@@ -33,10 +33,12 @@ export function Reactivity() {
       </P>
       <P>
         Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens the existing
-        Routine flow and creates scheduled work directly. <Strong>Ask AI Employee</Strong> opens an
-        editable, unsent Chat draft asking the selected employee to inspect the evidence and propose
-        an Initiative. Nothing is sent until the Member submits that Chat message, and nothing is
-        scheduled from the Initiative until an owner or admin accepts it.
+        Routine flow and creates scheduled work directly, paused until{" "}
+        <DocLink to="/docs/routines#where-they-live">its brief is saved</DocLink>.{" "}
+        <Strong>Ask AI Employee</Strong> opens an editable, unsent Chat draft asking the selected
+        employee to inspect the evidence and propose an Initiative. Nothing is sent until the Member
+        submits that Chat message, and nothing is scheduled from the Initiative until an owner or
+        admin accepts it.
       </P>
       <P>
         <Strong>Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing

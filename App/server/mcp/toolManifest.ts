@@ -771,7 +771,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         brief: {
           type: "string",
           description:
-            "Optional markdown brief describing what the routine should do on each run. If omitted a starter template is written in.",
+            "Markdown brief: what each run should do. If omitted, the routine is created paused until update_routine writes one.",
         },
         tags: {
           type: "string",

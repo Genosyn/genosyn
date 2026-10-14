@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { after, before, beforeEach, test } from "node:test";
+import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -106,18 +107,18 @@ const storageFailure = () =>
     parameters: ["private brief that must not be echoed", "synthetic-id"],
   });
 const internalError = { status: 500, body: { error: "Internal server error" } };
+/** A brief read of a Routine that is switched on, as every one here starts. */
+const readBack = (content: string) => ({ status: 200, body: { content, awaitingBrief: false } });
+const savedOk = { status: 200, body: { ok: true, enabled: true } };
 
 test("a brief read returns the exact saved content without employee metadata", async () => {
-  assert.deepEqual(await call(), { status: 200, body: { content: originalBody } });
+  assert.deepEqual(await call(), readBack(originalBody));
 });
 
 for (const content of ["", "# Revised brief\n\nRead café records 🧭, then report coverage.\n"]) {
   test(`an authorized ${content ? "Unicode" : "empty"} brief save reads back exactly`, async () => {
-    assert.deepEqual(await call("PUT", { content, name: "Must not rename the Routine" }), {
-      status: 200,
-      body: { ok: true },
-    });
-    assert.deepEqual(await call(), { status: 200, body: { content } });
+    assert.deepEqual(await call("PUT", { content, name: "Must not rename the Routine" }), savedOk);
+    assert.deepEqual(await call(), readBack(content));
     const saved = await savedRoutine();
     assert.equal(saved.body, content);
     assert.equal(saved.name, routine.name);
@@ -139,7 +140,7 @@ for (const method of ["GET", "PUT"] as const) {
     );
     assert.deepEqual(await call(method), internalError);
     assert.equal((await savedRoutine()).body, originalBody);
-    assert.deepEqual(await call(), { status: 200, body: { content: originalBody } });
+    assert.deepEqual(await call(), readBack(originalBody));
   });
 
   test(`${method}: rejected employee ownership lookup is forwarded without saving or leaking the brief`, async (t) => {
@@ -154,7 +155,7 @@ for (const method of ["GET", "PUT"] as const) {
     );
     assert.deepEqual(await call(method), internalError);
     assert.equal((await savedRoutine()).body, originalBody);
-    assert.deepEqual(await call(), { status: 200, body: { content: originalBody } });
+    assert.deepEqual(await call(), readBack(originalBody));
   });
 }
 
@@ -170,12 +171,9 @@ test("rejected brief save answers with an error, preserves the body, and permits
   );
   assert.deepEqual(await call("PUT"), internalError);
   assert.equal((await savedRoutine()).body, originalBody);
-  assert.deepEqual(await call(), { status: 200, body: { content: originalBody } });
-  assert.deepEqual(await call("PUT", { content: "Recovered save" }), {
-    status: 200,
-    body: { ok: true },
-  });
-  assert.deepEqual(await call(), { status: 200, body: { content: "Recovered save" } });
+  assert.deepEqual(await call(), readBack(originalBody));
+  assert.deepEqual(await call("PUT", { content: "Recovered save" }), savedOk);
+  assert.deepEqual(await call(), readBack("Recovered save"));
 });
 
 test("a save cannot report success before persistence settles", async (t) => {
@@ -271,4 +269,97 @@ test("invalid brief input is rejected before persistence", async (t) => {
     assert.equal((await call("PUT", body)).status, 400);
   assert.equal(save.mock.callCount(), 0);
   assert.equal((await savedRoutine()).body, originalBody);
+});
+
+describe("a Routine created without its brief", () => {
+  async function send(method: "POST" | "PATCH", path: string, body: unknown) {
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()) as { id: string; enabled: boolean; nextRunAt: string | null };
+  }
+  const create = () =>
+    send("POST", `/employees/${employee.id}/routines`, {
+      name: "Weekly digest",
+      cronExpr: "0 9 * * 1-5",
+    });
+  const row = (id: string) => AppDataSource.getRepository(Routine).findOneByOrFail({ id });
+  const updateAudits = () =>
+    AppDataSource.getRepository(AuditEvent).findBy({ action: "routine.update" });
+  const keptPaused = { status: 200, body: { ok: true, enabled: false } };
+
+  test("starts paused with nothing scheduled, and its brief read says it is waiting", async () => {
+    const created = await create();
+    assert.equal(created.enabled, false);
+    assert.equal(created.nextRunAt, null);
+    const read = await call("GET", undefined, created.id);
+    assert.equal(read.body.awaitingBrief, true);
+    assert.match(String(read.body.content), /^# Weekly digest\n/);
+  });
+
+  test("its first brief switches it on and schedules it, and later saves leave the switch alone", async () => {
+    const created = await create();
+    assert.deepEqual(
+      await call("PUT", { content: "Post the digest to #general." }, created.id),
+      savedOk,
+    );
+    const saved = await row(created.id);
+    assert.equal(saved.enabled, true);
+    assert.ok(saved.nextRunAt, "the save scheduled its next Run");
+    assert.equal((await call("GET", undefined, created.id)).body.awaitingBrief, false);
+    const audits = await updateAudits();
+    assert.equal(audits.length, 1);
+    assert.deepEqual(JSON.parse(audits[0].metadataJson), { fields: ["body", "enabled"] });
+
+    await send("PATCH", `/routines/${created.id}`, { enabled: false });
+    assert.deepEqual(
+      await call("PUT", { content: "Post it to #ops instead." }, created.id),
+      keptPaused,
+    );
+    assert.equal((await row(created.id)).enabled, false);
+  });
+
+  test("renaming or rescheduling it first does not count as writing its brief", async () => {
+    const created = await create();
+    await send("PATCH", `/routines/${created.id}`, {
+      name: "Monday digest",
+      cronExpr: "0 8 * * 1",
+    });
+    assert.equal((await call("GET", undefined, created.id)).body.awaitingBrief, true);
+    assert.deepEqual(await call("PUT", { content: "Summarize last week." }, created.id), savedOk);
+    assert.equal((await row(created.id)).enabled, true);
+  });
+
+  test("a blank brief or the untouched outline leaves it paused and still waiting", async () => {
+    const created = await create();
+    const outline = String((await call("GET", undefined, created.id)).body.content);
+    for (const content of ["", "  \n", outline]) {
+      assert.deepEqual(await call("PUT", { content }, created.id), keptPaused);
+      assert.equal((await call("GET", undefined, created.id)).body.awaitingBrief, true);
+    }
+    assert.equal((await row(created.id)).nextRunAt, null);
+    const audits = await updateAudits();
+    assert.equal(audits.length, 3);
+    for (const audit of audits) {
+      assert.deepEqual(
+        JSON.parse(audit.metadataJson),
+        { fields: ["body"] },
+        "no save switched it on",
+      );
+    }
+  });
+
+  test("a Routine paused with its brief written is not switched on by a save", async () => {
+    await AppDataSource.getRepository(Routine).update({ id: routine.id }, { enabled: false });
+    assert.deepEqual(await call(), {
+      status: 200,
+      body: { content: originalBody, awaitingBrief: false },
+    });
+    assert.deepEqual(await call("PUT", { content: "Revised brief" }), keptPaused);
+    assert.equal((await savedRoutine()).enabled, false);
+  });
 });

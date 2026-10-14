@@ -57,6 +57,15 @@ export function Routines() {
         column opens that Run directly.
       </P>
       <P>
+        A new routine starts <Strong>Paused</Strong>, so one you leave unfinished never runs its
+        starter outline on schedule. Its <Strong>Brief</Strong> tab says{" "}
+        <Strong>Paused until its brief is saved</Strong>, and the button reads{" "}
+        <Strong>Save brief &amp; switch on</Strong>: that first save of a real brief switches the
+        routine on and schedules its next Run. Renaming or rescheduling it first does not count, and
+        saving a blank brief or the untouched outline leaves it paused. Later saves never change the
+        switch.
+      </P>
+      <P>
         Owners and admins pause or resume a routine from the switch beside{" "}
         <Strong>Run now</Strong> at the top of its page — one click, no Save; the{" "}
         <Strong>Enabled</Strong> box under Settings follows it. While a{" "}
@@ -401,6 +410,12 @@ Post it to the #morning channel.`}</Pre>
         not take <Code>body</Code>: it refuses any field it does not handle with a 400 that names
         it, and saves nothing from that request.
       </P>
+      <P>
+        A <Code>GET</Code> on the same path returns <Code>awaitingBrief: true</Code> while a paused
+        routine still has a blank brief or the starter outline. The <Code>PUT</Code> answers with
+        the routine&apos;s <Code>enabled</Code> state after the save, which is <Code>true</Code>{" "}
+        when that save wrote its first brief and switched it on.
+      </P>
 
       <H2 id="assistant">Ask AI about a routine</H2>
       <P>
@@ -560,6 +575,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         rename, re-schedule, brief rewrites, and the enable/disable switch, so nothing forces a
         duplicate. That is the default; <DocLink to="/docs/routines#ai-access">AI access</DocLink>,
         below, can hold an employee to reading and running Routines instead.
+      </P>
+      <P>
+        The same brief rule applies here. <Code>create_routine</Code> without a brief creates the
+        routine paused, and its reply says so. The first brief <Code>update_routine</Code> writes
+        switches it on, unless that call also sets <Code>enabled</Code>. A routine created with a
+        brief is switched on at once.
       </P>
       <P>
         Every change made this way is written to the{" "}
