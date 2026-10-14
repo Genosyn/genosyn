@@ -18,6 +18,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   revenue_follow_up: "push",
   goal_achieved: "push",
   goal_missed: "push",
+  goal_confirmation_pending: "push",
   budget_exhausted: "push",
   standdown_placed: "push",
   finance_review_ready: "bell",

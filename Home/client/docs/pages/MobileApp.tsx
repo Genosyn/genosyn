@@ -73,10 +73,10 @@ export function MobileApp() {
         A push interrupts you, so it is kept for what needs a person now: a Decision or an
         Approval waiting on you, a mention, a todo someone asked you to review, an email an AI
         Employee handed to you, and a follow-up reminder you set — plus the few events an owner
-        hears about at once: a Goal achieved or missed, an ad Budget spent, a Standdown placed.
-        Everything else — a failed Run, a reminder about something already waiting, a proposed
-        Revision or Initiative, a Finance review — lands only in the bell in the top bar and on
-        Home.
+        hears about at once: a Goal achieved, missed, or waiting for you to confirm it was met, an
+        ad Budget spent, a Standdown placed. Everything else — a failed Run, a reminder about
+        something already waiting, a proposed Revision or Initiative, a Finance review — lands
+        only in the bell in the top bar and on Home.
       </P>
       <OL>
         <LI>
