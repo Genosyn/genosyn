@@ -1064,9 +1064,11 @@ function StandingWork({
         </ul>
       )}
 
-      <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-        You can change or pause any of these later in Proactive and TLDRs.
-      </p>
+      {hasRows && (
+        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+          You can change or pause any of these later in Proactive and TLDRs.
+        </p>
+      )}
 
       {canManage ? (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">

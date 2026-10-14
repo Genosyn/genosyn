@@ -3,6 +3,7 @@ import type { GoalDirection } from "@/lib/api";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
+import { clsx } from "@/components/ui/clsx";
 import { submitFormOnModEnter } from "@/lib/keyboard";
 import {
   GOAL_TITLE_MAX,
@@ -60,13 +61,55 @@ export function GoalFields({
   goal,
   disabled,
   autoFocus,
+  optional = false,
+  compact = false,
 }: {
   goal: GoalDraftControls;
   disabled?: boolean;
   autoFocus?: boolean;
+  /** A company that already has direction may leave the sentence blank. */
+  optional?: boolean;
+  /** For the narrow new-company card: the target and unit share a row, the direction takes its own. */
+  compact?: boolean;
 }) {
   const { draft } = goal;
   const hintId = React.useId();
+  const targetField = (
+    <Input
+      label="Target"
+      value={draft.target}
+      onChange={(event) => goal.setTarget(event.target.value)}
+      inputMode="decimal"
+      placeholder="50"
+      disabled={disabled}
+      aria-required="true"
+    />
+  );
+  const directionField = (
+    <Select
+      label="Direction"
+      value={draft.direction}
+      onChange={(event) => goal.setDirection(event.target.value as GoalDirection)}
+      disabled={disabled}
+      containerClassName={compact ? "col-span-2" : undefined}
+    >
+      {(Object.keys(DIRECTION_LABEL) as GoalDirection[]).map((direction) => (
+        <option key={direction} value={direction}>
+          {DIRECTION_LABEL[direction]}
+        </option>
+      ))}
+    </Select>
+  );
+  const unitField = (
+    <Input
+      label="Unit"
+      value={draft.unit}
+      onChange={(event) => goal.setUnit(event.target.value)}
+      placeholder="customers, $, %…"
+      maxLength={GOAL_UNIT_MAX}
+      disabled={disabled}
+    />
+  );
   return (
     <div className="space-y-3">
       <div>
@@ -79,7 +122,7 @@ export function GoalFields({
           aria-describedby={hintId}
           autoFocus={autoFocus}
           disabled={disabled}
-          required
+          required={!optional}
         />
         <p id={hintId} className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
           One sentence with a number in it. Every AI Employee reads it before they work.
@@ -87,36 +130,15 @@ export function GoalFields({
       </div>
       {draft.sentence.trim() !== "" && (
         <div className="space-y-1.5">
-          <div className="grid gap-3 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)]">
-            <Input
-              label="Target"
-              value={draft.target}
-              onChange={(event) => goal.setTarget(event.target.value)}
-              inputMode="decimal"
-              placeholder="50"
-              disabled={disabled}
-              aria-required="true"
-            />
-            <Select
-              label="Direction"
-              value={draft.direction}
-              onChange={(event) => goal.setDirection(event.target.value as GoalDirection)}
-              disabled={disabled}
-            >
-              {(Object.keys(DIRECTION_LABEL) as GoalDirection[]).map((direction) => (
-                <option key={direction} value={direction}>
-                  {DIRECTION_LABEL[direction]}
-                </option>
-              ))}
-            </Select>
-            <Input
-              label="Unit"
-              value={draft.unit}
-              onChange={(event) => goal.setUnit(event.target.value)}
-              placeholder="customers, $, %…"
-              maxLength={GOAL_UNIT_MAX}
-              disabled={disabled}
-            />
+          <div
+            className={clsx(
+              "grid gap-3",
+              compact ? "grid-cols-2" : "sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)]",
+            )}
+          >
+            {targetField}
+            {compact ? unitField : directionField}
+            {compact ? directionField : unitField}
           </div>
           <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
             We read these from your sentence. Change any that look wrong.

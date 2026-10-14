@@ -22,7 +22,7 @@ context.setDefaultTimeout(20000);
 const errors: string[] = [];
 const unexpected: string[] = [];
 const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
-let company: Company;
+let company!: Company;
 let employees: Employee[];
 let goals: Array<Record<string, unknown>> = [];
 let automaticSetup = true;
@@ -510,6 +510,12 @@ try {
   await open("step=company");
   await visible("What is your company's Goal?");
   await screenshot("onboarding-company-mobile.png");
+  // The Goal's details and the optional disclosure fit a phone as well.
+  await page.getByLabel("Your Goal", { exact: true }).fill(goalSentence);
+  await page.getByLabel("Target", { exact: true }).waitFor();
+  await page.getByText("Add a mission and vision (optional)", { exact: true }).click();
+  await page.getByLabel("Vision", { exact: true }).waitFor();
+  await screenshot("onboarding-company-details-mobile.png");
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpected, []);
   console.log(`Passed ${checks} onboarding browser checks.`);

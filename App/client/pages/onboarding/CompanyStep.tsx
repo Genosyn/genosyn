@@ -26,35 +26,34 @@ export function CompanyStep({
   const goal = useGoalDraft();
   const [mission, setMission] = React.useState(company.mission);
   const [vision, setVision] = React.useState(company.vision);
-  const [existing, setExisting] = React.useState<Goal | null | undefined>(
-    company.hasGoal ? undefined : null,
-  );
+  // The company's Goals: undefined while they load, null if they could not be read.
+  const [goals, setGoals] = React.useState<Goal[] | null | undefined>(undefined);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   // Once the Goal is written it must not be written again by a retry after a
   // later step of the same save failed.
   const goalWritten = React.useRef(false);
   const canEdit = company.role !== "member";
-  const hasGoal = Boolean(company.hasGoal);
+  // The Goal the company already has, to show instead of asking again. It is
+  // read rather than taken from `company.hasGoal` alone: that flag only
+  // refreshes with the company list, so a Goal written on the Goals page a
+  // moment ago would otherwise be asked for, and written, a second time.
+  const existing = goals ? primaryGoal(goals) : null;
+  const hasGoal = Boolean(company.hasGoal) || existing !== null;
   // A company with a mission and a vision can go on without a Goal; one with
   // neither has to write it.
   const goalRequired = !hasCompanyDirection(company);
 
-  // The Goal the company already has, to show instead of asking again.
   React.useEffect(() => {
-    if (!company.hasGoal) {
-      setExisting(null);
-      return;
-    }
     let cancelled = false;
-    setExisting(undefined);
+    setGoals(undefined);
     api
       .get<Goal[]>(`/api/companies/${company.id}/goals`)
-      .then((goals) => {
-        if (!cancelled) setExisting(primaryGoal(goals));
+      .then((list) => {
+        if (!cancelled) setGoals(list);
       })
       .catch(() => {
-        if (!cancelled) setExisting(null);
+        if (!cancelled) setGoals(null);
       });
     return () => {
       cancelled = true;
@@ -105,9 +104,14 @@ export function CompanyStep({
       />
       <form className="mt-5 space-y-4" onSubmit={submit}>
         {hasGoal ? (
-          <ExistingGoal company={company} goal={existing} />
+          <ExistingGoal company={company} goal={goals === undefined ? undefined : existing} />
         ) : (
-          <GoalFields goal={goal} disabled={saving || !canEdit} autoFocus={canEdit} />
+          <GoalFields
+            goal={goal}
+            disabled={saving || !canEdit}
+            autoFocus={canEdit}
+            optional={!goalRequired}
+          />
         )}
         <MissionVisionFields
           mission={mission}
@@ -125,7 +129,11 @@ export function CompanyStep({
           </Button>
         </StepFooter>
         {!canEdit && (
-          <p className="text-sm text-slate-500">Ask a company owner or admin to set the Goal.</p>
+          <p className="text-sm text-slate-500">
+            {hasGoal
+              ? "Ask a company owner or admin to add a mission and vision."
+              : "Ask a company owner or admin to set the Goal."}
+          </p>
         )}
       </form>
     </StepCard>

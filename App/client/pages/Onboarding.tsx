@@ -116,7 +116,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           autoFocus
           required
         />
-        <GoalFields goal={goal} disabled={loading} />
+        <GoalFields goal={goal} disabled={loading} compact />
         <MissionVisionFields
           mission={mission}
           vision={vision}

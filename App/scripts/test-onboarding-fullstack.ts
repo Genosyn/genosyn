@@ -979,13 +979,23 @@ try {
   await page.getByRole("button", { name: "+ New company", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("Second QA Company");
   await page.getByRole("dialog").getByRole("button", { name: "Create", exact: true }).click();
-  await page
-    .getByRole("heading", { name: "What is your company here to do?", exact: true })
-    .waitFor();
-  await page.getByLabel("Mission", { exact: true }).fill("Help teams plan their work.");
-  await page.getByLabel("Vision", { exact: true }).fill("Every team works with clarity.");
+  await page.getByRole("heading", { name: "What is your company's Goal?", exact: true }).waitFor();
+  // A company made from the picker has only a name, so the guide asks for its Goal.
+  await page.getByLabel("Your Goal", { exact: true }).fill("Ship 12 product releases this year");
   await page.getByRole("button", { name: "Save and continue", exact: true }).click();
   await page.getByRole("heading", { name: "Hire your first AI Employee", exact: true }).waitFor();
+  const secondCompany = (
+    await read<Array<{ id: string; name: string; hasGoal: boolean }>>("/api/companies")
+  ).find((candidate) => candidate.name === "Second QA Company");
+  assert.equal(secondCompany?.hasGoal, true);
+  assert.deepEqual(
+    (
+      await read<Array<{ title: string; targetValue: number; unit: string }>>(
+        `/api/companies/${secondCompany!.id}/goals`,
+      )
+    ).map((row) => [row.title, row.targetValue, row.unit]),
+    [["Ship 12 product releases this year", 12, "product releases"]],
+  );
   await page
     .locator("header")
     .getByRole("button", { name: "Second QA Company", exact: true })
