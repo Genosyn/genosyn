@@ -15902,6 +15902,12 @@ mcpInternalRouter.post(
 // to a company-wide Signing Grant. There is intentionally no tool or handler
 // that can fill or complete a recipient signature: identity and consent stay
 // on the public recipient surface.
+//
+// The signing service writes each envelope action's audit row itself, for a
+// Member and an AI Employee alike, and the row inherits this call's Run. So the
+// write tools below add only the journal entry, as `send_text_message` does: a
+// second audit row would list every AI action twice — in the envelope's
+// History, the Run's Effects, and the Work timeline.
 
 function respondToSigningError(res: Response, error: unknown): boolean {
   if (
@@ -16132,19 +16138,11 @@ mcpInternalRouter.post(
         (total, recipient) => total + (recipient.fields?.length ?? 0),
         0,
       );
-      await aiWriteTrail(req, {
-        action: "signature.envelope.create",
-        targetType: "signature_envelope",
-        targetId: detail.envelope.id,
-        targetLabel: detail.envelope.title,
-        journalTitle: `${employee.name} prepared signature envelope "${detail.envelope.title}"`,
-        journalBody: `Drafted from PDF Resource \`${body.resourceSlug}\` with ${body.recipients.length} recipient(s) and ${fieldCount} field(s). Nothing was emailed.`,
-        metadata: {
-          resourceSlug: body.resourceSlug,
-          recipientCount: body.recipients.length,
-          fieldCount,
-        },
-      });
+      await journal(
+        employee.id,
+        `${employee.name} prepared signature envelope "${detail.envelope.title}"`,
+        `Drafted from PDF Resource \`${body.resourceSlug}\` with ${body.recipients.length} recipient(s) and ${fieldCount} field(s). Nothing was emailed.`,
+      );
       res.json({
         ...serializeSignatureDetailForAi(detail),
         note: "Draft prepared. Nothing was emailed; a Member can review it before sending.",
@@ -16176,15 +16174,11 @@ mcpInternalRouter.post(
         expectedUpdatedAt: body.expectedUpdatedAt,
         actor: { actorKind: "ai", actorId: employee.id },
       });
-      await aiWriteTrail(req, {
-        action: "signature.envelope.send",
-        targetType: "signature_envelope",
-        targetId: detail.envelope.id,
-        targetLabel: detail.envelope.title,
-        journalTitle: `${employee.name} sent signature envelope "${detail.envelope.title}"`,
-        journalBody: "Invitation delivery was started via the built-in signing tool.",
-        metadata: { recipientCount: detail.recipients.length },
-      });
+      await journal(
+        employee.id,
+        `${employee.name} sent signature envelope "${detail.envelope.title}"`,
+        "Invitation delivery was started via the built-in signing tool.",
+      );
       res.json(serializeSignatureDetailForAi(detail));
     } catch (error) {
       if (!respondToSigningError(res, error)) throw error;
@@ -16214,15 +16208,11 @@ mcpInternalRouter.post(
         actor: { actorKind: "ai", actorId: employee.id },
       });
       const recipient = detail.recipients.find((row) => row.id === body.recipientId);
-      await aiWriteTrail(req, {
-        action: "signature.envelope.remind",
-        targetType: "signature_recipient",
-        targetId: body.recipientId,
-        targetLabel: recipient?.name ?? body.recipientId,
-        journalTitle: `${employee.name} reminded ${recipient?.name ?? "a signature recipient"}`,
-        journalBody: `Envelope: "${detail.envelope.title}".`,
-        metadata: { envelopeId: detail.envelope.id },
-      });
+      await journal(
+        employee.id,
+        `${employee.name} reminded ${recipient?.name ?? "a signature recipient"}`,
+        `Envelope: "${detail.envelope.title}".`,
+      );
       res.json(serializeSignatureDetailForAi(detail));
     } catch (error) {
       if (!respondToSigningError(res, error)) throw error;
@@ -16251,15 +16241,11 @@ mcpInternalRouter.post(
         reason: body.reason,
         actor: { actorKind: "ai", actorId: employee.id },
       });
-      await aiWriteTrail(req, {
-        action: "signature.envelope.void",
-        targetType: "signature_envelope",
-        targetId: detail.envelope.id,
-        targetLabel: detail.envelope.title,
-        journalTitle: `${employee.name} voided signature envelope "${detail.envelope.title}"`,
-        journalBody: body.reason,
-        metadata: { reason: body.reason },
-      });
+      await journal(
+        employee.id,
+        `${employee.name} voided signature envelope "${detail.envelope.title}"`,
+        body.reason,
+      );
       res.json(serializeSignatureDetailForAi(detail));
     } catch (error) {
       if (!respondToSigningError(res, error)) throw error;
