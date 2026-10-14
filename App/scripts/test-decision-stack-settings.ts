@@ -250,7 +250,7 @@ try {
   const rail = page.getByRole("navigation").filter({ has: page.getByRole("link", { name: "History" }) });
   assert.deepEqual(
     await rail.getByRole("link").allTextContents(),
-    ["Active", "History", "Settings"],
+    ["Active", "Approvals", "Revisions", "Initiatives", "History", "Settings"],
   );
   assert.equal(await stackSwitch().getAttribute("aria-checked"), "true");
   assert.equal(await stackSwitch().isEnabled(), true);
