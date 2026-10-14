@@ -11,12 +11,16 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
+import { Goal } from "../db/entities/Goal.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import { applyRoutineRecommendations } from "../services/onboardingRecommendations.js";
+import {
+  ROUTINE_RECOMMENDATION_DEFINITIONS,
+  applyRoutineRecommendations,
+} from "../services/onboardingRecommendations.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { employeesRouter } from "./employees.js";
 
@@ -25,6 +29,7 @@ type ApiResponse<T = Record<string, unknown>> = { status: number; body: T };
 type RecommendationResponse = {
   context: {
     companyName: string;
+    goal: string;
     mission: string;
     vision: string;
     employeeName: string;
@@ -187,6 +192,7 @@ describe("AI Employee onboarding recommendation read route", () => {
     assert.equal(response.status, 200);
     assert.deepEqual(response.body.context, {
       companyName: "Orbit Labs",
+      goal: "",
       mission: "Help every customer adopt reliable software.",
       vision: "A world where preventable churn disappears.",
       employeeName: "Ivy",
@@ -281,6 +287,101 @@ describe("AI Employee onboarding recommendation read route", () => {
         item.body.includes("Every strategic choice is grounded in market evidence."),
       ),
     );
+  });
+
+  describe("with the company's Goal", () => {
+    async function onlyAGoal() {
+      await AppDataSource.getRepository(Company).update(
+        { id: company.id },
+        { mission: "", vision: "" },
+      );
+      await AppDataSource.getRepository(AIEmployee).update(
+        { id: employee.id },
+        { role: "Product Manager" },
+      );
+    }
+    const goalValues = {
+      title: "Ship a reliable developer platform",
+      slug: "ship-a-reliable-developer-platform",
+      targetValue: 99.9,
+    };
+
+    test("a company with only a Goal still gets fitting suggestions that quote it", async () => {
+      await onlyAGoal();
+      const baseline = await call<RecommendationResponse>(
+        "GET",
+        `/${employee.id}/onboarding-recommendations`,
+      );
+      await insert(Goal, { companyId: company.id, ...goalValues });
+
+      const response = await call<RecommendationResponse>(
+        "GET",
+        `/${employee.id}/onboarding-recommendations`,
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.context.goal, goalValues.title);
+      assert.equal(baseline.body.context.goal, "");
+      assert.equal(baseline.body.routines[0]?.id, "monday-status-digest");
+      assert.equal(response.body.routines[0]?.id, "engineering-issue-triage");
+      assert(
+        response.body.routines.every((item) =>
+          item.body.includes(`> **Goal:** ${goalValues.title}`),
+        ),
+      );
+      // Mission and vision are optional: a company that never wrote them is not
+      // told, in every brief, that they are "Not set yet".
+      assert(response.body.routines.every((item) => !item.body.includes("**Mission:**")));
+      assert(response.body.routines.every((item) => !item.body.includes("**Vision:**")));
+      assert(response.body.routines.every((item) => !item.body.includes("Not set yet")));
+    });
+
+    test("an archived Goal, a sub-goal and another company's Goal are not quoted", async () => {
+      await onlyAGoal();
+      const archived = await insert(Goal, {
+        companyId: company.id,
+        ...goalValues,
+        status: "archived",
+      });
+      await insert(Goal, {
+        companyId: company.id,
+        title: "A sub-goal",
+        slug: "a-sub-goal",
+        targetValue: 3,
+        parentGoalId: archived.id,
+      });
+      const elsewhere = await insert(Company, {
+        name: "Elsewhere",
+        slug: "elsewhere",
+        ownerId: owner.id,
+      });
+      await insert(Goal, { companyId: elsewhere.id, ...goalValues, slug: "elsewhere-goal" });
+
+      const response = await call<RecommendationResponse>(
+        "GET",
+        `/${employee.id}/onboarding-recommendations`,
+      );
+
+      assert.equal(response.body.context.goal, "");
+      assert(response.body.routines.every((item) => item.body.includes("> **Goal:** Not set yet")));
+    });
+
+    test("quotes the oldest active top-level Goal when there are several", async () => {
+      await insert(Goal, { companyId: company.id, ...goalValues });
+      await insert(Goal, {
+        companyId: company.id,
+        title: "A later Goal",
+        slug: "a-later-goal",
+        targetValue: 5,
+      });
+
+      const response = await call<RecommendationResponse>(
+        "GET",
+        `/${employee.id}/onboarding-recommendations`,
+      );
+
+      assert.equal(response.body.context.goal, goalValues.title);
+    });
   });
 
   test("validates the AI Employee route identifier", async () => {
@@ -449,6 +550,45 @@ describe("AI Employee onboarding recommendation apply route", () => {
     assert.match(routine.body, /Every classroom can rely on its tools\./);
     assert.match(routine.body, /Ivy — Software Engineer/);
     assert.doesNotMatch(routine.body, /Replace the company mission|preventable churn/);
+  });
+
+  test("saves acceptance criteria, so a starter Routine's Runs are graded", async () => {
+    const ids = ROUTINE_RECOMMENDATION_DEFINITIONS.map((definition) => definition.id).slice(0, 5);
+    const response = await apply(ids);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.created.length, ids.length);
+    const rows = await AppDataSource.getRepository(Routine).find({
+      where: { employeeId: employee.id },
+    });
+    for (const id of ids) {
+      const definition = ROUTINE_RECOMMENDATION_DEFINITIONS.find((item) => item.id === id)!;
+      const row = rows.find((item) => item.name === definition.name);
+      assert(row, id);
+      assert.equal(row.acceptanceCriteria, definition.acceptanceCriteria, id);
+      assert(row.acceptanceCriteria.trim().length > 0, id);
+    }
+  });
+
+  test("quotes the Goal the company has when the Routine is added", async () => {
+    await insert(Goal, {
+      companyId: company.id,
+      title: "Reduce production incidents to 2 a month",
+      slug: "reduce-incidents",
+      targetValue: 2,
+      direction: "decrease_to",
+    });
+    const response = await apply(["engineering-issue-triage"]);
+
+    assert.equal(response.status, 200);
+    assert.match(
+      response.body.created[0].body,
+      /> \*\*Goal:\*\* Reduce production incidents to 2 a month/,
+    );
+    // The Goal comes first, ahead of the mission and vision still written.
+    const body = response.body.created[0].body;
+    assert(body.indexOf("**Goal:**") < body.indexOf("**Mission:**"));
+    assert(body.indexOf("**Mission:**") < body.indexOf("**Vision:**"));
   });
 
   test("serializes concurrent SQLite applies without false failures or duplicate audits", async () => {
