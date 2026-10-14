@@ -144,6 +144,9 @@ employeesRouter.get("/", async (req, res) => {
           }
         : null,
       modelCount: list.length,
+      // Chat answers from any connected model, not just the active one, so this
+      // is not `model.status`. The Proactive overview reads it the same way.
+      chatReady: list.some((model) => isModelConnected(model)),
     };
   });
   res.json(rows);

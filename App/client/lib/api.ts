@@ -264,6 +264,12 @@ export type Employee = {
   } | null;
   /** How many models the employee has registered. Present on the list endpoint. */
   modelCount?: number;
+  /**
+   * Whether any of the employee's models is connected, so Chat can answer.
+   * Unlike `model.status` it does not need the active model to be the one.
+   * Present on the list endpoint.
+   */
+  chatReady?: boolean;
   /** When the employee was hired. Present on the detail endpoint. */
   createdAt?: string;
 };
