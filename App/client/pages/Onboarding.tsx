@@ -17,14 +17,14 @@ import { Card, CardBody } from "../components/ui/Card";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
-import { Textarea } from "../components/ui/Textarea";
 import { clsx } from "../components/ui/clsx";
-import { submitFormOnModEnter } from "../lib/keyboard";
+import { buildGoalPayload } from "../lib/goalSentence";
 import { AuthShell } from "./Login";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
 import { FirstRequestStep } from "./onboarding/FirstRequestStep";
 import { CompanyStep } from "./onboarding/CompanyStep";
+import { GoalFields, MissionVisionFields, useGoalDraft } from "./onboarding/GoalFields";
 import { resolveOnboardingStep, type OnboardingStep } from "@/lib/onboardingFlow";
 import { DoneStep } from "./onboarding/DoneStep";
 import { RecommendationsStep } from "./onboarding/RecommendationsStep";
@@ -42,12 +42,12 @@ const STEPS: Array<{
   hint: string;
   icon: LucideIcon;
 }> = [
-  { id: "company", label: "Company", hint: "Mission and vision", icon: Building2 },
+  { id: "company", label: "Company", hint: "Your Goal", icon: Building2 },
   { id: "employee", label: "AI Employee", hint: "Hire and connect a model", icon: Bot },
   {
     id: "recommendations",
     label: "Routines",
-    hint: "Work that supports your mission",
+    hint: "Work that moves your Goal",
     icon: Rocket,
   },
   { id: "email", label: "Email", hint: "Optional mailbox access", icon: Mail },
@@ -60,6 +60,7 @@ const STEPS: Array<{
  */
 export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
   const [name, setName] = React.useState("");
+  const goal = useGoalDraft();
   const [mission, setMission] = React.useState("");
   const [vision, setVision] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -69,8 +70,13 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim() || !mission.trim() || !vision.trim()) {
-      setError("Add your company name, mission, and vision to continue.");
+    if (!name.trim()) {
+      setError("Add your company name to continue.");
+      return;
+    }
+    const built = buildGoalPayload(goal.draft);
+    if (!built.ok) {
+      setError(built.error);
       return;
     }
     setLoading(true);
@@ -79,8 +85,10 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
         createCompany: () =>
           api.post<Company>("/api/companies", {
             name: name.trim(),
-            mission: mission.trim(),
-            vision: vision.trim(),
+            goal: built.goal,
+            ...(mission.trim() ? { mission: mission.trim() } : {}),
+            ...(vision.trim() ? { vision: vision.trim() } : {}),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           }),
         refreshCompanies: onDone,
         navigate,
@@ -96,7 +104,7 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
   return (
     <AuthShell
       title="Set up your company"
-      subtitle="Start with a name and a little direction. Then hire an AI Employee to help make it happen."
+      subtitle="Name your company and write its Goal. Then hire an AI Employee to work toward it."
     >
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />
@@ -108,28 +116,13 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           autoFocus
           required
         />
-        <Textarea
-          label="Mission"
-          value={mission}
-          onChange={(event) => setMission(event.target.value)}
-          onKeyDown={submitFormOnModEnter}
-          placeholder="What do you do, for whom, and why?"
-          rows={3}
-          className="!min-h-24"
-          maxLength={2000}
-          hint="A sentence is enough. We use this to suggest useful work for your AI Employees."
-          required
-        />
-        <Textarea
-          label="Vision"
-          value={vision}
-          onChange={(event) => setVision(event.target.value)}
-          onKeyDown={submitFormOnModEnter}
-          placeholder="What should be true when the company succeeds?"
-          required
-          rows={3}
-          className="!min-h-24"
-          maxLength={2000}
+        <GoalFields goal={goal} disabled={loading} />
+        <MissionVisionFields
+          mission={mission}
+          vision={vision}
+          onMission={setMission}
+          onVision={setVision}
+          disabled={loading}
         />
         <Button type="submit" loading={loading}>
           {loading ? "Creating…" : "Create company and continue"}
