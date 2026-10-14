@@ -28,8 +28,12 @@ import {
   roleAtLeast,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
-import { routineTemplate } from "../services/files.js";
-import { awaitingRoutineBrief, writeRoutineBrief } from "../services/routineBrief.js";
+import {
+  awaitingRoutineBrief,
+  startingRoutineBrief,
+  writeRoutineBrief,
+} from "../services/routineBrief.js";
+import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import {
@@ -359,6 +363,9 @@ const cronExprSchema = z
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: cronExprSchema,
+  // What each Run should do. With one the Routine starts on its schedule;
+  // without (or blank) it starts paused, so nothing runs before there is one.
+  brief: z.string().max(MAX_ROUTINE_BRIEF_LENGTH).optional(),
   tagIds: z.array(z.string().uuid()).max(20).optional(),
   // Which folder to file the new routine in. Omitted or null leaves it
   // unfiled, which is where every routine created before folders shipped sits.
@@ -385,20 +392,25 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
   }
   const slug = await uniqueSlug(emp.id, toSlug(body.name));
   const repo = AppDataSource.getRepository(Routine);
+  // Paused with the starter outline unless a brief came with it, so one left
+  // unfinished never runs that outline on its schedule; the first brief saved
+  // switches it on (`writeRoutineBrief`).
+  const start = startingRoutineBrief({
+    name: body.name,
+    cronExpr: body.cronExpr,
+    brief: body.brief,
+  });
   const r = repo.create({
     employeeId: emp.id,
     name: body.name,
     slug,
     cronExpr: body.cronExpr,
-    // Its brief is written on the next screen. Until it is, the Routine stays
-    // paused, so one left unfinished never runs the starter outline on its
-    // schedule; saving the brief switches it on (`writeRoutineBrief`).
-    enabled: false,
+    enabled: start.enabled,
     lastRunAt: null,
     folderId: body.folderId ?? null,
-    body: routineTemplate(body.name, body.cronExpr),
+    body: start.body,
   });
-  registerRoutine(r);
+  registerRoutine(r, co.timezone);
   await repo.save(r);
   const tags = await replaceResourceTags(co.id, "routine", r.id, body.tagIds ?? []);
   await recordAudit({
@@ -560,7 +572,9 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   // Only re-derive the pending fire time when the schedule itself changed —
   // renaming a routine or nudging its timeout shouldn't throw away the slot it
   // was already waiting on.
-  if (body.cronExpr !== undefined || body.enabled !== undefined) registerRoutine(r);
+  if (body.cronExpr !== undefined || body.enabled !== undefined) {
+    registerRoutine(r, found.co.timezone);
+  }
   await AppDataSource.getRepository(Routine).save(r);
   if (body.browserEnabledOverride !== undefined) {
     await revokeDisabledBrowserSessionsForEmployee(r.employeeId);
@@ -743,7 +757,11 @@ routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (r
     const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
     if (!found) return res.status(404).json({ error: "Not found" });
     const r = found.routine;
-    const switchedOn = writeRoutineBrief(r, (req.body as z.infer<typeof readmeSchema>).content);
+    const switchedOn = writeRoutineBrief(
+      r,
+      (req.body as z.infer<typeof readmeSchema>).content,
+      found.co.timezone,
+    );
     await AppDataSource.getRepository(Routine).save(r);
     await recordAudit({
       companyId: found.co.id,

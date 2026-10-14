@@ -719,6 +719,15 @@ in a Work session instead of leaving them stranded as local commits.
   instead of mounting what could only answer 403.
   `server/client/subpageRoutes.test.ts` fails on a static route that is
   neither catalogued nor deliberately left out.
+- **Sections are listed by use.** The ⌘K palette's browse view and the
+  keyboard guide list the core sections and the ones a company has something
+  in (`shared/navigation.ts`: `CORE_SECTIONS`, `USAGE_SECTIONS`;
+  `services/navigation.ts` probes each usage section with an indexed
+  existence check). A new section goes in one of the two lists — a usage
+  section with its probe — and `client/lib/sectionVisibility.test.ts` fails
+  until it does. Search and the `G` chords always reach every section the
+  person can open. A page that moves keeps its old address working through
+  `LegacyRedirect` in `App.tsx`, query and hash included.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run
@@ -809,6 +818,11 @@ Think **Linear × Notion**. Clean, quiet, fast.
   screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`
   beside the control that started it.
 - Mobile-responsive is expected, not optional.
+- Show the basics and put everything else behind a single **Advanced**
+  disclosure (`components/ui/Disclosure.tsx`), closed by default. A collapsed
+  disclosure says what is configured inside ("Approval required · 2 Checks"),
+  so nothing that was set is invisible. Prefer a sensible default to a visible
+  choice.
 
 ---
 

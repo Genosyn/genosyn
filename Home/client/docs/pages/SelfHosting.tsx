@@ -140,7 +140,12 @@ export function SelfHosting() {
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
                 discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}
-                <Strong>Outbound network</Strong> (the private-host allowlist).
+                <Strong>Outbound network</Strong> (the private-host allowlist). Each section starts
+                as one collapsed line that reads <Strong>Defaults</Strong> or, say,{" "}
+                <Strong>3 customized</Strong>; open one to edit it, save it on its own, or choose{" "}
+                <Strong>Reset to defaults</Strong>. A field almost nobody changes, such as the
+                Genosyn Connect service URL, sits under the section&apos;s own{" "}
+                <Strong>Advanced</Strong>.
               </>
             ),
           },
@@ -521,8 +526,9 @@ export function SelfHosting() {
           <Strong>Runtime</Strong> — the operational knobs that used to live in{" "}
           <Code>config.ts</Code>: web tools, mail sync pacing, meetings, the container&apos;s
           browser, and the agent&apos;s taint policy, member browsers, and tool discovery. Each
-          section saves independently and can be reset to its default; changes take effect within 30
-          seconds without a restart. See <Code>config.ts</Code> above.
+          section starts collapsed, saying whether anything in it differs from the defaults; open
+          one to edit it. Each saves independently and can be reset to its default; changes take
+          effect within 30 seconds without a restart. See <Code>config.ts</Code> above.
         </LI>
         <LI>
           <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service registration. See{" "}

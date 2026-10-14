@@ -13,6 +13,7 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { Goal } from "../db/entities/Goal.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
@@ -112,16 +113,13 @@ describe("hiring an AI Employee from a template", () => {
     { mission: "  \n", vision: "Clear vision" },
     { mission: "Clear mission", vision: "\t" },
   ]) {
-    test(`requires company mission and vision before hiring: ${JSON.stringify(direction)}`, async () => {
+    test(`requires company direction before hiring: ${JSON.stringify(direction)}`, async () => {
       await AppDataSource.getRepository(Company).update({ id: company.id }, direction);
 
       const response = await hire("Avery", "Executive Assistant", "executive-assistant");
 
       assert.equal(response.status, 400);
-      assert.equal(
-        response.body.error,
-        "Set your company mission and vision before hiring an AI Employee.",
-      );
+      assert.equal(response.body.error, "Set your company's Goal before hiring an AI Employee.");
       assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
       assert.equal(await AppDataSource.getRepository(Skill).count(), 0);
       assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
@@ -156,6 +154,60 @@ describe("hiring an AI Employee from a template", () => {
     assert.equal(response.body.name, "Avery");
     assert.equal(response.body.role, "Executive Assistant");
     assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 1);
+  });
+
+  describe("a Goal is company direction", () => {
+    const goalValues = { title: "Reach 50 paying customers", slug: "reach-50", targetValue: 50 };
+
+    beforeEach(async () => {
+      await AppDataSource.getRepository(Company).update(
+        { id: company.id },
+        { mission: "", vision: "" },
+      );
+    });
+
+    test("an active top-level Goal lets a company with no mission or vision hire", async () => {
+      await insert(Goal, { companyId: company.id, ...goalValues });
+
+      const response = await hire("Avery", "Executive Assistant", "executive-assistant");
+
+      assert.equal(response.status, 200);
+      assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 1);
+    });
+
+    test("a Goal that is archived, or only a sub-goal, is not direction", async () => {
+      const archived = await insert(Goal, {
+        companyId: company.id,
+        ...goalValues,
+        status: "archived",
+      });
+      await insert(Goal, {
+        companyId: company.id,
+        title: "A sub-goal",
+        slug: "a-sub-goal",
+        targetValue: 5,
+        parentGoalId: archived.id,
+      });
+
+      const response = await hire("Avery", "Executive Assistant", "executive-assistant");
+
+      assert.equal(response.status, 400);
+      assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+    });
+
+    test("another company's Goal does not open the gate", async () => {
+      const elsewhere = await insert(Company, {
+        name: "Elsewhere",
+        slug: "elsewhere",
+        ownerId: owner.id,
+      });
+      await insert(Goal, { companyId: elsewhere.id, ...goalValues });
+
+      const response = await hire("Avery", "Executive Assistant", "executive-assistant");
+
+      assert.equal(response.status, 400);
+      assert.equal(await AppDataSource.getRepository(AIEmployee).count(), 0);
+    });
   });
 
   test("blank names and roles cannot produce an unusable hire", async () => {

@@ -233,7 +233,7 @@ describe("SectionRailLinks", () => {
     );
   });
 
-  test("keeps the Decision stack's Active, History and Settings apart", () => {
+  test("keeps the Decision stack's queues, History and Settings apart", () => {
     const at = (path: string, viewer?: { role: "owner" | "admin" | "member" }) =>
       links(
         renderAt(
@@ -246,9 +246,16 @@ describe("SectionRailLinks", () => {
       at("decisions").map(({ href, text, current }) => ({ href, text, current })),
       [
         { href: "/c/acme/decisions", text: "Active", current: true },
+        { href: "/c/acme/decisions/approvals", text: "Approvals", current: false },
+        { href: "/c/acme/decisions/revisions", text: "Revisions", current: false },
+        { href: "/c/acme/decisions/initiatives", text: "Initiatives", current: false },
         { href: "/c/acme/decisions/history", text: "History", current: false },
         { href: "/c/acme/decisions/settings", text: "Settings", current: false },
       ],
+    );
+    assert.deepEqual(
+      at("decisions/approvals").filter((l) => l.current).map((l) => l.text),
+      ["Approvals"],
     );
     assert.deepEqual(
       at("decisions/history").filter((l) => l.current).map((l) => l.text),
@@ -258,10 +265,11 @@ describe("SectionRailLinks", () => {
       at("decisions/settings").filter((l) => l.current).map((l) => l.text),
       ["Settings"],
     );
-    // A Member can open Settings too: it is read-only for them, not hidden.
+    // A Member can open Revisions, Initiatives and Settings too — read-only
+    // for them, not hidden — but Approvals answers a Member with 403.
     assert.deepEqual(
       at("decisions", { role: "member" }).map((l) => l.text),
-      ["Active", "History", "Settings"],
+      ["Active", "Revisions", "Initiatives", "History", "Settings"],
     );
   });
 

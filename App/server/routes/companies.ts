@@ -7,6 +7,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { User } from "../db/entities/User.js";
 import { In } from "typeorm";
+import { logRedactedError } from "../middleware/error.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
@@ -14,10 +15,13 @@ import {
   requireCompanyMember,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { MAX_TIME_ZONE_LENGTH, isValidTimeZone } from "../lib/timeZone.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import { loadOnboardingStatus } from "../services/onboardingStatus.js";
+import { companyHasGoal, companyIdsWithGoal } from "../services/companyDirection.js";
+import { GoalError, createGoal } from "../services/goals.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
@@ -34,7 +38,11 @@ import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Notification } from "../db/entities/Notification.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
-import { emitMembershipAuthorizationChange } from "../services/resourceEvents.js";
+import {
+  emitMembershipAuthorizationChange,
+  emitResourceChange,
+} from "../services/resourceEvents.js";
+import { rescheduleCompanyRoutines } from "../services/companyTimeZone.js";
 
 export const companiesRouter = Router();
 
@@ -49,6 +57,7 @@ companiesRouter.get("/", async (req, res) => {
     where: { id: In(mems.map((m) => m.companyId)) },
   });
   const byId = new Map(companies.map((c) => [c.id, c]));
+  const withGoal = await companyIdsWithGoal(companies.map((c) => c.id));
   const out = mems
     .map((m) => {
       const c = byId.get(m.companyId);
@@ -59,6 +68,8 @@ companiesRouter.get("/", async (req, res) => {
         slug: c.slug,
         mission: c.mission,
         vision: c.vision,
+        hasGoal: withGoal.has(c.id),
+        timezone: c.timezone,
         role: m.role,
         // The client needs this to stop offering finance affordances a
         // restricted Member cannot use — the mail surface's invoice and
@@ -73,10 +84,41 @@ companiesRouter.get("/", async (req, res) => {
 });
 
 const companyProfileField = z.string().trim().max(2_000).default("");
+
+/**
+ * The first Goal, written while the company is created. It is the same
+ * manual, top-level Goal the Goals page would make (same limits as
+ * `routes/goals.ts`), so the one thing a new company must say is "a direction
+ * and a number" and the form in the way needs nothing else.
+ */
+const firstGoalSchema = z.object({
+  title: z.string().trim().min(1).max(140),
+  targetValue: z.number().finite(),
+  direction: z.enum(["increase_to", "decrease_to"]).optional(),
+  unit: z.string().trim().max(20).optional(),
+});
+
+/**
+ * The zone this company's Routine schedules are read in. Empty is "server
+ * time" and is how a company returns to the old behavior; anything else must
+ * be an IANA name the runtime can schedule in (`lib/timeZone.ts`), so a typo is
+ * a 400 here rather than a Routine that never fires.
+ */
+const timeZoneField = z
+  .string()
+  .trim()
+  .max(MAX_TIME_ZONE_LENGTH)
+  .refine(
+    (value) => value === "" || isValidTimeZone(value),
+    "Unknown time zone. Use an IANA name such as Europe/Berlin, or leave it empty for server time.",
+  );
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
   mission: companyProfileField,
   vision: companyProfileField,
+  goal: firstGoalSchema.optional(),
+  // Lenient on purpose: see the create handler.
+  timezone: z.string().trim().max(MAX_TIME_ZONE_LENGTH).default(""),
 });
 
 async function uniqueSlug(base: string): Promise<string> {
@@ -94,7 +136,7 @@ companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), asy
   if (config.security.multiTenant && !req.user!.emailVerifiedAt) {
     return res.status(403).json({ error: "Verify your email before creating a company" });
   }
-  const { name, mission, vision } = req.body as z.infer<typeof createSchema>;
+  const { name, mission, vision, goal, timezone } = req.body as z.infer<typeof createSchema>;
   const coRepo = AppDataSource.getRepository(Company);
   const memRepo = AppDataSource.getRepository(Membership);
   const slug = await uniqueSlug(toSlug(name));
@@ -104,6 +146,10 @@ companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), asy
     ownerId: req.userId!,
     mission,
     vision,
+    // The first zone is the creator's browser's. One this runtime cannot
+    // schedule in starts the company on server time instead of refusing it;
+    // Settings → Company can pick another, and that choice is checked.
+    timezone: isValidTimeZone(timezone) ? timezone : "",
     requireTwoFactor: false,
   });
   await coRepo.save(co);
@@ -111,12 +157,55 @@ companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), asy
   // Every company needs a default notebook so the create-note flow has a
   // home from day one.
   await ensureDefaultNotebook(co.id, req.userId!);
+  if (goal) {
+    try {
+      const created = await createGoal(
+        co.id,
+        {
+          title: goal.title,
+          targetValue: goal.targetValue,
+          direction: goal.direction,
+          unit: goal.unit,
+          metricKind: "manual",
+        },
+        req.userId!,
+      );
+      await recordAudit({
+        companyId: co.id,
+        actorUserId: req.userId!,
+        action: "goal.create",
+        targetType: "goal",
+        targetId: created.id,
+        targetLabel: created.title,
+        metadata: { metricKind: created.metricKind, targetValue: created.targetValue },
+      });
+    } catch (err) {
+      // A company that exists without the Goal it was created for is stuck
+      // behind the hire gate, and a retry would make a second company beside
+      // it. Take the half-made one away before answering.
+      try {
+        await deleteCompanyCascade({ companyId: co.id, companySlug: co.slug });
+      } catch (cleanupError) {
+        logRedactedError(
+          "[companies] could not remove a company made without its Goal",
+          cleanupError,
+        );
+      }
+      if (err instanceof GoalError) return res.status(400).json({ error: err.message });
+      // Express 4 does not forward a rejected async handler, so answer the way
+      // the error handler would, or the request would never be answered.
+      logRedactedError("[error]", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
   res.json({
     id: co.id,
     name: co.name,
     slug: co.slug,
     mission: co.mission,
     vision: co.vision,
+    hasGoal: Boolean(goal),
+    timezone: co.timezone,
     role: "owner",
     financeAccess: financeAccessFor("owner", undefined),
     requireTwoFactor: co.requireTwoFactor,
@@ -132,6 +221,8 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
     slug: co.slug,
     mission: co.mission,
     vision: co.vision,
+    hasGoal: await companyHasGoal(co.id),
+    timezone: co.timezone,
     requireTwoFactor: co.requireTwoFactor,
   });
 });
@@ -166,6 +257,7 @@ const patchSchema = z
     slug: z.string().min(1).max(80).optional(),
     mission: z.string().trim().max(2_000).optional(),
     vision: z.string().trim().max(2_000).optional(),
+    timezone: timeZoneField.optional(),
     requireTwoFactor: z.boolean().optional(),
   })
   .refine(
@@ -174,8 +266,9 @@ const patchSchema = z
       v.slug !== undefined ||
       v.mission !== undefined ||
       v.vision !== undefined ||
+      v.timezone !== undefined ||
       v.requireTwoFactor !== undefined,
-    { message: "Provide a company profile field or a two-factor policy" },
+    { message: "Provide a company profile field, a time zone, or a two-factor policy" },
   );
 
 /** Apply a middleware only when this PATCH changes the company MFA policy. */
@@ -206,6 +299,8 @@ companiesRouter.patch(
     if (body.name !== undefined) co.name = body.name;
     if (body.mission !== undefined) co.mission = body.mission;
     if (body.vision !== undefined) co.vision = body.vision;
+    const timeZoneChanged = body.timezone !== undefined && body.timezone !== co.timezone;
+    if (body.timezone !== undefined) co.timezone = body.timezone;
 
     if (body.requireTwoFactor !== undefined) {
       if (body.requireTwoFactor && !(await hasTwoFactorMethod(req.userId!))) {
@@ -245,12 +340,21 @@ companiesRouter.patch(
     }
 
     await repo.save(co);
+    if (timeZoneChanged) {
+      // Every enabled Routine's next run was worked out on the old clock.
+      // `trigger: false` refreshes open Routine lists without starting any
+      // event-triggered work: nothing here is business content.
+      await rescheduleCompanyRoutines(co.id);
+      emitResourceChange(co.id, "routine", undefined, { trigger: false });
+    }
     res.json({
       id: co.id,
       name: co.name,
       slug: co.slug,
       mission: co.mission,
       vision: co.vision,
+      hasGoal: await companyHasGoal(co.id),
+      timezone: co.timezone,
       requireTwoFactor: co.requireTwoFactor,
     });
   },

@@ -23,6 +23,7 @@ import {
   RoutineWithMeta,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { ScheduleTimeZone } from "../components/ScheduleTimeZone";
 import { SectionRailLinks } from "../components/SectionRail";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -198,7 +199,11 @@ function CompanyRoutinesLayout({ company }: { company: Company }) {
           </div>
         )}
         {snapshot ? (
-          <Outlet context={ctx} />
+          // Every Routine here is scheduled in the company's time zone, so the
+          // schedule picker previews and labels its times there.
+          <ScheduleTimeZone timeZone={company.timezone}>
+            <Outlet context={ctx} />
+          </ScheduleTimeZone>
         ) : (
           !loadError && (
             <div className="p-6">

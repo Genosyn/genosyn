@@ -1,6 +1,6 @@
 import React from "react";
 import { PauseCircle, Plus, Settings2, Trash2 } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   api,
@@ -16,6 +16,8 @@ import {
 import { hasRetiredRoutingRules, routingRuleLabel } from "../lib/decisionRouting";
 import { decisionStackOffBanner } from "../lib/decisionStack";
 import { errorMessage } from "../lib/errors";
+import { waitingLinks } from "../lib/waitingElsewhere";
+import type { DecisionsOutletContext } from "./DecisionsLayout";
 import { StackBulkBar } from "@/components/decisions/StackBulkBar";
 import { StackList, type StackListSelection } from "@/components/decisions/StackList";
 import { bulkTarget, type BulkTarget } from "@/components/decisions/stackBulk";
@@ -71,6 +73,10 @@ import { EnabledToggle } from "./RevenueSignals";
  * Every waiting row the viewer may act on has a tick box, and a selection can
  * be dismissed or snoozed together from the bulk bar (`useStackBulk`). That
  * only ever takes rows off; answers, sends and approvals stay one row at a time.
+ *
+ * What waits in the queues beside the stack — Approvals, Revisions,
+ * Initiatives, todos to review, Finance proposals — is named in one line at
+ * the top, each linked, so this page answers "what needs me?" on its own.
  */
 
 function isFutureSnooze(decision: Decision, now: number): boolean {
@@ -82,6 +88,8 @@ function isFutureSnooze(decision: Decision, now: number): boolean {
 export default function Decisions({ company, me }: { company: Company; me: Me }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const outlet = useOutletContext<DecisionsOutletContext | undefined>();
+  const alsoWaiting = waitingLinks(outlet?.waiting ?? null);
   const reloadVersion = React.useRef(0);
   const link = stackLinkFromHash(location.hash);
   const linkedDecisionId = link?.kind === "decision" ? link.id : null;
@@ -484,13 +492,21 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           <Spinner size={14} /> Loading email and work reviews…
         </div>
       )}
-      {canReview && (
-        <Link
-          to={`/c/${company.slug}/approvals`}
-          className="mb-5 inline-block text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-        >
-          Other Approvals
-        </Link>
+      {alsoWaiting.length > 0 && (
+        <p className="mb-5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+          <span>Also waiting:</span>
+          {alsoWaiting.map((link, index) => (
+            <React.Fragment key={link.key}>
+              {index > 0 && <span aria-hidden="true">·</span>}
+              <Link
+                to={`/c/${company.slug}${link.path}`}
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                {link.label}
+              </Link>
+            </React.Fragment>
+          ))}
+        </p>
       )}
       {rows === null && workReviews === null ? (
         <Spinner />

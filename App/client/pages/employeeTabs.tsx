@@ -1,4 +1,7 @@
+import { AdvancedDisclosure } from "@/components/models/AdvancedDisclosure";
+import { FirstModelSetup } from "@/components/models/FirstModelSetup";
 import { ModelSetupForm as ModelForm } from "@/components/models/ModelSetupForm";
+import { activeFirst, advancedSummary, describeModel } from "@/lib/modelSummary";
 import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
@@ -10,6 +13,7 @@ import {
   Calendar,
   Camera,
   Check,
+  ChevronRight,
   Copy,
   Edit3,
   ExternalLink,
@@ -49,6 +53,7 @@ import {
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
+import { employeeSettingsPage } from "../lib/employeeSettingsNav";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -155,10 +160,10 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
 // ---------- Model (Settings) tab ----------
 
 /**
- * Employee Settings — now the only door off the employee page besides Chat.
- * It used to hold four setting surfaces beside a nine-entry sidebar; the
- * sidebar is gone and everything that was on it lives here, grouped so the
- * list stays scannable: who they are, the work they do, what they can reach.
+ * Employee Settings — the only door off the employee page besides Chat.
+ * Everything you configure or inspect about an employee lives behind it, in a
+ * rail that keeps the everyday panes up front (who they are, the work they do,
+ * what they can reach) and tucks the rest under a collapsed Advanced group.
  *
  * Each sub-route titles itself with its own `TopBar`, so this frame renders
  * the nav and nothing else — that is what lets Journal, Handoffs and MCP keep
@@ -194,16 +199,30 @@ type SettingsNavEntry = {
   away?: string;
 };
 
+type SettingsNavGroup = {
+  title: string;
+  items: SettingsNavEntry[];
+  /**
+   * Closed until asked for: the heading becomes a toggle, and the group opens
+   * by itself when you are on one of its panes.
+   */
+  collapsible?: boolean;
+};
+
 /**
+ * What the rail shows by default is what someone setting up an employee
+ * reaches for: who they are, the work they do, what they can reach. Autonomy
+ * stays in view because it holds this employee's Standdown. The panes you
+ * visit now and then sit under Advanced, collapsed, so the rail is a short list
+ * instead of a long one.
+ *
  * Skills and Routines stay company-level sections — "what is scheduled around
  * here?" is not a per-employee question — so their entries link out to those
  * lists filtered to this employee, and say so with a corner arrow rather than
- * pretending to be a settings pane.
+ * pretending to be a settings pane. Integrations, the one other entry that
+ * leaves, is an Advanced link for the same reason.
  */
-function settingsNavGroups(
-  company: Company,
-  emp: Employee,
-): { title: string; items: SettingsNavEntry[] }[] {
+function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] {
   return [
     {
       title: "Employee",
@@ -211,7 +230,6 @@ function settingsNavGroups(
         { to: "general", icon: <UserRound size={14} />, label: "General" },
         { to: "soul", icon: <Sparkles size={14} />, label: "Soul" },
         { to: "model", icon: <BrainCircuit size={14} />, label: "Model" },
-        { to: "memory", icon: <Brain size={14} />, label: "Memory" },
       ],
     },
     {
@@ -229,18 +247,25 @@ function settingsNavGroups(
           label: "Routines",
           away: "Opens the company Routines list, filtered to this employee",
         },
-        { to: "journal", icon: <BookText size={14} />, label: "Journal" },
-        { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
       ],
     },
     {
       title: "Access",
       items: [
         { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
+        { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
+      ],
+    },
+    {
+      title: "Advanced",
+      collapsible: true,
+      items: [
+        { to: "memory", icon: <Brain size={14} />, label: "Memory" },
+        { to: "journal", icon: <BookText size={14} />, label: "Journal" },
+        { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
         { to: "phone", icon: <Phone size={14} />, label: "Phone" },
         { to: "mcp", icon: <Plug size={14} />, label: "MCP" },
         { to: "browser", icon: <Globe size={14} />, label: "Browser" },
-        { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
         {
           to: `/c/${company.slug}/employees/integrations`,
           icon: <Boxes size={14} />,
@@ -256,11 +281,31 @@ function settingsNavGroups(
  * Grouped rail on desktop; on a phone the groups collapse into one
  * horizontally scrollable row of pills, because a column of every entry and
  * the content beside it cannot both have a phone's width.
+ *
+ * The collapsible Advanced group is one piece of state shared by both layouts:
+ * a toggle in the column, a pill in the row. It starts closed, opens when you
+ * land on one of its panes (a deep link, say) and then stays however you leave
+ * it.
  */
 function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) {
   const groups = settingsNavGroups(company, emp);
   const { pathname } = useLocation();
   const scroller = React.useRef<HTMLElement | null>(null);
+  const advancedListId = React.useId();
+
+  const page = employeeSettingsPage(pathname, company.slug, emp.slug);
+  const onAdvancedPane = groups.some(
+    (group) => group.collapsible && group.items.some((item) => !item.away && item.to === page),
+  );
+  const [advancedOpen, setAdvancedOpen] = React.useState(onAdvancedPane);
+  // Open it when the route enters the group. Adjusted during render rather than
+  // in an effect, which would paint a frame without the active entry in the
+  // rail — and run the scroll-into-view below before that entry exists.
+  const [wasOnAdvancedPane, setWasOnAdvancedPane] = React.useState(onAdvancedPane);
+  if (onAdvancedPane !== wasOnAdvancedPane) {
+    setWasOnAdvancedPane(onAdvancedPane);
+    if (onAdvancedPane) setAdvancedOpen(true);
+  }
 
   // The pills do not all fit on a phone, so the one you are actually on is
   // usually off-screen when you arrive. Bring it into view — but only while
@@ -282,27 +327,71 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
         aria-label="Employee settings"
         className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
       >
-        {groups
-          .flatMap((g) => g.items)
-          .map((item) => (
-            <SettingsNavItem key={item.to} item={item} pill />
-          ))}
+        {groups.flatMap((group) =>
+          group.collapsible
+            ? [
+                <button
+                  key={group.title}
+                  type="button"
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                  aria-expanded={advancedOpen}
+                  title={group.items.map((item) => item.label).join(", ")}
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  {group.title}
+                  <AdvancedChevron open={advancedOpen} />
+                </button>,
+                ...(advancedOpen
+                  ? group.items.map((item) => <SettingsNavItem key={item.to} item={item} pill />)
+                  : []),
+              ]
+            : group.items.map((item) => <SettingsNavItem key={item.to} item={item} pill />),
+        )}
       </nav>
       <nav aria-label="Employee settings" className="hidden w-48 shrink-0 md:block">
         {groups.map((group) => (
           <div key={group.title} className="mb-4 last:mb-0">
-            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {group.title}
-            </div>
-            <ul className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <SettingsNavItem key={item.to} item={item} />
-              ))}
-            </ul>
+            {group.collapsible ? (
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((open) => !open)}
+                aria-expanded={advancedOpen}
+                aria-controls={advancedOpen ? advancedListId : undefined}
+                title={group.items.map((item) => item.label).join(", ")}
+                className="flex w-full items-center gap-1 px-3 pb-1 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              >
+                {group.title}
+                <AdvancedChevron open={advancedOpen} />
+              </button>
+            ) : (
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                {group.title}
+              </div>
+            )}
+            {(!group.collapsible || advancedOpen) && (
+              <ul
+                id={group.collapsible ? advancedListId : undefined}
+                className="flex flex-col gap-0.5"
+              >
+                {group.items.map((item) => (
+                  <SettingsNavItem key={item.to} item={item} />
+                ))}
+              </ul>
+            )}
           </div>
         ))}
       </nav>
     </>
+  );
+}
+
+function AdvancedChevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRight
+      size={12}
+      aria-hidden="true"
+      className={"shrink-0 transition-transform " + (open ? "rotate-90" : "")}
+    />
   );
 }
 
@@ -1250,15 +1339,17 @@ export function ModelSettingsPage() {
 }
 
 /**
- * Renders the full per-employee model surface. An employee can register
- * several models and keep exactly one active; this lists them, lets the
- * operator add more, switch the active one, sign each in, and reconfigure or
- * remove them. Exported so the onboarding wizard can drop it in as a step
- * without duplicating the state machine.
+ * Renders the full per-employee model surface — which is deliberately small. It
+ * says what the employee thinks with and whether that is connected, and nothing
+ * more until you ask: a new employee is first offered the company's existing AI
+ * Model (`FirstModelSetup`), and everything that tunes, replaces, adds or removes
+ * a model sits behind one Advanced disclosure. An employee can still hold
+ * several models and keep exactly one active; the others are listed under the
+ * active one with Make active. Exported so the hire wizard and onboarding can
+ * drop it in as a step without duplicating the state machine.
  */
 export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
   const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
-  const [adding, setAdding] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -1296,106 +1387,41 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
     );
   if (models === undefined) return <Spinner />;
 
-  // No models yet — straight to the first-model setup card.
+  // No models yet — the company's own if it has one, otherwise the connect form.
   if (models.length === 0) {
-    return <ModelSetup company={company} emp={emp} onSaved={reload} />;
+    return <FirstModelSetup company={company} emp={emp} onSaved={reload} />;
   }
 
+  const ordered = activeFirst(models);
+  const several = ordered.length > 1;
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            {emp.name}&apos;s models
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            {models.length === 1
-              ? "One AI Model registered. Add another to switch between them any time."
-              : `${models.length} AI Models registered — the active one is the default for chat and runs Routines.`}
-          </div>
-        </div>
-        {!adding && (
-          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-            <Plus size={14} /> Add model
-          </Button>
-        )}
-      </div>
-
-      {adding && (
-        <Card>
-          <CardBody className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Add a model
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-                Cancel
-              </Button>
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              The model you add becomes active right away. You can switch back any time.
-            </div>
-            <ModelForm
-              mode="create"
-              initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
-              company={company}
-              emp={emp}
-              onSaved={() => {
-                setAdding(false);
-                reload();
-              }}
-              submitLabel="Add model"
-            />
-          </CardBody>
-        </Card>
+      {several && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {ordered.length} AI Models registered — the active one is the default for chat and
+          Routines.
+        </p>
       )}
-
-      {models.map((m) => (
-        <ModelCard key={m.id} company={company} emp={emp} model={m} onChanged={reload} />
+      {ordered.map((m) => (
+        <ModelCard
+          key={m.id}
+          company={company}
+          emp={emp}
+          model={m}
+          several={several}
+          onChanged={reload}
+        />
       ))}
+      <ModelAdvanced company={company} emp={emp} models={ordered} onChanged={reload} />
     </div>
   );
 }
 
-function ModelSetup({
-  company,
-  emp,
-  onSaved,
-}: {
-  company: Company;
-  emp: Employee;
-  onSaved: () => void;
-}) {
-  return (
-    <Card>
-      <CardBody className="flex flex-col gap-4">
-        <div>
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Connect an AI Model for {emp.name}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            Pick where {emp.name} thinks, then paste the key. Each AI Employee keeps their own.
-          </div>
-        </div>
-        <ModelForm
-          mode="create"
-          initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
-          company={company}
-          emp={emp}
-          onSaved={onSaved}
-          submitLabel="Continue"
-        />
-      </CardBody>
-    </Card>
-  );
-}
-
 /**
- * One model in the employee's roster: status, an active toggle, the connect
- * panel (API key or custom endpoint), and a reconfigure disclosure. The active
- * model is ringed and badged; any non-active model gets a "Make active" button.
+ * Remove one model, asking first when it holds a credential. The card's Cancel
+ * (a model that never finished connecting) and Advanced's Remove share it.
  */
-function ModelCard({
+function useRemoveModel({
   company,
   emp,
   model,
@@ -1407,9 +1433,84 @@ function ModelCard({
   onChanged: () => void;
 }) {
   const dialog = useDialog();
+  const [removing, setRemoving] = React.useState(false);
+
+  async function remove() {
+    if (model.status === "connected") {
+      const ok = await dialog.confirm({
+        title: `Remove this model?`,
+        message: `${emp.name}'s stored credentials for ${describeModel(model)} will be removed. You can reconnect any time.`,
+        confirmLabel: "Remove",
+        variant: "danger",
+      });
+      if (!ok) return;
+    }
+    setRemoving(true);
+    try {
+      await api.del(`/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`);
+      onChanged();
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t remove the model" });
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return { removing, remove };
+}
+
+/** What a model's card says about how it is connected, in plain words. */
+function modelSubtitle(model: AIModel): string {
+  if (model.status === "connected") {
+    if (model.authMode === "customEndpoint") {
+      return model.customEndpointHost
+        ? `Pointed at ${model.customEndpointHost}`
+        : "Custom endpoint configured";
+    }
+    if (model.authMode === "subscription") {
+      return model.subscriptionCredentialKind === "accessToken"
+        ? "Connected with a Business or Enterprise access token"
+        : "Connected to a ChatGPT subscription";
+    }
+    return "Connected with an API key";
+  }
+  if (model.authMode === "customEndpoint") {
+    return "Enter the server's base URL and model id below to connect.";
+  }
+  if (model.authMode === "subscription") {
+    return model.subscriptionAvailable
+      ? "Sign in with ChatGPT below to connect."
+      : (model.subscriptionUnavailableReason ??
+          "ChatGPT subscription sign-in is unavailable on this install.");
+  }
+  return "No API key on file yet — paste one below to connect.";
+}
+
+/**
+ * One model in the employee's roster, said plainly: the service and model it
+ * runs on, whether it is connected, and — only while it still needs finishing —
+ * the panel that connects it. A connected model has nothing more to do here;
+ * its tuning, changing and removing live under Advanced. With several models
+ * the active one is ringed and badged, and any other connected one offers
+ * Make active.
+ */
+function ModelCard({
+  company,
+  emp,
+  model,
+  several,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  several: boolean;
+  onChanged: () => void;
+}) {
+  const dialog = useDialog();
   const connected = model.status === "connected";
   const [activating, setActivating] = React.useState(false);
-  const [removing, setRemoving] = React.useState(false);
+  const { removing, remove } = useRemoveModel({ company, emp, model, onChanged });
   const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
 
   async function activate() {
@@ -1424,130 +1525,222 @@ function ModelCard({
     }
   }
 
-  async function disconnect() {
-    if (connected) {
-      const ok = await dialog.confirm({
-        title: `Remove this model?`,
-        message: `${emp.name}'s stored credentials for ${model.provider} · ${model.model} will be removed. You can reconnect any time.`,
-        confirmLabel: "Remove",
-        variant: "danger",
-      });
-      if (!ok) return;
-    }
-    setRemoving(true);
-    try {
-      await api.del(`${base}/${model.id}`);
-      onChanged();
-    } catch (err) {
-      void dialog.error(err, { title: "Couldn’t remove the model" });
-    } finally {
-      setRemoving(false);
-    }
-  }
-
-  const subtitle = (() => {
-    if (connected) {
-      if (model.authMode === "customEndpoint") {
-        return model.customEndpointHost
-          ? `Pointed at ${model.customEndpointHost}`
-          : "Custom endpoint configured";
-      }
-      if (model.authMode === "subscription") {
-        return model.subscriptionCredentialKind === "accessToken"
-          ? "Connected with a Business or Enterprise access token"
-          : "Connected to a ChatGPT subscription";
-      }
-      return `Authenticated with ${model.apiKeyEnv ?? "API"} key`;
-    }
-    if (model.authMode === "customEndpoint") {
-      return "Enter the server's base URL and model id below to connect.";
-    }
-    if (model.authMode === "subscription") {
-      return model.subscriptionAvailable
-        ? "Sign in with ChatGPT below to connect."
-        : (model.subscriptionUnavailableReason ??
-            "ChatGPT subscription sign-in is unavailable on this install.");
-    }
-    return `No ${model.apiKeyEnv ?? "API"} key on file yet — paste one below to connect.`;
-  })();
-
   return (
-    <Card className={model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined}>
+    <Card
+      className={
+        several && model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined
+      }
+    >
       <CardBody className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {model.provider} · {model.model === "auto" ? "Choose automatically" : model.model}
+                {describeModel(model)}
               </span>
               <StatusBadge connected={connected} />
-              {model.isActive && <ActiveBadge />}
+              {several && model.isActive && <ActiveBadge />}
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {subtitle}
+              {modelSubtitle(model)}
               {model.connectedAt && connected && (
                 <> · connected {new Date(model.connectedAt).toLocaleString()}</>
               )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {!model.isActive && (
+            {connected && several && !model.isActive && (
               <Button size="sm" variant="ghost" onClick={activate} loading={activating}>
                 <Check size={14} />
                 Make active
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={disconnect} loading={removing}>
-              <Unplug size={14} /> {connected ? "Remove" : "Cancel"}
-            </Button>
+            {!connected && (
+              <Button size="sm" variant="ghost" onClick={remove} loading={removing}>
+                <Unplug size={14} /> Cancel
+              </Button>
+            )}
           </div>
         </div>
 
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
-        {model.authMode === "subscription" && (
+        {!connected && model.authMode === "subscription" && (
           <SubscriptionPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
-        {model.authMode === "customEndpoint" && (
+        {!connected && model.authMode === "customEndpoint" && (
           <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
-
-        {connected && model.authMode !== "subscription" && (
-          <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
-        )}
-        {connected && model.authMode !== "subscription" && (
-          <RunConcurrencyPanel company={company} emp={emp} model={model} onChanged={onChanged} />
-        )}
-
-        <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
-          <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
-            Change provider, model, or endpoint
-          </summary>
-          <div className="mt-3">
-            <ModelForm
-              mode="edit"
-              editModelId={model.id}
-              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
-              company={company}
-              emp={emp}
-              onSaved={onChanged}
-              submitLabel="Save changes"
-            />
-          </div>
-        </details>
       </CardBody>
     </Card>
   );
 }
 
 /**
+ * The one Advanced disclosure under the model cards: each model's context
+ * window, Run limit, endpoint or sign-in and way to change or remove it, and
+ * Add model. Closed unless opened; its closed line names whatever has been moved
+ * off its default (see `advancedSummary`).
+ */
+function ModelAdvanced({
+  company,
+  emp,
+  models,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  models: AIModel[];
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = React.useState(false);
+  return (
+    <AdvancedDisclosure
+      summary={advancedSummary(models)}
+      hint="Context window, concurrent Runs, add or remove models"
+    >
+      {models.map((m) => (
+        <ModelSettings
+          key={m.id}
+          company={company}
+          emp={emp}
+          model={m}
+          titled={models.length > 1}
+          onChanged={onChanged}
+        />
+      ))}
+      {adding ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              Add a model
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            The model you add becomes active right away. You can switch back any time.
+          </div>
+          <ModelForm
+            mode="create"
+            initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
+            company={company}
+            emp={emp}
+            onSaved={() => {
+              setAdding(false);
+              onChanged();
+            }}
+            submitLabel="Add model"
+          />
+        </div>
+      ) : (
+        <div>
+          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
+            <Plus size={14} /> Add model
+          </Button>
+        </div>
+      )}
+    </AdvancedDisclosure>
+  );
+}
+
+/**
+ * Everything Advanced holds for one model. A connected model's own connection
+ * (its endpoint, or its ChatGPT sign-in) is here once there is nothing left to
+ * finish on the card; a model still waiting keeps that on its card instead.
+ * `titled` names the model when there is more than one to tell apart.
+ */
+function ModelSettings({
+  company,
+  emp,
+  model,
+  titled,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  titled: boolean;
+  onChanged: () => void;
+}) {
+  const connected = model.status === "connected";
+  const tunable = connected && model.authMode !== "subscription";
+  const { removing, remove } = useRemoveModel({ company, emp, model, onChanged });
+  return (
+    <div
+      className={
+        titled
+          ? "flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+          : "flex flex-col gap-3"
+      }
+    >
+      {titled && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {describeModel(model)}
+          </span>
+          {model.isActive && <ActiveBadge />}
+        </div>
+      )}
+
+      {connected && model.authMode === "subscription" && (
+        <SubscriptionPanel company={company} emp={emp} model={model} onSaved={onChanged} />
+      )}
+      {connected && model.authMode === "customEndpoint" && (
+        <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+          <div className="mb-3 text-xs font-medium text-slate-700 dark:text-slate-200">
+            Endpoint
+          </div>
+          <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
+        </div>
+      )}
+      {tunable && (
+        <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
+      )}
+      {tunable && (
+        <RunConcurrencyPanel company={company} emp={emp} model={model} onChanged={onChanged} />
+      )}
+
+      <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+        <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
+          Change provider, model, or endpoint
+        </summary>
+        <div className="mt-3">
+          <ModelForm
+            mode="edit"
+            editModelId={model.id}
+            initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+            company={company}
+            emp={emp}
+            onSaved={onChanged}
+            submitLabel="Save changes"
+          />
+        </div>
+      </details>
+
+      {connected && (
+        <div>
+          <Button size="sm" variant="ghost" onClick={remove} loading={removing}>
+            <Unplug size={14} /> Remove
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The model's context window, and the affordances to fix it when we don't know.
  *
- * This sits on the card rather than inside the advanced `<details>` because the
- * number is load-bearing, not trivia: a run budgets against it to decide when to
+ * It lives under the model's Advanced disclosure: for nearly everyone the number
+ * is found on its own, or simply isn't reported, and never needs a thought. It
+ * is still load-bearing, not trivia — a run budgets against it to decide when to
  * drop older tool results, so while it is unknown a long routine can only
- * discover it has overrun once the provider rejects a turn.
+ * discover it has overrun once the provider rejects a turn. That is why a window
+ * set by hand, and an unknown one on a server you run yourself, are named on the
+ * closed Advanced line (`advancedSummary`) rather than hidden with the rest.
  *
  * Plenty of servers genuinely don't report one — plain Ollama, OpenAI's own API
  * — so "unknown" is a normal resting state, not an error to shout about. We
@@ -2183,7 +2376,7 @@ function ApiKeyPanel({
       }}
     >
       <Input
-        label={model.apiKeyEnv ?? "API key"}
+        label="API key"
         type="password"
         value={key}
         onChange={(e) => setKey(e.target.value)}

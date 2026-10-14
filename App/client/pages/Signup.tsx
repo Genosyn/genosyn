@@ -109,7 +109,7 @@ export default function Signup() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Genosyn is an open-source platform for running a company with AI Employees. They have a written Soul, a set of Skills, and Routines on a schedule — they wake up, do the job, and report what they shipped."
+      subtitle="Run your company with AI Employees. They work on their own schedule and bring you only what needs you."
     >
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />

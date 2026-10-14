@@ -29,7 +29,7 @@ export function Improvement() {
       <P>
         With <Strong>Automatic setup</Strong> on, Genosyn assigns <Strong>Improve my work</Strong>
         to each AI Employee as soon as it has a connected AI Model. This Routine runs on
-        <Strong> Fridays at 15:00</Strong> in the server&apos;s timezone and needs no extra resource
+        <Strong> Fridays at 15:00</Strong> in the company&apos;s time zone and needs no extra resource
         Grant to review that employee&apos;s own work. Use <Strong>Review work</Strong> to adjust
         its instructions or schedule, or <Strong>Pause</Strong> to stop future starts. Automatic
         setup preserves customized and paused work and does not recreate a deleted responsibility.
@@ -177,8 +177,9 @@ export function Improvement() {
 
       <H2 id="revisions-page">The Revisions page</H2>
       <P>
-        Pending proposals queue on the <Strong>Revisions</Strong> page, in the <Strong>AI</Strong>{" "}
-        nav group. Each one renders as a before/after diff of the target document beside the
+        Pending proposals queue on the <Strong>Revisions</Strong> page, in the{" "}
+        <DocLink to="/docs/decisions#active-and-history">Decision stack</DocLink>&apos;s side menu,
+        with a count beside it. Each one renders as a before/after diff of the target document beside the
         rationale and evidence, with two buttons — <Strong>Apply</Strong> and{" "}
         <Strong>Reject</Strong> — and an optional note that travels with the decision. Owners and
         admins decide; any Member can read the queue. Either button opens its confirmation with the

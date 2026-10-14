@@ -26,6 +26,18 @@ export class Company {
   @Column({ type: "text", default: "" })
   vision!: string;
 
+  /**
+   * The IANA time zone (`Europe/Berlin`) this company's Routine schedules are
+   * read in, so "every weekday at 9" means 9 AM there. Empty means *server
+   * time* — the process's own clock, which is what every Routine used before
+   * this column existed — so an existing company behaves exactly as it did
+   * until someone picks a zone. Only Routines follow it; Pipelines, recurring
+   * invoices and Revenue Signals keep their own clocks. Names are validated at
+   * the API (`lib/timeZone.ts`), never trusted from a client.
+   */
+  @Column({ type: "varchar", default: "" })
+  timezone!: string;
+
   /** When enabled, browser members must keep at least one 2FA method enrolled. */
   @Column({ type: "boolean", default: false })
   requireTwoFactor!: boolean;

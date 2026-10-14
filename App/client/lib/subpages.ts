@@ -20,6 +20,7 @@ import {
   FileText,
   FlaskConical,
   FolderKanban,
+  GitPullRequest,
   Handshake,
   History,
   Images,
@@ -30,6 +31,7 @@ import {
   Layers,
   LayoutTemplate,
   Library,
+  Lightbulb,
   LineChart,
   Link2,
   ListVideo,
@@ -195,6 +197,35 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Inbox,
       keywords: ["pending decisions", "open questions", "needs you", "waiting on me"],
     },
+    // Approvals, Revisions, and Initiatives used to be sections of their own.
+    // They are queues of the same kind — something waits on a person — so
+    // they sit beside the stack, and the stack's page counts what each holds.
+    {
+      label: "Approvals",
+      path: "/decisions/approvals",
+      icon: ShieldCheck,
+      access: ADMIN,
+      keywords: ["approve", "approval", "sign off", "gated routine", "pending approvals", "gate"],
+    },
+    {
+      label: "Revisions",
+      path: "/decisions/revisions",
+      icon: GitPullRequest,
+      keywords: [
+        "revision",
+        "revision proposals",
+        "proposed edits",
+        "soul edit",
+        "skill edit",
+        "diff",
+      ],
+    },
+    {
+      label: "Initiatives",
+      path: "/decisions/initiatives",
+      icon: Lightbulb,
+      keywords: ["initiative", "proposed routines", "standing work proposals", "idea"],
+    },
     {
       label: "Decision history",
       navLabel: "History",
@@ -226,6 +257,14 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
   ],
   tldrs: [
     { label: "Briefings", path: "/tldrs", icon: FileText, keywords: ["tldr feed", "recaps"] },
+    // Today's journal entries across every AI Employee — the raw record the
+    // briefings summarise. It was a section of its own, called Journal.
+    {
+      label: "Journal",
+      path: "/tldrs/journal",
+      icon: NotebookPen,
+      keywords: ["journal entries", "diary", "today", "what employees did", "activity"],
+    },
     {
       label: "TLDR settings",
       navLabel: "Settings",
@@ -680,7 +719,7 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["bank transactions", "categorize", "uncategorized"],
     },
     {
-      label: "Journal",
+      label: "Journal entries",
       path: "/finance/journal",
       icon: NotebookPen,
       navGroup: "Ledger",

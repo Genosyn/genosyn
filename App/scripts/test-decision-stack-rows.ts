@@ -635,6 +635,18 @@ async function open(options: Options = {}): Promise<Fixture> {
         ? route.fulfill({ json: row })
         : route.fulfill({ status: 404, json: { error: "Not found" } });
     }
+    // The Decision stack layout counts what waits beside the stack.
+    if (pathname === `${base}/navigation/waiting`) {
+      return route.fulfill({
+        json: {
+          approvals: canReview ? 0 : null,
+          revisions: canReview ? 0 : null,
+          initiatives: canReview ? 0 : null,
+          todoReviews: 0,
+          financeProposals: canReview ? 0 : null,
+        },
+      });
+    }
     if (pathname === `${base}/home`)
       return route.fulfill({ json: homeData(rows, reviews, canReview) });
     if (pathname === `${base}/employees` || pathname === `${base}/members`) {

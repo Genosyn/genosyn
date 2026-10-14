@@ -276,6 +276,8 @@ async function open(
     ) {
       return route.fulfill({ json: [] });
     }
+    // The all-clear card shows the company's Goal; none is written here.
+    if (url.pathname === "/api/companies/company/goals") return route.fulfill({ json: [] });
     if (url.pathname === "/api/companies/company/work-timeline") {
       return route.fulfill({
         json: {

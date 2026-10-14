@@ -16,12 +16,14 @@ import {
   normalizeSchedule,
   previewRuns,
   ordinal,
+  resolveTimeZone,
   scheduleToCron,
   timeInputValue,
   withTimeOfDay,
   type Schedule,
   type ScheduleFrequency,
 } from "../lib/scheduleBuilder";
+import { useScheduleTimeZone } from "./ScheduleTimeZone";
 
 /**
  * The one schedule control in the app: pick a cadence, get a cron expression.
@@ -70,6 +72,7 @@ export function ScheduleField({
   disabled = false,
   showPresets = true,
   previewCount = 3,
+  timeZone,
 }: {
   /** The cron expression being edited. */
   value: string;
@@ -81,7 +84,29 @@ export function ScheduleField({
   showPresets?: boolean;
   /** How many upcoming fire times to preview. 0 hides the preview. */
   previewCount?: number;
+  /**
+   * The IANA zone the schedule's clock fields are read in; empty or `null` for
+   * server time. Left out, it follows the surrounding `ScheduleTimeZone` — the
+   * Routines section provides its company's zone — and is server time outside
+   * one, which is how Pipelines and Revenue Signals are scheduled.
+   */
+  timeZone?: string | null;
 }) {
+  const inheritedTimeZone = useScheduleTimeZone();
+  // Unknown to this browser reads as server time rather than throwing while
+  // the form draws: the server accepts any name its own tables know.
+  const zone = resolveTimeZone(timeZone === undefined ? inheritedTimeZone : timeZone);
+  // What hovering the clock label says. Only a company's own Routines can be
+  // pointed at another clock from Settings; telling a Pipeline's author to go
+  // there would be a false lead.
+  let clockHint: string | undefined;
+  if (timeZone === undefined && inheritedTimeZone !== null) {
+    clockHint = zone
+      ? "Schedules run in the company's time zone. Change it in Settings → Company."
+      : "Schedules run on server time. Pick a time zone in Settings → Company.";
+  } else if (!zone) {
+    clockHint = "These times are on server time, the clock of the machine running Genosyn.";
+  }
   // The friendly model is local state, not derived: switching from Weekly to
   // Monthly and back has to remember which weekdays were picked, and a cron
   // string cannot carry the fields its own frequency does not use. Seeded once
@@ -156,11 +181,12 @@ export function ScheduleField({
   const preview = React.useMemo(
     () =>
       previewCount > 0 && readable
-        ? previewRuns(value, new Date(), previewCount)
+        ? previewRuns(value, new Date(), previewCount, zone)
         : { supported: false, runs: [] },
     // A preview anchored to "now" only needs recomputing when the expression
-    // does; re-running it every render would churn on every keystroke.
-    [value, previewCount, readable],
+    // or the clock it is read on does; re-running it every render would churn
+    // on every keystroke.
+    [value, previewCount, readable, zone],
   );
 
   // Only ever said about an expression the preview fully understands, so a
@@ -373,8 +399,13 @@ export function ScheduleField({
           <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
             <CalendarClock size={12} className="shrink-0" />
             <span>
-              Next: {preview.runs.map((run) => formatRunTime(run)).join(" · ")}
-              <span className="ml-1 text-slate-400 dark:text-slate-500">(server time)</span>
+              Next: {preview.runs.map((run) => formatRunTime(run, undefined, zone)).join(" · ")}
+              <span
+                className="ml-1 text-slate-400 dark:text-slate-500"
+                title={clockHint}
+              >
+                ({zone ?? "server time"})
+              </span>
             </span>
           </div>
         )}

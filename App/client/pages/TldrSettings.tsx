@@ -240,7 +240,7 @@ export default function TldrSettingsPage() {
 
   return (
     <div className="page-shell px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <Breadcrumbs items={[{ label: "TLDRs", to: base }, { label: "Settings" }]} />
+      <Breadcrumbs items={[{ label: "Briefings", to: base }, { label: "Settings" }]} />
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">

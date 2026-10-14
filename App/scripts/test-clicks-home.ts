@@ -242,7 +242,7 @@ await app.check(
     const bell = notification("n-approval", {
       kind: "approval_pending",
       title: "Alex Rivera requested approval: Refund order #1042",
-      link: "/c/acme/approvals",
+      link: "/c/acme/decisions/approvals",
       entityKind: "approval",
       entityId: APPROVAL.id,
     });
@@ -524,7 +524,7 @@ await app.check(
   "Revisions: Apply opens with the note focused, and ⌘/Ctrl+Enter applies it",
   async () => {
     const view = await app.open({
-      path: "/c/acme/revisions",
+      path: "/c/acme/decisions/revisions",
       routes: [
         employeeRoute,
         ["GET", `${API}/revision-proposals`, () => [PROPOSAL]],
@@ -578,7 +578,7 @@ await app.check(
   async () => {
     let current = INITIATIVE;
     const view = await app.open({
-      path: "/c/acme/initiatives",
+      path: "/c/acme/decisions/initiatives",
       routes: [
         employeeRoute,
         ["GET", `${API}/initiatives`, () => [current]],
@@ -619,7 +619,7 @@ await app.check(
   "Revisions on a phone: Apply does not raise the keyboard over the confirm",
   async () => {
     const view = await app.open({
-      path: "/c/acme/revisions",
+      path: "/c/acme/decisions/revisions",
       routes: [
         employeeRoute,
         ["GET", `${API}/revision-proposals`, () => [PROPOSAL]],

@@ -41,7 +41,7 @@ function readAppFile(relativePath: string): string {
 const DELIBERATELY_UNLISTED: Record<string, string> = {
   admin:
     "Admin is an instance-operator surface the palette deliberately leaves out; " +
-    "it is reached from the avatar menu and the G D chord.",
+    "it is reached from the avatar menu and the G = chord.",
   onboarding:
     "The one-time guided launch. It opens after creating a company and from the " +
     "owner-only Home banner, and appears in no nav by design (SetupBanner.tsx).",
@@ -178,7 +178,9 @@ function readCompanyRoutes(app: string): RouteRecord[] {
     const parent = stack[stack.length - 1];
     const index = hasIndex(tag.text);
     const element = attribute(tag.text, "element") ?? "";
-    const redirect = /^<Navigate\b/.test(element);
+    // `LegacyRedirect` is App.tsx's forwarding `<Navigate>` for a moved page
+    // (it keeps the query and hash), so it is a redirect too.
+    const redirect = /^<(?:Navigate|LegacyRedirect)\b/.test(element);
     const to = redirect ? /\bto="([^"]+)"/.exec(element)?.[1] ?? null : null;
     const variants = index ? [{ path: "", dynamic: false }] : pathVariants(attribute(tag.text, "path"));
 
@@ -235,7 +237,9 @@ describe("subpage catalogue ↔ client router", () => {
       "account/security",
       "mail/rules",
       "tldrs/settings",
+      "tldrs/journal",
       "decisions/history",
+      "decisions/approvals",
       "workspace/integrations",
       "finance/integrations",
       "admin/users",
@@ -244,6 +248,10 @@ describe("subpage catalogue ↔ client router", () => {
     }
     const legacy = routes.find((r) => r.fullPath === "finance/customers");
     assert.equal(legacy?.redirect, true, "legacy redirects are recognised as redirects");
+    for (const moved of ["approvals", "revisions", "initiatives", "inbox"]) {
+      const route = routes.find((r) => r.fullPath === moved);
+      assert.equal(route?.redirect, true, `${moved} forwards to its new home`);
+    }
     assert.ok(
       routes.some((r) => r.fullPath === "finance/invoices/:invoiceSlug" && r.dynamic),
       "parameterised routes are recognised as dynamic",

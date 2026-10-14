@@ -12,6 +12,7 @@ import {
 import { effectiveActiveId } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import { hasCompanyDirection } from "./companyDirection.js";
+import { PROACTIVE_RECIPES } from "./proactive/catalogue.js";
 
 /**
  * Where a first-run guide should resume. These ids mirror the client's step
@@ -39,6 +40,14 @@ export type OnboardingStatus = {
    */
   routineCount: number;
   scheduledRoutineCount: number;
+  /**
+   * How many of the scheduled Routines are standing work that Automatic setup
+   * (or the Proactive starter library) assigned rather than Routines somebody
+   * chose. Kept apart so the guide's summary can count the two honestly.
+   */
+  standingRoutineCount: number;
+  /** Company.proactiveAutoSetup: whether new standing work is assigned automatically. */
+  automaticSetup: boolean;
   nextRunAt: string | null;
   /** Hiring without a template creates no Skills — do not claim otherwise. */
   skillCount: number;
@@ -52,6 +61,19 @@ export type OnboardingStatus = {
   /** The step a "finish setting up" link should land on. */
   nextStep: OnboardingStepId;
 };
+
+const STANDING_WORK_SLUG_PREFIXES = PROACTIVE_RECIPES.filter(
+  (recipe) => recipe.kind === "routine",
+).map((recipe) => `proactive-${recipe.id}-`);
+
+/**
+ * A Routine the Proactive starters created. They carry a `proactive-<starter>-`
+ * slug (`services/proactive/setup.ts`), which is how the Proactive page and
+ * Automatic setup recognise their own work too.
+ */
+function isStandingWorkRoutine(routine: Pick<Routine, "slug">): boolean {
+  return STANDING_WORK_SLUG_PREFIXES.some((prefix) => routine.slug.startsWith(prefix));
+}
 
 /**
  * Derive first-run progress from what actually exists rather than from a
@@ -78,7 +100,8 @@ export async function loadOnboardingStatus(
   employeeId?: string,
 ): Promise<OnboardingStatus> {
   const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
-  const directionReady = hasCompanyDirection(company);
+  const directionReady = await hasCompanyDirection(company);
+  const automaticSetup = company?.proactiveAutoSetup ?? false;
   const repo = AppDataSource.getRepository(AIEmployee);
   // Always scoped by companyId, so an id from another company resolves to
   // nothing rather than leaking that company's state.
@@ -93,6 +116,8 @@ export async function loadOnboardingStatus(
       modelConnected: false,
       routineCount: 0,
       scheduledRoutineCount: 0,
+      standingRoutineCount: 0,
+      automaticSetup,
       nextRunAt: null,
       skillCount: 0,
       mailGranted: false,
@@ -115,6 +140,7 @@ export async function loadOnboardingStatus(
   const modelConnected = active !== null && isModelConnected(active);
 
   const scheduled = routines.filter((routine) => routine.enabled && routine.nextRunAt !== null);
+  const standing = scheduled.filter(isStandingWorkRoutine);
   const dueRuns = scheduled
     .map((routine) => routine.nextRunAt as Date)
     .sort((a, b) => a.getTime() - b.getTime());
@@ -138,6 +164,8 @@ export async function loadOnboardingStatus(
     modelConnected,
     routineCount: routines.length,
     scheduledRoutineCount: scheduled.length,
+    standingRoutineCount: standing.length,
+    automaticSetup,
     nextRunAt: dueRuns[0]?.toISOString() ?? null,
     skillCount,
     mailGranted: mailGrants.length > 0,

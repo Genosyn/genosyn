@@ -78,9 +78,10 @@ export function PhoneNumbers() {
         </LI>
       </OL>
       <P>
-        You can also start from the employee: <Strong>AI Employee → Settings → Phone</Strong> shows
-        its numbers and their texts and calls, and <Strong>Get a number</Strong> there gives the new
-        number straight to that employee.
+        You can also start from the employee:{" "}
+        <Strong>AI Employee → Settings → Advanced → Phone</Strong> shows its numbers and their
+        texts and calls, and <Strong>Get a number</Strong> there gives the new number straight to
+        that employee.
       </P>
 
       <H3 id="public-url">Texts work anywhere; calls need a public URL</H3>

@@ -1,4 +1,3 @@
-import parser from "cron-parser";
 import { IsNull, LessThanOrEqual, MoreThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -22,8 +21,10 @@ import {
   automaticRetryLimit,
   countMissedSlots,
   isSlotStale,
+  nextRunFor,
   shouldRetry,
 } from "./cronMath.js";
+import { timeZoneLookup } from "./companyTimeZone.js";
 import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
 import {
   dispatchDueTldrs,
@@ -101,31 +102,28 @@ const BUSY_RETRY_MS = 60 * 1000;
  */
 const MISSED_SLOT_CAP = 1000;
 
-/**
- * Compute the next scheduled fire time for a cron expression, or null if the
- * expression is invalid. `from` defaults to now; callers pass a specific
- * moment when they want "next after this run" semantics.
- */
-export function nextRunFor(cronExpr: string, from: Date = new Date()): Date | null {
-  try {
-    const interval = parser.parseExpression(cronExpr, { currentDate: from });
-    return interval.next().toDate();
-  } catch {
-    return null;
-  }
-}
+// The arithmetic lives in `cronMath.ts` (it needs no database, and
+// `companyTimeZone.ts` reschedules with it without pulling in the runner);
+// every module that reads a schedule still imports it from here.
+export { nextRunFor };
 
 /**
  * Mutate a routine's `nextRunAt` based on its current cron/enabled state.
  * Callers save the row afterward. When disabled or when the expression is
  * unparseable we clear `nextRunAt` so the heartbeat ignores the row.
+ *
+ * `timeZone` is the zone of the company the Routine's employee works in —
+ * `company.timezone`, with "" meaning server time. It is required rather than
+ * defaulted so that a caller who has not thought about it fails to compile
+ * instead of scheduling a company's first run on the wrong clock; a caller that
+ * holds only an id reaches it with `companyTimeZone()` / `employeeTimeZone()`.
  */
-export function registerRoutine(routine: Routine): void {
+export function registerRoutine(routine: Routine, timeZone: string): void {
   if (!routine.enabled) {
     routine.nextRunAt = null;
     return;
   }
-  routine.nextRunAt = nextRunFor(routine.cronExpr);
+  routine.nextRunAt = nextRunFor(routine.cronExpr, new Date(), timeZone);
 }
 
 /**
@@ -659,13 +657,25 @@ async function runHeartbeat(generation: number): Promise<void> {
         order: { nextRunAt: "ASC" },
         take: MAX_DISPATCH_PER_TICK,
       });
+      // A Routine's schedule is read in its company's time zone, so the next
+      // slot is advanced on the same clock the slot was set on. Resolved once
+      // per employee for this pass; a pass never outlives the zones it read
+      // by more than the thirty seconds before the next one.
+      const zoneOf = timeZoneLookup();
       for (const r of due) {
+        const timeZone = await zoneOf(r.employeeId);
         assertHeld();
         const slot = r.nextRunAt as Date; // non-null by the query predicate
-        const { count, capped } = countMissedSlots(r.cronExpr, slot, now, MISSED_SLOT_CAP);
+        const { count, capped } = countMissedSlots(
+          r.cronExpr,
+          slot,
+          now,
+          MISSED_SLOT_CAP,
+          timeZone,
+        );
         const stale = isSlotStale(slot, now, STALE_SLOT_MS);
         // Advance BEFORE firing so a long-running routine doesn't re-trigger.
-        r.nextRunAt = nextRunFor(r.cronExpr, now);
+        r.nextRunAt = nextRunFor(r.cronExpr, now, timeZone);
         await repo.save(r);
         // A Standdown skips the slot but keeps the schedule moving (M58).
         // Holding `nextRunAt` still would turn a month-old stop into a
@@ -835,8 +845,9 @@ async function initialSweep(): Promise<void> {
     return;
   }
   const now = new Date();
+  const zoneOf = timeZoneLookup();
   for (const r of orphans) {
-    r.nextRunAt = nextRunFor(r.cronExpr, now);
+    r.nextRunAt = nextRunFor(r.cronExpr, now, await zoneOf(r.employeeId));
     // A null here means the expression no longer parses, so the row stays
     // permanently invisible to the heartbeat. Say so — otherwise a routine
     // that silently stopped firing has no server-side signal at all.
@@ -875,8 +886,9 @@ export async function resetSchedulesAfterRestore(): Promise<void> {
   const repo = AppDataSource.getRepository(Routine);
   const rows = await repo.find({ where: { enabled: true } });
   const now = new Date();
+  const zoneOf = timeZoneLookup();
   for (const r of rows) {
-    r.nextRunAt = nextRunFor(r.cronExpr, now);
+    r.nextRunAt = nextRunFor(r.cronExpr, now, await zoneOf(r.employeeId));
     await repo.save(r);
   }
   await resetTldrSchedulesAfterRestore(now);

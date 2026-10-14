@@ -268,6 +268,21 @@ describe("onboarding Routine recommendation scoring", () => {
     }
   });
 
+  test("every definition saves concise, distinct acceptance criteria", () => {
+    const seen = new Set<string>();
+    for (const definition of ROUTINE_RECOMMENDATION_DEFINITIONS) {
+      const text = definition.acceptanceCriteria;
+      assert(text.trim().length >= 120, `${definition.id} criteria are too thin`);
+      assert(text.length <= 600, `${definition.id} criteria are too long to check at a glance`);
+      assert.doesNotMatch(text, /\n/, `${definition.id} criteria should be one paragraph`);
+      assert(!seen.has(text), `${definition.id} repeats another Routine's criteria`);
+      seen.add(text);
+      // A new company has nothing to report on yet; an honest empty report passes.
+      assert.match(text, /missing or empty, saying so plainly meets the bar\.$/, definition.id);
+    }
+    assert.equal(seen.size, ROUTINE_RECOMMENDATION_DEFINITIONS.length);
+  });
+
   test("builds safe Markdown with the current company context", () => {
     const context = recommendationContext(
       {
@@ -290,6 +305,61 @@ describe("onboarding Routine recommendation scoring", () => {
     assert.match(body, /> \*\*Vision:\*\* Decisions grounded in cited evidence\./);
     assert.match(body, /> \*\*AI Employee:\*\* Rae — Research Analyst/);
     assert.match(body, /## Guardrails/);
+  });
+
+  test("ranks with the company's Goal, even in the plural", () => {
+    const withoutGoal = recommend({ employee: { ...employee, role: "Executive Assistant" } });
+    const withGoal = recommend({
+      company: { ...company, goal: "Reach 50 paying customers by March" },
+      employee: { ...employee, role: "Executive Assistant" },
+    });
+
+    assert.equal(withoutGoal.routines[0]?.id, "daily-executive-brief");
+    assert.equal(withGoal.routines[0]?.id, "support-inbox-triage");
+    assert(withGoal.routines[0]?.reasons.some((reason) => reason.includes("company priorities")));
+  });
+
+  test("a Goal cannot assign someone a responsibility outside their role", () => {
+    const result = recommend({
+      company: { ...company, goal: "Grow sales, revenue, deals and outbound prospects" },
+      employee: { ...employee, role: "Software Engineer" },
+    });
+
+    assert.equal(result.routines[0]?.id, "engineering-issue-triage");
+    assert(
+      result.routines.every((item) => !item.id.includes("deal") && !item.id.includes("revenue")),
+    );
+  });
+
+  test("quotes the Goal first in every brief, and only the direction a company wrote", () => {
+    const goalOnly = recommend({
+      company: { ...company, goal: "Reach 50 paying customers by March" },
+      employee: { ...employee, role: "Software Engineer" },
+    });
+    const everything = recommend({
+      company: {
+        ...company,
+        goal: "Reach 50 paying customers by March",
+        mission: "Help shops thrive.",
+        vision: "Every shop is independent.",
+      },
+      employee: { ...employee, role: "Software Engineer" },
+    });
+    const nothing = recommend({ employee: { ...employee, role: "Software Engineer" } });
+
+    for (const item of goalOnly.routines) {
+      assert.match(item.body, /> \*\*Goal:\*\* Reach 50 paying customers by March/);
+      assert.doesNotMatch(item.body, /\*\*Mission:\*\*|\*\*Vision:\*\*|Not set yet/);
+    }
+    for (const item of everything.routines) {
+      const goalAt = item.body.indexOf("**Goal:**");
+      assert(goalAt > 0);
+      assert(goalAt < item.body.indexOf("**Mission:**"));
+      assert(item.body.indexOf("**Mission:**") < item.body.indexOf("**Vision:**"));
+    }
+    for (const item of nothing.routines) {
+      assert.match(item.body, /> \*\*Goal:\*\* Not set yet/);
+    }
   });
 
   test("includes the full saved mission and vision instead of dropping the end of long fields", () => {

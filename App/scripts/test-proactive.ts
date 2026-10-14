@@ -462,11 +462,11 @@ try {
     );
     assert.equal(
       await page.getByRole("link", { name: "Initiatives", exact: true }).getAttribute("href"),
-      "/c/company/initiatives",
+      "/c/company/decisions/initiatives",
     );
     assert.equal(
       await page.getByRole("link", { name: "Revisions", exact: true }).getAttribute("href"),
-      "/c/company/revisions",
+      "/c/company/decisions/revisions",
     );
     assert.equal(
       await page.getByRole("link", { name: "All Routines", exact: true }).getAttribute("href"),
@@ -1022,7 +1022,7 @@ try {
     await page.getByRole("link", { name: "Initiatives", exact: true }).click();
     await page
       .getByRole("status", { name: "Current route", exact: true })
-      .filter({ hasText: /^\/c\/company\/initiatives$/ })
+      .filter({ hasText: /^\/c\/company\/decisions\/initiatives$/ })
       .waitFor({ state: "attached" });
     assert.deepEqual(defaultToggles, []);
     assert.deepEqual(installs, []);
@@ -1098,7 +1098,7 @@ try {
     const standing = page.getByRole("region", { name: "Standing work", exact: true });
     await standing.getByRole("link", { name: "Improve my work", exact: true }).waitFor();
     const revisions = page.getByRole("link", { name: "Revisions", exact: true });
-    assert.equal(await revisions.getAttribute("href"), "/c/company/revisions");
+    assert.equal(await revisions.getAttribute("href"), "/c/company/decisions/revisions");
     assert.equal(await revisions.isVisible(), true);
     assert.deepEqual(installs, [], "Existing automatic self-review requires no browser setup");
     await fs.mkdir(artifacts, { recursive: true });
@@ -1118,11 +1118,11 @@ try {
     await revisions.click();
     await page
       .getByRole("status", { name: "Current route", exact: true })
-      .filter({ hasText: /^\/c\/company\/revisions$/ })
+      .filter({ hasText: /^\/c\/company\/decisions\/revisions$/ })
       .waitFor({ state: "attached" });
     assert.equal(
       await page.getByRole("status", { name: "Current route", exact: true }).textContent(),
-      "/c/company/revisions",
+      "/c/company/decisions/revisions",
     );
     assert.deepEqual(defaultToggles, []);
   });

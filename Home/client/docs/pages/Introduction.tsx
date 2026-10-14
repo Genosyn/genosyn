@@ -195,11 +195,21 @@ export function Introduction() {
       </P>
       <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That
-        opens the command palette: every section in one searchable list, with Essentials first —
-        type a few letters, press <Code>↵</Code>, done. It answers to the words you already know, so
-        &ldquo;cron&rdquo; finds <DocLink to="/docs/routines">Routines</DocLink> and
-        &ldquo;slack&rdquo; finds Workspace. The section pill in the top nav opens the same palette
-        if you&apos;d rather click.
+        opens the command palette — type a few letters, press <Code>↵</Code>, done. It answers to
+        the words you already know, so &ldquo;cron&rdquo; finds{" "}
+        <DocLink to="/docs/routines">Routines</DocLink> and &ldquo;slack&rdquo; finds Workspace. The
+        section pill in the top nav opens the same palette if you&apos;d rather click.
+      </P>
+      <P>
+        <Strong>The palette lists what your company uses.</Strong> With nothing typed, it shows
+        the sections every company needs — Home, the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink>, What happened, Workspace, AI
+        Employees, <DocLink to="/docs/goals">Goals</DocLink>, and Settings — and each section the
+        company has started using: Email once a mailbox is connected, Finance once there is an
+        invoice or an AI Employee with Finance access, Routines once one exists, and so on.{" "}
+        <Strong>Show all sections</Strong> at the bottom of the list shows the rest, and remembers
+        your choice on this device. Typing always searches every section you can open, listed or
+        not, and the <Code>G</Code> shortcuts reach every section either way.
       </P>
       <P>
         The palette finds the pages inside each section as well. Type &ldquo;recurring&rdquo; and{" "}

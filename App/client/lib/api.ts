@@ -212,6 +212,21 @@ export type Company = {
   slug: string;
   mission: string;
   vision: string;
+  /**
+   * Whether the company has written a Goal: an active one at the top of the
+   * tree. A Goal, or a mission and a vision, is the direction an AI Employee
+   * needs before it is hired (`lib/onboardingFlow.ts`). Every response from the
+   * server carries it; it is optional here so a fixture need not.
+   */
+  hasGoal?: boolean;
+  /**
+   * The IANA time zone (`Europe/Berlin`) this company's Routine schedules are
+   * read in, so "every weekday at 9" means 9 AM there. Empty means *server
+   * time*, the machine's own clock, which is what Routines used before a zone
+   * could be chosen. Always sent by the server; optional here only so a
+   * fixture that predates it still describes a company.
+   */
+  timezone?: string;
   role?: "owner" | "admin" | "member";
   /**
    * What this Member may do in Finance, already resolved server-side — owners
@@ -257,6 +272,12 @@ export type Employee = {
   } | null;
   /** How many models the employee has registered. Present on the list endpoint. */
   modelCount?: number;
+  /**
+   * Whether any of the employee's models is connected, so Chat can answer.
+   * Unlike `model.status` it does not need the active model to be the one.
+   * Present on the list endpoint.
+   */
+  chatReady?: boolean;
   /** When the employee was hired. Present on the detail endpoint. */
   createdAt?: string;
 };
@@ -1257,6 +1278,24 @@ export type AIModel = {
   /** Why that limit applies. */
   concurrencySource: "configured" | "local-default" | "unlimited";
 };
+/**
+ * An AI Model another AI Employee in the company already runs on, offered so a
+ * new hire can use the same one without pasting its key again. Describes the
+ * model and who has it — the credential itself never leaves the server.
+ */
+export type ReusableModel = {
+  /** The source AI Model's id; what a reuse call names. */
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  provider: Provider;
+  model: string;
+  authMode: "apikey" | "customEndpoint";
+  /** Host-only preview of a custom endpoint, or null for an API key. */
+  endpointHost: string | null;
+  /** Whether it is that employee's active AI Model. */
+  isActive: boolean;
+};
 export type FinanceAccess = "none" | "read" | "full";
 
 export type Member = {
@@ -1447,6 +1486,8 @@ export type EmployeeTemplate = {
 
 export type OnboardingRecommendationContext = {
   companyName: string;
+  /** The company's top-level Goal, in the words it was written in; empty when it has none. */
+  goal: string;
   mission: string;
   vision: string;
   employeeName: string;
@@ -1489,6 +1530,38 @@ export type CreateRecommendedRoutinesResponse = {
 };
 
 /**
+ * What the setup guide shows under "Also set up for {name}", as
+ * `GET /api/companies/:cid/proactive/preview` returns it — see
+ * `server/services/proactive/preview.ts`. The server asks the same planner
+ * Automatic setup uses, so the list is what that switch does, not a copy of it.
+ */
+export type ProactiveDefaultsPreview = {
+  /** Company.proactiveAutoSetup, the switch the Proactive page also owns. */
+  automaticSetup: boolean;
+  /** The employee's active AI Model is connected, so standing work starts right away. */
+  employeeReady: boolean;
+  /** Standing work for this employee, in the order of the Proactive starter library. */
+  starters: ProactiveDefaultsPreviewRow[];
+  /** The company's TLDR briefing when it is on and has someone to write it. */
+  briefing: ProactiveDefaultsPreviewBriefing | null;
+};
+export type ProactiveDefaultsPreviewRow = {
+  recipeId: string;
+  name: string;
+  /** In plain words: "Weekdays at 08:00", "Every 30 minutes". */
+  schedule: string;
+  /** Already set up, rather than something Automatic setup is about to add. */
+  installed: boolean;
+};
+export type ProactiveDefaultsPreviewBriefing = {
+  schedule: string;
+  /** The AI Employee who writes it; null when its writer has since been removed. */
+  writerName: string | null;
+  /** The writer is the employee the preview is about. */
+  writerIsEmployee: boolean;
+};
+
+/**
  * First-run progress, derived server-side from the company's real state — see
  * `server/services/onboardingStatus.ts`. Never a stored flag, so it stays true
  * when setup happens outside the guide.
@@ -1499,6 +1572,14 @@ export type OnboardingStatus = {
   modelConnected: boolean;
   routineCount: number;
   scheduledRoutineCount: number;
+  /**
+   * Of the scheduled Routines, how many are standing work that Automatic setup
+   * assigned. The rest are Routines somebody chose. Optional so a fixture need
+   * not carry it.
+   */
+  standingRoutineCount?: number;
+  /** Whether new standing work is assigned automatically. */
+  automaticSetup?: boolean;
   nextRunAt: string | null;
   skillCount: number;
   mailGranted: boolean;

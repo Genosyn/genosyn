@@ -91,9 +91,10 @@ export function Verification() {
         access.
       </P>
       <P>
-        Checks live on the Routine&apos;s <Strong>Settings → Checks</Strong> panel, beside{" "}
-        <Strong>Outcome check</Strong> — at most <Strong>10</Strong> per Routine, run in the order
-        you arrange them. Each one has a name, a kind, the assertion itself, and three switches:
+        Checks live on the Routine&apos;s <Strong>Settings → Advanced → Checks</Strong> panel — at
+        most <Strong>10</Strong> per Routine, run in the order you arrange them. The model-graded
+        counterpart, <Strong>What counts as done</Strong>, is one of the Routine&apos;s basics.
+        Each Check has a name, a kind, the assertion itself, and three switches:
       </P>
       <KeyList
         rows={[

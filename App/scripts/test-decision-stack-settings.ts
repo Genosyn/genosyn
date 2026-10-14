@@ -180,6 +180,18 @@ await context.route("**/api/**", async (route) => {
   if (pathname === `${base}/approvals` && method === "GET") {
     return route.fulfill({ json: [] });
   }
+  // The Decision stack layout counts what waits beside the stack.
+  if (pathname === `${base}/navigation/waiting` && method === "GET") {
+    return route.fulfill({
+      json: {
+        approvals: 0,
+        revisions: 0,
+        initiatives: 0,
+        todoReviews: 0,
+        financeProposals: 0,
+      },
+    });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });
@@ -238,7 +250,7 @@ try {
   const rail = page.getByRole("navigation").filter({ has: page.getByRole("link", { name: "History" }) });
   assert.deepEqual(
     await rail.getByRole("link").allTextContents(),
-    ["Active", "History", "Settings"],
+    ["Active", "Approvals", "Revisions", "Initiatives", "History", "Settings"],
   );
   assert.equal(await stackSwitch().getAttribute("aria-checked"), "true");
   assert.equal(await stackSwitch().isEnabled(), true);

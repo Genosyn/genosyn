@@ -4,6 +4,7 @@ import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { api, Company, FinanceAccess, Member, Secret } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { browserTimeZone, groupTimeZones, listTimeZones } from "../lib/timeZones";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
@@ -46,6 +47,7 @@ export function SettingsCompany() {
   const [slug, setSlug] = React.useState(company.slug);
   const [mission, setMission] = React.useState(company.mission);
   const [vision, setVision] = React.useState(company.vision);
+  const [timezone, setTimezone] = React.useState(company.timezone ?? "");
   const [requireTwoFactor, setRequireTwoFactor] = React.useState(company.requireTwoFactor);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -55,6 +57,7 @@ export function SettingsCompany() {
     setSlug(company.slug);
     setMission(company.mission);
     setVision(company.vision);
+    setTimezone(company.timezone ?? "");
     setRequireTwoFactor(company.requireTwoFactor);
   }, [
     company.id,
@@ -62,6 +65,7 @@ export function SettingsCompany() {
     company.name,
     company.requireTwoFactor,
     company.slug,
+    company.timezone,
     company.vision,
   ]);
 
@@ -71,6 +75,7 @@ export function SettingsCompany() {
     (normalizedSlug.length > 0 && normalizedSlug !== company.slug) ||
     mission.trim() !== company.mission ||
     vision.trim() !== company.vision ||
+    timezone !== (company.timezone ?? "") ||
     requireTwoFactor !== company.requireTwoFactor;
   const canAdminister = company.role === "owner" || company.role === "admin";
 
@@ -99,6 +104,7 @@ export function SettingsCompany() {
                 slug?: string;
                 mission?: string;
                 vision?: string;
+                timezone?: string;
                 requireTwoFactor?: boolean;
               } = {};
               if (name.trim() !== company.name) patch.name = name.trim();
@@ -107,6 +113,7 @@ export function SettingsCompany() {
               }
               if (mission.trim() !== company.mission) patch.mission = mission.trim();
               if (vision.trim() !== company.vision) patch.vision = vision.trim();
+              if (timezone !== (company.timezone ?? "")) patch.timezone = timezone;
               if (requireTwoFactor !== company.requireTwoFactor) {
                 patch.requireTwoFactor = requireTwoFactor;
               }
@@ -176,6 +183,9 @@ export function SettingsCompany() {
               </div>
             </div>
             {canAdminister ? (
+              <CompanyTimeZoneField value={timezone} onChange={setTimezone} />
+            ) : null}
+            {canAdminister ? (
               <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <input
                   className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -207,6 +217,52 @@ export function SettingsCompany() {
     </>
   );
 }
+
+/**
+ * The clock this company's Routines are scheduled on.
+ *
+ * Empty is "Server time" — the machine's own clock, usually UTC in Docker —
+ * which is what every Routine ran on before a company could choose, so an
+ * existing company changes nothing until someone picks a zone here. Picking one
+ * re-times every enabled Routine at once (the server does it on save). Memoized
+ * because its list is four hundred options long and the form around it
+ * re-renders on every keystroke in the other fields.
+ */
+const CompanyTimeZoneField = React.memo(function CompanyTimeZoneField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (timezone: string) => void;
+}) {
+  const browserZone = React.useMemo(() => browserTimeZone(), []);
+  const groups = React.useMemo(
+    () => groupTimeZones(listTimeZones([value, browserZone])),
+    [value, browserZone],
+  );
+  return (
+    <div>
+      <Select label="Time zone" value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Server time</option>
+        {groups.map((group) => (
+          <optgroup key={group.region} label={group.region}>
+            {group.zones.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </Select>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        Routines run on this clock, so &ldquo;every morning at 8&rdquo; means 8 AM here. Server time
+        is the clock of the machine running Genosyn, often UTC. Pipelines and recurring invoices
+        always use server time.
+        {value === "" && browserZone ? ` Your browser is in ${browserZone}.` : null}
+      </p>
+    </div>
+  );
+});
 
 /**
  * The company-wide stop.

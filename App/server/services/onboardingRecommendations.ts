@@ -9,6 +9,8 @@ import { Routine } from "../db/entities/Routine.js";
 import { listCatalog } from "../integrations/index.js";
 import type { IntegrationCatalogEntry } from "../integrations/types.js";
 import { toSlug } from "../lib/slug.js";
+import { primaryGoal } from "./companyDirection.js";
+import { companyTimeZone } from "./companyTimeZone.js";
 import { nextRunFor } from "./cron.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { EMPLOYEE_TEMPLATES } from "./templates.js";
@@ -22,10 +24,16 @@ import { EMPLOYEE_TEMPLATES } from "./templates.js";
  * responsibilities fit; company mission and vision rank those responsibilities
  * and become part of every suggested brief. A template hint cannot override an
  * edited role, and company keywords cannot assign someone a different role.
+ *
+ * The company's Goal comes first among those keywords and the first quote in
+ * every brief: a new company is asked for a Goal and nothing else, so it may
+ * have no mission or vision at all.
  */
 
 export type OnboardingRecommendationContext = {
   companyName: string;
+  /** The company's top-level Goal, in the words it was written in; empty when it has none. */
+  goal: string;
   mission: string;
   vision: string;
   employeeName: string;
@@ -69,6 +77,8 @@ export type OnboardingRecommendations = {
 };
 
 export type CompanyRecommendationProfile = Pick<Company, "id" | "name"> & {
+  /** The title of the company's top-level Goal. The loaders below fill it in when it is absent. */
+  goal?: string | null;
   mission?: string | null;
   vision?: string | null;
 };
@@ -84,12 +94,27 @@ type RoutineRecommendationDefinition = {
   inputs: readonly string[];
   outputs: readonly string[];
   guardrails: readonly string[];
+  /**
+   * What a successful Run produced, as a short checklist a grader can hold the
+   * transcript against. Saved as the Routine's acceptance criteria, so the Run
+   * brief carries it and every completed Run is graded.
+   */
+  acceptanceCriteria: string;
   templateIds: readonly string[];
   rolePhrases: readonly string[];
   contextKeywords: readonly string[];
   integrationProviders: readonly string[];
   baseScore?: number;
 };
+
+/**
+ * A starter Routine is graded on every completed Run, and a new company's first
+ * Runs have no Deals, customers or metrics to report on yet. So each
+ * criterion ends by letting an honest "there was nothing to read" meet the
+ * bar: grading should catch work that was wrong, not a company that is new.
+ */
+const NOTHING_TO_READ = " If the inputs were missing or empty, saying so plainly meets the bar.";
+const criteria = (text: string): string => `${text}${NOTHING_TO_READ}`;
 
 /**
  * Stable ids are part of the POST contract. Rename display copy freely, but
@@ -117,6 +142,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not send messages or change the calendar without approval",
       "State when an input is missing or stale",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a brief under 200 words that names the decisions needing a human and each risk with its next step, and says plainly when the calendar, deadlines or follow-ups it relied on were missing or stale. It sent no message and changed no calendar entry.",
+    ),
     templateIds: ["executive-assistant"],
     rolePhrases: ["executive assistant", "chief of staff", "personal assistant", "administrator"],
     contextKeywords: ["leadership", "focus", "calendar", "decision", "executive", "productivity"],
@@ -139,6 +167,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Propose calendar changes rather than making them",
       "Keep low-priority detail out of the brief",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a one-page brief of next week's meetings, deadlines and conflicts, listing any preparation still owed and the questions to answer before Monday. Calendar changes are proposed only; none were made.",
+    ),
     templateIds: ["executive-assistant", "operations"],
     rolePhrases: ["executive assistant", "operations", "chief of staff", "project coordinator"],
     contextKeywords: ["planning", "operations", "delivery", "deadline", "coordination"],
@@ -166,6 +197,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Draft outreach but do not send it",
       "Do not promise discounts, refunds, or service levels",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a ranked list of customers at risk, each rating backed by activity, conversations, support or renewal signals it actually read, with a drafted next action for review. Nothing was sent, no discount, refund or service level was promised, and no usage or sentiment was invented.",
+    ),
     templateIds: ["customer-success", "support"],
     rolePhrases: ["customer success", "account manager", "customer support", "support specialist"],
     contextKeywords: [
@@ -201,6 +235,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not move a Deal Stage or change a forecast without approval",
       "Use evidence from recorded Activities",
     ],
+    acceptanceCriteria: criteria(
+      "The Run listed stale or inconsistent Deals in order of urgency, naming the exact field or follow-up to fix for each, with a short revenue-risk summary drawn from recorded Activities. It moved no Deal Stage and changed no forecast.",
+    ),
     templateIds: ["sdr", "revops-analyst", "account-executive"],
     rolePhrases: [
       "sales development",
@@ -231,6 +268,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "One evidence-backed recommendation",
     ],
     guardrails: ["Label estimates and missing data", "Do not present correlation as causation"],
+    acceptanceCriteria: criteria(
+      "The Run produced a concise monthly revenue report that compares the month with the one before and ends with one evidence-backed recommendation. Estimates and missing data are labelled, and correlation is not presented as causation.",
+    ),
     templateIds: ["revops-analyst", "account-executive", "data-analyst"],
     rolePhrases: [
       "revops",
@@ -259,6 +299,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Never send outreach automatically",
       "Never invent a Contact detail or customer commitment",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a short priority list of open Deals with one recommended next action each, based on recent Activities and replies, and left any follow-up drafts for review. It sent no outreach and invented no Contact detail or customer commitment.",
+    ),
     templateIds: ["account-executive", "sdr"],
     rolePhrases: [
       "account executive",
@@ -287,6 +330,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not mark work complete without evidence",
       "Separate confirmed facts from assumptions",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a status digest grouped by outcome, with every blocker given an owner and the three priorities for the week. Work is marked complete only with evidence, and assumptions are kept apart from confirmed facts.",
+    ),
     templateIds: ["operations", "product-manager"],
     rolePhrases: [
       "operations",
@@ -322,6 +368,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Never change spend automatically",
       "Call out attribution or tracking uncertainty",
     ],
+    acceptanceCriteria: criteria(
+      "The Run summarized pacing channel by channel with the spend and conversion numbers behind it, flagged anomalies, and proposed actions for review. It changed no spend, and attribution or tracking uncertainty is called out.",
+    ),
     templateIds: ["paid-marketing", "marketing"],
     rolePhrases: ["performance marketer", "paid marketing", "growth marketer", "media buyer"],
     contextKeywords: [
@@ -352,6 +401,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not hide missing attribution",
       "Do not recommend spend increases without evidence",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a weekly performance report of spend, conversions and value against the prior week, explained the material changes, and proposed one experiment for review. Missing attribution is stated, and no spend increase is recommended without evidence.",
+    ),
     templateIds: ["paid-marketing", "marketing", "data-analyst"],
     rolePhrases: [
       "performance marketer",
@@ -379,6 +431,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Never apply a spend or targeting change without approval",
       "Prefer reversible experiments",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a ranked optimization proposal giving the evidence, expected upside and downside for each change. It applied no spend or targeting change, and every proposal is reversible or framed as a reviewable experiment.",
+    ),
     templateIds: ["paid-marketing"],
     rolePhrases: ["performance marketer", "media buyer", "paid marketing"],
     contextKeywords: ["campaign", "advertising", "optimization", "roas", "paid"],
@@ -402,6 +457,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "One question to investigate",
     ],
     guardrails: ["Say when a number cannot be trusted", "Separate measured facts from hypotheses"],
+    acceptanceCriteria: criteria(
+      "The Run produced a concise digest of the agreed metrics, with each material change linked to its source and one question to investigate. A number that cannot be trusted is flagged, and measured facts are kept apart from hypotheses.",
+    ),
     templateIds: ["data-analyst", "research-analyst", "revops-analyst"],
     rolePhrases: ["data analyst", "analytics", "business intelligence", "research analyst"],
     contextKeywords: ["data", "metric", "analytics", "insight", "measurement", "evidence", "kpi"],
@@ -428,6 +486,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not merge or deploy automatically",
       "Never label a bug fixed without verification",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a prioritized triage list from the new and changed issues and the open pull requests with their checks, noting any missing reproduction or evidence and a suggested owner and next step for each. It merged and deployed nothing, and called no bug fixed without verification.",
+    ),
     templateIds: ["engineer", "product-manager"],
     rolePhrases: [
       "software engineer",
@@ -468,6 +529,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Cite every material claim",
       "Do not invent facts or treat marketing copy as independent evidence",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a short research brief in which every material claim cites a source, what changed since the last scan is separate from what was already known, and implications are kept apart from facts. No claim rests on marketing copy alone.",
+    ),
     templateIds: ["research-analyst", "product-manager"],
     rolePhrases: [
       "research analyst",
@@ -496,6 +560,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "A reviewable brief for the top choice",
     ],
     guardrails: ["Do not publish automatically", "Avoid claims the source material cannot support"],
+    acceptanceCriteria: criteria(
+      "The Run produced three ranked content opportunities, each with the audience intent and evidence behind it, and a reviewable brief for the top one. It published nothing, and no claim goes further than the source material supports.",
+    ),
     templateIds: ["content-writer", "marketing"],
     rolePhrases: ["content writer", "copywriter", "content marketer", "marketing manager", "seo"],
     contextKeywords: ["content", "audience", "brand", "search", "seo", "marketing", "education"],
@@ -519,6 +586,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not promise refunds, service levels, or fixes",
       "Protect customer data",
     ],
+    acceptanceCriteria: criteria(
+      "The Run grouped new customer requests into urgent, needs-reply and informational, drafted replies for review, and gave a reason for each escalation. It sent nothing automatically and promised no refund, service level or fix.",
+    ),
     templateIds: ["support", "customer-success", "executive-assistant"],
     rolePhrases: ["customer support", "support specialist", "service desk", "executive assistant"],
     contextKeywords: ["support", "customer", "response", "service", "satisfaction", "inbox"],
@@ -545,6 +615,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not manufacture consensus",
       "Preserve the distinction between requests and underlying problems",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a weekly digest of feedback themes, each with representative evidence, and listed the questions or experiments to review. Requests are kept apart from the underlying problems, and no consensus is claimed beyond what the feedback shows.",
+    ),
     templateIds: ["product-manager", "customer-success", "support"],
     rolePhrases: ["product manager", "product owner", "customer success", "user researcher"],
     contextKeywords: ["product", "feedback", "customer", "experience", "innovation", "adoption"],
@@ -571,6 +644,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not create busywork to fill the list",
       "Ask when company context is too thin to prioritize safely",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced the three outcomes that matter today for the AI Employee's role, with the inputs or approvals they need and any work that is blocked or at risk. When company context was too thin to prioritize safely it said so instead of padding the list.",
+    ),
     templateIds: [],
     rolePhrases: [],
     contextKeywords: [],
@@ -596,6 +672,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "A proposed focus for next week",
     ],
     guardrails: ["Report misses plainly", "Do not claim impact without evidence"],
+    acceptanceCriteria: criteria(
+      "The Run produced a review of the week's completed outcomes with their evidence, what did not work and why, and a proposed focus for next week. Misses are reported plainly, and no impact is claimed without evidence.",
+    ),
     templateIds: [],
     rolePhrases: [],
     contextKeywords: [],
@@ -624,6 +703,9 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "Do not rewrite the mission or vision",
       "Treat missing outcome data as a gap, not success",
     ],
+    acceptanceCriteria: criteria(
+      "The Run produced a review of the month's outcomes against the company's Goal, mission and vision, with evidence of progress or drift, the Routines that may need adjusting, and three questions for leadership. Missing outcome data is reported as a gap, and nothing the company wrote about itself was rewritten.",
+    ),
     templateIds: [],
     rolePhrases: [],
     contextKeywords: ["mission", "vision", "impact", "purpose", "strategy"],
@@ -718,6 +800,18 @@ function containsPhrase(haystack: string, phrase: string): boolean {
   return needle.length > 0 && ` ${haystack} `.includes(` ${needle} `);
 }
 
+/**
+ * A keyword in the company's own words, which are rarely singular: a Goal
+ * reads "Reach 50 paying customers", and the keyword is "customer".
+ */
+function mentionsKeyword(companyContext: string, keyword: string): boolean {
+  return (
+    containsPhrase(companyContext, keyword) ||
+    containsPhrase(companyContext, `${keyword}s`) ||
+    containsPhrase(companyContext, `${keyword}es`)
+  );
+}
+
 function roleTemplateIds(role: string): Set<string> {
   return new Set(
     EMPLOYEE_TEMPLATES.filter((template) => containsPhrase(role, template.role)).map(
@@ -743,11 +837,28 @@ export function recommendationContext(
 ): OnboardingRecommendationContext {
   return {
     companyName: compactContext(company.name, 200),
+    goal: compactContext(company.goal, 400),
     mission: compactContext(company.mission),
     vision: compactContext(company.vision),
     employeeName: compactContext(employee.name, 200),
     employeeRole: compactContext(employee.role, 200),
   };
+}
+
+/**
+ * The company's direction as a Markdown quote: the Goal first, then whichever
+ * of mission and vision are written. A company that was only asked for a Goal
+ * has no mission or vision, and a brief reading "Mission: Not set yet" about
+ * something optional would be noise, so those two lines appear only when
+ * there is something to quote. With nothing written at all, one line says so.
+ */
+function directionQuotes(context: OnboardingRecommendationContext): string {
+  const lines: string[] = [];
+  if (context.goal) lines.push(markdownQuote("Goal", context.goal, ""));
+  if (context.mission) lines.push(markdownQuote("Mission", context.mission, ""));
+  if (context.vision) lines.push(markdownQuote("Vision", context.vision, ""));
+  if (lines.length === 0) lines.push(markdownQuote("Goal", "", "Not set yet"));
+  return lines.join("\n");
 }
 
 export function buildRoutineRecommendationBody(
@@ -764,15 +875,15 @@ ${definition.goal}
 
 ## Company context
 ${markdownQuote("Company", context.companyName, "Not set yet")}
-${markdownQuote("Mission", context.mission, "Not set yet")}
-${markdownQuote("Vision", context.vision, "Not set yet")}
+${directionQuotes(context)}
 ${markdownQuote("AI Employee", `${context.employeeName} — ${context.employeeRole}`, "Not set yet")}
 
-Carry out this Routine within the AI Employee's stated role and Soul. Use the company mission
-to choose which work matters now, and the vision to judge the longer-term outcome. Connect
-each recommended next action to that direction, using concrete evidence rather than merely
-restating it. If context is missing or conflicts with current company direction, ask a Member
-before making a consequential assumption.
+Carry out this Routine within the AI Employee's stated role and Soul. Let the company direction
+above decide which work matters now, starting with the Goal and then the mission, and judge the
+longer-term outcome against the vision where there is one. Connect each recommended next action
+to that direction, using concrete evidence rather than merely restating it. If context is missing
+or conflicts with current company direction, ask a Member before making a consequential
+assumption.
 
 ## Inputs
 ${bullets(definition.inputs)}
@@ -799,7 +910,9 @@ function rankRoutineDefinitions(args: {
 }): RankedRoutine[] {
   const role = normalize(args.context.employeeRole);
   const matchingTemplates = roleTemplateIds(role);
-  const companyContext = normalize(`${args.context.mission} ${args.context.vision}`);
+  const companyContext = normalize(
+    `${args.context.goal} ${args.context.mission} ${args.context.vision}`,
+  );
   return ROUTINE_RECOMMENDATION_DEFINITIONS.map((definition, order) => {
     let score = definition.baseScore ?? 0;
     const reasons: string[] = [];
@@ -823,7 +936,7 @@ function rankRoutineDefinitions(args: {
     }
 
     const contextMatches = definition.contextKeywords.filter((keyword) =>
-      containsPhrase(companyContext, keyword),
+      mentionsKeyword(companyContext, keyword),
     );
     if (roleEligible && contextMatches.length > 0) {
       score += Math.min(48, contextMatches.length * 12);
@@ -938,7 +1051,9 @@ function selectIntegrationRecommendations(args: {
 }): OnboardingIntegrationRecommendation[] {
   const role = normalize(args.context.employeeRole);
   const matchingTemplates = roleTemplateIds(role);
-  const companyContext = normalize(`${args.context.mission} ${args.context.vision}`);
+  const companyContext = normalize(
+    `${args.context.goal} ${args.context.mission} ${args.context.vision}`,
+  );
   const score = new Map<string, number>();
   const reason = new Map<string, string>();
 
@@ -960,7 +1075,7 @@ function selectIntegrationRecommendations(args: {
       containsPhrase(role, phrase),
     ).length;
     const contextMatches = affinity.contextKeywords.filter((keyword) =>
-      containsPhrase(companyContext, keyword),
+      mentionsKeyword(companyContext, keyword),
     ).length;
     if (roleMatches === 0 && !affinity.templateIds.some((id) => matchingTemplates.has(id))) {
       continue;
@@ -1081,7 +1196,7 @@ export async function loadOnboardingRecommendations(args: {
   employee: Pick<AIEmployee, "id" | "name" | "role">;
   templateId?: string;
 }): Promise<OnboardingRecommendations> {
-  const [existingRoutines, connections, grants] = await Promise.all([
+  const [existingRoutines, connections, grants, goal] = await Promise.all([
     AppDataSource.getRepository(Routine).find({ where: { employeeId: args.employee.id } }),
     AppDataSource.getRepository(IntegrationConnection).find({
       where: { companyId: args.company.id },
@@ -1091,9 +1206,11 @@ export async function loadOnboardingRecommendations(args: {
       where: { employeeId: args.employee.id },
       order: { createdAt: "ASC" },
     }),
+    args.company.goal === undefined ? primaryGoal(args.company.id) : null,
   ]);
   return recommendOnboarding({
     ...args,
+    company: { ...args.company, goal: args.company.goal ?? goal?.title ?? null },
     existingRoutines,
     connections,
     grants,
@@ -1206,7 +1323,14 @@ export async function applyRoutineRecommendations(args: {
     throw new Error(`Unknown Routine recommendation: ${invalid.join(", ")}`);
   }
   const resolved = definitions as RoutineRecommendationDefinition[];
-  const context = recommendationContext(args.company, args.employee);
+  // Quote the Goal the company has right now, like the mission and vision.
+  const goal =
+    args.company.goal === undefined
+      ? (await primaryGoal(args.company.id))?.title
+      : args.company.goal;
+  const context = recommendationContext({ ...args.company, goal }, args.employee);
+  // A starter's first Run is on the company's clock, like every later one.
+  const timeZone = await companyTimeZone(args.company.id);
 
   return serializeSqliteRoutineApply(async () => {
     const writeSource = await routineWriteSource();
@@ -1244,8 +1368,11 @@ export async function applyRoutineRecommendations(args: {
                 cronExpr: definition.cronExpr,
                 enabled: true,
                 lastRunAt: null,
-                nextRunAt: nextRunFor(definition.cronExpr),
+                nextRunAt: nextRunFor(definition.cronExpr, new Date(), timeZone),
                 body: buildRoutineRecommendationBody(definition, context),
+                // The Run brief carries these and every completed Run is
+                // graded against them: a starter Routine is not left ungraded.
+                acceptanceCriteria: definition.acceptanceCriteria,
               });
               const saved = await repo.save(row);
               existingRows.push(saved);

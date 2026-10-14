@@ -73,7 +73,7 @@ import {
   removeAvatarFile,
   replaceAvatarFile,
 } from "../services/avatars.js";
-import { hasCompanyDirection } from "../services/companyDirection.js";
+import { COMPANY_DIRECTION_REQUIRED, hasCompanyDirection } from "../services/companyDirection.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -144,6 +144,9 @@ employeesRouter.get("/", async (req, res) => {
           }
         : null,
       modelCount: list.length,
+      // Chat answers from any connected model, not just the active one, so this
+      // is not `model.status`. The Proactive overview reads it the same way.
+      chatReady: list.some((model) => isModelConnected(model)),
     };
   });
   res.json(rows);
@@ -159,10 +162,8 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   const body = req.body as z.infer<typeof createSchema>;
   const co = await loadCompany((req.params as Record<string, string>).cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
-  if (!hasCompanyDirection(co)) {
-    return res.status(400).json({
-      error: "Set your company mission and vision before hiring an AI Employee.",
-    });
+  if (!(await hasCompanyDirection(co))) {
+    return res.status(400).json({ error: COMPANY_DIRECTION_REQUIRED });
   }
   if (await findEmployeeByName(co.id, body.name)) {
     return res.status(409).json({ error: "An employee with that name already exists" });

@@ -548,6 +548,19 @@ async function open(options: FixtureOptions = {}) {
           ? route.fulfill({ json: linked })
           : route.fulfill({ status: 404, json: { error: "Not found" } });
       }
+      // Home's all-clear card shows the company's Goal; none is written here.
+      if (url.pathname === `${apiBase}/goals`) return route.fulfill({ json: [] });
+      // The Decision stack layout counts what waits beside the stack.
+      if (url.pathname === `${apiBase}/navigation/waiting`)
+        return route.fulfill({
+          json: {
+            approvals: options.role === "admin" ? 0 : null,
+            revisions: options.role === "admin" ? 0 : null,
+            initiatives: options.role === "admin" ? 0 : null,
+            todoReviews: 0,
+            financeProposals: options.role === "admin" ? 0 : null,
+          },
+        });
       if (url.pathname === `${apiBase}/home`)
         return route.fulfill({
           json: homeData(

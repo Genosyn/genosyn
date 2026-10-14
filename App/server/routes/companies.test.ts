@@ -7,12 +7,16 @@ import express from "express";
 import type { Server } from "node:http";
 
 import { AppDataSource } from "../db/datasource.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
+import { Goal } from "../db/entities/Goal.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Membership, type FinanceAccess, type Role } from "../db/entities/Membership.js";
 import { Notebook } from "../db/entities/Notebook.js";
+import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { hashToken } from "../lib/token.js";
 import { hashApiToken } from "../middleware/auth.js";
@@ -203,6 +207,157 @@ describe("company routes", () => {
     assert.equal(created.status, 200);
     assert.equal(created.body.mission, "");
     assert.equal(created.body.vision, "");
+  });
+
+  describe("a first Goal written with the company", () => {
+    const goal = {
+      title: "  Reach 50 paying customers by March  ",
+      targetValue: 50,
+      direction: "increase_to",
+      unit: " customers ",
+    };
+
+    test("creates one top-level manual Goal for the Member and counts it as direction", async () => {
+      const created = await call<{ id: string; hasGoal: boolean; mission: string }>("POST", "", {
+        name: "Goal First",
+        goal,
+      });
+      assert.equal(created.status, 200);
+      assert.equal(created.body.hasGoal, true);
+      assert.equal(created.body.mission, "");
+
+      const rows = await AppDataSource.getRepository(Goal).find({
+        where: { companyId: created.body.id },
+      });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].title, "Reach 50 paying customers by March");
+      assert.equal(rows[0].targetValue, 50);
+      assert.equal(rows[0].direction, "increase_to");
+      assert.equal(rows[0].unit, "customers");
+      assert.equal(rows[0].metricKind, "manual");
+      assert.equal(rows[0].status, "active");
+      assert.equal(rows[0].parentGoalId, null);
+      assert.equal(rows[0].createdById, actingUserId);
+
+      const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+        companyId: created.body.id,
+        action: "goal.create",
+      });
+      assert.equal(audit.targetId, rows[0].id);
+
+      // With no mission or vision, the Goal alone is what lets setup move on.
+      const status = await call<{ nextStep: string }>(
+        "GET",
+        `/${created.body.id}/onboarding-status`,
+      );
+      assert.equal(status.body.nextStep, "employee");
+    });
+
+    test("reports the Goal on the list, detail and patch responses", async () => {
+      const created = await call<{ id: string }>("POST", "", { name: "Goal First", goal });
+      const bare = await call<{ id: string }>("POST", "", { name: "Goal Later" });
+
+      const list = await call<Array<{ id: string; hasGoal: boolean }>>("GET", "");
+      assert.equal(list.body.find((c) => c.id === created.body.id)?.hasGoal, true);
+      assert.equal(list.body.find((c) => c.id === bare.body.id)?.hasGoal, false);
+      assert.equal(list.body.find((c) => c.id === company.id)?.hasGoal, false);
+
+      const detail = await call<{ hasGoal: boolean }>("GET", `/${created.body.id}`);
+      assert.equal(detail.body.hasGoal, true);
+      const patched = await call<{ hasGoal: boolean }>("PATCH", `/${created.body.id}`, {
+        name: "Goal First, renamed",
+      });
+      assert.equal(patched.body.hasGoal, true);
+      const bareDetail = await call<{ hasGoal: boolean }>("GET", `/${bare.body.id}`);
+      assert.equal(bareDetail.body.hasGoal, false);
+    });
+
+    test("a Goal that is later archived stops counting as direction", async () => {
+      const created = await call<{ id: string }>("POST", "", { name: "Goal First", goal });
+      await AppDataSource.getRepository(Goal).update(
+        { companyId: created.body.id },
+        { status: "archived" },
+      );
+
+      const detail = await call<{ hasGoal: boolean }>("GET", `/${created.body.id}`);
+      assert.equal(detail.body.hasGoal, false);
+      const status = await call<{ nextStep: string }>(
+        "GET",
+        `/${created.body.id}/onboarding-status`,
+      );
+      assert.equal(status.body.nextStep, "company");
+    });
+
+    test("keeps a mission and vision written beside it, and defaults the direction", async () => {
+      const created = await call<{ id: string; mission: string; vision: string }>("POST", "", {
+        name: "Both",
+        mission: "  Help shops thrive.  ",
+        vision: "Every shop is independent.",
+        goal: { title: "Hit $2M in monthly revenue", targetValue: 2_000_000 },
+      });
+      assert.equal(created.status, 200);
+      assert.equal(created.body.mission, "Help shops thrive.");
+      assert.equal(created.body.vision, "Every shop is independent.");
+      const row = await AppDataSource.getRepository(Goal).findOneByOrFail({
+        companyId: created.body.id,
+      });
+      assert.equal(row.direction, "increase_to");
+      assert.equal(row.unit, "");
+      assert.equal(row.targetValue, 2_000_000);
+    });
+
+    test("a decreasing Goal keeps its direction and unit", async () => {
+      const created = await call<{ id: string }>("POST", "", {
+        name: "Calm",
+        goal: { title: "Cut churn to 2%", targetValue: 2, direction: "decrease_to", unit: "%" },
+      });
+      const row = await AppDataSource.getRepository(Goal).findOneByOrFail({
+        companyId: created.body.id,
+      });
+      assert.equal(row.direction, "decrease_to");
+      assert.equal(row.unit, "%");
+    });
+
+    test("rejects an invalid Goal without writing a company", async () => {
+      const companyCount = await AppDataSource.getRepository(Company).count();
+      const bad: Array<Record<string, unknown>> = [
+        { ...goal, title: "   " },
+        { ...goal, title: "x".repeat(141) },
+        { ...goal, targetValue: "50" },
+        { ...goal, targetValue: null },
+        { title: goal.title },
+        { ...goal, direction: "sideways" },
+        { ...goal, unit: "u".repeat(21) },
+      ];
+      for (const candidate of bad) {
+        const response = await call("POST", "", { name: "Never Made", goal: candidate });
+        assert.equal(response.status, 400, JSON.stringify(candidate));
+      }
+      assert.equal(await AppDataSource.getRepository(Company).count(), companyCount);
+      assert.equal(await AppDataSource.getRepository(Goal).count(), 0);
+    });
+
+    test("takes the half-made company away when its Goal cannot be written", async () => {
+      const companies = await AppDataSource.getRepository(Company).count();
+      const memberships = await AppDataSource.getRepository(Membership).count();
+      await AppDataSource.query(`
+        CREATE TRIGGER fail_company_goal
+        BEFORE INSERT ON goals
+        BEGIN
+          SELECT RAISE(FAIL, 'goal failure');
+        END
+      `);
+      try {
+        const response = await call("POST", "", { name: "Half Made", goal });
+
+        assert.equal(response.status, 500);
+        assert.equal(await AppDataSource.getRepository(Company).count(), companies);
+        assert.equal(await AppDataSource.getRepository(Membership).count(), memberships);
+        assert.equal(await AppDataSource.getRepository(Notebook).countBy({ title: "General" }), 0);
+      } finally {
+        await AppDataSource.query("DROP TRIGGER fail_company_goal");
+      }
+    });
   });
 
   test("saves both company direction fields before the guide offers hiring", async () => {
@@ -627,5 +782,215 @@ describe("company routes", () => {
     assert.equal(response.status, 400);
     const stored = await AppDataSource.getRepository(Company).findOneByOrFail({ id: company.id });
     assert.equal(stored.vision, company.vision);
+  });
+});
+
+describe("company time zone", () => {
+  const storedZone = async () =>
+    (await AppDataSource.getRepository(Company).findOneByOrFail({ id: company.id })).timezone;
+
+  test("every company starts on server time and says so on every route", async () => {
+    // An existing company has the empty string, so its Routines keep firing on
+    // the server's clock until somebody picks a zone.
+    assert.equal(company.timezone, "");
+    const list = await call<Array<{ timezone: string }>>("GET", "");
+    assert.equal(list.body[0].timezone, "");
+    const detail = await call<{ timezone: string }>("GET", `/${company.id}`);
+    assert.equal(detail.body.timezone, "");
+    const created = await call<{ timezone: string }>("POST", "", { name: "No zone given" });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.timezone, "");
+  });
+
+  test("a company can be created in a time zone, trimmed", async () => {
+    const created = await call<{ id: string; timezone: string }>("POST", "", {
+      name: "Berlin office",
+      timezone: "  Europe/Berlin ",
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.timezone, "Europe/Berlin");
+
+    const list = await call<Array<{ id: string; timezone: string }>>("GET", "");
+    assert.equal(list.body.find((entry) => entry.id === created.body.id)?.timezone, "Europe/Berlin");
+    const detail = await call<{ timezone: string }>("GET", `/${created.body.id}`);
+    assert.equal(detail.body.timezone, "Europe/Berlin");
+    // The empty string is the explicit spelling of server time.
+    const server = await call<{ timezone: string }>("POST", "", { name: "Server", timezone: "" });
+    assert.equal(server.body.timezone, "");
+  });
+
+  test("starts a company on server time when its browser's zone is not one this server knows", async () => {
+    // The zone sent at creation is the creator's browser's, which can name a
+    // zone this runtime lacks. That must never stop a company being created.
+    for (const timezone of ["Mars/Base", "+01:00", "local"]) {
+      const response = await call<{ id: string; timezone: string }>("POST", "", {
+        name: "Nowhere",
+        timezone,
+      });
+      assert.equal(response.status, 200, JSON.stringify(timezone));
+      assert.equal(response.body.timezone, "", JSON.stringify(timezone));
+    }
+  });
+
+  test("refuses a malformed zone at creation without writing partial rows", async () => {
+    const companyCount = await AppDataSource.getRepository(Company).count();
+    const membershipCount = await AppDataSource.getRepository(Membership).count();
+    for (const timezone of ["x".repeat(100), 7]) {
+      const response = await call("POST", "", { name: "Nowhere", timezone });
+      assert.equal(response.status, 400, JSON.stringify(timezone));
+    }
+    assert.equal(await AppDataSource.getRepository(Company).count(), companyCount);
+    assert.equal(await AppDataSource.getRepository(Membership).count(), membershipCount);
+  });
+
+  test("an owner sets, changes and clears the zone without sending anything else", async () => {
+    const set = await call<{ timezone: string; name: string }>("PATCH", `/${company.id}`, {
+      timezone: "Asia/Tokyo",
+    });
+    assert.equal(set.status, 200);
+    assert.equal(set.body.timezone, "Asia/Tokyo");
+    assert.equal(set.body.name, company.name);
+    assert.equal(await storedZone(), "Asia/Tokyo");
+
+    const changed = await call<{ timezone: string }>("PATCH", `/${company.id}`, {
+      timezone: " America/New_York ",
+    });
+    assert.equal(changed.body.timezone, "America/New_York");
+
+    // Back to server time.
+    const cleared = await call<{ timezone: string }>("PATCH", `/${company.id}`, { timezone: "" });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.timezone, "");
+    assert.equal(await storedZone(), "");
+
+    // It rides along with the other profile fields too.
+    const both = await call<{ timezone: string; mission: string }>("PATCH", `/${company.id}`, {
+      mission: "Serve Europe.",
+      timezone: "Europe/Berlin",
+    });
+    assert.equal(both.body.mission, "Serve Europe.");
+    assert.equal(both.body.timezone, "Europe/Berlin");
+  });
+
+  test("refuses an unknown or malformed zone and keeps the one it had", async () => {
+    await call("PATCH", `/${company.id}`, { timezone: "Europe/Berlin" });
+    for (const timezone of [
+      "Mars/Base",
+      "Europe/Atlantis",
+      "+01:00",
+      "UTC+3",
+      "local",
+      "../etc/passwd",
+      "x".repeat(65),
+      null,
+      42,
+    ]) {
+      const response = await call<{ error: string }>("PATCH", `/${company.id}`, { timezone });
+      assert.equal(response.status, 400, JSON.stringify(timezone));
+      assert.equal(await storedZone(), "Europe/Berlin", JSON.stringify(timezone));
+    }
+    // The message tells the person what a good answer looks like.
+    const refused = await call<{ issues: Array<{ message: string }> }>("PATCH", `/${company.id}`, {
+      timezone: "Mars/Base",
+    });
+    assert.match(refused.body.issues[0].message, /IANA name such as Europe\/Berlin/);
+    // An empty body is still not a change.
+    assert.equal((await call("PATCH", `/${company.id}`, {})).status, 400);
+  });
+
+  test("only an owner or admin can change it", async () => {
+    const member = await insert(User, {
+      email: "member@example.com",
+      name: "Member",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    await insert(Membership, { companyId: company.id, userId: member.id, role: "member" as Role });
+    actingUserId = member.id;
+    const refused = await call("PATCH", `/${company.id}`, { timezone: "Asia/Tokyo" });
+    assert.equal(refused.status, 403);
+    assert.equal(await storedZone(), "");
+    // Everyone in the company can still read it.
+    const detail = await call<{ timezone: string }>("GET", `/${company.id}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.timezone, "");
+
+    const admin = await insert(User, {
+      email: "admin@example.com",
+      name: "Admin",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    await insert(Membership, { companyId: company.id, userId: admin.id, role: "admin" as Role });
+    actingUserId = admin.id;
+    const allowed = await call<{ timezone: string }>("PATCH", `/${company.id}`, {
+      timezone: "Asia/Tokyo",
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(await storedZone(), "Asia/Tokyo");
+  });
+
+  test("moves the company's enabled Routines to the new clock, and back", async () => {
+    const wallClock = (zone: string | undefined, moment: Date | null) =>
+      new Intl.DateTimeFormat("en-US", {
+        ...(zone ? { timeZone: zone } : {}),
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(moment ?? new Date(NaN));
+    const previous = process.env.TZ;
+    // A server clock that is neither UTC nor the zones below.
+    process.env.TZ = "Pacific/Auckland";
+    try {
+      const employee = await insert(AIEmployee, {
+        companyId: company.id,
+        name: "Ana",
+        slug: "ana",
+        role: "Operations",
+      });
+      const routines = AppDataSource.getRepository(Routine);
+      const scheduled = await insert(Routine, {
+        employeeId: employee.id,
+        name: "Morning round",
+        slug: "morning-round",
+        cronExpr: "0 9 * * *",
+        body: "Make the round.",
+        nextRunAt: new Date(Date.now() + 3_600_000),
+      });
+      const paused = await insert(Routine, {
+        employeeId: employee.id,
+        name: "Paused round",
+        slug: "paused-round",
+        cronExpr: "0 9 * * *",
+        body: "Make the round.",
+        enabled: false,
+        nextRunAt: null,
+      });
+      const reload = (id: string) => routines.findOneByOrFail({ id });
+
+      const tokyo = await call("PATCH", `/${company.id}`, { timezone: "Asia/Tokyo" });
+      assert.equal(tokyo.status, 200);
+      const inTokyo = await reload(scheduled.id);
+      assert.equal(wallClock("Asia/Tokyo", inTokyo.nextRunAt), "09:00");
+      assert.ok((inTokyo.nextRunAt as Date).getTime() > Date.now());
+      assert.equal((await reload(paused.id)).nextRunAt, null);
+
+      // Saying the same thing again moves nothing: a Routine already waiting
+      // on the right clock keeps its slot.
+      await routines.update({ id: scheduled.id }, { nextRunAt: new Date(Date.now() + 7_200_000) });
+      const sentinel = (await reload(scheduled.id)).nextRunAt as Date;
+      await call("PATCH", `/${company.id}`, { timezone: "Asia/Tokyo", mission: "Same zone." });
+      assert.equal((await reload(scheduled.id)).nextRunAt?.getTime(), sentinel.getTime());
+
+      // "Server time" reads the machine's clock again.
+      const back = await call("PATCH", `/${company.id}`, { timezone: "" });
+      assert.equal(back.status, 200);
+      const onServer = await reload(scheduled.id);
+      assert.equal(wallClock("Pacific/Auckland", onServer.nextRunAt), "09:00");
+      assert.notEqual(wallClock("Asia/Tokyo", onServer.nextRunAt), "09:00");
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 });

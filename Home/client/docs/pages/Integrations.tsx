@@ -255,7 +255,7 @@ export function Integrations() {
 
       <H3 id="external-mcp-url">Get the endpoint URL</H3>
       <P>
-        Open the employee, then <Strong>Settings → MCP</Strong>. The{" "}
+        Open the employee, then <Strong>Settings → Advanced → MCP</Strong>. The{" "}
         <Strong>Connect an external harness</Strong> panel at the top shows a copyable URL:
       </P>
       <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect`}</Pre>

@@ -8,9 +8,11 @@ export function Decisions() {
         title="Decision stack"
         lead={
           <>
-            Answer the few big choices your AI Employees cannot make alone, and review the work
-            plans and customer emails that need your authority. Each item is one short row you can
-            read in seconds; everything else waits behind <Strong>Details</Strong>.
+            The one place for everything waiting on you. Answer the few big choices your AI
+            Employees cannot make alone, review the work plans and customer emails that need your
+            authority, and reach every other queue — Approvals, Revisions, Initiatives — from the
+            same side menu. Each item is one short row you can read in seconds; everything else
+            waits behind <Strong>Details</Strong>.
           </>
         }
       />
@@ -174,11 +176,37 @@ export function Decisions() {
         them; any Member can dismiss or snooze the Decisions they can answer.
       </P>
 
-      <H2 id="active-and-history">Active and History</H2>
+      <H2 id="active-and-history">The side menu: Active, the other queues, and History</H2>
       <P>
-        The <Strong>Decision stack</Strong> has three pages in its side menu.{" "}
-        <Strong>Active</Strong> holds only what still needs someone, plus the rows you are
-        following after acting on them. <Strong>History</Strong> keeps everything already settled:
+        The <Strong>Decision stack</Strong> keeps every queue that waits on a person in its side
+        menu. <Strong>Active</Strong> holds the questions and the email and work reviews that still
+        need someone, plus the rows you are following after acting on them. Beside it:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Approvals</Strong> (owners and admins) — every other action the system held for a
+          person: a gated Routine tick, a browser form submit, a payment or an ad budget increase
+          over its limit. See <DocLink to="/docs/decisions#not-approvals">below</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Revisions</Strong> — edits to a Soul, Skill, or Routine brief that an AI Employee
+          proposed. See <DocLink to="/docs/improvement">Improvement</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Initiatives</Strong> — standing work an AI Employee proposed. See{" "}
+          <DocLink to="/docs/reactivity">Proactive work</DocLink>.
+        </LI>
+      </UL>
+      <P>
+        A number beside each says how much waits there. When anything waits outside the stack
+        itself — those three queues, todos someone asked you to review, or Finance proposals —
+        the top of <Strong>Active</Strong> names it in one line, <Strong>Also waiting</Strong>,
+        with a link to each, so this page answers &ldquo;what needs me?&rdquo; on its own. Members
+        can read Revisions and Initiatives; deciding them, and anything in Approvals, is for owners
+        and admins.
+      </P>
+      <P>
+        <Strong>History</Strong> keeps everything already settled:
         answered, dismissed and expired Decisions, and for owners and admins the email and work
         reviews that were sent, discarded, approved or declined. History uses the same one-line
         rows; an answered Decision also says who chose what.{" "}
@@ -411,7 +439,8 @@ export function Decisions() {
         <Strong>Send now</Strong> performs the exact reviewed send. Other Approvals include a gated{" "}
         <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{" "}
         <DocLink to="/docs/browser">browser form submit</DocLink> — and the server performs that
-        exact action once an admin approves it. That is why approvals are restricted to an owner or
+        exact action once an admin approves it. Those wait on the <Strong>Approvals</Strong> page
+        in the Decision stack&apos;s side menu. That is why approvals are restricted to an owner or
         admin in a logged-in browser session; ordinary Members and API keys cannot decide them.
       </P>
       <P>

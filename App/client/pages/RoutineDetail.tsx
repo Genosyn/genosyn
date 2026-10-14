@@ -53,6 +53,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -89,6 +90,7 @@ import {
 } from "../components/routines/RunViews";
 import { describeCronExpr } from "../lib/scheduleBuilder";
 import { ScheduleField } from "../components/ScheduleField";
+import { describeRoutineAdvanced, formatTimeout } from "../lib/routineAdvancedSummary";
 import {
   buildCheckSpec,
   checkSpecDraft,
@@ -409,7 +411,13 @@ export default function RoutineDetail({ company }: { company: Company }) {
           />
         )}
         {tab === "settings" && (
-          <SettingsTab company={company} routine={routine} folders={folders} onSaved={refresh} />
+          <SettingsTab
+            key={`${company.id}:${routine.id}`}
+            company={company}
+            routine={routine}
+            folders={folders}
+            onSaved={refresh}
+          />
         )}
 
         {activeRun && (
@@ -476,6 +484,20 @@ function OverviewTab({
 
   const pinHolds = !!routine.modelId && model?.id === routine.modelId;
   const recent = (runs ?? []).slice(0, 5);
+  // Only what the rows inside show, so the line never names something the
+  // person cannot find once they open it.
+  const moreDetailsSummary = describeRoutineAdvanced({
+    folderPath: folder?.path,
+    timeoutSec: routine.timeoutSec,
+    requiresApproval: routine.requiresApproval,
+    outcomeCheck: !!routine.acceptanceCriteria?.trim(),
+    browserEnabledOverride: routine.browserEnabledOverride ?? null,
+    memberBrowser: !!routine.memberBrowserId,
+    catchUpPolicy: routine.catchUpPolicy ?? "once",
+    maxAttempts: routine.maxAttempts ?? 1,
+    retryBackoffSec: routine.retryBackoffSec,
+    webhookEnabled: routine.webhookEnabled,
+  });
 
   return (
     <div className={clsx("grid gap-4", !compact && "md:grid-cols-2")}>
@@ -524,18 +546,6 @@ function OverviewTab({
                 </span>
               )}
             </Row>
-            <Row icon={<Folder size={14} />} label="Filed in">
-              {folder ? (
-                <Link
-                  to={`/c/${company.slug}/routines?folder=${encodeURIComponent(folder.slug)}`}
-                  className="hover:text-indigo-600 dark:hover:text-indigo-400"
-                >
-                  {folder.path}
-                </Link>
-              ) : (
-                <span className="text-slate-400 dark:text-slate-500">Unfiled</span>
-              )}
-            </Row>
           </div>
         </CardBody>
       </Card>
@@ -571,6 +581,30 @@ function OverviewTab({
               </span>
             ) : (
               <span className="text-slate-400 dark:text-slate-500">Never</span>
+            )}
+          </Row>
+        </CardBody>
+      </Card>
+
+      {/* Where the routine is filed and how it is guarded are worth knowing but
+          rarely worth reading; the summary keeps anything unusual in view. */}
+      <Disclosure
+        variant="card"
+        title="More details"
+        summary={moreDetailsSummary}
+        className={compact ? undefined : "md:col-span-2"}
+      >
+        <div className="flex flex-col gap-3">
+          <Row icon={<Folder size={14} />} label="Filed in">
+            {folder ? (
+              <Link
+                to={`/c/${company.slug}/routines?folder=${encodeURIComponent(folder.slug)}`}
+                className="hover:text-indigo-600 dark:hover:text-indigo-400"
+              >
+                {folder.path}
+              </Link>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500">Unfiled</span>
             )}
           </Row>
           <Row icon={<Timer size={14} />} label="Timeout">
@@ -611,8 +645,8 @@ function OverviewTab({
           <Row icon={<Webhook size={14} />} label="Webhook">
             {routine.webhookEnabled ? "Enabled" : "Off"}
           </Row>
-        </CardBody>
-      </Card>
+        </div>
+      </Disclosure>
 
       <LessonsCard company={company} routine={routine} compact={compact} />
 
@@ -985,12 +1019,6 @@ function Row({
       <span className="min-w-0 flex-1 text-slate-800 dark:text-slate-200">{children}</span>
     </div>
   );
-}
-
-function formatTimeout(sec: number): string {
-  if (sec % 3600 === 0) return `${sec / 3600}h`;
-  if (sec % 60 === 0) return `${sec / 60}m`;
-  return `${sec}s`;
 }
 
 /**
@@ -1509,12 +1537,6 @@ function SettingsTab({
   React.useEffect(() => {
     setCronExpr(routine.cronExpr);
   }, [routine.id, routine.cronExpr]);
-  const [enabled, setEnabled] = React.useState(routine.enabled);
-  // Re-seeded like the schedule: the header switch, or an AI Employee pausing
-  // the routine, must not be undone by a later Save here.
-  React.useEffect(() => {
-    setEnabled(routine.enabled);
-  }, [routine.id, routine.enabled]);
   // "" is the unfiled choice — the routine sits in no folder at all.
   const [folderId, setFolderId] = React.useState(routine.folderId ?? "");
 
@@ -1569,6 +1591,11 @@ function SettingsTab({
   const [error, setError] = React.useState<string | null>(null);
   const [webhookError, setWebhookError] = React.useState<string | null>(null);
   const [webhookNotice, setWebhookNotice] = React.useState<string | null>(null);
+  // How many Checks and Triggers there are, reported by their cards for the
+  // Advanced summary. `null` until each has loaded.
+  const [checkCount, setCheckCount] = React.useState<number | null>(null);
+  const [triggerCount, setTriggerCount] = React.useState<number | null>(null);
+  const criteriaId = React.useId();
 
   React.useEffect(() => {
     if (!emp) return;
@@ -1625,10 +1652,11 @@ function SettingsTab({
     setSaving(true);
     setError(null);
     try {
+      // `enabled` is not sent: the switch at the top of the page owns it, and a
+      // Save here must never put back a state somebody has since changed.
       await api.patch(`/api/companies/${company.id}/routines/${routine.id}`, {
         name,
         cronExpr,
-        enabled,
         timeoutSec,
         requiresApproval,
         folderId: folderId || null,
@@ -1662,6 +1690,23 @@ function SettingsTab({
       ? `${window.location.origin}/api/webhooks/r/${routine.id}/${webhookToken}`
       : null;
 
+  const advancedSummary = describeRoutineAdvanced({
+    folderPath: folders.find((f) => f.id === folderId)?.path ?? null,
+    timeoutSec,
+    requiresApproval,
+    checks: checkCount,
+    modelPinned: modelId !== "",
+    browserEnabledOverride:
+      browserOverride === "on" ? true : browserOverride === "off" ? false : null,
+    memberBrowser: memberBrowserId !== null,
+    catchUpPolicy,
+    maxAttempts,
+    retryBackoffSec,
+    retryOnTimeout,
+    triggers: triggerCount,
+    webhookEnabled,
+  });
+
   return (
     <div className="flex flex-col gap-4">
       <Card>
@@ -1669,21 +1714,7 @@ function SettingsTab({
           <SectionLabel>Basics</SectionLabel>
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-          <div className="flex flex-col gap-1">
-            <Select label="Folder" value={folderId} onChange={(e) => setFolderId(e.target.value)}>
-              <option value="">Unfiled</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.path}
-                </option>
-              ))}
-            </Select>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {folders.length === 0
-                ? "No folders yet — create one from the Routines sidebar."
-                : "Where this routine lives. Use tags for what it’s about; a routine has one folder and any number of tags."}
-            </div>
-          </div>
+          <ScheduleField value={cronExpr} onChange={setCronExpr} />
 
           <div className="flex flex-col gap-1">
             <Select label="Goal" value={goalId} onChange={(e) => setGoalId(e.target.value)}>
@@ -1703,55 +1734,16 @@ function SettingsTab({
             </div>
           </div>
 
-          <ScheduleField value={cronExpr} onChange={setCronExpr} />
-
           <div className="flex flex-col gap-1">
-            <Input
-              label="Timeout (seconds)"
-              type="number"
-              min={10}
-              max={21600}
-              value={String(timeoutSec)}
-              onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 3600))}
-            />
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Stop after this long. The Run is marked <strong>Error</strong>, with a timeout reason.
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-            />
-            Enabled
-          </label>
-
-          <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                checked={requiresApproval}
-                onChange={(e) => setRequiresApproval(e.target.checked)}
-              />
-              Require approval before each scheduled run
-            </label>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Manual &quot;Run now&quot; still runs immediately — a human is already in the loop.
-            </div>
-          </div>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardBody className="flex flex-col gap-4">
-          <SectionLabel>Outcome check</SectionLabel>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Acceptance criteria
+            <label
+              htmlFor={criteriaId}
+              className="text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              What counts as done
             </label>
             <textarea
+              id={criteriaId}
+              aria-describedby={`${criteriaId}-hint`}
               value={acceptanceCriteria}
               onChange={(e) => setAcceptanceCriteria(e.target.value)}
               rows={4}
@@ -1761,293 +1753,359 @@ function SettingsTab({
               }
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Written in plain language. The criteria ride along in every run&apos;s brief, and
-              after a completed run a restricted checker grades the transcript against them — the
-              verdict shows on the run as <code>achieved</code> / <code>unclear</code> /{" "}
-              <code>off goal</code>, and an off-goal run notifies the company&apos;s owners and
-              admins, plus this employee&apos;s manager. Leave empty to switch the check off.
+            <div id={`${criteriaId}-hint`} className="text-xs text-slate-500 dark:text-slate-400">
+              The acceptance criteria, in plain language. They ride along in every run&apos;s brief,
+              and after a completed run a restricted checker grades the work against them; an
+              off-goal run notifies the company&apos;s owners and admins, plus this employee&apos;s
+              manager. Leave empty to switch the check off.
             </div>
           </div>
         </CardBody>
       </Card>
 
-      <ChecksCard company={company} routine={routine} />
-
-      <Card>
-        <CardBody className="flex flex-col gap-4">
-          <SectionLabel>Execution</SectionLabel>
-          <div className="flex flex-col gap-1.5">
-            <Select
-              label="Model"
-              value={modelId}
-              disabled={models === null}
-              onChange={(e) => setModelId(e.target.value)}
-            >
-              <option value="">
-                {activeModel
-                  ? `Inherit — ${activeModel.provider} · ${activeModel.model}`
-                  : "Inherit the employee's active model"}
-              </option>
-              {(models ?? [])
-                .filter((m) => m.id !== activeModel?.id)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.provider} · {m.model}
-                  </option>
-                ))}
-            </Select>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {pinnedModelMissing
-                ? "The model this routine was pinned to is gone. It now inherits the employee's active model."
-                : "Inherit follows whichever model is active for the employee. Pinning applies to this routine's Runs only — employee Chat has its own per-message model picker."}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Browser access
-            </span>
-            <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
-              {(
-                [
-                  ["inherit", "Inherit"],
-                  ["on", "Force on"],
-                  ["off", "Force off"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setBrowserOverride(value)}
-                  className={
-                    "flex-1 rounded px-2 py-1 transition " +
-                    (browserOverride === value
-                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
-                  }
+      {/* Everything past the basics. The cards stay mounted while this is
+          closed: Checks and Triggers load their own rows, and the summary needs
+          their counts. Checks, Triggers and the Webhook save as you change
+          them; the rest rides the Save button below. */}
+      <Disclosure variant="row" title="Advanced" summary={advancedSummary} keepMounted>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardBody className="flex flex-col gap-4">
+              <SectionLabel>Folder, timeout and approval</SectionLabel>
+              <div className="flex flex-col gap-1">
+                <Select
+                  label="Folder"
+                  value={folderId}
+                  onChange={(e) => setFolderId(e.target.value)}
                 >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Inherit uses the employee&apos;s Browser access setting. An override applies only to
-              this routine&apos;s runs.
-            </div>
-          </div>
-
-          {memberBrowsers.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Which browser
-              </span>
-              <Select
-                aria-label="Browser this routine runs in"
-                value={memberBrowserId ?? ""}
-                onChange={(e) => setMemberBrowserId(e.target.value || null)}
-              >
-                <option value="">Genosyn&apos;s browser</option>
-                {memberBrowsers.map((browser) => (
-                  <option key={browser.id} value={browser.id} disabled={!browser.allowUnattended}>
-                    {browser.name}
-                    {browser.routineRecordingConsentRequired
-                      ? " (needs re-confirmation)"
-                      : !browser.allowUnattended
-                        ? " (unavailable for Routines)"
-                        : ""}
-                  </option>
-                ))}
-              </Select>
-              {memberBrowserId &&
-                memberBrowsers.some(
-                  (browser) =>
-                    browser.id === memberBrowserId && browser.routineRecordingConsentRequired,
-                ) && (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">
-                    Its owner needs to turn scheduled Routine use on again under the new recording
-                    notice in Settings → Browsers.
-                  </div>
-                )}
-              {memberBrowserId &&
-                memberBrowsers.some(
-                  (browser) =>
-                    browser.id === memberBrowserId &&
-                    !browser.allowUnattended &&
-                    !browser.routineRecordingConsentRequired,
-                ) && (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">
-                    This browser is not available to scheduled Routines. Its owner can enable it in
-                    Settings → Browsers.
-                  </div>
-                )}
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                A routine fires on a schedule with nobody watching. If you point it at a browser on
-                your own computer and that computer is asleep when the routine runs, the run fails
-                rather than quietly using a different browser.
+                  <option value="">Unfiled</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.path}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {folders.length === 0
+                    ? "No folders yet — create one from the Routines sidebar."
+                    : "Where this routine lives. Use tags for what it’s about; a routine has one folder and any number of tags."}
+                </div>
               </div>
-            </div>
-          )}
-        </CardBody>
-      </Card>
 
-      <Card>
-        <CardBody className="flex flex-col gap-4">
-          <SectionLabel>Reliability</SectionLabel>
+              <div className="flex flex-col gap-1">
+                <Input
+                  label="Timeout (seconds)"
+                  type="number"
+                  min={10}
+                  max={21600}
+                  value={String(timeoutSec)}
+                  onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 3600))}
+                />
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Stop after this long. The Run is marked <strong>Error</strong>, with a timeout
+                  reason.
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              After downtime
-            </span>
-            <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
-              {(
-                [
-                  ["once", "Run once"],
-                  ["skip", "Skip"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setCatchUpPolicy(value)}
-                  className={
-                    "flex-1 rounded px-2 py-1 transition " +
-                    (catchUpPolicy === value
-                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
-                  }
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={requiresApproval}
+                    onChange={(e) => setRequiresApproval(e.target.checked)}
+                  />
+                  Require approval before each scheduled run
+                </label>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Manual &quot;Run now&quot; still runs immediately — a human is already in the
+                  loop.
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          <ChecksCard company={company} routine={routine} onCount={setCheckCount} />
+
+          <Card>
+            <CardBody className="flex flex-col gap-4">
+              <SectionLabel>Execution</SectionLabel>
+              <div className="flex flex-col gap-1.5">
+                <Select
+                  label="Model"
+                  value={modelId}
+                  disabled={models === null}
+                  onChange={(e) => setModelId(e.target.value)}
                 >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              A routine fires once after an outage, never once per missed slot. Skip suppresses that
-              catch-up run when the slot is already more than a minute late — for work that&apos;s
-              only useful on time.
-            </div>
-          </div>
+                  <option value="">
+                    {activeModel
+                      ? `Inherit — ${activeModel.provider} · ${activeModel.model}`
+                      : "Inherit the employee's active model"}
+                  </option>
+                  {(models ?? [])
+                    .filter((m) => m.id !== activeModel?.id)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.provider} · {m.model}
+                      </option>
+                    ))}
+                </Select>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {pinnedModelMissing
+                    ? "The model this routine was pinned to is gone. It now inherits the employee's active model."
+                    : "Inherit follows whichever model is active for the employee. Pinning applies to this routine's Runs only — employee Chat has its own per-message model picker."}
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-1">
-            <Input
-              label="Attempts"
-              type="number"
-              min={1}
-              max={5}
-              value={String(maxAttempts)}
-              onChange={(e) =>
-                setMaxAttempts(Math.min(5, Math.max(1, Number(e.target.value) || 1)))
-              }
-            />
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Counting the first. At 1, ordinary failure and Error retries are off. Saved unfinished
-              work still continues automatically within the original time limit. An initial
-              scheduled Run on an enabled routine without an approval gate receives one recovery
-              attempt after an hour if a restart interrupts it. Retries re-run the whole brief and
-              may repeat actions. Use Cancel retry on the Run if repeating its actions would be
-              unsafe.
-            </div>
-          </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Browser access
+                </span>
+                <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+                  {(
+                    [
+                      ["inherit", "Inherit"],
+                      ["on", "Force on"],
+                      ["off", "Force off"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setBrowserOverride(value)}
+                      className={
+                        "flex-1 rounded px-2 py-1 transition " +
+                        (browserOverride === value
+                          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Inherit uses the employee&apos;s Browser access setting. An override applies only
+                  to this routine&apos;s runs.
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-1">
-            <Input
-              label="Retry backoff (seconds)"
-              type="number"
-              min={10}
-              max={21600}
-              disabled={maxAttempts <= 1}
-              value={String(retryBackoffSec)}
-              onChange={(e) => setRetryBackoffSec(Math.max(10, Number(e.target.value) || 60))}
-            />
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {maxAttempts <= 1
-                ? "Interrupted Runs use a fixed one-hour recovery delay while Attempts is 1."
-                : `Doubles each attempt with jitter — roughly ${backoffPreview(retryBackoffSec, maxAttempts)}.`}
-            </div>
-          </div>
+              {memberBrowsers.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Which browser
+                  </span>
+                  <Select
+                    aria-label="Browser this routine runs in"
+                    value={memberBrowserId ?? ""}
+                    onChange={(e) => setMemberBrowserId(e.target.value || null)}
+                  >
+                    <option value="">Genosyn&apos;s browser</option>
+                    {memberBrowsers.map((browser) => (
+                      <option
+                        key={browser.id}
+                        value={browser.id}
+                        disabled={!browser.allowUnattended}
+                      >
+                        {browser.name}
+                        {browser.routineRecordingConsentRequired
+                          ? " (needs re-confirmation)"
+                          : !browser.allowUnattended
+                            ? " (unavailable for Routines)"
+                            : ""}
+                      </option>
+                    ))}
+                  </Select>
+                  {memberBrowserId &&
+                    memberBrowsers.some(
+                      (browser) =>
+                        browser.id === memberBrowserId && browser.routineRecordingConsentRequired,
+                    ) && (
+                      <div className="text-xs text-amber-700 dark:text-amber-300">
+                        Its owner needs to turn scheduled Routine use on again under the new
+                        recording notice in Settings → Browsers.
+                      </div>
+                    )}
+                  {memberBrowserId &&
+                    memberBrowsers.some(
+                      (browser) =>
+                        browser.id === memberBrowserId &&
+                        !browser.allowUnattended &&
+                        !browser.routineRecordingConsentRequired,
+                    ) && (
+                      <div className="text-xs text-amber-700 dark:text-amber-300">
+                        This browser is not available to scheduled Routines. Its owner can enable it
+                        in Settings → Browsers.
+                      </div>
+                    )}
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    A routine fires on a schedule with nobody watching. If you point it at a browser
+                    on your own computer and that computer is asleep when the routine runs, the run
+                    fails rather than quietly using a different browser.
+                  </div>
+                </div>
+              )}
+            </CardBody>
+          </Card>
 
-          <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                disabled={maxAttempts <= 1}
-                checked={retryOnTimeout}
-                onChange={(e) => setRetryOnTimeout(e.target.checked)}
-              />
-              Retry runs that timed out
-            </label>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Off by default: a timed-out Run re-burns its full time budget on the retry.
-            </div>
-          </div>
-        </CardBody>
-      </Card>
+          <Card>
+            <CardBody className="flex flex-col gap-4">
+              <SectionLabel>Reliability</SectionLabel>
 
-      <TriggersCard company={company} routine={routine} />
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  After downtime
+                </span>
+                <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+                  {(
+                    [
+                      ["once", "Run once"],
+                      ["skip", "Skip"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCatchUpPolicy(value)}
+                      className={
+                        "flex-1 rounded px-2 py-1 transition " +
+                        (catchUpPolicy === value
+                          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  A routine fires once after an outage, never once per missed slot. Skip suppresses
+                  that catch-up run when the slot is already more than a minute late — for work
+                  that&apos;s only useful on time.
+                </div>
+              </div>
 
-      <Card>
-        <CardBody className="flex flex-col gap-2">
-          <SectionLabel>Webhook</SectionLabel>
-          <div className="flex items-center justify-between gap-2">
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                checked={webhookEnabled}
-                onChange={(e) => toggleWebhook(e.target.checked)}
-              />
-              Trigger via incoming webhook
-            </label>
-            {webhookEnabled && webhookToken && (
-              <Button
-                size="sm"
-                variant="ghost"
-                loading={regenerating}
-                onClick={async () => {
-                  setRegenerating(true);
-                  try {
-                    await toggleWebhook(false);
-                    await toggleWebhook(true);
-                  } finally {
-                    setRegenerating(false);
+              <div className="flex flex-col gap-1">
+                <Input
+                  label="Attempts"
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={String(maxAttempts)}
+                  onChange={(e) =>
+                    setMaxAttempts(Math.min(5, Math.max(1, Number(e.target.value) || 1)))
                   }
-                }}
-              >
-                Regenerate token
-              </Button>
-            )}
-          </div>
-          <FormError message={webhookError} />
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            External systems POST here to fire this routine. The URL itself is the credential — keep
-            it secret. This one saves immediately.
-          </div>
-          {webhookUrl && (
-            <div className="flex items-center gap-1">
-              <code className="min-w-0 flex-1 truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-800 dark:bg-slate-800 dark:text-slate-100">
-                {webhookUrl}
-              </code>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  setWebhookNotice(null);
-                  const ok = await copyToClipboard(webhookUrl);
-                  if (!ok) {
-                    void dialog.error("Could not access the clipboard.", {
-                      title: "Couldn’t copy the webhook URL",
-                    });
-                    return;
-                  }
-                  setWebhookNotice("Webhook URL copied.");
-                }}
-              >
-                <Copy size={12} />
-              </Button>
-            </div>
-          )}
-          <FormSuccess message={webhookNotice} />
-        </CardBody>
-      </Card>
+                />
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Counting the first. At 1, ordinary failure and Error retries are off. Saved
+                  unfinished work still continues automatically within the original time limit. An
+                  initial scheduled Run on an enabled routine without an approval gate receives one
+                  recovery attempt after an hour if a restart interrupts it. Retries re-run the
+                  whole brief and may repeat actions. Use Cancel retry on the Run if repeating its
+                  actions would be unsafe.
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Input
+                  label="Retry backoff (seconds)"
+                  type="number"
+                  min={10}
+                  max={21600}
+                  disabled={maxAttempts <= 1}
+                  value={String(retryBackoffSec)}
+                  onChange={(e) => setRetryBackoffSec(Math.max(10, Number(e.target.value) || 60))}
+                />
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {maxAttempts <= 1
+                    ? "Interrupted Runs use a fixed one-hour recovery delay while Attempts is 1."
+                    : `Doubles each attempt with jitter — roughly ${backoffPreview(retryBackoffSec, maxAttempts)}.`}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    disabled={maxAttempts <= 1}
+                    checked={retryOnTimeout}
+                    onChange={(e) => setRetryOnTimeout(e.target.checked)}
+                  />
+                  Retry runs that timed out
+                </label>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Off by default: a timed-out Run re-burns its full time budget on the retry.
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          <TriggersCard company={company} routine={routine} onCount={setTriggerCount} />
+
+          <Card>
+            <CardBody className="flex flex-col gap-2">
+              <SectionLabel>Webhook</SectionLabel>
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={webhookEnabled}
+                    onChange={(e) => toggleWebhook(e.target.checked)}
+                  />
+                  Trigger via incoming webhook
+                </label>
+                {webhookEnabled && webhookToken && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={regenerating}
+                    onClick={async () => {
+                      setRegenerating(true);
+                      try {
+                        await toggleWebhook(false);
+                        await toggleWebhook(true);
+                      } finally {
+                        setRegenerating(false);
+                      }
+                    }}
+                  >
+                    Regenerate token
+                  </Button>
+                )}
+              </div>
+              <FormError message={webhookError} />
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                External systems POST here to fire this routine. The URL itself is the credential —
+                keep it secret. This one saves immediately.
+              </div>
+              {webhookUrl && (
+                <div className="flex items-center gap-1">
+                  <code className="min-w-0 flex-1 truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-800 dark:bg-slate-800 dark:text-slate-100">
+                    {webhookUrl}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={async () => {
+                      setWebhookNotice(null);
+                      const ok = await copyToClipboard(webhookUrl);
+                      if (!ok) {
+                        void dialog.error("Could not access the clipboard.", {
+                          title: "Couldn’t copy the webhook URL",
+                        });
+                        return;
+                      }
+                      setWebhookNotice("Webhook URL copied.");
+                    }}
+                  >
+                    <Copy size={12} />
+                  </Button>
+                </div>
+              )}
+              <FormSuccess message={webhookNotice} />
+            </CardBody>
+          </Card>
+        </div>
+      </Disclosure>
 
       <FormError message={error} />
 
@@ -2068,7 +2126,8 @@ function SettingsTab({
               a Run in flight is interrupted, its retries defer rather than pile up, and skipped
               slots still advance the schedule so lifting it later produces no catch-up storm. Chat
               with the employee keeps working — this covers the routine only. Pausing is the
-              ordinary switch under Basics; this one records who stopped the work and why.
+              ordinary switch at the top of this page; this one records who stopped the work and
+              why.
             </div>
           </div>
           <StanddownControl
@@ -2132,7 +2191,16 @@ function SettingsTab({
  * routine. Reads are member-level; the toggle, delete, and add form are
  * admin-only.
  */
-function TriggersCard({ company, routine }: { company: Company; routine: RoutineWithMeta }) {
+function TriggersCard({
+  company,
+  routine,
+  onCount,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  /** Told how many Triggers there are each time the list loads, for the Advanced summary. */
+  onCount?: (count: number) => void;
+}) {
   const [data, setData] = React.useState<RoutineTriggerList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
@@ -2156,6 +2224,10 @@ function TriggersCard({ company, routine }: { company: Company; routine: Routine
   React.useEffect(() => {
     void reload();
   }, [reload]);
+
+  React.useEffect(() => {
+    if (data) onCount?.(data.triggers.length);
+  }, [data, onCount]);
 
   // Trigger changes ride the routine's own live-sync kind, scoped by
   // routineId — another admin's edit lands here without a manual refresh.
@@ -2361,13 +2433,13 @@ function AddTriggerForm({
 // ────────────────────────────── Checks ──────────────────────────────────
 
 /**
- * The **Checks** on this routine, beside the acceptance criteria on purpose.
+ * The **Checks** on this routine, the counterpart of its acceptance criteria.
  *
  * The two answer the same question from opposite sides. Acceptance criteria
  * are the bar a model judges: prose, read by a restricted checker against a
  * transcript the graded model wrote. A Check is the bar the server judges —
  * a command that exited 0, or a write the effect ledger actually contains.
- * Putting them in one place is what stops a Routine from being tuned against
+ * Setting them side by side is what stops a Routine from being tuned against
  * whichever bar is easier to satisfy.
  *
  * Like the Webhook and Triggers cards, everything here saves immediately
@@ -2376,7 +2448,16 @@ function AddTriggerForm({
  * mutation is admin-gated at the route — the graded party cannot author its
  * own bar, which is the entire point of the primitive.
  */
-function ChecksCard({ company, routine }: { company: Company; routine: RoutineWithMeta }) {
+function ChecksCard({
+  company,
+  routine,
+  onCount,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  /** Told how many Checks there are each time the list loads, for the Advanced summary. */
+  onCount?: (count: number) => void;
+}) {
   const [data, setData] = React.useState<RoutineCheckList | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<string | null>(null);
@@ -2402,6 +2483,10 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
   React.useEffect(() => {
     void reload();
   }, [reload]);
+
+  React.useEffect(() => {
+    if (data) onCount?.(data.checks.length);
+  }, [data, onCount]);
 
   const checks = data?.checks ?? [];
   const atLimit = checks.length >= MAX_CHECKS_PER_ROUTINE;
@@ -2470,7 +2555,7 @@ function ChecksCard({ company, routine }: { company: Company; routine: RoutineWi
         <SectionLabel>Checks</SectionLabel>
         <div className="text-xs text-slate-500 dark:text-slate-400">
           Machine-verifiable assertions a Run must pass before it can finish green. The acceptance
-          criteria above are graded by a model reading a transcript; a Check is graded by the
+          criteria under Basics are graded by a model reading a transcript; a Check is graded by the
           server, which is why a Run cannot talk its way past one. A failed required Check earns up
           to two remediation rounds inside the Run&apos;s own timeout, and then fails the Run. The
           employee is shown its Checks in every brief — it should know the bar it is aimed at — and

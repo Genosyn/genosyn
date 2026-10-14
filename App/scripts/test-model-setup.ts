@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright-core";
 import { startBrowserFixture } from "./browserFixture";
-import type { AIModel } from "../client/lib/api";
+import type { AIModel, ReusableModel } from "../client/lib/api";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, "../output/playwright");
@@ -24,7 +24,12 @@ let discoveryFailure = false;
 let connectFailure = false;
 let listFailure = false;
 let customFailure = false;
+let reuseFailure = false;
 let modelRows: AIModel[] = [];
+// What the company already runs on, as the server would offer it to this employee.
+let reusableRows: ReusableModel[] = [];
+let reusableRequests = 0;
+const reuseRequests: Array<Record<string, unknown>> = [];
 const customRequests: Array<{ path: string; body: Record<string, unknown> }> = [];
 let holdDiscovery = false;
 const discoveryGate: { release?: () => void } = {};
@@ -33,6 +38,39 @@ const pageErrors: string[] = [];
 const pendingAssets = new Set<string>();
 const failedAssets: string[] = [];
 let currentPage: Page | null = null;
+/** A connected API-key model, with every field the server sends. */
+function connectedRow(overrides: Partial<AIModel> = {}): AIModel {
+  return {
+    id: "claude-model",
+    employeeId: "employee",
+    provider: "anthropic",
+    model: "claude-sonnet-live",
+    authMode: "apikey",
+    isActive: true,
+    connectedAt: "2026-09-09T12:00:00Z",
+    status: "connected",
+    apiKeyMasked: "sk-…••••",
+    // The server still sends the conventional env var; no screen may show it.
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    supportsApiKey: true,
+    supportsSubscription: false,
+    subscriptionAvailable: false,
+    subscriptionUnavailableReason: null,
+    subscriptionCredentialKind: null,
+    subscriptionShellAvailable: false,
+    supportsCustomEndpoint: false,
+    customEndpointHost: null,
+    customEndpointModelId: null,
+    customEndpointHasApiKey: false,
+    contextWindow: 200_000,
+    contextWindowSource: "probed",
+    contextWindowProbeable: true,
+    maxConcurrentRuns: null,
+    effectiveMaxConcurrentRuns: null,
+    concurrencySource: "unlimited",
+    ...overrides,
+  };
+}
 await context.routeWebSocket(/\/api\/ws\?/, () => undefined);
 await context.route("**/api/**", async (route) => {
   const pathname = new URL(route.request().url()).pathname;
@@ -83,6 +121,22 @@ await context.route("**/api/**", async (route) => {
       }));
     }
     return route.fulfill({ json: { id: "custom-model", status: "connected" } });
+  }
+  if (pathname.endsWith("/models/reusable")) {
+    reusableRequests++;
+    return route.fulfill({ json: reusableRows });
+  }
+  if (pathname.endsWith("/models/reuse")) {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    reuseRequests.push(body);
+    if (reuseFailure)
+      return route.fulfill({
+        status: 400,
+        json: { error: "Casey is signed in with ChatGPT, and a ChatGPT sign-in can't be shared." },
+      });
+    const offer = reusableRows.find((row) => row.id === body.sourceModelId)!;
+    modelRows = [connectedRow({ provider: offer.provider, model: offer.model })];
+    return route.fulfill({ json: { id: "claude-model", status: "connected" } });
   }
   if (pathname.endsWith("/models") && route.request().method() === "GET")
     return route.fulfill(
@@ -232,6 +286,203 @@ try {
   checks++;
   await page.close();
 
+  // The "where do I get a key" link follows the service chosen above it: none for
+  // a ChatGPT sign-in or a custom endpoint, which have no key to get.
+  page = await open();
+  const anthropicLink = page.getByRole("link", { name: "Get an Anthropic key" });
+  const openaiLink = page.getByRole("link", { name: "Get an OpenAI key" });
+  await anthropicLink.waitFor();
+  assert.equal(
+    await anthropicLink.getAttribute("href"),
+    "https://console.anthropic.com/settings/keys",
+  );
+  assert.equal(await openaiLink.count(), 0);
+  checks++;
+  await choose(page, "AI Model service", "OpenAI / ChatGPT");
+  await openaiLink.waitFor();
+  assert.equal(await openaiLink.getAttribute("href"), "https://platform.openai.com/api-keys");
+  assert.equal(await anthropicLink.count(), 0);
+  checks++;
+  await choose(page, "Connect with", "ChatGPT sign-in");
+  assert.equal((await openaiLink.count()) + (await anthropicLink.count()), 0);
+  checks++;
+  await choose(page, "AI Model service", "Custom endpoint");
+  assert.equal((await openaiLink.count()) + (await anthropicLink.count()), 0);
+  checks++;
+  await page.close();
+
+  // With nothing to reuse, an employee with no AI Model gets the connect form, with
+  // no claim that every employee must paste their own key.
+  page = await open("?section");
+  await page.getByLabel("API key", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByText("Each AI Employee keeps their own", { exact: false }).count(),
+    0,
+  );
+  assert.equal(await page.getByRole("button", { name: /Use the same AI Model as/ }).count(), 0);
+  checks++;
+  await page.close();
+
+  // A company that already has an AI Model leads with it. The key is copied on the
+  // server, so the screen never asks for one; connecting a different model is the
+  // quieter path, and the other models the company has are listed there.
+  reusableRows = [
+    {
+      id: "source-model",
+      employeeId: "casey",
+      employeeName: "Casey",
+      provider: "anthropic",
+      model: "claude-sonnet-live",
+      authMode: "apikey",
+      endpointHost: null,
+      isActive: true,
+    },
+    {
+      id: "endpoint-model",
+      employeeId: "sam",
+      employeeName: "Sam",
+      provider: "custom",
+      model: "qwen3-27b",
+      authMode: "customEndpoint",
+      endpointHost: "gpu-box.internal:8000",
+      isActive: true,
+    },
+  ];
+  page = await open("?section");
+  const reuseButton = page.getByRole("button", {
+    name: "Use the same AI Model as Casey",
+    exact: true,
+  });
+  await reuseButton.waitFor();
+  await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
+  assert.equal(
+    await page.getByText("Each AI Employee keeps their own", { exact: false }).count(),
+    0,
+  );
+  checks++;
+  await page.setViewportSize({ width: 375, height: 812 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  checks++;
+  await page.screenshot({ path: path.join(artifacts, "model-reuse-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.getByRole("button", { name: "Connect a different model", exact: true }).click();
+  await page.getByLabel("API key", { exact: true }).waitFor();
+  assert.equal(await reuseButton.count(), 0);
+  await page.getByText("Custom endpoint · qwen3-27b", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Use this one", exact: true }).count(), 1);
+  checks++;
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await reuseButton.waitFor();
+  checks++;
+  reuseFailure = true;
+  await reuseButton.click();
+  await page.getByRole("alert").filter({ hasText: "can't be shared" }).waitFor();
+  assert.equal(await reuseButton.isEnabled(), true);
+  assert.deepEqual(modelRows, []);
+  checks++;
+  reuseFailure = false;
+  await reuseButton.click();
+  await page.getByText("Connected with an API key", { exact: false }).waitFor();
+  assert.deepEqual(reuseRequests.at(-1), { sourceModelId: "source-model" });
+  assert.equal(
+    await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).count(),
+    1,
+  );
+  assert.doesNotMatch(await page.locator("main").innerText(), /ANTHROPIC_API_KEY|OPENAI_API_KEY/);
+  checks++;
+  await page.close();
+
+  // Only an owner or admin can put a credential on an employee: a Member is not
+  // offered the shortcut (and the list is never requested for them).
+  modelRows = [];
+  reusableRequests = 0;
+  page = await open("?section&role=member");
+  await page.getByLabel("API key", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: /Use the same AI Model as/ }).count(), 0);
+  assert.equal(reusableRequests, 0);
+  checks++;
+  await page.close();
+  reusableRows = [];
+  modelRows = [];
+
+  // A connected model is a title and a badge. Everything that tunes, changes or
+  // removes it waits behind one Advanced line, which says what has been changed.
+  modelRows = [connectedRow()];
+  page = await open("?section");
+  await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).waitFor();
+  await page.getByText("Connected with an API key", { exact: false }).waitFor();
+  assert.doesNotMatch(await page.locator("main").innerText(), /ANTHROPIC_API_KEY|OPENAI_API_KEY/);
+  assert.equal(
+    await page
+      .getByText("Context window, concurrent Runs, add or remove models", { exact: true })
+      .isVisible(),
+    true,
+  );
+  for (const hidden of [
+    page.getByText("Context window", { exact: true }),
+    page.getByText("Concurrent Routine Runs", { exact: true }),
+    page.getByRole("button", { name: "Add model", exact: true }),
+    page.getByRole("button", { name: "Remove", exact: true }),
+  ]) {
+    assert.equal(await hidden.first().isVisible(), false);
+  }
+  checks++;
+  await page.getByText("Advanced", { exact: true }).click();
+  for (const shown of [
+    page.getByText("Context window", { exact: true }),
+    page.getByText("Concurrent Routine Runs", { exact: true }),
+    page.getByRole("button", { name: "Add model", exact: true }),
+    page.getByRole("button", { name: "Remove", exact: true }),
+  ]) {
+    await shown.first().waitFor({ state: "visible" });
+  }
+  checks++;
+  await page.close();
+
+  modelRows = [
+    connectedRow({
+      contextWindow: 65_536,
+      contextWindowSource: "manual",
+      maxConcurrentRuns: 2,
+      effectiveMaxConcurrentRuns: 2,
+      concurrencySource: "configured",
+    }),
+  ];
+  page = await open("?section");
+  await page
+    .getByText("Context window set manually · 2 concurrent Runs", { exact: true })
+    .waitFor({ state: "visible" });
+  assert.equal(await page.getByText("Concurrent Routine Runs", { exact: true }).isVisible(), false);
+  checks++;
+  await page.close();
+
+  // With several models the active one leads and the others offer Make active
+  // without opening anything; Advanced counts them.
+  modelRows = [
+    connectedRow(),
+    connectedRow({
+      id: "gpt-model",
+      provider: "openai",
+      model: "gpt-live",
+      isActive: false,
+      contextWindow: null,
+      contextWindowProbeable: false,
+    }),
+  ];
+  page = await open("?section");
+  await page.getByText("OpenAI · gpt-live", { exact: true }).first().waitFor();
+  await page.getByRole("button", { name: "Make active", exact: true }).waitFor();
+  // One Active badge on screen: the copy under Advanced stays folded away.
+  assert.equal(
+    await page.getByText("Active", { exact: true }).filter({ visible: true }).count(),
+    1,
+  );
+  await page.getByText("1 other AI Model", { exact: true }).waitFor({ state: "visible" });
+  checks++;
+  await page.close();
+  modelRows = [];
+
   // Creating a custom model uses one verified save, without a placeholder model row.
   page = await open();
   await choose(page, "AI Model service", "Custom endpoint");
@@ -296,7 +547,10 @@ try {
     },
   ];
   page = await open("?section");
-  await page.getByText("custom · custom-original", { exact: true }).waitFor();
+  await page.getByText("Custom endpoint · custom-original", { exact: true }).waitFor();
+  // Changing a model is advanced: it sits under the one Advanced line, closed until opened.
+  assert.equal(await page.getByLabel("Base URL", { exact: true }).isVisible(), false);
+  await page.getByText("Advanced", { exact: true }).click();
   await page.getByText("Change provider, model, or endpoint", { exact: true }).click();
   assert.equal(await page.getByLabel("Base URL", { exact: true }).count(), 1);
   checks++;
@@ -305,7 +559,10 @@ try {
   customFailure = true;
   await page.getByRole("button", { name: "Update endpoint" }).click();
   await page.getByRole("alert").filter({ hasText: "tool-use test" }).waitFor();
-  assert.equal(await page.getByText("custom · custom-original", { exact: true }).count(), 1);
+  assert.equal(
+    await page.getByText("Custom endpoint · custom-original", { exact: true }).count(),
+    1,
+  );
   checks++;
   assert.equal(
     await page.getByLabel("Model id (optional)", { exact: true }).inputValue(),
@@ -314,7 +571,7 @@ try {
   checks++;
   customFailure = false;
   await page.getByRole("button", { name: "Update endpoint" }).click();
-  await page.getByText("custom · custom-updated", { exact: true }).waitFor();
+  await page.getByText("Custom endpoint · custom-updated", { exact: true }).waitFor();
   assert.match(customRequests.at(-1)!.path, /\/custom-model\/custom-endpoint$/);
   checks++;
   assert.equal(customRequests.at(-1)!.body.modelId, "custom-updated");

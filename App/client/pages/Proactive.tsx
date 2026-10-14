@@ -304,8 +304,8 @@ function ReviewFlow({ company }: { company: Company }) {
         </p>
         <nav aria-label="Proactive work destinations" className="flex flex-wrap gap-x-4 gap-y-2">
           <FlowLink to={`/c/${company.slug}/decisions`}>Decision stack</FlowLink>
-          <FlowLink to={`/c/${company.slug}/initiatives`}>Initiatives</FlowLink>
-          <FlowLink to={`/c/${company.slug}/revisions`}>Revisions</FlowLink>
+          <FlowLink to={`/c/${company.slug}/decisions/initiatives`}>Initiatives</FlowLink>
+          <FlowLink to={`/c/${company.slug}/decisions/revisions`}>Revisions</FlowLink>
           <FlowLink to={`/c/${company.slug}/routines`}>All Routines</FlowLink>
         </nav>
       </div>

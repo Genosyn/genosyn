@@ -23,6 +23,7 @@ import {
 } from "../services/modelSetup.js";
 import { previewBaseURL } from "../services/customEndpoint.js";
 import { connectCustomModel } from "../services/customModelSetup.js";
+import { listReusableModels, reuseModelForEmployee } from "../services/modelReuse.js";
 import { editSubscriptionModel } from "../services/subscriptionModelSetup.js";
 import { canProbeContextWindow } from "../services/agent/contextWindow.js";
 import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
@@ -51,6 +52,9 @@ import {
  * subscription through the pinned official Codex app-server on trusted
  * self-hosted installs. Every credential remains encrypted in `configJson`.
  * `POST /:id/activate` flips the default model used by the runner and chat.
+ * `GET /reusable` and `POST /reuse` let a new employee use an AI Model another
+ * employee in the company already runs on, copied on the server (see
+ * `services/modelReuse.ts`).
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -303,6 +307,52 @@ modelsRouter.post(
           authMode: model.authMode,
           verified: true,
         },
+      });
+      res.json(await publicModel(model, ctx.emp));
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  },
+);
+
+// GET /api/companies/:cid/employees/:eid/models/reusable
+//
+// The AI Models other AI Employees in this company already run on, so the UI can
+// offer "use the same AI Model as Avery" instead of asking for the key again.
+// Provider, model and the owning employee only — never a credential, a
+// ciphertext or an endpoint URL. The employee's own models are left out.
+modelsRouter.get("/reusable", validateParams(modelCollectionParamsSchema), async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadContext(p.cid, p.eid);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  res.json(await listReusableModels(ctx.co.id, { excludeEmployeeId: ctx.emp.id }));
+});
+
+// POST /api/companies/:cid/employees/:eid/models/reuse
+//
+// Connect this employee with a copy of another AI Employee's AI Model from the
+// same company and make it their active one. The copy happens on the server, so
+// the credential never reaches the browser; a ChatGPT subscription is refused
+// because a sign-in belongs to one employee. Admin only, like every other way of
+// putting a credential on an employee.
+const reuseSchema = z.object({ sourceModelId: z.string().uuid() }).strict();
+
+modelsRouter.post(
+  "/reuse",
+  requireCompanyRole("admin"),
+  validateParams(modelCollectionParamsSchema),
+  validateBody(reuseSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadContext(p.cid, p.eid);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    try {
+      const { model } = await reuseModelForEmployee({
+        companyId: ctx.co.id,
+        employee: ctx.emp,
+        sourceModelId: (req.body as z.infer<typeof reuseSchema>).sourceModelId,
+        actorUserId: req.userId ?? null,
       });
       res.json(await publicModel(model, ctx.emp));
     } catch (error) {

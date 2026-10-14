@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 /**
@@ -522,6 +523,87 @@ registry.registerPath({
     },
     404: {
       description: "Employee not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/employees/{eid}/routines",
+  summary: "Create a Routine for an AI employee",
+  description:
+    "Owners and admins only. Send the markdown `brief` the employee should follow on each Run " +
+    "and the Routine starts switched on, with its next Run scheduled from `cronExpr`. Leave " +
+    "the brief out (or send a blank one, or the starter outline unchanged) and the Routine is " +
+    "created paused (`enabled: false`, `nextRunAt: null`) holding a starter outline, so " +
+    "nothing runs before a real brief exists. The first real brief written afterwards with " +
+    "`PUT /routines/{rid}/readme` switches it on and schedules it. The dashboard form " +
+    "always sends a brief.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid(), eid: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            name: RoutineColumns.shape.name
+              .min(1)
+              .max(80)
+              .describe("Unique among this employee's routines, ignoring case."),
+            cronExpr: RoutineColumns.shape.cronExpr,
+            brief: z
+              .string()
+              .max(MAX_ROUTINE_BRIEF_LENGTH)
+              .optional()
+              .describe(
+                "Markdown: what the employee should do on each Run. Becomes the routine's " +
+                  "`body`. Without one the routine starts paused.",
+              ),
+            folderId: z
+              .string()
+              .uuid()
+              .nullable()
+              .optional()
+              .describe("File the routine in this folder. Omitted or null leaves it unfiled."),
+            tagIds: z
+              .array(z.string().uuid())
+              .max(20)
+              .optional()
+              .describe("Company tags to attach."),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Created. `enabled` is false and `nextRunAt` null when no brief was sent.",
+      content: {
+        "application/json": {
+          schema: RoutineColumns.extend({
+            body: z.string().describe("Markdown brief that describes what the routine should do."),
+          }),
+        },
+      },
+    },
+    400: {
+      description:
+        "Invalid body, a cron expression that cannot be scheduled, or a folder or tag from " +
+        "another company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Company admin role required",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Employee not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    409: {
+      description: "This employee already has a routine with that name",
       content: { "application/json": { schema: ErrorResponse } },
     },
   },

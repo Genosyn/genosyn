@@ -28,6 +28,7 @@ import { CommandRegistryProvider } from "./CommandRegistry";
 import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
 import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShortcuts";
+import { SectionVisibilityProvider } from "./SectionVisibility";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useNavigationGuard } from "./NavigationGuard";
 import { useTheme, Theme } from "./Theme";
@@ -45,7 +46,9 @@ import { AskAiPanel } from "./askAi/AskAiPanel";
  *   └─────────┴─────────────────────────────────────┘
  *
  * Sections live in the ⌘K command palette, opened from the top nav's section
- * pill or from anywhere by keyboard (see `CommandPalette`). The
+ * pill or from anywhere by keyboard (see `CommandPalette`). Browsing lists the
+ * core and whatever the company has started using (`SectionVisibility`);
+ * search reaches every section. The
  * sidebar is context-specific: the roster on the Employees section, the
  * roster-as-filter on Routines, or Settings sub-pages on the Settings section.
  * A selected employee has no rail at all — that page is Chat plus Settings and
@@ -97,52 +100,54 @@ export function AppShell({
 
   return (
     <CompanySocketProvider companyId={current.id}>
-      <KeyboardShortcutsProvider
-        companySlug={current.slug}
-        isMasterAdmin={Boolean(me.isMasterAdmin)}
-      >
-        {/* Outside the palette so pages can publish contextual actions into it,
-            and the palette can read them, from the same tree. */}
-        <CommandRegistryProvider>
-          <CommandPaletteProvider
-            companyId={current.id}
-            companySlug={current.slug}
-            viewer={paletteViewer}
-          >
-            <ContextualSidebarContext.Provider value={sidebarState}>
-              <AskAiProvider>
-              <div className="flex h-full flex-col">
-                <a
-                  href="#main-content"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    document.getElementById("main-content")?.focus();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    document.getElementById("main-content")?.focus();
-                  }}
-                  className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
-                >
-                  Skip to main content
-                </a>
-                <TopNav
-                  me={me}
-                  companies={companies}
-                  current={current}
-                  onCompaniesChanged={onCompaniesChanged}
-                />
-                <div className="flex min-h-0 flex-1">
-                  {children}
-                  <AskAiDock company={current} />
+      <SectionVisibilityProvider companyId={current.id} viewer={paletteViewer}>
+        <KeyboardShortcutsProvider
+          companySlug={current.slug}
+          isMasterAdmin={Boolean(me.isMasterAdmin)}
+        >
+          {/* Outside the palette so pages can publish contextual actions into it,
+              and the palette can read them, from the same tree. */}
+          <CommandRegistryProvider>
+            <CommandPaletteProvider
+              companyId={current.id}
+              companySlug={current.slug}
+              viewer={paletteViewer}
+            >
+              <ContextualSidebarContext.Provider value={sidebarState}>
+                <AskAiProvider>
+                <div className="flex h-full flex-col">
+                  <a
+                    href="#main-content"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document.getElementById("main-content")?.focus();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      document.getElementById("main-content")?.focus();
+                    }}
+                    className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
+                  >
+                    Skip to main content
+                  </a>
+                  <TopNav
+                    me={me}
+                    companies={companies}
+                    current={current}
+                    onCompaniesChanged={onCompaniesChanged}
+                  />
+                  <div className="flex min-h-0 flex-1">
+                    {children}
+                    <AskAiDock company={current} />
+                  </div>
                 </div>
-              </div>
-              </AskAiProvider>
-            </ContextualSidebarContext.Provider>
-          </CommandPaletteProvider>
-        </CommandRegistryProvider>
-      </KeyboardShortcutsProvider>
+                </AskAiProvider>
+              </ContextualSidebarContext.Provider>
+            </CommandPaletteProvider>
+          </CommandRegistryProvider>
+        </KeyboardShortcutsProvider>
+      </SectionVisibilityProvider>
     </CompanySocketProvider>
   );
 }
@@ -301,7 +306,11 @@ function TopNav({
                   if (!name) return;
                   try {
                     await createCompanyAndSwitch({
-                      createCompany: () => api.post<Company>("/api/companies", { name }),
+                      createCompany: () =>
+                        api.post<Company>("/api/companies", {
+                          name,
+                          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        }),
                       refreshCompanies: onCompaniesChanged,
                       navigate: (destination) => {
                         if (!navigationGuard.request(destination)) navigate(destination);

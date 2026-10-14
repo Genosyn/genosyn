@@ -1,12 +1,7 @@
-import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ArrowRight, MessageSquareText } from "lucide-react";
-import {
-  buildInitiativeRequestPrompt,
-  MAX_INITIATIVE_REQUEST_LENGTH,
-} from "@/lib/initiativePrompt";
-import { useChatSessions } from "@/lib/chatSessions";
-import { errorMessage } from "@/lib/errors";
+import { MAX_INITIATIVE_REQUEST_LENGTH } from "@/lib/initiativePrompt";
+import { useInitiativeRequest } from "@/lib/useInitiativeRequest";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
@@ -14,6 +9,7 @@ import { Modal } from "@/components/ui/Modal";
 import { submitFormOnModEnter } from "@/lib/keyboard";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
+import { ExistingDraftNote } from "@/components/proactive/ExistingDraftNote";
 import type { ProactiveEmployee } from "../../../shared/proactive";
 
 /**
@@ -32,47 +28,18 @@ export function AskEmployeeModal({
   employees: ProactiveEmployee[];
   onClose: () => void;
 }) {
-  const navigate = useNavigate();
-  const { sessions, actions } = useChatSessions();
-  // A company with one AI Employee has nobody else to ask.
-  const [employeeId, setEmployeeId] = React.useState(employees.length === 1 ? employees[0].id : "");
-  const [request, setRequest] = React.useState("");
-  const [opening, setOpening] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const openingRef = React.useRef(false);
-  const mounted = React.useRef(true);
-  React.useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const employee = employees.find((entry) => entry.id === employeeId);
-  const existingDraft = employee ? sessions[employee.id]?.input.trim() : "";
-  const canContinue = Boolean(employee?.chatReady && !existingDraft && request.trim());
-
-  async function continueToChat(event: React.FormEvent) {
-    event.preventDefault();
-    if (!employee || !canContinue || openingRef.current) return;
-    openingRef.current = true;
-    setOpening(true);
-    setError(null);
-    try {
-      const staged = await actions.stageNewConversation(
-        companyId,
-        employee.id,
-        buildInitiativeRequestPrompt(request),
-      );
-      if (staged && mounted.current) {
-        navigate(`/c/${companySlug}/employees/${employee.slug}/chat`);
-      }
-    } catch (err) {
-      if (mounted.current) setError(errorMessage(err, "Could not open Chat"));
-    } finally {
-      openingRef.current = false;
-      if (mounted.current) setOpening(false);
-    }
-  }
+  const {
+    employeeId,
+    setEmployeeId,
+    employee,
+    request,
+    setRequest,
+    unsentDraft,
+    canContinue,
+    opening,
+    error,
+    continueToChat,
+  } = useInitiativeRequest({ companyId, companySlug, employees });
 
   return (
     <Modal
@@ -158,20 +125,11 @@ export function AskEmployeeModal({
             </div>
           )}
 
-          {employee?.chatReady && existingDraft && (
-            <div
-              role="status"
-              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-            >
-              {employee.name} already has an unsent Chat draft. Open Chat to send or clear it before
-              starting another request.{" "}
-              <Link
-                className="font-medium underline"
-                to={`/c/${companySlug}/employees/${employee.slug}/chat`}
-              >
-                Open existing draft
-              </Link>
-            </div>
+          {employee?.chatReady && unsentDraft && (
+            <ExistingDraftNote
+              employeeName={employee.name}
+              chatPath={`/c/${companySlug}/employees/${employee.slug}/chat`}
+            />
           )}
 
           <Textarea

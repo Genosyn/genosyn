@@ -124,28 +124,42 @@ export function Employees() {
       <H2 id="lifecycle">Lifecycle</H2>
       <OL>
         <LI>
-          <Strong>Create.</Strong> Set the company mission and vision first, then pick a template (a
-          starter Soul and Skill set) or start blank. Switching templates swaps in the new
-          one&apos;s suggested name, unless you typed your own. Hiring does not schedule Routines.
-          The slug freezes; you can rename freely afterward.
+          <Strong>Hire.</Strong> Write the company&apos;s Goal first, then choose{" "}
+          <Strong>AI → Employees → Hire AI Employee</Strong> and answer one question,{" "}
+          <Strong>What should they do?</Strong> Pick a role — Executive Assistant, Sales Development
+          Rep, Customer Support, Research Analyst, Operations Coordinator, or Software Engineer — or
+          open <Strong>More roles</Strong> for the rest, or type your own <Strong>Role</Strong>. A
+          role comes with a starter Soul and Skill set. The <Strong>Name</Strong> is filled in from
+          the role and you can change it; picking a different role swaps in its suggested name,
+          unless you typed your own, and a name a teammate already has is flagged before you hire.
+          Then press <Strong>Hire {"{name}"}</Strong>. Hiring does not schedule Routines. The slug
+          freezes; you can rename freely afterward.
         </LI>
         <LI>
-          <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
-          takes an API key; OpenAI takes an API key or eligible ChatGPT subscription access; Custom
-          takes an OpenAI-compatible endpoint. If none is connected when you choose{" "}
-          <Strong>Continue</Strong>, the step says so and offers{" "}
+          <Strong>Attach a model.</Strong> If another AI Employee already runs on an API key or
+          custom endpoint, hiring connects the new employee to a copy of that{" "}
+          <DocLink to="/docs/models#reuse-model">AI Model</DocLink> automatically — nothing to
+          paste — and the next screen says <Strong>Uses the same AI Model as</Strong> that
+          employee, with a link to <Strong>Settings → Model</Strong> to change it. Otherwise the
+          next screen connects one: Anthropic takes an API key; OpenAI takes an API key or eligible
+          ChatGPT subscription access; Custom takes an OpenAI-compatible endpoint. If none is
+          connected when you choose <Strong>Choose Routines</Strong> (<Strong>Continue</Strong> on
+          the longer path below), the step says so and offers{" "}
           <Strong>Continue without a model</Strong>; connect one later from{" "}
           <Strong>Settings → Model</Strong>.
         </LI>
         <LI>
-          <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
-          constitution and rewrite it to fit your team. A blank answer gets a sensible default,
-          except <Strong>Reference material</Strong>: it starts empty, and the Soul has no reference
-          section unless you add links.
+          <Strong>Write the Soul (optional).</Strong> Choose <Strong>Customize the Soul first</Strong>{" "}
+          instead of <Strong>Hire {"{name}"}</Strong> to hire and then answer the short About
+          questions and review the generated constitution before choosing Routines. A blank answer
+          gets a sensible default, except <Strong>Reference material</Strong>: it starts empty,
+          and the Soul has no reference section unless you add links. You can rewrite the Soul at
+          any time under <Strong>Settings → Soul</Strong>.
         </LI>
         <LI>
           <Strong>Choose Routines.</Strong> Genosyn selects responsibilities that fit the saved role
-          and uses company mission and vision to rank them and write their instructions. An edited
+          and uses the company Goal, with its mission and vision when written, to rank them and
+          write their instructions. An edited
           role takes precedence over the starting template. Suggestions remain opt-in until you
           select them and choose the primary <Strong>Schedule N Routines and continue</Strong>,
           which creates them and advances in one press.
@@ -163,7 +177,8 @@ export function Employees() {
 
       <Callout kind="tip" title="Routine suggestions appear after every hire.">
         The first-company guide opens them between the AI Employee and Email steps. The regular{" "}
-        <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it after the Soul review. Both
+        <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it right after the AI Model
+        (or after the Soul review, if you chose <Strong>Customize the Soul first</Strong>). Both
         use the same recommendation rules, and both can be skipped — in the guide with{" "}
         <Strong>Continue without adding them</Strong>. Suggestions never overwrite an existing
         Routine or create a duplicate; skipping creates no Routines, Connections, or Grants.
@@ -210,10 +225,13 @@ export function Employees() {
       <P>
         An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
         switch between them sits at the top right of the employee&apos;s header, next to their name.
-        Everything you configure or inspect about an employee lives under Settings, grouped as{" "}
-        <Strong>Employee</Strong> (General, Soul, Model, Memory), <Strong>Work</Strong> (Skills,
-        Routines, Journal, Handoffs), and <Strong>Access</Strong> (Connections, MCP, Browser,
-        Integrations).
+        Everything you configure or inspect about an employee lives under Settings. The rail keeps
+        the everyday panes up front, grouped as <Strong>Employee</Strong> (General, Soul, Model),{" "}
+        <Strong>Work</Strong> (links to this employee&apos;s Skills and Routines), and{" "}
+        <Strong>Access</Strong> (Connections, Autonomy). Everything you visit now and then sits
+        under <Strong>Advanced</Strong>: Memory, Journal, Handoffs, Phone, MCP, Browser, and a link
+        to Integrations. It starts closed and opens by itself whenever you are on one of those
+        pages.
       </P>
       <UL>
         <LI>
@@ -280,9 +298,9 @@ export function Employees() {
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → Memory.</Strong> Durable facts and preferences injected into every
-          conversation and routine run. Unlike the free-form Soul, each item is one short fact you
-          can add, edit, or delete on its own.
+          <Strong>Settings → Advanced → Memory.</Strong> Durable facts and preferences injected
+          into every conversation and routine run. Unlike the free-form Soul, each item is one
+          short fact you can add, edit, or delete on its own.
         </LI>
         <LI>
           <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
@@ -291,20 +309,22 @@ export function Employees() {
           lists filtered to this employee, and are marked with a corner arrow to say so.
         </LI>
         <LI>
-          <Strong>Settings → Journal.</Strong> Append-only diary the employee writes about their own
-          work via the built-in MCP server. Routine runs land here automatically, and the last seven
-          days are injected into every chat and routine run. For the server&apos;s own account of
+          <Strong>Settings → Advanced → Journal.</Strong> Append-only diary the employee writes
+          about their own work via the built-in MCP server. Routine runs land here automatically,
+          and the last seven days are injected into every chat and routine run. For the
+          server&apos;s own account of
           the same work, rather than the employee&apos;s, see{" "}
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
           {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
           10,000 characters. Keep summaries compact and link to existing detailed records;
           the tool advertises these limits before the employee writes an entry. You can add an
           entry yourself too: press Enter in its title, or <Code>⌘/Ctrl+Enter</Code> in its detail
-          box. <Strong>Settings → Memory</Strong> works the same way.
+          box. <Strong>Settings → Advanced → Memory</Strong> works the same way.
         </LI>
         <LI>
-          <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
-          work delegated to them. Creating a Handoff starts the receiver working immediately in a
+          <Strong>Settings → Advanced → Handoffs.</Strong> Work this employee has delegated to
+          another, and work delegated to them. Creating a Handoff starts the receiver working
+          immediately in a
           background session (when they have a connected model) — delegation is a &quot;go&quot;
           signal, not a note on a desk. A Handoff always names the employee who receives it. A
           pending Handoff past its due date escalates: the company&apos;s owners and admins get a
@@ -316,13 +336,23 @@ export function Employees() {
           <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
         </LI>
         <LI>
-          <Strong>Settings → MCP.</Strong> Extra Model Context Protocol servers this employee can
-          use, plus the external endpoint that lets another MCP client reach Genosyn as this
-          employee.
+          <Strong>Settings → Autonomy.</Strong> The{" "}
+          <DocLink to="/docs/autonomy">earned-autonomy</DocLink> record, this employee&apos;s
+          Wakeups, and <Strong>Stand down</Strong> — a revocable stop on everything they do, kept
+          one click away. See <DocLink to="/docs/standdowns">Standdowns</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → Browser.</Strong> Whether this employee may drive a browser — see{" "}
-          <DocLink to="/docs/browser">Browser</DocLink>.
+          <Strong>Settings → Advanced → Phone.</Strong> The Twilio numbers given to this employee,
+          and their texts and calls — see <DocLink to="/docs/phone-numbers">Phone numbers</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Settings → Advanced → MCP.</Strong> Extra Model Context Protocol servers this
+          employee can use, plus the external endpoint that lets another MCP client reach Genosyn
+          as this employee.
+        </LI>
+        <LI>
+          <Strong>Settings → Advanced → Browser.</Strong> Whether this employee may drive a browser
+          — see <DocLink to="/docs/browser">Browser</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → General.</Strong> Name, role, slug, profile picture, team — and, at
@@ -334,8 +364,12 @@ export function Employees() {
         Each employee owns their own provider credentials, stored encrypted (AES-256-GCM) in the
         database — even when they register several models, every API key, endpoint credential, or
         OpenAI subscription credential belongs to that one employee. There&apos;s no shared
-        company-wide model credential. Firing an employee deletes all of their encrypted credential
-        rows; you don&apos;t have to rotate anything for the rest of the team.
+        company-wide model credential: when a new hire{" "}
+        <DocLink to="/docs/models#reuse-model">reuses the company&apos;s AI Model</DocLink>,
+        Genosyn copies the encrypted credential onto them on the server, and the copy is a row of
+        its own. Firing an employee deletes all of their encrypted credential rows and leaves
+        everyone else&apos;s copies working; rotate the key at the provider to change it for
+        everyone who holds one.
       </Callout>
 
       <H2 id="work-timeline">The work timeline</H2>

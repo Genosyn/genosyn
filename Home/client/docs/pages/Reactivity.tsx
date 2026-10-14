@@ -32,13 +32,15 @@ export function Reactivity() {
         can customize.
       </P>
       <P>
-        Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens the existing
-        Routine flow and creates scheduled work directly, paused until{" "}
-        <DocLink to="/docs/routines#where-they-live">its brief is saved</DocLink>.{" "}
-        <Strong>Ask AI Employee</Strong> opens an editable, unsent Chat draft asking the selected
-        employee to inspect the evidence and propose an Initiative. Nothing is sent until the Member
-        submits that Chat message, and nothing is scheduled from the Initiative until an owner or
-        admin accepts it.
+        Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens a page where
+        you{" "}
+        <DocLink to="/docs/routines#creating">describe the work or set it up yourself</DocLink>:
+        setting it up yourself creates scheduled work directly, switched on because the form asks
+        for its brief. <Strong>Ask AI Employee</Strong> opens an editable, unsent Chat draft asking
+        the selected employee to inspect the evidence and propose an Initiative, the same draft
+        that describing the work on New Routine opens. Nothing is sent until the Member submits
+        that Chat message, and nothing is scheduled from the Initiative until an owner or admin
+        accepts it.
       </P>
       <P>
         <Strong>Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing
@@ -46,7 +48,10 @@ export function Reactivity() {
         or setup click. Shared responsibilities get one automatic owner; daily responsibility
         reviews and weekly work reviews go to every ready employee. Assignment never adds Grants,
         and work waits until an AI Employee has a connected AI Model and the required resource
-        access.
+        access. The{" "}
+        <DocLink to="/docs/getting-started#also-set-up">setup guide</DocLink> lists what an AI
+        Employee will get under <Strong>Also set up for {"{name}"}</Strong> and has the same
+        switch, <Strong>Set up standing work automatically</Strong>, for owners and admins.
       </P>
       <Callout kind="info" title="Routine preparation moves without another approval">
         Proactive Routines, automatic email handovers and Routines started by a Trigger or webhook
@@ -76,11 +81,13 @@ export function Reactivity() {
       <H2 id="daily-ownership">A useful next step across the app</H2>
       <P>
         Every ready AI Employee receives <Strong>Advance my responsibilities</Strong>, scheduled for
-        weekdays at 08:00 in the server&apos;s timezone. Find it in <Strong>Standing work</Strong>
-        and select <Strong>Open</Strong> to edit its schedule or brief. This daily Routine reads
-        current assignments, deadlines and granted records, inspects the original evidence, and
-        completes routine preparation or proposes consequential work for your review. It also checks
-        due Workstreams, earlier outcomes, and review feedback from previous Runs.
+        weekdays at 08:00 in the company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>. Find it in{" "}
+        <Strong>Standing work</Strong> and select <Strong>Open</Strong> to edit its schedule or
+        brief. This daily Routine reads current assignments, deadlines and granted records,
+        inspects the original evidence, and completes routine preparation or proposes consequential
+        work for your review. It also checks due Workstreams, earlier outcomes, and review feedback
+        from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -143,17 +150,19 @@ export function Reactivity() {
         normally no more than one a week.
       </P>
       <P>
-        Use <Strong>New Routine</Strong> when you already know the scheduled work you want. Use
-        <Strong>Ask AI Employee</Strong> when you want an employee to inspect the company&apos;s
-        evidence, check existing Routines and earlier Initiatives, and make a recommendation first.
+        Use <Strong>Set it up yourself</Strong> on New Routine when you already know the scheduled
+        work you want. Use <Strong>Ask AI Employee</Strong>, or describe the work on New Routine,
+        when you want an employee to inspect the company&apos;s evidence, check existing Routines
+        and earlier Initiatives, and make a recommendation first.
         The editable Chat draft asks for the evidence, exact Routine brief, schedule, and measurable
         success criteria; opening it does not send the request or create work. With a single AI
         Employee it is already chosen, and <Code>⌘/Ctrl+Enter</Code> in the request continues to
         Chat.
       </P>
       <P>
-        Open <Strong>Initiatives</Strong> from the Proactive page to review what employees have
-        filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine, and the accepted
+        Open <Strong>Initiatives</Strong> in the{" "}
+        <DocLink to="/docs/decisions#active-and-history">Decision stack</DocLink>&apos;s side menu
+        (or from the Proactive page) to review what employees have filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine, and the accepted
         Initiative links to it. Accept and <Strong>Decline</Strong> open their confirmation with the
         cursor in the optional note; <Code>⌘/Ctrl+Enter</Code> there confirms. Exact duplicate
         pending work and already accepted work are refused, including after the accepted Routine was
@@ -222,13 +231,14 @@ export function Reactivity() {
         create ordinary <DocLink to="/docs/routines">Routines</DocLink> with editable briefs,
         schedules, acceptance criteria, and Run history. Selected starters also get a Trigger with a
         one-hour minimum interval; the schedule catches work that becomes due without another
-        change. Times use the server&apos;s timezone. Each brief limits the employee to ten
-        actionable items per Run and asks it to keep unchanged checks quiet.
+        change. Times use the company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>. Each brief limits the employee
+        to ten actionable items per Run and asks it to keep unchanged checks quiet.
       </P>
       <P>
         <Strong>Improve my work</Strong> is assigned automatically to each AI Employee with a
         connected AI Model, with no extra resource Grant needed to review its own work. It runs on
-        Fridays at 15:00 in the server&apos;s timezone. The employee reviews its recent Runs,
+        Fridays at 15:00 in the company&apos;s time zone. The employee reviews its recent Runs,
         Lessons, email handovers, Repository Work sessions, and earlier revision feedback, then
         proposes at most one concrete change supported by that evidence. It stays quiet without new
         evidence and avoids repeating pending or rejected Revision proposals. This review can read
@@ -298,9 +308,9 @@ export function Reactivity() {
         <DocLink to="/docs/goals">Goal</DocLink> updates — the Routine fires without waiting for its
         next cron slot. The resulting Run reads evidence, completes permitted preparation and
         requests work approval when consequential work needs human authority. Triggers are managed
-        by admins on the routine&apos;s <Strong>Settings → Triggers</Strong> card, and the list of
-        subscribable kinds is served from the same registry the app&apos;s own live updates run on —
-        anything that refreshes on your screen can fire a Routine.
+        by admins on the routine&apos;s <Strong>Settings → Advanced → Triggers</Strong> card, and
+        the list of subscribable kinds is served from the same registry the app&apos;s own live
+        updates run on — anything that refreshes on your screen can fire a Routine.
       </P>
       <Callout kind="info" title="An event routes work. It never carries content.">
         Event frames are coarse and <Strong>id-only</Strong>: a fire tells the Routine only that its
@@ -459,8 +469,8 @@ export function Reactivity() {
         ]}
       />
       <P>
-        Admins are paged, and pending Initiatives live in their own <Strong>Initiatives</Strong>{" "}
-        section under the AI nav. <Strong>Accepting</Strong> creates precisely the Routine proposed
+        Pending Initiatives wait on the <Strong>Initiatives</Strong> page in the Decision
+        stack&apos;s side menu, with a count beside it, and appear in the bell. <Strong>Accepting</Strong> creates precisely the Routine proposed
         — owned by the proposing employee, scheduled immediately. <Strong>Declining</Strong>{" "}
         journals the reason back to the employee, so the next Initiative is better aimed. At most{" "}
         <Strong>5</Strong> Initiatives can be pending per employee.

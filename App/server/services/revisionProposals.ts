@@ -390,7 +390,7 @@ async function notifyRevisionPending(
         kind: "revision_pending" as const,
         title: `${employee.name} proposes revising ${proposal.kind === "soul" ? "its Soul" : `"${proposal.targetLabel}"`}`,
         body: proposal.rationale.slice(0, 200),
-        link: "/revisions",
+        link: "/decisions/revisions",
         actorKind: "ai" as const,
         actorId: employee.id,
         entityKind: "revision_proposal" as const,

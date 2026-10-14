@@ -70,6 +70,7 @@ const email = "onboarding-owner@example.test";
 const password = "Onboarding-QA-password-42";
 const nextPassword = "Onboarding-QA-recovered-84";
 const companyName = "Onboarding QA Company";
+const goalSentence = "Reach 50 paying customers by March";
 const mission = "Help independent schools keep reliable learning tools.";
 const vision = "Every classroom can trust the software it uses.";
 async function until(
@@ -192,18 +193,45 @@ try {
   record("Signup, console email verification and bootstrap operator login");
 
   await page.getByLabel("Company name", { exact: true }).fill(companyName);
+  await page.getByLabel("Your Goal", { exact: true }).fill(goalSentence);
+  // Mission and vision are optional and sit behind a closed disclosure.
+  await page.getByText("Add a mission and vision (optional)", { exact: true }).click();
   await page.getByLabel("Mission", { exact: true }).fill(mission);
   await page.getByLabel("Vision", { exact: true }).fill(vision);
   await page.getByRole("button", { name: "Create company and continue", exact: true }).click();
   await page.getByRole("heading", { name: "Hire your first AI Employee", exact: true }).waitFor();
   const companies =
-    await read<Array<{ id: string; slug: string; mission: string; vision: string }>>(
-      "/api/companies",
-    );
+    await read<
+      Array<{ id: string; slug: string; mission: string; vision: string; hasGoal: boolean }>
+    >("/api/companies");
   const company = companies[0];
   assert.equal(company.mission, mission);
   assert.equal(company.vision, vision);
-  record("Company mission and vision saved before hiring");
+  assert.equal(company.hasGoal, true);
+  const goals = await read<
+    Array<{
+      title: string;
+      targetValue: number;
+      unit: string;
+      direction: string;
+      metricKind: string;
+      status: string;
+      parentGoalId: string | null;
+    }>
+  >(`/api/companies/${company.id}/goals`);
+  assert.deepEqual(goals, [
+    {
+      ...goals[0],
+      title: goalSentence,
+      targetValue: 50,
+      unit: "paying customers",
+      direction: "increase_to",
+      metricKind: "manual",
+      status: "active",
+      parentGoalId: null,
+    },
+  ]);
+  record("Company Goal, mission and vision saved before hiring");
   await page.getByLabel("Name", { exact: true }).fill("Avery QA");
   await page.getByLabel("Role", { exact: true }).fill("Software Engineer");
   await page.getByRole("button", { name: "Hire AI Employee", exact: true }).click();
@@ -223,7 +251,10 @@ try {
   await page.getByLabel("Base URL", { exact: true }).fill(modelURL);
   await page.getByLabel("Model ID (optional)", { exact: true }).fill("qa-local-model");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByText("Avery QA's models", { exact: true }).waitFor({ timeout: 150_000 });
+  // A connected model reads as "{provider} · {model}" in plain words.
+  await page
+    .getByText("Custom endpoint · qa-local-model", { exact: true })
+    .waitFor({ timeout: 150_000 });
   assert(serverLog.includes("[fullstack-model-probe] verified"));
   const models = await read<Array<{ status: string; isActive: boolean }>>(`${employeeBase}/models`);
   assert(models.some((model) => model.status === "connected" && model.isActive));
@@ -231,6 +262,28 @@ try {
 
   await page.getByRole("button", { name: "Choose Routines", exact: true }).click();
   await page.getByRole("heading", { name: "Suggested Routines", exact: true }).waitFor();
+  // What Automatic setup adds is listed beside the picks, from the real planner.
+  await page.getByRole("heading", { name: "Also set up for Avery QA", exact: true }).waitFor();
+  await page.getByText("Follow through on open work", { exact: true }).waitFor();
+  await page.getByText("TLDR briefing", { exact: true }).waitFor();
+  const standingPreview = await read<{
+    automaticSetup: boolean;
+    employeeReady: boolean;
+    starters: Array<{ recipeId: string }>;
+    briefing: { schedule: string; writerIsEmployee: boolean } | null;
+  }>(`/api/companies/${company.id}/proactive/preview?employeeId=${employee.id}`);
+  assert.equal(standingPreview.automaticSetup, true);
+  assert.equal(standingPreview.employeeReady, true);
+  assert.deepEqual(
+    standingPreview.starters.map((row) => row.recipeId),
+    ["advance-responsibilities", "work-followthrough", "improve-own-work", "discover-improvements"],
+  );
+  assert.deepEqual(standingPreview.briefing, {
+    schedule: "Daily",
+    writerName: "Avery QA",
+    writerIsEmployee: true,
+  });
+  record("The guide lists the standing work and briefing set up automatically");
   const plan = await read<{ routines: Array<{ name: string; status: string }> }>(
     `${employeeBase}/onboarding-recommendations`,
   );
@@ -244,17 +297,22 @@ try {
   assert(selectedNames.size > 0);
   await page.getByRole("button", { name: /^Schedule \d+ Routines? and continue$/ }).click();
   await page.getByRole("heading", { name: "Connect email", exact: true }).waitFor();
-  const allRoutines = await read<Array<{ name: string; body: string }>>(`${employeeBase}/routines`);
+  const allRoutines = await read<Array<{ name: string; body: string; acceptanceCriteria: string }>>(
+    `${employeeBase}/routines`,
+  );
   const routines = allRoutines.filter((routine) => selectedNames.has(routine.name));
   assert.equal(routines.length, selectedNames.size);
   assert(
     routines.every(
       (routine) =>
+        routine.body.includes(goalSentence) &&
         routine.body.includes(mission) &&
         routine.body.includes(vision) &&
         routine.body.includes("Software Engineer"),
     ),
   );
+  // A starter Routine is graded: its Runs carry a definition of done.
+  assert(routines.every((routine) => routine.acceptanceCriteria.trim().length > 0));
   await page.getByRole("button", { name: "Skip email for now", exact: true }).click();
   await page
     .getByRole("heading", { name: `Avery QA has joined ${companyName}`, exact: true })
@@ -498,6 +556,8 @@ try {
     await go(`/c/${company.slug}/routines/${employee.slug}/${newRoutine.slug}`);
     if (marker === "qa-routine-success") {
       await page.getByRole("button", { name: "Settings", exact: true }).click();
+      // Checks live under Advanced, which starts closed.
+      await page.getByRole("button", { name: /^Advanced/ }).click();
       await page.getByRole("button", { name: "Add a check", exact: true }).click();
       const editor = page.getByRole("dialog");
       await editor.getByLabel("Name", { exact: true }).fill("No email was sent");
@@ -924,13 +984,23 @@ try {
   await page.getByRole("button", { name: "+ New company", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("Second QA Company");
   await page.getByRole("dialog").getByRole("button", { name: "Create", exact: true }).click();
-  await page
-    .getByRole("heading", { name: "What is your company here to do?", exact: true })
-    .waitFor();
-  await page.getByLabel("Mission", { exact: true }).fill("Help teams plan their work.");
-  await page.getByLabel("Vision", { exact: true }).fill("Every team works with clarity.");
+  await page.getByRole("heading", { name: "What is your company's Goal?", exact: true }).waitFor();
+  // A company made from the picker has only a name, so the guide asks for its Goal.
+  await page.getByLabel("Your Goal", { exact: true }).fill("Ship 12 product releases this year");
   await page.getByRole("button", { name: "Save and continue", exact: true }).click();
   await page.getByRole("heading", { name: "Hire your first AI Employee", exact: true }).waitFor();
+  const secondCompany = (
+    await read<Array<{ id: string; name: string; hasGoal: boolean }>>("/api/companies")
+  ).find((candidate) => candidate.name === "Second QA Company");
+  assert.equal(secondCompany?.hasGoal, true);
+  assert.deepEqual(
+    (
+      await read<Array<{ title: string; targetValue: number; unit: string }>>(
+        `/api/companies/${secondCompany!.id}/goals`,
+      )
+    ).map((row) => [row.title, row.targetValue, row.unit]),
+    [["Ship 12 product releases this year", 12, "product releases"]],
+  );
   await page
     .locator("header")
     .getByRole("button", { name: "Second QA Company", exact: true })

@@ -6,6 +6,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { Goal } from "../db/entities/Goal.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import { loadOnboardingStatus } from "./onboardingStatus.js";
@@ -29,7 +30,15 @@ after(async () => {
 });
 
 beforeEach(async () => {
-  for (const entity of [EmployeeMailAccountGrant, Routine, Skill, AIModel, AIEmployee, Company]) {
+  for (const entity of [
+    EmployeeMailAccountGrant,
+    Goal,
+    Routine,
+    Skill,
+    AIModel,
+    AIEmployee,
+    Company,
+  ]) {
     await AppDataSource.getRepository(entity).clear();
   }
   company = await AppDataSource.getRepository(Company).save(
@@ -120,6 +129,106 @@ for (const missing of [
     assert.equal(complete.nextStep, "done");
   });
 }
+
+test("an active top-level Goal is company direction without a mission or vision", async () => {
+  await AppDataSource.getRepository(Company).update(
+    { id: company.id },
+    { mission: "", vision: "" },
+  );
+  assert.equal((await loadOnboardingStatus(company.id)).nextStep, "company");
+
+  const goals = AppDataSource.getRepository(Goal);
+  const goal = await goals.save(
+    goals.create({
+      companyId: company.id,
+      title: "Reach 50 paying customers",
+      slug: "reach-50-paying-customers",
+      targetValue: 50,
+    }),
+  );
+  assert.equal((await loadOnboardingStatus(company.id)).nextStep, "employee");
+
+  const employee = await hire("Avery");
+  await connectModel(employee.id, "cipher");
+  const complete = await loadOnboardingStatus(company.id);
+  assert.equal(complete.complete, true);
+  assert.equal(complete.nextStep, "done");
+
+  // Archiving the Goal takes the direction with it.
+  await goals.update({ id: goal.id }, { status: "archived" });
+  const archived = await loadOnboardingStatus(company.id);
+  assert.equal(archived.complete, false);
+  assert.equal(archived.nextStep, "company");
+});
+
+test("Routines that Automatic setup assigned are counted apart from the ones somebody chose", async () => {
+  const employee = await hire("Avery");
+  const routines = AppDataSource.getRepository(Routine);
+  const soon = new Date("2026-09-01T07:00:00.000Z");
+  await routines.save([
+    routines.create({
+      employeeId: employee.id,
+      name: "Daily brief",
+      slug: "daily-brief",
+      cronExpr: "0 7 * * 1-5",
+      enabled: true,
+      nextRunAt: soon,
+    }),
+    routines.create({
+      employeeId: employee.id,
+      name: "Advance my responsibilities",
+      slug: "proactive-advance-responsibilities-1a2b3c4d",
+      cronExpr: "0 8 * * 1-5",
+      enabled: true,
+      nextRunAt: soon,
+    }),
+    routines.create({
+      employeeId: employee.id,
+      name: "Follow through on open work",
+      slug: "proactive-work-followthrough-1a2b3c4d",
+      cronExpr: "*/30 * * * *",
+      enabled: true,
+      nextRunAt: soon,
+    }),
+    // Paused standing work is not scheduled, so it is not counted as running.
+    routines.create({
+      employeeId: employee.id,
+      name: "Improve my work",
+      slug: "proactive-improve-own-work-1a2b3c4d",
+      cronExpr: "0 15 * * 5",
+      enabled: false,
+      nextRunAt: null,
+    }),
+    // Looks like a starter but is somebody's own Routine.
+    routines.create({
+      employeeId: employee.id,
+      name: "Proactive outreach",
+      slug: "proactive-outreach",
+      cronExpr: "0 9 * * 1",
+      enabled: true,
+      nextRunAt: soon,
+    }),
+  ]);
+
+  const status = await loadOnboardingStatus(company.id);
+
+  assert.equal(status.routineCount, 5);
+  assert.equal(status.scheduledRoutineCount, 4);
+  assert.equal(status.standingRoutineCount, 2);
+});
+
+test("the status says whether Automatic setup is on", async () => {
+  assert.equal((await loadOnboardingStatus(company.id)).automaticSetup, true);
+  await hire("Avery");
+  assert.equal((await loadOnboardingStatus(company.id)).automaticSetup, true);
+
+  await AppDataSource.getRepository(Company).update(
+    { id: company.id },
+    { proactiveAutoSetup: false },
+  );
+
+  assert.equal((await loadOnboardingStatus(company.id)).automaticSetup, false);
+});
 
 test("an AI Employee without usable model credentials is not complete", async () => {
   const employee = await hire("Avery");

@@ -370,7 +370,34 @@ type FixtureOptions = {
   runResumeError?: boolean;
   longFailureTranscript?: boolean;
   live?: boolean;
+  /** The Goals the company has written; the all-clear card shows the first active one. */
+  goals?: Array<Record<string, unknown>>;
 };
+function fixtureGoal(values: Record<string, unknown> = {}) {
+  return {
+    id: "goal",
+    slug: "reach-50-paying-customers",
+    title: "Reach 50 paying customers by March",
+    description: "",
+    parentGoalId: null,
+    ownerEmployeeId: null,
+    metricKind: "manual",
+    chartId: null,
+    startValue: null,
+    targetValue: 50,
+    currentValue: null,
+    currentValueUpdatedAt: null,
+    direction: "increase_to",
+    unit: "customers",
+    dueAt: null,
+    status: "active",
+    settledAt: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    progress: null,
+    met: false,
+    ...values,
+  };
+}
 async function open(options: FixtureOptions = {}) {
   const page = await (options.touch ? touchContext : context).newPage();
   await page.setViewportSize({ width: options.width ?? 1440, height: options.height ?? 1000 });
@@ -707,6 +734,8 @@ async function open(options: FixtureOptions = {}) {
           : { json: employees },
       );
     if (url.pathname === "/api/companies/company/members") return route.fulfill({ json: [] });
+    if (url.pathname === "/api/companies/company/goals")
+      return route.fulfill({ json: options.goals ?? [] });
     if (url.pathname === "/api/companies/company/onboarding-status")
       return route.fulfill({
         json: {
@@ -3054,6 +3083,53 @@ try {
     assert.equal(await work(page).count(), 0);
     await fillsContent(page, "Nothing needs you right now");
     await fits(page);
+    await page.close();
+  });
+  await check("all-clear Home shows the company's Goal and where it stands", async () => {
+    const goal = fixtureGoal({ currentValue: 12, progress: 0.24 });
+    const { page } = await open({
+      quiet: true,
+      goals: [fixtureGoal({ id: "sub", parentGoalId: "goal" }), goal],
+    });
+    await fillsContent(page, "Nothing needs you right now");
+    await page.getByText("Your Goal", { exact: true }).waitFor();
+    await page.getByText("Reach 50 paying customers by March", { exact: true }).waitFor();
+    await page.getByText("12 of 50 customers", { exact: true }).waitFor();
+    const bar = page.getByRole("progressbar", { name: "Progress toward your Goal" });
+    assert.equal(await bar.getAttribute("aria-valuenow"), "24");
+    assert.equal(
+      await page.getByRole("link", { name: "See Goals", exact: true }).getAttribute("href"),
+      "/c/company/goals",
+    );
+    // A quiet day no longer sends anyone off to create a project.
+    assert.equal(await page.getByText(/Create a project/).count(), 0);
+    assert.equal(await page.getByText(/See what your AI employees are doing/).count(), 0);
+    await fits(page);
+    await page.close();
+  });
+  await check("all-clear Home names the target before anything is reported", async () => {
+    const { page } = await open({ quiet: true, goals: [fixtureGoal()] });
+    await page.getByText("Target 50 customers", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("progressbar").count(), 0);
+    await page.close();
+  });
+  await check("all-clear Home points an owner or admin at writing the Goal", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      const { page } = await open({ quiet: true, role });
+      await fillsContent(page, "Nothing needs you right now");
+      const link = page.getByRole("link", { name: "Set your Goal", exact: true });
+      await link.waitFor();
+      assert.equal(await link.getAttribute("href"), "/c/company/goals");
+      assert.equal(await page.getByText(/Create a project/).count(), 0);
+      await page.close();
+    }
+  });
+  await check("all-clear Home sends a Member without a Goal to the Goals page", async () => {
+    const { page } = await open({ quiet: true });
+    const link = page.getByRole("link", { name: "See Goals", exact: true });
+    await link.waitFor();
+    assert.equal(await link.getAttribute("href"), "/c/company/goals");
+    assert.equal(await page.getByRole("link", { name: "Set your Goal" }).count(), 0);
     await page.close();
   });
   await check(

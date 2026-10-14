@@ -42,6 +42,11 @@ export function SetupBanner({ company }: { company: Company }) {
   if (!canSetUp || !status || status.complete) return null;
 
   const employee = status.employee;
+  // A company with no Goal (and no mission and vision) is stopped before the
+  // model is: the Goal is what a company must write, and it can fall away when
+  // the Goal it wrote is achieved or archived. Saying the model is missing
+  // would send the owner to fix the wrong thing.
+  const needsGoal = status.nextStep === "company";
   const params = new URLSearchParams({ step: status.nextStep });
   if (employee) params.set("employee", employee.id);
 
@@ -52,21 +57,26 @@ export function SetupBanner({ company }: { company: Company }) {
       </span>
       <div className="min-w-0">
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-          {employee
-            ? `Finish setting up ${employee.name}`
-            : `${company.name} has no AI Employees yet`}
+          {needsGoal
+            ? "Set your company's Goal"
+            : employee
+              ? `Finish setting up ${employee.name}`
+              : `${company.name} has no AI Employees yet`}
         </div>
         <p className="mt-0.5 text-sm leading-6 text-slate-600 dark:text-slate-300">
-          {employee
-            ? `They still need an AI Model connected — until then ${employee.name} cannot answer a request or run a Routine.`
-            : "The setup guide explains how AI Employees work and walks you through hiring your first one."}
+          {needsGoal
+            ? "Every AI Employee works toward it, and a company needs one before it can hire."
+            : employee
+              ? `They still need an AI Model connected — until then ${employee.name} cannot answer a request or run a Routine.`
+              : "The setup guide explains how AI Employees work and walks you through hiring your first one."}
         </p>
       </div>
       <Link
         to={`/c/${company.slug}/onboarding?${params.toString()}`}
         className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white transition hover:bg-indigo-700 sm:ml-auto dark:bg-indigo-500 dark:hover:bg-indigo-600"
       >
-        {employee ? "Finish setup" : "Open the guide"} <ArrowRight size={15} />
+        {needsGoal ? "Set your Goal" : employee ? "Finish setup" : "Open the guide"}{" "}
+        <ArrowRight size={15} />
       </Link>
     </div>
   );

@@ -297,7 +297,7 @@ export function Vocabulary() {
               <>
                 A complete replacement body an AI Employee stages for its own Soul, a Skill, or a
                 Routine&apos;s brief or acceptance criteria, with a rationale and evidence Runs.
-                Nothing changes until an owner/admin applies it from the Revisions page. See{" "}
+                Nothing changes until an owner/admin applies it from Decision stack → Revisions. See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
               </>
             ),

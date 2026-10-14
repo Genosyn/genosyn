@@ -11,10 +11,13 @@ import { useLiveRefetch } from "../components/CompanySocket";
  *
  * There is deliberately no sub-navigation rail here. An AI Employee is someone
  * you talk to, so their page is the conversation; everything you can configure
- * or inspect about them — Soul, Model, Skills, Routines, Journal, Handoffs,
- * Memory, Connections, MCP — sits behind one Settings door. Nine sidebar
- * entries made the roster feel like a filing cabinet, and the eight that were
- * not Chat were all things you set up once and rarely revisit.
+ * or inspect about them sits behind one Settings door. A sidebar of entries
+ * made the roster feel like a filing cabinet, and all but Chat were things you
+ * set up once and rarely revisit. Behind that door the Settings rail
+ * (`SettingsPage`) keeps the everyday panes up front — General, Soul, Model,
+ * Connections, Autonomy, and the Skills and Routines links — and tucks Memory,
+ * Journal, Handoffs, Phone, MCP, Browser and the Integrations link under a
+ * collapsed Advanced group.
  *
  * The Chat / Settings switch and the way back to the roster live in
  * `EmployeeHeader`, which both sides render so it never moves.

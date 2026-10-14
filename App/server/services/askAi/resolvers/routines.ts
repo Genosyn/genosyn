@@ -5,6 +5,7 @@ import { Routine } from "../../../db/entities/Routine.js";
 import { Run } from "../../../db/entities/Run.js";
 import { Skill } from "../../../db/entities/Skill.js";
 import { UUID_RE } from "../../bases.js";
+import { companyTimeZone } from "../../companyTimeZone.js";
 import { folderPathFor } from "../../routineFolders.js";
 import {
   clip,
@@ -131,13 +132,14 @@ export const resolveRoutine: AskAiResolver = async ({ companyId, ref }) => {
   );
   if (!found) return [];
   const { row: routine, owner } = found;
-  const [folderPath, runs] = await Promise.all([
+  const [folderPath, runs, timeZone] = await Promise.all([
     folderPathFor(companyId, routine.folderId),
     AppDataSource.getRepository(Run).find({
       where: { routineId: routine.id },
       order: { startedAt: "DESC" },
       take: CONTEXT_RUN_COUNT,
     }),
+    companyTimeZone(companyId),
   ]);
 
   const parts: string[] = [
@@ -148,6 +150,12 @@ export const resolveRoutine: AskAiResolver = async ({ companyId, ref }) => {
       [
         "Schedule",
         `cron \`${routine.cronExpr}\` — ${routine.enabled ? "enabled" : "PAUSED, so it does not fire"}`,
+      ],
+      [
+        "Time zone",
+        timeZone
+          ? `${timeZone} — the cron fields are read on this clock`
+          : "server time — the company has not chosen a time zone",
       ],
       [
         "Next run",

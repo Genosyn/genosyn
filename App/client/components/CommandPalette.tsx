@@ -4,6 +4,8 @@ import {
   BarChart3,
   Building2,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   Contact2,
   CornerDownLeft,
   FolderGit2,
@@ -41,8 +43,10 @@ import {
   pagesLead,
   searchSubpages,
 } from "../lib/subpages";
+import { canOpenSection, listedGroups, unlistedSectionCount } from "../lib/sectionVisibility";
 import { type Command, searchCommands, useCommandSnapshot } from "./CommandRegistry";
 import { useNavigationGuard } from "./NavigationGuard";
+import { useSectionVisibility } from "./SectionVisibility";
 import { clsx } from "./ui/clsx";
 
 /**
@@ -54,7 +58,9 @@ import { clsx } from "./ui/clsx";
  * who'd rather point at it.
  *
  * Two modes, one list:
- *   - empty query  → browse, grouped exactly like the catalog reads
+ *   - empty query  → browse, grouped like the catalog reads, listing the core
+ *     sections and the ones this company has started using, with a last row
+ *     that shows the rest (`SectionVisibility`)
  *   - typing       → navigation first (it is the palette's primary job):
  *     sections ranked by `searchSections`, and the pages inside them — Finance
  *     → Recurring invoices, Settings → Members — ranked by `searchSubpages`
@@ -89,6 +95,9 @@ const IS_APPLE =
 /** Label for the shortcut, for hints rendered outside this file (the nav pill). */
 export const PALETTE_SHORTCUT = IS_APPLE ? "⌘K" : "Ctrl K";
 
+/** Help and Account: the palette's own group, listed whatever the company uses. */
+const YOU_GROUP: SectionGroup = { label: "You", items: [HELP_SECTION, ACCOUNT_SECTION] };
+
 /**
  * Help and Account sit outside `SECTION_GROUPS` because they aren't scoped to
  * the current company — but a palette is a search-everything surface, so they
@@ -98,10 +107,7 @@ export const PALETTE_SHORTCUT = IS_APPLE ? "⌘K" : "Ctrl K";
  * somewhere you navigate between day to day, so it stays out of the palette
  * and is reached from the avatar menu (or the `G =` chord) instead.
  */
-const PALETTE_GROUPS: SectionGroup[] = [
-  ...SECTION_GROUPS,
-  { label: "You", items: [HELP_SECTION, ACCOUNT_SECTION] },
-];
+const PALETTE_GROUPS: SectionGroup[] = [...SECTION_GROUPS, YOU_GROUP];
 
 /** The same set flattened, which is what ranking a query runs over. */
 const PALETTE_ITEMS: SectionItem[] = PALETTE_GROUPS.flatMap((g) => g.items);
@@ -326,6 +332,8 @@ function useEntitySearch(companyId: string, query: string) {
 /** One keyboard-walkable row — an action, a section or page match, or an entity hit. */
 type PaletteEntry =
   | { type: "command"; command: Command }
+  /** Browsing's last row: list every section, or go back to the shorter list. */
+  | { type: "toggle" }
   | { type: "section"; match: SectionMatch }
   | { type: "page"; match: SubpageMatch }
   | { type: "entity"; hit: CompanySearchResult };
@@ -334,6 +342,8 @@ function entryId(entry: PaletteEntry): string {
   switch (entry.type) {
     case "command":
       return `command-palette-opt-cmd-${entry.command.id}`;
+    case "toggle":
+      return "command-palette-opt-toggle-sections";
     case "section":
       return `command-palette-opt-${entry.match.item.key}`;
     case "page":
@@ -361,8 +371,34 @@ function CommandPalette({
   const listRef = React.useRef<HTMLDivElement>(null);
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
+  const { listing, setShowAll, refresh: refreshSections } = useSectionVisibility();
 
-  const matches = React.useMemo(() => searchSections(PALETTE_ITEMS, query), [query]);
+  // A section the company started using since the last look joins the list.
+  React.useEffect(() => {
+    refreshSections();
+  }, [refreshSections]);
+
+  // Browsing lists the core and what is in use; typing searches every section
+  // this person can open.
+  const browseGroups = React.useMemo(
+    () => [...listedGroups(SECTION_GROUPS, listing), YOU_GROUP],
+    [listing],
+  );
+  const searchable = React.useMemo(
+    () => PALETTE_ITEMS.filter((item) => canOpenSection(item.key, viewer)),
+    [viewer],
+  );
+  const unlisted = unlistedSectionCount(SECTION_GROUPS, listing);
+  // Offered only when it changes something: there are sections to reveal, or
+  // the full list is showing and could be shorter.
+  const canToggle =
+    unlisted > 0 || unlistedSectionCount(SECTION_GROUPS, { ...listing, showAll: false }) > 0;
+
+  const searching = query.trim().length > 0;
+  const matches = React.useMemo(
+    () => searchSections(searching ? searchable : browseGroups.flatMap((g) => g.items), query),
+    [query, searching, searchable, browseGroups],
+  );
   // Pages the viewer can open, minus any that land exactly where a listed
   // section row already does ("revenue" shouldn't offer Revenue twice).
   const pageMatches = React.useMemo(
@@ -374,7 +410,6 @@ function CommandPalette({
     [query, viewer, matches],
   );
   const pagesFirst = pagesLead(matches, pageMatches);
-  const searching = query.trim().length > 0;
   const currentKey = activeSection(location.pathname);
   const { hits: entityHits, pending: entityPending } = useEntitySearch(companyId, query);
 
@@ -418,8 +453,9 @@ function CommandPalette({
       ...commandMatches.map((command): PaletteEntry => ({ type: "command", command })),
       ...(pagesFirst ? [...pages, ...sections] : [...sections, ...pages]),
       ...entityGroups.flatMap((g) => g.hits.map((hit): PaletteEntry => ({ type: "entity", hit }))),
+      ...(!searching && canToggle ? [{ type: "toggle" } as PaletteEntry] : []),
     ];
-  }, [commandMatches, matches, pageMatches, pagesFirst, entityGroups]);
+  }, [commandMatches, matches, pageMatches, pagesFirst, entityGroups, searching, canToggle]);
 
   // One id → position map keeps the rendered order and the keyboard index in
   // lockstep no matter which groups are present.
@@ -441,12 +477,31 @@ function CommandPalette({
     setActive((i) => Math.min(i, Math.max(0, entries.length - 1)));
   }, [entries.length]);
 
+  // Showing more or fewer sections moves the toggle row; keep the highlight
+  // on it, so the next ↵ toggles back rather than opening whatever section
+  // now sits where the row was.
+  const followToggle = React.useRef(false);
+  React.useEffect(() => {
+    if (!followToggle.current) return;
+    followToggle.current = false;
+    const at = entries.findIndex((entry) => entry.type === "toggle");
+    if (at >= 0) setActive(at);
+  }, [entries]);
+
   React.useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active, entries]);
 
   const select = React.useCallback(
     (entry: PaletteEntry) => {
+      if (entry.type === "toggle") {
+        // The list changes in place; the palette stays open with the caret in
+        // the search field.
+        followToggle.current = true;
+        setShowAll(!listing.showAll);
+        inputRef.current?.focus();
+        return;
+      }
       // `onClose` hands focus back to whatever opened us — usually the nav
       // pill, which survives the navigation, so the keyboard lands somewhere
       // sensible.
@@ -466,7 +521,7 @@ function CommandPalette({
       const destination = `/c/${companySlug}${path}`;
       if (!navigationGuard.request(destination)) navigate(destination);
     },
-    [onClose, navigate, companySlug, navigationGuard],
+    [onClose, navigate, companySlug, navigationGuard, setShowAll, listing.showAll],
   );
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -635,7 +690,7 @@ function CommandPalette({
                   )}
                 </>
               ) : (
-                PALETTE_GROUPS.map((g) => (
+                browseGroups.map((g) => (
                   <div key={g.label} className="mb-1 last:mb-0">
                     <GroupHeader>{g.label}</GroupHeader>
                     {g.items.map((item) => {
@@ -655,6 +710,16 @@ function CommandPalette({
                     })}
                   </div>
                 ))
+              )}
+              {!searching && canToggle && (
+                <ToggleSectionsRow
+                  showAll={listing.showAll}
+                  unlisted={unlisted}
+                  index={idxOf({ type: "toggle" })}
+                  active={idxOf({ type: "toggle" }) === active}
+                  onHover={setActive}
+                  onSelect={() => select({ type: "toggle" })}
+                />
               )}
             </>
           )}
@@ -682,6 +747,55 @@ function CommandPalette({
 }
 
 // ─────────────────────────────────── rows ──────────────────────────────────
+
+/** Browsing's last row: show every section, or go back to the shorter list. */
+function ToggleSectionsRow({
+  showAll,
+  unlisted,
+  index,
+  active,
+  onHover,
+  onSelect,
+}: {
+  showAll: boolean;
+  unlisted: number;
+  index: number;
+  active: boolean;
+  onHover: (i: number) => void;
+  onSelect: () => void;
+}) {
+  const Icon = showAll ? ChevronUp : ChevronDown;
+  return (
+    <button
+      id="command-palette-opt-toggle-sections"
+      role="option"
+      aria-selected={active}
+      data-idx={index}
+      onMouseMove={() => onHover(index)}
+      onClick={onSelect}
+      className={clsx(
+        "mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
+        active ? "bg-slate-100 dark:bg-slate-800" : "bg-transparent",
+      )}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 dark:text-slate-500">
+        <Icon size={16} />
+      </span>
+      <span className="min-w-0 flex-1 text-sm text-slate-600 dark:text-slate-300">
+        {showAll ? (
+          "Show only the sections in use"
+        ) : (
+          <>
+            Show all sections
+            <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">
+              {unlisted} more
+            </span>
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
 
 function GroupHeader({ children }: { children: React.ReactNode }) {
   return (

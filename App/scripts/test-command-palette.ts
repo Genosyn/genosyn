@@ -39,8 +39,17 @@ const NOTE: CompanySearchResult = {
   path: "/notes/strategy/recurring-revenue-plan",
 };
 
+/** The sections this fixture company has something in; the rest wait behind Show all. */
+const USED_SECTIONS = ["routines", "finance"];
+
 await context.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
+  if (
+    url.pathname === "/api/companies/company/navigation/sections" &&
+    route.request().method() === "GET"
+  ) {
+    return route.fulfill({ json: { used: USED_SECTIONS } });
+  }
   if (url.pathname === "/api/companies/company/search" && route.request().method() === "GET") {
     const q = url.searchParams.get("q") ?? "";
     searches.push(q);
@@ -223,7 +232,11 @@ try {
   assert.equal(view.rows[0].current, true, "Settings is the current section");
   assert.deepEqual(
     view.rows.slice(1, 4).map((r) => `${r.label} · ${r.context}`),
-    ["TLDR settings · TLDRs", "Email settings · Email", "Finance settings · Finance"],
+    [
+      "Decision stack settings · Decision stack",
+      "TLDR settings · What happened",
+      "Email settings · Email",
+    ],
   );
 
   // ── one destination, one row: Revenue's landing page isn't offered twice ──
@@ -242,11 +255,43 @@ try {
   await search(owner, "  RÉCURRING   Invoices ");
   assert.equal((await snapshot(owner)).rows[0]?.label, "Recurring invoices");
 
-  // ── an empty query browses sections only ──
+  // ── an empty query browses the core and the sections in use… ──
   await search(owner, "");
   view = await snapshot(owner);
-  assert.deepEqual(view.groups, ["Essentials", "AI", "Knowledge", "Engineering", "Money", "System", "You"]);
+  assert.deepEqual(view.groups, ["Essentials", "AI", "Money", "System", "You"]);
+  assert.deepEqual(
+    view.rows
+      .filter((r) => r.id.startsWith("command-palette-opt-") && !r.id.includes("-page-"))
+      .map((r) => r.id.replace("command-palette-opt-", "")),
+    [
+      "home",
+      "decisions",
+      "tldrs",
+      "workspace",
+      "employees",
+      "goals",
+      "routines",
+      "finance",
+      "settings",
+      "help",
+      "account",
+      "toggle-sections",
+    ],
+    "the core, Routines and Finance (in use), Settings (on screen), You, then Show all",
+  );
   assert.equal(view.rows.some((r) => r.id.startsWith("command-palette-opt-page-")), false);
+
+  // ── …and Show all lists every section, until asked for fewer ──
+  await owner.getByRole("option", { name: /Show all sections/ }).click();
+  view = await snapshot(owner);
+  assert.deepEqual(view.groups, ["Essentials", "AI", "Knowledge", "Engineering", "Money", "System", "You"]);
+  assert.equal(view.rows.some((r) => r.id === "command-palette-opt-pipelines"), true);
+  await owner.getByRole("option", { name: /Show only the sections in use/ }).click();
+  view = await snapshot(owner);
+  assert.equal(view.rows.some((r) => r.id === "command-palette-opt-pipelines"), false);
+  // Search still reaches a section the list leaves out.
+  await search(owner, "pipelines");
+  assert.equal((await snapshot(owner)).rows[0]?.label, "Pipelines");
 
   // ── admin-only pages are offered to owners… ──
   await search(owner, "usage");
@@ -318,7 +363,7 @@ try {
   console.log(
     "Command palette browser checks passed: recurring → Recurring invoices beside Routines and records; " +
       "↵, arrows with wrap, and click navigation; group order by best match; no duplicate destinations; " +
-      "folding of case, spaces, and accents; browse mode unchanged; owner / Member / finance-access " +
+      "folding of case, spaces, and accents; browse lists the sections in use with Show all; owner / Member / finance-access " +
       "visibility; current-page marker; phone layout.",
   );
 } finally {

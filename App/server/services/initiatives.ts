@@ -11,6 +11,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { toSlug } from "../lib/slug.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { nextRunFor, registerRoutine } from "./cron.js";
+import { companyTimeZone } from "./companyTimeZone.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
 
@@ -215,7 +216,7 @@ async function notifyInitiativePending(initiative: Initiative): Promise<void> {
         kind: "initiative_pending" as const,
         title: `${employee?.name ?? "An AI employee"} proposes: ${initiative.title}`,
         body: "New standing work, with the evidence attached. Accepting creates the Routine.",
-        link: "/initiatives",
+        link: "/decisions/initiatives",
         actorKind: "ai" as const,
         actorId: initiative.employeeId,
         entityKind: "initiative" as const,
@@ -279,7 +280,7 @@ export async function acceptInitiative(
     body: spec.body,
     acceptanceCriteria: spec.acceptanceCriteria ?? "",
   });
-  registerRoutine(routine);
+  registerRoutine(routine, await companyTimeZone(initiative.companyId));
   await routineRepo.save(routine);
   await AppDataSource.getRepository(Initiative).update(
     { id: initiative.id },

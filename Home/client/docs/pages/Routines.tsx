@@ -51,24 +51,41 @@ export function Routines() {
         <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the top bar to ask about it. Each
         AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
-        filtered to them — and <Strong>New routine</Strong> from that slice starts with them as the
-        owner. A new routine opens on its <Strong>Brief</Strong> tab, ready for its instructions,
-        and <Code>⌘S</Code> saves the brief. The status in a row&apos;s <Strong>Last run</Strong>{" "}
-        column opens that Run directly.
+        filtered to them — and <Strong>New routine</Strong> from that slice starts with them
+        chosen. On the <Strong>Brief</Strong> tab, <Code>⌘S</Code> saves the brief. The status in a
+        row&apos;s <Strong>Last run</Strong> column opens that Run directly.
       </P>
       <P>
-        A new routine starts <Strong>Paused</Strong>, so one you leave unfinished never runs its
-        starter outline on schedule. Its <Strong>Brief</Strong> tab says{" "}
-        <Strong>Paused until its brief is saved</Strong>, and the button reads{" "}
-        <Strong>Save brief &amp; switch on</Strong>: that first save of a real brief switches the
-        routine on and schedules its next Run. Renaming or rescheduling it first does not count, and
-        saving a blank brief or the untouched outline leaves it paused. Later saves never change the
-        switch.
+        A routine made without a brief starts <Strong>Paused</Strong>, so one left unfinished never
+        runs its starter outline on schedule. That is what an API call or an AI Employee&apos;s{" "}
+        <Code>create_routine</Code> gets when it sends no brief; the New routine page always has
+        one. Its <Strong>Brief</Strong> tab says <Strong>Paused until its brief is saved</Strong>,
+        and the button reads <Strong>Save brief &amp; switch on</Strong>: that first save of a real
+        brief switches the routine on and schedules its next Run. Renaming or rescheduling it first
+        does not count, and saving a blank brief or the untouched outline leaves it paused. Later
+        saves never change the switch.
+      </P>
+      <P>
+        <Strong>Overview</Strong> keeps what you check most up front: who the routine is assigned
+        to and the model it runs on, its schedule in words, the next run, and the last run.{" "}
+        <Strong>More details</Strong> holds the rest — where it is filed, its timeout, approval,
+        outcome check, browser, catch-up, retries, and webhook — and its summary line names
+        anything that is not at its default. <Strong>Settings</Strong> shows the basics:{" "}
+        <Strong>Name</Strong>, <Strong>Schedule</Strong>, <Strong>Goal</Strong>, and{" "}
+        <Strong>What counts as done</Strong>, saved with one <Strong>Save changes</Strong>.
+        Everything else is under <Strong>Advanced</Strong>, closed until you open it: the folder,
+        timeout and approval; <Strong>Checks</Strong>; the model and browser; downtime and
+        retries; <Strong>Triggers</Strong>; and the <Strong>Webhook</Strong>. Its summary line
+        names what is set there, such as{" "}
+        <Code>Approval required · 2 Checks · 1 Trigger · Webhook on</Code>, or reads{" "}
+        <Strong>All defaults</Strong>. Checks, Triggers, and the webhook save as you change them;
+        the other Advanced settings are saved by <Strong>Save changes</Strong>. Standing a routine
+        down and deleting it stay in view at the bottom.
       </P>
       <P>
         Owners and admins pause or resume a routine from the switch beside{" "}
-        <Strong>Run now</Strong> at the top of its page — one click, no Save; the{" "}
-        <Strong>Enabled</Strong> box under Settings follows it. While a{" "}
+        <Strong>Run now</Strong> at the top of its page — one click, no Save. It is the only pause
+        control: Settings does not repeat it, and saving Settings never changes it. While a{" "}
         <DocLink to="/docs/standdowns">Standdown</DocLink> covers the routine,{" "}
         <Strong>Run now</Strong> is disabled and its tooltip names the Standdown.
       </P>
@@ -79,6 +96,48 @@ export function Routines() {
         <Strong>Retry brief</Strong>. A failed save keeps your edits available to retry, and the
         brief is marked saved only after storage confirms the submitted text. Switching to another
         Routine or company opens that destination&apos;s own brief.
+      </P>
+
+      <H2 id="creating">Creating a Routine</H2>
+      <P>
+        Owners and admins start from <Strong>New routine</Strong>. Say what you want and an AI
+        Employee drafts it for you, or fill in the details yourself.
+      </P>
+      <H3 id="describe-it">Describe it</H3>
+      <P>
+        The page opens on one box, <Strong>What should happen, and how often?</Strong> Write it the
+        way you would tell a colleague, or press one of the <Strong>Examples</Strong> to start from.
+        Choose the <Strong>AI Employee</Strong> to ask — only employees with a connected{" "}
+        <DocLink to="/docs/models">AI Model</DocLink> are offered, and when only one can answer they
+        are already chosen — then press <Strong>Continue to Chat</Strong>.
+      </P>
+      <P>
+        That opens a new Chat with your request as an unsent draft. Read it, change it, and send it
+        when you are ready; nothing is sent from the New routine page. The employee checks your
+        existing Routines and <DocLink to="/docs/reactivity#initiatives">Initiatives</DocLink>, then
+        proposes the Routine as an Initiative. It waits in the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink> until an owner or admin accepts it,
+        and accepting it is what creates the Routine, switched on.
+      </P>
+      <H3 id="set-it-up-yourself">Set it up yourself</H3>
+      <P>
+        <Strong>Set it up yourself</Strong>, under the box, opens the form: a <Strong>Name</Strong>,
+        who the routine is <Strong>Assigned to</Strong>, its <Strong>Schedule</Strong>, and{" "}
+        <Strong>What should happen on each run?</Strong> — the brief, which this form requires.{" "}
+        <Strong>Create routine</Strong> opens the new routine, already on its schedule.{" "}
+        <Strong>More options</Strong> holds the <Strong>Folder</Strong> and <Strong>Tags</Strong>{" "}
+        and stays closed until you open it; closed, it names the folder when one was carried over
+        from the list you came from. <Strong>Describe it instead</Strong> goes back to the box, and
+        what you typed in either place is kept.
+      </P>
+      <P>
+        Through the authenticated company API, the same fields go to{" "}
+        <Code>POST /api/companies/:companyId/employees/:employeeId/routines</Code>:{" "}
+        <Code>name</Code>, <Code>cronExpr</Code>, an optional <Code>brief</Code> of up to 20,000
+        characters, and optional <Code>folderId</Code> and <Code>tagIds</Code>. With a{" "}
+        <Code>brief</Code> the routine starts switched on. Without one — or with a blank brief, or
+        the starter outline unchanged — it is created paused with nothing scheduled, so nothing runs
+        before a real brief exists.
       </P>
 
       <H2 id="recent-runs">Running now and today</H2>
@@ -178,8 +237,9 @@ export function Routines() {
         appear on every row: tick the ones you want (or <Strong>Select all</Strong>), then pick a
         destination from <Strong>Move to folder</Strong>. It is one request for the whole batch, so
         a failure never leaves half the selection moved. A single routine can also be re-filed from
-        the <Strong>Folder</Strong> field on its <Strong>Settings</Strong> tab, and a new routine
-        created while you are inside a folder lands there by default.
+        the <Strong>Folder</Strong> field under <Strong>Settings → Advanced</Strong>, and a routine
+        you <DocLink to="/docs/routines#set-it-up-yourself">set up yourself</DocLink> while inside
+        a folder lands there by default.
       </P>
       <Callout kind="info" title="Folders and tags answer different questions.">
         A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{" "}
@@ -264,10 +324,11 @@ export function Routines() {
               <>
                 Hard timeout in seconds. The runner aborts the active runtime after this long and
                 marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to{" "}
-                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) from the routine
-                editor — raise it for long jobs, lower it to fail fast. Time spent waiting in the
-                queue does not count. Near the end, tool results tell the employee how many
-                minutes remain so it can save progress and report before it is stopped.
+                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) under{" "}
+                <Strong>Settings → Advanced</Strong> — raise it for long jobs, lower it to fail
+                fast. Time spent waiting in the queue does not count. Near the end, tool results
+                tell the employee how many minutes remain so it can save progress and report before
+                it is stopped.
               </>
             ),
           },
@@ -312,8 +373,8 @@ export function Routines() {
             def: (
               <>
                 Optional plain-language definition of done, edited at{" "}
-                <Strong>Settings → Outcome check</Strong>. When set, the criteria ride along in
-                every Run&apos;s brief and each completed Run is graded against them. See{" "}
+                <Strong>Settings → What counts as done</Strong>. When set, the criteria ride along
+                in every Run&apos;s brief and each completed Run is graded against them. See{" "}
                 <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink>.
               </>
             ),
@@ -350,10 +411,37 @@ export function Routines() {
       <P>
         Underneath, the control writes a plain English sentence, the cron expression it compiled,
         and the next few times the routine will actually fire — so you can check the schedule before
-        you save rather than after the first Run lands. Times are server-local. The same control
-        appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
-        <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger.
+        you save rather than after the first Run lands. Those times are in your company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>, and the preview names it. The
+        same control appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
+        <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger, where it still reads
+        server time.
       </P>
+
+      <H3 id="time-zone">Time zone</H3>
+      <P>
+        A routine&apos;s schedule is read in the company&apos;s time zone, so &ldquo;every morning
+        at 8&rdquo; fires at 8:00 AM there and stays at 8:00 AM when daylight saving changes. Owners
+        and admins choose the zone in <Strong>Settings → Company → Time zone</Strong>. A company you
+        create starts in the time zone of your browser, and the schedule preview names the zone it
+        is using, such as <Code>Europe/Berlin</Code>.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Server time</Strong> keeps the old behavior: schedules follow the clock of the
+          machine running Genosyn, which is often UTC in Docker. Companies that existed before time
+          zones are on it until someone picks a zone, so nothing moves on its own.
+        </LI>
+        <LI>
+          Changing the zone re-times every enabled routine in the company at once; each one&apos;s
+          next run is worked out again on the new clock.
+        </LI>
+        <LI>
+          It applies to Routines only. <DocLink to="/docs/pipelines">Pipeline</DocLink> schedules,
+          recurring invoices, and <DocLink to="/docs/signals">Revenue Signals</DocLink> keep reading
+          server time.
+        </LI>
+      </UL>
 
       <H3 id="custom-cron">Writing cron by hand</H3>
       <P>
@@ -374,8 +462,9 @@ export function Routines() {
 0 9,17 * * *  →  09:00 and 17:00, every day`}</Pre>
       <P>
         AI Employees writing a routine through <Code>create_routine</Code> or{" "}
-        <Code>update_routine</Code> pass the cron expression the same way they always did — the
-        control is how humans are asked, not a change to what is stored.
+        <Code>update_routine</Code> pass the cron expression the same way they always did, and it is
+        read in the company&apos;s time zone like any other — the control is how humans are asked,
+        not a change to what is stored.
       </P>
       <P>
         Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine to
@@ -647,9 +736,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H2 id="model">Picking a model</H2>
       <P>
         An employee can hold several <DocLink to="/docs/models">AI Models</DocLink> and keeps one
-        active. By default a routine runs on that active model — the <Strong>Model</Strong> field in
-        the routine editor reads <Strong>Inherit</Strong>, and the routine follows the employee
-        whenever you switch their brain.
+        active. By default a routine runs on that active model — the <Strong>Model</Strong> field
+        under <Strong>Settings → Advanced</Strong> reads <Strong>Inherit</Strong>, and the routine
+        follows the employee whenever you switch their brain.
       </P>
       <P>
         Pick a specific model instead to <Strong>pin</Strong> it. The routine then always runs on
@@ -660,7 +749,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <UL>
         <LI>
           You can only pin a model that <Strong>belongs to that employee</Strong>. Register it at
-          the employee&apos;s <Strong>Settings → Model</Strong> first.
+          the employee&apos;s <Strong>Settings → Model</Strong> first (
+          <Strong>Advanced → Add model</Strong> if they already have one).
         </LI>
         <LI>
           A pin only affects this routine&apos;s <Strong>Runs</Strong>. Dedicated employee Chat has
@@ -818,9 +908,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A <Strong>Completed</Strong> Run has no known failure, but that alone is not verification.
         The outcome check adds an independent assessment: give a routine{" "}
-        <Strong>acceptance criteria</Strong> (Settings → Outcome check) — a plain-language
-        definition of done, like &quot;the digest was posted to #general and covers every failed run
-        since the last digest&quot; — and two things happen.
+        <Strong>acceptance criteria</Strong> (<Strong>Settings → What counts as done</Strong>) —
+        a plain-language definition of done, like &quot;the digest was posted to #general and
+        covers every failed run since the last digest&quot; — and two things happen.
       </P>
       <UL>
         <LI>
@@ -862,7 +952,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <Callout kind="info" title="What it costs">
         One short extra model turn per completed Run, on the routine&apos;s own model. Its tokens
-        are counted into the Run&apos;s totals like everything else.
+        are counted into the Run&apos;s totals like everything else. Routines added from the{" "}
+        <DocLink to="/docs/getting-started#launch-plan">setup guide</DocLink> and the built-in
+        Proactive starters come with criteria already written, so their Runs are graded from the
+        first one.
       </Callout>
 
       <H2 id="checks">Checks</H2>
@@ -870,7 +963,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         The outcome check is still a model reading a transcript another model wrote. A{" "}
         <Strong>Check</Strong> is the third axis and the only one with no model in it: a
         machine-verifiable assertion the Run must pass before it finalizes green, written by an
-        operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
+        operator on the routine&apos;s <Strong>Settings → Advanced → Checks</Strong> panel.
       </P>
       <P>
         A company admin configures Checks in that panel, or through the authenticated company API at{" "}
@@ -977,10 +1070,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         one still gets a Run of its own.
       </P>
       <P>
-        Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> in the routine&apos;s Settings
-        when a late run is worse than no run — a 09:00 standup digest arriving at 16:00 is noise.
-        The skipped occurrences are recorded in the employee&apos;s Journal so the gap is still
-        visible.
+        Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> under the routine&apos;s{" "}
+        <Strong>Settings → Advanced</Strong> when a late run is worse than no run — a 09:00
+        standup digest arriving at 16:00 is noise. The skipped occurrences are recorded in the
+        employee&apos;s Journal so the gap is still visible.
       </P>
       <Callout kind="info" title="Missed slots are never replayed one-for-one.">
         There is no setting that re-runs every occurrence you missed. A week of downtime on a
@@ -1082,9 +1175,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Retrying the <Strong>whole Routine</Strong> creates a new Run. These retries after{" "}
         <Strong>Failed</Strong> Runs without a saved continuation and runtime{" "}
         <Strong>Errors</Strong> are <Strong>off by default.</Strong> Raise <Strong>Attempts</Strong>{" "}
-        above 1 in the routine&apos;s Settings to retry them automatically, up to 5 attempts,
-        waiting a randomized, doubling interval between each (from <Strong>Retry backoff</Strong>,
-        capped at six hours). Retrying after the Run&apos;s own deadline is opted in separately,
+        above 1 under the routine&apos;s <Strong>Settings → Advanced</Strong> to retry them
+        automatically, up to 5 attempts, waiting a randomized, doubling interval between each
+        (from <Strong>Retry backoff</Strong>, capped at six hours). Retrying after the Run&apos;s own deadline is opted in separately,
         because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
         scheduled Run on an enabled routine without an approval gate is the safety exception: even
         at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries

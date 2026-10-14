@@ -153,7 +153,7 @@ describe("subpage catalogue", () => {
       ["Vendors", ""],
       ["Vendor credits", ""],
       ["Transactions", "Ledger"],
-      ["Journal", "Ledger"],
+      ["Journal entries", "Ledger"],
       ["Proposals", "Ledger"],
       ["Accounts", "Ledger"],
       ["Trial balance", "Ledger"],
@@ -305,6 +305,7 @@ describe("subpage visibility", () => {
     // form is for. Pages a Member can open read-only are deliberately absent.
     const hidden = ALL_PAGES.filter((p) => !canOpenSubpage(p, MEMBER_FULL)).map((p) => p.path);
     assert.deepEqual(hidden.sort(), [
+      "/decisions/approvals",
       "/employees/new",
       "/pipelines/new",
       "/routines/new",
