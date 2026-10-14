@@ -8,6 +8,12 @@ const Company = z
     slug: z.string(),
     mission: z.string(),
     vision: z.string(),
+    timezone: z
+      .string()
+      .describe(
+        "IANA time zone (for example `Europe/Berlin`) that Routine schedules are read in. " +
+          "Empty means server time.",
+      ),
     role: z.enum(["owner", "admin", "member"]).optional(),
     requireTwoFactor: z.boolean(),
   })
