@@ -14,6 +14,7 @@ import {
   setProactiveAutomaticSetup,
   ProactiveSetupError,
 } from "../services/proactive/setup.js";
+import { previewProactiveDefaults } from "../services/proactive/preview.js";
 
 export const proactiveRouter = Router({ mergeParams: true });
 proactiveRouter.use(requireAuth, requireCompanyMember);
@@ -34,6 +35,31 @@ proactiveRouter.get(
   validateQuery(z.object({}).strict()),
   async (req, res) => {
     res.json(await getProactiveOverview((req.params as Record<string, string>).cid));
+  },
+);
+/**
+ * What Automatic setup gives one AI Employee, and the company's TLDR briefing:
+ * the "Also set up for {name}" list in the setup guide. Read-only, so every
+ * Member may see it, like the overview above.
+ */
+proactiveRouter.get(
+  "/proactive/preview",
+  validateParams(companyParams),
+  validateQuery(z.object({ employeeId: z.string().uuid() }).strict()),
+  async (req, res, next) => {
+    try {
+      res.json(
+        await previewProactiveDefaults(
+          (req.params as Record<string, string>).cid,
+          (req.query as { employeeId: string }).employeeId,
+        ),
+      );
+    } catch (error) {
+      if (error instanceof ProactiveSetupError)
+        return res.status(error.status).json({ error: error.message });
+      // Express 4 does not forward a rejected async handler.
+      next(error);
+    }
   },
 );
 proactiveRouter.post(

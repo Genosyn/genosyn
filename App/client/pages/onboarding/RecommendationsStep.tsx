@@ -14,6 +14,7 @@ import {
   Clock3,
   CreditCard,
   Database,
+  Flag,
   GitFork,
   Github,
   Layers,
@@ -23,6 +24,7 @@ import {
   MessageCircle,
   Plug,
   RefreshCw,
+  Repeat,
   Search,
   Send,
   Server,
@@ -42,6 +44,7 @@ import {
   OnboardingIntegrationRecommendation,
   OnboardingRecommendations,
   OnboardingRoutineRecommendation,
+  ProactiveDefaultsPreview,
 } from "../../lib/api";
 import { describeCronExpr } from "../../lib/scheduleBuilder";
 import {
@@ -129,6 +132,13 @@ export function RecommendationsStep({
   const visionDirty = React.useRef(false);
   const loadGeneration = React.useRef(0);
   const dialog = useDialog();
+  // What Automatic setup adds for this employee. Loaded apart from the plan:
+  // the plan is the point of this step and must not wait on, or fail with, it.
+  const [standing, setStanding] = React.useState<ProactiveDefaultsPreview | null>(null);
+  const [standingError, setStandingError] = React.useState<string | null>(null);
+  const [savingStanding, setSavingStanding] = React.useState(false);
+  const [switchError, setSwitchError] = React.useState<string | null>(null);
+  const canManageStanding = company.role === "owner" || company.role === "admin";
 
   const endpoint = React.useMemo(() => {
     const base = `/api/companies/${company.id}/employees/${employee.id}/onboarding-recommendations`;
@@ -204,11 +214,48 @@ export function RecommendationsStep({
     };
   }, [load]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setStanding(null);
+    setStandingError(null);
+    setSwitchError(null);
+    api
+      .get<ProactiveDefaultsPreview>(
+        `/api/companies/${company.id}/proactive/preview?employeeId=${encodeURIComponent(employee.id)}`,
+      )
+      .then((next) => {
+        if (!cancelled) setStanding(next);
+      })
+      .catch((err) => {
+        if (!cancelled) setStandingError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, employee.id]);
+
+  /** The same switch, and the same route, as Automatic setup on the Proactive page. */
+  async function setAutomaticSetup(enabled: boolean) {
+    if (!standing || savingStanding) return;
+    setSavingStanding(true);
+    setSwitchError(null);
+    try {
+      await api.patch(`/api/companies/${company.id}/proactive/defaults`, { enabled });
+      setStanding((current) => current && { ...current, automaticSetup: enabled });
+    } catch (err) {
+      setSwitchError((err as Error).message);
+    } finally {
+      setSavingStanding(false);
+    }
+  }
+
   function toggleRoutine(id: string) {
     if (addingRoutines) return;
     const selected = selectedRoutineIds.has(id);
     if (!selected && selectedRoutineIds.size >= MAX_ONBOARDING_ROUTINE_SELECTION) {
-      setSelectionError(`Choose up to ${MAX_ONBOARDING_ROUTINE_SELECTION} Routines at a time.`);
+      setSelectionError(
+        `Add up to ${MAX_ONBOARDING_ROUTINE_SELECTION} Routines in one step. You can add more later from Routines.`,
+      );
       return;
     }
     setSelectionError(null);
@@ -325,7 +372,11 @@ export function RecommendationsStep({
   if (loading) {
     return (
       <div className="mx-auto w-full">
-        <LaunchHero companyName={company.name} employee={employee} />
+        <LaunchHero
+          companyName={company.name}
+          hasGoal={Boolean(company.hasGoal)}
+          employee={employee}
+        />
         <Card>
           <CardBody
             className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center"
@@ -350,7 +401,11 @@ export function RecommendationsStep({
   if (!plan || error) {
     return (
       <div className="mx-auto w-full">
-        <LaunchHero companyName={company.name} employee={employee} />
+        <LaunchHero
+          companyName={company.name}
+          hasGoal={Boolean(company.hasGoal)}
+          employee={employee}
+        />
         <Card>
           <CardBody className="p-6">
             <FormError message={error ?? "The launch plan could not be loaded."} />
@@ -384,7 +439,10 @@ export function RecommendationsStep({
     );
   }
 
-  const missingContext = !plan.context.mission.trim() || !plan.context.vision.trim();
+  const hasGoal = plan.context.goal.trim() !== "";
+  const hasMission = plan.context.mission.trim() !== "";
+  const hasVision = plan.context.vision.trim() !== "";
+  const missingContext = !hasMission || !hasVision;
   const canSaveContext =
     (missionDraft.trim().length > 0 && missionDraft.trim() !== plan.context.mission.trim()) ||
     (visionDraft.trim().length > 0 && visionDraft.trim() !== plan.context.vision.trim());
@@ -393,26 +451,41 @@ export function RecommendationsStep({
 
   return (
     <div className="mx-auto w-full space-y-5">
-      <LaunchHero companyName={plan.context.companyName} employee={employee} />
+      <LaunchHero
+        companyName={plan.context.companyName}
+        hasGoal={plan.context.goal !== ""}
+        employee={employee}
+      />
 
-      {missingContext ? (
-        <Card className="border-indigo-200 dark:border-indigo-800">
-          <CardBody className="p-5 sm:p-6">
-            <div className="flex items-start gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                <Target size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Give the recommendations your company&apos;s direction
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                  A short mission and vision help Genosyn match recurring work and Integrations to
-                  what {company.name} is actually building.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+      <div className="space-y-3">
+        {(hasGoal || hasMission || hasVision) && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {hasGoal && (
+              <ContextCard
+                icon={Flag}
+                label="Goal"
+                value={plan.context.goal}
+                className="sm:col-span-2"
+              />
+            )}
+            {hasMission && (
+              <ContextCard icon={Target} label="Mission" value={plan.context.mission} />
+            )}
+            {hasVision && (
+              <ContextCard icon={Sparkles} label="Vision" value={plan.context.vision} />
+            )}
+          </div>
+        )}
+        {missingContext && (
+          <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
+              Add a mission and vision (optional)
+            </summary>
+            <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-slate-400">
+              They help Genosyn match recurring work and Integrations to what {company.name} is
+              actually building.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Textarea
                 label="Mission"
                 value={missionDraft}
@@ -451,14 +524,9 @@ export function RecommendationsStep({
                 {!savingContext && <Sparkles size={14} />}
               </Button>
             </div>
-          </CardBody>
-        </Card>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ContextCard icon={Target} label="Mission" value={plan.context.mission} />
-          <ContextCard icon={Sparkles} label="Vision" value={plan.context.vision} />
-        </div>
-      )}
+          </details>
+        )}
+      </div>
 
       <section aria-labelledby="recommended-routines">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -476,7 +544,7 @@ export function RecommendationsStep({
           </div>
           {suggested.length > 0 && (
             <div className="shrink-0 text-xs font-medium text-slate-500 sm:ml-auto dark:text-slate-400">
-              {selectedRoutineIds.size} selected · up to {MAX_ONBOARDING_ROUTINE_SELECTION}
+              {selectedRoutineIds.size} selected
             </div>
           )}
         </div>
@@ -486,7 +554,7 @@ export function RecommendationsStep({
         {plan.routines.length === 0 ? (
           <EmptyPanel
             title="No Routine suggestions yet"
-            description="Add company direction above or continue and create a Routine later."
+            description="Continue and create a Routine later, or add a mission and vision above to get suggestions."
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
@@ -511,8 +579,9 @@ export function RecommendationsStep({
                 aria-hidden="true"
               />
               <p className="text-sm leading-6 text-indigo-900/80 dark:text-indigo-200/80">
-                Selected Routines run on their schedules once an AI Model is connected. You can edit
-                or pause them any time from Routines.
+                Selected Routines run on their schedules once an AI Model is connected, and each Run
+                is graded against a short definition of done (Settings → Outcome check). You can
+                edit or pause them any time from Routines.
                 {ready.length > 0 &&
                   ` ${ready.length} matching ${ready.length === 1 ? "Routine already exists" : "Routines already exist"} for ${employee.name}.`}
               </p>
@@ -520,6 +589,16 @@ export function RecommendationsStep({
           </div>
         )}
       </section>
+
+      <StandingWork
+        employee={employee}
+        preview={standing}
+        error={standingError}
+        canManage={canManageStanding}
+        saving={savingStanding}
+        switchError={switchError}
+        onToggle={(enabled) => void setAutomaticSetup(enabled)}
+      />
 
       <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -618,12 +697,20 @@ export function RecommendationsStep({
   );
 }
 
-function LaunchHero({ companyName, employee }: { companyName: string; employee: Employee }) {
+function LaunchHero({
+  companyName,
+  hasGoal,
+  employee,
+}: {
+  companyName: string;
+  hasGoal: boolean;
+  employee: Employee;
+}) {
   return (
     <StepHeading
       icon={CalendarClock}
       title={`Choose useful work for ${employee.name}`}
-      description={`These Routines connect their ${employee.role} role with ${companyName}’s mission and vision. Choose what to schedule, or continue and add work later.`}
+      description={`These Routines connect their ${employee.role} role with ${companyName}’s ${hasGoal ? "Goal" : "mission and vision"}. Choose what to schedule, or continue and add work later.`}
     />
   );
 }
@@ -632,13 +719,20 @@ function ContextCard({
   icon: Icon,
   label,
   value,
+  className,
 }: {
   icon: LucideIcon;
   label: string;
   value: string;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <div
+      className={clsx(
+        "rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900",
+        className,
+      )}
+    >
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
         <Icon size={13} className="text-indigo-500" /> {label}
       </div>
@@ -863,6 +957,202 @@ function IntegrationStatus({ status }: { status: OnboardingIntegrationRecommenda
     >
       {label}
     </span>
+  );
+}
+
+/**
+ * "Also set up for {name}": the standing work and the briefing that arrive
+ * without being picked above. Automatic setup assigns the first within a minute
+ * of an AI Model connecting, and hiring starts the second, so the guide says so
+ * here rather than leaving them to be found later on the Routines page.
+ */
+function StandingWork({
+  employee,
+  preview,
+  error,
+  canManage,
+  saving,
+  switchError,
+  onToggle,
+}: {
+  employee: Employee;
+  preview: ProactiveDefaultsPreview | null;
+  error: string | null;
+  canManage: boolean;
+  saving: boolean;
+  switchError: string | null;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const titleId = React.useId();
+  const labelId = React.useId();
+  const descriptionId = React.useId();
+  const heading = (
+    <h2
+      id={titleId}
+      className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100"
+    >
+      <Repeat size={17} className="text-indigo-600 dark:text-indigo-400" />
+      Also set up for {employee.name}
+    </h2>
+  );
+
+  if (error) {
+    return (
+      <section aria-labelledby={titleId} className="space-y-3">
+        {heading}
+        <FormError message={`We could not load what is set up automatically. ${error}`} />
+      </section>
+    );
+  }
+  if (!preview) return null;
+
+  const { automaticSetup, employeeReady, starters, briefing } = preview;
+  const hasRows = starters.length > 0 || briefing !== null;
+  const intro = !hasRows
+    ? `Nothing else is set up automatically for ${employee.name}.`
+    : !automaticSetup
+      ? `Automatic setup is off, so Genosyn will not add standing work for ${employee.name}.`
+      : employeeReady
+        ? "Genosyn adds this standing work automatically."
+        : `Genosyn adds this standing work automatically once ${employee.name} has a connected AI Model.`;
+
+  return (
+    <section aria-labelledby={titleId} className="space-y-3">
+      <div>
+        {heading}
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+          {intro}
+        </p>
+      </div>
+
+      {hasRows && (
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+          {starters.map((row) => {
+            const skipped = !automaticSetup && !row.installed;
+            return (
+              <li
+                key={row.recipeId}
+                className={clsx(
+                  "flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+                  skipped && "opacity-60",
+                )}
+              >
+                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {row.name}
+                </span>
+                <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <CalendarClock size={12} aria-hidden="true" />
+                  {row.schedule}
+                  {row.installed && <StatePill>Added</StatePill>}
+                  {skipped && <StatePill>Not added</StatePill>}
+                </span>
+              </li>
+            );
+          })}
+          {briefing && (
+            <li className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                TLDR briefing
+              </span>
+              <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <CalendarClock size={12} aria-hidden="true" />
+                {briefing.schedule}
+                {briefing.writerName ? ` · written by ${briefing.writerName}` : ""}
+              </span>
+            </li>
+          )}
+        </ul>
+      )}
+
+      <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+        You can change or pause any of these later in Proactive and TLDRs.
+      </p>
+
+      {canManage ? (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0">
+            <div id={labelId} className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              Set up standing work automatically
+            </div>
+            <p
+              id={descriptionId}
+              className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400"
+            >
+              {automaticSetup
+                ? "On for every AI Employee in your company. Your own and paused work is never replaced or resumed."
+                : "Off. No new standing work will be added; work that already exists keeps its current state."}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="text-sm font-medium text-slate-700 dark:text-slate-200"
+            >
+              {saving ? "Saving…" : automaticSetup ? "On" : "Off"}
+            </span>
+            <Switch
+              checked={automaticSetup}
+              disabled={saving}
+              label="Set up standing work automatically"
+              describedBy={descriptionId}
+              onChange={onToggle}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+          {automaticSetup
+            ? "Owners and admins can switch automatic setup off in Proactive."
+            : "Owners and admins can switch automatic setup on in Proactive."}
+        </p>
+      )}
+      <FormError message={switchError} />
+    </section>
+  );
+}
+
+function StatePill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+      {children}
+    </span>
+  );
+}
+
+function Switch({
+  checked,
+  disabled,
+  label,
+  describedBy,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  describedBy?: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-label={label}
+      aria-describedby={describedBy}
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={clsx(
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-slate-950",
+        checked ? "bg-indigo-600 dark:bg-indigo-500" : "bg-slate-300 dark:bg-slate-700",
+      )}
+    >
+      <span
+        className={clsx(
+          "inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+          checked ? "translate-x-5" : "translate-x-0.5",
+        )}
+      />
+    </button>
   );
 }
 

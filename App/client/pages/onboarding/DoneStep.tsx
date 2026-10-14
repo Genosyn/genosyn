@@ -9,6 +9,7 @@ import {
   Home,
   Mail,
   MessageSquare,
+  Repeat,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -159,6 +160,12 @@ export function DoneStep({
   // Only Routines that will actually fire — a member who switched one off must
   // not be told it "runs on its own schedule from now on".
   const scheduledCount = status?.scheduledRoutineCount ?? 0;
+  // Standing work that Automatic setup added is counted on its own line, so the
+  // Routines somebody chose are the ones the Routines step said it would
+  // schedule and the total is never read as a limit.
+  const standingCount = status?.standingRoutineCount ?? 0;
+  const chosenCount = Math.max(0, scheduledCount - standingCount);
+  const automaticSetup = status?.automaticSetup ?? false;
   const modelConnected = status?.modelConnected ?? false;
 
   return (
@@ -250,18 +257,18 @@ export function DoneStep({
               }
             />
             <ChecklistRow
-              done={scheduledCount > 0}
+              done={chosenCount > 0}
               icon={CalendarClock}
               title={
-                scheduledCount > 0
-                  ? `${scheduledCount} ${scheduledCount === 1 ? "Routine" : "Routines"} scheduled`
+                chosenCount > 0
+                  ? `${chosenCount} ${chosenCount === 1 ? "Routine" : "Routines"} scheduled`
                   : "No Routines scheduled"
               }
               body={
-                scheduledCount > 0 ? (
+                chosenCount > 0 ? (
                   <>
                     {modelConnected
-                      ? `These run on their own schedule${nextRun ? `, starting ${nextRun}` : ""}.`
+                      ? `These run on their own schedule${standingCount === 0 && nextRun ? `, starting ${nextRun}` : ""}.`
                       : "They will start once an AI Model is connected."}{" "}
                     Turn any of them off from{" "}
                     <Link
@@ -277,6 +284,53 @@ export function DoneStep({
                 )
               }
             />
+            {(automaticSetup || standingCount > 0) && (
+              <ChecklistRow
+                done={standingCount > 0}
+                icon={Repeat}
+                title={
+                  standingCount > 0
+                    ? `${standingCount} standing ${standingCount === 1 ? "Routine" : "Routines"} added automatically`
+                    : "Standing work"
+                }
+                body={
+                  <>
+                    {standingCount > 0
+                      ? `Genosyn set these up for ${employee.name} on its own.`
+                      : modelConnected
+                        ? `Genosyn adds it for ${employee.name} automatically, within a minute.`
+                        : `Genosyn adds it for ${employee.name} automatically once an AI Model is connected.`}{" "}
+                    Change or pause it in{" "}
+                    <Link
+                      to={`/c/${company.slug}/proactive`}
+                      className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+                    >
+                      Proactive
+                    </Link>
+                    .
+                  </>
+                }
+              />
+            )}
+            {!automaticSetup && standingCount === 0 && (
+              <ChecklistRow
+                done={false}
+                icon={Repeat}
+                title="Automatic setup is off"
+                body={
+                  <>
+                    No standing work is added for {employee.name}. Turn it on in{" "}
+                    <Link
+                      to={`/c/${company.slug}/proactive`}
+                      className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+                    >
+                      Proactive
+                    </Link>{" "}
+                    any time.
+                  </>
+                }
+              />
+            )}
             <ChecklistRow
               done={status.mailGranted}
               icon={Mail}
