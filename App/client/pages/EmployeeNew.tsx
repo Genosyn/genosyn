@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   BarChart3,
@@ -21,7 +22,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle";
-import { api, Company, Employee, EmployeeTemplate } from "../lib/api";
+import { AIModel, api, Company, Employee, EmployeeTemplate } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
@@ -34,6 +35,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { EmployeeModelSection } from "./employeeTabs";
 import { CompanyStep } from "@/pages/onboarding/CompanyStep";
 import { hasCompanyDirection } from "@/lib/onboardingFlow";
+import { Note } from "./onboarding/OnboardingFrame";
 import { RecommendationsStep } from "./onboarding/RecommendationsStep";
 
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
@@ -108,18 +110,18 @@ Promise refunds, discounts, timelines, or policy changes on behalf of the team.
 Share private or customer data with anyone who shouldn't have it.`;
 }
 
-function defaultReference(): string {
-  return `https://notion.so/your-company/brand-voice
-https://linear.app/your-company/escalation-matrix`;
-}
-
+/**
+ * Reference material has no default: a link only helps when it is real, and a
+ * made-up one would be written into the Soul as if the company had that page.
+ * Left blank, the Soul simply has no Reference material section.
+ */
 function defaultAnswers(role: string): SoulAnswers {
   return {
     mission: defaultMission(role),
     tone: defaultTone(),
     autonomy: defaultAutonomy(role),
     hardNos: defaultHardNos(),
-    reference: defaultReference(),
+    reference: "",
   };
 }
 
@@ -259,7 +261,7 @@ export default function EmployeeNew({
       tone: prev.tone || defaults.tone,
       autonomy: prev.autonomy || defaults.autonomy,
       hardNos: prev.hardNos || defaults.hardNos,
-      reference: prev.reference || defaults.reference,
+      reference: prev.reference,
     }));
   }, [step, role]);
 
@@ -688,6 +690,31 @@ function ModelStep({
   onBack: () => void;
   onNext: () => void;
 }) {
+  const [checking, setChecking] = React.useState(false);
+  const [modelMissing, setModelMissing] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Continue means "the model is ready", so it checks; going on without one is
+  // the separate, named choice offered only once that check has failed.
+  async function continueWithModelCheck() {
+    setChecking(true);
+    setError(null);
+    try {
+      const models = await api.get<AIModel[]>(
+        `/api/companies/${company.id}/employees/${emp.id}/models`,
+      );
+      if (!models.some((model) => model.isActive && model.status === "connected")) {
+        setModelMissing(true);
+        return;
+      }
+      onNext();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -704,11 +731,25 @@ function ModelStep({
           <EmployeeModelSection company={company} emp={emp} />
         </CardBody>
       </Card>
+      <FormError message={error} />
+      {modelMissing && (
+        <Note kind="warn" icon={AlertCircle} title="No AI Model is connected yet">
+          {emp.name} cannot answer a request or run a Routine until one is. Finish the connection
+          above, or connect one later from their Settings → Model.
+        </Note>
+      )}
       <StepNav
         onBack={onBack}
-        onNext={onNext}
-        nextLabel="Continue"
-        secondaryLabel="Skip — do this later"
+        onNext={continueWithModelCheck}
+        nextLabel={checking ? "Checking…" : "Continue"}
+        nextLoading={checking}
+        secondary={
+          modelMissing ? (
+            <Button variant="secondary" onClick={onNext}>
+              Continue without a model
+            </Button>
+          ) : undefined
+        }
       />
     </div>
   );
@@ -743,9 +784,9 @@ function AboutStep({
           <div>
             <h2 className="text-sm font-semibold">A few questions about {name}</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              These answers shape the Soul — {name}&apos;s constitution. Everything is optional;
-              leave a field blank and we&apos;ll use a sensible default. You can rewrite any of this
-              later.
+              These answers shape the Soul — {name}&apos;s constitution. Everything is optional: a
+              blank answer gets a sensible default, and blank reference material is left out. You
+              can rewrite any of this later.
             </p>
           </div>
         </CardHeader>
@@ -784,7 +825,7 @@ function AboutStep({
           />
           <AnswerField
             label="Reference material"
-            hint="Links to playbooks, style guides, docs to keep in mind. One per line."
+            hint="Links to playbooks, style guides, or docs to keep in mind, one per line. Leave blank if there are none yet."
             placeholder={`https://notion.so/company/tone-guide\nhttps://linear.app/company/escalation-matrix`}
             value={answers.reference}
             onChange={(v) => set("reference", v)}
@@ -889,28 +930,26 @@ function StepNav({
   onBack,
   onNext,
   nextLabel,
-  secondaryLabel,
+  secondary,
   nextLoading,
   nextDisabled,
 }: {
   onBack: () => void;
   onNext: () => void;
   nextLabel: string;
-  secondaryLabel?: string;
+  /** A second way forward. It brings its own handler, because one that shared
+   *  `onNext` would be the primary action under another label. */
+  secondary?: React.ReactNode;
   nextLoading?: boolean;
   nextDisabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <Button variant="ghost" onClick={onBack}>
         <ArrowLeft size={14} /> Back
       </Button>
-      <div className="flex items-center gap-2">
-        {secondaryLabel && (
-          <Button variant="secondary" onClick={onNext}>
-            {secondaryLabel}
-          </Button>
-        )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {secondary}
         <Button onClick={onNext} loading={nextLoading} disabled={nextDisabled}>
           {nextLabel}
           <ArrowRight size={14} />
@@ -993,7 +1032,8 @@ function generateSoul(
   const toneLine = tone || defaultTone();
   const autonomyLine = autonomy || defaultAutonomy(role);
   const hardNosList = bulletize(hardNos || defaultHardNos());
-  const referenceList = bulletize(reference || defaultReference());
+  const referenceList = bulletize(reference);
+  const referenceSection = referenceList ? `\n## Reference material\n${referenceList}\n` : "";
 
   const identity = template
     ? `You are **${name}**, our ${role}. ${template.tagline}`
@@ -1017,10 +1057,7 @@ ${compact(missionLine)}
 
 ## What you refuse to do
 ${hardNosList}
-
-## Reference material
-${referenceList}
-`;
+${referenceSection}`;
 }
 
 function bulletize(s: string): string {
