@@ -10,6 +10,7 @@ import { listCatalog } from "../integrations/index.js";
 import type { IntegrationCatalogEntry } from "../integrations/types.js";
 import { toSlug } from "../lib/slug.js";
 import { primaryGoal } from "./companyDirection.js";
+import { companyTimeZone } from "./companyTimeZone.js";
 import { nextRunFor } from "./cron.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { EMPLOYEE_TEMPLATES } from "./templates.js";
@@ -1328,6 +1329,8 @@ export async function applyRoutineRecommendations(args: {
       ? (await primaryGoal(args.company.id))?.title
       : args.company.goal;
   const context = recommendationContext({ ...args.company, goal }, args.employee);
+  // A starter's first Run is on the company's clock, like every later one.
+  const timeZone = await companyTimeZone(args.company.id);
 
   return serializeSqliteRoutineApply(async () => {
     const writeSource = await routineWriteSource();
@@ -1365,7 +1368,7 @@ export async function applyRoutineRecommendations(args: {
                 cronExpr: definition.cronExpr,
                 enabled: true,
                 lastRunAt: null,
-                nextRunAt: nextRunFor(definition.cronExpr),
+                nextRunAt: nextRunFor(definition.cronExpr, new Date(), timeZone),
                 body: buildRoutineRecommendationBody(definition, context),
                 // The Run brief carries these and every completed Run is
                 // graded against them: a starter Routine is not left ungraded.

@@ -94,3 +94,40 @@ test("a separate SQLite transaction cannot roll back an acknowledged onboarding 
     "File-backed Company",
   );
 });
+
+test("starts a starter Routine on its company's clock", async () => {
+  // UTC+14 all year: no server runs on it, so server time cannot pass for it.
+  const zone = "Pacific/Kiritimati";
+  await AppDataSource.getRepository(Company).update(company.id, { timezone: zone });
+  const hire = await AppDataSource.getRepository(AIEmployee).save(
+    AppDataSource.getRepository(AIEmployee).create({
+      companyId: company.id,
+      name: "Kai",
+      slug: "kai",
+      role: "Software Engineer",
+      soulBody: "# Kai's Soul",
+    }),
+  );
+
+  const result = await applyRoutineRecommendations({
+    company,
+    employee: hire,
+    recommendationIds: ["daily-priority-check"],
+    actorUserId: "owner-1",
+  });
+
+  // "0 9 * * 1-5" is 9:00 on a weekday there, from the very first Run.
+  const nextRunAt = result.created[0]?.nextRunAt;
+  assert.ok(nextRunAt);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(nextRunAt);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value;
+  assert.equal(`${part("hour")}:${part("minute")}`, "09:00");
+  assert.ok(["Mon", "Tue", "Wed", "Thu", "Fri"].includes(part("weekday") ?? ""));
+});
