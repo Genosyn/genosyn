@@ -8,8 +8,10 @@ import type { Server } from "node:http";
 
 import { AppDataSource } from "../db/datasource.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
+import { Goal } from "../db/entities/Goal.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Membership, type FinanceAccess, type Role } from "../db/entities/Membership.js";
 import { Notebook } from "../db/entities/Notebook.js";
@@ -203,6 +205,157 @@ describe("company routes", () => {
     assert.equal(created.status, 200);
     assert.equal(created.body.mission, "");
     assert.equal(created.body.vision, "");
+  });
+
+  describe("a first Goal written with the company", () => {
+    const goal = {
+      title: "  Reach 50 paying customers by March  ",
+      targetValue: 50,
+      direction: "increase_to",
+      unit: " customers ",
+    };
+
+    test("creates one top-level manual Goal for the Member and counts it as direction", async () => {
+      const created = await call<{ id: string; hasGoal: boolean; mission: string }>("POST", "", {
+        name: "Goal First",
+        goal,
+      });
+      assert.equal(created.status, 200);
+      assert.equal(created.body.hasGoal, true);
+      assert.equal(created.body.mission, "");
+
+      const rows = await AppDataSource.getRepository(Goal).find({
+        where: { companyId: created.body.id },
+      });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].title, "Reach 50 paying customers by March");
+      assert.equal(rows[0].targetValue, 50);
+      assert.equal(rows[0].direction, "increase_to");
+      assert.equal(rows[0].unit, "customers");
+      assert.equal(rows[0].metricKind, "manual");
+      assert.equal(rows[0].status, "active");
+      assert.equal(rows[0].parentGoalId, null);
+      assert.equal(rows[0].createdById, actingUserId);
+
+      const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+        companyId: created.body.id,
+        action: "goal.create",
+      });
+      assert.equal(audit.targetId, rows[0].id);
+
+      // With no mission or vision, the Goal alone is what lets setup move on.
+      const status = await call<{ nextStep: string }>(
+        "GET",
+        `/${created.body.id}/onboarding-status`,
+      );
+      assert.equal(status.body.nextStep, "employee");
+    });
+
+    test("reports the Goal on the list, detail and patch responses", async () => {
+      const created = await call<{ id: string }>("POST", "", { name: "Goal First", goal });
+      const bare = await call<{ id: string }>("POST", "", { name: "Goal Later" });
+
+      const list = await call<Array<{ id: string; hasGoal: boolean }>>("GET", "");
+      assert.equal(list.body.find((c) => c.id === created.body.id)?.hasGoal, true);
+      assert.equal(list.body.find((c) => c.id === bare.body.id)?.hasGoal, false);
+      assert.equal(list.body.find((c) => c.id === company.id)?.hasGoal, false);
+
+      const detail = await call<{ hasGoal: boolean }>("GET", `/${created.body.id}`);
+      assert.equal(detail.body.hasGoal, true);
+      const patched = await call<{ hasGoal: boolean }>("PATCH", `/${created.body.id}`, {
+        name: "Goal First, renamed",
+      });
+      assert.equal(patched.body.hasGoal, true);
+      const bareDetail = await call<{ hasGoal: boolean }>("GET", `/${bare.body.id}`);
+      assert.equal(bareDetail.body.hasGoal, false);
+    });
+
+    test("a Goal that is later archived stops counting as direction", async () => {
+      const created = await call<{ id: string }>("POST", "", { name: "Goal First", goal });
+      await AppDataSource.getRepository(Goal).update(
+        { companyId: created.body.id },
+        { status: "archived" },
+      );
+
+      const detail = await call<{ hasGoal: boolean }>("GET", `/${created.body.id}`);
+      assert.equal(detail.body.hasGoal, false);
+      const status = await call<{ nextStep: string }>(
+        "GET",
+        `/${created.body.id}/onboarding-status`,
+      );
+      assert.equal(status.body.nextStep, "company");
+    });
+
+    test("keeps a mission and vision written beside it, and defaults the direction", async () => {
+      const created = await call<{ id: string; mission: string; vision: string }>("POST", "", {
+        name: "Both",
+        mission: "  Help shops thrive.  ",
+        vision: "Every shop is independent.",
+        goal: { title: "Hit $2M in monthly revenue", targetValue: 2_000_000 },
+      });
+      assert.equal(created.status, 200);
+      assert.equal(created.body.mission, "Help shops thrive.");
+      assert.equal(created.body.vision, "Every shop is independent.");
+      const row = await AppDataSource.getRepository(Goal).findOneByOrFail({
+        companyId: created.body.id,
+      });
+      assert.equal(row.direction, "increase_to");
+      assert.equal(row.unit, "");
+      assert.equal(row.targetValue, 2_000_000);
+    });
+
+    test("a decreasing Goal keeps its direction and unit", async () => {
+      const created = await call<{ id: string }>("POST", "", {
+        name: "Calm",
+        goal: { title: "Cut churn to 2%", targetValue: 2, direction: "decrease_to", unit: "%" },
+      });
+      const row = await AppDataSource.getRepository(Goal).findOneByOrFail({
+        companyId: created.body.id,
+      });
+      assert.equal(row.direction, "decrease_to");
+      assert.equal(row.unit, "%");
+    });
+
+    test("rejects an invalid Goal without writing a company", async () => {
+      const companyCount = await AppDataSource.getRepository(Company).count();
+      const bad: Array<Record<string, unknown>> = [
+        { ...goal, title: "   " },
+        { ...goal, title: "x".repeat(141) },
+        { ...goal, targetValue: "50" },
+        { ...goal, targetValue: null },
+        { title: goal.title },
+        { ...goal, direction: "sideways" },
+        { ...goal, unit: "u".repeat(21) },
+      ];
+      for (const candidate of bad) {
+        const response = await call("POST", "", { name: "Never Made", goal: candidate });
+        assert.equal(response.status, 400, JSON.stringify(candidate));
+      }
+      assert.equal(await AppDataSource.getRepository(Company).count(), companyCount);
+      assert.equal(await AppDataSource.getRepository(Goal).count(), 0);
+    });
+
+    test("takes the half-made company away when its Goal cannot be written", async () => {
+      const companies = await AppDataSource.getRepository(Company).count();
+      const memberships = await AppDataSource.getRepository(Membership).count();
+      await AppDataSource.query(`
+        CREATE TRIGGER fail_company_goal
+        BEFORE INSERT ON goals
+        BEGIN
+          SELECT RAISE(FAIL, 'goal failure');
+        END
+      `);
+      try {
+        const response = await call("POST", "", { name: "Half Made", goal });
+
+        assert.equal(response.status, 500);
+        assert.equal(await AppDataSource.getRepository(Company).count(), companies);
+        assert.equal(await AppDataSource.getRepository(Membership).count(), memberships);
+        assert.equal(await AppDataSource.getRepository(Notebook).countBy({ title: "General" }), 0);
+      } finally {
+        await AppDataSource.query("DROP TRIGGER fail_company_goal");
+      }
+    });
   });
 
   test("saves both company direction fields before the guide offers hiring", async () => {

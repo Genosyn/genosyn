@@ -212,6 +212,13 @@ export type Company = {
   slug: string;
   mission: string;
   vision: string;
+  /**
+   * Whether the company has written a Goal: an active one at the top of the
+   * tree. A Goal, or a mission and a vision, is the direction an AI Employee
+   * needs before it is hired (`lib/onboardingFlow.ts`). Every response from the
+   * server carries it; it is optional here so a fixture need not.
+   */
+  hasGoal?: boolean;
   role?: "owner" | "admin" | "member";
   /**
    * What this Member may do in Finance, already resolved server-side — owners
@@ -1465,6 +1472,8 @@ export type EmployeeTemplate = {
 
 export type OnboardingRecommendationContext = {
   companyName: string;
+  /** The company's top-level Goal, in the words it was written in; empty when it has none. */
+  goal: string;
   mission: string;
   vision: string;
   employeeName: string;
@@ -1507,6 +1516,38 @@ export type CreateRecommendedRoutinesResponse = {
 };
 
 /**
+ * What the setup guide shows under "Also set up for {name}", as
+ * `GET /api/companies/:cid/proactive/preview` returns it — see
+ * `server/services/proactive/preview.ts`. The server asks the same planner
+ * Automatic setup uses, so the list is what that switch does, not a copy of it.
+ */
+export type ProactiveDefaultsPreview = {
+  /** Company.proactiveAutoSetup, the switch the Proactive page also owns. */
+  automaticSetup: boolean;
+  /** The employee's active AI Model is connected, so standing work starts right away. */
+  employeeReady: boolean;
+  /** Standing work for this employee, in the order the Proactive page lists it. */
+  starters: ProactiveDefaultsPreviewRow[];
+  /** The company's TLDR briefing when it is on and has someone to write it. */
+  briefing: ProactiveDefaultsPreviewBriefing | null;
+};
+export type ProactiveDefaultsPreviewRow = {
+  recipeId: string;
+  name: string;
+  /** In plain words: "Weekdays at 08:00", "Every 30 minutes". */
+  schedule: string;
+  /** Already set up, rather than something Automatic setup is about to add. */
+  installed: boolean;
+};
+export type ProactiveDefaultsPreviewBriefing = {
+  schedule: string;
+  /** The AI Employee who writes it; null when its writer has since been removed. */
+  writerName: string | null;
+  /** The writer is the employee the preview is about. */
+  writerIsEmployee: boolean;
+};
+
+/**
  * First-run progress, derived server-side from the company's real state — see
  * `server/services/onboardingStatus.ts`. Never a stored flag, so it stays true
  * when setup happens outside the guide.
@@ -1517,6 +1558,14 @@ export type OnboardingStatus = {
   modelConnected: boolean;
   routineCount: number;
   scheduledRoutineCount: number;
+  /**
+   * Of the scheduled Routines, how many are standing work that Automatic setup
+   * assigned. The rest are Routines somebody chose. Optional so a fixture need
+   * not carry it.
+   */
+  standingRoutineCount?: number;
+  /** Whether new standing work is assigned automatically. */
+  automaticSetup?: boolean;
   nextRunAt: string | null;
   skillCount: number;
   mailGranted: boolean;
