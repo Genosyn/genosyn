@@ -105,8 +105,14 @@ export const INTERRUPTED_RECOVERY_DELAY_MS = 60 * 60 * 1000;
  *
  * `timeZone` is the zone the expression is read in (see {@link cronZoneOptions});
  * leave it out for server time. A schedule is counted on the same clock it is
- * fired on, or a company west of the server would be told it missed a morning
- * it had not yet had.
+ * fired on, so the number recorded on a catch-up Run is the number of slots
+ * that really elapsed.
+ *
+ * The walk calls `next()` and stops when it throws, rather than asking
+ * `hasNext()` first: `hasNext()` does the same search and throws it away, so
+ * the question doubled the cost of every step — and a step costs several times
+ * more on a named zone, which a long-overdue minutely Routine would otherwise
+ * pay a thousand times on the heartbeat's thread.
  */
 export function countMissedSlots(
   cronExpr: string,
@@ -123,8 +129,13 @@ export function countMissedSlots(
       ...cronZoneOptions(timeZone),
     });
     let count = 0;
-    while (count < cap && it.hasNext()) {
-      it.next();
+    while (count < cap) {
+      try {
+        it.next();
+      } catch {
+        // Past `until`: cron-parser reports the end of the window by throwing.
+        break;
+      }
       count += 1;
     }
     return { count, capped: count === cap };
