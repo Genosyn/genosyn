@@ -251,7 +251,10 @@ try {
   await page.getByLabel("Base URL", { exact: true }).fill(modelURL);
   await page.getByLabel("Model ID (optional)", { exact: true }).fill("qa-local-model");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByText("Avery QA's models", { exact: true }).waitFor({ timeout: 150_000 });
+  // A connected model reads as "{provider} · {model}" in plain words.
+  await page
+    .getByText("Custom endpoint · qa-local-model", { exact: true })
+    .waitFor({ timeout: 150_000 });
   assert(serverLog.includes("[fullstack-model-probe] verified"));
   const models = await read<Array<{ status: string; isActive: boolean }>>(`${employeeBase}/models`);
   assert(models.some((model) => model.status === "connected" && model.isActive));
