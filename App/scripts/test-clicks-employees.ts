@@ -2,8 +2,9 @@
  * Real Chrome coverage for the shorter AI Employee flows, on the real App:
  * connecting an AI Model starts in the API key field; the Proactive starter
  * and Ask dialogs arrive with the only AI Employee (and the only mailbox)
- * already chosen; Enter renames a Skill; switching hire templates replaces
- * the name the last template filled in but never one the Member typed; and
+ * already chosen; Enter renames a Skill; hiring is a role and one button, with the
+ * company's AI Model reused, and switching roles replaces the name the last one
+ * filled in but never one the Member typed; and
  * ⌘/Ctrl+Enter submits a Journal entry, a Memory and a handoff close-out from
  * their text boxes. Each flow counts its clicks. (Picking a Team saves on the
  * pick; `npm run test:employees-roster` covers that.) Run with
@@ -12,7 +13,14 @@
 import assert from "node:assert/strict";
 import type { Employee, EmployeeTemplate } from "../client/lib/api";
 import type { ProactiveOverview } from "../shared/proactive";
-import { API, hoursAgo, startApp, waitForFocus, type ApiRoute } from "./appFixture";
+import {
+  API,
+  hoursAgo,
+  noSidewaysScroll,
+  startApp,
+  waitForFocus,
+  type ApiRoute,
+} from "./appFixture";
 
 const app = await startApp("Fewer clicks — AI Employees");
 
@@ -206,49 +214,338 @@ await app.check("Enter renames a Skill from its Settings tab", async () => {
   await page.close();
 });
 
+// ───────────────────────────── hiring ─────────────────────────────
+
+const HIRE_TEMPLATES: EmployeeTemplate[] = [
+  {
+    id: "t-sales",
+    name: "Ava",
+    role: "Sales rep",
+    category: "Revenue",
+    tagline: "Books meetings",
+    skills: ["Qualify a lead", "Follow up"],
+    routines: [],
+  },
+  {
+    id: "t-eng",
+    name: "Sam",
+    role: "Engineer",
+    category: "Engineering",
+    tagline: "Fixes bugs",
+    skills: [],
+    routines: [],
+  },
+];
+
+const AVA: Employee = {
+  id: "ava",
+  companyId: "company",
+  name: "Ava",
+  slug: "ava",
+  role: "Sales rep",
+  avatarKey: null,
+  model: null,
+  modelCount: 0,
+};
+
+/** A connected API-key model, with every field the Model page reads. */
+const CONNECTED_MODEL = {
+  id: "reused",
+  employeeId: "ava",
+  provider: "openai",
+  model: "gpt-live",
+  authMode: "apikey",
+  isActive: true,
+  connectedAt: "2026-10-09T08:00:00.000Z",
+  status: "connected",
+  apiKeyMasked: "sk-…••••",
+  apiKeyEnv: "OPENAI_API_KEY",
+  supportsApiKey: true,
+  supportsSubscription: true,
+  subscriptionAvailable: false,
+  subscriptionUnavailableReason: null,
+  subscriptionCredentialKind: null,
+  subscriptionShellAvailable: false,
+  supportsCustomEndpoint: false,
+  customEndpointHost: null,
+  customEndpointModelId: null,
+  customEndpointHasApiKey: false,
+  contextWindow: null,
+  contextWindowSource: null,
+  contextWindowProbeable: false,
+  maxConcurrentRuns: null,
+  effectiveMaxConcurrentRuns: null,
+  concurrencySource: "unlimited",
+};
+
+/** What the launch plan fetches once an employee is hired. */
+const LAUNCH_PLAN = {
+  context: {
+    companyName: "Acme",
+    mission: "Answer every customer within the hour.",
+    vision: "A company that runs itself and still feels personal.",
+    employeeName: "Ava",
+    employeeRole: "Sales rep",
+  },
+  routines: [],
+  integrations: [],
+};
+
+/** The routes a hire touches after the employee row exists. */
+function hireRoutes(options: { reusable: unknown[]; connected?: { value: boolean } }): ApiRoute[] {
+  return [
+    ["GET", "/api/employee-templates", () => HIRE_TEMPLATES],
+    ["POST", `${API}/employees`, ({ body }) => ({ ...AVA, ...body })],
+    ["GET", `${API}/employees/ava/models/reusable`, () => options.reusable],
+    [
+      "POST",
+      `${API}/employees/ava/models/reuse`,
+      () => {
+        if (options.connected) options.connected.value = true;
+        return { id: "reused", status: "connected" };
+      },
+    ],
+    [
+      "GET",
+      `${API}/employees/ava/models`,
+      () => (options.connected?.value ? [CONNECTED_MODEL] : []),
+    ],
+    ["GET", `${API}/employees/ava/onboarding-recommendations`, () => LAUNCH_PLAN],
+    ...base,
+  ];
+}
+
 await app.check(
-  "hire: switching template replaces the name the last one filled, never a typed one",
+  "hire: switching role replaces the name the last one filled, never a typed one",
   async () => {
-    const templates: EmployeeTemplate[] = [
-      {
-        id: "t-sales",
-        name: "Ava",
-        role: "Sales rep",
-        category: "Revenue",
-        tagline: "Books meetings",
-        skills: [],
-        routines: [],
-      },
-      {
-        id: "t-eng",
-        name: "Sam",
-        role: "Engineer",
-        category: "Engineering",
-        tagline: "Fixes bugs",
-        skills: [],
-        routines: [],
-      },
-    ];
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: [["GET", "/api/employee-templates", () => templates], ...base],
+      routes: hireRoutes({ reusable: [] }),
     });
     const { page } = view;
     const name = page.getByLabel("Name", { exact: true });
-    await page.getByText("Ava", { exact: false }).first().click();
-    await page
-      .waitForFunction(
-        () =>
-          (document.querySelector('input[name="name"], input#name') as HTMLInputElement | null)
-            ?.value !== "",
-      )
-      .catch(() => undefined);
+    await page.getByRole("button", { name: /Sales rep/ }).click();
     assert.equal(await name.inputValue(), "Ava");
-    await page.getByText("Sam", { exact: false }).first().click();
-    assert.equal(await name.inputValue(), "Sam", "the new template's name follows the pick");
+    await page.getByRole("button", { name: /Engineer/ }).click();
+    assert.equal(await name.inputValue(), "Sam", "the new role's name follows the pick");
     await name.fill("Morgan");
-    await page.getByText("Ava", { exact: false }).first().click();
+    await page.getByRole("button", { name: /Sales rep/ }).click();
     assert.equal(await name.inputValue(), "Morgan", "a name the Member typed is kept");
+    await page.close();
+  },
+);
+
+await app.check(
+  "hire: the first screen leads with six roles, keeps the rest under More roles, and fits a phone",
+  async () => {
+    const roles = [
+      ["executive-assistant", "Avery", "Executive Assistant"],
+      ["sdr", "Sam", "Sales Development Rep"],
+      ["support", "Pax", "Customer Support Specialist"],
+      ["research-analyst", "Sage", "Research Analyst"],
+      ["operations", "Remy", "Operations Coordinator"],
+      ["engineer", "Ivy", "Software Engineer"],
+      ["marketing", "Juno", "Marketing Manager"],
+      ["data-analyst", "Nova", "Data Analyst"],
+    ].map(([id, name, role]) => ({
+      id,
+      name,
+      role,
+      category: "Any",
+      tagline: `${role} tagline`,
+      skills: ["One", "Two"],
+      routines: [],
+    })) as EmployeeTemplate[];
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: [["GET", "/api/employee-templates", () => roles], ...base],
+    });
+    const { page } = view;
+    // The app shell has toggles of its own; the role cards are the ones inside the form.
+    const cards = page.locator("form button[aria-pressed]");
+    await page.getByRole("button", { name: /Executive Assistant/ }).waitFor();
+    assert.equal(await cards.count(), 6, "six roles lead");
+    assert.equal(await page.getByRole("button", { name: /Marketing Manager/ }).count(), 0);
+    // Nothing is chosen for them: Hire waits for a role and a name.
+    assert.equal(await page.getByRole("button", { name: "Hire", exact: true }).isDisabled(), true);
+    await app.shot(page, "hire-first-screen");
+    await page.getByRole("button", { name: "More roles", exact: true }).click();
+    assert.equal(await cards.count(), 8);
+    await page.getByRole("button", { name: /Marketing Manager/ }).click();
+    assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Juno");
+    assert.equal(await page.getByLabel("Role", { exact: true }).inputValue(), "Marketing Manager");
+    await page.getByText("Comes with a written Soul and 2 Skills", { exact: false }).waitFor();
+    await page.getByRole("button", { name: "Hire Juno", exact: true }).waitFor();
+    // Typing a different role is a custom role: the picked card lets go.
+    await page.getByLabel("Role", { exact: true }).fill("Bookkeeper");
+    assert.equal(await page.locator('form button[aria-pressed="true"]').count(), 0);
+    await page.close();
+
+    const phone = await app.open({
+      path: "/c/acme/employees/new",
+      routes: [["GET", "/api/employee-templates", () => roles], ...base],
+      width: 390,
+      height: 844,
+      touch: true,
+    });
+    await phone.page.getByRole("button", { name: /Executive Assistant/ }).waitFor();
+    await noSidewaysScroll(phone.page, "the hire screen on a phone");
+    await app.shot(phone.page, "hire-first-screen-phone");
+    await phone.page.close();
+  },
+);
+
+await app.check(
+  "hire: a name a teammate already has is caught before Hire, not after",
+  async () => {
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: hireRoutes({ reusable: [] }),
+    });
+    const { page } = view;
+    await page.getByLabel("Role", { exact: true }).fill("Analyst");
+    await page.getByLabel("Name", { exact: true }).fill("ada lovelace");
+    await page
+      .getByText("Someone named ada lovelace already works here", { exact: false })
+      .waitFor();
+    assert.equal(await page.getByRole("button", { name: "Hire ada lovelace" }).isDisabled(), true);
+    await page.getByLabel("Name", { exact: true }).fill("Grace Hopper");
+    assert.equal(await page.getByRole("button", { name: "Hire Grace Hopper" }).isEnabled(), true);
+    await page.close();
+  },
+);
+
+await app.check(
+  "hire: pick a role and press Hire — the company's AI Model is reused, and the page says so",
+  async () => {
+    const offer = {
+      id: "source-model",
+      employeeId: "ada",
+      employeeName: "Ada Lovelace",
+      provider: "anthropic",
+      model: "claude-sonnet-live",
+      authMode: "apikey",
+      endpointHost: null,
+      isActive: true,
+    };
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: hireRoutes({ reusable: [offer] }),
+    });
+    const { page } = view;
+    await view.click(page.getByRole("button", { name: /Sales rep/ }));
+    await view.click(page.getByRole("button", { name: "Hire Ava", exact: true }));
+    await page.getByText("Uses the same AI Model as Ada Lovelace", { exact: false }).waitFor();
+    await page.getByRole("heading", { name: "Suggested Routines" }).waitFor();
+    assert.equal(view.clicks(), 2, "a role and Hire — nothing else to decide");
+    const hire = await view.waitForWrite(
+      (w) => w.method === "POST" && w.path === `${API}/employees`,
+      "Hire created the employee",
+    );
+    assert.deepEqual(hire.body, { name: "Ava", role: "Sales rep", templateId: "t-sales" });
+    const reuse = await view.waitForWrite(
+      (w) => w.path === `${API}/employees/ava/models/reuse`,
+      "the company's AI Model was reused",
+    );
+    assert.deepEqual(reuse.body, { sourceModelId: "source-model" });
+    assert.equal(
+      await page.getByRole("link", { name: "Settings → Model" }).getAttribute("href"),
+      "/c/acme/employees/ava/settings/model",
+    );
+    assert.equal(
+      await page.getByText("Connect an AI Model for Ava", { exact: false }).count(),
+      0,
+      "no model step when one was reused",
+    );
+    await page.close();
+  },
+);
+
+await app.check(
+  "hire: with no AI Model to reuse the model step comes next, and going without one is its own choice",
+  async () => {
+    const connected = { value: false };
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: hireRoutes({ reusable: [], connected }),
+    });
+    const { page } = view;
+    await page.getByRole("button", { name: /Sales rep/ }).click();
+    await page.getByRole("button", { name: "Hire Ava", exact: true }).click();
+    await page.getByText("Connect an AI Model for Ava", { exact: false }).waitFor();
+    assert.equal(
+      view.writes.some((w) => w.path.endsWith("/models/reuse")),
+      false,
+    );
+    // Continue means the AI Model is ready: with none, it says so instead of moving on.
+    assert.equal(await page.getByRole("button", { name: "Continue without a model" }).count(), 0);
+    await page.getByRole("button", { name: "Choose Routines", exact: true }).click();
+    await page.getByText("No AI Model is connected yet", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "Suggested Routines" }).count(), 0);
+    // Going on anyway is a separate, named choice.
+    await page.getByRole("button", { name: "Continue without a model", exact: true }).click();
+    await page.getByRole("heading", { name: "Suggested Routines" }).waitFor();
+    assert.equal(await page.getByText("Uses the same AI Model as", { exact: false }).count(), 0);
+    await page.close();
+  },
+);
+
+await app.check(
+  "hire: Continue goes straight on once an AI Model is connected, with the Model page showing it plainly",
+  async () => {
+    const connected = { value: true };
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: hireRoutes({ reusable: [], connected }),
+    });
+    const { page } = view;
+    await page.getByRole("button", { name: /Sales rep/ }).click();
+    await page.getByRole("button", { name: "Hire Ava", exact: true }).click();
+    await page.getByText("OpenAI · gpt-live", { exact: true }).waitFor();
+    await app.shot(page, "hire-model-step-connected");
+    await page.getByRole("button", { name: "Choose Routines", exact: true }).click();
+    await page.getByRole("heading", { name: "Suggested Routines" }).waitFor();
+    assert.equal(await page.getByText("No AI Model is connected yet").count(), 0);
+    await page.close();
+  },
+);
+
+await app.check(
+  "hire: Customize the Soul first creates them and goes to the About questions, with no placeholder links",
+  async () => {
+    const view = await app.open({
+      path: "/c/acme/employees/new",
+      routes: [
+        ...hireRoutes({
+          reusable: [
+            {
+              id: "source-model",
+              employeeId: "ada",
+              employeeName: "Ada Lovelace",
+              provider: "openai",
+              model: "gpt-live",
+              authMode: "apikey",
+              endpointHost: null,
+              isActive: true,
+            },
+          ],
+        }),
+        ["GET", `${API}/employees/ava/soul`, () => ({ content: "# Ava's Soul\n" })],
+      ],
+    });
+    const { page } = view;
+    await page.getByRole("button", { name: /Sales rep/ }).click();
+    await page.getByRole("button", { name: "Customize the Soul first", exact: true }).click();
+    await page.getByRole("heading", { name: "A few questions about Ava" }).waitFor();
+    // Mission, tone, autonomy, hard no's, then reference material.
+    const answers = page.locator("textarea");
+    assert.equal(await answers.nth(4).inputValue(), "", "no stand-in links are written for them");
+    await answers.nth(0).fill("Book qualified meetings.");
+    await page.getByRole("button", { name: "Generate Soul", exact: true }).click();
+    await page.getByText("Review Ava's Soul", { exact: false }).waitFor();
+    const soul = await page.locator("textarea").first().inputValue();
+    assert.match(soul, /Book qualified meetings\./);
+    assert.doesNotMatch(soul, /Reference material|notion\.so|linear\.app/);
     await page.close();
   },
 );
