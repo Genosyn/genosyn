@@ -58,6 +58,7 @@ import {
   defaultSchedule,
   describeCronExpr,
   normalizeSchedule,
+  previewRuns,
   scheduleToCron,
   type Schedule,
 } from "../../client/lib/scheduleBuilder.js";
@@ -637,6 +638,85 @@ describe("the schedule picker only ever emits schedulable cron", () => {
       assert.equal(cron.validate(expr), true, expr);
       assert.ok(describeCronExpr(expr).length > 0, expr);
       assert.notEqual(describeCronExpr(expr), expr, expr);
+    }
+  });
+});
+
+/**
+ * The preview under a Routine's schedule field is only worth showing if it
+ * lists the very moments the heartbeat will fire. In a company's time zone the
+ * two are computed by different code — the browser by `Intl`, the server by
+ * `cron-parser` and `luxon` — so they are checked against each other here,
+ * across both ends of daylight saving in both hemispheres and in zones with
+ * half- and three-quarter-hour offsets.
+ */
+describe("a Routine's preview in a time zone matches the scheduler", () => {
+  const ZONES = [
+    "UTC",
+    "America/New_York",
+    "Europe/Berlin",
+    "Asia/Kolkata",
+    "Asia/Kathmandu",
+    "Australia/Sydney",
+    "Australia/Lord_Howe",
+    "Pacific/Auckland",
+  ];
+  // None of these asks for a wall time the clock skips. That is the one place
+  // the two deliberately differ — the preview leaves the day out, the scheduler
+  // fires at the next real time — and each side pins it in its own tests.
+  const EXPRESSIONS = ["0 9 * * *", "30 14 * * 1-5", "0 7 * * 1", "15 8 1 * *"];
+  const STARTS = [
+    "2026-03-06T00:00:00Z",
+    "2026-03-27T10:00:00Z",
+    "2026-04-02T12:00:00Z",
+    "2026-10-02T12:00:00Z",
+    "2026-10-23T12:00:00Z",
+    "2026-10-31T00:00:00Z",
+  ];
+
+  test("lists the same moments as the heartbeat would fire", () => {
+    for (const zone of ZONES) {
+      for (const expr of EXPRESSIONS) {
+        for (const start of STARTS) {
+          const previewed = previewRuns(expr, new Date(start), 4, zone).runs;
+          const scheduled: Date[] = [];
+          let cursor = new Date(start);
+          for (let n = 0; n < 4; n += 1) {
+            const next = nextRunFor(expr, cursor, zone);
+            assert.ok(next, `${zone} ${expr} ${start}`);
+            scheduled.push(next);
+            cursor = next;
+          }
+          assert.deepEqual(
+            previewed.map((run) => run.toISOString()),
+            scheduled.map((run) => run.toISOString()),
+            `${zone} ${expr} from ${start}`,
+          );
+        }
+      }
+    }
+  });
+
+  test("agrees about the wall time a daylight-saving change repeats, too", () => {
+    for (const [zone, expr, start] of [
+      ["America/New_York", "30 1 * * *", "2026-10-31T12:00:00Z"],
+      ["Europe/Berlin", "30 2 * * *", "2026-10-24T12:00:00Z"],
+      ["Australia/Sydney", "30 2 * * *", "2026-04-03T12:00:00Z"],
+    ] as const) {
+      const previewed = previewRuns(expr, new Date(start), 3, zone).runs;
+      const scheduled: Date[] = [];
+      let cursor = new Date(start);
+      for (let n = 0; n < 3; n += 1) {
+        const next = nextRunFor(expr, cursor, zone);
+        assert.ok(next);
+        scheduled.push(next);
+        cursor = next;
+      }
+      assert.deepEqual(
+        previewed.map((run) => run.toISOString()),
+        scheduled.map((run) => run.toISOString()),
+        `${zone} ${expr}`,
+      );
     }
   });
 });

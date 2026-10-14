@@ -20,6 +20,7 @@ import {
   normalizeSchedule,
   previewRuns,
   ordinal,
+  resolveTimeZone,
   scheduleToCron,
   timeInputValue,
   withTimeOfDay,
@@ -671,5 +672,157 @@ describe("label tables", () => {
   test("preset labels are unique", () => {
     const labels = SCHEDULE_PRESETS.map((p) => p.label);
     assert.equal(new Set(labels).size, labels.length);
+  });
+});
+
+/**
+ * A company's Routines are read in its time zone, so the preview has to be
+ * exact for a viewer anywhere. Every expectation here is an absolute instant
+ * and holds on whatever clock the machine running the tests happens to keep.
+ */
+describe("previews in a time zone", () => {
+  const utc = (date: Date) => date.toISOString();
+  const runs = (expr: string, from: string, zone: string | null | undefined, count = 3) =>
+    previewRuns(expr, new Date(from), count, zone).runs.map(utc);
+  const MORNING = "2026-06-05T12:00:00Z";
+
+  test("reads a schedule's numbers off the zone's clock", () => {
+    assert.deepEqual(runs("0 9 * * *", MORNING, "Europe/Berlin"), [
+      "2026-06-06T07:00:00.000Z",
+      "2026-06-07T07:00:00.000Z",
+      "2026-06-08T07:00:00.000Z",
+    ]);
+    assert.deepEqual(runs("0 9 * * *", MORNING, "Asia/Kolkata", 2), [
+      "2026-06-06T03:30:00.000Z",
+      "2026-06-07T03:30:00.000Z",
+    ]);
+    // 12:00Z is 08:00 in New York: today's nine o'clock there is still ahead.
+    assert.deepEqual(runs("0 9 * * *", MORNING, "America/New_York", 2), [
+      "2026-06-05T13:00:00.000Z",
+      "2026-06-06T13:00:00.000Z",
+    ]);
+  });
+
+  test("works out the weekday and date in the zone, not the viewer's", () => {
+    // 12:00Z on Friday is already midnight on Saturday in Auckland, so the next
+    // weekday morning there is Monday's.
+    assert.deepEqual(runs("0 9 * * 1-5", MORNING, "Pacific/Auckland"), [
+      "2026-06-07T21:00:00.000Z",
+      "2026-06-08T21:00:00.000Z",
+      "2026-06-09T21:00:00.000Z",
+    ]);
+    // And the other way: it is still 2 AM on Friday in Honolulu, so Friday's
+    // morning is ahead and the weekend is skipped after it.
+    assert.deepEqual(runs("0 9 * * 1-5", MORNING, "Pacific/Honolulu", 2), [
+      "2026-06-05T19:00:00.000Z",
+      "2026-06-08T19:00:00.000Z",
+    ]);
+  });
+
+  test("an empty, missing, or unknown zone previews in the browser's own clock", () => {
+    const own = runs("0 9 * * *", MORNING, undefined);
+    for (const zone of ["", "  ", null, "Mars/Base", "+01:00"]) {
+      assert.deepEqual(runs("0 9 * * *", MORNING, zone), own, JSON.stringify(zone));
+    }
+    assert.equal(resolveTimeZone("Mars/Base"), null);
+    assert.equal(resolveTimeZone(""), null);
+    assert.equal(resolveTimeZone(null), null);
+    assert.equal(resolveTimeZone(undefined), null);
+    assert.equal(resolveTimeZone(" Europe/Berlin "), "Europe/Berlin");
+  });
+
+  test("keeps the wall-clock hour across a daylight-saving change", () => {
+    assert.deepEqual(runs("0 9 * * *", "2026-03-06T00:00:00Z", "America/New_York", 4), [
+      "2026-03-06T14:00:00.000Z",
+      "2026-03-07T14:00:00.000Z",
+      "2026-03-08T13:00:00.000Z",
+      "2026-03-09T13:00:00.000Z",
+    ]);
+    assert.deepEqual(runs("0 9 * * *", "2026-10-23T00:00:00Z", "Europe/Berlin", 4), [
+      "2026-10-23T07:00:00.000Z",
+      "2026-10-24T07:00:00.000Z",
+      "2026-10-25T08:00:00.000Z",
+      "2026-10-26T08:00:00.000Z",
+    ]);
+  });
+
+  test("skips a wall time the clock jumped over and lists a repeated one once", () => {
+    // 02:30 does not exist in New York on 2026-03-08; the day is simply absent
+    // from the list rather than reported as the 03:30 the clock jumped to.
+    assert.deepEqual(runs("30 2 * * *", "2026-03-07T12:00:00Z", "America/New_York"), [
+      "2026-03-09T06:30:00.000Z",
+      "2026-03-10T06:30:00.000Z",
+      "2026-03-11T06:30:00.000Z",
+    ]);
+    // 01:30 happens twice on 2026-11-01; the first is the run, as on the server.
+    assert.deepEqual(runs("30 1 * * *", "2026-10-31T12:00:00Z", "America/New_York"), [
+      "2026-11-01T05:30:00.000Z",
+      "2026-11-02T06:30:00.000Z",
+      "2026-11-03T06:30:00.000Z",
+    ]);
+    // The same for a zone east of UTC, where the later reading comes first in
+    // naive arithmetic: 02:30 happens twice in Berlin on 2026-10-25.
+    assert.deepEqual(runs("30 2 * * *", "2026-10-24T12:00:00Z", "Europe/Berlin", 2), [
+      "2026-10-25T00:30:00.000Z",
+      "2026-10-26T01:30:00.000Z",
+    ]);
+  });
+
+  test("starts from the first moment after `from`, however late in the day it is", () => {
+    assert.deepEqual(runs("* * * * *", "2026-06-05T12:34:56Z", "Asia/Tokyo"), [
+      "2026-06-05T12:35:00.000Z",
+      "2026-06-05T12:36:00.000Z",
+      "2026-06-05T12:37:00.000Z",
+    ]);
+    // Strictly after: a run exactly at `from` is not "next".
+    assert.deepEqual(runs("* * * * *", "2026-06-05T12:35:00Z", "Asia/Tokyo", 1), [
+      "2026-06-05T12:36:00.000Z",
+    ]);
+    // Late in the zone's day, the next run is on its next date.
+    assert.deepEqual(runs("0 9 * * *", "2026-06-05T14:30:00Z", "Asia/Tokyo", 1), [
+      "2026-06-06T00:00:00.000Z",
+    ]);
+  });
+
+  test("still tells a schedule that never comes from one it cannot walk", () => {
+    const impossible = previewRuns("0 9 30 2 *", new Date(MORNING), 3, "Europe/Berlin");
+    assert.equal(impossible.supported, true);
+    assert.deepEqual(impossible.runs, []);
+    assert.equal(previewRuns("0 9 L * *", new Date(MORNING), 3, "Europe/Berlin").supported, false);
+  });
+
+  test("lists ascending, distinct times in every zone", () => {
+    for (const zone of ["UTC", "America/New_York", "Asia/Kathmandu", "Australia/Lord_Howe"]) {
+      for (const expr of ["* * * * *", "*/5 * * * *", "0 9 * * 1-5", "0 0 1 * *", "0 9 13 * 5"]) {
+        const listed = nextRuns(expr, new Date("2026-03-07T08:03:00Z"), 6, zone);
+        assert.equal(listed.length, 6, `${zone} ${expr}`);
+        for (let i = 1; i < listed.length; i += 1) {
+          assert.ok(listed[i].getTime() > listed[i - 1].getTime(), `${zone} ${expr} at ${i}`);
+        }
+      }
+    }
+  });
+
+  test("names the date and clock in the zone, and the year by the zone's calendar", () => {
+    const berlin = formatRunTime(
+      new Date("2026-06-06T07:00:00Z"),
+      new Date("2026-06-05T12:00:00Z"),
+      "Europe/Berlin",
+    );
+    assert.match(berlin, /9:00\s?AM/i);
+    const kolkata = formatRunTime(
+      new Date("2026-06-06T07:00:00Z"),
+      new Date("2026-06-05T12:00:00Z"),
+      "Asia/Kolkata",
+    );
+    assert.match(kolkata, /12:30\s?PM/i);
+
+    // New Year has already come in Auckland and not yet in Los Angeles.
+    const run = new Date("2026-12-31T23:30:00Z");
+    const reference = new Date("2026-06-01T00:00:00Z");
+    assert.match(formatRunTime(run, reference, "Pacific/Auckland"), /2027/);
+    assert.doesNotMatch(formatRunTime(run, reference, "America/Los_Angeles"), /2027|2026/);
+    // An unknown zone prints like no zone at all, rather than throwing.
+    assert.equal(formatRunTime(run, reference, "Mars/Base"), formatRunTime(run, reference));
   });
 });

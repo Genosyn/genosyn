@@ -219,6 +219,14 @@ export type Company = {
    * server carries it; it is optional here so a fixture need not.
    */
   hasGoal?: boolean;
+  /**
+   * The IANA time zone (`Europe/Berlin`) this company's Routine schedules are
+   * read in, so "every weekday at 9" means 9 AM there. Empty means *server
+   * time*, the machine's own clock, which is what Routines used before a zone
+   * could be chosen. Always sent by the server; optional here only so a
+   * fixture that predates it still describes a company.
+   */
+  timezone?: string;
   role?: "owner" | "admin" | "member";
   /**
    * What this Member may do in Finance, already resolved server-side — owners

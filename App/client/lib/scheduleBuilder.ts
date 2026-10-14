@@ -570,16 +570,171 @@ function parseCronFields(expr: string): CronFields | null {
   };
 }
 
-function dayMatches(fields: CronFields, date: Date): boolean {
-  if (!fields.months.has(date.getMonth() + 1)) return false;
-  const domHit = fields.daysOfMonth.has(date.getDate());
-  const dowHit = fields.daysOfWeek.has(date.getDay());
+/** One calendar day, whichever clock it was read off. `month` is 1–12, `weekday` 0 = Sunday. */
+type CivilDay = { year: number; month: number; day: number; weekday: number };
+
+function dayMatches(fields: CronFields, date: CivilDay): boolean {
+  if (!fields.months.has(date.month)) return false;
+  const domHit = fields.daysOfMonth.has(date.day);
+  const dowHit = fields.daysOfWeek.has(date.weekday);
   // Cron's one genuine oddity: when *both* day fields are restricted they are
   // OR'd, not AND'd, so `0 9 13 * 5` is "the 13th, and also every Friday".
   if (fields.domRestricted && fields.dowRestricted) return domHit || dowHit;
   if (fields.domRestricted) return domHit;
   if (fields.dowRestricted) return dowHit;
   return true;
+}
+
+/**
+ * A clock the preview can read a cron expression's wall-clock numbers off:
+ * which calendar day an instant falls on, what the wall reads at that instant,
+ * and — the other direction — which instant a given wall time is.
+ */
+type Clock = {
+  /** The calendar date `instant` falls on. */
+  dateOf(instant: Date): { year: number; month: number; day: number };
+  /** Seconds since midnight on that calendar date. */
+  secondsOf(instant: Date): number;
+  /** The instant the wall reads this time, or null when it never does. */
+  instantAt(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute: number,
+    second: number,
+  ): Date | null;
+};
+
+/** The browser's own zone: the numbers are read straight off local `Date`s. */
+const BROWSER_CLOCK: Clock = {
+  dateOf: (instant) => ({
+    year: instant.getFullYear(),
+    month: instant.getMonth() + 1,
+    day: instant.getDate(),
+  }),
+  secondsOf: (instant) =>
+    instant.getHours() * 3600 + instant.getMinutes() * 60 + instant.getSeconds(),
+  instantAt: (year, month, day, hour, minute, second) => {
+    const candidate = new Date(year, month - 1, day, hour, minute, second);
+    // Skipping a nonexistent local time (spring-forward) rather than
+    // reporting the hour the clock jumped to.
+    return candidate.getHours() === hour ? candidate : null;
+  },
+};
+
+const DAY_MS = 86_400_000;
+
+const ZONE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+type ZonedParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+/** What the wall clock in `timeZone` reads at `instant`. */
+function zonedParts(instant: number, timeZone: string): ZonedParts {
+  let formatter = ZONE_FORMATTERS.get(timeZone);
+  if (!formatter) {
+    // `h23` rather than `hour12: false`: some engines print midnight as "24"
+    // under the latter, which would put a run on the wrong side of the day.
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+    ZONE_FORMATTERS.set(timeZone, formatter);
+  }
+  const out: ZonedParts = { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0 };
+  for (const part of formatter.formatToParts(new Date(instant))) {
+    const value = Number(part.value);
+    if (part.type === "year") out.year = value;
+    else if (part.type === "month") out.month = value;
+    else if (part.type === "day") out.day = value;
+    else if (part.type === "hour") out.hour = value % 24;
+    else if (part.type === "minute") out.minute = value;
+    else if (part.type === "second") out.second = value;
+  }
+  return out;
+}
+
+/**
+ * Read the numbers off a named zone, the way the scheduler does for a company
+ * that has chosen one. `Intl` is the only time zone database a browser has, so
+ * a wall time is turned back into an instant by asking it what the zone's
+ * offset is on either side of that day and keeping the candidate that actually
+ * reads back as the time asked for.
+ *
+ * The two ends of daylight saving fall out of that rather than being special
+ * cases. A wall time the spring-forward skipped matches neither offset and is
+ * skipped, the same as the browser clock above. A wall time the fall-back
+ * repeats matches both, and the earlier is kept — which is the one the
+ * scheduler fires, once.
+ */
+function zoneClock(timeZone: string): Clock {
+  /** How far ahead of UTC the zone's wall clock is at `instant`, in ms. */
+  const offsetAt = (instant: number): number => {
+    const p = zonedParts(instant, timeZone);
+    return (
+      Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) -
+      Math.floor(instant / 1000) * 1000
+    );
+  };
+  return {
+    dateOf: (instant) => {
+      const p = zonedParts(instant.getTime(), timeZone);
+      return { year: p.year, month: p.month, day: p.day };
+    },
+    secondsOf: (instant) => {
+      const p = zonedParts(instant.getTime(), timeZone);
+      return p.hour * 3600 + p.minute * 60 + p.second;
+    },
+    instantAt: (year, month, day, hour, minute, second) => {
+      const wall = Date.UTC(year, month - 1, day, hour, minute, second);
+      let earliest: number | null = null;
+      for (const probe of [wall - DAY_MS, wall + DAY_MS]) {
+        const candidate = wall - offsetAt(probe);
+        if (candidate + offsetAt(candidate) !== wall) continue;
+        if (earliest === null || candidate < earliest) earliest = candidate;
+      }
+      return earliest === null ? null : new Date(earliest);
+    },
+  };
+}
+
+const KNOWN_ZONES = new Map<string, boolean>();
+
+/**
+ * The zone to read schedules in, or null for the browser's own clock.
+ *
+ * Empty, missing, and a name this browser's `Intl` does not know all come back
+ * null: the server accepts any IANA name its own tables know, and a browser
+ * older than the server must show *a* preview rather than throw while drawing
+ * the form.
+ */
+export function resolveTimeZone(timeZone: string | null | undefined): string | null {
+  const zone = typeof timeZone === "string" ? timeZone.trim() : "";
+  if (!zone) return null;
+  let known = KNOWN_ZONES.get(zone);
+  if (known === undefined) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: zone });
+      known = true;
+    } catch {
+      known = false;
+    }
+    KNOWN_ZONES.set(zone, known);
+  }
+  return known ? zone : null;
 }
 
 /**
@@ -597,8 +752,8 @@ const MAX_SCAN_DAYS = 366 * 13;
  * The next `count` times an expression fires, strictly after `from`. Use
  * `previewRuns` when you need to know why the list came back empty.
  */
-export function nextRuns(expr: string, from: Date, count = 3): Date[] {
-  return previewRuns(expr, from, count).runs;
+export function nextRuns(expr: string, from: Date, count = 3, timeZone?: string | null): Date[] {
+  return previewRuns(expr, from, count, timeZone).runs;
 }
 
 /**
@@ -618,45 +773,62 @@ export function nextRuns(expr: string, from: Date, count = 3): Date[] {
  * date comparisons rather than half a million minute ticks.
  *
  * A note on time zones, because the answer is not "it depends". A cron field
- * is a wall-clock number and the scheduler reads it in the *server's* local
- * time. This builds each candidate from local components and formats it in
- * the same zone, so the numbers it prints are exactly those wall-clock
- * numbers — which is why the field labels the preview "server time" rather
- * than the viewer's. The one thing that does come from the browser is `from`:
- * on an install whose server sits many hours away, the *first* run listed can
- * be one occurrence out. Local `Date` construction also means an hour a
- * spring-forward skipped is skipped here too, rather than reported as the
- * hour the clock jumped to.
+ * is a wall-clock number, and which wall it is read off is the company's
+ * choice. With a `timeZone` — the company's, for a Routine — the numbers are
+ * read on that zone's clock, exactly as the scheduler reads them, and the
+ * result is exact wherever the viewer is. Without one the scheduler reads the
+ * *server's* local time, which the browser cannot see; this then builds each
+ * candidate from local components and formats it in the same zone, so the
+ * numbers it prints are exactly those wall-clock numbers — which is why the
+ * field labels such a preview "server time" rather than the viewer's. The one
+ * thing that does come from the browser then is `from`: on an install whose
+ * server sits many hours away, the *first* run listed can be one occurrence
+ * out. Either way, an hour a spring-forward skipped is skipped here too,
+ * rather than reported as the hour the clock jumped to.
  */
 export function previewRuns(
   expr: string,
   from: Date,
   count = 3,
+  timeZone?: string | null,
 ): { supported: boolean; runs: Date[] } {
   const fields = parseCronFields(expr);
   if (!fields) return { supported: false, runs: [] };
   if (count <= 0) return { supported: true, runs: [] };
 
+  const zone = resolveTimeZone(timeZone);
+  const clock = zone ? zoneClock(zone) : BROWSER_CLOCK;
   const out: Date[] = [];
-  const cursor = new Date(from.getTime());
-  cursor.setMilliseconds(0);
-  cursor.setSeconds(cursor.getSeconds() + 1);
+  const cursor = new Date(Math.floor(from.getTime() / 1000) * 1000 + 1000);
 
-  const startDay = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+  const start = clock.dateOf(cursor);
+  // The first day only needs the wall times from the cursor's onward: an
+  // earlier wall time is an earlier instant on every clock, daylight saving
+  // included, and the filter below would drop it anyway — this just stops a
+  // minutely schedule building a thousand candidates it will throw away.
+  const startSeconds = clock.secondsOf(cursor);
+  const startDay = Date.UTC(start.year, start.month - 1, start.day);
   const seconds = Array.from(fields.seconds).sort((a, b) => a - b);
   const minutes = Array.from(fields.minutes).sort((a, b) => a - b);
   const hours = Array.from(fields.hours).sort((a, b) => a - b);
 
   for (let dayOffset = 0; dayOffset < MAX_SCAN_DAYS && out.length < count; dayOffset += 1) {
-    const day = new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + dayOffset);
+    // The calendar is plain arithmetic whichever clock is read, so it is walked
+    // in UTC, where a day is always 24 hours.
+    const date = new Date(startDay + dayOffset * DAY_MS);
+    const day: CivilDay = {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate(),
+      weekday: date.getUTCDay(),
+    };
     if (!dayMatches(fields, day)) continue;
     for (const hour of hours) {
       for (const minute of minutes) {
         for (const second of seconds) {
-          const candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute, second);
-          // Skipping a nonexistent local time (spring-forward) rather than
-          // reporting the hour the clock jumped to.
-          if (candidate.getHours() !== hour) continue;
+          if (dayOffset === 0 && hour * 3600 + minute * 60 + second < startSeconds) continue;
+          const candidate = clock.instantAt(day.year, day.month, day.day, hour, minute, second);
+          if (candidate === null) continue;
           if (candidate.getTime() < cursor.getTime()) continue;
           out.push(candidate);
           if (out.length >= count) return { supported: true, runs: out };
@@ -675,13 +847,25 @@ export function previewRuns(
  * without it ("20 Aug · 20 Aug · 20 Aug"). Weekday, day and month follow the
  * viewer's locale; the clock does not, because `describeSchedule` one line
  * above says "3:15 PM" and the two must not disagree about the same schedule.
+ *
+ * With a `timeZone` the run is printed on that zone's clock and calendar — a
+ * Routine's preview is in its company's zone, not the viewer's — and "the same
+ * year" is judged there too.
  */
-export function formatRunTime(date: Date, reference: Date = new Date()): string {
+export function formatRunTime(
+  date: Date,
+  reference: Date = new Date(),
+  timeZone?: string | null,
+): string {
+  const zone = resolveTimeZone(timeZone);
+  const yearOf = (moment: Date) =>
+    zone ? zonedParts(moment.getTime(), zone).year : moment.getFullYear();
   return date.toLocaleString(undefined, {
+    ...(zone ? { timeZone: zone } : {}),
     weekday: "short",
     day: "numeric",
     month: "short",
-    year: date.getFullYear() === reference.getFullYear() ? undefined : "numeric",
+    year: yearOf(date) === yearOf(reference) ? undefined : "numeric",
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
