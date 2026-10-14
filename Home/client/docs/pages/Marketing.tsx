@@ -356,9 +356,10 @@ export function Marketing() {
       <P>
         If you connect an external ads MCP server instead (Meta ships a hosted one), its write tools
         bypass Genosyn&apos;s spend guardrails — so guard them: at the employee&apos;s{" "}
-        <Strong>Settings → MCP</Strong>, open that server&apos;s config and list patterns like{" "}
-        <Code>ads_create_*, ads_update_*</Code> under <Strong>Guarded tools</Strong>. Matching calls
-        queue in the Approvals inbox and run server-side only after a human approves.
+        <Strong>Settings → Advanced → MCP</Strong>, open that server&apos;s config and list
+        patterns like <Code>ads_create_*, ads_update_*</Code> under <Strong>Guarded tools</Strong>.
+        Matching calls queue in the Approvals inbox and run server-side only after a human
+        approves.
       </P>
 
       <H2 id="deliberately-missing">Deliberate boundaries</H2>

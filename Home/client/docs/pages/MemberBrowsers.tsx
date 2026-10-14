@@ -181,9 +181,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <H2 id="using-it">Using it in a chat</H2>
       <P>
         Two things have to be true. The AI Employee needs Browser access on (
-        <Strong>Settings → Browser</Strong> on the employee), and you have to grant that employee
-        this browser: open the browser&apos;s row in <Strong>Settings → Browsers</Strong> and add it
-        under <Strong>AI Employees allowed to use it</Strong>. Until you do, nothing can reach it.
+        <Strong>Settings → Advanced → Browser</Strong> on the employee), and you have to grant that
+        employee this browser: open the browser&apos;s row in <Strong>Settings → Browsers</Strong>{" "}
+        and add it under <Strong>AI Employees allowed to use it</Strong>. Until you do, nothing can
+        reach it.
       </P>
       <P>
         Then, in the chat header, the browser picker switches the conversation between{" "}
@@ -209,9 +210,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         person who consents to unattended use of a machine is the person who owns it.
       </P>
       <P>
-        Once it is on, the Routine editor offers the browser under <Strong>Which browser</Strong>,
-        alongside the browser-access override. Browsers without unattended use are not listed there
-        at all — offering a choice that is designed to fail is worse than not offering it.
+        Once it is on, the routine&apos;s <Strong>Settings → Advanced</Strong> offers the browser
+        under <Strong>Which browser</Strong>, alongside the browser-access override. Browsers
+        without unattended use are not listed there at all — offering a choice that is designed to
+        fail is worse than not offering it.
       </P>
       <P>
         With it off, a Run that tries to use the browser is refused rather than re-targeted. With it

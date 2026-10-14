@@ -225,10 +225,13 @@ export function Employees() {
       <P>
         An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
         switch between them sits at the top right of the employee&apos;s header, next to their name.
-        Everything you configure or inspect about an employee lives under Settings, grouped as{" "}
-        <Strong>Employee</Strong> (General, Soul, Model, Memory), <Strong>Work</Strong> (Skills,
-        Routines, Journal, Handoffs), and <Strong>Access</Strong> (Connections, MCP, Browser,
-        Integrations).
+        Everything you configure or inspect about an employee lives under Settings. The rail keeps
+        the everyday panes up front, grouped as <Strong>Employee</Strong> (General, Soul, Model),{" "}
+        <Strong>Work</Strong> (links to this employee&apos;s Skills and Routines), and{" "}
+        <Strong>Access</Strong> (Connections, Autonomy). Everything you visit now and then sits
+        under <Strong>Advanced</Strong>: Memory, Journal, Handoffs, Phone, MCP, Browser, and a link
+        to Integrations. It starts closed and opens by itself whenever you are on one of those
+        pages.
       </P>
       <UL>
         <LI>
@@ -295,9 +298,9 @@ export function Employees() {
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → Memory.</Strong> Durable facts and preferences injected into every
-          conversation and routine run. Unlike the free-form Soul, each item is one short fact you
-          can add, edit, or delete on its own.
+          <Strong>Settings → Advanced → Memory.</Strong> Durable facts and preferences injected
+          into every conversation and routine run. Unlike the free-form Soul, each item is one
+          short fact you can add, edit, or delete on its own.
         </LI>
         <LI>
           <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
@@ -306,20 +309,22 @@ export function Employees() {
           lists filtered to this employee, and are marked with a corner arrow to say so.
         </LI>
         <LI>
-          <Strong>Settings → Journal.</Strong> Append-only diary the employee writes about their own
-          work via the built-in MCP server. Routine runs land here automatically, and the last seven
-          days are injected into every chat and routine run. For the server&apos;s own account of
+          <Strong>Settings → Advanced → Journal.</Strong> Append-only diary the employee writes
+          about their own work via the built-in MCP server. Routine runs land here automatically,
+          and the last seven days are injected into every chat and routine run. For the
+          server&apos;s own account of
           the same work, rather than the employee&apos;s, see{" "}
           <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
           {" "}Employee-written entries allow a title of 1–200 characters and a body of up to
           10,000 characters. Keep summaries compact and link to existing detailed records;
           the tool advertises these limits before the employee writes an entry. You can add an
           entry yourself too: press Enter in its title, or <Code>⌘/Ctrl+Enter</Code> in its detail
-          box. <Strong>Settings → Memory</Strong> works the same way.
+          box. <Strong>Settings → Advanced → Memory</Strong> works the same way.
         </LI>
         <LI>
-          <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
-          work delegated to them. Creating a Handoff starts the receiver working immediately in a
+          <Strong>Settings → Advanced → Handoffs.</Strong> Work this employee has delegated to
+          another, and work delegated to them. Creating a Handoff starts the receiver working
+          immediately in a
           background session (when they have a connected model) — delegation is a &quot;go&quot;
           signal, not a note on a desk. A Handoff always names the employee who receives it. A
           pending Handoff past its due date escalates: the company&apos;s owners and admins get a
@@ -331,13 +336,23 @@ export function Employees() {
           <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
         </LI>
         <LI>
-          <Strong>Settings → MCP.</Strong> Extra Model Context Protocol servers this employee can
-          use, plus the external endpoint that lets another MCP client reach Genosyn as this
-          employee.
+          <Strong>Settings → Autonomy.</Strong> The{" "}
+          <DocLink to="/docs/autonomy">earned-autonomy</DocLink> record, this employee&apos;s
+          Wakeups, and <Strong>Stand down</Strong> — a revocable stop on everything they do, kept
+          one click away. See <DocLink to="/docs/standdowns">Standdowns</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → Browser.</Strong> Whether this employee may drive a browser — see{" "}
-          <DocLink to="/docs/browser">Browser</DocLink>.
+          <Strong>Settings → Advanced → Phone.</Strong> The Twilio numbers given to this employee,
+          and their texts and calls — see <DocLink to="/docs/phone-numbers">Phone numbers</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Settings → Advanced → MCP.</Strong> Extra Model Context Protocol servers this
+          employee can use, plus the external endpoint that lets another MCP client reach Genosyn
+          as this employee.
+        </LI>
+        <LI>
+          <Strong>Settings → Advanced → Browser.</Strong> Whether this employee may drive a browser
+          — see <DocLink to="/docs/browser">Browser</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → General.</Strong> Name, role, slug, profile picture, team — and, at

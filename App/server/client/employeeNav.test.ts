@@ -110,6 +110,38 @@ describe("employee page navigation", () => {
     }
   });
 
+  test("keeps the Settings rail short, with the rarely used panes under a collapsed Advanced group", () => {
+    const tabs = readAppFile("client/pages/employeeTabs.tsx");
+    const body = tabs.match(/function settingsNavGroups\([\s\S]*?\n}\n/)?.[0];
+    assert.ok(body, "client/pages/employeeTabs.tsx must define settingsNavGroups");
+
+    // One entry per `label:`, grouped by the `title:` that precedes it. Reading
+    // the source keeps this honest about what the rail really renders, and the
+    // exact lists are the point: adding "just one more" default entry means
+    // changing this test, on purpose.
+    const groups: Record<string, string[]> = {};
+    let current = "";
+    for (const line of body.split("\n")) {
+      const title = line.match(/^ {6}title: "([^"]+)"/)?.[1];
+      if (title) {
+        current = title;
+        groups[current] = [];
+      }
+      const label = line.match(/\blabel: "([^"]+)"/)?.[1];
+      if (label && current) groups[current].push(label);
+    }
+
+    assert.deepEqual(groups, {
+      Employee: ["General", "Soul", "Model"],
+      Work: ["Skills", "Routines"],
+      Access: ["Connections", "Autonomy"],
+      Advanced: ["Memory", "Journal", "Handoffs", "Phone", "MCP", "Browser", "Integrations"],
+    });
+    // Only Advanced collapses, and it is the only group that does.
+    assert.equal(body.match(/collapsible: true/g)?.length, 1);
+    assert.match(body, /title: "Advanced",\s*collapsible: true/);
+  });
+
   test("still resolves relocated URLs to the Employees section", () => {
     // sections.ts tests `/employees` before `/settings`, which is what stops
     // `.../employees/ada/settings/journal` lighting up the company Settings pill.

@@ -9,7 +9,7 @@ import { Avatar, employeeAvatarUrl } from "./ui/Avatar";
  *
  * An employee is someone you talk to, so their page is the conversation, and
  * everything you can configure or inspect about them lives behind a single
- * Settings door. That leaves two destinations rather than the nine-entry rail
+ * Settings door. That leaves two destinations rather than the long sidebar
  * this replaced — which is why the header, not a sidebar, now carries the way
  * back to the roster and the switch between the two.
  *

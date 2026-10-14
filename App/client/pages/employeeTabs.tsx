@@ -13,6 +13,7 @@ import {
   Calendar,
   Camera,
   Check,
+  ChevronRight,
   Copy,
   Edit3,
   ExternalLink,
@@ -52,6 +53,7 @@ import {
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
+import { employeeSettingsPage } from "../lib/employeeSettingsNav";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -158,10 +160,10 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
 // ---------- Model (Settings) tab ----------
 
 /**
- * Employee Settings — now the only door off the employee page besides Chat.
- * It used to hold four setting surfaces beside a nine-entry sidebar; the
- * sidebar is gone and everything that was on it lives here, grouped so the
- * list stays scannable: who they are, the work they do, what they can reach.
+ * Employee Settings — the only door off the employee page besides Chat.
+ * Everything you configure or inspect about an employee lives behind it, in a
+ * rail that keeps the everyday panes up front (who they are, the work they do,
+ * what they can reach) and tucks the rest under a collapsed Advanced group.
  *
  * Each sub-route titles itself with its own `TopBar`, so this frame renders
  * the nav and nothing else — that is what lets Journal, Handoffs and MCP keep
@@ -197,16 +199,30 @@ type SettingsNavEntry = {
   away?: string;
 };
 
+type SettingsNavGroup = {
+  title: string;
+  items: SettingsNavEntry[];
+  /**
+   * Closed until asked for: the heading becomes a toggle, and the group opens
+   * by itself when you are on one of its panes.
+   */
+  collapsible?: boolean;
+};
+
 /**
+ * What the rail shows by default is what someone setting up an employee
+ * reaches for: who they are, the work they do, what they can reach. Autonomy
+ * stays in view because it holds this employee's Standdown. The panes you
+ * visit now and then sit under Advanced, collapsed, so the rail is a short list
+ * instead of a long one.
+ *
  * Skills and Routines stay company-level sections — "what is scheduled around
  * here?" is not a per-employee question — so their entries link out to those
  * lists filtered to this employee, and say so with a corner arrow rather than
- * pretending to be a settings pane.
+ * pretending to be a settings pane. Integrations, the one other entry that
+ * leaves, is an Advanced link for the same reason.
  */
-function settingsNavGroups(
-  company: Company,
-  emp: Employee,
-): { title: string; items: SettingsNavEntry[] }[] {
+function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] {
   return [
     {
       title: "Employee",
@@ -214,7 +230,6 @@ function settingsNavGroups(
         { to: "general", icon: <UserRound size={14} />, label: "General" },
         { to: "soul", icon: <Sparkles size={14} />, label: "Soul" },
         { to: "model", icon: <BrainCircuit size={14} />, label: "Model" },
-        { to: "memory", icon: <Brain size={14} />, label: "Memory" },
       ],
     },
     {
@@ -232,18 +247,25 @@ function settingsNavGroups(
           label: "Routines",
           away: "Opens the company Routines list, filtered to this employee",
         },
-        { to: "journal", icon: <BookText size={14} />, label: "Journal" },
-        { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
       ],
     },
     {
       title: "Access",
       items: [
         { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
+        { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
+      ],
+    },
+    {
+      title: "Advanced",
+      collapsible: true,
+      items: [
+        { to: "memory", icon: <Brain size={14} />, label: "Memory" },
+        { to: "journal", icon: <BookText size={14} />, label: "Journal" },
+        { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
         { to: "phone", icon: <Phone size={14} />, label: "Phone" },
         { to: "mcp", icon: <Plug size={14} />, label: "MCP" },
         { to: "browser", icon: <Globe size={14} />, label: "Browser" },
-        { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
         {
           to: `/c/${company.slug}/employees/integrations`,
           icon: <Boxes size={14} />,
@@ -259,11 +281,31 @@ function settingsNavGroups(
  * Grouped rail on desktop; on a phone the groups collapse into one
  * horizontally scrollable row of pills, because a column of every entry and
  * the content beside it cannot both have a phone's width.
+ *
+ * The collapsible Advanced group is one piece of state shared by both layouts:
+ * a toggle in the column, a pill in the row. It starts closed, opens when you
+ * land on one of its panes (a deep link, say) and then stays however you leave
+ * it.
  */
 function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) {
   const groups = settingsNavGroups(company, emp);
   const { pathname } = useLocation();
   const scroller = React.useRef<HTMLElement | null>(null);
+  const advancedListId = React.useId();
+
+  const page = employeeSettingsPage(pathname, company.slug, emp.slug);
+  const onAdvancedPane = groups.some(
+    (group) => group.collapsible && group.items.some((item) => !item.away && item.to === page),
+  );
+  const [advancedOpen, setAdvancedOpen] = React.useState(onAdvancedPane);
+  // Open it when the route enters the group. Adjusted during render rather than
+  // in an effect, which would paint a frame without the active entry in the
+  // rail — and run the scroll-into-view below before that entry exists.
+  const [wasOnAdvancedPane, setWasOnAdvancedPane] = React.useState(onAdvancedPane);
+  if (onAdvancedPane !== wasOnAdvancedPane) {
+    setWasOnAdvancedPane(onAdvancedPane);
+    if (onAdvancedPane) setAdvancedOpen(true);
+  }
 
   // The pills do not all fit on a phone, so the one you are actually on is
   // usually off-screen when you arrive. Bring it into view — but only while
@@ -285,27 +327,71 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
         aria-label="Employee settings"
         className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
       >
-        {groups
-          .flatMap((g) => g.items)
-          .map((item) => (
-            <SettingsNavItem key={item.to} item={item} pill />
-          ))}
+        {groups.flatMap((group) =>
+          group.collapsible
+            ? [
+                <button
+                  key={group.title}
+                  type="button"
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                  aria-expanded={advancedOpen}
+                  title={group.items.map((item) => item.label).join(", ")}
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  {group.title}
+                  <AdvancedChevron open={advancedOpen} />
+                </button>,
+                ...(advancedOpen
+                  ? group.items.map((item) => <SettingsNavItem key={item.to} item={item} pill />)
+                  : []),
+              ]
+            : group.items.map((item) => <SettingsNavItem key={item.to} item={item} pill />),
+        )}
       </nav>
       <nav aria-label="Employee settings" className="hidden w-48 shrink-0 md:block">
         {groups.map((group) => (
           <div key={group.title} className="mb-4 last:mb-0">
-            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {group.title}
-            </div>
-            <ul className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <SettingsNavItem key={item.to} item={item} />
-              ))}
-            </ul>
+            {group.collapsible ? (
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((open) => !open)}
+                aria-expanded={advancedOpen}
+                aria-controls={advancedOpen ? advancedListId : undefined}
+                title={group.items.map((item) => item.label).join(", ")}
+                className="flex w-full items-center gap-1 px-3 pb-1 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              >
+                {group.title}
+                <AdvancedChevron open={advancedOpen} />
+              </button>
+            ) : (
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                {group.title}
+              </div>
+            )}
+            {(!group.collapsible || advancedOpen) && (
+              <ul
+                id={group.collapsible ? advancedListId : undefined}
+                className="flex flex-col gap-0.5"
+              >
+                {group.items.map((item) => (
+                  <SettingsNavItem key={item.to} item={item} />
+                ))}
+              </ul>
+            )}
           </div>
         ))}
       </nav>
     </>
+  );
+}
+
+function AdvancedChevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRight
+      size={12}
+      aria-hidden="true"
+      className={"shrink-0 transition-transform " + (open ? "rotate-90" : "")}
+    />
   );
 }
 
