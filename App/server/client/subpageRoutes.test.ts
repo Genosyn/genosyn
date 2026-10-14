@@ -41,7 +41,7 @@ function readAppFile(relativePath: string): string {
 const DELIBERATELY_UNLISTED: Record<string, string> = {
   admin:
     "Admin is an instance-operator surface the palette deliberately leaves out; " +
-    "it is reached from the avatar menu and the G A chord.",
+    "it is reached from the avatar menu and the G = chord.",
   onboarding:
     "The one-time guided launch. It opens after creating a company and from the " +
     "owner-only Home banner, and appears in no nav by design (SetupBanner.tsx).",
