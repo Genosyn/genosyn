@@ -457,7 +457,7 @@ export function workEntryHref(entry: WorkEntry, companySlug: string): string | n
     case "work_session":
       return `${base}/repositories`;
     case "approval":
-      return `${base}/approvals`;
+      return `${base}/decisions/approvals`;
     case "wakeup":
     case "lesson":
       return `${base}/employees/${entry.employee.slug}`;

@@ -20,7 +20,7 @@ import { createNotifications } from "./notifications.js";
 describe("companyNotificationLink", () => {
   test("a bare section path goes inside the company", () => {
     assert.equal(companyNotificationLink("acme", "/goals"), "/c/acme/goals");
-    assert.equal(companyNotificationLink("acme", "/revisions"), "/c/acme/revisions");
+    assert.equal(companyNotificationLink("acme", "/decisions/revisions"), "/c/acme/decisions/revisions");
     assert.equal(
       companyNotificationLink("acme", "/employees/ada?tab=settings#autonomy"),
       "/c/acme/employees/ada?tab=settings#autonomy",
@@ -83,12 +83,12 @@ describe("createNotifications", () => {
         userId: user.id,
         kind: "revision_pending",
         title: "revision",
-        link: "/revisions",
+        link: "/decisions/revisions",
       },
     ]);
     const links = await stored();
     assert.equal(links.get("goal"), "/c/acme/goals");
-    assert.equal(links.get("revision"), "/c/globex/revisions", "each row takes its own company");
+    assert.equal(links.get("revision"), "/c/globex/decisions/revisions", "each row takes its own company");
   });
 
   test("a prefixed link, and no link at all, are stored as written", async () => {
@@ -98,12 +98,12 @@ describe("createNotifications", () => {
         userId: user.id,
         kind: "approval_pending",
         title: "approval",
-        link: "/c/acme/approvals",
+        link: "/c/acme/decisions/approvals",
       },
       { companyId: acme.id, userId: user.id, kind: "mention", title: "none" },
     ]);
     const links = await stored();
-    assert.equal(links.get("approval"), "/c/acme/approvals");
+    assert.equal(links.get("approval"), "/c/acme/decisions/approvals");
     assert.equal(links.get("none"), null);
   });
 });

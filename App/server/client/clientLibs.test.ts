@@ -711,7 +711,6 @@ describe("section routing and command search", () => {
 
   test("maps company routes to their owning section without substring collisions", () => {
     const keys = [
-      "inbox",
       "mail",
       "tldrs",
       "workspace",
@@ -731,7 +730,6 @@ describe("section routing and command search", () => {
       "finance",
       "pipelines",
       "decisions",
-      "approvals",
       "help",
       "account",
       "admin",
@@ -743,6 +741,10 @@ describe("section routing and command search", () => {
     }
     assert.equal(activeSection("/c/acme/not-email"), "home");
     assert.equal(activeSection("/admin"), "home");
+    // Pages that moved inside other sections answer to their new home.
+    assert.equal(activeSection("/c/acme/decisions/approvals"), "decisions");
+    assert.equal(activeSection("/c/acme/decisions/initiatives"), "decisions");
+    assert.equal(activeSection("/c/acme/tldrs/journal"), "tldrs");
   });
 
   test("finds TLDRs by summary language", () => {

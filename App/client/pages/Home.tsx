@@ -1036,7 +1036,7 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
       label: "Pending approvals",
       value: data.pendingApprovalCount,
       icon: <ShieldCheck size={15} />,
-      to: `/c/${company.slug}/approvals`,
+      to: `/c/${company.slug}/decisions/approvals`,
       accent: "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
     },
   ].filter((s) => s.value > 0);
@@ -1175,7 +1175,7 @@ function FailedRoutinesAlert({
           {data.failedRunCount}
         </span>
         <Link
-          to={`/c/${company.slug}/inbox`}
+          to={`/c/${company.slug}/tldrs/journal`}
           className="ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
         >
           Journal <ChevronRight size={12} />
@@ -2089,14 +2089,14 @@ function ApprovalsCard({
       title="Pending approvals"
       icon={<ShieldCheck size={15} />}
       count={data.pendingApprovalCount}
-      linkTo={`/c/${company.slug}/approvals`}
+      linkTo={`/c/${company.slug}/decisions/approvals`}
       linkLabel="Approvals"
     >
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.approvals.map((a: HomeApproval) => (
           <li key={a.id}>
             <HomeRow
-              to={`/c/${company.slug}/approvals`}
+              to={`/c/${company.slug}/decisions/approvals`}
               onOpen={() => onOpen({ kind: "approval", approval: a })}
               className="flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >

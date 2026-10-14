@@ -534,7 +534,7 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
           : "Approval requested"),
       sublabel: `${a.kind.replace(/_/g, " ")} · ${relativeTime(a.requestedAt)}`,
       badge: "pending",
-      link: `/c/${slug}/approvals`,
+      link: `/c/${slug}/decisions/approvals`,
     })),
   });
 

@@ -177,8 +177,9 @@ export function Improvement() {
 
       <H2 id="revisions-page">The Revisions page</H2>
       <P>
-        Pending proposals queue on the <Strong>Revisions</Strong> page, in the <Strong>AI</Strong>{" "}
-        nav group. Each one renders as a before/after diff of the target document beside the
+        Pending proposals queue on the <Strong>Revisions</Strong> page, in the{" "}
+        <DocLink to="/docs/decisions#active-and-history">Decision stack</DocLink>&apos;s side menu,
+        with a count beside it. Each one renders as a before/after diff of the target document beside the
         rationale and evidence, with two buttons — <Strong>Apply</Strong> and{" "}
         <Strong>Reject</Strong> — and an optional note that travels with the decision. Owners and
         admins decide; any Member can read the queue. Either button opens its confirmation with the

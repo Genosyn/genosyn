@@ -180,6 +180,18 @@ await context.route("**/api/**", async (route) => {
   if (pathname === `${base}/approvals` && method === "GET") {
     return route.fulfill({ json: [] });
   }
+  // The Decision stack layout counts what waits beside the stack.
+  if (pathname === `${base}/navigation/waiting` && method === "GET") {
+    return route.fulfill({
+      json: {
+        approvals: 0,
+        revisions: 0,
+        initiatives: 0,
+        todoReviews: 0,
+        financeProposals: 0,
+      },
+    });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });

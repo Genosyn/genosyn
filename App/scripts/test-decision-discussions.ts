@@ -548,6 +548,17 @@ async function open(options: FixtureOptions = {}) {
           ? route.fulfill({ json: linked })
           : route.fulfill({ status: 404, json: { error: "Not found" } });
       }
+      // The Decision stack layout counts what waits beside the stack.
+      if (url.pathname === `${apiBase}/navigation/waiting`)
+        return route.fulfill({
+          json: {
+            approvals: options.role === "admin" ? 0 : null,
+            revisions: options.role === "admin" ? 0 : null,
+            initiatives: options.role === "admin" ? 0 : null,
+            todoReviews: 0,
+            financeProposals: options.role === "admin" ? 0 : null,
+          },
+        });
       if (url.pathname === `${apiBase}/home`)
         return route.fulfill({
           json: homeData(

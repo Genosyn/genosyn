@@ -137,7 +137,7 @@ async function sweepStaleApprovals(now: Date, assertLeaseHeld: () => void): Prom
         "lost, not queued, if this is never answered.",
       link: decisionStackReview
         ? `/c/${company.slug}/decisions#review-${approval.id}`
-        : `/c/${company.slug}/approvals`,
+        : `/c/${company.slug}/decisions/approvals`,
       actorKind: employee ? ("ai" as const) : ("system" as const),
       actorId: employee?.id ?? null,
       entityKind: "approval" as const,
@@ -305,7 +305,7 @@ async function sweepStaleRevisionProposals(now: Date, assertLeaseHeld: () => voi
       kind: "revision_stale" as const,
       title: `A revision has waited ${hoursSince(proposal.createdAt, now)}h: ${proposal.targetLabel}`,
       body: `${employee.name} proposed this edit and cannot apply it itself — someone must apply or decline it.`,
-      link: `/c/${company.slug}/revisions`,
+      link: `/c/${company.slug}/decisions/revisions`,
       actorKind: "ai" as const,
       actorId: employee.id,
       entityKind: "revision_proposal" as const,

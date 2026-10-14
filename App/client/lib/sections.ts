@@ -7,24 +7,20 @@ import {
   FolderGit2,
   FileSignature,
   GitBranch,
-  GitPullRequest,
   Home,
   KeyRound,
   Library,
-  Lightbulb,
   type LucideIcon,
   ListChecks,
   Mail,
   Megaphone,
   MessageSquare,
-  NotebookPen,
   NotebookText,
   ServerCog,
   Sparkles,
   Target,
   Video,
   Settings as SettingsIcon,
-  ShieldCheck,
   Table2,
   TrendingUp,
   Users,
@@ -50,12 +46,15 @@ import {
  * `G` chord and shortcut guide (`KeyboardShortcuts`), and the section rails —
  * and the palette is itself rendered by the shell. Importing it from
  * `AppShell` would put a cycle between the two.
+ *
+ * Not every section is listed from the first day: the palette's browse view
+ * shows the core and the sections a company has started using
+ * (`shared/navigation.ts`, `lib/sectionVisibility.ts`). Search covers all.
  */
 
 export type SectionKey =
   | "home"
   | "tldrs"
-  | "inbox"
   | "mail"
   | "meetings"
   | "workspace"
@@ -64,8 +63,6 @@ export type SectionKey =
   | "routines"
   | "proactive"
   | "goals"
-  | "revisions"
-  | "initiatives"
   | "tasks"
   | "vault"
   | "bases"
@@ -80,7 +77,6 @@ export type SectionKey =
   | "finance"
   | "pipelines"
   | "decisions"
-  | "approvals"
   | "settings"
   | "help"
   | "account"
@@ -124,7 +120,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
       {
         key: "decisions",
         label: "Decision stack",
-        description: "Questions, email reviews, and work awaiting approval.",
+        description: "Everything waiting on you: questions, reviews, and approvals.",
         icon: GitBranch,
         // Not "D": Marketing already holds it, and the chord map is keyed by
         // letter, so a third claim would shadow one of them.
@@ -140,17 +136,39 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "ask",
           "email review",
           "draft reply",
+          // Approvals, Revisions, and Initiatives are pages of the stack now;
+          // their old section names still find it.
+          "approvals",
+          "approve",
+          "sign off",
+          "pending",
+          "revisions",
+          "proposals",
+          "initiatives",
+          "needs you",
         ],
       },
       {
         key: "tldrs",
-        label: "TLDRs",
-        description: "Periodic briefings on what your company did.",
+        label: "What happened",
+        description: "Briefings on what your company did, and each AI Employee's journal.",
         icon: Sparkles,
         shortcut: "Z",
         path: "/tldrs",
         iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-        keywords: ["summary", "digest", "briefing", "recap", "channel updates"],
+        keywords: [
+          "tldr",
+          "tldrs",
+          "summary",
+          "digest",
+          "briefing",
+          "recap",
+          "channel updates",
+          "journal",
+          "diary",
+          "activity",
+          "today",
+        ],
       },
       {
         key: "workspace",
@@ -247,6 +265,28 @@ export const SECTION_GROUPS: SectionGroup[] = [
         keywords: ["team", "roster", "staff", "people", "hire", "agent", "bot"],
       },
       {
+        key: "goals",
+        label: "Goals",
+        description: "Measurable objectives your AI employees steer toward.",
+        icon: Target,
+        // Punctuation, like Settings (","): "." is the closest thing on a
+        // keyboard to a bullseye.
+        shortcut: ".",
+        path: "/goals",
+        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
+        keywords: ["goal", "kpi", "okr", "objective", "target", "metric"],
+      },
+      {
+        key: "routines",
+        label: "Routines",
+        description: "Scheduled work, and how every run went.",
+        icon: CalendarClock,
+        shortcut: "R",
+        path: "/routines",
+        iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
+        keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
+      },
+      {
         key: "skills",
         label: "Skills",
         description: "Playbooks your AI employees follow.",
@@ -275,56 +315,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "inbox",
           "follow-up",
         ],
-      },
-      {
-        key: "routines",
-        label: "Routines",
-        description: "Scheduled work, and how every run went.",
-        icon: CalendarClock,
-        shortcut: "R",
-        path: "/routines",
-        iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
-        keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
-      },
-      {
-        key: "goals",
-        label: "Goals",
-        description: "Measurable objectives your AI employees steer toward.",
-        icon: Target,
-        // Every letter A–Z is already claimed in the chord map ("G" itself by
-        // Signatures), so like Settings (",") this takes punctuation: "." is
-        // the closest thing on a keyboard to a bullseye.
-        shortcut: ".",
-        path: "/goals",
-        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
-        keywords: ["goal", "kpi", "okr", "objective", "target", "metric"],
-      },
-      {
-        key: "revisions",
-        label: "Revisions",
-        description: "Soul, Skill, and Routine edits your AI employees proposed.",
-        icon: GitPullRequest,
-        // Letters A–Z are all claimed, so punctuation again (Settings ",",
-        // Goals "."): the apostrophe — a mark of quotation, for edits still
-        // being quoted back to you for review.
-        shortcut: "'",
-        path: "/revisions",
-        iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
-        keywords: ["revision", "proposal", "soul", "skill", "diff", "review"],
-      },
-      {
-        key: "initiatives",
-        label: "Initiatives",
-        description: "Standing work your AI employees proposed.",
-        icon: Lightbulb,
-        // Letters A–Z are all claimed, so punctuation again (Settings ",",
-        // Goals ".", Revisions "'"): the semicolon — the mark that proposes
-        // the sentence continue, for work proposed to keep going on a
-        // schedule.
-        shortcut: ";",
-        path: "/initiatives",
-        iconBg: "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-300",
-        keywords: ["initiative", "propose", "idea", "standing work"],
       },
     ],
   },
@@ -507,26 +497,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
     label: "System",
     items: [
       {
-        key: "inbox",
-        label: "Journal",
-        description: "Today's journal entries across employees.",
-        icon: NotebookPen,
-        shortcut: "J",
-        path: "/inbox",
-        iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
-        keywords: ["diary", "activity", "digest", "log"],
-      },
-      {
-        key: "approvals",
-        label: "Approvals",
-        description: "Gate routines that need a human.",
-        icon: ShieldCheck,
-        shortcut: "A",
-        path: "/approvals",
-        iconBg: "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
-        keywords: ["approve", "review", "gate", "sign off", "pending"],
-      },
-      {
         key: "settings",
         label: "Settings",
         description: "Members, integrations, email, environment secrets.",
@@ -613,7 +583,6 @@ export const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntrie
  */
 export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/tldrs(\/|$)/.test(pathname)) return "tldrs";
-  if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
   if (/\/c\/[^/]+\/meetings(\/|$)/.test(pathname)) return "meetings";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
@@ -622,8 +591,6 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
   if (/\/c\/[^/]+\/proactive(\/|$)/.test(pathname)) return "proactive";
   if (/\/c\/[^/]+\/goals(\/|$)/.test(pathname)) return "goals";
-  if (/\/c\/[^/]+\/revisions(\/|$)/.test(pathname)) return "revisions";
-  if (/\/c\/[^/]+\/initiatives(\/|$)/.test(pathname)) return "initiatives";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/vault(\/|$)/.test(pathname)) return "vault";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
@@ -638,7 +605,6 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/decisions(\/|$)/.test(pathname)) return "decisions";
-  if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
   if (/\/c\/[^/]+\/help(\/|$)/.test(pathname)) return "help";
   if (/\/c\/[^/]+\/account(\/|$)/.test(pathname)) return "account";
   if (/\/c\/[^/]+\/admin(\/|$)/.test(pathname)) return "admin";

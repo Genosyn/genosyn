@@ -15,7 +15,7 @@ import { errorMessage } from "@/lib/errors";
 /**
  * Deciding a pending approval from Home.
  *
- * The row on Home used to link to `/approvals` — an inbox that does not even
+ * The row on Home used to link to the Approvals page — an inbox that does not even
  * know which row you clicked. Worse, the row itself never showed `summary`,
  * which is the part that says what the employee actually wants to do. So the
  * only way to find out was to leave the page, and the only way to decide was
@@ -82,7 +82,7 @@ export function ApprovalPeekModal({
       footer={
         <>
           <Link
-            to={`/c/${company.slug}/approvals`}
+            to={`/c/${company.slug}/decisions/approvals`}
             className={buttonClassName({ variant: "secondary", size: "sm" })}
             onClick={onClose}
           >

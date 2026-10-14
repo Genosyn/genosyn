@@ -215,7 +215,7 @@ async function notifyInitiativePending(initiative: Initiative): Promise<void> {
         kind: "initiative_pending" as const,
         title: `${employee?.name ?? "An AI employee"} proposes: ${initiative.title}`,
         body: "New standing work, with the evidence attached. Accepting creates the Routine.",
-        link: "/initiatives",
+        link: "/decisions/initiatives",
         actorKind: "ai" as const,
         actorId: initiative.employeeId,
         entityKind: "initiative" as const,

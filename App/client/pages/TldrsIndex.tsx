@@ -163,7 +163,7 @@ export default function TldrsIndex() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-            <Sparkles size={22} className="text-violet-500" /> TLDRs
+            <Sparkles size={22} className="text-violet-500" /> Briefings
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             What changed. What needs your attention.

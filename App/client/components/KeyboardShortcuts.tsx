@@ -1,5 +1,5 @@
 import React from "react";
-import { CornerDownLeft, Keyboard, Search, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownLeft, Keyboard, Search, Sparkles } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
@@ -10,9 +10,11 @@ import {
   SectionItem,
 } from "../lib/sections";
 import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/keyboard";
+import { canOpenSection, listedGroups, unlistedSectionCount } from "../lib/sectionVisibility";
 import { PALETTE_SHORTCUT } from "./CommandPalette";
 import { ASK_AI_SHORTCUT } from "./askAi/AskAiProvider";
 import { useNavigationGuard } from "./NavigationGuard";
+import { useSectionVisibility } from "./SectionVisibility";
 import { clsx } from "./ui/clsx";
 import { ModalCloseButton, ModalPanel, ModalScrim } from "./ui/ModalChrome";
 
@@ -30,16 +32,13 @@ export function useKeyboardShortcuts(): KeyboardShortcutsState {
   return ctx;
 }
 
-function guideGroups(isMasterAdmin: boolean): SectionGroup[] {
-  return [
-    ...SECTION_GROUPS,
-    {
-      label: "You",
-      items: isMasterAdmin
-        ? [HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION]
-        : [HELP_SECTION, ACCOUNT_SECTION],
-    },
-  ];
+function youGroup(isMasterAdmin: boolean): SectionGroup {
+  return {
+    label: "You",
+    items: isMasterAdmin
+      ? [HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION]
+      : [HELP_SECTION, ACCOUNT_SECTION],
+  };
 }
 
 const CHORD_TIMEOUT_MS = 3_000;
@@ -71,6 +70,10 @@ const MAIL_SHORTCUTS: Array<{ key: string; label: string }> = [
  * first key opens a visible destination HUD, so this behaves like a tiny
  * keyboard menu instead of requiring people to memorise an invisible system.
  * Shortcuts never fire while someone is typing or another modal owns focus.
+ *
+ * The HUD and the guide list what the ⌘K palette lists — the core and the
+ * sections in use (`SectionVisibility`) — while every chord still works for
+ * every section this person can open.
  */
 export function KeyboardShortcutsProvider({
   companySlug,
@@ -89,8 +92,22 @@ export function KeyboardShortcutsProvider({
   const chordTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreFocusRef = React.useRef<HTMLElement | null>(null);
 
-  const groups = React.useMemo(() => guideGroups(isMasterAdmin), [isMasterAdmin]);
-  const sections = React.useMemo(() => groups.flatMap((group) => group.items), [groups]);
+  const { listing, setShowAll } = useSectionVisibility();
+  const you = React.useMemo(() => youGroup(isMasterAdmin), [isMasterAdmin]);
+  const groups = React.useMemo(
+    () => [...listedGroups(SECTION_GROUPS, listing), you],
+    [listing, you],
+  );
+  const unlisted = unlistedSectionCount(SECTION_GROUPS, listing);
+  const canToggle =
+    unlisted > 0 || unlistedSectionCount(SECTION_GROUPS, { ...listing, showAll: false }) > 0;
+  const sections = React.useMemo(
+    () =>
+      [...SECTION_GROUPS.flatMap((group) => group.items), ...you.items].filter((section) =>
+        canOpenSection(section.key, listing.viewer),
+      ),
+    [you, listing.viewer],
+  );
   const sectionsByKey = React.useMemo(
     () => new Map(sections.map((section) => [section.shortcut.toLowerCase(), section])),
     [sections],
@@ -206,7 +223,18 @@ export function KeyboardShortcutsProvider({
     <KeyboardShortcutsContext.Provider value={value}>
       {children}
       {chordOpen && <GoToHud groups={groups} />}
-      {guideOpen && <ShortcutGuide groups={groups} onClose={() => closeGuide()} onGoTo={goTo} />}
+      {guideOpen && (
+        <ShortcutGuide
+          groups={groups}
+          onClose={() => closeGuide()}
+          onGoTo={goTo}
+          toggle={
+            canToggle
+              ? { showAll: listing.showAll, unlisted, onToggle: () => setShowAll(!listing.showAll) }
+              : null
+          }
+        />
+      )}
     </KeyboardShortcutsContext.Provider>
   );
 }
@@ -248,10 +276,13 @@ function ShortcutGuide({
   groups,
   onClose,
   onGoTo,
+  toggle,
 }: {
   groups: SectionGroup[];
   onClose: () => void;
   onGoTo: (section: SectionItem) => void;
+  /** Show every section, or only those in use; null when that changes nothing. */
+  toggle: { showAll: boolean; unlisted: number; onToggle: () => void } | null;
 }) {
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const location = useLocation();
@@ -404,6 +435,27 @@ function ShortcutGuide({
                 </div>
               ))}
             </div>
+            {toggle && (
+              <button
+                type="button"
+                onClick={toggle.onToggle}
+                aria-expanded={toggle.showAll}
+                className="mt-4 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {toggle.showAll ? (
+                  <>
+                    <ChevronUp size={14} aria-hidden="true" /> Show only the sections in use
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} aria-hidden="true" /> Show all sections
+                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                      {toggle.unlisted} more
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
           </section>
         </div>
 

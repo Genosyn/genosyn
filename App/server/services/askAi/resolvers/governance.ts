@@ -153,7 +153,7 @@ export const resolveInitiative: AskAiResolver = async ({ companyId, ref }) => {
       id: initiative.id,
       label: `Initiative ${initiative.title.slice(0, 60)}`,
       sublabel: `${initiative.status}${proposer ? ` · ${proposer.name}` : ""}`,
-      href: "/initiatives",
+      href: "/decisions/initiatives",
       gate: { type: "none" },
       body,
       tools: ["get_initiative"],

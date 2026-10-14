@@ -477,7 +477,7 @@ export function Finance() {
       <H2 id="ledger">Ledger and reports</H2>
       <P>
         Every state change on an invoice or bill emits a journal entry into the same ledger you can
-        write to by hand from <Code>Finance → Journal</Code>. The chart of accounts seeds sensible
+        write to by hand from <Code>Finance → Journal entries</Code>. The chart of accounts seeds sensible
         defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable, 2300
         Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can rename,
         reparent, or add accounts freely as long as you don&apos;t touch the system codes the
@@ -495,7 +495,7 @@ export function Finance() {
         A journal entry can be <Strong>staged for review</Strong> instead of posted straight away —
         the classic accounting maker-checker control, where one person drafts an entry and another
         signs it off. Compose the entry as usual under{" "}
-        <Code>Finance → Journal → New manual entry</Code>, then click{" "}
+        <Code>Finance → Journal entries → New manual entry</Code>, then click{" "}
         <Code>Propose for review</Code> rather than <Code>Post entry</Code>. Nothing hits the ledger
         yet.
       </P>

@@ -112,7 +112,7 @@ describe("stall sweep", () => {
     assert.equal(first.length, 1);
     assert.equal(first[0].userId, ownerId);
     assert.equal(first[0].entityId, approval.id);
-    assert.equal(first[0].link, `/c/${companySlug}/approvals`);
+    assert.equal(first[0].link, `/c/${companySlug}/decisions/approvals`);
 
     // The marker is on the row, so a second pass says nothing more.
     await sweepStalledWork(new Date());

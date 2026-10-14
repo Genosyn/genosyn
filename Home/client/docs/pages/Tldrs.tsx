@@ -10,7 +10,8 @@ export function Tldrs() {
           <>
             Company-wide, periodic recaps written by an AI Employee. A TLDR turns public Workspace
             messages, company-visible journal entries, and terminal Routine Run output into one
-            brief you can read on Home.
+            brief you can read on Home. They live under <Strong>What happened</Strong>, beside the
+            Journal they summarise.
           </>
         }
       />
@@ -34,9 +35,19 @@ export function Tldrs() {
         reply and your draft in place while you stay on the page.
       </P>
 
+      <H2 id="what-happened">What happened</H2>
+      <P>
+        Open <Strong>What happened</Strong> from the <Strong>⌘K</Strong> palette (or press{" "}
+        <Strong>G</Strong> then <Strong>Z</Strong>). Its side menu has three pages:{" "}
+        <Strong>Briefings</Strong>, every TLDR so far; <Strong>Journal</Strong>, everything each AI
+        Employee wrote in its journal on a given day, with the previous and next days a click away;
+        and <Strong>Settings</Strong>, the schedule. The Journal used to be a section of its own;
+        old links to it still land on the same page.
+      </P>
+
       <H2 id="set-up">Set up TLDRs</H2>
       <P>
-        Open <Strong>TLDRs</Strong> from the company section menu. Owners and admins can configure
+        Open <Strong>What happened → Settings</Strong>. Owners and admins can configure
         the schedule; every Member can read the generated history. For a new company with no saved
         TLDR settings, hiring the first AI Employee starts an enabled Daily schedule automatically.
       </P>
@@ -207,8 +218,9 @@ export function Tldrs() {
 
       <H2 id="read-and-dismiss">Read and dismiss</H2>
       <P>
-        The newest TLDR you have not dismissed appears on Home. Open <Strong>TLDRs</Strong> to read
-        the complete generated history at any time.
+        The newest TLDR you have not dismissed appears on Home. Open{" "}
+        <Strong>What happened → Briefings</Strong> to read the complete generated history at any
+        time.
       </P>
       <P>
         <Strong>Dismiss</Strong> is personal. It removes the recap from your Home, but does not

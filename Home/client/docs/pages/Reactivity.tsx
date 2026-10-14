@@ -152,8 +152,9 @@ export function Reactivity() {
         Chat.
       </P>
       <P>
-        Open <Strong>Initiatives</Strong> from the Proactive page to review what employees have
-        filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine, and the accepted
+        Open <Strong>Initiatives</Strong> in the{" "}
+        <DocLink to="/docs/decisions#active-and-history">Decision stack</DocLink>&apos;s side menu
+        (or from the Proactive page) to review what employees have filed. An admin&apos;s <Strong>Accept</Strong> creates the proposed Routine, and the accepted
         Initiative links to it. Accept and <Strong>Decline</Strong> open their confirmation with the
         cursor in the optional note; <Code>⌘/Ctrl+Enter</Code> there confirms. Exact duplicate
         pending work and already accepted work are refused, including after the accepted Routine was
@@ -459,8 +460,8 @@ export function Reactivity() {
         ]}
       />
       <P>
-        Admins are paged, and pending Initiatives live in their own <Strong>Initiatives</Strong>{" "}
-        section under the AI nav. <Strong>Accepting</Strong> creates precisely the Routine proposed
+        Pending Initiatives wait on the <Strong>Initiatives</Strong> page in the Decision
+        stack&apos;s side menu, with a count beside it, and appear in the bell. <Strong>Accepting</Strong> creates precisely the Routine proposed
         — owned by the proposing employee, scheduled immediately. <Strong>Declining</Strong>{" "}
         journals the reason back to the employee, so the next Initiative is better aimed. At most{" "}
         <Strong>5</Strong> Initiatives can be pending per employee.

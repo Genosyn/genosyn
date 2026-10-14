@@ -446,9 +446,11 @@ function CompanyRoutes({
             element={<CompanyOnboarding company={company} onCompanyChanged={onCompaniesChanged} />}
           />
 
-          {/* TLDRs — periodic company briefings written by a selected AI Employee. */}
+          {/* What happened — periodic company briefings written by a selected
+            AI Employee, and the Journal they summarise. */}
           <Route path="tldrs" element={<TldrsLayout company={company} />}>
             <Route index element={<TldrsIndex />} />
+            <Route path="journal" element={<Inbox company={company} />} />
             <Route path="settings" element={<TldrSettingsPage />} />
           </Route>
 
@@ -462,9 +464,6 @@ function CompanyRoutes({
               element={<ProductIntegrationsPage company={company} product={product} />}
             />
           ))}
-
-          {/* Inbox — company-wide rollup of today's journal entries. */}
-          <Route path="inbox" element={<Inbox company={company} />} />
 
           {/* Email (M25) — the company's Gmail inboxes. Sidebar = folders +
             labels + automation; the index is the thread list, filtered by
@@ -748,18 +747,21 @@ function CompanyRoutes({
             <Route path="dashboards/:slug" element={<ExploreDashboardDetail company={company} />} />
           </Route>
 
-          <Route path="approvals" element={<Approvals company={company} />} />
-          {/* Decision stack — what still needs a Member, and, on their own
-            pages, the History of what was answered, dismissed, or reviewed,
-            and the Settings: whether new questions are taken, and which. */}
+          {/* Decision stack — everything waiting on someone. The stack itself
+            holds the questions and the email and work reviews; Approvals,
+            Revisions, and Initiatives are the other queues of the same kind,
+            on their own pages beside it. History holds what was answered,
+            dismissed, or reviewed; Settings whether new questions are taken,
+            and which. */}
           <Route path="decisions" element={<DecisionsLayout company={company} />}>
             <Route index element={<Decisions company={company} me={me} />} />
+            <Route path="approvals" element={<Approvals company={company} />} />
+            <Route path="revisions" element={<Revisions company={company} me={me} />} />
+            <Route path="initiatives" element={<Initiatives company={company} me={me} />} />
             <Route path="history" element={<DecisionHistory company={company} me={me} />} />
             <Route path="settings" element={<DecisionStackSettingsPage company={company} />} />
           </Route>
           <Route path="goals" element={<Goals company={company} me={me} />} />
-          <Route path="revisions" element={<Revisions company={company} me={me} />} />
-          <Route path="initiatives" element={<Initiatives company={company} me={me} />} />
           <Route path="help" element={<Help company={company} />} />
 
           {/* Workspace chat — Slack-style channels and DMs (M9). */}
@@ -886,6 +888,23 @@ function CompanyRoutes({
             element={<CustomerEditRedirect companySlug={company.slug} />}
           />
 
+          {/* Legacy redirects: Approvals, Revisions, and Initiatives moved into
+            the Decision stack, and the Journal into What happened. Notification
+            rows written before the move still carry the old links. */}
+          <Route
+            path="approvals"
+            element={<LegacyRedirect to={`/c/${company.slug}/decisions/approvals`} />}
+          />
+          <Route
+            path="revisions"
+            element={<LegacyRedirect to={`/c/${company.slug}/decisions/revisions`} />}
+          />
+          <Route
+            path="initiatives"
+            element={<LegacyRedirect to={`/c/${company.slug}/decisions/initiatives`} />}
+          />
+          <Route path="inbox" element={<LegacyRedirect to={`/c/${company.slug}/tldrs/journal`} />} />
+
           {/* Legacy redirects: Usage / Audit used to live at the top level. */}
           <Route
             path="usage"
@@ -901,6 +920,16 @@ function CompanyRoutes({
       </ChatSessionsProvider>
     </AppShell>
   );
+}
+
+/**
+ * A page that moved. Its old address forwards to the new one with the query
+ * string and hash intact, so a deep link such as `#review-<id>` still lands on
+ * the row it named.
+ */
+function LegacyRedirect({ to }: { to: string }) {
+  const { search, hash } = useLocation();
+  return <Navigate to={`${to}${search}${hash}`} replace />;
 }
 
 /**
