@@ -32,13 +32,15 @@ export function Reactivity() {
         can customize.
       </P>
       <P>
-        Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens the existing
-        Routine flow and creates scheduled work directly, paused until{" "}
-        <DocLink to="/docs/routines#where-they-live">its brief is saved</DocLink>.{" "}
-        <Strong>Ask AI Employee</Strong> opens an editable, unsent Chat draft asking the selected
-        employee to inspect the evidence and propose an Initiative. Nothing is sent until the Member
-        submits that Chat message, and nothing is scheduled from the Initiative until an owner or
-        admin accepts it.
+        Owners and admins can add work in two ways. <Strong>New Routine</Strong> opens a page where
+        you{" "}
+        <DocLink to="/docs/routines#creating">describe the work or set it up yourself</DocLink>:
+        setting it up yourself creates scheduled work directly, switched on because the form asks
+        for its brief. <Strong>Ask AI Employee</Strong> opens an editable, unsent Chat draft asking
+        the selected employee to inspect the evidence and propose an Initiative, the same draft
+        that describing the work on New Routine opens. Nothing is sent until the Member submits
+        that Chat message, and nothing is scheduled from the Initiative until an owner or admin
+        accepts it.
       </P>
       <P>
         <Strong>Automatic setup</Strong> starts <Strong>On</Strong> for both new and existing
@@ -146,9 +148,10 @@ export function Reactivity() {
         normally no more than one a week.
       </P>
       <P>
-        Use <Strong>New Routine</Strong> when you already know the scheduled work you want. Use
-        <Strong>Ask AI Employee</Strong> when you want an employee to inspect the company&apos;s
-        evidence, check existing Routines and earlier Initiatives, and make a recommendation first.
+        Use <Strong>Set it up yourself</Strong> on New Routine when you already know the scheduled
+        work you want. Use <Strong>Ask AI Employee</Strong>, or describe the work on New Routine,
+        when you want an employee to inspect the company&apos;s evidence, check existing Routines
+        and earlier Initiatives, and make a recommendation first.
         The editable Chat draft asks for the evidence, exact Routine brief, schedule, and measurable
         success criteria; opening it does not send the request or create work. With a single AI
         Employee it is already chosen, and <Code>⌘/Ctrl+Enter</Code> in the request continues to

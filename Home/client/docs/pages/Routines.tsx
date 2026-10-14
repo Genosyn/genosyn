@@ -51,19 +51,19 @@ export function Routines() {
         <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the top bar to ask about it. Each
         AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
-        filtered to them — and <Strong>New routine</Strong> from that slice starts with them as the
-        owner. A new routine opens on its <Strong>Brief</Strong> tab, ready for its instructions,
-        and <Code>⌘S</Code> saves the brief. The status in a row&apos;s <Strong>Last run</Strong>{" "}
-        column opens that Run directly.
+        filtered to them — and <Strong>New routine</Strong> from that slice starts with them
+        chosen. On the <Strong>Brief</Strong> tab, <Code>⌘S</Code> saves the brief. The status in a
+        row&apos;s <Strong>Last run</Strong> column opens that Run directly.
       </P>
       <P>
-        A new routine starts <Strong>Paused</Strong>, so one you leave unfinished never runs its
-        starter outline on schedule. Its <Strong>Brief</Strong> tab says{" "}
-        <Strong>Paused until its brief is saved</Strong>, and the button reads{" "}
-        <Strong>Save brief &amp; switch on</Strong>: that first save of a real brief switches the
-        routine on and schedules its next Run. Renaming or rescheduling it first does not count, and
-        saving a blank brief or the untouched outline leaves it paused. Later saves never change the
-        switch.
+        A routine made without a brief starts <Strong>Paused</Strong>, so one left unfinished never
+        runs its starter outline on schedule. That is what an API call or an AI Employee&apos;s{" "}
+        <Code>create_routine</Code> gets when it sends no brief; the New routine page always has
+        one. Its <Strong>Brief</Strong> tab says <Strong>Paused until its brief is saved</Strong>,
+        and the button reads <Strong>Save brief &amp; switch on</Strong>: that first save of a real
+        brief switches the routine on and schedules its next Run. Renaming or rescheduling it first
+        does not count, and saving a blank brief or the untouched outline leaves it paused. Later
+        saves never change the switch.
       </P>
       <P>
         Owners and admins pause or resume a routine from the switch beside{" "}
@@ -79,6 +79,48 @@ export function Routines() {
         <Strong>Retry brief</Strong>. A failed save keeps your edits available to retry, and the
         brief is marked saved only after storage confirms the submitted text. Switching to another
         Routine or company opens that destination&apos;s own brief.
+      </P>
+
+      <H2 id="creating">Creating a Routine</H2>
+      <P>
+        Owners and admins start from <Strong>New routine</Strong>. Say what you want and an AI
+        Employee drafts it for you, or fill in the details yourself.
+      </P>
+      <H3 id="describe-it">Describe it</H3>
+      <P>
+        The page opens on one box, <Strong>What should happen, and how often?</Strong> Write it the
+        way you would tell a colleague, or press one of the <Strong>Examples</Strong> to start from.
+        Choose the <Strong>AI Employee</Strong> to ask — only employees with a connected{" "}
+        <DocLink to="/docs/models">AI Model</DocLink> are offered, and when only one can answer they
+        are already chosen — then press <Strong>Continue to Chat</Strong>.
+      </P>
+      <P>
+        That opens a new Chat with your request as an unsent draft. Read it, change it, and send it
+        when you are ready; nothing is sent from the New routine page. The employee checks your
+        existing Routines and <DocLink to="/docs/reactivity#initiatives">Initiatives</DocLink>, then
+        proposes the Routine as an Initiative. It waits in the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink> until an owner or admin accepts it,
+        and accepting it is what creates the Routine, switched on.
+      </P>
+      <H3 id="set-it-up-yourself">Set it up yourself</H3>
+      <P>
+        <Strong>Set it up yourself</Strong>, under the box, opens the form: a <Strong>Name</Strong>,
+        who the routine is <Strong>Assigned to</Strong>, its <Strong>Schedule</Strong>, and{" "}
+        <Strong>What should happen on each run?</Strong> — the brief, which this form requires.{" "}
+        <Strong>Create routine</Strong> opens the new routine, already on its schedule.{" "}
+        <Strong>More options</Strong> holds the <Strong>Folder</Strong> and <Strong>Tags</Strong>{" "}
+        and stays closed until you open it; closed, it names the folder when one was carried over
+        from the list you came from. <Strong>Describe it instead</Strong> goes back to the box, and
+        what you typed in either place is kept.
+      </P>
+      <P>
+        Through the authenticated company API, the same fields go to{" "}
+        <Code>POST /api/companies/:companyId/employees/:employeeId/routines</Code>:{" "}
+        <Code>name</Code>, <Code>cronExpr</Code>, an optional <Code>brief</Code> of up to 20,000
+        characters, and optional <Code>folderId</Code> and <Code>tagIds</Code>. With a{" "}
+        <Code>brief</Code> the routine starts switched on. Without one — or with a blank brief, or
+        the starter outline unchanged — it is created paused with nothing scheduled, so nothing runs
+        before a real brief exists.
       </P>
 
       <H2 id="recent-runs">Running now and today</H2>
