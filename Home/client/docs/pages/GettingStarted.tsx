@@ -73,6 +73,12 @@ export function GettingStarted() {
         The company is home to its Members, AI Employees, Connections, and work. To create another
         one later, open the company picker and choose <Strong>+ New company</Strong>.
       </P>
+      <P>
+        A new company starts in your browser&apos;s time zone, and Routine schedules follow it:
+        &ldquo;every morning at 8&rdquo; means 8:00 AM there. Change it in{" "}
+        <Strong>Settings → Company → Time zone</Strong>. See{" "}
+        <DocLink to="/docs/routines#time-zone">Routines</DocLink> for what it covers.
+      </P>
 
       <H2 id="the-guide">The setup guide</H2>
       <P>

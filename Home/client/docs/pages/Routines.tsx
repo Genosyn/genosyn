@@ -411,10 +411,37 @@ export function Routines() {
       <P>
         Underneath, the control writes a plain English sentence, the cron expression it compiled,
         and the next few times the routine will actually fire — so you can check the schedule before
-        you save rather than after the first Run lands. Times are server-local. The same control
-        appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
-        <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger.
+        you save rather than after the first Run lands. Those times are in your company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>, and the preview names it. The
+        same control appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
+        <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger, where it still reads
+        server time.
       </P>
+
+      <H3 id="time-zone">Time zone</H3>
+      <P>
+        A routine&apos;s schedule is read in the company&apos;s time zone, so &ldquo;every morning
+        at 8&rdquo; fires at 8:00 AM there and stays at 8:00 AM when daylight saving changes. Owners
+        and admins choose the zone in <Strong>Settings → Company → Time zone</Strong>. A company you
+        create starts in the time zone of your browser, and the schedule preview names the zone it
+        is using, such as <Code>Europe/Berlin</Code>.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Server time</Strong> keeps the old behavior: schedules follow the clock of the
+          machine running Genosyn, which is often UTC in Docker. Companies that existed before time
+          zones are on it until someone picks a zone, so nothing moves on its own.
+        </LI>
+        <LI>
+          Changing the zone re-times every enabled routine in the company at once; each one&apos;s
+          next run is worked out again on the new clock.
+        </LI>
+        <LI>
+          It applies to Routines only. <DocLink to="/docs/pipelines">Pipeline</DocLink> schedules,
+          recurring invoices, and <DocLink to="/docs/signals">Revenue Signals</DocLink> keep reading
+          server time.
+        </LI>
+      </UL>
 
       <H3 id="custom-cron">Writing cron by hand</H3>
       <P>
@@ -435,8 +462,9 @@ export function Routines() {
 0 9,17 * * *  →  09:00 and 17:00, every day`}</Pre>
       <P>
         AI Employees writing a routine through <Code>create_routine</Code> or{" "}
-        <Code>update_routine</Code> pass the cron expression the same way they always did — the
-        control is how humans are asked, not a change to what is stored.
+        <Code>update_routine</Code> pass the cron expression the same way they always did, and it is
+        read in the company&apos;s time zone like any other — the control is how humans are asked,
+        not a change to what is stored.
       </P>
       <P>
         Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine to

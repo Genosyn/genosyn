@@ -29,7 +29,7 @@ export function Improvement() {
       <P>
         With <Strong>Automatic setup</Strong> on, Genosyn assigns <Strong>Improve my work</Strong>
         to each AI Employee as soon as it has a connected AI Model. This Routine runs on
-        <Strong> Fridays at 15:00</Strong> in the server&apos;s timezone and needs no extra resource
+        <Strong> Fridays at 15:00</Strong> in the company&apos;s time zone and needs no extra resource
         Grant to review that employee&apos;s own work. Use <Strong>Review work</Strong> to adjust
         its instructions or schedule, or <Strong>Pause</Strong> to stop future starts. Automatic
         setup preserves customized and paused work and does not recreate a deleted responsibility.

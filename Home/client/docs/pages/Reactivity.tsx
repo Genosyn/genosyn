@@ -81,11 +81,13 @@ export function Reactivity() {
       <H2 id="daily-ownership">A useful next step across the app</H2>
       <P>
         Every ready AI Employee receives <Strong>Advance my responsibilities</Strong>, scheduled for
-        weekdays at 08:00 in the server&apos;s timezone. Find it in <Strong>Standing work</Strong>
-        and select <Strong>Open</Strong> to edit its schedule or brief. This daily Routine reads
-        current assignments, deadlines and granted records, inspects the original evidence, and
-        completes routine preparation or proposes consequential work for your review. It also checks
-        due Workstreams, earlier outcomes, and review feedback from previous Runs.
+        weekdays at 08:00 in the company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>. Find it in{" "}
+        <Strong>Standing work</Strong> and select <Strong>Open</Strong> to edit its schedule or
+        brief. This daily Routine reads current assignments, deadlines and granted records,
+        inspects the original evidence, and completes routine preparation or proposes consequential
+        work for your review. It also checks due Workstreams, earlier outcomes, and review feedback
+        from previous Runs.
       </P>
       <KeyList
         rows={[
@@ -229,13 +231,14 @@ export function Reactivity() {
         create ordinary <DocLink to="/docs/routines">Routines</DocLink> with editable briefs,
         schedules, acceptance criteria, and Run history. Selected starters also get a Trigger with a
         one-hour minimum interval; the schedule catches work that becomes due without another
-        change. Times use the server&apos;s timezone. Each brief limits the employee to ten
-        actionable items per Run and asks it to keep unchanged checks quiet.
+        change. Times use the company&apos;s{" "}
+        <DocLink to="/docs/routines#time-zone">time zone</DocLink>. Each brief limits the employee
+        to ten actionable items per Run and asks it to keep unchanged checks quiet.
       </P>
       <P>
         <Strong>Improve my work</Strong> is assigned automatically to each AI Employee with a
         connected AI Model, with no extra resource Grant needed to review its own work. It runs on
-        Fridays at 15:00 in the server&apos;s timezone. The employee reviews its recent Runs,
+        Fridays at 15:00 in the company&apos;s time zone. The employee reviews its recent Runs,
         Lessons, email handovers, Repository Work sessions, and earlier revision feedback, then
         proposes at most one concrete change supported by that evidence. It stays quiet without new
         evidence and avoids repeating pending or rejected Revision proposals. This review can read
