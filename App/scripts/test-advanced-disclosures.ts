@@ -610,8 +610,10 @@ await app.check(
     assert.equal(put.path, "/api/admin/runtime-settings/web");
     assert.equal(put.body.maxSearchResults, 25);
     assert.equal(put.body.searchProvider, "duckduckgo");
+    // Web tools started customized, so the line read "1 customized" before the
+    // save too; the Unsaved chip going away is what says the save landed.
+    await web.getByText("Unsaved", { exact: true }).waitFor({ state: "detached" });
     await web.getByText("1 customized", { exact: true }).waitFor();
-    assert.equal(await web.getByText("Unsaved", { exact: true }).count(), 0);
     // Only that section was written.
     assert.deepEqual(
       view.writes.map((w) => w.path),
