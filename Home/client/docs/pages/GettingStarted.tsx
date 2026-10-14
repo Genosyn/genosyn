@@ -65,10 +65,11 @@ export function GettingStarted() {
           automatically schedule Routines.
         </LI>
         <LI>
-          Connect an <DocLink to="/docs/models">AI Model</DocLink>. Genosyn discovers the models
-          available to the connected account and selects a suitable default. You can review the
-          choice. Connecting automatically tests a real response so an invalid key, unavailable
-          model, or unusable account is reported immediately.
+          Connect an <DocLink to="/docs/models">AI Model</DocLink>. Need a key? The link under the{" "}
+          <Strong>API key</Strong> field opens the key page for the service you selected. Genosyn
+          discovers the models available to the connected account and selects a suitable default.
+          You can review the choice. Connecting automatically tests a real response so an invalid
+          key, unavailable model, or unusable account is reported immediately.
         </LI>
         <LI>
           When the model is ready, choose <Strong>Choose Routines</Strong>.
