@@ -477,6 +477,17 @@ function CommandPalette({
     setActive((i) => Math.min(i, Math.max(0, entries.length - 1)));
   }, [entries.length]);
 
+  // Showing more or fewer sections moves the toggle row; keep the highlight
+  // on it, so the next ↵ toggles back rather than opening whatever section
+  // now sits where the row was.
+  const followToggle = React.useRef(false);
+  React.useEffect(() => {
+    if (!followToggle.current) return;
+    followToggle.current = false;
+    const at = entries.findIndex((entry) => entry.type === "toggle");
+    if (at >= 0) setActive(at);
+  }, [entries]);
+
   React.useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active, entries]);
@@ -486,6 +497,7 @@ function CommandPalette({
       if (entry.type === "toggle") {
         // The list changes in place; the palette stays open with the caret in
         // the search field.
+        followToggle.current = true;
         setShowAll(!listing.showAll);
         inputRef.current?.focus();
         return;
