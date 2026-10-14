@@ -261,6 +261,8 @@ async function open(options: Options = {}) {
       );
     }
     if (endpoint === "/employees" || endpoint === "/members") return route.fulfill({ json: [] });
+    // The all-clear card shows the company's Goal; none is written here.
+    if (endpoint === "/goals") return route.fulfill({ json: [] });
     if (endpoint === "/work-timeline")
       return route.fulfill({
         json: {

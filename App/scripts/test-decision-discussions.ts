@@ -548,6 +548,8 @@ async function open(options: FixtureOptions = {}) {
           ? route.fulfill({ json: linked })
           : route.fulfill({ status: 404, json: { error: "Not found" } });
       }
+      // Home's all-clear card shows the company's Goal; none is written here.
+      if (url.pathname === `${apiBase}/goals`) return route.fulfill({ json: [] });
       // The Decision stack layout counts what waits beside the stack.
       if (url.pathname === `${apiBase}/navigation/waiting`)
         return route.fulfill({
