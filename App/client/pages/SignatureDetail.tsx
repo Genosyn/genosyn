@@ -848,7 +848,8 @@ export default function SignatureDetail() {
       noun="this request"
       milestones={[
         { label: "Request drafted", at: envelope.createdAt, covers: ["create"] },
-        { label: "Sent for signature", at: envelope.sentAt, covers: ["send"] },
+        // Not plain "send": that would match a reminder's `reminder.send` too.
+        { label: "Sent for signature", at: envelope.sentAt, covers: ["envelope.send"] },
         { label: "Signed by everyone", at: envelope.completedAt, covers: ["complete"] },
         { label: "Declined", at: envelope.declinedAt, covers: ["decline"] },
         { label: "Voided", at: envelope.voidedAt, covers: ["void"] },

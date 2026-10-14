@@ -6,7 +6,6 @@ import type { AddressInfo } from "node:net";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
-import { In } from "typeorm";
 import type { Server } from "node:http";
 import { PDFDocument } from "pdf-lib";
 
@@ -29,6 +28,7 @@ import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { deadToolNames } from "../services/agent/tools/grantDead.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { companyDir, ensureDir } from "../services/paths.js";
+import { listRecordHistory } from "../services/recordHistory.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -308,10 +308,12 @@ describe("AI-native signature envelopes", () => {
 
     const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
       companyId: company.id,
-      action: "signature.envelope.create",
+      action: "signature_envelope.create",
     });
     assert.equal(audit.actorKind, "ai");
     assert.equal(audit.actorEmployeeId, employee.id);
+    assert.equal(audit.targetType, "signature_envelope");
+    assert.equal(audit.targetId, envelopeId);
     assert.equal(
       await AppDataSource.getRepository(JournalEntry).countBy({ employeeId: employee.id }),
       1,
@@ -331,30 +333,31 @@ describe("AI-native signature envelopes", () => {
   });
 
   /**
-   * The tools' own trail: one `signature.envelope.*` row per action, none for a
-   * refused call. The signing service also writes each envelope's History
-   * (`signature_envelope.*`), which this count leaves to its own tests.
+   * The company's whole audit ledger, one line per row, sorted. The signing
+   * service writes each envelope action's single row, whoever acts; the tools
+   * add only a journal entry. So an AI action is recorded once, under the
+   * envelope's own `signature_envelope.*` name, and a refused call not at all.
    */
-  const mcpTrailCount = () =>
-    AppDataSource.getRepository(AuditEvent).countBy({
-      action: In([
-        "signature.envelope.create",
-        "signature.envelope.send",
-        "signature.envelope.remind",
-        "signature.envelope.void",
-      ]),
-    });
+  const ledger = async () =>
+    (await AppDataSource.getRepository(AuditEvent).findBy({ companyId: company.id }))
+      .map(
+        (row) =>
+          `${row.action} by ${row.actorKind}:${row.actorEmployeeId} on ${row.targetType}:${row.targetId}`,
+      )
+      .sort();
 
   test("send, remind, and void require Send access and preserve recipient-only signing", async () => {
     await grantSigning("draft");
     const draft = await createDraft();
     const envelopeId = String(draft.envelope.id);
     const recipientId = String(draft.recipients[0].id);
+    const row = (action: string) =>
+      `${action} by ai:${employee.id} on signature_envelope:${envelopeId}`;
 
     const expectedUpdatedAt = String(draft.envelope.updatedAt);
     const denied = await aiCall("send_signature_envelope", { envelopeId, expectedUpdatedAt });
     assert.equal(denied.status, 403);
-    assert.equal(await mcpTrailCount(), 1);
+    assert.deepEqual(await ledger(), [row("signature_envelope.create")]);
 
     await grantSigning("send");
     const sent = await aiCall<{
@@ -391,11 +394,73 @@ describe("AI-native signature envelopes", () => {
         .tokenHash,
       null,
     );
-    assert.equal(await mcpTrailCount(), 4);
+    assert.deepEqual(await ledger(), [
+      row("signature_envelope.create"),
+      row("signature_envelope.reminder.send"),
+      row("signature_envelope.send"),
+      row("signature_envelope.void"),
+    ]);
     assert.equal(
       await AppDataSource.getRepository(JournalEntry).countBy({ employeeId: employee.id }),
       4,
     );
+  });
+
+  test("shows each AI action once in the envelope's History, tied to its Run", async () => {
+    await grantSigning("send");
+    // A Routine Run's token: the rows and journal entries it causes carry the Run.
+    const runId = randomUUID();
+    revokeMcpToken(token);
+    token = issueMcpToken(employee.id, company.id, { authority: "employee", runId });
+
+    const draft = await createDraft();
+    const envelopeId = String(draft.envelope.id);
+    const sent = await aiCall("send_signature_envelope", {
+      envelopeId,
+      expectedUpdatedAt: String(draft.envelope.updatedAt),
+    });
+    assert.equal(sent.status, 200, sent.body.error);
+    const reminded = await aiCall("remind_signature_recipient", {
+      envelopeId,
+      recipientId: String(draft.recipients[0].id),
+    });
+    assert.equal(reminded.status, 200, reminded.body.error);
+    const voided = await aiCall("void_signature_envelope", {
+      envelopeId,
+      reason: "Agreement superseded by a newer version.",
+    });
+    assert.equal(voided.status, 200, voided.body.error);
+
+    const history = await listRecordHistory({
+      companyId: company.id,
+      targetType: "signature_envelope",
+      targetId: envelopeId,
+      take: 50,
+    });
+    assert.deepEqual(history.items.map((entry) => entry.action).sort(), [
+      "signature_envelope.create",
+      "signature_envelope.reminder.send",
+      "signature_envelope.send",
+      "signature_envelope.void",
+    ]);
+    for (const entry of history.items) {
+      assert.equal(entry.actorKind, "ai", entry.action);
+      assert.equal(entry.actorEmployee?.id, employee.id, entry.action);
+      assert.equal(entry.runId, runId, entry.action);
+    }
+    // What the tools' own rows used to add, now on the single row.
+    const details = (action: string) =>
+      history.items.find((entry) => entry.action === action)?.details;
+    assert.deepEqual(details("signature_envelope.create"), { resourceSlug: "mutual-nda" });
+    assert.deepEqual(details("signature_envelope.void"), {
+      reason: "Agreement superseded by a newer version.",
+    });
+
+    const journal = await AppDataSource.getRepository(JournalEntry).findBy({
+      employeeId: employee.id,
+    });
+    assert.equal(journal.length, 4);
+    assert.ok(journal.every((entry) => entry.runId === runId));
   });
 
   test("publishes no tool capable of completing a recipient signature", async () => {

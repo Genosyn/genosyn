@@ -450,6 +450,11 @@ function normalizeActor(actor?: SigningActor): NormalizedActor {
  * beside the signing event chain. The chain is the legal evidence a signer's
  * certificate cites; this is who in the company drafted, sent, reminded or
  * voided it, in the shape every other record's History reads.
+ *
+ * It is the only audit row an envelope action gets, whoever acts. The MCP
+ * signing tools add just a journal entry, and an AI Employee's row inherits
+ * the Run behind the tool call from the ambient audit context, so the Run's
+ * Effects list the action once, as the History does.
  */
 async function auditEnvelope(
   actor: NormalizedActor,
@@ -785,6 +790,8 @@ async function createEnvelopeFromPdf(params: {
   recipients?: SignatureRecipientInput[];
   fields?: SignatureFieldInput[];
   actor?: SigningActor;
+  /** The PDF Resource the draft was made from, named in its History. */
+  resourceSlug?: string;
 }): Promise<SignatureEnvelopeDetail> {
   const actor = normalizeActor(params.actor);
   await requireActorAccess(params.company.id, actor, "draft");
@@ -864,7 +871,12 @@ async function createEnvelopeFromPdf(params: {
     await fs.promises.unlink(absolute).catch(() => undefined);
     throw error;
   }
-  await auditEnvelope(actor, "create", { id: envelopeId, companyId: params.company.id, title });
+  await auditEnvelope(
+    actor,
+    "create",
+    { id: envelopeId, companyId: params.company.id, title },
+    params.resourceSlug ? { resourceSlug: params.resourceSlug } : undefined,
+  );
   return getSignatureEnvelopeDetail({ companyId: params.company.id, envelopeId });
 }
 
@@ -946,6 +958,7 @@ export async function createSignatureEnvelopeFromResource(params: {
     pdf,
     recipients: definition.recipients,
     fields: definition.fields,
+    resourceSlug: resource.slug,
   });
 }
 
@@ -1952,7 +1965,7 @@ export async function voidSignatureEnvelope(params: {
     });
     return envelope;
   });
-  await auditEnvelope(actor, "void", voided);
+  await auditEnvelope(actor, "void", voided, reason ? { reason } : undefined);
   return getSignatureEnvelopeDetail(params);
 }
 

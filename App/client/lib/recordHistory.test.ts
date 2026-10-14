@@ -20,6 +20,20 @@ describe("describeHistoryAction", () => {
     assert.equal(describeHistoryAction("routine.update", "routine", "this routine"), "updated this routine");
   });
 
+  test("reads a signature request's rows the same in either spelling", () => {
+    const say = (action: string) =>
+      describeHistoryAction(action, "signature_envelope", "this request");
+    assert.equal(say("signature_envelope.create"), "created this request");
+    assert.equal(say("signature_envelope.send"), "sent this request");
+    assert.equal(say("signature_envelope.void"), "voided this request");
+    assert.equal(say("signature_envelope.reminder.send"), "sent a reminder");
+    // The AI Employee signing tools' own rows, written before the service
+    // recorded every envelope action.
+    assert.equal(say("signature.envelope.create"), "created this request");
+    assert.equal(say("signature.envelope.send"), "sent this request");
+    assert.equal(say("signature.envelope.void"), "voided this request");
+  });
+
   test("falls back to readable words, never the dotted name", () => {
     assert.equal(describeHistoryAction("deal.contact.link", "deal", "this deal"), "linked contact");
     assert.equal(describeHistoryAction("deal.something_new", "deal", "this deal"), "something new");
