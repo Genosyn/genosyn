@@ -8,17 +8,47 @@ export function GettingStarted() {
         title="Set up your company"
         lead={
           <>
-            Start with what your company does and where it is going. Then hire an AI Employee,
-            connect an AI Model, and choose useful recurring work. Email is optional.
+            Start with one Goal: a direction and a number. Then hire an AI Employee, connect an AI
+            Model, and choose useful recurring work. Email is optional.
           </>
         }
       />
 
-      <H2 id="company">1. Set your company direction</H2>
+      <H2 id="company">1. Write your company&apos;s Goal</H2>
       <P>
-        After signup, fill in <Strong>Company name</Strong>, <Strong>Mission</Strong>, and{" "}
-        <Strong>Vision</Strong>, then choose <Strong>Create company and continue</Strong>. A
-        sentence for each is enough:
+        After signup, fill in <Strong>Company name</Strong> and <Strong>Your Goal</Strong>, then
+        choose <Strong>Create company and continue</Strong>. A{" "}
+        <DocLink to="/docs/goals">Goal</DocLink> is one sentence with a number in it. For example,
+        &quot;Reach 50 paying customers by March.&quot; Every AI Employee you hire reads it before
+        they work.
+      </P>
+      <P>Once you type a sentence, three details appear beneath it, filled in from your words:</P>
+      <UL>
+        <LI>
+          <Strong>Target:</Strong> the first number in the sentence. <Code>50</Code>,{" "}
+          <Code>2,000</Code>, <Code>$2M</Code>, <Code>10k</Code> and <Code>40%</Code> are all read,
+          and a date such as 2026 is not mistaken for it. If there is no number, type one.
+        </LI>
+        <LI>
+          <Strong>Direction:</Strong> <Strong>Increase to target</Strong>, unless the sentence says
+          reduce, cut, lower, decrease, drive down, below, under, fewer or less, which makes it{" "}
+          <Strong>Decrease to target</Strong>.
+        </LI>
+        <LI>
+          <Strong>Unit:</Strong> what the number counts: <Code>$</Code>, <Code>%</Code>, or the noun
+          after it, such as <Code>paying customers</Code>.
+        </LI>
+      </UL>
+      <P>
+        Change any of them if they look wrong, and Genosyn stops overwriting that one as you keep
+        typing. They are details, not extra questions: only the sentence and the target are needed.
+        The Goal is created with your company as an active, top-level Goal whose progress you or an
+        AI Employee report by hand. It has no deadline and no owner until you add one on the{" "}
+        <DocLink to="/docs/goals">Goals</DocLink> page.
+      </P>
+      <P>
+        <Strong>Add a mission and vision (optional)</Strong> opens two boxes under the Goal. A
+        sentence for each helps Genosyn suggest fitting work, but neither is required:
       </P>
       <UL>
         <LI>
@@ -31,11 +61,13 @@ export function GettingStarted() {
         </LI>
       </UL>
       <P>
-        Both are required before hiring an AI Employee. If you created a company earlier without
-        them, the guide opens <Strong>What is your company here to do?</Strong> first, with the
-        cursor in the first empty field. Fill in both fields and choose{" "}
-        <Strong>Save and continue</Strong>, or press <Code>⌘/Ctrl+Enter</Code> in either box. You
-        can refine them later in <Strong>Settings → Company</Strong>.
+        A Goal is required before hiring an AI Employee. A company set up earlier with a mission and
+        a vision already has direction and is not asked again. If you created a company without
+        either, the guide opens <Strong>What is your company&apos;s Goal?</Strong> first, with the
+        cursor in the Goal box. Write the sentence and choose <Strong>Save and continue</Strong>.
+        When the company already has a Goal, this step shows it instead, with{" "}
+        <Strong>Edit in Goals</Strong>. You can add a mission and vision, or refine them, any time
+        in <Strong>Settings → Company</Strong>.
       </P>
       <P>
         The company is home to its Members, AI Employees, Connections, and work. To create another
@@ -45,9 +77,9 @@ export function GettingStarted() {
       <H2 id="the-guide">The setup guide</H2>
       <P>
         The guide shows four steps: <Strong>Company</Strong>, <Strong>AI Employee</Strong>,{" "}
-        <Strong>Routines</Strong>, and <Strong>Email</Strong>. Your company direction is already
-        saved when you arrive from signup, so you can move straight to hiring. You can return to
-        earlier steps to make changes.
+        <Strong>Routines</Strong>, and <Strong>Email</Strong>. Your Goal is already saved when you
+        arrive from signup, so you can move straight to hiring. You can return to earlier steps to
+        make changes.
       </P>
 
       <H2 id="employee">2. Hire and connect an AI Employee</H2>
@@ -86,22 +118,25 @@ export function GettingStarted() {
         can answer requests and run Routines once an AI Model is connected.
       </Callout>
 
-      <H2 id="launch-plan">3. Choose Routines that support your mission</H2>
+      <H2 id="launch-plan">3. Choose Routines that move your Goal</H2>
       <P>
         A <DocLink to="/docs/routines">Routine</DocLink> is work an AI Employee does on a schedule.
-        Genosyn suggests responsibilities that fit their saved role, then uses your company mission
-        and vision to prioritize them. Changing the role changes the suggestions; a company focused
-        on sales does not turn a Software Engineer into a salesperson.
+        Genosyn suggests responsibilities that fit their saved role, then uses your company Goal,
+        and your mission and vision if you wrote them, to prioritize them. Changing the role changes
+        the suggestions; a company focused on sales does not turn a Software Engineer into a
+        salesperson.
       </P>
       <P>
-        Every suggested Routine includes the role, mission, and vision in its instructions, along
-        with its outcome, inputs, and schedule. An unusual role gets general planning and review
-        suggestions scoped to that employee&apos;s responsibilities.
+        Every suggested Routine quotes your Goal (and any mission and vision) in its instructions,
+        along with its outcome, inputs, and schedule. An unusual role gets general planning and
+        review suggestions scoped to that employee&apos;s responsibilities. If you did not write a
+        mission and vision, <Strong>Add a mission and vision (optional)</Strong> on this screen adds
+        them and refreshes the suggestions.
       </P>
       <OL>
         <LI>
           Review the suggested Routines and their schedules. Select only the recurring work you want
-          to start; you can select up to five at once.
+          to start; the counter shows how many you have selected.
         </LI>
         <LI>
           Choose <Strong>Schedule N Routines and continue</Strong> to create your selections and
@@ -113,10 +148,50 @@ export function GettingStarted() {
         </LI>
       </OL>
       <P>
-        This step creates only selected Routines. They start on their displayed schedules and use
-        your AI Model. A Routine already added is marked <Strong>Scheduled</Strong> and cannot be
-        duplicated. You can read each Run and change or disable schedules in{" "}
+        This step creates only the Routines you select. They start on their displayed schedules and
+        use your AI Model. A Routine already added is marked <Strong>Scheduled</Strong> and cannot
+        be duplicated. You can read each Run and change or disable schedules in{" "}
         <Strong>AI → Routines</Strong>.
+      </P>
+      <P>
+        Each of these Routines is graded. It comes with a short, checkable definition of done, its{" "}
+        <Strong>acceptance criteria</Strong>, and every completed Run is checked against it. A
+        company that is brand new has little to report on yet, so a Run that says its inputs were
+        missing or empty meets the bar. Read or change the criteria under{" "}
+        <Strong>Settings → Outcome check</Strong> on the Routine; see{" "}
+        <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink> for what grading
+        costs.
+      </P>
+
+      <H2 id="also-set-up">Also set up for your AI Employee</H2>
+      <P>
+        Some work arrives without being picked. Under <Strong>Also set up for {"{name}"}</Strong>{" "}
+        the guide lists it, so nothing starts that you have not been shown:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Standing work.</Strong> Automatic setup gives a ready AI Employee a few built-in
+          responsibilities, such as <Strong>Advance my responsibilities</Strong> (weekdays at
+          08:00), <Strong>Follow through on open work</Strong> (every 30 minutes),{" "}
+          <Strong>Improve my work</Strong> (Fridays at 15:00) and{" "}
+          <Strong>Find useful work to take on</Strong> (Mondays at 11:00). Each row shows its
+          schedule. They are assigned within a minute of the AI Model connecting, the list is the
+          same one Genosyn assigns from, and it counts on top of the Routines you selected. A row
+          reads <Strong>Added</Strong> once it exists.
+        </LI>
+        <LI>
+          <Strong>The TLDR briefing.</Strong> Hiring your first AI Employee starts a daily{" "}
+          <DocLink to="/docs/tldrs">TLDR</DocLink> that they write. It appears as its own row with
+          its schedule and writer.
+        </LI>
+      </UL>
+      <P>
+        Owners and admins also see the <Strong>Set up standing work automatically</Strong> switch.
+        It is the same switch as <Strong>Automatic setup</Strong> on the{" "}
+        <DocLink to="/docs/reactivity">Proactive</DocLink> page. Turn it off and the standing work
+        is listed as <Strong>Not added</Strong>: Genosyn assigns nothing new, and work already set
+        up keeps its own state. You can change or pause any of it later in{" "}
+        <Strong>Proactive</Strong> and <Strong>TLDRs</Strong>.
       </P>
       <P>
         The screen also suggests relevant <DocLink to="/docs/integrations">Integrations</DocLink>. A{" "}
@@ -150,9 +225,10 @@ export function GettingStarted() {
 
       <H2 id="summary">Review setup and start working</H2>
       <P>
-        The summary reports your AI Employee, model connection, scheduled Routines, next Run, and
-        actual email access. It reads saved state, so it also reflects changes made outside the
-        guide. Choose <Strong>Go to Home</Strong> or{" "}
+        The summary reports your AI Employee, model connection, the Routines you scheduled, the
+        standing work Automatic setup added (counted on its own line, so the total is never read as
+        a limit), next Run, and actual email access. It reads saved state, so it also reflects
+        changes made outside the guide. Choose <Strong>Go to Home</Strong> or{" "}
         <Strong>Give {"{name}"} a first request</Strong>.
       </P>
       <P>
@@ -163,13 +239,15 @@ export function GettingStarted() {
 
       <H2 id="return">Leave and come back</H2>
       <P>
-        Your saved work stays in place. While company direction or a connected AI Model is missing,
-        Home offers a setup banner that returns to the next required step. Routines and email are
-        optional. You can also reopen <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly.
+        Your saved work stays in place. While your company has no Goal (or mission and vision) or no
+        connected AI Model, Home offers a setup banner that returns to the next required step.
+        Routines and email are optional. When Home has nothing waiting on you, its all-clear card
+        shows your Goal and how far along it is, or <Strong>Set your Goal</Strong> if you have not
+        written one. You can also reopen <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly.
       </P>
       <P>
-        Hiring later from <Strong>AI → Employees → Hire AI Employee</Strong> uses the same company
-        direction requirement and Routine suggestions. See{" "}
+        Hiring later from <Strong>AI → Employees → Hire AI Employee</Strong> uses the same Goal
+        requirement and Routine suggestions. See{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink> to review the Soul, Skills, and
         connections after setup.
       </P>

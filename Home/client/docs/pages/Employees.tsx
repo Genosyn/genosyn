@@ -124,7 +124,7 @@ export function Employees() {
       <H2 id="lifecycle">Lifecycle</H2>
       <OL>
         <LI>
-          <Strong>Hire.</Strong> Set the company mission and vision first, then choose{" "}
+          <Strong>Hire.</Strong> Write the company&apos;s Goal first, then choose{" "}
           <Strong>AI → Employees → Hire AI Employee</Strong> and answer one question,{" "}
           <Strong>What should they do?</Strong> Pick a role — Executive Assistant, Sales Development
           Rep, Customer Support, Research Analyst, Operations Coordinator, or Software Engineer — or
@@ -158,7 +158,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Choose Routines.</Strong> Genosyn selects responsibilities that fit the saved role
-          and uses company mission and vision to rank them and write their instructions. An edited
+          and uses the company Goal, with its mission and vision when written, to rank them and
+          write their instructions. An edited
           role takes precedence over the starting template. Suggestions remain opt-in until you
           select them and choose the primary <Strong>Schedule N Routines and continue</Strong>,
           which creates them and advances in one press.

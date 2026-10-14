@@ -49,7 +49,9 @@ export function Tldrs() {
       <P>
         Open <Strong>What happened → Settings</Strong>. Owners and admins can configure
         the schedule; every Member can read the generated history. For a new company with no saved
-        TLDR settings, hiring the first AI Employee starts an enabled Daily schedule automatically.
+        TLDR settings, hiring the first AI Employee starts an enabled Daily schedule automatically,
+        and the <DocLink to="/docs/getting-started#also-set-up">setup guide</DocLink> lists it under{" "}
+        <Strong>Also set up for {"{name}"}</Strong>.
       </P>
       <UL>
         <LI>

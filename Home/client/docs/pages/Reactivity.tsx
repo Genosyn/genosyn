@@ -46,7 +46,10 @@ export function Reactivity() {
         or setup click. Shared responsibilities get one automatic owner; daily responsibility
         reviews and weekly work reviews go to every ready employee. Assignment never adds Grants,
         and work waits until an AI Employee has a connected AI Model and the required resource
-        access.
+        access. The{" "}
+        <DocLink to="/docs/getting-started#also-set-up">setup guide</DocLink> lists what an AI
+        Employee will get under <Strong>Also set up for {"{name}"}</Strong> and has the same
+        switch, <Strong>Set up standing work automatically</Strong>, for owners and admins.
       </P>
       <Callout kind="info" title="Routine preparation moves without another approval">
         Proactive Routines, automatic email handovers and Routines started by a Trigger or webhook

@@ -863,7 +863,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <Callout kind="info" title="What it costs">
         One short extra model turn per completed Run, on the routine&apos;s own model. Its tokens
-        are counted into the Run&apos;s totals like everything else.
+        are counted into the Run&apos;s totals like everything else. Routines added from the{" "}
+        <DocLink to="/docs/getting-started#launch-plan">setup guide</DocLink> and the built-in
+        Proactive starters come with criteria already written, so their Runs are graded from the
+        first one.
       </Callout>
 
       <H2 id="checks">Checks</H2>

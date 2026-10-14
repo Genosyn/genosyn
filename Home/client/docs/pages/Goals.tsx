@@ -22,6 +22,18 @@ export function Goals() {
         UI, the tools, and these docs: <Strong>Goal</Strong>.
       </Callout>
 
+      <H2 id="first-goal">Your first Goal</H2>
+      <P>
+        You write the company&apos;s first Goal while you set it up, before you hire anyone. In{" "}
+        <DocLink to="/docs/getting-started#company">the setup guide</DocLink> it is one sentence
+        with a number in it — &quot;Reach 50 paying customers by March&quot; — and Genosyn reads
+        the <Strong>Target</Strong>, <Strong>Direction</Strong> and <Strong>Unit</Strong> from it
+        for you to correct. It becomes an active, top-level, manual Goal. It is also what lets you
+        hire: a company needs a Goal, or a mission and a vision, before its first AI Employee.
+        Everything else on this page — a deadline, an owner, sub-goals, a Chart to read the number
+        from — you add later.
+      </P>
+
       <H2 id="where-they-live">Where they live</H2>
       <P>
         Goals have their own section in the nav, under <Strong>AI → Goals</Strong>. Every Member can
@@ -182,12 +194,12 @@ export function Goals() {
 
       <H2 id="employees">What AI Employees see</H2>
       <P>
-        Every AI Employee&apos;s system prompt now opens with the company&apos;s{" "}
-        <Strong>Mission</Strong> and <Strong>Vision</Strong> — written during onboarding or edited
-        any time in company <Strong>Settings</Strong> — followed by a <Strong>Goals</Strong> block:
-        the active Goals that employee owns, then the company&apos;s top-level Goals for shared
-        direction. An employee with no Goals of its own still knows what the company is steering
-        toward; an employee that owns one knows it is accountable.
+        Every AI Employee&apos;s system prompt opens with the company&apos;s{" "}
+        <Strong>Mission</Strong> and <Strong>Vision</Strong>, when you have written them (both are
+        optional; add or edit them in company <Strong>Settings</Strong>), followed by a{" "}
+        <Strong>Goals</Strong> block: the active Goals that employee owns, then the company&apos;s
+        top-level Goals for shared direction. An employee with no Goals of its own still knows what
+        the company is steering toward; an employee that owns one knows it is accountable.
       </P>
       <P>
         This is the point of the feature: an AI Employee choosing between two reasonable actions

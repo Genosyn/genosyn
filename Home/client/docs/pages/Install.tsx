@@ -125,7 +125,7 @@ export function Install() {
       <P>
         Being first to reach public signup never grants operator access; the command proves control
         of the Docker host and refuses an unverified account. Sign in again, name your first
-        company, and follow the four-step first-run guide — company mission and vision, hiring an AI
+        company, and follow the four-step first-run guide — the company&apos;s Goal, hiring an AI
         Employee and connecting its AI Model, its suggested Routines, and optional email access. The
         summary offers a first request in chat. Follow{" "}
         <DocLink to="/docs/getting-started">Onboard your first AI Employee</DocLink> for the
