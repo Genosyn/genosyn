@@ -305,9 +305,9 @@ export function Reactivity() {
         <DocLink to="/docs/goals">Goal</DocLink> updates — the Routine fires without waiting for its
         next cron slot. The resulting Run reads evidence, completes permitted preparation and
         requests work approval when consequential work needs human authority. Triggers are managed
-        by admins on the routine&apos;s <Strong>Settings → Triggers</Strong> card, and the list of
-        subscribable kinds is served from the same registry the app&apos;s own live updates run on —
-        anything that refreshes on your screen can fire a Routine.
+        by admins on the routine&apos;s <Strong>Settings → Advanced → Triggers</Strong> card, and
+        the list of subscribable kinds is served from the same registry the app&apos;s own live
+        updates run on — anything that refreshes on your screen can fire a Routine.
       </P>
       <Callout kind="info" title="An event routes work. It never carries content.">
         Event frames are coarse and <Strong>id-only</Strong>: a fire tells the Routine only that its

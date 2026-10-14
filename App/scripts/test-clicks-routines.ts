@@ -1,17 +1,17 @@
 /**
  * Real Chrome coverage for the shorter Routine flows, on the real App: pause
  * and resume from the routine's header in one click (snapping back with the
- * reason if refused; Members see the state only), the Settings checkbox
- * following it; Run now disabled with the reason while a Standdown covers
- * the routine; New routine opens on "Describe it" (an example fills the box,
- * only employees whose Chat is ready are offered, and Continue to Chat stages
- * the request as an unsent draft) while Set it up yourself creates the routine
- * with its brief written, so it starts on; a routine made through the API
- * without a brief waits paused until one save writes it and switches it on;
- * ⌘S saves the brief; the list's last Run opens in one click; an empty folder
- * deletes without a confirm while a full one still asks; and the same
- * employee carry-over for New skill. Each flow counts its clicks. Run with
- * `npm run test:clicks-routines`.
+ * reason if refused; Members see the state only), with a Save on the Settings
+ * tab never sending `enabled` back; Run now disabled with the reason while a
+ * Standdown covers the routine; New routine opens on "Describe it" (an example
+ * fills the box, only employees whose Chat is ready are offered, and Continue
+ * to Chat stages the request as an unsent draft) while Set it up yourself
+ * creates the routine with its brief written, so it starts on; a routine made
+ * through the API without a brief waits paused until one save writes it and
+ * switches it on; ⌘S saves the brief; the list's last Run opens in one click;
+ * an empty folder deletes without a confirm while a full one still asks; and
+ * the same employee carry-over for New skill. Each flow counts its clicks. Run
+ * with `npm run test:clicks-routines`.
  */
 import assert from "node:assert/strict";
 import type { Page } from "playwright-core";
@@ -270,7 +270,7 @@ const toggle = (page: Page) => page.getByRole("switch", { name: /(Pause|Resume) 
 // ───────────────────────────── checks ─────────────────────────────
 
 await app.check(
-  "pause and resume from the routine's header in one click each — no Settings tab, no Save",
+  "pause and resume from the routine's header in one click each — no Settings tab, no Save — and a Settings save never undoes it",
   async () => {
     const s = store();
     const view = await app.open({ path: "/c/acme/routines/alex/daily-inbox", routes: routes(s) });
@@ -283,14 +283,26 @@ await app.check(
       .getByText("Paused", { exact: true })
       .waitFor();
     assert.deepEqual(view.writes.at(-1)?.body, { enabled: false });
-    // The Settings checkbox follows, so a later Save cannot quietly undo it.
+    // Settings has no second Enabled box to fall out of step with the switch,
+    // and a Save there never sends `enabled`, so it cannot quietly undo a pause.
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.waitForFunction(() => {
-      const box = [...document.querySelectorAll("label")]
-        .find((label) => label.textContent?.trim() === "Enabled")
-        ?.querySelector("input");
-      return box !== undefined && box !== null && !box.checked;
-    });
+    const save = page.getByRole("button", { name: "Save changes", exact: true });
+    await save.waitFor();
+    assert.equal(
+      await page
+        .locator("label")
+        .filter({ hasText: /^Enabled$/ })
+        .count(),
+      0,
+      "the header switch is the only control for pausing",
+    );
+    await save.click();
+    const saved = await view.waitForWrite(
+      (w) => w.method === "PATCH" && "name" in w.body,
+      "Save sent the settings",
+    );
+    assert.equal("enabled" in saved.body, false, "a Save never sends enabled");
+    await page.getByRole("switch", { name: "Resume this routine", exact: true }).waitFor();
     await view.click(page.getByRole("switch", { name: "Resume this routine", exact: true }));
     await page.getByRole("switch", { name: "Pause this routine", exact: true }).waitFor();
     assert.deepEqual(view.writes.at(-1)?.body, { enabled: true });

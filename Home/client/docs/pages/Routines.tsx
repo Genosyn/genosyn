@@ -66,9 +66,26 @@ export function Routines() {
         saves never change the switch.
       </P>
       <P>
+        <Strong>Overview</Strong> keeps what you check most up front: who the routine is assigned
+        to and the model it runs on, its schedule in words, the next run, and the last run.{" "}
+        <Strong>More details</Strong> holds the rest — where it is filed, its timeout, approval,
+        outcome check, browser, catch-up, retries, and webhook — and its summary line names
+        anything that is not at its default. <Strong>Settings</Strong> shows the basics:{" "}
+        <Strong>Name</Strong>, <Strong>Schedule</Strong>, <Strong>Goal</Strong>, and{" "}
+        <Strong>What counts as done</Strong>, saved with one <Strong>Save changes</Strong>.
+        Everything else is under <Strong>Advanced</Strong>, closed until you open it: the folder,
+        timeout and approval; <Strong>Checks</Strong>; the model and browser; downtime and
+        retries; <Strong>Triggers</Strong>; and the <Strong>Webhook</Strong>. Its summary line
+        names what is set there, such as{" "}
+        <Code>Approval required · 2 Checks · 1 Trigger · Webhook on</Code>, or reads{" "}
+        <Strong>All defaults</Strong>. Checks, Triggers, and the webhook save as you change them;
+        the other Advanced settings are saved by <Strong>Save changes</Strong>. Standing a routine
+        down and deleting it stay in view at the bottom.
+      </P>
+      <P>
         Owners and admins pause or resume a routine from the switch beside{" "}
-        <Strong>Run now</Strong> at the top of its page — one click, no Save; the{" "}
-        <Strong>Enabled</Strong> box under Settings follows it. While a{" "}
+        <Strong>Run now</Strong> at the top of its page — one click, no Save. It is the only pause
+        control: Settings does not repeat it, and saving Settings never changes it. While a{" "}
         <DocLink to="/docs/standdowns">Standdown</DocLink> covers the routine,{" "}
         <Strong>Run now</Strong> is disabled and its tooltip names the Standdown.
       </P>
@@ -220,9 +237,9 @@ export function Routines() {
         appear on every row: tick the ones you want (or <Strong>Select all</Strong>), then pick a
         destination from <Strong>Move to folder</Strong>. It is one request for the whole batch, so
         a failure never leaves half the selection moved. A single routine can also be re-filed from
-        the <Strong>Folder</Strong> field on its <Strong>Settings</Strong> tab, and a routine you{" "}
-        <DocLink to="/docs/routines#set-it-up-yourself">set up yourself</DocLink> while inside a
-        folder lands there by default.
+        the <Strong>Folder</Strong> field under <Strong>Settings → Advanced</Strong>, and a routine
+        you <DocLink to="/docs/routines#set-it-up-yourself">set up yourself</DocLink> while inside
+        a folder lands there by default.
       </P>
       <Callout kind="info" title="Folders and tags answer different questions.">
         A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{" "}
@@ -307,10 +324,11 @@ export function Routines() {
               <>
                 Hard timeout in seconds. The runner aborts the active runtime after this long and
                 marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to{" "}
-                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) from the routine
-                editor — raise it for long jobs, lower it to fail fast. Time spent waiting in the
-                queue does not count. Near the end, tool results tell the employee how many
-                minutes remain so it can save progress and report before it is stopped.
+                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) under{" "}
+                <Strong>Settings → Advanced</Strong> — raise it for long jobs, lower it to fail
+                fast. Time spent waiting in the queue does not count. Near the end, tool results
+                tell the employee how many minutes remain so it can save progress and report before
+                it is stopped.
               </>
             ),
           },
@@ -355,8 +373,8 @@ export function Routines() {
             def: (
               <>
                 Optional plain-language definition of done, edited at{" "}
-                <Strong>Settings → Outcome check</Strong>. When set, the criteria ride along in
-                every Run&apos;s brief and each completed Run is graded against them. See{" "}
+                <Strong>Settings → What counts as done</Strong>. When set, the criteria ride along
+                in every Run&apos;s brief and each completed Run is graded against them. See{" "}
                 <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink>.
               </>
             ),
@@ -690,9 +708,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H2 id="model">Picking a model</H2>
       <P>
         An employee can hold several <DocLink to="/docs/models">AI Models</DocLink> and keeps one
-        active. By default a routine runs on that active model — the <Strong>Model</Strong> field in
-        the routine editor reads <Strong>Inherit</Strong>, and the routine follows the employee
-        whenever you switch their brain.
+        active. By default a routine runs on that active model — the <Strong>Model</Strong> field
+        under <Strong>Settings → Advanced</Strong> reads <Strong>Inherit</Strong>, and the routine
+        follows the employee whenever you switch their brain.
       </P>
       <P>
         Pick a specific model instead to <Strong>pin</Strong> it. The routine then always runs on
@@ -862,9 +880,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A <Strong>Completed</Strong> Run has no known failure, but that alone is not verification.
         The outcome check adds an independent assessment: give a routine{" "}
-        <Strong>acceptance criteria</Strong> (Settings → Outcome check) — a plain-language
-        definition of done, like &quot;the digest was posted to #general and covers every failed run
-        since the last digest&quot; — and two things happen.
+        <Strong>acceptance criteria</Strong> (<Strong>Settings → What counts as done</Strong>) —
+        a plain-language definition of done, like &quot;the digest was posted to #general and
+        covers every failed run since the last digest&quot; — and two things happen.
       </P>
       <UL>
         <LI>
@@ -917,7 +935,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         The outcome check is still a model reading a transcript another model wrote. A{" "}
         <Strong>Check</Strong> is the third axis and the only one with no model in it: a
         machine-verifiable assertion the Run must pass before it finalizes green, written by an
-        operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
+        operator on the routine&apos;s <Strong>Settings → Advanced → Checks</Strong> panel.
       </P>
       <P>
         A company admin configures Checks in that panel, or through the authenticated company API at{" "}
@@ -1024,10 +1042,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         one still gets a Run of its own.
       </P>
       <P>
-        Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> in the routine&apos;s Settings
-        when a late run is worse than no run — a 09:00 standup digest arriving at 16:00 is noise.
-        The skipped occurrences are recorded in the employee&apos;s Journal so the gap is still
-        visible.
+        Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> under the routine&apos;s{" "}
+        <Strong>Settings → Advanced</Strong> when a late run is worse than no run — a 09:00
+        standup digest arriving at 16:00 is noise. The skipped occurrences are recorded in the
+        employee&apos;s Journal so the gap is still visible.
       </P>
       <Callout kind="info" title="Missed slots are never replayed one-for-one.">
         There is no setting that re-runs every occurrence you missed. A week of downtime on a
@@ -1129,9 +1147,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Retrying the <Strong>whole Routine</Strong> creates a new Run. These retries after{" "}
         <Strong>Failed</Strong> Runs without a saved continuation and runtime{" "}
         <Strong>Errors</Strong> are <Strong>off by default.</Strong> Raise <Strong>Attempts</Strong>{" "}
-        above 1 in the routine&apos;s Settings to retry them automatically, up to 5 attempts,
-        waiting a randomized, doubling interval between each (from <Strong>Retry backoff</Strong>,
-        capped at six hours). Retrying after the Run&apos;s own deadline is opted in separately,
+        above 1 under the routine&apos;s <Strong>Settings → Advanced</Strong> to retry them
+        automatically, up to 5 attempts, waiting a randomized, doubling interval between each
+        (from <Strong>Retry backoff</Strong>, capped at six hours). Retrying after the Run&apos;s own deadline is opted in separately,
         because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
         scheduled Run on an enabled routine without an approval gate is the safety exception: even
         at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries

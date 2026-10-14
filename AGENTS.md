@@ -818,6 +818,11 @@ Think **Linear × Notion**. Clean, quiet, fast.
   screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`
   beside the control that started it.
 - Mobile-responsive is expected, not optional.
+- Show the basics and put everything else behind a single **Advanced**
+  disclosure (`components/ui/Disclosure.tsx`), closed by default. A collapsed
+  disclosure says what is configured inside ("Approval required · 2 Checks"),
+  so nothing that was set is invisible. Prefer a sensible default to a visible
+  choice.
 
 ---
 

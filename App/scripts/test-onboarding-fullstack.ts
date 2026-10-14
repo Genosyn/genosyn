@@ -556,6 +556,8 @@ try {
     await go(`/c/${company.slug}/routines/${employee.slug}/${newRoutine.slug}`);
     if (marker === "qa-routine-success") {
       await page.getByRole("button", { name: "Settings", exact: true }).click();
+      // Checks live under Advanced, which starts closed.
+      await page.getByRole("button", { name: /^Advanced/ }).click();
       await page.getByRole("button", { name: "Add a check", exact: true }).click();
       const editor = page.getByRole("dialog");
       await editor.getByLabel("Name", { exact: true }).fill("No email was sent");

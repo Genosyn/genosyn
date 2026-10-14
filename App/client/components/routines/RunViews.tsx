@@ -778,7 +778,7 @@ function RunChecksStripContent({ companyId, runId, reloadKey, className = "" }: 
             ? "No Check results have been recorded yet."
             : "No Checks ran for this Run. Its status alone does not verify coverage, artifacts or safety requirements."}
           {coverage?.currentConfiguration?.enabled === 0
-            ? " This Routine currently has no enabled Checks. A company admin can configure them at Routine → Settings → Checks."
+            ? " This Routine currently has no enabled Checks. A company admin can configure them at Routine → Settings → Advanced → Checks."
             : " Current Routine settings may differ from those used for this Run."}
         </p>
       </EvidenceSection>
