@@ -21,7 +21,7 @@ mock.method(console, "error", (...args: unknown[]) => {
 function render(props: { timeZone?: string | null }, wrapZone?: string | null): string {
   const field = h(ScheduleField, { value: "0 9 * * *", onChange: noop, ...props });
   return renderToStaticMarkup(
-    wrapZone === undefined ? field : h(ScheduleTimeZone, { timeZone: wrapZone }, field),
+    wrapZone === undefined ? field : h(ScheduleTimeZone, { timeZone: wrapZone, children: field }),
   );
 }
 

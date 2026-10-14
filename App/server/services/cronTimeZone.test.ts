@@ -112,17 +112,25 @@ async function routineFor(employee: AIEmployee, over: Partial<Routine> = {}): Pr
 const reload = (routine: Routine) =>
   AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
 
+/** When a Routine is next due; the test fails if it has no schedule. */
+function scheduled(routine: Routine): Date {
+  assert.ok(routine.nextRunAt, "expected a scheduled time");
+  return routine.nextRunAt;
+}
+
 test("registerRoutine schedules on the zone it is given, and clears a paused Routine", async () => {
   await onServerClock(SERVER, () => {
-    const routine = Object.assign(new Routine(), { enabled: true, cronExpr: NINE, nextRunAt: null });
+    const routine = new Routine();
+    routine.enabled = true;
+    routine.cronExpr = NINE;
     registerRoutine(routine, TOKYO);
-    assert.equal(clockIn(TOKYO, routine.nextRunAt), "09:00");
-    assert.ok((routine.nextRunAt as Date).getTime() > Date.now());
+    assert.equal(clockIn(TOKYO, scheduled(routine)), "09:00");
+    assert.ok(scheduled(routine).getTime() > Date.now());
 
     // "" is server time: nine o'clock on the machine's own clock.
     registerRoutine(routine, "");
-    assert.equal(clockIn(SERVER, routine.nextRunAt), "09:00");
-    assert.notEqual(clockIn(TOKYO, routine.nextRunAt), "09:00");
+    assert.equal(clockIn(SERVER, scheduled(routine)), "09:00");
+    assert.notEqual(clockIn(TOKYO, scheduled(routine)), "09:00");
 
     routine.enabled = false;
     registerRoutine(routine, TOKYO);
