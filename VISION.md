@@ -119,7 +119,7 @@ pays them. Everyone it hires gets:
 
 | Vision | Today |
 | --- | --- |
-| The Goal | `Goal`. See [Goals](./Home/client/docs/pages/Goals.tsx). |
+| The Goal | `Goal`. Only owners and admins write one. An AI Employee may report the number of a manual Goal it owns or one of its Routines serves, but its report never settles the Goal: a person confirms it. See [Goals](./Home/client/docs/pages/Goals.tsx). |
 | Stopping every AI Employee | A company-scope `Standdown`; only a person can lift it. See [Standdowns](./Home/client/docs/pages/Standdowns.tsx). |
 | Changing who leads | Not yet. A person can edit any AI Employee's Soul and AI Model; an AI Employee can only propose a change to its own Soul (`propose_revision`), which takes effect when an owner or admin applies it. |
 | AI CEO and executives | Not yet. No AI Employee leads, hires or replaces another, and AI Employees have no reporting lines. |

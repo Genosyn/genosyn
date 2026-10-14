@@ -31,6 +31,7 @@ import {
 } from "../services/resources.js";
 import { deleteExploreGrantsForEmployee, grantExploreToEmployee } from "../services/explore.js";
 import { deleteRoutineAccessForEmployee } from "../services/routineAccess.js";
+import { releaseGoalsOwnedBy } from "../services/goals.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
@@ -525,6 +526,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
     { createdByEmployeeId: emp.id },
     { createdByEmployeeId: null },
   );
+  await releaseGoalsOwnedBy(emp.companyId, emp.id);
   await AppDataSource.getRepository(RevenueDocument).update(
     { createdByEmployeeId: emp.id },
     { createdByEmployeeId: null },

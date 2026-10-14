@@ -249,7 +249,9 @@ export function Explore() {
           <Code>create_chart</Code>, <Code>update_chart</Code>, <Code>delete_chart</Code> — write
           paths. Create requires a Grant on the bound Connection; changing SQL requires both that
           Connection Grant and <Code>write</Code> on the Chart. Other edits and deletion require{" "}
-          <Code>write</Code> on the Chart.
+          <Code>write</Code> on the Chart. A Chart a <DocLink to="/docs/goals">Goal</DocLink> reads
+          refuses an AI Employee&apos;s SQL change and deletion outright — only a person can make
+          them. Deleting it here turns that Goal into a manual Goal that keeps its last value.
         </LI>
         <LI>
           <Code>list_dashboards</Code>, <Code>get_dashboard</Code>, <Code>create_dashboard</Code>,

@@ -11,6 +11,7 @@ import { Chart } from "../db/entities/Chart.js";
 import { Company } from "../db/entities/Company.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
+import { Goal } from "../db/entities/Goal.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
@@ -342,6 +343,28 @@ describe("Explore chart and dashboard authoring flow", () => {
     assert.equal(removed.status, 200);
     assert.equal(await AppDataSource.getRepository(Chart).count(), 0);
     assert.equal(await AppDataSource.getRepository(DashboardCard).count(), 0);
+  });
+
+  test("deleting a Chart a goal reads turns that goal manual, keeping its last value", async () => {
+    const chart = await createChart("MRR");
+    const goal = await insert(Goal, {
+      companyId: company.id,
+      title: "Reach $50k MRR",
+      slug: "reach-50k-mrr",
+      targetValue: 50_000,
+      metricKind: "chart",
+      chartId: chart.body.id,
+      currentValue: 41_000,
+      currentValueSource: "chart",
+    });
+
+    const removed = await call("DELETE", `/explore/charts/${chart.body.slug}`);
+    assert.equal(removed.status, 200);
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.metricKind, "manual");
+    assert.equal(after.chartId, null);
+    assert.equal(after.currentValue, 41_000);
+    assert.equal(after.status, "active");
   });
 });
 

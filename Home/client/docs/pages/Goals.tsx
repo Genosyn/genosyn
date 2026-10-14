@@ -28,9 +28,10 @@ export function Goals() {
         open it — a Goal is the company&apos;s shared direction, and everyone should see where it
         stands. Creating, editing, archiving, and deleting Goals is owner/admin-only: Goals are
         human-set intent, and which humans is the same call as who may reorganize the company&apos;s
-        Routines. AI Employees report progress but never author a Goal. For owners and admins, a
-        Goal&apos;s title opens its edit dialog, and <Strong>Add sub-goal</Strong> in its menu starts
-        a new Goal with that one already chosen as its parent.
+        Routines. AI Employees report progress on their own Goals but never author one, and never
+        settle one. For owners and admins, a Goal&apos;s title opens its edit dialog, and{" "}
+        <Strong>Add sub-goal</Strong> in its menu starts a new Goal with that one already chosen as
+        its parent.
       </P>
 
       <H2 id="anatomy">Anatomy</H2>
@@ -76,7 +77,7 @@ export function Goals() {
               <>
                 Optional <DocLink to="/docs/employees">AI Employee</DocLink> accountable for the
                 Goal. Ownership drives prompt injection: an employee&apos;s active Goals ride into
-                its system prompt.
+                its system prompt. Deleting the employee leaves the Goal in place, with no owner.
               </>
             ),
           },
@@ -110,7 +111,8 @@ export function Goals() {
       <UL>
         <LI>
           <Strong>Manual</Strong> — a Member or an AI Employee reports the number. The platform
-          never computes it; the last reported value stands until the next report.
+          never computes it; the last reported value stands until the next report. An AI Employee
+          reports only on a Goal it owns or that one of its Routines serves.
         </LI>
         <LI>
           <Strong>Chart</Strong> — the Goal is bound to an{" "}
@@ -122,6 +124,12 @@ export function Goals() {
           remember to update them.
         </LI>
       </UL>
+      <P>
+        Only a person can change the SQL of a Chart a Goal reads, or delete it: an AI Employee with{" "}
+        <Code>write</Code> on that Chart can still edit its title, description, and visualization.
+        Deleting the Chart in Explore turns the Goal into a <Strong>Manual</Strong> Goal that keeps
+        its last value.
+      </P>
       <Callout kind="tip" title="Bind the Goal to a Chart when you can.">
         A manual Goal is only as honest as its last report. A chart-bound Goal reads the database
         and cannot forget, drift, or flatter.
@@ -141,12 +149,35 @@ export function Goals() {
         </LI>
       </UL>
       <P>
-        Settling happens automatically and <Strong>exactly once</Strong>, with a bell notification
-        to the company&apos;s owners and admins — however many processes race, one settle, one
+        Settling happens <Strong>exactly once</Strong>, with a bell notification to the
+        company&apos;s owners and admins — however many processes race, one settle, one
         notification. <Strong>Archived</Strong> is the manual off-switch for an objective that no
         longer applies: an archived Goal is never graded, injected into prompts, or refreshed. Any
         settled or archived Goal can be <Strong>reactivated</Strong>, which clears the settle stamp
         so it can be graded again — a missed quarter target becomes next quarter&apos;s.
+      </P>
+
+      <H2 id="confirmation">When an AI Employee reports the target met</H2>
+      <P>
+        A number a person reports, or a chart reads, settles the Goal on its own. A number an AI
+        Employee reports never does: the Goal grades that employee&apos;s work. When its report
+        meets the target, the Goal stays <Strong>active</Strong> and in every prompt, its row reads{" "}
+        <Strong>Needs confirmation</Strong>, and owners and admins get one bell notification.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Confirm</Strong> on the Goal&apos;s row settles it as achieved with the reported
+          number. If an AI Employee reports a different number first, the confirmation is refused,
+          so you never confirm a number you did not see.
+        </LI>
+        <LI>
+          If the number is wrong, use <Strong>Report progress</Strong> to enter the right one
+          instead. It counts like any number a person reports.
+        </LI>
+      </UL>
+      <P>
+        A Goal that needs confirmation is not marked missed when its deadline passes. If a later AI
+        report falls short, the claim ends and the deadline applies again.
       </P>
 
       <H2 id="employees">What AI Employees see</H2>
@@ -197,10 +228,12 @@ export function Goals() {
             term: "update_goal_progress",
             def: (
               <>
-                Report a new current value for a <Strong>Manual</Strong> Goal. Chart-bound Goals
-                refuse it — they track themselves. Every report is written to the{" "}
-                <DocLink to="/docs/employees">audit log</DocLink> and to the reporting
-                employee&apos;s journal, so a number never moves without a trail.
+                Report a new current value for a <Strong>Manual</Strong> Goal the employee owns or
+                that one of its Routines serves. Chart-bound Goals refuse it — they track
+                themselves. A report never settles a Goal: a number that meets the target{" "}
+                <DocLink to="/docs/goals#confirmation">waits for a person</DocLink>. Every report is
+                written to the <DocLink to="/docs/employees">audit log</DocLink> and to the
+                reporting employee&apos;s journal, so a number never moves without a trail.
               </>
             ),
           },
@@ -209,13 +242,13 @@ export function Goals() {
       <P>
         Employees are told to report when their own work moves a Goal&apos;s number. What they are
         {" "}
-        <em>not</em> given is any tool to create, edit, or archive a Goal — the definitions stay
-        human.
+        <em>not</em> given is any tool to create, edit, archive, or settle a Goal, or to change the
+        SQL of the Chart a Goal reads — the definitions and the verdict stay human.
       </P>
 
       <Callout kind="info" title="Humans set intent. AI reports against it.">
         That asymmetry is deliberate. An AI Employee that could quietly rewrite the target it is
-        graded against would make every green number meaningless.
+        graded against, or declare it met, would make every green number meaningless.
       </Callout>
     </>
   );

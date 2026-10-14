@@ -2,7 +2,13 @@ import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Chart } from "../db/entities/Chart.js";
-import { Goal, type GoalDirection, type GoalMetricKind, type GoalStatus } from "../db/entities/Goal.js";
+import {
+  Goal,
+  type GoalDirection,
+  type GoalMetricKind,
+  type GoalStatus,
+  type GoalValueSource,
+} from "../db/entities/Goal.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -20,9 +26,10 @@ import { emitResourceChange } from "./resourceEvents.js";
  * The invariants live here so the HTTP router, the MCP tool handlers, and the
  * sweep all enforce the same ones: a Goal tree that cannot cycle or exceed a
  * readable depth, a chart binding that only ever reads a Chart of the same
- * company, progress that is arithmetic rather than vibes, and `achieved` /
+ * company, progress that is arithmetic rather than vibes, `achieved` /
  * `missed` transitions that settle exactly once however many processes race
- * the sweep.
+ * the sweep, and a number an AI Employee reports never settling the Goal it is
+ * graded against.
  */
 
 /**
@@ -41,6 +48,19 @@ const PROMPT_GOALS_MAX = 5;
 const SWEEP_REFRESH_MAX = 25;
 
 export class GoalError extends Error {}
+
+/**
+ * An AI Employee reaching for a Goal outside its own accountability. Not a
+ * malformed request, so callers answer 403 rather than 400.
+ */
+export class GoalAccessError extends GoalError {}
+
+/**
+ * Who is reporting a manual Goal's number. A Member's report is the company's
+ * own reading and settles the Goal when it is due; an AI Employee's is a claim
+ * by the party the Goal grades, so it is recorded and never settles anything.
+ */
+export type GoalReporter = { kind: "member" } | { kind: "employee"; employeeId: string };
 
 export type GoalInput = {
   title: string;
@@ -72,6 +92,7 @@ export type GoalDTO = {
   targetValue: number;
   currentValue: number | null;
   currentValueUpdatedAt: string | null;
+  currentValueSource: GoalValueSource | null;
   direction: GoalDirection;
   unit: string;
   dueAt: string | null;
@@ -82,6 +103,9 @@ export type GoalDTO = {
   progress: number | null;
   /** Whether `currentValue` already clears `targetValue` in `direction`. */
   met: boolean;
+  /** An AI Employee reported a number that meets the target and no person has
+   * confirmed it — see {@link isAwaitingConfirmation}. */
+  awaitingConfirmation: boolean;
 };
 
 function goalRepo() {
@@ -127,6 +151,25 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Whether an AI Employee's report says the target is met and no person has
+ * vouched for it yet. Such a Goal stays `active` — in every prompt, and left
+ * alone by the sweep — until a Member confirms the number or reports another.
+ */
+export function isAwaitingConfirmation(
+  goal: Pick<
+    Goal,
+    "status" | "metricKind" | "currentValueSource" | "currentValue" | "targetValue" | "direction"
+  >,
+): boolean {
+  return (
+    goal.status === "active" &&
+    goal.metricKind === "manual" &&
+    goal.currentValueSource === "employee" &&
+    isGoalMet(goal)
+  );
+}
+
 export function serializeGoal(goal: Goal): GoalDTO {
   return {
     id: goal.id,
@@ -141,6 +184,7 @@ export function serializeGoal(goal: Goal): GoalDTO {
     targetValue: goal.targetValue,
     currentValue: goal.currentValue,
     currentValueUpdatedAt: goal.currentValueUpdatedAt?.toISOString() ?? null,
+    currentValueSource: goal.currentValueSource,
     direction: goal.direction,
     unit: goal.unit,
     dueAt: goal.dueAt?.toISOString() ?? null,
@@ -149,6 +193,7 @@ export function serializeGoal(goal: Goal): GoalDTO {
     createdAt: goal.createdAt.toISOString(),
     progress: goalProgress(goal),
     met: isGoalMet(goal),
+    awaitingConfirmation: isAwaitingConfirmation(goal),
   };
 }
 
@@ -280,6 +325,8 @@ export async function createGoal(
     targetValue: input.targetValue,
     currentValue: input.currentValue ?? null,
     currentValueUpdatedAt: input.currentValue != null ? new Date() : null,
+    // Only a person creates a Goal (the human route), so a starting number is theirs.
+    currentValueSource: input.currentValue != null ? "member" : null,
     direction: input.direction ?? "increase_to",
     unit: (input.unit ?? "").trim(),
     dueAt: input.dueAt ?? null,
@@ -322,9 +369,14 @@ export async function updateGoal(companyId: string, id: string, patch: GoalPatch
   }
   if (patch.startValue !== undefined) goal.startValue = patch.startValue;
   if (patch.targetValue !== undefined) goal.targetValue = patch.targetValue;
-  if (patch.currentValue !== undefined) {
+  // The edit dialog sends a manual goal's current value with every save, so
+  // only a different number is a person's new reading. Re-stamping an
+  // unchanged one would quietly turn an AI Employee's unconfirmed report into
+  // a person's and let the sweep settle it on an unrelated edit.
+  if (patch.currentValue !== undefined && patch.currentValue !== goal.currentValue) {
     goal.currentValue = patch.currentValue;
     goal.currentValueUpdatedAt = new Date();
+    goal.currentValueSource = patch.currentValue === null ? null : "member";
   }
   if (patch.direction !== undefined) goal.direction = patch.direction;
   if (patch.unit !== undefined) goal.unit = patch.unit.trim();
@@ -364,23 +416,115 @@ export async function deleteGoal(companyId: string, id: string): Promise<Goal> {
  * Record a manual progress report. Chart-bound goals refuse it — their number
  * comes from the database, and letting a report overwrite it would make the
  * next sweep silently erase what was reported.
+ *
+ * A Member's report settles the goal when it is due. An AI Employee may report
+ * only on a goal it owns or one of its own Routines serves, and its report
+ * settles nothing: a number that meets the target leaves the goal `active`,
+ * awaiting a person's confirmation, and tells the owners and admins once.
  */
 export async function reportGoalProgress(
+  companyId: string,
+  id: string,
+  value: number,
+  reporter: GoalReporter,
+): Promise<Goal> {
+  const goal = await getGoal(companyId, id);
+  if (!goal) throw new GoalError("Goal not found");
+  if (reporter.kind === "employee") await assertEmployeeMayReport(goal, reporter.employeeId);
+  if (goal.metricKind !== "manual") {
+    throw new GoalError("This goal's value comes from its chart — it cannot be reported by hand");
+  }
+  if (goal.status === "archived") throw new GoalError("This goal is archived");
+  const wasAwaiting = isAwaitingConfirmation(goal);
+  goal.currentValue = value;
+  goal.currentValueUpdatedAt = new Date();
+  goal.currentValueSource = reporter.kind;
+  const saved = await goalRepo().save(goal);
+  if (reporter.kind === "member") {
+    await settleIfDue(saved);
+  } else if (!wasAwaiting && isAwaitingConfirmation(saved)) {
+    await notifyConfirmationPending(saved, reporter.employeeId);
+  }
+  return saved;
+}
+
+/**
+ * An AI Employee reports against its own accountability only: a goal it owns,
+ * or one a Routine of its own declares it serves. Any wider and one employee
+ * could move the number every other employee's prompt reads.
+ */
+async function assertEmployeeMayReport(goal: Goal, employeeId: string): Promise<void> {
+  if (goal.ownerEmployeeId === employeeId) return;
+  const serves = await AppDataSource.getRepository(Routine).existsBy({
+    employeeId,
+    goalId: goal.id,
+  });
+  if (!serves) {
+    throw new GoalAccessError(
+      "You can report progress only on a goal you own or that one of your routines serves",
+    );
+  }
+}
+
+/**
+ * A person vouching for the number an AI Employee reported. It becomes that
+ * person's reading and settles the goal as any Member report would. Refused
+ * when nothing awaits confirmation, or when the number moved after the person
+ * read it — they confirm what they saw, never a number they did not.
+ */
+export async function confirmGoalProgress(
   companyId: string,
   id: string,
   value: number,
 ): Promise<Goal> {
   const goal = await getGoal(companyId, id);
   if (!goal) throw new GoalError("Goal not found");
-  if (goal.metricKind !== "manual") {
-    throw new GoalError("This goal's value comes from its chart — it cannot be reported by hand");
+  if (!isAwaitingConfirmation(goal)) {
+    throw new GoalError("This goal has no reported number waiting for confirmation");
   }
-  if (goal.status === "archived") throw new GoalError("This goal is archived");
-  goal.currentValue = value;
-  goal.currentValueUpdatedAt = new Date();
+  if (goal.currentValue !== value) {
+    throw new GoalError("The reported number has changed. Review it again before confirming.");
+  }
+  goal.currentValueSource = "member";
   const saved = await goalRepo().save(goal);
   await settleIfDue(saved);
   return saved;
+}
+
+/**
+ * The goals whose number this Chart supplies, whatever their status — an
+ * archived goal reads its chart again the moment it is reactivated.
+ */
+export async function goalsReadingChart(companyId: string, chartId: string): Promise<Goal[]> {
+  return goalRepo().find({ where: { companyId, chartId }, order: { createdAt: "ASC" } });
+}
+
+/**
+ * Deleting a Chart turns the goals that read it into manual goals keeping
+ * their last reading: reportable again, instead of bound to a chart the sweep
+ * can only fail on.
+ */
+export async function releaseGoalsFromChart(companyId: string, chartId: string): Promise<number> {
+  const result = await goalRepo().update(
+    { companyId, chartId },
+    { metricKind: "manual", chartId: null },
+  );
+  const affected = result.affected ?? 0;
+  // update() hands the subscriber no entity to resolve a company from.
+  if (affected > 0) emitResourceChange(companyId, "goal");
+  return affected;
+}
+
+/**
+ * Deleting an AI Employee leaves the goals it owned unowned, rather than
+ * pointing at nobody. They stay company goals until a person assigns them.
+ */
+export async function releaseGoalsOwnedBy(companyId: string, employeeId: string): Promise<void> {
+  const result = await goalRepo().update(
+    { companyId, ownerEmployeeId: employeeId },
+    { ownerEmployeeId: null },
+  );
+  if ((result.affected ?? 0) > 0) emitResourceChange(companyId, "goal");
 }
 
 /**
@@ -415,6 +559,7 @@ export async function refreshGoalValue(
   if (value === null) throw new GoalError("The chart's first row has no numeric cell");
   goal.currentValue = value;
   goal.currentValueUpdatedAt = new Date();
+  goal.currentValueSource = "chart";
   return goalRepo().save(goal);
 }
 
@@ -434,12 +579,18 @@ function firstNumericCell(row: Record<string, unknown>): number | null {
  * conditional UPDATE on `status: "active"` — the escalation-sweep pattern —
  * so however many processes race (the heartbeat, a manual refresh, a progress
  * report), exactly one of them notifies.
+ *
+ * A met number an AI Employee reported settles nothing: the goal grades that
+ * employee, so its claim waits for a person ({@link isAwaitingConfirmation}),
+ * and it is not `missed` either while the last report says it is met.
  */
 async function settleIfDue(goal: Goal, now: Date = new Date()): Promise<void> {
   if (goal.status !== "active") return;
   let next: GoalStatus | null = null;
-  if (isGoalMet(goal)) next = "achieved";
-  else if (goal.dueAt && goal.dueAt.getTime() <= now.getTime()) next = "missed";
+  if (isGoalMet(goal)) {
+    if (goal.currentValueSource === "employee") return;
+    next = "achieved";
+  } else if (goal.dueAt && goal.dueAt.getTime() <= now.getTime()) next = "missed";
   if (!next) return;
   const claimed = await goalRepo().update(
     { id: goal.id, status: "active" },
@@ -451,11 +602,45 @@ async function settleIfDue(goal: Goal, now: Date = new Date()): Promise<void> {
   await notifyGoalSettled(goal, next);
 }
 
+/** Settling and confirming a goal are owner/admin acts, so they are told. */
+async function goalAdmins(companyId: string): Promise<Membership[]> {
+  return AppDataSource.getRepository(Membership).find({
+    where: { companyId, role: In(["owner", "admin"]) },
+  });
+}
+
+async function notifyConfirmationPending(goal: Goal, employeeId: string): Promise<void> {
+  try {
+    const admins = await goalAdmins(goal.companyId);
+    if (admins.length === 0) return;
+    const employee = await AppDataSource.getRepository(AIEmployee).findOne({
+      where: { id: employeeId, companyId: goal.companyId },
+      select: { id: true, name: true },
+    });
+    const unit = goal.unit ? ` ${goal.unit}` : "";
+    await createNotifications(
+      admins.map((m) => ({
+        companyId: goal.companyId,
+        userId: m.userId,
+        kind: "goal_confirmation_pending" as const,
+        title: `Confirm goal: ${goal.title}`,
+        body:
+          `${employee?.name ?? "An AI Employee"} reported ${goal.currentValue}${unit} against a ` +
+          `target of ${goal.targetValue}${unit}. The goal stays active until a person confirms it.`,
+        link: `/goals`,
+        entityKind: "goal",
+        entityId: goal.id,
+      })),
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[goals] failed to notify pending confirmation of goal ${goal.id}:`, err);
+  }
+}
+
 async function notifyGoalSettled(goal: Goal, status: "achieved" | "missed"): Promise<void> {
   try {
-    const admins = await AppDataSource.getRepository(Membership).find({
-      where: { companyId: goal.companyId, role: In(["owner", "admin"]) },
-    });
+    const admins = await goalAdmins(goal.companyId);
     if (admins.length === 0) return;
     const value =
       goal.currentValue === null ? "no reported value" : `${goal.currentValue}${goal.unit ? ` ${goal.unit}` : ""}`;
@@ -524,6 +709,7 @@ function goalPromptLine(goal: Goal): string {
     `- **${goal.title}** — ${goal.currentValue ?? "?"} of ${goal.targetValue}${goal.unit ? ` ${goal.unit}` : ""}`,
     goal.direction === "decrease_to" ? "(driving down)" : "",
     goal.dueAt ? `due ${goal.dueAt.toISOString().slice(0, 10)}` : "",
+    isAwaitingConfirmation(goal) ? "(reported met, awaiting a person's confirmation)" : "",
   ].filter(Boolean);
   const head = pieces.join(" ");
   const description = goal.description.trim().split("\n")[0];
@@ -564,7 +750,7 @@ export async function composeGoalsContext(companyId: string, employeeId: string)
   }
   parts.push("");
   parts.push(
-    "When your work moves a goal's number, report it with update_goal_progress (manual goals only — chart goals track themselves).",
+    "When your work moves the number of a manual goal you own or one of your routines serves, report it with update_goal_progress. A report never settles a goal: a person confirms it, and chart goals track themselves.",
   );
   return parts.join("\n");
 }
@@ -581,10 +767,14 @@ export async function goalBriefBlock(
   if (!goalId) return null;
   const goal = await goalRepo().findOneBy({ id: goalId, companyId });
   if (!goal || goal.status !== "active") return null;
+  const unit = goal.unit ? ` ${goal.unit}` : "";
+  const awaiting = isAwaitingConfirmation(goal)
+    ? ", reported met and awaiting a person's confirmation"
+    : "";
   const lines = [
     `This routine serves the goal "${goal.title}": ` +
-      `${goal.direction === "decrease_to" ? "drive down to" : "reach"} ${goal.targetValue}${goal.unit ? ` ${goal.unit}` : ""}` +
-      `${goal.currentValue !== null ? ` (currently ${goal.currentValue}${goal.unit ? ` ${goal.unit}` : ""})` : ""}` +
+      `${goal.direction === "decrease_to" ? "drive down to" : "reach"} ${goal.targetValue}${unit}` +
+      `${goal.currentValue !== null ? ` (currently ${goal.currentValue}${unit}${awaiting})` : ""}` +
       `${goal.dueAt ? `, due ${goal.dueAt.toISOString().slice(0, 10)}` : ""}.`,
   ];
   const description = goal.description.trim();

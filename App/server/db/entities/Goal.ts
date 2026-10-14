@@ -20,6 +20,21 @@ import {
 export type GoalMetricKind = "manual" | "chart";
 
 /**
+ * Who supplied the `currentValue` on the row now — what decides whether that
+ * number may settle the Goal.
+ *
+ *  - `member`   — a person typed or confirmed it.
+ *  - `employee` — an AI Employee reported it (`update_goal_progress`). The
+ *    Goal grades that employee's work, so its number is a claim: it never
+ *    settles the Goal, and one that meets the target waits for a person.
+ *  - `chart`    — the sweep read it from the bound Chart.
+ *
+ * Null before the first value, and on values recorded before the column
+ * existed.
+ */
+export type GoalValueSource = "member" | "employee" | "chart";
+
+/**
  * Which way the metric must move for the Goal to count as met.
  * `increase_to` is met when `currentValue >= targetValue` (MRR, signups);
  * `decrease_to` when `currentValue <= targetValue` (churn, error rate).
@@ -29,7 +44,9 @@ export type GoalDirection = "increase_to" | "decrease_to";
 /**
  * `active` is the only state the sweep advances from: it settles `achieved`
  * when the target is met and `missed` when `dueAt` passes unmet, each
- * claimed with a conditional UPDATE so notifications fire exactly once.
+ * claimed with a conditional UPDATE so notifications fire exactly once. A met
+ * number an AI Employee reported settles nothing — the Goal stays `active`
+ * until a person confirms it (see `GoalValueSource`).
  * `archived` is the human off-switch — an archived Goal is never graded,
  * injected, or swept, and archiving is always reversible back to `active`.
  */
@@ -49,10 +66,10 @@ export type GoalStatus = "active" | "achieved" | "missed" | "archived";
  *
  * FKs are bare varchar ids like every sibling entity — `parentGoalId`,
  * `ownerEmployeeId`, and `chartId` live on different lifecycles and are
- * cleaned up by hand at the service layer (deleting a Chart demotes the Goal
- * to `manual`; firing an employee clears ownership; deleting a parent
- * re-parents children to the deleted Goal's own parent, the RoutineFolder
- * rule).
+ * cleaned up by hand through `services/goals.ts` (deleting a Chart demotes the
+ * Goal to `manual` — `releaseGoalsFromChart`; deleting an employee clears
+ * ownership — `releaseGoalsOwnedBy`; deleting a parent re-parents children to
+ * the deleted Goal's own parent, the RoutineFolder rule).
  */
 @Entity("goals")
 @Index(["companyId", "slug"], { unique: true })
@@ -113,6 +130,10 @@ export class Goal {
    * employee's `update_goal_progress`. Null until the first report. */
   @Column({ type: dateTimeColumnType, nullable: true })
   currentValueUpdatedAt!: Date | null;
+
+  /** Who supplied `currentValue` — see {@link GoalValueSource}. */
+  @Column({ type: "varchar", nullable: true })
+  currentValueSource!: GoalValueSource | null;
 
   @Column({ type: "varchar", default: "increase_to" })
   direction!: GoalDirection;

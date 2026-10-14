@@ -967,7 +967,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_goal_progress",
     description:
-      "Report the current value of a manual-metric Goal — the number a human or the platform cannot compute for itself. Chart-bound goals refuse this: their value tracks their chart automatically. Reporting is audited and journaled; humans still set the targets.",
+      "Report the current value of a manual-metric Goal you own or that one of your Routines serves — the number the platform cannot compute for itself. A report never settles a Goal: a number that meets the target leaves it active until a person confirms it. Chart-bound goals refuse this: their value tracks their chart automatically. Reporting is audited and journaled; humans still set the targets.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4161,7 +4161,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_chart",
     description:
-      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the Chart; changing SQL also requires a Grant on its Connection, so validate the query with run_explore_query first.",
+      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the Chart; changing SQL also requires a Grant on its Connection, so validate the query with run_explore_query first. A Chart that supplies a Goal's number refuses SQL changes — only a person can make them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4182,7 +4182,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "delete_chart",
     description:
-      "Permanently remove a Chart and detach it from any Dashboards it was on. Be careful — humans see the same charts you do. Requires `write` access on the chart.",
+      "Permanently remove a Chart and detach it from any Dashboards it was on. Be careful — humans see the same charts you do. Requires `write` access on the chart. Refused for a Chart that supplies a Goal's number — only a person can delete it.",
     inputSchema: {
       type: "object",
       properties: {
