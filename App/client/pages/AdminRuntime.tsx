@@ -19,13 +19,20 @@ import {
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
-import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { Card, CardBody } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
+import {
+  customizedPaths,
+  describeCustomized,
+  readPath,
+  sameValue,
+} from "../lib/runtimeSettingsSummary";
 
 /**
  * Admin → Runtime. The operational knobs an operator used to change by editing
@@ -39,6 +46,12 @@ import { clsx } from "../components/ui/clsx";
  * without a restart. Saving replaces the whole group — the form always submits
  * every value it showed — and a group with no stored row falls back to the
  * shipped defaults, which is what "Reset to defaults" puts it back to.
+ *
+ * Nearly every install leaves nearly every section alone, so each one is a
+ * single collapsed line saying "Defaults" or how many values were changed; the
+ * form, Save and Reset appear when it is opened. The rare field most installs
+ * never touch (`advanced`) sits behind its own Advanced disclosure inside its
+ * section.
  */
 
 const FIELD_CLASS =
@@ -56,7 +69,7 @@ const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-sla
 // string the person is typing, so a half-entered number never rounds itself
 // or reverts under the cursor.
 
-type FieldSpec =
+type FieldVariant =
   | { kind: "boolean"; path: string; label: string; help?: string }
   | {
       kind: "int";
@@ -101,6 +114,14 @@ type FieldSpec =
       fromValue?: (value: unknown) => string;
       help?: string;
     };
+
+type FieldSpec = FieldVariant & {
+  /**
+   * Tucked behind the section's own Advanced disclosure. For a setting that
+   * almost nobody has a reason to change, and that is risky to change blindly.
+   */
+  advanced?: boolean;
+};
 
 type DraftValue = string | boolean;
 type Draft = Record<string, DraftValue>;
@@ -188,7 +209,8 @@ const GROUPS: GroupSpec[] = [
       {
         kind: "text",
         path: "hostedSignInUrl",
-        label: "Sign-in service URL (advanced)",
+        label: "Sign-in service URL",
+        advanced: true,
         maxLength: 2048,
         placeholder: "https://connect.genosyn.com",
         mono: true,
@@ -425,13 +447,6 @@ const GROUPS: GroupSpec[] = [
 
 // ─────────────────────────── draft ⇄ value plumbing ────────────────────────
 
-function readPath(value: unknown, path: string): unknown {
-  return path.split(".").reduce<unknown>((acc, key) => {
-    if (!acc || typeof acc !== "object") return undefined;
-    return (acc as Record<string, unknown>)[key];
-  }, value);
-}
-
 function writePath(target: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split(".");
   let cursor = target;
@@ -517,16 +532,6 @@ function buildValue(fields: FieldSpec[], draft: Draft): BuildResult {
   return { ok: true, value: out };
 }
 
-function sameValue(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
-  const left = a as Record<string, unknown>;
-  const right = b as Record<string, unknown>;
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  for (const key of keys) if (!sameValue(left[key], right[key])) return false;
-  return true;
-}
-
 /** Byte counts are edited raw so nothing rounds; this is the readable echo. */
 function humanBytes(raw: DraftValue): string | null {
   const bytes = Number(String(raw).trim());
@@ -606,7 +611,9 @@ export function AdminRuntime() {
                 config.ts
               </code>
               , so a change applies within about 30 seconds on every replica with no restart. Each
-              section saves on its own; a section still on its shipped values can be left alone.
+              section starts collapsed and says whether anything in it was changed; open one to edit
+              it. Each saves on its own, and a section still on its shipped values can be left
+              alone.
             </p>
           </CardBody>
         </Card>
@@ -657,6 +664,33 @@ function GroupCard({
   const dirty = !built.ok || !sameValue(built.value, value);
   const busy = saving || resetting;
 
+  // The collapsed line describes what the installation is running, so it counts
+  // the saved values, not the draft; the Unsaved chip says when the form is
+  // ahead of them.
+  const customized = customizedPaths(
+    spec.group,
+    value,
+    spec.fields.map((field) => field.path),
+  );
+  const customizedLabels = spec.fields
+    .filter((field) => customized.includes(field.path))
+    .map((field) => field.label);
+  const mainFields = spec.fields.filter((field) => !field.advanced);
+  const advancedFields = spec.fields.filter((field) => field.advanced);
+  const advancedCustomized = advancedFields.filter((field) =>
+    customized.includes(field.path),
+  ).length;
+  const renderField = (field: FieldSpec) => (
+    <Field
+      key={field.path}
+      group={spec.group}
+      field={field}
+      value={draft[field.path]}
+      disabled={busy}
+      onChange={(next) => setDraft({ ...draft, [field.path]: next })}
+    />
+  );
+
   const save = async () => {
     if (!built.ok) {
       setError(built.error);
@@ -701,21 +735,54 @@ function GroupCard({
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2">
-            <span className="mt-0.5 shrink-0">{spec.icon}</span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold">{spec.title}</h2>
-                <StateBadge overridden={overridden} />
-              </div>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{spec.blurb}</p>
-            </div>
-          </div>
-          {overridden && (
+    <Disclosure
+      variant="card"
+      heading="h2"
+      title={
+        <>
+          <span className="shrink-0">{spec.icon}</span>
+          <span className="min-w-0 truncate">{spec.title}</span>
+          {dirty && (
+            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+              Unsaved
+            </span>
+          )}
+        </>
+      }
+      summary={
+        <span title={customizedLabels.length > 0 ? customizedLabels.join(", ") : undefined}>
+          {describeCustomized(customized.length)}
+        </span>
+      }
+    >
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{spec.blurb}</p>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (dirty) void save();
+        }}
+      >
+        {spec.group === "oauth" && <HostedSignInStatus key={serialized} />}
+
+        <div className="grid gap-3 sm:grid-cols-2">{mainFields.map(renderField)}</div>
+
+        {advancedFields.length > 0 && (
+          <Disclosure
+            variant="row"
+            title="Advanced"
+            summary={describeCustomized(advancedCustomized)}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">{advancedFields.map(renderField)}</div>
+          </Disclosure>
+        )}
+
+        <FormError message={error} />
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          {overridden ? (
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               onClick={resetToDefaults}
@@ -725,42 +792,15 @@ function GroupCard({
               <RotateCcw size={12} />
               {resetting ? "Resetting…" : "Reset to defaults"}
             </Button>
+          ) : (
+            <span />
           )}
+          <Button type="submit" size="sm" loading={saving} disabled={!dirty || busy}>
+            <Save size={14} /> {saving ? "Saving…" : "Save changes"}
+          </Button>
         </div>
-      </CardHeader>
-      <CardBody>
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (dirty) void save();
-          }}
-        >
-          {spec.group === "oauth" && <HostedSignInStatus key={serialized} />}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {spec.fields.map((field) => (
-              <Field
-                key={field.path}
-                group={spec.group}
-                field={field}
-                value={draft[field.path]}
-                disabled={busy}
-                onChange={(next) => setDraft({ ...draft, [field.path]: next })}
-              />
-            ))}
-          </div>
-
-          <FormError message={error} />
-
-          <div className="flex justify-end pt-1">
-            <Button type="submit" size="sm" loading={saving} disabled={!dirty || busy}>
-              <Save size={14} /> {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </div>
-        </form>
-      </CardBody>
-    </Card>
+      </form>
+    </Disclosure>
   );
 }
 
@@ -831,21 +871,6 @@ function HostedSignInStatus() {
         );
       })}
     </ul>
-  );
-}
-
-function StateBadge({ overridden }: { overridden: boolean }) {
-  return (
-    <span
-      className={clsx(
-        "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
-        overridden
-          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
-          : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-      )}
-    >
-      {overridden ? "Customized" : "Defaults"}
-    </span>
   );
 }
 

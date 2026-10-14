@@ -152,9 +152,10 @@ export function Connect() {
       <P>
         You can run the service yourself, for example to offer Google sign-in to several
         installations under your own verified Google app. Point those installations at it with{" "}
-        <Strong>Sign-in service URL (advanced)</Strong> at <Strong>Admin → Runtime → Hosted
-        sign-in</Strong>. A Connection always renews through the service that issued it, so
-        changing the URL never sends an existing refresh token somewhere new.
+        <Strong>Sign-in service URL</Strong>, under <Strong>Advanced</Strong> at{" "}
+        <Strong>Admin → Runtime → Hosted sign-in</Strong>. A Connection always renews through the
+        service that issued it, so changing the URL never sends an existing refresh token somewhere
+        new.
       </P>
 
       <H3 id="google-app">Register the Google app</H3>
