@@ -155,6 +155,8 @@ await app.check(
       routes: [
         ["GET", `${API}/proactive`, () => proactive(1, 1)],
         ["GET", /^\/api\/companies\/company\/employees\/emp-0\/conversations$/, () => []],
+        // The roster Chat opens from is the Proactive one, so Chat can find emp-0.
+        ["GET", `${API}/employees`, () => [{ ...ADA, id: "emp-0", slug: "emp-0" }]],
         ...base,
       ],
     });
@@ -282,6 +284,7 @@ const CONNECTED_MODEL = {
 const LAUNCH_PLAN = {
   context: {
     companyName: "Acme",
+    goal: "",
     mission: "Answer every customer within the hour.",
     vision: "A company that runs itself and still feels personal.",
     employeeName: "Ava",
