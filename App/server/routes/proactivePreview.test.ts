@@ -51,8 +51,9 @@ after(async () => {
   await closeTestDb();
 });
 
-async function hire(name: string, withModel = true): Promise<AIEmployee> {
+async function hire(name: string, withModel = true, id?: string): Promise<AIEmployee> {
   const employee = await insert(AIEmployee, {
+    ...(id ? { id } : {}),
     companyId: company.id,
     name,
     slug: name.toLowerCase(),
@@ -143,7 +144,10 @@ describe("the standing work Automatic setup would give an employee", () => {
   });
 
   test("previews an employee with no AI Model as what they get once one is connected", async () => {
-    const quinn = await hire("Quinn", false);
+    // The planner hands shared starters to the first ready employee in id
+    // order, and ids are random; an id that sorts first makes Quinn that
+    // employee once connected, whatever id Maya drew.
+    const quinn = await hire("Quinn", false, "00000000-0000-4000-8000-000000000001");
 
     const response = await preview(quinn.id);
 
