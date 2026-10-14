@@ -225,7 +225,10 @@ docker run -d --name vllm --restart unless-stopped --gpus all --ipc=host -p 8000
           },
         ]}
       />
-      <P>Then set the same numbers in Genosyn, on the AI Model&apos;s card:</P>
+      <P>
+        Then set the same numbers in Genosyn: open <Strong>Advanced</Strong> on the AI
+        Model&apos;s card.
+      </P>
       <UL>
         <LI>
           <Strong>Model id</Strong>: leave it blank. Genosyn uses the model vLLM serves and follows
@@ -310,8 +313,8 @@ llama-server \\
 
       <H2 id="wire-into-genosyn">Step 2 — Wire it into Genosyn</H2>
       <P>
-        From the app, either during the hire wizard (Step 2: Model) or afterwards at{" "}
-        <Code>Settings → AI Model</Code>:
+        From the app, either on the <Strong>Connect an AI Model</Strong> screen that follows a hire
+        or afterwards at <Code>Settings → Model</Code>:
       </P>
       <OL>
         <LI>
@@ -336,8 +339,10 @@ llama-server \\
           endpoint.
         </LI>
         <LI>
-          <Strong>Check the context window</Strong> on the model card. Genosyn asks your server for
-          it on save; if it reads <Strong>Unknown</Strong>, set it by hand — see below.
+          <Strong>Check the context window</Strong> under <Strong>Advanced</Strong> on the model
+          card. Genosyn asks your server for it on save; if it reads <Strong>Unknown</Strong>{" "}
+          (the closed <Strong>Advanced</Strong> line says <Strong>Context window unknown</Strong>),
+          set it by hand — see below.
         </LI>
       </OL>
 
@@ -402,9 +407,10 @@ llama-server \\
         ]}
       />
       <P>
-        Use <Strong>Set manually</Strong> on the model card for anything not detected. A number you
-        type always wins over the probe, so it survives key rotations and re-saves;{" "}
-        <Strong>Clear</Strong> hands the field back.
+        Under <Strong>Advanced</Strong> on the model card, use <Strong>Set manually</Strong> for
+        anything not detected. A number you type always wins over the probe, so it survives key
+        rotations and re-saves; the closed <Strong>Advanced</Strong> line then reads{" "}
+        <Strong>Context window set manually</Strong>. <Strong>Clear</Strong> hands the field back.
       </P>
       <P>
         For everything Genosyn does detect, it re-asks your server{" "}
@@ -448,8 +454,9 @@ llama-server \\
           and model id shares the limit, because they share the hardware.
         </LI>
         <LI>
-          <Strong>Change it on the model card.</Strong> <Strong>Concurrent Routine Runs</Strong>{" "}
-          takes <Code>Default</Code>, a number, or <Code>No limit</Code>. Raise it for a server that
+          <Strong>Change it under Advanced on the model card.</Strong>{" "}
+          <Strong>Concurrent Routine Runs</Strong> takes <Code>Default</Code>, a number, or{" "}
+          <Code>No limit</Code>. Raise it for a server that
           batches well (vLLM with memory to spare); set it to 1 for a self-hosted server on a
           public address, which Genosyn cannot tell apart from a hosted gateway. Hosted models and
           other endpoints have no limit unless you set one.
@@ -597,16 +604,17 @@ llama-server \\
         </LI>
         <LI>
           <Strong>&quot;This model&apos;s maximum context length is N tokens.&quot;</Strong> The
-          prompt outgrew the window. Set the model&apos;s context window on its card so OpenCode can
-          manage compaction against the actual limit. Reduce large Skills or attached material if
+          prompt outgrew the window. Set the model&apos;s context window under{" "}
+          <Strong>Advanced</Strong> on its card so OpenCode can manage compaction against the
+          actual limit. Reduce large Skills or attached material if
           the initial request itself exceeds the window.
         </LI>
         <LI>
           <Strong>&quot;The AI Model&apos;s response was cut off at its output limit.&quot;</Strong>{" "}
           A reasoning model can think past its response allowance before calling a tool. With a
           known context window, a <Code>Custom</Code> model may answer with up to 32K tokens (at
-          most a quarter of the window); with an unknown window it gets 8K. Set the window on the
-          model card.
+          most a quarter of the window); with an unknown window it gets 8K. Set the window under{" "}
+          <Strong>Advanced</Strong> on the model card.
         </LI>
         <LI>
           <Strong>Employee forgets what a tool told it earlier.</Strong> Long sessions may require

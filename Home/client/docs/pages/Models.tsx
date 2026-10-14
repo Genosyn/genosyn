@@ -24,9 +24,10 @@ export function Models() {
             Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
             an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
-            subscription access for OpenAI. OpenCode runs API-key and custom models, with host
-            coding access enabled by default. Switch the active model any time without losing the
-            others&apos; credentials.
+            subscription access for OpenAI. A new hire can use the AI Model the company already
+            has connected, so a key is pasted once. OpenCode runs API-key and custom models, with
+            host coding access enabled by default. Switch the active model any time without losing
+            the others&apos; credentials.
           </>
         }
       />
@@ -34,24 +35,99 @@ export function Models() {
       <H2 id="connect-model">Connect an AI Model</H2>
       <OL>
         <LI>
-          Open an AI Employee, then go to <Strong>Settings → Model</Strong>.
+          Open an AI Employee, then go to <Strong>Settings → Model</Strong>. An employee with no AI
+          Model shows the connect form. If the company already has one, the page leads with{" "}
+          <Strong>Use the same AI Model as</Strong> that employee instead — see{" "}
+          <a href="#reuse-model">Use the company&apos;s AI Model</a>.
         </LI>
         <LI>
-          Select <Strong>Add model</Strong> and choose your <Strong>AI Model service</Strong>.
+          Choose your <Strong>AI Model service</Strong>.
         </LI>
         <LI>
           For Claude or OpenAI, paste your API key; <Strong>Get an Anthropic key</Strong> or{" "}
           <Strong>Get an OpenAI key</Strong> under the field opens the page that creates one.
           Genosyn loads the available models and recommends a current choice. Select{" "}
           <Strong>Connect AI Model</Strong> to test and save it. For a custom endpoint, enter its
-          URL and model ID, then select <Strong>Add model</Strong>.
+          URL and model ID, then select <Strong>Continue</Strong>.
         </LI>
         <LI>
           To use ChatGPT subscription access, choose <Strong>ChatGPT sign-in</Strong>, continue,
           then select <Strong>Sign in with ChatGPT</Strong> on its card. Genosyn tests a reply after
-          sign-in. Use <Strong>Make active</Strong> to switch between connected AI Models.
+          sign-in.
+        </LI>
+        <LI>
+          To register another AI Model for an employee who already has one, open{" "}
+          <Strong>Advanced</Strong> and select <Strong>Add model</Strong>. Use{" "}
+          <Strong>Make active</Strong> to switch between connected AI Models.
         </LI>
       </OL>
+
+      <H2 id="reuse-model">Use the company&apos;s AI Model</H2>
+      <P>
+        An API key is a company&apos;s, not an employee&apos;s, so you should not have to paste it
+        again for every hire. When another AI Employee in the company has a connected API-key or
+        custom-endpoint AI Model, a new employee can use the same one:
+      </P>
+      <UL>
+        <LI>
+          <Strong>When you hire.</Strong> <Strong>Hire {"{name}"}</Strong> connects the new
+          employee automatically and the next screen says{" "}
+          <Strong>Uses the same AI Model as</Strong> that employee, with a link to{" "}
+          <Strong>Settings → Model</Strong> to change it. With nothing to
+          reuse, the next screen connects one instead.
+        </LI>
+        <LI>
+          <Strong>From Settings → Model.</Strong> An employee with no AI Model sees the model in
+          plain words — for example <Strong>Claude (Anthropic) · claude-sonnet-4-5</Strong> — and
+          one button, <Strong>Use the same AI Model as</Strong> an employee who already runs on it.
+          <Strong> Connect a different model</Strong> shows the connect form, and lists any other
+          AI Models the company has under <Strong>Already connected in your company</Strong>, each
+          with <Strong>Use this one</Strong>.
+        </LI>
+      </UL>
+      <P>
+        Genosyn copies the encrypted credential on the server; it never reaches your browser, so
+        there is no key to paste or reveal. The copy belongs to the new employee. Removing it, or
+        firing either employee, does not touch the other, and each can later move to a different
+        model on their own. What they share is the account the provider bills, so usage lands on
+        the same bill. Rotate the key at the provider to change it for everyone who holds a copy.
+      </P>
+      <P>
+        Only owners and admins can reuse an AI Model, and only within the same company. Genosyn
+        records it in the <DocLink to="/docs/security#audit-log">audit log</DocLink> as a model
+        configuration that names the employee it was copied from. A ChatGPT sign-in cannot be
+        shared, because a sign-in belongs to one employee: connect each with their own, or give the
+        company an API key.
+      </P>
+
+      <H2 id="advanced">Advanced</H2>
+      <P>
+        A connected AI Model is a title and a <Strong>Connected</Strong> badge: the service and
+        model in plain words, and how it is connected. Everything else sits behind one{" "}
+        <Strong>Advanced</Strong> line under it, closed until you open it:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Context window</Strong> and <Strong>Concurrent Routine Runs</Strong>, described
+          below.
+        </LI>
+        <LI>
+          <Strong>Endpoint</Strong> for a custom endpoint, or the ChatGPT sign-in for a connected
+          ChatGPT subscription model.
+        </LI>
+        <LI>
+          <Strong>Change provider, model, or endpoint</Strong>, <Strong>Add model</Strong>, and{" "}
+          <Strong>Remove</Strong>.
+        </LI>
+      </UL>
+      <P>
+        The closed line names whatever has been moved off its default, so nothing you set is
+        hidden by being folded away: for example{" "}
+        <Strong>Context window set manually · 2 concurrent Runs</Strong>, or{" "}
+        <Strong>1 other AI Model</Strong> when the employee holds more than one. A custom endpoint
+        whose server did not report a context window reads <Strong>Context window unknown</Strong>.
+        With nothing changed it lists what is inside.
+      </P>
 
       <H2 id="supported-providers">Provider kinds</H2>
       <P>
@@ -154,11 +230,14 @@ export function Models() {
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
-        In the add-model form, choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
+        In the connect form (under <Strong>Advanced → Add model</Strong> for an employee who
+        already has one), choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
         <Strong>Connect with</Strong> to <Strong>ChatGPT sign-in</Strong>, then select{" "}
         <Strong>Continue to ChatGPT sign-in</Strong>.
         Genosyn uses your workspace&apos;s current default model and tests a real reply before
-        marking it connected. The model card offers two official Codex authentication paths:
+        marking it connected. While the sign-in is waiting, the model card offers two official
+        Codex authentication paths; once it is connected they sit under{" "}
+        <Strong>Advanced</Strong>:
       </P>
       <UL>
         <LI>
@@ -225,8 +304,9 @@ export function Models() {
         directory afterward. The app-server itself gets a separate empty scratch directory. This is
         credential lifecycle management; default host execution does not isolate processes from one
         another. Cleanup retries, and startup removes stale Genosyn Codex directories left by a
-        prior crash. Removing a model (or firing the employee) deletes the encrypted row, so access
-        dies with it.
+        prior crash. Removing a model (or firing the employee) deletes that employee&apos;s
+        encrypted row, so their access dies with it; a copy another employee made by{" "}
+        <a href="#reuse-model">reusing the AI Model</a> is its own row.
       </Callout>
 
       <H2 id="context-window">Context window</H2>
@@ -237,8 +317,9 @@ export function Models() {
         app-server manages context for subscription models.
       </P>
       <P>
-        Genosyn probes the context window when a model connects and every three hours afterward. The
-        model card shows the result. If your endpoint does not report a window, select
+        Genosyn probes the context window when a model connects and every three hours afterward.
+        Open <Strong>Advanced</Strong> on the model card to see the result. If your endpoint does
+        not report a window, select
         <Strong> Set manually</Strong> and enter the number your server supports, such as
         vLLM&apos;s <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A manual value
         takes precedence; <Strong>Clear</Strong> returns to the detected value, and
@@ -248,11 +329,11 @@ export function Models() {
 
       <H2 id="concurrent-runs">Concurrent Routine Runs</H2>
       <P>
-        The model card&apos;s <Strong>Concurrent Routine Runs</Strong> sets how many Routine Runs
-        may use the model at once. Runs beyond the limit wait in the queue and start when one
-        finishes; their time limit starts then. A <Code>Custom</Code> endpoint on this machine or a
-        private network defaults to one at a time, and everything else to no limit. Employees that
-        point at the same endpoint share its limit. See{" "}
+        <Strong>Concurrent Routine Runs</Strong>, under <Strong>Advanced</Strong> on the model
+        card, sets how many Routine Runs may use the model at once. Runs beyond the limit wait in
+        the queue and start when one finishes; their time limit starts then. A <Code>Custom</Code>{" "}
+        endpoint on this machine or a private network defaults to one at a time, and everything
+        else to no limit. Employees that point at the same endpoint share its limit. See{" "}
         <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
       </P>
 
@@ -331,9 +412,11 @@ export function Models() {
         switch, instantly and as often as you like.
       </P>
       <P>
-        Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card shows
-        the provider kind, model string, connection status, and an <Strong>Active</Strong> badge on
-        the current brain. Use <Strong>Add model</Strong> to register another.
+        Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card names
+        the service and model in plain words and shows whether it is connected. With more than one
+        model the current brain carries an <Strong>Active</Strong> badge and every other connected
+        model offers <Strong>Make active</Strong>. Use <Strong>Advanced → Add model</Strong> to
+        register another.
       </P>
       <P>
         When at least two models are connected, the dedicated employee Chat composer shows an{" "}
@@ -380,9 +463,11 @@ export function Models() {
 
       <H3 id="removing-a-model">Removing a model</H3>
       <P>
-        <Strong>Remove</Strong> on a model card deletes that AIModel row along with its encrypted
-        credentials. If you remove the active model, the most recently added survivor is promoted to
-        active. No data on Soul, Skills, Routines, or past Runs is affected.
+        <Strong>Remove</Strong>, under <Strong>Advanced</Strong> on a model card, deletes that
+        AIModel row along with its encrypted credentials. A copy another employee made when they
+        reused the model is a separate row and is not touched. If you remove the active model, the
+        most recently added survivor is promoted to active. No data on Soul, Skills, Routines, or
+        past Runs is affected.
       </P>
     </>
   );

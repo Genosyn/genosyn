@@ -660,7 +660,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <UL>
         <LI>
           You can only pin a model that <Strong>belongs to that employee</Strong>. Register it at
-          the employee&apos;s <Strong>Settings → Model</Strong> first.
+          the employee&apos;s <Strong>Settings → Model</Strong> first (
+          <Strong>Advanced → Add model</Strong> if they already have one).
         </LI>
         <LI>
           A pin only affects this routine&apos;s <Strong>Runs</Strong>. Dedicated employee Chat has
