@@ -1,4 +1,5 @@
 import React from "react";
+import { ExternalLink } from "lucide-react";
 import {
   api,
   type AIModel,
@@ -13,6 +14,12 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 
 type ModelCatalog = { models: Array<{ id: string; label: string }>; recommendedModel: string };
+
+/** Where to create an API key, for the services that take one. */
+const API_KEY_PAGES: Partial<Record<Provider, { label: string; href: string }>> = {
+  anthropic: { label: "Get an Anthropic key", href: "https://console.anthropic.com/settings/keys" },
+  openai: { label: "Get an OpenAI key", href: "https://platform.openai.com/api-keys" },
+};
 
 /** One submit connects API models; an optional choice follows live account discovery. */
 export function ModelSetupForm({
@@ -51,6 +58,7 @@ export function ModelSetupForm({
   const isApiKey = !isCustom && authMode === "apikey";
   const needsKey =
     mode === "create" || provider !== initial.provider || authMode !== initial.authMode;
+  const keyPage = isApiKey ? API_KEY_PAGES[provider] : undefined;
 
   function clearDiscovery() {
     requestVersion.current += 1;
@@ -197,6 +205,19 @@ export function ModelSetupForm({
             <p className="text-xs text-slate-500 dark:text-slate-400">
               We find the available models and test a real reply before connecting. Your key is
               stored encrypted. The small test uses your API account.
+              {keyPage && (
+                <>
+                  {" "}
+                  <a
+                    href={keyPage.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {keyPage.label} <ExternalLink size={11} />
+                  </a>
+                </>
+              )}
             </p>
             {discovering && (
               <p role="status" className="text-xs text-slate-500">

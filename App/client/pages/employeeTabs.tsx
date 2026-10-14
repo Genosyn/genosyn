@@ -254,15 +254,15 @@ function settingsNavGroups(
 
 /**
  * Grouped rail on desktop; on a phone the groups collapse into one
- * horizontally scrollable row of pills, because a twelve-entry column and the
- * content beside it cannot both have a phone's width.
+ * horizontally scrollable row of pills, because a column of every entry and
+ * the content beside it cannot both have a phone's width.
  */
 function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) {
   const groups = settingsNavGroups(company, emp);
   const { pathname } = useLocation();
   const scroller = React.useRef<HTMLElement | null>(null);
 
-  // Twelve pills do not fit on a phone, so the one you are actually on is
+  // The pills do not all fit on a phone, so the one you are actually on is
   // usually off-screen when you arrive. Bring it into view — but only while
   // the pill row is really laid out: at desktop widths it is `display:none`,
   // and asking a box-less element to scroll into view still drags the whole

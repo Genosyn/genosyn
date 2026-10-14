@@ -1,13 +1,5 @@
 import React from "react";
-import {
-  AlertCircle,
-  ArrowRight,
-  Bot,
-  CheckCircle2,
-  ExternalLink,
-  RefreshCw,
-  ScrollText,
-} from "lucide-react";
+import { AlertCircle, ArrowRight, Bot, CheckCircle2, RefreshCw, ScrollText } from "lucide-react";
 import { AIModel, api, Company, Employee, EmployeeTemplate } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
 import { FormError } from "../../components/ui/FormError";
@@ -231,25 +223,8 @@ export function EmployeeStep({
           description="Connect Claude or OpenAI: we find available models and test the connection automatically. Custom endpoints are also available. API usage is billed by your model company."
         />
 
-        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-          <a
-            href="https://console.anthropic.com/settings/keys"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            Get an Anthropic key <ExternalLink size={11} />
-          </a>
-          <a
-            href="https://platform.openai.com/api-keys"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            Get an OpenAI key <ExternalLink size={11} />
-          </a>
-        </div>
-
+        {/* The link to create a key sits under the key field, for whichever
+            service is selected there. */}
         <div className="mt-4">
           <EmployeeModelSection company={company} emp={employee} />
         </div>

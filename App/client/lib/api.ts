@@ -233,7 +233,7 @@ export type Employee = {
   /**
    * Whether the built-in `browser` MCP server is wired into this employee's
    * provider config. False on a stock install — operator opts in per
-   * employee from the Settings → General page.
+   * employee from the Settings → Browser page.
    */
   browserEnabled?: boolean;
   /**

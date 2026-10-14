@@ -4,10 +4,11 @@
  * reason if refused; Members see the state only), the Settings checkbox
  * following it; Run now disabled with the reason while a Standdown covers
  * the routine; New routine from one employee's list keeps that employee and
- * lands on the Brief; ⌘S saves the brief; the list's last Run opens in one
- * click; an empty folder deletes without a confirm while a full one still
- * asks; and the same employee carry-over for New skill. Each flow counts its
- * clicks. Run with `npm run test:clicks-routines`.
+ * lands on the Brief, where the routine waits paused until one save writes
+ * its brief and switches it on; ⌘S saves the brief; the list's last Run
+ * opens in one click; an empty folder deletes without a confirm while a full
+ * one still asks; and the same employee carry-over for New skill. Each flow
+ * counts its clicks. Run with `npm run test:clicks-routines`.
  */
 import assert from "node:assert/strict";
 import type { Page } from "playwright-core";
@@ -107,6 +108,8 @@ type Store = {
   routines: RoutineWithMeta[];
   folders: RoutineFolder[];
   briefs: Map<string, string>;
+  /** Routines created here, paused until their first brief is saved. */
+  awaitingBrief: Set<string>;
   refusePatch?: boolean;
 };
 
@@ -139,6 +142,7 @@ function store(): Store {
     ],
     folders: [folder("ops", "Operations", 1), folder("drafts", "Drafts", 0)],
     briefs: new Map([["daily-inbox", "Sweep the inbox every weekday morning."]]),
+    awaitingBrief: new Set(),
   };
 }
 
@@ -155,14 +159,24 @@ function routes(s: Store): ApiRoute[] {
     [
       "GET",
       /^\/api\/companies\/company\/routines\/([^/]+)\/readme$/,
-      ({ match }) => ({ content: s.briefs.get(match[1]) ?? "" }),
+      ({ match }) => ({
+        content: s.briefs.get(match[1]) ?? "",
+        awaitingBrief: s.awaitingBrief.has(match[1]) && !find(match[1]).enabled,
+      }),
     ],
     [
       "PUT",
       /^\/api\/companies\/company\/routines\/([^/]+)\/readme$/,
       ({ match, body }) => {
-        s.briefs.set(match[1], String(body.content));
-        return { content: body.content };
+        const content = String(body.content);
+        s.briefs.set(match[1], content);
+        // As on the server: the first brief written into a routine waiting
+        // for one switches it on.
+        if (s.awaitingBrief.has(match[1]) && content.trim()) {
+          s.awaitingBrief.delete(match[1]);
+          Object.assign(find(match[1]), { enabled: true, nextRunAt: hoursAgo(-20) });
+        }
+        return { ok: true, enabled: find(match[1]).enabled };
       },
     ],
     [
@@ -207,8 +221,14 @@ function routes(s: Store): ApiRoute[] {
           String(body.name).toLowerCase().replace(/\s+/g, "-"),
           String(body.name),
           owner,
+          { enabled: false, nextRunAt: null },
         );
         s.routines.push(created);
+        s.briefs.set(
+          created.id,
+          `# ${created.name}\n\n## Goal\nWhat this routine is meant to achieve.\n`,
+        );
+        s.awaitingBrief.add(created.id);
         return created;
       },
     ],
@@ -330,8 +350,33 @@ await app.check(
       `${API}/employees/sam/routines`,
       "created for Sam, the employee whose list it came from",
     );
-    await page.getByRole("button", { name: "Save brief", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Save brief & switch on", exact: true }).waitFor();
     assert.equal(view.clicks(), 1, "no re-picking the owner, no Brief tab click");
+    await page.close();
+  },
+);
+
+await app.check(
+  "a new routine waits paused for its brief, and saving the brief switches it on",
+  async () => {
+    const s = store();
+    const view = await app.open({ path: "/c/acme/routines/new?employee=sam", routes: routes(s) });
+    const { page } = view;
+    const name = page.getByLabel("Name", { exact: true });
+    await name.fill("Release notes");
+    await name.press("Enter");
+    await view.landedOn("/c/acme/routines/sam/release-notes?tab=brief");
+    await page.getByText("Paused until its brief is saved", { exact: true }).waitFor();
+    await header(page).getByText("paused", { exact: true }).waitFor();
+    await page
+      .locator("textarea")
+      .first()
+      .fill("List every pull request merged since the last notes.");
+    await view.click(page.getByRole("button", { name: "Save brief & switch on", exact: true }));
+    await page.getByRole("switch", { name: "Pause this routine", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Save brief", exact: true }).waitFor();
+    assert.equal(await page.getByText("Paused until its brief is saved").count(), 0);
+    assert.equal(view.clicks(), 1, "one save writes the brief and switches the routine on");
     await page.close();
   },
 );

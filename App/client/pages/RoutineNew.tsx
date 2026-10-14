@@ -171,8 +171,9 @@ export default function RoutineNew({ company }: { company: Company }) {
             <TagPicker companyId={company.id} value={tags} onChange={setTags} />
 
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              You&apos;ll write the brief — what the employee should actually do each
-              time this fires — on the next screen.
+              You&apos;ll write the brief — what the employee should actually do each time this
+              fires — on the next screen. The routine stays paused until that brief is saved, then
+              switches on.
             </p>
 
             {error && <FormError message={error} />}

@@ -392,7 +392,12 @@ export default function RoutineDetail({ company }: { company: Company }) {
           />
         )}
         {tab === "brief" && (
-          <BriefTab key={`${company.id}:${routine.id}`} company={company} routine={routine} />
+          <BriefTab
+            key={`${company.id}:${routine.id}`}
+            company={company}
+            routine={routine}
+            onSwitchedOn={() => void refresh()}
+          />
         )}
         {tab === "runs" && (
           <RunsTab
@@ -1006,10 +1011,22 @@ function backoffPreview(baseSec: number, attempts: number): string {
 /**
  * The markdown brief the runner folds into the prompt every time the routine
  * fires. Round-trips against `Routine.body` via `/routines/:rid/readme`.
+ *
+ * A routine created without its brief waits paused for one, and the first
+ * brief saved switches it on. The tab says so before the save, not after.
  */
-function BriefTab({ company, routine }: { company: Company; routine: RoutineWithMeta }) {
+function BriefTab({
+  company,
+  routine,
+  onSwitchedOn,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  onSwitchedOn: () => void;
+}) {
   const [content, setContent] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
+  const [awaitingBrief, setAwaitingBrief] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = React.useState(0);
@@ -1019,11 +1036,14 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     let active = true;
     setLoadError(null);
     api
-      .get<{ content: string }>(`/api/companies/${company.id}/routines/${routine.id}/readme`)
+      .get<{ content: string; awaitingBrief: boolean }>(
+        `/api/companies/${company.id}/routines/${routine.id}/readme`,
+      )
       .then((r) => {
         if (!active) return;
         setContent(r.content);
         setSaved(r.content);
+        setAwaitingBrief(r.awaitingBrief);
       })
       .catch((err: unknown) => {
         if (active) setLoadError(errorMessage(err, "Could not load the brief"));
@@ -1038,8 +1058,15 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     setSaving(true);
     setError(null);
     try {
-      await api.put(`/api/companies/${company.id}/routines/${routine.id}/readme`, { content });
+      const result = await api.put<{ ok: true; enabled: boolean }>(
+        `/api/companies/${company.id}/routines/${routine.id}/readme`,
+        { content },
+      );
       setSaved(content);
+      if (awaitingBrief && result.enabled) {
+        setAwaitingBrief(false);
+        onSwitchedOn();
+      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -1058,6 +1085,8 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     );
   if (content === null) return <Spinner />;
   const dirty = content !== saved;
+  // Switched on from the header in the meantime, it is no longer waiting.
+  const switchesOnWhenSaved = awaitingBrief && !routine.enabled;
 
   return (
     <Card>
@@ -1066,6 +1095,18 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
           What this employee should actually do each time the routine fires. Folded into the prompt
           on every run.
         </p>
+        {switchesOnWhenSaved && (
+          <div className="flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-100">
+            <Pause size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium">Paused until its brief is saved</div>
+              <div className="text-xs">
+                Replace the outline below with what the employee should do. Saving the brief
+                switches this routine on, and it runs on its schedule from then on.
+              </div>
+            </div>
+          </div>
+        )}
         <MarkdownEditor
           value={content}
           onChange={setContent}
@@ -1077,7 +1118,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
         <FormError message={error} />
         <div className="flex items-center gap-2">
           <Button onClick={save} loading={saving} disabled={!dirty}>
-            {saving ? "Saving…" : "Save brief"}
+            {saving ? "Saving…" : switchesOnWhenSaved ? "Save brief & switch on" : "Save brief"}
           </Button>
           {dirty && (
             <span className="text-xs text-slate-400 dark:text-slate-500">Unsaved changes</span>

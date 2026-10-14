@@ -346,7 +346,12 @@ describe("an AI Employee cannot schedule work that never happens", () => {
 
   test("the ordinary schedules still go through, and land with a next run", async () => {
     for (const cronExpr of ["0 9 * * 1-5", "*/15 * * * *", "@daily", "0 9 20 8 *"]) {
-      const { status } = await tool("create_routine", { name: `Fine ${cronExpr}`, cronExpr });
+      // With a brief, so the routine is switched on and scheduled at once.
+      const { status } = await tool("create_routine", {
+        name: `Fine ${cronExpr}`,
+        cronExpr,
+        brief: "Post the digest.",
+      });
       assert.equal(status, 200, `${cronExpr} was rejected`);
     }
     const saved = await AppDataSource.getRepository(Routine).find();
@@ -354,6 +359,61 @@ describe("an AI Employee cannot schedule work that never happens", () => {
     for (const routine of saved) {
       assert.notEqual(routine.nextRunAt, null, `${routine.cronExpr} saved with no next run`);
     }
+  });
+});
+
+/**
+ * A routine created without a brief would run the starter outline on its
+ * schedule, so it waits paused, and the first brief written into it switches it
+ * on — the same rule as a routine made on the New routine page.
+ */
+describe("create_routine without a brief waits paused for one", () => {
+  type Reply = { routine: { id: string; enabled: boolean }; note?: string };
+  const digest = { name: "Digest", cronExpr: "0 9 * * 1-5" };
+  const nextRunAt = async (id: string) =>
+    (await AppDataSource.getRepository(Routine).findOneByOrFail({ id })).nextRunAt;
+
+  test("it is created paused with nothing scheduled, and the reply says how to start it", async () => {
+    const { status, body } = await tool<Reply>("create_routine", digest);
+    assert.equal(status, 200);
+    assert.equal(body.routine.enabled, false);
+    assert.match(body.note ?? "", /update_routine/);
+    assert.equal(await nextRunAt(body.routine.id), null);
+  });
+
+  test("with a brief it is switched on and scheduled at once", async () => {
+    const { body } = await tool<Reply>("create_routine", { ...digest, brief: "Post the digest." });
+    assert.equal(body.routine.enabled, true);
+    assert.equal(body.note, undefined);
+    assert.notEqual(await nextRunAt(body.routine.id), null);
+  });
+
+  test("update_routine writing its first brief switches it on, and says so", async () => {
+    const { id } = (await tool<Reply>("create_routine", digest)).body.routine;
+    const { status, body } = await tool<Reply>("update_routine", {
+      routineId: id,
+      brief: "Post the digest.",
+    });
+    assert.equal(status, 200);
+    assert.equal(body.routine.enabled, true);
+    assert.match(body.note ?? "", /switched on/);
+    assert.notEqual(await nextRunAt(id), null);
+  });
+
+  test("an explicit enabled in the same call wins, and a written brief never switches it on", async () => {
+    const { id } = (await tool<Reply>("create_routine", digest)).body.routine;
+    const held = await tool<Reply>("update_routine", {
+      routineId: id,
+      brief: "Post the digest.",
+      enabled: false,
+    });
+    assert.equal(held.body.routine.enabled, false);
+    assert.equal(held.body.note, undefined);
+
+    const later = await tool<Reply>("update_routine", { routineId: id, brief: "Post it daily." });
+    assert.equal(later.body.routine.enabled, false);
+    assert.equal(later.body.note, undefined);
+    assert.equal(await nextRunAt(id), null);
   });
 });
 

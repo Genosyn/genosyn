@@ -40,9 +40,11 @@ export function Models() {
           Select <Strong>Add model</Strong> and choose your <Strong>AI Model service</Strong>.
         </LI>
         <LI>
-          For Claude or OpenAI, paste your API key. Genosyn loads the available models and
-          recommends a current choice. Select <Strong>Connect AI Model</Strong> to test and save it.
-          For a custom endpoint, enter its URL and model ID, then select <Strong>Add model</Strong>.
+          For Claude or OpenAI, paste your API key; <Strong>Get an Anthropic key</Strong> or{" "}
+          <Strong>Get an OpenAI key</Strong> under the field opens the page that creates one.
+          Genosyn loads the available models and recommends a current choice. Select{" "}
+          <Strong>Connect AI Model</Strong> to test and save it. For a custom endpoint, enter its
+          URL and model ID, then select <Strong>Add model</Strong>.
         </LI>
         <LI>
           To use ChatGPT subscription access, choose <Strong>ChatGPT sign-in</Strong>, continue,

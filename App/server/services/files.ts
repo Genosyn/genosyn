@@ -75,3 +75,18 @@ Where the output goes — a document, a channel, a report.
 Anything the runner should keep in mind.
 `;
 }
+
+/** The title and schedule lines `routineTemplate` writes above its outline. */
+const ROUTINE_TEMPLATE_HEAD = /^# [^\n]*\n\n\*\*Schedule:\*\* `[^`\n]*`\n\n/;
+const ROUTINE_TEMPLATE_OUTLINE = routineTemplate("", "").replace(ROUTINE_TEMPLATE_HEAD, "");
+
+/**
+ * Whether a Routine's brief has yet to be written: blank, or still exactly the
+ * outline `routineTemplate` put there. The title and schedule lines are not
+ * compared, because renaming or rescheduling a Routine does not write its brief.
+ */
+export function isUnwrittenRoutineBrief(body: string): boolean {
+  if (!body.trim()) return true;
+  const head = ROUTINE_TEMPLATE_HEAD.exec(body);
+  return head !== null && body.slice(head[0].length) === ROUTINE_TEMPLATE_OUTLINE;
+}

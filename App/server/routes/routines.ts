@@ -29,6 +29,7 @@ import {
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
+import { awaitingRoutineBrief, writeRoutineBrief } from "../services/routineBrief.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import {
@@ -389,7 +390,10 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     name: body.name,
     slug,
     cronExpr: body.cronExpr,
-    enabled: true,
+    // Its brief is written on the next screen. Until it is, the Routine stays
+    // paused, so one left unfinished never runs the starter outline on its
+    // schedule; saving the brief switches it on (`writeRoutineBrief`).
+    enabled: false,
     lastRunAt: null,
     folderId: body.folderId ?? null,
     body: routineTemplate(body.name, body.cronExpr),
@@ -721,7 +725,12 @@ routinesRouter.get("/routines/:rid/readme", async (req, res, next) => {
   try {
     const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
     if (!found) return res.status(404).json({ error: "Not found" });
-    res.json({ content: found.routine.body });
+    // `awaitingBrief` lets the editor say, before the save, that saving will
+    // switch the Routine on.
+    res.json({
+      content: found.routine.body,
+      awaitingBrief: awaitingRoutineBrief(found.routine),
+    });
   } catch (err) {
     next(err);
   }
@@ -733,18 +742,20 @@ routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (r
   try {
     const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
     if (!found) return res.status(404).json({ error: "Not found" });
-    found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
-    await AppDataSource.getRepository(Routine).save(found.routine);
+    const r = found.routine;
+    const switchedOn = writeRoutineBrief(r, (req.body as z.infer<typeof readmeSchema>).content);
+    await AppDataSource.getRepository(Routine).save(r);
     await recordAudit({
       companyId: found.co.id,
       actorUserId: req.userId ?? null,
       action: "routine.update",
       targetType: "routine",
-      targetId: found.routine.id,
-      targetLabel: found.routine.name,
-      metadata: { fields: ["body"] },
+      targetId: r.id,
+      targetLabel: r.name,
+      // A Routine's first brief also switches it on (`writeRoutineBrief`).
+      metadata: { fields: switchedOn ? ["body", "enabled"] : ["body"] },
     });
-    res.json({ ok: true });
+    res.json({ ok: true, enabled: r.enabled });
   } catch (err) {
     next(err);
   }

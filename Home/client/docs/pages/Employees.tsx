@@ -132,11 +132,16 @@ export function Employees() {
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
           takes an API key; OpenAI takes an API key or eligible ChatGPT subscription access; Custom
-          takes an OpenAI-compatible endpoint. You can skip this and connect one later.
+          takes an OpenAI-compatible endpoint. If none is connected when you choose{" "}
+          <Strong>Continue</Strong>, the step says so and offers{" "}
+          <Strong>Continue without a model</Strong>; connect one later from{" "}
+          <Strong>Settings → Model</Strong>.
         </LI>
         <LI>
           <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
-          constitution and rewrite it to fit your team.
+          constitution and rewrite it to fit your team. A blank answer gets a sensible default,
+          except <Strong>Reference material</Strong>: it starts empty, and the Soul has no reference
+          section unless you add links.
         </LI>
         <LI>
           <Strong>Choose Routines.</Strong> Genosyn selects responsibilities that fit the saved role

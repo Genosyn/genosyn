@@ -119,7 +119,8 @@ import {
 } from "../services/repositoryCommandRun.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
-import { routineTemplate, skillTemplate } from "../services/files.js";
+import { isUnwrittenRoutineBrief, routineTemplate, skillTemplate } from "../services/files.js";
+import { writeRoutineBrief } from "../services/routineBrief.js";
 import {
   folderPathFor,
   listFoldersWithMeta,
@@ -8827,15 +8828,19 @@ mcpInternalRouter.post(
       return res.status(400).json({ error: err.message });
     }
 
+    const brief = body.brief?.trim() ? body.brief : routineTemplate(body.name, body.cronExpr);
+    // Without a brief it waits paused, like a Routine made on the New routine
+    // page, and `update_routine` writing one switches it on.
+    const enabled = !isUnwrittenRoutineBrief(brief);
     const r = repo.create({
       employeeId: target.id,
       name: body.name,
       slug,
       cronExpr: body.cronExpr,
-      enabled: true,
+      enabled,
       lastRunAt: null,
       folderId: folder?.id ?? null,
-      body: body.brief?.trim() ? body.brief : routineTemplate(body.name, body.cronExpr),
+      body: brief,
     });
     registerRoutine(r);
     await repo.save(r);
@@ -8857,7 +8862,9 @@ mcpInternalRouter.post(
     await journal(
       target.id,
       `${self.name} scheduled a routine: "${r.name}"`,
-      `Cron: \`${r.cronExpr}\`\n\nCreated via the built-in MCP tool.`,
+      `Cron: \`${r.cronExpr}\`\n\nCreated via the built-in MCP tool.${
+        enabled ? "" : " Paused until its brief is written."
+      }`,
     );
 
     res.json({
@@ -8867,6 +8874,11 @@ mcpInternalRouter.post(
         await folderPathFor(co.id, r.folderId),
         await listChecks(r.id, co.id),
       ),
+      ...(enabled
+        ? {}
+        : {
+            note: "Created paused because it has no brief yet. Write one with update_routine `brief` and it switches on.",
+          }),
     });
   },
 );
@@ -8916,7 +8928,12 @@ mcpInternalRouter.post(
       routine.name = body.name;
     }
     if (body.cronExpr !== undefined) routine.cronExpr = body.cronExpr;
-    if (body.brief !== undefined) routine.body = body.brief;
+    let briefSwitchedOn = false;
+    if (body.brief !== undefined) {
+      // The first brief written into a Routine waiting for one switches it on,
+      // unless this same call sets `enabled` itself.
+      briefSwitchedOn = writeRoutineBrief(routine, body.brief) && body.enabled === undefined;
+    }
     if (body.enabled !== undefined) routine.enabled = body.enabled;
     if (body.folder !== undefined) {
       try {
@@ -8946,7 +8963,11 @@ mcpInternalRouter.post(
       targetType: "routine",
       targetId: routine.id,
       targetLabel: routine.name,
-      metadata: { via: "mcp", employeeId: owner.id, changes: body },
+      metadata: {
+        via: "mcp",
+        employeeId: owner.id,
+        changes: briefSwitchedOn ? { ...body, enabled: true } : body,
+      },
     });
     res.json({
       routine: serializeRoutine(
@@ -8955,6 +8976,9 @@ mcpInternalRouter.post(
         await folderPathFor(co.id, routine.folderId),
         await listChecks(routine.id, co.id),
       ),
+      ...(briefSwitchedOn
+        ? { note: "This was its first brief, so the routine is now switched on and scheduled." }
+        : {}),
     });
   },
 );
