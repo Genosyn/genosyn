@@ -244,7 +244,14 @@ function DescribeRoutine({
           <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
             Nothing is sent yet: you review the request in Chat first.{" "}
             {ask.employee?.name ?? "The employee"} then proposes the Routine as an Initiative, which
-            waits in the Decision stack until an owner or admin accepts it.
+            waits in{" "}
+            <Link
+              to={`/c/${company.slug}/decisions/initiatives`}
+              className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Decision stack → Initiatives
+            </Link>{" "}
+            until an owner or admin accepts it.
           </p>
 
           <FormError message={ask.error} />

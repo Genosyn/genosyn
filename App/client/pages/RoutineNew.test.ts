@@ -117,7 +117,8 @@ describe("New routine, before anything is clicked", () => {
     for (const example of ROUTINE_EXAMPLES) assert.ok(html.includes(example.label), example.label);
     assert.match(html, /Nothing is sent yet: you review the request in Chat first\./);
     assert.match(html, /proposes the Routine as an Initiative/);
-    assert.match(html, /waits in the Decision stack until an owner or admin accepts it/);
+    assert.match(html, /href="\/c\/[^"]+\/decisions\/initiatives"[^>]*>Decision stack → Initiatives</);
+    assert.match(html, /until an owner or admin accepts it/);
   });
 
   test("offers only the employees whose Chat is ready", () => {
