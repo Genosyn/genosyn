@@ -9,6 +9,7 @@ import {
   companyIdsWithGoal,
   hasCompanyDirection,
   hasWrittenDirection,
+  primaryGoal,
 } from "./companyDirection.js";
 
 let company: Company;
@@ -122,6 +123,33 @@ describe("hasCompanyDirection", () => {
   test("a missing company has none", async () => {
     assert.equal(await hasCompanyDirection(null), false);
     assert.equal(await hasCompanyDirection(undefined), false);
+  });
+});
+
+describe("primaryGoal", () => {
+  async function created(goal: Goal, at: string) {
+    await AppDataSource.getRepository(Goal).update({ id: goal.id }, { createdAt: new Date(at) });
+  }
+
+  test("is the oldest active Goal at the top of the tree", async () => {
+    // The column keeps whole seconds, so the order is set by hand.
+    const newer = await makeGoal(company, { title: "Newer" });
+    const older = await makeGoal(company, { title: "Older" });
+    const subGoal = await makeGoal(company, { title: "Sub-goal", parentGoalId: older.id });
+    const archived = await makeGoal(company, { title: "Archived", status: "archived" });
+    await created(archived, "2025-11-01T00:00:00.000Z");
+    await created(subGoal, "2025-12-01T00:00:00.000Z");
+    await created(older, "2026-01-01T00:00:00.000Z");
+    await created(newer, "2026-02-01T00:00:00.000Z");
+
+    assert.equal((await primaryGoal(company.id))?.id, older.id);
+  });
+
+  test("is nothing when the company has no active top-level Goal", async () => {
+    await makeGoal(company, { status: "achieved" });
+    await makeGoal(other);
+
+    assert.equal(await primaryGoal(company.id), null);
   });
 });
 

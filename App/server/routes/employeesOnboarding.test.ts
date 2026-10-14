@@ -367,13 +367,23 @@ describe("AI Employee onboarding recommendation read route", () => {
     });
 
     test("quotes the oldest active top-level Goal when there are several", async () => {
-      await insert(Goal, { companyId: company.id, ...goalValues });
-      await insert(Goal, {
+      // Created a day apart: the column only keeps whole seconds, so two Goals
+      // written in one test would otherwise share a timestamp.
+      const oldest = await insert(Goal, { companyId: company.id, ...goalValues });
+      const later = await insert(Goal, {
         companyId: company.id,
         title: "A later Goal",
         slug: "a-later-goal",
         targetValue: 5,
       });
+      await AppDataSource.getRepository(Goal).update(
+        { id: oldest.id },
+        { createdAt: new Date("2026-01-01T00:00:00.000Z") },
+      );
+      await AppDataSource.getRepository(Goal).update(
+        { id: later.id },
+        { createdAt: new Date("2026-01-02T00:00:00.000Z") },
+      );
 
       const response = await call<RecommendationResponse>(
         "GET",
