@@ -65,10 +65,18 @@ export function MobileApp() {
 
       <H2 id="push-notifications">Push notifications</H2>
       <P>
-        Once installed, Genosyn can deliver <Strong>push notifications</Strong> — mentions in
-        workspace chat, review requests on todos, and pending approvals arrive as native
-        notifications even when the app is closed. Tapping one deep-links straight to the message,
-        todo, or approval.
+        Once installed, Genosyn can deliver <Strong>push notifications</Strong> — native
+        notifications that arrive even when the app is closed. Tapping one deep-links straight to
+        the message, todo, question, or approval.
+      </P>
+      <P>
+        A push interrupts you, so it is kept for what needs a person now: a Decision or an
+        Approval waiting on you, a mention, a todo someone asked you to review, an email an AI
+        Employee handed to you, and a follow-up reminder you set — plus the few events an owner
+        hears about at once: a Goal achieved or missed, an ad Budget spent, a Standdown placed.
+        Everything else — a failed Run, a reminder about something already waiting, a proposed
+        Revision or Initiative, a Finance review — lands only in the bell in the top bar and on
+        Home.
       </P>
       <OL>
         <LI>

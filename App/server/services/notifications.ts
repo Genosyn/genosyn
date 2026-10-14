@@ -30,6 +30,33 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
  * recipient's company so the bell can bump live without polling.
  */
 
+/**
+ * The kinds that also reach a person's phone or desktop as a push. Every row
+ * lands in the bell, but a push interrupts, so it is kept for what needs a
+ * person now — a question or an Approval that holds up work, a mention, a
+ * review someone named you for, an email handed to you, a follow-up you set —
+ * and for the few events an owner hears about at once: a Goal settled, a
+ * Budget spent, a Standdown placed.
+ *
+ * The rest wait quietly in the bell and on Home: a failed or off-goal Run, a
+ * reminder about something already pushed, a proposed edit or Initiative to
+ * review, a Finance review, a revoked Waiver, an overdue Handoff. They are the
+ * company's own work to sort out, and paging a person for each is how a
+ * notification stops meaning anything.
+ */
+export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
+  "mention",
+  "todo_review_requested",
+  "approval_pending",
+  "decision_pending",
+  "mail_handover",
+  "revenue_follow_up",
+  "goal_achieved",
+  "goal_missed",
+  "budget_exhausted",
+  "standdown_placed",
+]);
+
 export type CreateNotificationInput = {
   companyId: string;
   userId: string;
@@ -125,9 +152,11 @@ export async function createNotifications(
     });
   }
 
-  // Fan out to the recipient's PWA devices. Fire-and-forget: push delivery
+  // Fan out to the recipient's PWA devices — only the kinds that need a
+  // person now (`PUSHED_NOTIFICATION_KINDS`). Fire-and-forget: push delivery
   // must never delay or fail the write that produced the bell row.
   for (const row of rows) {
+    if (!PUSHED_NOTIFICATION_KINDS.has(row.kind)) continue;
     void sendPushToUser(row.userId, {
       title: row.title,
       body: row.body,
@@ -354,7 +383,7 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
     link:
       approval.kind === "proactive_work" || approval.kind === "mail_send"
         ? `/c/${company.slug}/decisions#review-${approval.id}`
-        : `/c/${company.slug}/approvals`,
+        : `/c/${company.slug}/decisions/approvals`,
     actorKind: "ai" as const,
     actorId: employee.id,
     entityKind: "approval" as const,
