@@ -456,6 +456,15 @@ async function open(options: FixtureOptions = {}) {
     });
   }
   page.on("pageerror", (error) => browserErrors.push(error.message));
+  // React only logs duplicate sibling keys, but it may then duplicate or drop
+  // one of Home's cards on the next reconciliation.
+  page.on("console", (message) => {
+    if (
+      message.type() === "error" &&
+      message.text().includes("Encountered two children with the same key")
+    )
+      browserErrors.push(message.text());
+  });
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -3099,7 +3108,7 @@ try {
       await page.close();
     },
   );
-  assert.deepEqual(browserErrors, [], "browser must have no uncaught errors");
+  assert.deepEqual(browserErrors, [], "browser must have no uncaught errors or duplicate keys");
   assert.deepEqual(unexpectedRequests, [], "browser must only make expected fixture requests");
   console.log(`PASS ${checks} Home layout browser regressions`);
 } finally {

@@ -457,7 +457,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             {hasAnythingToShow(data, company) || decisionFollowUps.items.length > 0 ? (
               <>
                 <ActiveDecisions
-                  key={company.id}
+                  key={`decisions:${company.id}`}
                   company={company}
                   data={data}
                   followUps={decisionFollowUps}
@@ -465,7 +465,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   viewerId={me.id}
                 />
                 <RepositoryWorkCard
-                  key={company.id}
+                  key={`repository-work:${company.id}`}
                   company={company}
                   initialItems={data.repositoryWork}
                   initialTotal={data.repositoryWorkCount}
