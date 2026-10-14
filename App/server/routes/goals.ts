@@ -10,6 +10,7 @@ import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
   GoalError,
+  confirmGoalProgress,
   createGoal,
   deleteGoal,
   getGoal,
@@ -24,7 +25,8 @@ import {
  * Goals (M51). Reads are member-level — a Goal is the company's shared
  * direction and every Member may see where it stands. Mutations are
  * admin-gated: humans set intent, and which humans is the same call as who
- * may re-file the company's Routines.
+ * may re-file the company's Routines. Confirming a number an AI Employee
+ * reported is one of those mutations — it is what settles the Goal.
  */
 export const goalsRouter = Router({ mergeParams: true });
 goalsRouter.use(requireAuth);
@@ -149,7 +151,7 @@ goalsRouter.post(
     const cid = req.params.cid;
     const body = req.body as z.infer<typeof progressSchema>;
     try {
-      const goal = await reportGoalProgress(cid, req.params.gid, body.value);
+      const goal = await reportGoalProgress(cid, req.params.gid, body.value, { kind: "member" });
       await recordAudit({
         companyId: cid,
         actorUserId: req.userId ?? null,
@@ -158,6 +160,31 @@ goalsRouter.post(
         targetId: goal.id,
         targetLabel: goal.title,
         metadata: { value: body.value },
+      });
+      res.json(serializeGoal(goal));
+    } catch (err) {
+      failGoal(res, err);
+    }
+  },
+);
+
+goalsRouter.post(
+  "/goals/:gid/confirm",
+  validateParams(goalParamsSchema),
+  validateBody(progressSchema),
+  async (req, res) => {
+    const cid = req.params.cid;
+    const body = req.body as z.infer<typeof progressSchema>;
+    try {
+      const goal = await confirmGoalProgress(cid, req.params.gid, body.value);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "goal.confirm",
+        targetType: "goal",
+        targetId: goal.id,
+        targetLabel: goal.title,
+        metadata: { value: body.value, status: goal.status },
       });
       res.json(serializeGoal(goal));
     } catch (err) {

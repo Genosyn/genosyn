@@ -2,6 +2,7 @@ import React from "react";
 import {
   Archive,
   ArchiveRestore,
+  Check,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -41,8 +42,10 @@ import type { ChartListItem } from "./ExploreLayout";
  * Routines link to one from their Settings tab. Manual goals take reported
  * numbers; chart goals read their current value from an Explore chart, so
  * their rows carry an "auto" hint and a refresh action instead of a report
- * button. Mutations are admin/owner-only — the server enforces it, this page
- * just declines to offer them to plain members.
+ * button. A number an AI employee reported never settles a goal: one that
+ * meets the target reads "Needs confirmation" until a person confirms it.
+ * Mutations are admin/owner-only — the server enforces it, this page just
+ * declines to offer them to plain members.
  */
 
 const STATUS_LABEL: Record<GoalStatus, string> = {
@@ -299,15 +302,37 @@ function GoalRow({
 }) {
   const dialog = useDialog();
   const [refreshing, setRefreshing] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
 
   const descriptionLine = goal.description.split("\n")[0]?.trim() ?? "";
   const progress = goal.progress === null ? null : Math.min(1, Math.max(0, goal.progress));
   const barColor =
     goal.status === "missed"
       ? "bg-red-500 dark:bg-red-400"
-      : goal.met || goal.status === "achieved"
-        ? "bg-emerald-500 dark:bg-emerald-400"
-        : "bg-indigo-500 dark:bg-indigo-400";
+      : goal.awaitingConfirmation
+        ? "bg-amber-500 dark:bg-amber-400"
+        : goal.met || goal.status === "achieved"
+          ? "bg-emerald-500 dark:bg-emerald-400"
+          : "bg-indigo-500 dark:bg-indigo-400";
+
+  // Confirms the exact number on screen; the server refuses if an employee
+  // has reported another since, so nobody vouches for a number they never saw.
+  async function confirm() {
+    if (goal.currentValue === null) return;
+    setConfirming(true);
+    try {
+      await api.post(`/api/companies/${company.id}/goals/${goal.id}/confirm`, {
+        value: goal.currentValue,
+      });
+      onChanged();
+    } catch (err) {
+      void dialog.error(err, { title: "Could not confirm the goal" });
+      // Usually the number moved; show the current one to review.
+      onChanged();
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   async function refresh() {
     setRefreshing(true);
@@ -355,14 +380,23 @@ function GoalRow({
         style={depth > 0 ? { paddingLeft: Math.min(depth, 6) * 24 } : undefined}
       >
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <span
-            className={clsx(
-              "mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-              STATUS_CHIP[goal.status],
-            )}
-          >
-            {STATUS_LABEL[goal.status]}
-          </span>
+          {goal.awaitingConfirmation ? (
+            <span
+              className="mt-0.5 shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              title="Still active. An AI employee reported the target met, and the goal settles once a person confirms the number."
+            >
+              Needs confirmation
+            </span>
+          ) : (
+            <span
+              className={clsx(
+                "mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                STATUS_CHIP[goal.status],
+              )}
+            >
+              {STATUS_LABEL[goal.status]}
+            </span>
+          )}
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               {/* For those who can change it, the title opens Edit — the
@@ -400,10 +434,17 @@ function GoalRow({
                 Owner: {owner.name}
               </div>
             )}
+            {goal.awaitingConfirmation && (
+              <div className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                Reported by an AI employee
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Shrinkable, so on a phone the controls wrap inside the card rather
+            than pushing Report progress and the menu past its edge. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
           <div className="w-44">
             {progress !== null ? (
               <>
@@ -437,6 +478,18 @@ function GoalRow({
             </div>
           )}
 
+          {canManage && goal.awaitingConfirmation && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={confirming}
+              onClick={() => void confirm()}
+              title="Confirm the reported number and settle the goal as achieved"
+              aria-label={`Confirm ${goal.title}`}
+            >
+              <Check size={14} /> Confirm
+            </Button>
+          )}
           {canManage && goal.metricKind === "manual" && (
             <Button variant="ghost" size="sm" onClick={() => onReport(goal)}>
               Report progress

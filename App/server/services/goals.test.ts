@@ -5,19 +5,26 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Goal } from "../db/entities/Goal.js";
 import { Membership } from "../db/entities/Membership.js";
-import { Notification } from "../db/entities/Notification.js";
+import { Notification, type NotificationKind } from "../db/entities/Notification.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
 import {
+  GoalAccessError,
   GoalError,
+  type GoalReporter,
   composeGoalsContext,
+  confirmGoalProgress,
   createGoal,
   deleteGoal,
   goalBriefBlock,
   goalProgress,
+  goalsReadingChart,
+  isAwaitingConfirmation,
   isGoalMet,
   refreshGoalValue,
+  releaseGoalsFromChart,
+  releaseGoalsOwnedBy,
   reportGoalProgress,
   resolveGoal,
   sweepGoals,
@@ -27,9 +34,12 @@ import {
 /**
  * Goals are the intent layer everything else grades against, so the
  * invariants here are the ones a wrong answer would quietly corrupt: progress
- * arithmetic, the tree rules, company scoping, and — above all — that
- * `achieved` / `missed` settle exactly once however many passes race.
+ * arithmetic, the tree rules, company scoping, that `achieved` / `missed`
+ * settle exactly once however many passes race, and that the AI Employee a
+ * Goal grades can never settle it with its own report.
  */
+
+const MEMBER: GoalReporter = { kind: "member" };
 
 let companyId: string;
 let employeeId: string;
@@ -283,18 +293,18 @@ describe("progress reports and settling", () => {
       { title: "MRR", targetValue: 1, metricKind: "chart", chartId: chart.id },
       null,
     );
-    await assert.rejects(reportGoalProgress(companyId, goal.id, 5), GoalError);
+    await assert.rejects(reportGoalProgress(companyId, goal.id, 5, MEMBER), GoalError);
   });
 
   test("an archived goal refuses reports", async () => {
     const goal = await createGoal(companyId, { title: "G", targetValue: 1 }, null);
     await updateGoal(companyId, goal.id, { status: "archived" });
-    await assert.rejects(reportGoalProgress(companyId, goal.id, 5), GoalError);
+    await assert.rejects(reportGoalProgress(companyId, goal.id, 5, MEMBER), GoalError);
   });
 
   test("a report that clears the target settles achieved exactly once and notifies", async () => {
     const goal = await createGoal(companyId, { title: "Signups", targetValue: 10 }, null);
-    const reported = await reportGoalProgress(companyId, goal.id, 12);
+    const reported = await reportGoalProgress(companyId, goal.id, 12, MEMBER);
     assert.equal(reported.status, "achieved");
     assert.ok(reported.settledAt);
     // The races the claim must win: a second report and a sweep pass.
@@ -327,6 +337,264 @@ describe("progress reports and settling", () => {
     await sweepGoals();
     const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
     assert.equal(after.status, "active");
+  });
+});
+
+describe("AI Employee reports", () => {
+  const employee = (): GoalReporter => ({ kind: "employee", employeeId });
+
+  beforeEach(async () => {
+    await insert(Membership, { companyId, userId: testId("owner"), role: "owner" });
+  });
+
+  async function ownedGoal(over: { dueAt?: Date } = {}): Promise<Goal> {
+    return createGoal(
+      companyId,
+      { title: "Signups", targetValue: 10, ownerEmployeeId: employeeId, ...over },
+      null,
+    );
+  }
+
+  async function bells(kind: NotificationKind): Promise<Notification[]> {
+    return AppDataSource.getRepository(Notification).findBy({ kind });
+  }
+
+  test("a met number waits for a person: neither the report nor the sweep settles it", async () => {
+    const goal = await ownedGoal();
+    const reported = await reportGoalProgress(companyId, goal.id, 12, employee());
+    assert.equal(reported.status, "active");
+    assert.equal(reported.currentValueSource, "employee");
+    assert.equal(isAwaitingConfirmation(reported), true);
+
+    await sweepGoals();
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "active");
+    assert.equal(after.settledAt, null);
+    assert.equal((await bells("goal_achieved")).length, 0);
+    // Still in front of every employee, marked as unconfirmed.
+    assert.match(
+      await composeGoalsContext(companyId, employeeId),
+      /Signups.*reported met, awaiting a person's confirmation/,
+    );
+    assert.match(
+      (await goalBriefBlock(companyId, goal.id)) ?? "",
+      /currently 12, reported met and awaiting a person's confirmation/,
+    );
+  });
+
+  test("owners and admins are told once per claim, naming the employee", async () => {
+    const goal = await ownedGoal();
+    await reportGoalProgress(companyId, goal.id, 12, employee());
+    await reportGoalProgress(companyId, goal.id, 14, employee());
+    let pending = await bells("goal_confirmation_pending");
+    assert.equal(pending.length, 1);
+    assert.match(pending[0].title, /Signups/);
+    assert.match(pending[0].body, /^Ada reported 12 against a target of 10/);
+
+    // Falling short ends the claim; meeting the target again is a new one.
+    await reportGoalProgress(companyId, goal.id, 4, employee());
+    await reportGoalProgress(companyId, goal.id, 11, employee());
+    pending = await bells("goal_confirmation_pending");
+    assert.equal(pending.length, 2);
+  });
+
+  test("a goal reported met is not missed when its deadline passes", async () => {
+    const goal = await ownedGoal({ dueAt: new Date(Date.now() - 60_000) });
+    await reportGoalProgress(companyId, goal.id, 12, employee());
+    await sweepGoals();
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "active");
+  });
+
+  test("an unmet number past the deadline is missed by the sweep, never by the report", async () => {
+    const goal = await ownedGoal({ dueAt: new Date(Date.now() - 60_000) });
+    const reported = await reportGoalProgress(companyId, goal.id, 3, employee());
+    assert.equal(reported.status, "active");
+    await sweepGoals();
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "missed");
+  });
+
+  test("reports only on a goal the employee owns or one of its routines serves", async () => {
+    const northStar = await createGoal(
+      companyId,
+      { title: "Company north star", targetValue: 100 },
+      null,
+    );
+    await assert.rejects(
+      reportGoalProgress(companyId, northStar.id, 1, employee()),
+      GoalAccessError,
+    );
+
+    const colleague = await insert(AIEmployee, {
+      companyId,
+      name: "Bo",
+      slug: "bo",
+      role: "Ops",
+      soulBody: "",
+    });
+    const theirs = await createGoal(
+      companyId,
+      { title: "Bo's goal", targetValue: 5, ownerEmployeeId: colleague.id },
+      null,
+    );
+    await assert.rejects(reportGoalProgress(companyId, theirs.id, 1, employee()), GoalAccessError);
+
+    await insert(Routine, {
+      employeeId,
+      name: "Weekly report",
+      slug: "weekly-report",
+      cronExpr: "0 9 * * 1",
+      goalId: northStar.id,
+    });
+    const served = await reportGoalProgress(companyId, northStar.id, 7, employee());
+    assert.equal(served.currentValue, 7);
+    const untouched = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: theirs.id });
+    assert.equal(untouched.currentValue, null);
+  });
+});
+
+describe("confirming a reported number", () => {
+  beforeEach(async () => {
+    await insert(Membership, { companyId, userId: testId("owner"), role: "owner" });
+  });
+
+  async function reportedMet(): Promise<Goal> {
+    const goal = await createGoal(
+      companyId,
+      { title: "Signups", targetValue: 10, ownerEmployeeId: employeeId },
+      null,
+    );
+    return reportGoalProgress(companyId, goal.id, 12, { kind: "employee", employeeId });
+  }
+
+  test("a person's confirmation settles achieved once and notifies", async () => {
+    const goal = await reportedMet();
+    const confirmed = await confirmGoalProgress(companyId, goal.id, 12);
+    assert.equal(confirmed.status, "achieved");
+    assert.equal(confirmed.currentValueSource, "member");
+    await sweepGoals();
+    const achieved = await AppDataSource.getRepository(Notification).findBy({
+      kind: "goal_achieved",
+    });
+    assert.equal(achieved.length, 1);
+  });
+
+  test("refuses a number that moved since it was read, and a goal with nothing to confirm", async () => {
+    const goal = await reportedMet();
+    await assert.rejects(confirmGoalProgress(companyId, goal.id, 11), /changed/);
+    const plain = await createGoal(
+      companyId,
+      { title: "Plain", targetValue: 10, currentValue: 3 },
+      null,
+    );
+    await assert.rejects(confirmGoalProgress(companyId, plain.id, 3), GoalError);
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "active");
+  });
+
+  test("an unrelated edit does not turn a reported number into a person's", async () => {
+    const goal = await reportedMet();
+    // The edit dialog re-sends a manual goal's current value with every save.
+    await updateGoal(companyId, goal.id, {
+      description: "Count trial signups only",
+      currentValue: 12,
+    });
+    await sweepGoals();
+    let after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "active");
+    assert.equal(after.currentValueSource, "employee");
+
+    // A different number a person types is theirs, and settles.
+    await updateGoal(companyId, goal.id, { currentValue: 13 });
+    await sweepGoals();
+    after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.currentValueSource, "member");
+    assert.equal(after.status, "achieved");
+  });
+});
+
+describe("when a chart or an employee goes", () => {
+  async function chart(slug: string): Promise<Chart> {
+    return insert(Chart, {
+      companyId,
+      title: slug,
+      slug,
+      connectionId: testId("conn"),
+      sql: "select 1",
+    });
+  }
+
+  test("goalsReadingChart lists every goal bound to the chart, archived ones included", async () => {
+    const mrr = await chart("mrr");
+    const other = await chart("other");
+    const live = await createGoal(
+      companyId,
+      { title: "Live", targetValue: 1, metricKind: "chart", chartId: mrr.id },
+      null,
+    );
+    const shelved = await createGoal(
+      companyId,
+      { title: "Shelved", targetValue: 1, metricKind: "chart", chartId: mrr.id },
+      null,
+    );
+    await updateGoal(companyId, shelved.id, { status: "archived" });
+    await createGoal(
+      companyId,
+      { title: "Elsewhere", targetValue: 1, metricKind: "chart", chartId: other.id },
+      null,
+    );
+    assert.deepEqual(
+      (await goalsReadingChart(companyId, mrr.id)).map((g) => g.id).sort(),
+      [live.id, shelved.id].sort(),
+    );
+    assert.deepEqual(await goalsReadingChart(testId("other-co"), mrr.id), []);
+  });
+
+  test("releaseGoalsFromChart demotes bound goals to manual, keeping their last reading", async () => {
+    const mrr = await chart("mrr");
+    const bound = await insert(Goal, {
+      companyId,
+      title: "MRR",
+      slug: "mrr",
+      targetValue: 100,
+      metricKind: "chart",
+      chartId: mrr.id,
+      currentValue: 42,
+      currentValueSource: "chart",
+    });
+    assert.equal(await releaseGoalsFromChart(companyId, mrr.id), 1);
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: bound.id });
+    assert.equal(after.metricKind, "manual");
+    assert.equal(after.chartId, null);
+    assert.equal(after.currentValue, 42);
+    // Reportable by hand again, where a dangling binding refused every report.
+    const reported = await reportGoalProgress(companyId, bound.id, 50, MEMBER);
+    assert.equal(reported.currentValue, 50);
+  });
+
+  test("releaseGoalsOwnedBy clears that employee's ownership and nobody else's", async () => {
+    const colleague = await insert(AIEmployee, {
+      companyId,
+      name: "Bo",
+      slug: "bo",
+      role: "Ops",
+      soulBody: "",
+    });
+    const mine = await createGoal(
+      companyId,
+      { title: "Mine", targetValue: 1, ownerEmployeeId: employeeId },
+      null,
+    );
+    const theirs = await createGoal(
+      companyId,
+      { title: "Theirs", targetValue: 1, ownerEmployeeId: colleague.id },
+      null,
+    );
+    await releaseGoalsOwnedBy(companyId, employeeId);
+    const repo = AppDataSource.getRepository(Goal);
+    assert.equal((await repo.findOneByOrFail({ id: mine.id })).ownerEmployeeId, null);
+    assert.equal((await repo.findOneByOrFail({ id: theirs.id })).ownerEmployeeId, colleague.id);
   });
 });
 

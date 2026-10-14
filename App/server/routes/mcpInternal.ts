@@ -127,8 +127,11 @@ import {
   RoutineFolderError,
 } from "../services/routineFolders.js";
 import {
+  GoalAccessError,
   GoalError,
+  goalsReadingChart,
   listGoals,
+  releaseGoalsFromChart,
   reportGoalProgress,
   resolveGoal,
   serializeGoal,
@@ -9238,7 +9241,7 @@ mcpInternalRouter.post("/tools/list_goals", async (req: McpRequest, res) => {
     note:
       goals.length === 0
         ? "No goals are set. Goals are written by humans from the Goals page."
-        : "Call get_goal for one goal's full description. Report manual-goal numbers with update_goal_progress.",
+        : "Call get_goal for one goal's full description. Report the number of a manual goal you own or one of your routines serves with update_goal_progress. A report never settles a goal: a person confirms it.",
   });
 });
 
@@ -9270,10 +9273,14 @@ mcpInternalRouter.post(
   async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof updateGoalProgressSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const goal = await resolveGoal(co.id, body.goal);
     if (!goal) return res.status(404).json({ error: "Goal not found" });
     try {
-      const saved = await reportGoalProgress(co.id, goal.id, body.value);
+      const saved = await reportGoalProgress(co.id, goal.id, body.value, {
+        kind: "employee",
+        employeeId: self.id,
+      });
       await aiWriteTrail(req, {
         action: "goal.progress",
         targetType: "goal",
@@ -9283,8 +9290,17 @@ mcpInternalRouter.post(
         journalBody: body.note ?? "",
         metadata: { value: body.value },
       });
-      res.json({ goal: serializeGoal(saved) });
+      const reported = serializeGoal(saved);
+      res.json({
+        goal: reported,
+        ...(reported.awaitingConfirmation
+          ? {
+              note: "This number meets the target. The goal stays active until a person confirms it; your report does not settle it.",
+            }
+          : {}),
+      });
     } catch (err) {
+      if (err instanceof GoalAccessError) return res.status(403).json({ error: err.message });
       if (!(err instanceof GoalError)) return next(err);
       res.status(400).json({ error: err.message });
     }
@@ -17996,6 +18012,20 @@ mcpInternalRouter.post(
   },
 );
 
+/**
+ * A Chart a Goal reads supplies the number that Goal is graded on, so what it
+ * computes, and whether it exists, is a person's call — the same reason no
+ * tool writes a Goal. Presentation edits stay open.
+ */
+function goalBoundChartRefusal(goals: { title: string }[], act: string): string {
+  const titles = goals.map((goal) => `"${goal.title}"`).join(", ");
+  return (
+    `This chart supplies the number of the ${goals.length === 1 ? "goal" : "goals"} ${titles}, ` +
+    `so only a person can ${act}. Ask a Member to make the change in Explore. ` +
+    "You can still edit its title, description, and visualization."
+  );
+}
+
 const updateChartMcpSchema = z
   .object({
     chartSlug: z.string().min(1).max(160),
@@ -18021,6 +18051,12 @@ mcpInternalRouter.post(
     if (!row) return res.status(404).json({ error: "Chart not found" });
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
       return res.status(403).json({ error: "Write access required to edit that chart" });
+    }
+    if (body.sql !== undefined && body.sql !== row.sql) {
+      const goals = await goalsReadingChart(co.id, row.id);
+      if (goals.length > 0) {
+        return res.status(403).json({ error: goalBoundChartRefusal(goals, "change its SQL") });
+      }
     }
     if (body.sql !== undefined) {
       const connection = await loadGrantedExploreConnection(req, res, row.connectionId);
@@ -18062,8 +18098,15 @@ mcpInternalRouter.post(
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
       return res.status(403).json({ error: "Write access required to delete that chart" });
     }
+    const goals = await goalsReadingChart(co.id, row.id);
+    if (goals.length > 0) {
+      return res.status(403).json({ error: goalBoundChartRefusal(goals, "delete it") });
+    }
     await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
     await deleteGrantsForChart(row.id);
+    // A person may bind a goal between the check above and this delete;
+    // demote it rather than leave it reading a chart that is gone.
+    await releaseGoalsFromChart(co.id, row.id);
     await AppDataSource.getRepository(Chart).delete({ id: row.id });
     await recordAudit({
       companyId: co.id,

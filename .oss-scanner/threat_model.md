@@ -264,7 +264,10 @@ Most, roughly in order:
    (`App/server/services/standdowns.ts`), and the taint policy. Checks and
    Waivers must have no MCP tool that writes them, and Standdowns none that
    lifts them. Decision intake (`App/server/services/decisionIntake.ts`) is
-   the only path that creates a Decision.
+   the only path that creates a Decision. An AI Employee's Goal report
+   (`App/server/services/goals.ts`) reaches only Goals it owns or its
+   Routines serve and never settles one, and the Explore MCP tools refuse to
+   change the SQL of, or delete, a Chart a Goal reads.
 6. **Mail automation**: the analysis action allowlist
    (`App/server/services/mail/analysisAutomation.ts`: star, mark read,
    archive, a label the cited instruction names, and the email's own verified
@@ -432,8 +435,9 @@ self-hosted install: single-tenant, host execution, SQLite.
   Repository with commands off, or with `executionMode: "disabled"`.
 - Bypassing a human gate: performing a held action without its Approval,
   changing what an Approval replays after it was granted, acting while a
-  Standdown covers the scope, or an AI Employee or Member writing a Check or
-  Waiver or lifting a Standdown.
+  Standdown covers the scope, an AI Employee or Member writing a Check or
+  Waiver or lifting a Standdown, or an AI Employee settling a Goal or
+  changing the SQL of, or deleting, a Chart a Goal reads.
 - Bypassing a Grant: an AI Employee using a Connection, Vault item,
   Repository, Base, mailbox, or Project it was not granted. Also a Vault
   `use` Grant returning plaintext to the model, or Vault fill typing into

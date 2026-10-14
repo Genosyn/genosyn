@@ -467,13 +467,17 @@ export type RoutineFolderTree = {
 export type GoalMetricKind = "manual" | "chart";
 export type GoalDirection = "increase_to" | "decrease_to";
 export type GoalStatus = "active" | "achieved" | "missed" | "archived";
+/** Who supplied the current value: a person, an AI Employee, or the chart. */
+export type GoalValueSource = "member" | "employee" | "chart";
 
 /**
  * A measurable objective AI employees steer toward, as
  * `GET /api/companies/:cid/goals` returns it. Goals nest (`parentGoalId`) and
  * Routines link to one via `Routine.goalId`. Manual goals take reported
  * progress (`POST /goals/:gid/progress`); chart goals read their current
- * value from an Explore chart (`POST /goals/:gid/refresh` runs it now).
+ * value from an Explore chart (`POST /goals/:gid/refresh` runs it now). A
+ * number an AI Employee reported never settles a goal: one that meets the
+ * target waits for `POST /goals/:gid/confirm`.
  */
 export type Goal = {
   id: string;
@@ -488,6 +492,7 @@ export type Goal = {
   targetValue: number;
   currentValue: number | null;
   currentValueUpdatedAt: string | null;
+  currentValueSource: GoalValueSource | null;
   direction: GoalDirection;
   unit: string;
   dueAt: string | null;
@@ -497,6 +502,9 @@ export type Goal = {
   /** 0..1 toward the target, or null when it cannot be computed yet. */
   progress: number | null;
   met: boolean;
+  /** An AI Employee reported a number that meets the target; it settles once
+   * a person confirms it. */
+  awaitingConfirmation: boolean;
 };
 
 // ─────────────────────────── Improvement loop ───────────────────────────
@@ -3423,6 +3431,8 @@ export type NotificationKind =
   | "handoff_overdue"
   | "goal_achieved"
   | "goal_missed"
+  /** An AI Employee reported a goal's target met — it waits for a person. */
+  | "goal_confirmation_pending"
   | "revision_pending"
   | "revision_stale"
   /** An employee's earned-autonomy waiver was revoked — the gate re-armed. */

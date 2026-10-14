@@ -38,6 +38,7 @@ import {
   upsertDashboardGrant,
   VIZ_TYPES,
 } from "../services/explore.js";
+import { releaseGoalsFromChart } from "../services/goals.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import {
   createDashboardCard,
@@ -280,6 +281,8 @@ exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
   await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
   await deleteGrantsForChart(row.id);
   await deleteTagAssignments("chart", row.id);
+  // Goals reading this chart become manual goals that keep their last value.
+  const goalsDemoted = await releaseGoalsFromChart(cid, row.id);
   await AppDataSource.getRepository(Chart).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
@@ -288,6 +291,7 @@ exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
     targetType: "chart",
     targetId: row.id,
     targetLabel: row.title,
+    ...(goalsDemoted > 0 ? { metadata: { goalsDemoted } } : {}),
   });
   res.json({ ok: true });
 });

@@ -1,11 +1,15 @@
 import { persistTestSession } from "../test/userSession.js";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 
+import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Company } from "../db/entities/Company.js";
@@ -13,18 +17,23 @@ import { Goal } from "../db/entities/Goal.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
+import { AppDataSource } from "../db/datasource.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
+import { employeesRouter } from "./employees.js";
 import { goalsRouter } from "./goals.js";
 import { routinesRouter } from "./routines.js";
 
 /**
  * The goal endpoints over real HTTP. `services/goals.test.ts` covers the tree
  * and settling invariants; this covers the boundary — reads are member-level,
- * every mutation is admin-gated, and a goal of another company is unreachable
- * whichever route carries the id.
+ * every mutation (confirming a reported number included) is admin-gated, and a
+ * goal of another company is unreachable whichever route carries the id.
  */
 
+const originalDataDir = config.dataDir;
+const mutableConfig = config as unknown as { dataDir: string };
+let root = "";
 let server: Server;
 let baseUrl = "";
 let actingUserId: string | null = null;
@@ -32,6 +41,9 @@ let company: Company;
 let employee: AIEmployee;
 
 before(async () => {
+  // Deleting an AI Employee removes its working tree; keep that off `./data`.
+  root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-goals-routes-"));
+  mutableConfig.dataDir = path.join(root, "data");
   await initTestDb();
   const app = express();
   app.use(express.json());
@@ -44,6 +56,7 @@ before(async () => {
   });
   app.use("/api/companies/:cid", goalsRouter);
   app.use("/api/companies/:cid", routinesRouter);
+  app.use("/api/companies/:cid/employees", employeesRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
@@ -56,6 +69,8 @@ after(async () => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
   await closeTestDb();
+  mutableConfig.dataDir = originalDataDir;
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 async function member(email: string, role: Role, companyId: string): Promise<User> {
@@ -112,7 +127,21 @@ type GoalRow = {
   progress: number | null;
   met: boolean;
   currentValue: number | null;
+  awaitingConfirmation: boolean;
 };
+
+/** A goal whose met number came from an AI Employee's report. */
+async function reportedByEmployee(): Promise<Goal> {
+  return insert(Goal, {
+    companyId: company.id,
+    title: "Signups",
+    slug: "signups",
+    targetValue: 10,
+    ownerEmployeeId: employee.id,
+    currentValue: 12,
+    currentValueSource: "employee",
+  });
+}
 
 describe("goal reads", () => {
   test("any member can list goals with computed progress", async () => {
@@ -143,6 +172,11 @@ describe("goal mutations", () => {
     assert.equal((await call("DELETE", `/goals/${created.body.id}`)).status, 403);
     assert.equal(
       (await call("POST", `/goals/${created.body.id}/progress`, { value: 2 })).status,
+      403,
+    );
+    const reported = await reportedByEmployee();
+    assert.equal(
+      (await call("POST", `/goals/${reported.id}/confirm`, { value: 12 })).status,
       403,
     );
   });
@@ -200,6 +234,50 @@ describe("goal mutations", () => {
     assert.equal(bound.status, 200);
     const refused = await call("POST", `/goals/${bound.body.id}/progress`, { value: 5 });
     assert.equal(refused.status, 400);
+  });
+});
+
+describe("confirming a number an AI Employee reported", () => {
+  test("any member sees it waiting; an admin's confirmation settles it, once", async () => {
+    const goal = await reportedByEmployee();
+    actingUserId = viewer.id;
+    const waiting = await call<GoalRow>("GET", `/goals/${goal.id}`);
+    assert.equal(waiting.body.status, "active");
+    assert.equal(waiting.body.awaitingConfirmation, true);
+
+    actingUserId = owner.id;
+    const confirmed = await call<GoalRow>("POST", `/goals/${goal.id}/confirm`, { value: 12 });
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.body.status, "achieved");
+    assert.equal(confirmed.body.awaitingConfirmation, false);
+    const again = await call<{ error: string }>("POST", `/goals/${goal.id}/confirm`, { value: 12 });
+    assert.equal(again.status, 400);
+  });
+
+  test("a number other than the one reported is refused, and nothing settles", async () => {
+    const goal = await reportedByEmployee();
+    const stale = await call<{ error: string }>("POST", `/goals/${goal.id}/confirm`, { value: 11 });
+    assert.equal(stale.status, 400);
+    assert.match(stale.body.error, /changed/);
+    const malformed = await call("POST", `/goals/${goal.id}/confirm`, {});
+    assert.equal(malformed.status, 400);
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.id });
+    assert.equal(after.status, "active");
+  });
+});
+
+describe("deleting an AI Employee", () => {
+  test("leaves the goals it owned in place, unowned", async () => {
+    const goal = await call<GoalRow>("POST", "/goals", {
+      title: "Reply fast",
+      targetValue: 4,
+      ownerEmployeeId: employee.id,
+    });
+    const fired = await call("DELETE", `/employees/${employee.id}`);
+    assert.equal(fired.status, 200);
+    const after = await AppDataSource.getRepository(Goal).findOneByOrFail({ id: goal.body.id });
+    assert.equal(after.ownerEmployeeId, null);
+    assert.equal(after.status, "active");
   });
 });
 

@@ -32,6 +32,7 @@ export type NotificationKind =
   | "handoff_overdue"
   | "goal_achieved"
   | "goal_missed"
+  | "goal_confirmation_pending"
   | "revision_pending"
   | "revision_stale"
   | "autonomy_revoked"

@@ -4,7 +4,7 @@ On the vision page, the board's first act is to write one sentence, and everythi
 
 A Goal is a measurable objective: a direction and a number. In Genosyn today, a Goal has a title, a description, and a target with a direction: reach a number, for things that should go up, or drive down to one, for things that should come down. It can also have a deadline, an AI Employee accountable for it, and a parent Goal it rolls up into. Its progress can be reported by hand or read from a chart.
 
-Only owners and admins create or change Goals. Every AI Employee works with them in front of it: its own active Goals and the company's top-level Goals are part of every prompt it gets. AI Employees report progress. They never write a Goal.
+Only owners and admins create or change Goals. Every AI Employee works with them in front of it: its own active Goals and the company's top-level Goals are part of every prompt it gets. AI Employees report progress on their own Goals. They never write a Goal, and never settle one.
 
 ## Start with the direction
 
@@ -12,7 +12,7 @@ A good Goal says what the company is for in words a stranger would understand. "
 
 ## Then the number
 
-A number makes a Goal checkable. Sunwise's is a million roofs, with revenue growing 40% a year. The number does three jobs: it tells the company how far it has to go, it tells the board whether it is on track, and one day it settles the question. In Genosyn, a Goal settles automatically, once, as achieved or missed, and its owners are told.
+A number makes a Goal checkable. Sunwise's is a million roofs, with revenue growing 40% a year. The number does three jobs: it tells the company how far it has to go, it tells the board whether it is on track, and one day it settles the question. In Genosyn, a Goal settles once, as achieved or missed, and its owners are told. A number an AI Employee reports never settles it alone: a chart reads the number, or a person confirms it.
 
 ## Then the line it must not cross
 

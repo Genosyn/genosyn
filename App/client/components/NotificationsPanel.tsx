@@ -404,6 +404,8 @@ function KindIcon({
       return <Target size={size} className={className} />;
     case "goal_missed":
       return <Target size={size} className={className} />;
+    case "goal_confirmation_pending":
+      return <Target size={size} className={className} />;
     case "revision_pending":
       return <GitPullRequest size={size} className={className} />;
     case "revision_stale":
@@ -473,6 +475,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   goal_missed: {
     iconBg: "bg-rose-100 dark:bg-rose-500/15",
     iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  goal_confirmation_pending: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
   },
   revision_pending: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
