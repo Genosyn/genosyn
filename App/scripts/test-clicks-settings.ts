@@ -5,9 +5,9 @@
  * sign in; accepting an invitation opens the company just joined rather than
  * whichever membership comes first (Accept itself stays); the Connect dialog
  * starts in the credential rather than the prefilled Label, with its labels
- * tied to their fields; and the onboarding company step starts in the first
- * empty box and saves with ⌘/Ctrl+Enter. Each flow counts its clicks. Run
- * with `npm run test:clicks-settings`.
+ * tied to their fields; and the onboarding company step starts in the Goal
+ * and saves it with Enter. Each flow counts its clicks. Run with
+ * `npm run test:clicks-settings`.
  */
 import assert from "node:assert/strict";
 import type { Company, IntegrationCatalogEntry } from "../client/lib/api";
@@ -184,18 +184,15 @@ await app.check(
 // ─────────────────────────── onboarding ───────────────────────────
 
 await app.check(
-  "Onboarding: the company step starts in the empty Vision and saves with ⌘/Ctrl+Enter",
+  "Onboarding: the company step starts in the Goal and saves it with Enter",
   async () => {
-    const half: Company = {
-      ...COMPANY,
-      mission: "Answer every customer within the hour.",
-      vision: "",
-    };
+    const fresh: Company = { ...COMPANY, mission: "", vision: "" };
     const view = await app.open({
       path: "/c/acme/onboarding",
-      company: half,
+      company: fresh,
       routes: [
-        ["PATCH", `${API}`, ({ body }) => ({ ...half, ...body })],
+        ["GET", `${API}/goals`, () => []],
+        ["POST", `${API}/goals`, ({ body }) => ({ id: "goal", ...body })],
         [
           "GET",
           `${API}/onboarding-status`,
@@ -217,15 +214,22 @@ await app.check(
       ],
     });
     const { page } = view;
-    const vision = page.getByLabel("Vision", { exact: true });
-    await waitForFocus(vision, "the first empty box, Vision, has focus");
-    await page.keyboard.type("Every customer feels heard.");
-    await page.keyboard.press("ControlOrMeta+Enter");
-    const write = await view.waitForWrite((w) => w.method === "PATCH" && w.path === API);
+    const goal = page.getByLabel("Your Goal", { exact: true });
+    await waitForFocus(goal, "the Goal, the one thing a new company is asked for, has focus");
+    await page.keyboard.type("Reach 50 paying customers by March");
+    await page.keyboard.press("Enter");
+    const write = await view.waitForWrite((w) => w.method === "POST" && w.path === `${API}/goals`);
     assert.deepEqual(write.body, {
-      mission: "Answer every customer within the hour.",
-      vision: "Every customer feels heard.",
+      title: "Reach 50 paying customers by March",
+      targetValue: 50,
+      direction: "increase_to",
+      unit: "paying customers",
     });
+    assert.deepEqual(
+      view.writes.map((w) => `${w.method} ${w.path}`),
+      [`POST ${API}/goals`],
+      "an empty mission and vision are not saved",
+    );
     assert.equal(view.clicks(), 0);
     await page.close();
   },
