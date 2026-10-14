@@ -1526,7 +1526,7 @@ export type ProactiveDefaultsPreview = {
   automaticSetup: boolean;
   /** The employee's active AI Model is connected, so standing work starts right away. */
   employeeReady: boolean;
-  /** Standing work for this employee, in the order the Proactive page lists it. */
+  /** Standing work for this employee, in the order of the Proactive starter library. */
   starters: ProactiveDefaultsPreviewRow[];
   /** The company's TLDR briefing when it is on and has someone to write it. */
   briefing: ProactiveDefaultsPreviewBriefing | null;
