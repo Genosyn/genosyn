@@ -37,16 +37,17 @@ export function awaitingRoutineBrief(routine: Pick<Routine, "enabled" | "body">)
 
 /**
  * Replace a Routine's brief. The first brief written into a Routine awaiting
- * one also switches it on and schedules its next Run; every other save leaves
- * the switch where it is. Returns whether this save switched it on. The caller
- * persists the Routine.
+ * one also switches it on and schedules its next Run, on the clock of the
+ * company's `timeZone` (`company.timezone`, "" for server time); every other
+ * save leaves the switch where it is. Returns whether this save switched it on.
+ * The caller persists the Routine.
  */
-export function writeRoutineBrief(routine: Routine, brief: string): boolean {
+export function writeRoutineBrief(routine: Routine, brief: string, timeZone: string): boolean {
   const switchesOn = awaitingRoutineBrief(routine) && !isUnwrittenRoutineBrief(brief);
   routine.body = brief;
   if (switchesOn) {
     routine.enabled = true;
-    registerRoutine(routine);
+    registerRoutine(routine, timeZone);
   }
   return switchesOn;
 }

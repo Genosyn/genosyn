@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../../../db/entities/AIEmployee.js";
+import { Company } from "../../../db/entities/Company.js";
 import { Decision } from "../../../db/entities/Decision.js";
 import { Goal } from "../../../db/entities/Goal.js";
 import { Initiative } from "../../../db/entities/Initiative.js";
@@ -122,6 +123,17 @@ describe("resolveRoutine", () => {
     assert.match(item.body, /reddit: 429 Too Many Requests/);
     assert.ok(!item.body.includes("posted 4 replies"), "older Runs are summaries, not logs");
     assert.match(item.briefing?.("read") ?? "", /belongs to Jamie Mallers/);
+  });
+
+  test("says which clock the cron fields are read on", async () => {
+    const routine = await digest(await jamie());
+
+    const [unset] = await call(resolveRoutine, "routine", routine.id);
+    assert.match(unset.body, /- Time zone: server time — the company has not chosen a time zone/);
+
+    await insert(Company, { id: CO, name: "Acme", slug: "acme", ownerId: "owner", timezone: "Asia/Tokyo" });
+    const [zoned] = await call(resolveRoutine, "routine", routine.id);
+    assert.match(zoned.body, /- Time zone: Asia\/Tokyo — the cron fields are read on this clock/);
   });
 
   test("says plainly when a routine is paused, never fires, or has no brief", async () => {

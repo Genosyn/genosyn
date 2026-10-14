@@ -65,16 +65,31 @@ describe("writeRoutineBrief", () => {
   test("the first brief written into a paused Routine switches it on and schedules it", () => {
     const r = routine(false, routineTemplate("Digest", "0 9 * * 1-5"));
     assert.equal(awaitingRoutineBrief(r), true);
-    assert.equal(writeRoutineBrief(r, "Post the digest."), true);
+    assert.equal(writeRoutineBrief(r, "Post the digest.", ""), true);
     assert.equal(r.enabled, true);
     assert.ok(r.nextRunAt);
     assert.equal(r.body, "Post the digest.");
     assert.equal(awaitingRoutineBrief(r), false);
   });
 
+  test("it schedules the first Run on the clock of the company's time zone", () => {
+    const r = routine(false, routineTemplate("Digest", "0 9 * * 1-5"));
+    assert.equal(writeRoutineBrief(r, "Post the digest.", "Asia/Tokyo"), true);
+    assert.ok(r.nextRunAt);
+    // "9" on the weekday cron means nine o'clock in Tokyo, whatever the
+    // server's own clock says.
+    const tokyo = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Tokyo",
+      hour: "numeric",
+      minute: "numeric",
+      hourCycle: "h23",
+    }).format(r.nextRunAt);
+    assert.equal(tokyo, "09:00");
+  });
+
   test("a blank brief is saved but leaves the Routine paused and waiting", () => {
     const r = routine(false, routineTemplate("Digest", "0 9 * * 1-5"));
-    assert.equal(writeRoutineBrief(r, "   "), false);
+    assert.equal(writeRoutineBrief(r, "   ", ""), false);
     assert.equal(r.enabled, false);
     assert.equal(r.nextRunAt, null);
     assert.equal(r.body, "   ");
@@ -87,7 +102,7 @@ describe("writeRoutineBrief", () => {
       routine(false, "Old"),
     ]) {
       const enabled = r.enabled;
-      assert.equal(writeRoutineBrief(r, "New brief."), false);
+      assert.equal(writeRoutineBrief(r, "New brief.", ""), false);
       assert.equal(r.enabled, enabled);
       assert.equal(r.body, "New brief.");
     }

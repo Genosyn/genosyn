@@ -410,7 +410,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     folderId: body.folderId ?? null,
     body: start.body,
   });
-  registerRoutine(r);
+  registerRoutine(r, co.timezone);
   await repo.save(r);
   const tags = await replaceResourceTags(co.id, "routine", r.id, body.tagIds ?? []);
   await recordAudit({
@@ -572,7 +572,9 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   // Only re-derive the pending fire time when the schedule itself changed —
   // renaming a routine or nudging its timeout shouldn't throw away the slot it
   // was already waiting on.
-  if (body.cronExpr !== undefined || body.enabled !== undefined) registerRoutine(r);
+  if (body.cronExpr !== undefined || body.enabled !== undefined) {
+    registerRoutine(r, found.co.timezone);
+  }
   await AppDataSource.getRepository(Routine).save(r);
   if (body.browserEnabledOverride !== undefined) {
     await revokeDisabledBrowserSessionsForEmployee(r.employeeId);
@@ -755,7 +757,11 @@ routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (r
     const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
     if (!found) return res.status(404).json({ error: "Not found" });
     const r = found.routine;
-    const switchedOn = writeRoutineBrief(r, (req.body as z.infer<typeof readmeSchema>).content);
+    const switchedOn = writeRoutineBrief(
+      r,
+      (req.body as z.infer<typeof readmeSchema>).content,
+      found.co.timezone,
+    );
     await AppDataSource.getRepository(Routine).save(r);
     await recordAudit({
       companyId: found.co.id,

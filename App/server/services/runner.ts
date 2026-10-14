@@ -9,6 +9,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
+import { employeeTimeZone } from "./companyTimeZone.js";
 import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
@@ -1472,7 +1473,11 @@ async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
     if (!fresh || (fresh.lastRunAt && fresh.lastRunAt >= at)) return;
     // Collapse elapsed slots without rewinding one already advanced by the
     // heartbeat. A concurrent schedule edit is re-read before another attempt.
-    let next = fresh.enabled ? nextRunFor(fresh.cronExpr, at) : fresh.nextRunAt;
+    // Read on the company's clock, the one the heartbeat set `nextRunAt` on —
+    // two clocks here would let a finishing Run skip or repeat a slot.
+    let next = fresh.enabled
+      ? nextRunFor(fresh.cronExpr, at, await employeeTimeZone(fresh.employeeId))
+      : fresh.nextRunAt;
     if (next && fresh.nextRunAt && fresh.nextRunAt > next) next = fresh.nextRunAt;
     const updated = await repo.update(
       {

@@ -19,6 +19,7 @@ import { effectiveActiveId } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { recordAudit } from "../audit.js";
 import { nextRunFor } from "../cron.js";
+import { companyTimeZone } from "../companyTimeZone.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { broadcastToCompany } from "../realtime.js";
 import { parseActions, parseConditions } from "../mail/rules.js";
@@ -316,7 +317,7 @@ export async function installProactiveStarter(
           slug: `proactive-${recipe.id}-${id.slice(0, 8)}`,
           enabled: true,
           cronExpr: recipe.schedule!,
-          nextRunAt: nextRunFor(recipe.schedule!),
+          nextRunAt: nextRunFor(recipe.schedule!, new Date(), company.timezone),
           body,
           acceptanceCriteria: recipe.acceptanceCriteria,
           mailDeliveryMode: "draft",
@@ -446,7 +447,12 @@ export async function toggleProactiveStarter(
     });
     await AppDataSource.getRepository(Routine).update(
       { id, employeeId: installation.employeeId },
-      { enabled, nextRunAt: enabled ? nextRunFor(routine.cronExpr) : null },
+      {
+        enabled,
+        nextRunAt: enabled
+          ? nextRunFor(routine.cronExpr, new Date(), await companyTimeZone(companyId))
+          : null,
+      },
     );
   }
   await recordAudit({

@@ -8845,7 +8845,7 @@ mcpInternalRouter.post(
       folderId: folder?.id ?? null,
       body: brief,
     });
-    registerRoutine(r);
+    registerRoutine(r, co.timezone);
     await repo.save(r);
     // Tags live in the shared TagAssignment catalog, not on the Routine row —
     // names auto-create any tags the company doesn't have yet.
@@ -8935,7 +8935,8 @@ mcpInternalRouter.post(
     if (body.brief !== undefined) {
       // The first brief written into a Routine waiting for one switches it on,
       // unless this same call sets `enabled` itself.
-      briefSwitchedOn = writeRoutineBrief(routine, body.brief) && body.enabled === undefined;
+      briefSwitchedOn =
+        writeRoutineBrief(routine, body.brief, co.timezone) && body.enabled === undefined;
     }
     if (body.enabled !== undefined) routine.enabled = body.enabled;
     if (body.folder !== undefined) {
@@ -8949,7 +8950,7 @@ mcpInternalRouter.post(
         return res.status(400).json({ error: err.message });
       }
     }
-    registerRoutine(routine);
+    registerRoutine(routine, co.timezone);
     await repo.save(routine);
     // Tags aren't a Routine column — they're assignments in the shared catalog.
     // Passing `tags` replaces the whole set (empty string clears them); omitting

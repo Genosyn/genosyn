@@ -1,18 +1,67 @@
 import parser from "cron-parser";
 import type { RunErrorKind, RunStatus, RunTrigger } from "../db/entities/Run.js";
+import { isValidTimeZone } from "../lib/timeZone.js";
 
 /**
- * Pure scheduling arithmetic for downtime recovery and retries.
+ * Pure scheduling arithmetic: when a schedule next fires, and what to do about
+ * downtime and retries.
  *
- * These five functions are the entire decision logic behind "the server was
- * off — what now?": how many occurrences we missed, whether a stale slot is
- * still worth serving, whether a `running` row is crash debris, how long to
- * wait before another attempt, and whether another attempt is owed at all.
- * They live apart from `services/cron.ts` so they can be unit-tested without a
- * database, following the seam `nextRunFor()` already set by taking an explicit
- * `from: Date` instead of reading the clock. Nothing here may import
- * `cron.ts` — `cron.ts` imports this.
+ * `nextRunFor` and the five functions after it are the entire decision logic
+ * behind "when does this run, and the server was off — what now?": the next
+ * slot, how many occurrences we missed, whether a stale slot is still worth
+ * serving, whether a `running` row is crash debris, how long to wait before
+ * another attempt, and whether another attempt is owed at all. They live apart
+ * from `services/cron.ts` so they can be unit-tested without a database, and
+ * they take an explicit `from: Date` instead of reading the clock. Nothing here
+ * may import `cron.ts` — `cron.ts` imports this.
  */
+
+/**
+ * The `cron-parser` options that pick the clock an expression is read on.
+ *
+ * `timeZone` is a company's IANA zone, or empty for **server time** — the
+ * process's own clock, which is how every expression was read before companies
+ * had a zone. Empty has to mean *no option at all*: `cron-parser` rejects
+ * `tz: ""` outright, and `nextRunFor()` would then report a perfectly good
+ * expression as unschedulable. A name this runtime cannot resolve is treated
+ * the same way for the same reason — a Routine that keeps firing on the old
+ * clock is a smaller failure than one that silently stops.
+ */
+export function cronZoneOptions(timeZone: string | null | undefined): { tz?: string } {
+  const zone = typeof timeZone === "string" ? timeZone.trim() : "";
+  return zone && isValidTimeZone(zone) ? { tz: zone } : {};
+}
+
+/**
+ * Compute the next scheduled fire time for a cron expression, or null if the
+ * expression is invalid. `from` defaults to now; callers pass a specific
+ * moment when they want "next after this run" semantics.
+ *
+ * `timeZone` is the IANA zone the expression's clock fields are read in — a
+ * Routine passes its company's (`Company.timezone`), so "0 9 * * *" means nine
+ * o'clock *there*, daylight saving included. Leave it out, or pass the empty
+ * string, to read the expression on the server's own clock: that is how a
+ * company that has not picked a zone behaves, and how every schedule that is
+ * not a Routine (Pipelines, recurring invoices, Revenue Signals) is still read.
+ *
+ * `services/cron.ts` re-exports this under the name every caller already
+ * imports.
+ */
+export function nextRunFor(
+  cronExpr: string,
+  from: Date = new Date(),
+  timeZone?: string | null,
+): Date | null {
+  try {
+    const interval = parser.parseExpression(cronExpr, {
+      currentDate: from,
+      ...cronZoneOptions(timeZone),
+    });
+    return interval.next().toDate();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Grace added on top of a routine's own `timeoutSec` before a still-`running`
@@ -53,16 +102,26 @@ export const INTERRUPTED_RECOVERY_DELAY_MS = 60 * 60 * 1000;
  * "lots". Returns `{ count: 0, capped: false }` on an unparseable expression,
  * matching how `nextRunFor()` swallows parse errors rather than throwing into
  * the heartbeat.
+ *
+ * `timeZone` is the zone the expression is read in (see {@link cronZoneOptions});
+ * leave it out for server time. A schedule is counted on the same clock it is
+ * fired on, or a company west of the server would be told it missed a morning
+ * it had not yet had.
  */
 export function countMissedSlots(
   cronExpr: string,
   after: Date,
   until: Date,
   cap: number,
+  timeZone?: string | null,
 ): { count: number; capped: boolean } {
   if (until.getTime() <= after.getTime() || cap <= 0) return { count: 0, capped: false };
   try {
-    const it = parser.parseExpression(cronExpr, { currentDate: after, endDate: until });
+    const it = parser.parseExpression(cronExpr, {
+      currentDate: after,
+      endDate: until,
+      ...cronZoneOptions(timeZone),
+    });
     let count = 0;
     while (count < cap && it.hasNext()) {
       it.next();
