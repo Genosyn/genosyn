@@ -143,15 +143,15 @@ export function Introduction() {
         you, your <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest
         unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
-        greeting, plus shortcuts to every section. The small bubbles sit in the header, leaving the
-        cards below the full width of the page. Each bubble shows who is working now; choose one to
-        open that employee&apos;s work timeline for the day, with times and a plain-English account
-        of what they did. The details stay in the popup until you ask for them. When something needs
-        you — or a fresh recap is ready — it&apos;s the first thing you see. On wider screens, the
-        smaller queue cards share rows in pairs; an unpaired last card expands to fill its row.
-        Summary counters also share the available width: a lone unread-notification counter fills
-        the row, and the remaining counters expand as others clear. A queue shown on its own stays
-        compact when it has only a few items.
+        greeting. The small bubbles sit in the header, leaving the cards below the full width of the
+        page. Each bubble shows who is working now; choose one to open that employee&apos;s work
+        timeline for the day, with times and a plain-English account of what they did. The details
+        stay in the popup until you ask for them. When something needs you — or a fresh recap is
+        ready — it&apos;s the first thing you see. On wider screens, the smaller queue cards share
+        rows in pairs; an unpaired last card expands to fill its row. Summary counters also share
+        the available width: a lone unread-notification counter fills the row, and the remaining
+        counters expand as others clear. A queue shown on its own stays compact when it has only a
+        few items.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — failed{" "}
@@ -219,7 +219,8 @@ export function Introduction() {
       <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
-        Routines. Pressing <Code>G</Code>
+        Routines. A few pages use a symbol instead; master admins open Admin with <Code>G =</Code>.
+        Pressing <Code>G</Code>
         shows the complete destination map, so you never have to guess. Press <Code>?</Code>{" "}
         anywhere outside an editor to open the full shortcut guide. Genosyn pauses global shortcuts
         while you type, and ordinary <Code>Tab</Code> navigation has clear, context-appropriate

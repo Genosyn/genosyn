@@ -745,14 +745,26 @@ describe("section routing and command search", () => {
     assert.equal(activeSection("/admin"), "home");
   });
 
-  test("finds TLDRs by summary language and keeps product shortcuts unique", () => {
+  test("finds TLDRs by summary language", () => {
     assert.equal(searchSections(items, "summary")[0]?.item.key, "tldrs");
     assert.equal(searchSections(items, "recap")[0]?.item.key, "tldrs");
+  });
 
-    const productShortcuts = SECTION_GROUPS.flatMap((group) =>
-      group.items.map((item) => item.shortcut),
-    );
-    assert.equal(new Set(productShortcuts).size, productShortcuts.length);
+  test("gives every section, Help, Account and Admin included, its own G chord key", () => {
+    // The chord keeps one destination per key, case-folded, so a key shared
+    // with Help, Account or Admin silently opens the wrong page for whoever
+    // sees both.
+    const owners = new Map<string, string>();
+    for (const item of items) {
+      const key = item.shortcut.toLowerCase();
+      const owner = owners.get(key);
+      assert.equal(
+        owner,
+        undefined,
+        `G ${item.shortcut} is used by both ${owner} and ${item.label}`,
+      );
+      owners.set(key, item.label);
+    }
   });
 
   test("exposes the Decision stack as a first-class searchable destination", () => {

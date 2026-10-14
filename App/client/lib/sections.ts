@@ -45,10 +45,11 @@ import {
 /**
  * The catalog of top-level sections, and how a URL maps back to one.
  *
- * Lives in `lib/` rather than next to the top nav because three surfaces read
- * it — the nav pill (`AppShell`), the command palette (`CommandPalette`), and
- * Home's "Jump to" grid — and the palette is itself rendered by the shell.
- * Importing it from `AppShell` would put a cycle between the two.
+ * Lives in `lib/` rather than next to the top nav because several surfaces read
+ * it — the nav pill (`AppShell`), the command palette (`CommandPalette`), the
+ * `G` chord and shortcut guide (`KeyboardShortcuts`), and the section rails —
+ * and the palette is itself rendered by the shell. Importing it from
+ * `AppShell` would put a cycle between the two.
  */
 
 export type SectionKey =
@@ -550,13 +551,13 @@ export const SECTION_GROUPS: SectionGroup[] = [
 // ────────────────── Sections outside the company groups ──────────────────
 // Account and Admin are NOT part of `SECTION_GROUPS`: everything in that list
 // is scoped to the company you're currently viewing, and these two are not.
-// They stay out of Home's "Jump to" grid for that reason.
+// The palette and the shortcut guide list them in their own "You" group.
 //
 // Account still shows up in the command palette — a palette is a
 // search-everything surface, and typing "password" finding nothing is worse
 // than the tidy distinction is worth. Admin does not: it's an
 // instance-operator surface rather than a place you navigate between, so its
-// entry points are the avatar menu and the `G D` chord.
+// entry points are the avatar menu and the `G =` chord.
 
 /** Settings for the signed-in person, global across every company they belong to. */
 export const ACCOUNT_SECTION: SectionItem = {
@@ -582,13 +583,18 @@ export const HELP_SECTION: SectionItem = {
   keywords: ["support", "docs", "questions", "codebase", "troubleshooting"],
 };
 
-/** Instance-operator surface, restricted to master admins. */
+/**
+ * Instance-operator surface, restricted to master admins. Its chord key is
+ * punctuation because every letter already opens a section, and the chord
+ * keeps one destination per key — Admin on `D` took Marketing's key from the
+ * people who could see both.
+ */
 export const ADMIN_SECTION: SectionItem = {
   key: "admin",
   label: "Admin",
   description: "Users, companies, health, and backups.",
   icon: ServerCog,
-  shortcut: "D",
+  shortcut: "=",
   path: "/admin",
   iconBg: "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
   keywords: ["users", "companies", "health", "backups", "instance", "operator"],

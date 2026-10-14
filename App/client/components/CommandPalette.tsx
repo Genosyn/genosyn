@@ -96,7 +96,7 @@ export const PALETTE_SHORTCUT = IS_APPLE ? "⌘K" : "Ctrl K";
  *
  * Admin is the deliberate exception: it's an instance-operator surface, not
  * somewhere you navigate between day to day, so it stays out of the palette
- * and is reached from the avatar menu (or the `G D` chord) instead.
+ * and is reached from the avatar menu (or the `G =` chord) instead.
  */
 const PALETTE_GROUPS: SectionGroup[] = [
   ...SECTION_GROUPS,
