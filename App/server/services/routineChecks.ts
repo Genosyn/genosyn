@@ -72,7 +72,7 @@ export async function checkConfigurationSummary(companyId: string, routineId: st
   return {
     enabled: checks.filter((check) => check.enabled).length,
     required: checks.filter((check) => check.enabled && check.required).length,
-    configurationPath: "Routine → Settings → Checks (company admin)",
+    configurationPath: "Routine → Settings → Advanced → Checks (company admin)",
     appliesTo: "current_routine" as const,
   };
 }
