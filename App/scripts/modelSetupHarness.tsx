@@ -11,11 +11,17 @@ import { ModelSetupForm } from "../client/components/models/ModelSetupForm";
 import { DialogProvider } from "../client/components/ui/Dialog";
 import { CompanySocketProvider } from "../client/components/CompanySocket";
 import "../client/styles/index.css";
-const company = { id: "company", name: "Company", slug: "company", role: "owner" } as Company;
+const params = new URLSearchParams(location.search);
+// `?role=member` renders the section as a Member of the company would see it.
+const company = {
+  id: "company",
+  name: "Company",
+  slug: "company",
+  role: (params.get("role") ?? "owner") as Company["role"],
+} as Company;
 const employee = { id: "employee", name: "Avery", role: "Operations" } as Employee;
 function Harness() {
   const [saved, setSaved] = React.useState(false);
-  const params = new URLSearchParams(location.search);
   return (
     <main className="mx-auto max-w-xl space-y-4 p-5">
       {params.has("section") ? (

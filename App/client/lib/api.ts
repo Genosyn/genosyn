@@ -1257,6 +1257,24 @@ export type AIModel = {
   /** Why that limit applies. */
   concurrencySource: "configured" | "local-default" | "unlimited";
 };
+/**
+ * An AI Model another AI Employee in the company already runs on, offered so a
+ * new hire can use the same one without pasting its key again. Describes the
+ * model and who has it — the credential itself never leaves the server.
+ */
+export type ReusableModel = {
+  /** The source AI Model's id; what a reuse call names. */
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  provider: Provider;
+  model: string;
+  authMode: "apikey" | "customEndpoint";
+  /** Host-only preview of a custom endpoint, or null for an API key. */
+  endpointHost: string | null;
+  /** Whether it is that employee's active AI Model. */
+  isActive: boolean;
+};
 export type FinanceAccess = "none" | "read" | "full";
 
 export type Member = {
