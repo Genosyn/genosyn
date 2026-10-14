@@ -59,6 +59,16 @@ export const ACTOR_KIND_LABEL: Record<AuditActorKind, string> = {
 const NAMESPACE_SEGMENTS = new Set(["finance", "revenue", "workspace", "mcp", "tasks"]);
 
 /**
+ * An older spelling of a record's type at the head of its actions. The AI
+ * Employee signing tools logged `signature.envelope.*` until the signing
+ * service took over every envelope's rows as `signature_envelope.*`; the old
+ * rows stay in the ledger and read the same.
+ */
+const LEGACY_TYPE_PREFIXES: Record<string, string> = {
+  signature_envelope: "signature.envelope",
+};
+
+/**
  * Whole-remainder phrases, after the namespace and the record's own type are
  * stripped. `{noun}` is the record ("this invoice"). Checked before the
  * generic verb table so a compound like `email.resend` reads naturally.
@@ -118,6 +128,7 @@ const PHRASES: Record<string, string> = {
   write_off_reversed: "reversed a write-off",
   "email.resend": "resent the email",
   "email.send": "emailed {noun}",
+  "reminder.send": "sent a reminder",
   resend: "resent {noun}",
   convert: "converted {noun}",
   "convert.invoice": "converted {noun} to an invoice",
@@ -175,7 +186,12 @@ const words = (s: string) => s.replace(/[_-]+/g, " ").trim();
  * dotted name, so a new action reads acceptably before anyone words it.
  */
 export function describeHistoryAction(action: string, targetType: string, noun: string): string {
-  const segments = action.split(".").filter(Boolean);
+  const legacy = LEGACY_TYPE_PREFIXES[targetType];
+  const current =
+    legacy && action.startsWith(`${legacy}.`)
+      ? `${targetType}${action.slice(legacy.length)}`
+      : action;
+  const segments = current.split(".").filter(Boolean);
   while (segments.length > 1 && NAMESPACE_SEGMENTS.has(segments[0])) segments.shift();
   if (segments.length > 1 && segments[0] === targetType) segments.shift();
   const rest = segments.join(".");
