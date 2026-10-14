@@ -52,6 +52,7 @@ import { workspaceApi, workspaceChannelHref } from "../lib/workspace";
 import { ContextualLayout } from "../components/AppShell";
 import { ApprovalPeekModal } from "../components/home/ApprovalPeekModal";
 import { ChannelPeekModal } from "../components/home/ChannelPeekModal";
+import { GoalGlance } from "../components/home/GoalGlance";
 import { HealthCheckPeekModal } from "../components/home/HealthCheckPeekModal";
 import { NotificationPeekModal } from "../components/home/NotificationPeekModal";
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
@@ -711,12 +712,12 @@ function hasAnythingToShow(data: HomeData, company: Company): boolean {
  * page that failed to load rather than one with nothing to report. This says
  * the quiet part once, in the space six empty cards used to take.
  *
- * It also carries the one thing those empty cards were genuinely useful for: a
- * company with no Projects has nowhere for todos to come from, so point at
- * Tasks rather than telling them their empty queue is empty.
+ * It also carries the one thing a company on Genosyn is asked for: its Goal.
+ * A quiet day shows where the Goal stands, and a company that has not written
+ * one is pointed at writing it. This used to send a new owner off to create a
+ * project, which is a step further from the company's direction than a Goal is.
  */
-function AllClear({ company, data }: { company: Company; data: HomeData }) {
-  const noProjects = data.counts.projects === 0;
+function AllClear({ company }: { company: Company; data?: HomeData }) {
   return (
     <section className="mt-6 flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
@@ -733,15 +734,7 @@ function AllClear({ company, data }: { company: Company; data: HomeData }) {
         Active Decisions, Repository AI work, routines needing attention, mentions, todos, emails,
         and approvals appear here the moment they arrive.
       </p>
-      <Link
-        to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
-        className="mt-1 flex items-center gap-0.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-      >
-        {noProjects
-          ? "Create a project to start tracking work"
-          : "See what your AI employees are doing"}{" "}
-        <ChevronRight size={12} />
-      </Link>
+      <GoalGlance company={company} />
     </section>
   );
 }
