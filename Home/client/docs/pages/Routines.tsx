@@ -220,8 +220,9 @@ export function Routines() {
         appear on every row: tick the ones you want (or <Strong>Select all</Strong>), then pick a
         destination from <Strong>Move to folder</Strong>. It is one request for the whole batch, so
         a failure never leaves half the selection moved. A single routine can also be re-filed from
-        the <Strong>Folder</Strong> field on its <Strong>Settings</Strong> tab, and a new routine
-        created while you are inside a folder lands there by default.
+        the <Strong>Folder</Strong> field on its <Strong>Settings</Strong> tab, and a routine you{" "}
+        <DocLink to="/docs/routines#set-it-up-yourself">set up yourself</DocLink> while inside a
+        folder lands there by default.
       </P>
       <Callout kind="info" title="Folders and tags answer different questions.">
         A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{" "}
