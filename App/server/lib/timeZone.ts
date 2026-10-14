@@ -12,13 +12,14 @@
  * with its Node build, and a browser reports whatever *its* tables call the
  * viewer's zone (`Asia/Calcutta` rather than `Asia/Kolkata`, for one). Asking
  * the engine that will do the scheduling is the only answer that cannot
- * disagree with it. The name pattern in front of it only keeps out what `Intl`
+ * disagree with it. The name pattern in front of it (`shared/timeZone.ts`,
+ * which the browser's schedule preview uses too) only keeps out what `Intl`
  * would accept but a schedule has no business with: fixed offsets
  * (`+01:00`), which have no daylight saving and read like a typo for a zone,
  * and anything that is not plausibly a zone name at all.
  */
 
-const ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+import { TIME_ZONE_NAME } from "../../shared/timeZone.js";
 
 /** The longest IANA identifier is 32 characters; this leaves room to spare. */
 export const MAX_TIME_ZONE_LENGTH = 64;
@@ -38,7 +39,7 @@ const VERDICT_LIMIT = 512;
  */
 export function isValidTimeZone(name: unknown): name is string {
   if (typeof name !== "string") return false;
-  if (name.length === 0 || name.length > MAX_TIME_ZONE_LENGTH || !ZONE_NAME.test(name)) {
+  if (name.length === 0 || name.length > MAX_TIME_ZONE_LENGTH || !TIME_ZONE_NAME.test(name)) {
     return false;
   }
   const known = verdicts.get(name);

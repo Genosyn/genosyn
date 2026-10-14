@@ -28,6 +28,7 @@
 // how to honour. This module compiles to cron and nothing else, because the
 // schedulers it feeds read the cron and only the cron.
 
+import { TIME_ZONE_NAME } from "../../shared/timeZone";
 import { cronHuman } from "./cron";
 
 export type ScheduleFrequency = "minutes" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
@@ -719,11 +720,12 @@ const KNOWN_ZONES = new Map<string, boolean>();
  * Empty, missing, and a name this browser's `Intl` does not know all come back
  * null: the server accepts any IANA name its own tables know, and a browser
  * older than the server must show *a* preview rather than throw while drawing
- * the form.
+ * the form. So does a fixed offset (`+01:00`), which `Intl` accepts but the
+ * server never stores as a company's zone (`shared/timeZone.ts`).
  */
 export function resolveTimeZone(timeZone: string | null | undefined): string | null {
   const zone = typeof timeZone === "string" ? timeZone.trim() : "";
-  if (!zone) return null;
+  if (!zone || !TIME_ZONE_NAME.test(zone)) return null;
   let known = KNOWN_ZONES.get(zone);
   if (known === undefined) {
     try {

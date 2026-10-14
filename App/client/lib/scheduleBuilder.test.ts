@@ -725,6 +725,8 @@ describe("previews in a time zone", () => {
       assert.deepEqual(runs("0 9 * * *", MORNING, zone), own, JSON.stringify(zone));
     }
     assert.equal(resolveTimeZone("Mars/Base"), null);
+    // Intl takes a fixed offset; the server never stores one as a zone.
+    assert.equal(resolveTimeZone("+01:00"), null);
     assert.equal(resolveTimeZone(""), null);
     assert.equal(resolveTimeZone(null), null);
     assert.equal(resolveTimeZone(undefined), null);
