@@ -13,10 +13,10 @@ import { decryptResult } from "../src/tokens.js";
 export const PUBLIC_URL = "https://connect.example.test";
 export const INSTALLATION = "http://nas.local:3000";
 export const RETURN_URL = `${INSTALLATION}/api/integrations/oauth/hosted/return`;
-export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
-];
+export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
+export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
+/** What installations released before 1.253.1 name for Gmail. */
+export const RELEASED_GMAIL_SCOPES = [...GMAIL_SCOPES, GMAIL_SETTINGS_SCOPE];
 export const IDENTITY_SCOPES = ["https://www.googleapis.com/auth/userinfo.email", "openid"];
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";

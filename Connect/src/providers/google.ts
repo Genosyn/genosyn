@@ -15,9 +15,11 @@ export const GOOGLE_IDENTITY_SCOPES = [
 /**
  * Every Google product a Genosyn installation knows how to use. The keys are
  * what an operator lists in CONNECT_GOOGLE_SCOPE_GROUPS; the scopes match the
- * App's Integration catalog, because the App asks for scopes, not keys. Gmail
- * also offers `gmail.settings.basic`, which installations released before
- * 1.253.1 still ask for; current ones ask only for `gmail.modify`.
+ * App's Integration catalog, because the App asks for scopes, not keys.
+ * Installations released before 1.253.1 also name `gmail.settings.basic`,
+ * which no release uses; it is accepted from them and never sent to Google,
+ * so the consent screen asks for exactly what the Cloud project is verified
+ * for. Those releases need only `gmail.modify` to be granted.
  *
  * Offering a group is a promise the operator's Google app is verified for its
  * scopes. Gmail, Drive and several others are restricted scopes that need
@@ -28,10 +30,8 @@ export const GOOGLE_SCOPE_GROUPS: readonly ScopeGroup[] = [
     key: "gmail",
     label: "Gmail",
     description: "Read, send, draft, label and archive email.",
-    scopes: [
-      "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.settings.basic",
-    ],
+    scopes: ["https://www.googleapis.com/auth/gmail.modify"],
+    retiredScopes: ["https://www.googleapis.com/auth/gmail.settings.basic"],
   },
   {
     key: "calendar",

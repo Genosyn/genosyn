@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 import { ConnectError, type SignInErrorCode } from "./errors.js";
 import { PROTOCOL_VERSION, type Protocol } from "./protocol.js";
-import { offeredScopes, type ConnectProvider, type ScopeGroup } from "./providers/types.js";
+import {
+  offeredScopes,
+  retiredScopes,
+  type ConnectProvider,
+  type ScopeGroup,
+} from "./providers/types.js";
 import { digest, randomToken, safeEqual, type Sealer } from "./secrets.js";
 import { createTokens, encryptResult } from "./tokens.js";
 
@@ -80,6 +85,7 @@ export function createBroker(
   const tokens = createTokens(options.sealer, provider.id, now);
   const redirectUri = `${options.publicUrl}${protocol.basePath}/callback`;
   const identity = new Set(provider.identityScopes);
+  const retired = new Set(retiredScopes(provider));
 
   function available(): boolean {
     return Boolean(provider.registration) && provider.groups.length > 0;
@@ -93,19 +99,25 @@ export function createBroker(
   }
 
   function labelFor(scope: string): string {
-    return provider.catalog.find((group) => group.scopes.includes(scope))?.label ?? scope;
+    return (
+      provider.catalog.find(
+        (group) => group.scopes.includes(scope) || group.retiredScopes?.includes(scope),
+      )?.label ?? scope
+    );
   }
 
+  /** What the provider will be asked for: never a retired scope. */
   function resolveScopes(requested: string[]): string[] {
     const offered = new Set(offeredScopes(provider));
-    const product = [...new Set(requested)].filter((scope) => !identity.has(scope));
-    const missing = product.filter((scope) => !offered.has(scope));
+    const named = [...new Set(requested)].filter((scope) => !identity.has(scope));
+    const missing = named.filter((scope) => !offered.has(scope));
     if (missing.length > 0) {
       const labels = [...new Set(missing.map(labelFor))].join(", ");
       throw new ConnectError(
         `This sign-in service does not offer ${labels}. Register your own OAuth app in your installation to connect it.`,
       );
     }
+    const product = named.filter((scope) => !retired.has(scope));
     if (product.length === 0) throw new ConnectError("Choose at least one product to connect.");
     return [...identity, ...product];
   }
