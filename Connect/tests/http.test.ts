@@ -10,6 +10,7 @@ import {
   digest,
   DRIVE_SCOPE,
   GMAIL_SCOPES,
+  RELEASED_GMAIL_SCOPES,
   IDENTITY_SCOPES,
   INSTALLATION,
   PUBLIC_URL,
@@ -47,7 +48,7 @@ test("discovery reports protocol version 2 and only the scopes the operator offe
     ["google"],
   );
   assert.equal(index.providers[0].available, true);
-  assert.deepEqual(index.providers[0].scopes, [...GMAIL_SCOPES, CALENDAR_SCOPE]);
+  assert.deepEqual(index.providers[0].scopes, [...RELEASED_GMAIL_SCOPES, CALENDAR_SCOPE]);
   assert.deepEqual(
     index.providers[0].groups.map((group) => group.key),
     ["gmail", "calendar"],
@@ -55,7 +56,7 @@ test("discovery reports protocol version 2 and only the scopes the operator offe
   assert.deepEqual(await (await fetch(api.url("/status"))).json(), {
     version: 2,
     available: true,
-    scopes: [...GMAIL_SCOPES, CALENDAR_SCOPE],
+    scopes: [...RELEASED_GMAIL_SCOPES, CALENDAR_SCOPE],
   });
   assert.equal((await fetch(api.url("/status?probe=1"))).status, 400);
   assert.equal((await fetch(`${service.base}/api/connect/github/status`)).status, 404);

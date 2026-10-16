@@ -45,10 +45,15 @@ test("the catalog matches the scopes Genosyn's Integrations request, one group p
     assert.match(scope, /^https:\/\/www\.googleapis\.com\/auth\/[a-z.]+$/);
   // These must stay identical to the App's catalog (GOOGLE_SCOPE_GROUPS and the
   // Analytics, Search Console and Ads providers), which asks for scopes by URL.
-  assert.deepEqual(GOOGLE_SCOPE_GROUPS[0].scopes, [
-    "https://www.googleapis.com/auth/gmail.modify",
+  assert.deepEqual(GOOGLE_SCOPE_GROUPS[0].scopes, ["https://www.googleapis.com/auth/gmail.modify"]);
+  // Named by releases before 1.253.1; accepted from them, never sent to Google.
+  assert.deepEqual(GOOGLE_SCOPE_GROUPS[0].retiredScopes, [
     "https://www.googleapis.com/auth/gmail.settings.basic",
   ]);
+  assert.deepEqual(
+    GOOGLE_SCOPE_GROUPS.slice(1).map((group) => group.retiredScopes),
+    GOOGLE_SCOPE_GROUPS.slice(1).map(() => undefined),
+  );
   assert.deepEqual(
     GOOGLE_SCOPE_GROUPS.slice(-3).map((group) => group.scopes),
     [

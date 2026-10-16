@@ -171,6 +171,12 @@ export function Connect() {
           <Pre>{`https://connect.example.com/api/connect/google/callback`}</Pre>
         </LI>
         <LI>
+          On <Strong>Data Access</Strong>, add exactly the scopes Connect requests:{" "}
+          <Code>openid</Code>, <Code>userinfo.email</Code>, and the scopes of each group you offer
+          — for Gmail, <Code>gmail.modify</Code> alone. Google stops verification when the
+          console and the requests differ.
+        </LI>
+        <LI>
           Complete Google&apos;s verification for the scopes you offer. Gmail and Drive are
           restricted scopes that also need Google&apos;s security assessment before people outside
           your organization can consent.

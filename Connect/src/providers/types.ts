@@ -6,6 +6,12 @@ export type ScopeGroup = {
   /** Shown on the consent page: what the installation will be able to do. */
   description: string;
   scopes: readonly string[];
+  /**
+   * Scopes that released installations still name but nothing uses. They are
+   * accepted, so those releases keep signing in, and never requested from the
+   * provider, so its consent screen and verification see only `scopes`.
+   */
+  retiredScopes?: readonly string[];
 };
 
 export type ProviderRegistration = { clientId: string; clientSecret: string };
@@ -71,7 +77,20 @@ export type ConnectProvider = {
   refresh(args: ProviderRegistration & { refreshToken: string }): Promise<RefreshedToken>;
 };
 
-/** The scopes an operator's configuration lets an installation ask for. */
+/**
+ * The scopes an operator's configuration lets an installation ask for,
+ * retired ones included: a release checks that every scope it names is
+ * offered before it starts a sign-in.
+ */
 export function offeredScopes(provider: ConnectProvider): string[] {
-  return [...new Set(provider.groups.flatMap((group) => group.scopes))];
+  return [
+    ...new Set(
+      provider.groups.flatMap((group) => [...group.scopes, ...(group.retiredScopes ?? [])]),
+    ),
+  ];
+}
+
+/** Scopes accepted from an installation but never requested from the provider. */
+export function retiredScopes(provider: ConnectProvider): string[] {
+  return [...new Set(provider.catalog.flatMap((group) => group.retiredScopes ?? []))];
 }

@@ -66,7 +66,9 @@ version 2:
 | `/refresh` | POST JSON | installation | `{ clientId, refreshToken }` → a new access token |
 
 `GET /api/connect` lists every provider. Each scope a start request names must
-be one this service offers; the provider's identity scopes are added.
+be one this service offers; the provider's identity scopes are added. Gmail's
+`gmail.settings.basic`, which releases before 1.253.1 still name, is offered and
+accepted but never requested from Google.
 `returnUrl` must be a page of `installationOrigin`. A sign-in lives ten
 minutes.
 
@@ -155,12 +157,16 @@ and nothing else.
    Keep the same client for the life of issued Connections: their refresh
    tokens belong to it, and renewal through a different client is refused with
    "registration changed".
-4. Complete Google's verification for every scope group you offer. Gmail and
+4. On **Data Access**, list exactly the scopes Connect requests: `openid`,
+   `.../auth/userinfo.email`, and each offered group's scopes — for `gmail`,
+   `.../auth/gmail.modify` alone. A scope the console lacks, or one it lists
+   that nothing requests, stops verification.
+5. Complete Google's verification for every scope group you offer. Gmail and
    Drive are restricted scopes that also need the security assessment; the
    [restricted-scope requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
    and [Gmail scope list](https://developers.google.com/workspace/gmail/api/auth/scopes)
    are authoritative.
-5. From an installation on another network — include one on `localhost` —
+6. From an installation on another network — include one on `localhost` —
    check: connect Gmail from **Email**; cancel on Google's screen; reconnect;
    an expired access token renews; **Admin → Runtime → Hosted sign-in** shows
    the service as reachable with what it offers.

@@ -6,8 +6,11 @@ import {
   client,
   digest,
   GMAIL_SCOPES,
+  GMAIL_SETTINGS_SCOPE,
+  IDENTITY_SCOPES,
   INSTALLATION,
   random,
+  RELEASED_GMAIL_SCOPES,
   startTestService,
   type TestService,
 } from "./helpers.js";
@@ -60,7 +63,7 @@ test("a released start request is refused before anything is sealed or shown", a
     installationOrigin: INSTALLATION,
   };
   const canonical = client(service);
-  for (const body of [v1, { ...v1, scopes: GMAIL_SCOPES }]) {
+  for (const body of [v1, { ...v1, scopes: RELEASED_GMAIL_SCOPES }]) {
     const response = await canonical.post("/start", body);
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: "Invalid request" });
@@ -99,6 +102,26 @@ for (const path of ["/api/connect/google", LEGACY]) {
   });
 }
 
+test("a release that still names Gmail settings access signs in, and Google is asked for Gmail alone", async () => {
+  // Releases before 1.253.1 start only when status offers every scope they
+  // name, and accept the credential once gmail.modify is granted.
+  const api = client(service);
+  const status = (await (await fetch(api.url("/status"))).json()) as { scopes: string[] };
+  for (const scope of RELEASED_GMAIL_SCOPES) assert.ok(status.scopes.includes(scope), scope);
+
+  const { consent, delivered } = await api.signIn({
+    scopes: [...IDENTITY_SCOPES, ...RELEASED_GMAIL_SCOPES],
+  });
+  const asked = [...IDENTITY_SCOPES, ...GMAIL_SCOPES].join(" ");
+  assert.equal(consent.upstream!.searchParams.get("scope"), asked);
+  assert.match(consent.page.html, /Connect Gmail/);
+  assert.equal(delivered.credential!.scope, asked);
+
+  const settingsOnly = await api.start({ scopes: [GMAIL_SETTINGS_SCOPE] });
+  assert.equal(settingsOnly.response.status, 400);
+  assert.match(settingsOnly.body.error ?? "", /at least one product/);
+});
+
 test("Connections renew after the operator stops offering their product", async () => {
   await service.close();
   service = await startTestService({
@@ -111,9 +134,11 @@ test("Connections renew after the operator stops offering their product", async 
     },
   });
   const canonical = client(service);
-  const refused = await canonical.start({ scopes: GMAIL_SCOPES });
-  assert.equal(refused.response.status, 400);
-  assert.match(refused.body.error ?? "", /does not offer Gmail/);
+  for (const scopes of [GMAIL_SCOPES, RELEASED_GMAIL_SCOPES]) {
+    const refused = await canonical.start({ scopes });
+    assert.equal(refused.response.status, 400);
+    assert.match(refused.body.error ?? "", /does not offer Gmail\. /);
+  }
   assert.equal((await canonical.start({ scopes: [CALENDAR_SCOPE] })).response.status, 200);
   for (const path of ["/api/connect/google", LEGACY]) {
     const renewed = await client(service, path).post("/refresh", {
