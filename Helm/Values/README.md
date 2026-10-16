@@ -159,10 +159,10 @@ connect:
   googleScopeGroups: gmail
 ```
 
-Register `https://connect.genosyn.com/api/connect/google/callback` and the
-legacy `https://connect.genosyn.com/api/google-sign-in/callback` with Google,
-and complete Google's verification for the offered scopes before announcing
-it. The App's own Google redirect URI at **Admin → Integrations** is unrelated
+Register `https://connect.genosyn.com/api/connect/google/callback` with Google
+as the only redirect URI, and complete Google's verification for the offered
+scopes before announcing it. The original `/api/google-sign-in` path only
+renews Connections it issued and takes no sign-ins, so it needs no redirect URI. The App's own Google redirect URI at **Admin → Integrations** is unrelated
 and only needed if the App registers its own Google app. The
 [operator guide](../../Connect/README.md) covers the launch checklist. The test
 profile leaves `ingress.connect.enabled` off; it can use its own hostname and
