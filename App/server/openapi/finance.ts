@@ -187,6 +187,8 @@ for (const document of [
     label: "invoice",
     create: invoiceCreateSchema,
     patch: invoicePatchSchema,
+    patchDescription:
+      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. A sent or paid invoice stays editable so it can be corrected and resent under the same number, but its customer and issuer cannot change. Its total must stay positive and cannot drop below what is already paid, credited, or written off; once money is applied its currency is fixed, as is the issue date of a foreign-currency invoice. A change to an issued invoice's amounts, currency, or issue date posts an invoice_revision journal entry and is refused inside a closed period. Editing never emails the customer; resend it with the send endpoint.",
     response: invoiceResponse,
   },
   {
@@ -194,6 +196,8 @@ for (const document of [
     label: "estimate",
     create: estimateCreateSchema,
     patch: estimatePatchSchema,
+    patchDescription:
+      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. A sent or accepted estimate stays editable so it can be revised and resent under the same number, but its customer and issuer cannot change, and any change to an accepted estimate returns it to sent. Declined, voided, and converted estimates cannot be edited. Editing never emails the customer; resend it with the send endpoint.",
     response: estimateResponse,
   },
 ] as const) {
@@ -221,8 +225,7 @@ for (const document of [
     method: "patch",
     path: `/api/companies/{cid}/${document.path}/{slug}`,
     summary: `Edit ${withIndefiniteArticle(document.label)}`,
-    description:
-      "Requires full Finance access. Subsidiary selection, customer, issue date, currency, and lines can change only while the document is a draft. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. An issued document's issuer cannot change.",
+    description: document.patchDescription,
     tags: ["Finance"],
     security: defaultSecurity,
     request: {
@@ -236,7 +239,8 @@ for (const document of [
       },
       ...errors,
       409: {
-        description: "Document is voided or the requested field is locked after issue",
+        description:
+          "The document can no longer be edited, or the requested change is locked after issue",
         content: { "application/json": { schema: errorResponse } },
       },
     },

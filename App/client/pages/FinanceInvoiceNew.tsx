@@ -1,14 +1,16 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, Plus, Trash2 } from "lucide-react";
 import {
   api,
+  canEditInvoice,
   financeSubsidiaries,
   Subsidiary,
   InvoiceIssuer,
   Customer,
   formatMoney,
   Invoice,
+  invoiceSettledCents,
   InvoiceLineDraft,
   parseMoneyToCents,
   Product,
@@ -25,7 +27,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -89,10 +91,14 @@ export default function FinanceInvoiceNew() {
 
 /**
  * Invoice form — handles both create (no `:invoiceSlug` route param)
- * and edit (param present, status must be `draft`). The form composes
- * line items inline (no separate per-line modal); selecting a product
- * pre-fills description / unit price / default tax rate, and the choice
- * is snapshotted onto each line at save time.
+ * and edit (param present). The form composes line items inline (no
+ * separate per-line modal); selecting a product pre-fills description /
+ * unit price / default tax rate, and the choice is snapshotted onto each
+ * line at save time.
+ *
+ * A sent or paid invoice edits in place under the same number, with its
+ * customer and issuer fixed. Saving never emails the customer; Save &
+ * resend saves, then opens the detail page's resend dialog.
  *
  * Lifecycle actions (Issue / Send / Mark paid / Void) live on the
  * detail page so users can preview the rendered HTML before sending.
@@ -127,7 +133,9 @@ function InvoiceForm() {
   const [notes, setNotes] = React.useState("");
   const [footer, setFooter] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
-  const [busy, setBusy] = React.useState(false);
+  // The invoice being edited, as loaded — what an issued one may still change.
+  const [existing, setExisting] = React.useState<Invoice | null>(null);
+  const [busy, setBusy] = React.useState<null | "save" | "resend">(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -147,11 +155,14 @@ function InvoiceForm() {
           const existing = await api.get<Invoice>(
             `/api/companies/${company.id}/invoices/${invoiceSlug}`,
           );
-          if (existing.status !== "draft") {
-            setLoadError("This invoice has already been issued. Only drafts can be edited.");
+          if (!canEditInvoice(existing)) {
+            setLoadError(
+              "This invoice is void, so it can't be edited. Duplicate it to bill the same items again.",
+            );
             setReady(true);
             return;
           }
+          setExisting(existing);
           setCustomerId(existing.customerId);
           setSubsidiaryId(existing.subsidiaryId ?? "");
           setSavedIssuer(existing.issuerSnapshot);
@@ -254,11 +265,13 @@ function InvoiceForm() {
   }, [lines, taxRates]);
 
   const canSave = !!customerId && lines.some((l) => l.description.trim().length > 0);
+  // Issued: the customer already holds a copy under this number.
+  const issued = existing !== null && existing.status !== "draft";
+  const settledCents = existing ? invoiceSettledCents(existing) : 0;
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSave) return;
-    setBusy(true);
+  async function save(then: "view" | "resend") {
+    if (!canSave || busy) return;
+    setBusy(then === "resend" ? "resend" : "save");
     setSaveError(null);
     try {
       const lineDrafts: InvoiceLineDraft[] = lines
@@ -285,11 +298,15 @@ function InvoiceForm() {
         isEdit && invoiceSlug
           ? await api.patch<Invoice>(`/api/companies/${company.id}/invoices/${invoiceSlug}`, body)
           : await api.post<Invoice>(`/api/companies/${company.id}/invoices`, body);
-      navigate(`/c/${company.slug}/finance/invoices/${inv.slug}`);
+      // The detail page opens its resend dialog, where the recipients and a
+      // note are confirmed before anything is emailed.
+      navigate(
+        `/c/${company.slug}/finance/invoices/${inv.slug}`,
+        then === "resend" ? { state: { resendRevised: true } } : undefined,
+      );
     } catch (err) {
       setSaveError(errorMessage(err));
-    } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -357,7 +374,13 @@ function InvoiceForm() {
   }
 
   return (
-    <form onSubmit={save} className="page-shell p-8">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save("view");
+      }}
+      className="page-shell p-8"
+    >
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -368,7 +391,7 @@ function InvoiceForm() {
         />
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
             to={
@@ -381,10 +404,10 @@ function InvoiceForm() {
             <ArrowLeft size={18} />
           </Link>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            {isEdit ? "Edit invoice" : "New invoice"}
+            {isEdit ? `Edit ${existing?.number || "invoice"}` : "New invoice"}
           </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Link
             to={
               isEdit && invoiceSlug
@@ -392,28 +415,68 @@ function InvoiceForm() {
                 : `/c/${company.slug}/finance/invoices`
             }
           >
-            <Button type="button" variant="secondary" disabled={busy}>
+            <Button type="button" variant="secondary" disabled={busy !== null}>
               Cancel
             </Button>
           </Link>
-          <Button type="submit" loading={busy} disabled={!canSave}>
+          <Button
+            type="submit"
+            variant={issued ? "secondary" : "primary"}
+            loading={busy === "save"}
+            disabled={!canSave || busy !== null}
+          >
             {isEdit ? "Save changes" : "Save draft"}
           </Button>
+          {issued && (
+            <Button
+              type="button"
+              onClick={() => void save("resend")}
+              loading={busy === "resend"}
+              disabled={!canSave || busy !== null}
+            >
+              <Mail size={14} /> Save &amp; resend
+            </Button>
+          )}
         </div>
       </div>
+
+      {issued && existing && (
+        <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+          <p>
+            <span className="font-medium">{existing.number} has already been sent.</span> Saving
+            keeps its number and updates the books to match. The customer keeps the copy they have
+            until you resend it — <span className="font-medium">Save &amp; resend</span> emails them
+            the updated invoice.
+          </p>
+          {settledCents > 0 && (
+            <p className="mt-2">
+              {formatMoney(settledCents, existing.currency)} is already paid, credited or written
+              off, so the total can&apos;t go below that and the currency stays {existing.currency}.
+            </p>
+          )}
+        </div>
+      )}
 
       <FormError message={saveError} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-6 max-w-xl">
-          <InvoiceIssuerSelect
-            company={company}
-            subsidiaries={subsidiaries}
-            value={subsidiaryId}
-            onChange={setSubsidiaryId}
-            savedIssuer={savedIssuer}
-            savedSubsidiaryId={savedSubsidiaryId}
-          />
+          {issued ? (
+            <InvoiceIssuerFixed
+              issuer={savedIssuer}
+              companyName={company.name}
+              hint="Fixed once the invoice is issued. Void it and duplicate it to bill from another entity."
+            />
+          ) : (
+            <InvoiceIssuerSelect
+              company={company}
+              subsidiaries={subsidiaries}
+              value={subsidiaryId}
+              onChange={setSubsidiaryId}
+              savedIssuer={savedIssuer}
+              savedSubsidiaryId={savedSubsidiaryId}
+            />
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="sm:col-span-2">
@@ -421,6 +484,7 @@ function InvoiceForm() {
               label="Customer"
               value={customerId}
               onChange={(e) => changeCustomer(e.target.value)}
+              disabled={issued}
               required
             >
               {customers?.map((c) => (
@@ -429,6 +493,12 @@ function InvoiceForm() {
                 </option>
               ))}
             </Select>
+            {issued && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                The invoice number belongs to this customer. Void it and duplicate it to bill
+                someone else.
+              </p>
+            )}
             {requestedCustomerUnavailable && !customerId && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                 The customer you came from is archived or no longer exists. Choose who to bill.
@@ -454,6 +524,8 @@ function InvoiceForm() {
             value={currency}
             onChange={(e) => setCurrency(e.target.value.toUpperCase())}
             maxLength={3}
+            disabled={issued && settledCents > 0}
+            className="disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-400"
             required
           />
         </div>

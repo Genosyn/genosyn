@@ -5,16 +5,20 @@ import { Estimate, EstimateStatus } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
-import { TaxRate } from "../db/entities/TaxRate.js";
-import {
-  computeLineTotals,
-  formatEstimateNumber,
-  formatMoney,
-} from "../lib/money.js";
+import { formatEstimateNumber, formatMoney } from "../lib/money.js";
 import { sendEmail } from "./email.js";
 import { renderEstimateHtmlForCompany } from "./estimateHtml.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
-import { issueInvoice, type LineDraft } from "./finance.js";
+import {
+  issueInvoice,
+  keptTaxSnapshots,
+  type LineDraft,
+  type LineTaxSnapshot,
+  linesUnchanged,
+  priceLineDrafts,
+  sameUtcDay,
+  sumLines,
+} from "./finance.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
 
 /**
@@ -28,6 +32,8 @@ import { resolveDocumentIssuer } from "./subsidiaries.js";
  *     write them directly.
  *   - Status transitions are forward-only:
  *       draft → sent → accepted | declined | void
+ *     The one step back: editing an accepted estimate returns it to
+ *     `sent`, because the customer accepted the earlier version.
  *     A `sent` (or `accepted`) estimate past its `validUntil` is
  *     rendered as `expired` at read time, but the stored status does
  *     not change so changing the system clock can't corrupt records.
@@ -62,73 +68,24 @@ export async function mintNextEstimateSeq(
 
 // ───────────────────────── Tax + Product snapshots ─────────────────────
 
-async function snapshotTax(
-  companyId: string,
-  taxRateId: string | null | undefined,
-): Promise<{
-  taxRateId: string | null;
-  taxName: string;
-  taxPercent: number;
-  taxInclusive: boolean;
-}> {
-  if (!taxRateId) {
-    return { taxRateId: null, taxName: "", taxPercent: 0, taxInclusive: false };
-  }
-  const rate = await AppDataSource.getRepository(TaxRate).findOneBy({
-    id: taxRateId,
-    companyId,
-  });
-  if (!rate) {
-    return { taxRateId: null, taxName: "", taxPercent: 0, taxInclusive: false };
-  }
-  return {
-    taxRateId: rate.id,
-    taxName: rate.name,
-    taxPercent: rate.ratePercent,
-    taxInclusive: rate.inclusive,
-  };
-}
-
 /**
  * Replace all line items on an estimate with the supplied drafts. Used
- * by both the create flow and the draft edit flow. Each line is
- * tax-snapshotted, computed via `lib/money.ts > computeLineTotals()`,
- * and re-ordered by the supplied `sortOrder` (defaults to input order).
+ * by both the create flow and the edit flow. Lines are priced the same way
+ * an invoice's are (`finance.ts > priceLineDrafts()`); `kept` carries an
+ * issued estimate's tax snapshots.
  */
 export async function replaceEstimateLines(
   estimate: Estimate,
   drafts: LineDraft[],
+  kept?: ReadonlyMap<string, LineTaxSnapshot>,
 ): Promise<EstimateLineItem[]> {
   const lineRepo = AppDataSource.getRepository(EstimateLineItem);
   await lineRepo.delete({ estimateId: estimate.id });
   if (drafts.length === 0) return [];
-  const built: EstimateLineItem[] = [];
-  for (let i = 0; i < drafts.length; i += 1) {
-    const d = drafts[i];
-    const tax = await snapshotTax(estimate.companyId, d.taxRateId);
-    const totals = computeLineTotals({
-      quantity: d.quantity,
-      unitPriceCents: d.unitPriceCents,
-      taxPercent: tax.taxPercent,
-      taxInclusive: tax.taxInclusive,
-    });
-    built.push(
-      lineRepo.create({
-        estimateId: estimate.id,
-        productId: d.productId ?? null,
-        description: d.description,
-        quantity: d.quantity,
-        unitPriceCents: d.unitPriceCents,
-        taxRateId: tax.taxRateId,
-        taxName: tax.taxName,
-        taxPercent: tax.taxPercent,
-        taxInclusive: tax.taxInclusive,
-        ...totals,
-        sortOrder: d.sortOrder ?? i,
-      }),
-    );
-  }
-  return await lineRepo.save(built);
+  const priced = await priceLineDrafts(estimate.companyId, drafts, kept);
+  return await lineRepo.save(
+    priced.map((line) => lineRepo.create({ estimateId: estimate.id, ...line })),
+  );
 }
 
 // ───────────────────────────── Recompute ──────────────────────────────
@@ -281,6 +238,170 @@ export async function voidEstimate(
   estimate.status = "void";
   estimate.voidedAt = new Date();
   return AppDataSource.getRepository(Estimate).save(estimate);
+}
+
+// ──────────────────────────── Editing ────────────────────────────────
+
+/** An edit the estimate's state forbids, with the status the route answers. */
+export class EstimateEditError extends Error {
+  constructor(
+    message: string,
+    readonly status: 400 | 409,
+  ) {
+    super(message);
+    this.name = "EstimateEditError";
+  }
+}
+
+export type EstimateEditInput = {
+  subsidiaryId?: string | null;
+  customerId?: string;
+  issueDate?: Date;
+  validUntil?: Date;
+  currency?: string;
+  notes?: string;
+  footer?: string;
+  lines?: LineDraft[];
+};
+
+export type EstimateEditResult = {
+  estimate: Estimate;
+  /** The fields whose value actually changed — what the History row names. */
+  changed: string[];
+  /** The estimate was already issued, so the customer holds an older copy. */
+  afterIssue: boolean;
+  previousTotalCents: number;
+  /** Where it stood before: an accepted estimate the edit sent back to `sent`. */
+  previousStatus: EstimateStatus;
+};
+
+/**
+ * Edit an estimate. A draft takes any change. A sent or accepted estimate —
+ * one the customer already holds — stays editable so a quote can be revised
+ * and resent under the same number:
+ *
+ *   - Its customer and issuer are fixed at issue: the number belongs to that
+ *     customer, from that legal entity. Duplicate it to quote someone else.
+ *   - Any change to an accepted estimate returns it to `sent`, since the
+ *     customer accepted the earlier version; mark it accepted again once they
+ *     accept this one.
+ *   - Declined, void and converted estimates are closed. Duplicate one to
+ *     quote again, or edit the invoice it became.
+ *
+ * Unchanged lines are left exactly as saved and changed ones keep the tax
+ * rates the estimate was issued with. Estimates never touch the ledger, and
+ * nothing here emails the customer.
+ */
+export async function updateEstimate(
+  estimate: Estimate,
+  input: EstimateEditInput,
+): Promise<EstimateEditResult> {
+  if (estimate.status === "void") {
+    throw new EstimateEditError("Voided estimates cannot be edited", 409);
+  }
+  if (estimate.invoiceId) {
+    throw new EstimateEditError(
+      "This estimate was converted to an invoice, so it can't be edited. Edit the invoice instead, or duplicate the estimate to quote again.",
+      409,
+    );
+  }
+  if (estimate.status === "declined") {
+    throw new EstimateEditError(
+      "A declined estimate can't be edited. Duplicate it to send the customer a revised quote.",
+      409,
+    );
+  }
+  const companyId = estimate.companyId;
+  const issued = estimate.status !== "draft";
+  const previousStatus = estimate.status;
+  const existingLines = await AppDataSource.getRepository(EstimateLineItem).find({
+    where: { estimateId: estimate.id },
+    order: { sortOrder: "ASC" },
+  });
+  const previousTotals = sumLines(existingLines);
+
+  const customerChanged =
+    input.customerId !== undefined && input.customerId !== estimate.customerId;
+  const subsidiaryChanged =
+    input.subsidiaryId !== undefined && input.subsidiaryId !== estimate.subsidiaryId;
+  const issueDateChanged =
+    input.issueDate !== undefined && !sameUtcDay(input.issueDate, estimate.issueDate);
+  const validUntilChanged =
+    input.validUntil !== undefined && !sameUtcDay(input.validUntil, estimate.validUntil);
+  const linesChanged = input.lines !== undefined && !linesUnchanged(existingLines, input.lines);
+
+  if (issued) {
+    const label = estimate.number || "This estimate";
+    if (customerChanged) {
+      throw new EstimateEditError(
+        `The customer can't change after an estimate is issued — ${label} is numbered for them. Duplicate it to quote someone else.`,
+        409,
+      );
+    }
+    if (subsidiaryChanged) {
+      throw new EstimateEditError(
+        "The issuer can't change after an estimate is issued. Duplicate it to quote from another entity.",
+        409,
+      );
+    }
+  }
+
+  let customer: Customer | null = null;
+  if (customerChanged) {
+    customer = await AppDataSource.getRepository(Customer).findOneBy({
+      id: input.customerId,
+      companyId,
+    });
+    if (!customer) throw new EstimateEditError("Invalid customer", 400);
+  }
+  if (subsidiaryChanged) {
+    Object.assign(estimate, await resolveDocumentIssuer(companyId, input.subsidiaryId ?? null));
+  }
+
+  const changed: string[] = [];
+  if (customerChanged) changed.push("customer");
+  if (subsidiaryChanged) changed.push("issuer");
+  if (issueDateChanged) changed.push("issueDate");
+  if (validUntilChanged) changed.push("validUntil");
+  if (input.currency !== undefined && input.currency !== estimate.currency) {
+    changed.push("currency");
+  }
+  if (input.notes !== undefined && input.notes !== estimate.notes) changed.push("notes");
+  if (input.footer !== undefined && input.footer !== estimate.footer) changed.push("footer");
+  if (linesChanged) changed.push("lines");
+
+  if (customer) estimate.customerId = customer.id;
+  if (input.notes !== undefined) estimate.notes = input.notes;
+  if (input.footer !== undefined) estimate.footer = input.footer;
+  if (input.currency !== undefined) estimate.currency = input.currency;
+  // On an issued estimate the same day keeps the stored moment.
+  if (input.issueDate !== undefined && (!issued || issueDateChanged)) {
+    estimate.issueDate = input.issueDate;
+  }
+  if (input.validUntil !== undefined && (!issued || validUntilChanged)) {
+    estimate.validUntil = input.validUntil;
+  }
+  if (estimate.status === "accepted" && changed.length > 0) {
+    estimate.status = "sent";
+    estimate.acceptedAt = null;
+  }
+  await AppDataSource.getRepository(Estimate).save(estimate);
+  // A draft re-prices whatever lines it is sent, picking up current tax rates.
+  // An issued estimate only re-prices lines that actually changed.
+  if (input.lines !== undefined && (!issued || linesChanged)) {
+    await replaceEstimateLines(
+      estimate,
+      input.lines,
+      issued ? keptTaxSnapshots(existingLines) : undefined,
+    );
+  }
+  return {
+    estimate: await recomputeEstimateTotals(estimate),
+    changed,
+    afterIssue: issued,
+    previousTotalCents: previousTotals.totalCents,
+    previousStatus,
+  };
 }
 
 /**

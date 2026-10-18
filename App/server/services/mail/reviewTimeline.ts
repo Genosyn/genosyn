@@ -65,6 +65,7 @@ const AUDIT_ACTIONS: Record<
   "mail.analysis.failed": { kind: "review_failed", title: "AI review could not finish" },
   "finance.estimate.create": { kind: "quote", title: "Quote created", finance: true },
   "finance.estimate.update": { kind: "quote", title: "Quote updated", finance: true },
+  "finance.estimate.revise": { kind: "quote", title: "Quote revised", finance: true },
   "finance.estimate.issue": { kind: "quote", title: "Quote issued", finance: true },
   "finance.estimate.send": { kind: "quote", title: "Quote emailed", finance: true },
   "finance.invoice.create": { kind: "action", title: "Invoice created", finance: true },

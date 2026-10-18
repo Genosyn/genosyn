@@ -1168,6 +1168,7 @@ export const resolveVendorCredit: AskAiResolver = async ({ companyId, member, re
 const LEDGER_SOURCE_LABELS: Partial<Record<LedgerEntry["source"], string>> = {
   manual: "manual entry",
   invoice_issue: "invoice issued",
+  invoice_revision: "invoice revised after issue",
   invoice_payment: "invoice payment",
   invoice_void: "invoice void / payment reversal",
   credit_note_issue: "credit note issued",
@@ -1241,6 +1242,7 @@ async function describeLedgerSource(companyId: string, entry: LedgerEntry): Prom
 
   switch (entry.source) {
     case "invoice_issue":
+    case "invoice_revision":
     case "invoice_void": {
       const inv = await invoiceBy(refId);
       return inv ? invoiceRef(inv) : null;

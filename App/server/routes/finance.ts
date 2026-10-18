@@ -35,25 +35,30 @@ import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAc
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import {
+  assertPaymentNotRecorded,
   createInvoiceDraft,
+  DuplicatePaymentError,
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
+  InvoiceEditError,
   type InvoiceSendResult,
   issueInvoice,
   listInvoiceResendActivities,
   loadCustomerBySlug,
   loadInvoiceBySlug,
   loadProductBySlug,
+  normalizePaymentReference,
   postInvoicePayment,
   recomputeInvoiceTotals,
-  replaceInvoiceLines,
   resolveInvoiceRecipients,
   reverseInvoicePayment,
   sendInvoiceEmail,
   uniqueCustomerSlug,
+  updateInvoice,
   voidInvoice,
 } from "../services/finance.js";
+import { documentRevisionState, reviseAction } from "../services/documentRevisions.js";
 import { normalizeAccountDomain } from "../services/revenue/accounts.js";
 import {
   createInvoiceWriteOff,
@@ -145,15 +150,15 @@ import {
   createEstimateDraft,
   declineEstimate,
   duplicateEstimate,
+  EstimateEditError,
   type EstimateSendResult,
   hydrateEstimates,
   issueEstimate,
   loadEstimateBySlug,
-  recomputeEstimateTotals,
-  replaceEstimateLines,
   resolveEstimateRecipient,
   sendEstimateEmail,
   setEstimatesArchived,
+  updateEstimate,
   voidEstimate,
 } from "../services/estimates.js";
 import {
@@ -1029,13 +1034,15 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [hydratedRows, emailDetails, resendActivities, writeOffs, apps] = await Promise.all([
-    hydrateInvoices(cid, [inv]),
-    getInvoiceEmailDetails(cid, inv),
-    listInvoiceResendActivities(cid, inv.id),
-    listInvoiceWriteOffs(cid, inv.id),
-    listApplicationsForInvoice(inv.id),
-  ]);
+  const [hydratedRows, emailDetails, resendActivities, writeOffs, apps, revision] =
+    await Promise.all([
+      hydrateInvoices(cid, [inv]),
+      getInvoiceEmailDetails(cid, inv),
+      listInvoiceResendActivities(cid, inv.id),
+      listInvoiceWriteOffs(cid, inv.id),
+      listApplicationsForInvoice(inv.id),
+      documentRevisionState(cid, "invoice", inv.id),
+    ]);
   const creditIds = [...new Set(apps.map((a) => a.creditId))];
   const credits = creditIds.length
     ? await AppDataSource.getRepository(CustomerCredit).find({
@@ -1055,78 +1062,66 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
     resendActivities,
     writeOffs,
     creditApplications,
+    revision,
   });
 });
 
 export const invoicePatchSchema = z.object({
   subsidiaryId: z.string().uuid().nullable().optional(),
-  // Header fields editable on draft AND issued invoices:
   notes: z.string().max(4000).optional(),
   footer: z.string().max(1000).optional(),
   dueDate: z.string().datetime().optional(),
-  // Header fields editable only while still draft:
   customerId: z.string().uuid().optional(),
   issueDate: z.string().datetime().optional(),
   currency: currencySchema.optional(),
-  // Line replacement is draft-only.
   lines: z.array(lineDraftSchema).max(200).optional(),
 });
 
+// Edit a draft, or an issued invoice so it can be corrected and resent under
+// the same number. `updateInvoice` owns what an issued invoice may still
+// change and the journal entry that keeps the books in line with it.
 financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  if (inv.status === "void") {
-    return res.status(409).json({ error: "Voided invoices cannot be edited" });
-  }
   const body = req.body as z.infer<typeof invoicePatchSchema>;
-  const draftOnly =
-    body.subsidiaryId !== undefined ||
-    body.customerId !== undefined ||
-    body.issueDate !== undefined ||
-    body.currency !== undefined ||
-    body.lines !== undefined;
-  if (draftOnly && inv.status !== "draft") {
-    return res
-      .status(409)
-      .json({ error: "Lines and header (customer/subsidiary/date/currency) are draft-only" });
-  }
-
-  if (body.subsidiaryId !== undefined && body.subsidiaryId !== inv.subsidiaryId) {
-    try {
-      Object.assign(inv, await resolveDocumentIssuer(cid, body.subsidiaryId));
-    } catch (err) {
-      return res.status(400).json({ error: (err as Error).message });
+  try {
+    const result = await updateInvoice(
+      inv,
+      {
+        subsidiaryId: body.subsidiaryId,
+        customerId: body.customerId,
+        issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+        currency: body.currency,
+        notes: body.notes,
+        footer: body.footer,
+        lines: body.lines,
+      },
+      req.userId ?? null,
+    );
+    const updated = result.invoice;
+    if (result.changed.length > 0) {
+      await auditFinance(
+        req,
+        result.afterIssue ? reviseAction("invoice") : "finance.invoice.update",
+        { type: "invoice", id: updated.id, label: updated.number || "Draft invoice" },
+        {
+          fields: result.changed,
+          totalCents: updated.totalCents,
+          ...(updated.totalCents !== result.previousTotalCents
+            ? { previousTotalCents: result.previousTotalCents }
+            : {}),
+        },
+      );
     }
+    const [hydrated] = await hydrateInvoices(cid, [updated]);
+    res.json(hydrated);
+  } catch (err) {
+    res
+      .status(err instanceof InvoiceEditError ? err.status : 400)
+      .json({ error: (err as Error).message });
   }
-
-  if (body.notes !== undefined) inv.notes = body.notes;
-  if (body.footer !== undefined) inv.footer = body.footer;
-  if (body.dueDate !== undefined) inv.dueDate = new Date(body.dueDate);
-  if (body.customerId !== undefined) {
-    const c = await AppDataSource.getRepository(Customer).findOneBy({
-      id: body.customerId,
-      companyId: cid,
-    });
-    if (!c) return res.status(400).json({ error: "Invalid customer" });
-    inv.customerId = c.id;
-  }
-  if (body.issueDate !== undefined) inv.issueDate = new Date(body.issueDate);
-  if (body.currency !== undefined) inv.currency = body.currency;
-  await AppDataSource.getRepository(Invoice).save(inv);
-
-  if (body.lines !== undefined) {
-    await replaceInvoiceLines(inv, body.lines);
-  }
-  const recomputed = await recomputeInvoiceTotals(inv);
-  await auditFinance(
-    req,
-    "finance.invoice.update",
-    { type: "invoice", id: inv.id, label: inv.number || "Draft invoice" },
-    { fields: changedKeys(body), totalCents: recomputed.totalCents },
-  );
-  const [hydrated] = await hydrateInvoices(cid, [recomputed]);
-  res.json(hydrated);
 });
 
 financeRouter.delete("/invoices/:slug", async (req, res) => {
@@ -1463,6 +1458,17 @@ financeRouter.post(
         error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
       });
     }
+    // A payment already in the books — on this invoice or any other — is not
+    // recorded twice under the same reference. Checked before the balance, so a
+    // duplicate on a settled invoice is never steered into an overpayment credit.
+    const reference = normalizePaymentReference(body.reference);
+    try {
+      await assertPaymentNotRecorded(cid, inv, reference);
+    } catch (err) {
+      return res
+        .status(err instanceof DuplicatePaymentError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
     // Overpayment splits into the applied portion (a normal payment) and the
     // excess (an on-account customer credit, DR Bank / CR 2400), instead of
     // driving AR negative. Off by default, so every existing caller — and the
@@ -1492,7 +1498,7 @@ financeRouter.post(
             currency: body.currency ?? inv.currency,
             paidAt,
             method: body.method ?? "other",
-            reference: body.reference ?? "",
+            reference,
             notes: body.notes ?? "",
             createdById: req.userId ?? null,
           }),
@@ -1536,7 +1542,7 @@ financeRouter.post(
         amountCents: body.amountCents,
         ...(excess > 0 ? { creditedCents: excess } : {}),
         method: body.method ?? "other",
-        reference: body.reference ?? "",
+        reference,
         balanceCents: recomputed.balanceCents,
         status: recomputed.status,
       },
@@ -2275,8 +2281,11 @@ financeRouter.get("/estimates/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const est = await loadEstimateBySlug(cid, req.params.slug);
   if (!est) return res.status(404).json({ error: "Estimate not found" });
-  const [hydrated] = await hydrateEstimates(cid, [est]);
-  res.json(hydrated);
+  const [[hydrated], revision] = await Promise.all([
+    hydrateEstimates(cid, [est]),
+    documentRevisionState(cid, "estimate", est.id),
+  ]);
+  res.json({ ...hydrated, revision });
 });
 
 export const estimatePatchSchema = z.object({
@@ -2290,59 +2299,50 @@ export const estimatePatchSchema = z.object({
   lines: z.array(lineDraftSchema).max(200).optional(),
 });
 
+// Edit a draft, or a sent or accepted estimate so a quote can be revised and
+// resent under the same number. `updateEstimate` owns what an issued estimate
+// may still change, and sends an accepted one back to `sent`.
 financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const est = await loadEstimateBySlug(cid, req.params.slug);
   if (!est) return res.status(404).json({ error: "Estimate not found" });
-  if (est.status === "void") {
-    return res.status(409).json({ error: "Voided estimates cannot be edited" });
-  }
   const body = req.body as z.infer<typeof estimatePatchSchema>;
-  const draftOnly =
-    body.subsidiaryId !== undefined ||
-    body.customerId !== undefined ||
-    body.issueDate !== undefined ||
-    body.currency !== undefined ||
-    body.lines !== undefined;
-  if (draftOnly && est.status !== "draft") {
-    return res
-      .status(409)
-      .json({ error: "Lines and header (customer/subsidiary/date/currency) are draft-only" });
-  }
-
-  if (body.subsidiaryId !== undefined && body.subsidiaryId !== est.subsidiaryId) {
-    try {
-      Object.assign(est, await resolveDocumentIssuer(cid, body.subsidiaryId));
-    } catch (err) {
-      return res.status(400).json({ error: (err as Error).message });
-    }
-  }
-
-  if (body.notes !== undefined) est.notes = body.notes;
-  if (body.footer !== undefined) est.footer = body.footer;
-  if (body.validUntil !== undefined) est.validUntil = new Date(body.validUntil);
-  if (body.customerId !== undefined) {
-    const c = await AppDataSource.getRepository(Customer).findOneBy({
-      id: body.customerId,
-      companyId: cid,
+  try {
+    const result = await updateEstimate(est, {
+      subsidiaryId: body.subsidiaryId,
+      customerId: body.customerId,
+      issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+      validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
+      currency: body.currency,
+      notes: body.notes,
+      footer: body.footer,
+      lines: body.lines,
     });
-    if (!c) return res.status(400).json({ error: "Invalid customer" });
-    est.customerId = c.id;
+    const updated = result.estimate;
+    if (result.changed.length > 0) {
+      await auditFinance(
+        req,
+        result.afterIssue ? reviseAction("estimate") : "finance.estimate.update",
+        { type: "estimate", id: updated.id, label: updated.number || "Draft estimate" },
+        {
+          fields: result.changed,
+          totalCents: updated.totalCents,
+          ...(updated.totalCents !== result.previousTotalCents
+            ? { previousTotalCents: result.previousTotalCents }
+            : {}),
+          ...(updated.status !== result.previousStatus
+            ? { status: updated.status, previousStatus: result.previousStatus }
+            : {}),
+        },
+      );
+    }
+    const [hydrated] = await hydrateEstimates(cid, [updated]);
+    res.json(hydrated);
+  } catch (err) {
+    res
+      .status(err instanceof EstimateEditError ? err.status : 400)
+      .json({ error: (err as Error).message });
   }
-  if (body.issueDate !== undefined) est.issueDate = new Date(body.issueDate);
-  if (body.currency !== undefined) est.currency = body.currency;
-  await AppDataSource.getRepository(Estimate).save(est);
-
-  if (body.lines !== undefined) {
-    await replaceEstimateLines(est, body.lines);
-  }
-  const recomputed = await recomputeEstimateTotals(est);
-  await auditFinance(req, "finance.estimate.update", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, {
-    fields: changedKeys(body),
-    totalCents: recomputed.totalCents,
-  });
-  const [hydrated] = await hydrateEstimates(cid, [recomputed]);
-  res.json(hydrated);
 });
 
 financeRouter.delete("/estimates/:slug", async (req, res) => {

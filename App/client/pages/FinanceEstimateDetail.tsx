@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -18,10 +18,14 @@ import {
 } from "lucide-react";
 import {
   api,
+  canEditEstimate,
+  changedSinceEmailed,
   displayEstimateStatus,
+  type DocumentRevision,
   Estimate,
   EstimateBulkAction,
   EstimateBulkResult,
+  type EstimateResentState,
   formatMoney,
   Invoice,
 } from "../lib/api";
@@ -62,8 +66,10 @@ export default function FinanceEstimateDetail() {
   const canWrite = canWriteFinance(company);
   const { estimateSlug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const dialog = useDialog();
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
+  const [revision, setRevision] = React.useState<DocumentRevision | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<
     | null
@@ -92,6 +98,7 @@ export default function FinanceEstimateDetail() {
     try {
       const est = await api.get<Estimate>(`/api/companies/${company.id}/estimates/${estimateSlug}`);
       setEstimate(est);
+      setRevision(est.revision ?? null);
       shown.current = true;
       setLoadError(null);
     } catch (err) {
@@ -107,6 +114,30 @@ export default function FinanceEstimateDetail() {
   }, [reload]);
 
   useLiveRefetch("estimate", reload);
+
+  // Save & resend on the edit page saved the estimate and emailed it; say how
+  // the email went. The state is cleared first, so a reload never repeats it,
+  // and the handled entry is remembered, so StrictMode's replay doesn't either.
+  const handledResend = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const resent = (location.state as EstimateResentState | null)?.resent;
+    if (!resent || handledResend.current === location.key) return;
+    handledResend.current = location.key;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    if (resent.status === "sent") {
+      setSendNotice(
+        `Changes saved and emailed to ${resent.to || "the customer"} at ${new Date().toLocaleTimeString()}.`,
+      );
+    } else if (resent.status === "skipped") {
+      void dialog.error("Your changes are saved. Set one in Settings → Email, then resend.", {
+        title: "No email transport configured",
+      });
+    } else {
+      void dialog.error(resent.errorMessage || "Unknown error", {
+        title: "Changes saved, but the estimate wasn’t emailed",
+      });
+    }
+  }, [location, navigate, dialog]);
 
   async function issue() {
     if (!estimate) return;
@@ -154,6 +185,8 @@ export default function FinanceEstimateDetail() {
         const to = result.estimate.customer?.email || "the customer";
         setSendNotice(`Estimate emailed to ${to} at ${new Date().toLocaleTimeString()}.`);
       }
+      // The customer now holds this version; refresh what the page says about it.
+      if (result.send.status === "sent") void reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t send the estimate" });
     } finally {
@@ -335,6 +368,11 @@ export default function FinanceEstimateDetail() {
   const archivedOn = estimate.archivedAt
     ? new Date(estimate.archivedAt).toISOString().slice(0, 10)
     : null;
+  // Sent or accepted, not converted: still the customer's live quote.
+  const revisable = estimate.status !== "draft" && canEditEstimate(estimate);
+  const emailedOn = revision?.emailedAt
+    ? new Date(revision.emailedAt).toISOString().slice(0, 10)
+    : null;
 
   return (
     <div className="page-shell p-8">
@@ -384,6 +422,13 @@ export default function FinanceEstimateDetail() {
                   <Send size={14} /> Issue & send
                 </Button>
               </>
+            )}
+            {revisable && (
+              <Link to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}>
+                <Button variant="secondary" disabled={busy !== null}>
+                  <Pencil size={14} /> Edit
+                </Button>
+              </Link>
             )}
             {estimate.status === "sent" && !isConverted && (
               <>
@@ -518,6 +563,29 @@ export default function FinanceEstimateDetail() {
       </div>
 
       <FormSuccess message={sendNotice} className="mb-4" />
+
+      {revisable && emailedOn && changedSinceEmailed(revision) && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="flex min-w-[16rem] flex-1 items-start gap-2 text-amber-900 dark:text-amber-200">
+            <Pencil size={15} className="mt-0.5 shrink-0" />
+            <span>
+              Edited since it was last emailed on {emailedOn}. The customer still has the earlier
+              copy.
+            </span>
+          </div>
+          {canWrite && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={send}
+              loading={busy === "send"}
+              disabled={busy !== null}
+            >
+              <Mail size={14} /> Resend
+            </Button>
+          )}
+        </div>
+      )}
 
       {archivedOn && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/40">

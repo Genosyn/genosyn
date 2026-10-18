@@ -97,6 +97,10 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Invoice issued",
     cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   },
+  invoice_revision: {
+    label: "Invoice revised",
+    cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  },
   invoice_payment: {
     label: "Payment",
     cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -378,7 +382,7 @@ function EntryRow({
           {entry.sourceRefId && entry.source !== "manual" && (
             <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">
               Source ref: <span className="font-mono">{entry.sourceRefId}</span>
-              {entry.source === "invoice_issue" && (
+              {(entry.source === "invoice_issue" || entry.source === "invoice_revision") && (
                 <>
                   {" · "}
                   <Link

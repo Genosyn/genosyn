@@ -14,10 +14,14 @@ import {
  *
  * - `draft`  — fully editable, deletable. Has a `numberSeq` of 0 and no
  *              display number until issued.
- * - `sent`   — locked (line items immutable). Number minted at issue.
- *              Payments may be recorded; voiding is allowed.
+ * - `sent`   — Number minted at issue; customer and issuer fixed. Still
+ *              editable, under the same number, so a mistake can be
+ *              corrected and resent (`services/finance.ts >
+ *              updateInvoice()`). Payments may be recorded; voiding is
+ *              allowed.
  * - `paid`   — `paidCents >= totalCents`. Same as `sent` for editing
- *              rules; transitions back to `sent` if a payment is deleted.
+ *              rules; transitions back to `sent` if a payment is deleted
+ *              or an edit raises the total.
  * - `void`   — terminal. Cannot be edited or deleted.
  *
  * "Overdue" is computed at read-time from `dueDate` + status, not stored,

@@ -24,6 +24,10 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 export type LedgerEntrySource =
   | "manual"
   | "invoice_issue"
+  // An issued invoice edited after the fact. Keyed on the invoice id like
+  // `invoice_issue`; the two together net to what the invoice says now, and
+  // a void reverses both.
+  | "invoice_revision"
   | "invoice_payment"
   | "invoice_void"
   // Customer credits (Phase H). A credit note never touches 1200 AR on
@@ -93,8 +97,9 @@ export class LedgerEntry {
   source!: LedgerEntrySource;
 
   /** ID of the source record — `Invoice.id` for invoice_issue /
-   *  invoice_void, `InvoicePayment.id` for invoice_payment, null for
-   *  manual entries. Indexed with `source` so reversal lookups are O(1). */
+   *  invoice_revision / invoice_void, `InvoicePayment.id` for
+   *  invoice_payment, null for manual entries. Indexed with `source` so
+   *  reversal lookups are O(1). */
   @Column({ type: "varchar", nullable: true })
   sourceRefId!: string | null;
 

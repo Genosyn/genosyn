@@ -4785,6 +4785,37 @@ export function parseMoneyToCents(input: string): number {
   return Math.round(n * 100);
 }
 
+/**
+ * When an issued invoice or estimate was last edited and when an email of it
+ * last went out — the `revision` on `GET …/invoices/:slug` and
+ * `GET …/estimates/:slug`.
+ */
+export type DocumentRevision = {
+  revisedAt: string | null;
+  emailedAt: string | null;
+};
+
+/** Edited after the last email went out: the customer holds an older copy. */
+export function changedSinceEmailed(revision: DocumentRevision | null | undefined): boolean {
+  if (!revision?.revisedAt || !revision.emailedAt) return false;
+  return new Date(revision.revisedAt).getTime() > new Date(revision.emailedAt).getTime();
+}
+
+/** A draft, or an issued invoice that can still be corrected and resent. */
+export function canEditInvoice(inv: Pick<Invoice, "status">): boolean {
+  return inv.status !== "void";
+}
+
+/**
+ * The money already settled against an invoice — what an edit can't take its
+ * total below.
+ */
+export function invoiceSettledCents(
+  inv: Pick<Invoice, "paidCents" | "creditedCents" | "writtenOffCents">,
+): number {
+  return inv.paidCents + inv.creditedCents + inv.writtenOffCents;
+}
+
 export function displayInvoiceStatus(
   inv: Pick<Invoice, "status" | "dueDate" | "paidCents" | "writtenOffCents" | "creditedCents">,
   now: Date = new Date(),
@@ -4953,6 +4984,8 @@ export type Estimate = {
   customer: EstimateCustomerStub | null;
   lines: EstimateLineItem[];
   invoice: EstimateInvoiceStub | null;
+  /** Present on the detail read (`GET …/estimates/:slug`) only. */
+  revision?: DocumentRevision;
 };
 
 export type EstimateListItem = Omit<Estimate, "lines"> & {
@@ -4974,6 +5007,23 @@ export type EstimateLineDraft = {
   unitPriceCents: number;
   taxRateId?: string | null;
   sortOrder?: number;
+};
+
+/**
+ * A draft, or a sent or accepted estimate that can be revised and resent.
+ * Declined, void and converted estimates are closed — duplicate one instead.
+ */
+export function canEditEstimate(est: Pick<Estimate, "status" | "invoiceId">): boolean {
+  if (est.invoiceId) return false;
+  return est.status === "draft" || est.status === "sent" || est.status === "accepted";
+}
+
+/**
+ * Router state Save & resend hands the estimate detail page: the edit is
+ * saved, and this says how the email went.
+ */
+export type EstimateResentState = {
+  resent: { status: string; errorMessage: string; to: string };
 };
 
 export type DisplayEstimateStatus = EstimateStatus | "expired" | "invoiced";
@@ -5012,6 +5062,7 @@ export type Account = {
 export type LedgerEntrySource =
   | "manual"
   | "invoice_issue"
+  | "invoice_revision"
   | "invoice_payment"
   | "invoice_void"
   // Mirror of server/db/entities/LedgerEntry.ts — keep the two in step.

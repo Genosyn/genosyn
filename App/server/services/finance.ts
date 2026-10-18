@@ -6,6 +6,8 @@ import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { Invoice, InvoiceStatus } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { LedgerEntry, type LedgerEntrySource } from "../db/entities/LedgerEntry.js";
+import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import {
@@ -22,6 +24,7 @@ import { Company } from "../db/entities/Company.js";
 import {
   findClosedPeriodCovering,
   hasEntryFor,
+  type LedgerLineDraft,
   postLedgerEntry,
   requireAccountsByCode,
   reverseLedgerEntriesForSources,
@@ -42,8 +45,12 @@ import {
  *   - Status transitions move forward only:
  *       draft → sent → paid (via balance) → void (terminal)
  *     Reverting paid → sent happens automatically when payments are
- *     deleted; reverting sent → draft is forbidden once a number has
- *     been minted.
+ *     deleted or an edit raises the total; reverting sent → draft is
+ *     forbidden once a number has been minted.
+ *   - An issued invoice stays editable (`updateInvoice`) so it can be
+ *     corrected and resent under the same number. Its customer and issuer
+ *     are fixed at issue, and a revision posts an `invoice_revision` entry
+ *     that brings the ledger in line with the new amounts.
  *   - Numbering is gapless per company. We mint inside the same logical
  *     unit-of-work as the issue transition so two concurrent issues
  *     don't race for the same seq.
@@ -176,30 +183,56 @@ export async function createInvoiceDraft(input: CreateInvoiceDraftInput): Promis
   return recomputeInvoiceTotals(invoice);
 }
 
-/**
- * Resolve the snapshotted tax fields for a draft line. Looks up the
- * `TaxRate` once (or returns zeros when none is set) so the line carries
- * its own tax math forever.
- */
-async function snapshotTax(
-  companyId: string,
-  taxRateId: string | null | undefined,
-): Promise<{
+/** The tax fields a line carries once saved. */
+export type LineTaxSnapshot = {
   taxRateId: string | null;
   taxName: string;
   taxPercent: number;
   taxInclusive: boolean;
-}> {
-  if (!taxRateId) {
-    return { taxRateId: null, taxName: "", taxPercent: 0, taxInclusive: false };
-  }
+};
+
+/** A line draft priced the way both document line tables store it. */
+export type PricedLine = LineTaxSnapshot & {
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  lineSubtotalCents: number;
+  lineTaxCents: number;
+  lineTotalCents: number;
+  sortOrder: number;
+};
+
+const NO_TAX: LineTaxSnapshot = {
+  taxRateId: null,
+  taxName: "",
+  taxPercent: 0,
+  taxInclusive: false,
+};
+
+/**
+ * Resolve the snapshotted tax fields for a draft line. Looks up the
+ * `TaxRate` once (or returns zeros when none is set) so the line carries
+ * its own tax math forever.
+ *
+ * `kept` holds the snapshots an issued document already carries. A rate the
+ * document was issued with keeps that percentage through a later edit, even
+ * when the company has since changed the rate: correcting a quantity on a
+ * sent invoice must not quietly re-tax every other line on it.
+ */
+export async function snapshotLineTax(
+  companyId: string,
+  taxRateId: string | null | undefined,
+  kept?: ReadonlyMap<string, LineTaxSnapshot>,
+): Promise<LineTaxSnapshot> {
+  if (!taxRateId) return NO_TAX;
+  const issued = kept?.get(taxRateId);
+  if (issued) return issued;
   const rate = await AppDataSource.getRepository(TaxRate).findOneBy({
     id: taxRateId,
     companyId,
   });
-  if (!rate) {
-    return { taxRateId: null, taxName: "", taxPercent: 0, taxInclusive: false };
-  }
+  if (!rate) return NO_TAX;
   return {
     taxRateId: rate.id,
     taxName: rate.name,
@@ -208,46 +241,118 @@ async function snapshotTax(
   };
 }
 
+/** The tax snapshots a document's saved lines carry, by rate id. */
+export function keptTaxSnapshots(
+  lines: ReadonlyArray<LineTaxSnapshot>,
+): Map<string, LineTaxSnapshot> {
+  const kept = new Map<string, LineTaxSnapshot>();
+  for (const l of lines) {
+    if (!l.taxRateId || kept.has(l.taxRateId)) continue;
+    kept.set(l.taxRateId, {
+      taxRateId: l.taxRateId,
+      taxName: l.taxName,
+      taxPercent: l.taxPercent,
+      taxInclusive: l.taxInclusive,
+    });
+  }
+  return kept;
+}
+
 /**
- * Replace all line items on an invoice with the supplied drafts. Used
- * by both the invoice create flow and the draft edit flow. Each line is
- * tax-snapshotted, computed via `lib/money.ts > computeLineTotals()`,
- * and re-ordered by the supplied `sortOrder` (defaults to input order).
+ * Price line drafts without saving them: tax-snapshotted, computed via
+ * `lib/money.ts > computeLineTotals()`, and ordered by the supplied
+ * `sortOrder` (defaults to input order).
  */
-export async function replaceInvoiceLines(
-  invoice: Invoice,
-  drafts: LineDraft[],
-): Promise<InvoiceLineItem[]> {
-  const lineRepo = AppDataSource.getRepository(InvoiceLineItem);
-  await lineRepo.delete({ invoiceId: invoice.id });
-  if (drafts.length === 0) return [];
-  const built: InvoiceLineItem[] = [];
+export async function priceLineDrafts(
+  companyId: string,
+  drafts: ReadonlyArray<LineDraft>,
+  kept?: ReadonlyMap<string, LineTaxSnapshot>,
+): Promise<PricedLine[]> {
+  const priced: PricedLine[] = [];
   for (let i = 0; i < drafts.length; i += 1) {
     const d = drafts[i];
-    const tax = await snapshotTax(invoice.companyId, d.taxRateId);
+    const tax = await snapshotLineTax(companyId, d.taxRateId, kept);
     const totals = computeLineTotals({
       quantity: d.quantity,
       unitPriceCents: d.unitPriceCents,
       taxPercent: tax.taxPercent,
       taxInclusive: tax.taxInclusive,
     });
-    built.push(
-      lineRepo.create({
-        invoiceId: invoice.id,
-        productId: d.productId ?? null,
-        description: d.description,
-        quantity: d.quantity,
-        unitPriceCents: d.unitPriceCents,
-        taxRateId: tax.taxRateId,
-        taxName: tax.taxName,
-        taxPercent: tax.taxPercent,
-        taxInclusive: tax.taxInclusive,
-        ...totals,
-        sortOrder: d.sortOrder ?? i,
-      }),
-    );
+    priced.push({
+      productId: d.productId ?? null,
+      description: d.description,
+      quantity: d.quantity,
+      unitPriceCents: d.unitPriceCents,
+      ...tax,
+      ...totals,
+      sortOrder: d.sortOrder ?? i,
+    });
   }
-  return await lineRepo.save(built);
+  return priced;
+}
+
+/** Subtotal, tax and total of a set of priced lines. */
+export function sumLines(
+  lines: ReadonlyArray<Pick<PricedLine, "lineSubtotalCents" | "lineTaxCents" | "lineTotalCents">>,
+): { subtotalCents: number; taxCents: number; totalCents: number } {
+  return {
+    subtotalCents: lines.reduce((s, l) => s + l.lineSubtotalCents, 0),
+    taxCents: lines.reduce((s, l) => s + l.lineTaxCents, 0),
+    totalCents: lines.reduce((s, l) => s + l.lineTotalCents, 0),
+  };
+}
+
+/**
+ * Whether `drafts` would leave a document's lines exactly as they are — the
+ * same items in the same order, at the same quantities, prices and tax rates.
+ * The edit form always sends its lines, so a save that only moved a due date
+ * must not rewrite (and re-snapshot) the lines of a document already in a
+ * customer's hands.
+ */
+export function linesUnchanged(
+  existing: ReadonlyArray<
+    Pick<
+      PricedLine,
+      "productId" | "description" | "quantity" | "unitPriceCents" | "taxRateId" | "sortOrder"
+    >
+  >,
+  drafts: ReadonlyArray<LineDraft>,
+): boolean {
+  if (existing.length !== drafts.length) return false;
+  const saved = [...existing].sort((a, b) => a.sortOrder - b.sortOrder);
+  const next = drafts
+    .map((draft, i) => ({ draft, order: draft.sortOrder ?? i }))
+    .sort((a, b) => a.order - b.order)
+    .map(({ draft }) => draft);
+  return saved.every((line, i) => {
+    const d = next[i];
+    return (
+      (d.productId ?? null) === line.productId &&
+      d.description === line.description &&
+      d.quantity === line.quantity &&
+      d.unitPriceCents === line.unitPriceCents &&
+      (d.taxRateId ?? null) === line.taxRateId
+    );
+  });
+}
+
+/**
+ * Replace all line items on an invoice with the supplied drafts. Used
+ * by the invoice create flow and the edit flow. Each line is priced by
+ * {@link priceLineDrafts}; `kept` carries an issued invoice's tax snapshots.
+ */
+export async function replaceInvoiceLines(
+  invoice: Invoice,
+  drafts: LineDraft[],
+  kept?: ReadonlyMap<string, LineTaxSnapshot>,
+): Promise<InvoiceLineItem[]> {
+  const lineRepo = AppDataSource.getRepository(InvoiceLineItem);
+  await lineRepo.delete({ invoiceId: invoice.id });
+  if (drafts.length === 0) return [];
+  const priced = await priceLineDrafts(invoice.companyId, drafts, kept);
+  return await lineRepo.save(
+    priced.map((line) => lineRepo.create({ invoiceId: invoice.id, ...line })),
+  );
 }
 
 // ───────────────────────────── Recompute ──────────────────────────────
@@ -388,6 +493,25 @@ async function postInvoiceIssue(
 ): Promise<void> {
   if (invoice.totalCents <= 0) return;
   if (await hasEntryFor(invoice.companyId, "invoice_issue", invoice.id)) return;
+  await postLedgerEntry({
+    companyId: invoice.companyId,
+    date: invoice.issueDate,
+    memo: `Invoice ${invoice.number} issued`,
+    source: "invoice_issue",
+    sourceRefId: invoice.id,
+    createdById: actorUserId,
+    lines: await invoiceIssueLines(invoice),
+  });
+}
+
+/**
+ * The journal lines that record this invoice as issued, as it stands now:
+ * DR Accounts Receivable / CR Sales Revenue + Tax Payable, converted to the
+ * home currency at the issue date. Empty for an invoice with no value, which
+ * books nothing.
+ */
+async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
+  if (invoice.totalCents <= 0) return [];
   const accounts = await requireAccountsByCode(invoice.companyId, [
     "1200",
     "4000",
@@ -436,7 +560,7 @@ async function postInvoiceIssue(
     invoice.taxCents > 0
       ? reconcilePartsToTotal(total.converted, [subtotal.converted, taxConverted.converted])
       : [total.converted, 0];
-  const lines = [
+  const lines: LedgerLineDraft[] = [
     {
       accountId: ar.id,
       debitCents: total.converted,
@@ -464,15 +588,203 @@ async function postInvoiceIssue(
       rate: taxConverted.rate,
     });
   }
-  await postLedgerEntry({
+  return lines;
+}
+
+/**
+ * Every source that records an invoice as issued: the original posting and
+ * the revisions an edit wrote since. Together, keyed on the invoice id, they
+ * net to what the invoice says now — so voiding reverses all of them and a
+ * revision compares against all of them.
+ */
+const ISSUE_POSTING_SOURCES: ReadonlyArray<LedgerEntrySource> = [
+  "invoice_issue",
+  "invoice_revision",
+];
+
+/** Signed (debit − credit) balance per account across a set of journal lines. */
+function netByAccount(
+  lines: ReadonlyArray<{ accountId: string; debitCents?: number; creditCents?: number }>,
+): Map<string, number> {
+  const net = new Map<string, number>();
+  for (const l of lines) {
+    net.set(l.accountId, (net.get(l.accountId) ?? 0) + (l.debitCents ?? 0) - (l.creditCents ?? 0));
+  }
+  return net;
+}
+
+/** Journal lines carrying a per-account signed balance; zero accounts drop out. */
+function linesForNet(net: ReadonlyMap<string, number>, description: string): LedgerLineDraft[] {
+  const lines: LedgerLineDraft[] = [];
+  for (const [accountId, cents] of net) {
+    if (cents > 0) lines.push({ accountId, debitCents: cents, description });
+    else if (cents < 0) lines.push({ accountId, creditCents: -cents, description });
+  }
+  return lines;
+}
+
+/** What the ledger currently says about this invoice having been issued. */
+async function currentIssuePosting(invoice: Invoice): Promise<Map<string, number>> {
+  const entries = await AppDataSource.getRepository(LedgerEntry).find({
+    where: {
+      companyId: invoice.companyId,
+      source: In([...ISSUE_POSTING_SOURCES]),
+      sourceRefId: invoice.id,
+    },
+    select: ["id"],
+  });
+  if (entries.length === 0) return new Map();
+  const lines = await AppDataSource.getRepository(LedgerLine).find({
+    where: { ledgerEntryId: In(entries.map((e) => e.id)), companyId: invoice.companyId },
+  });
+  return netByAccount(lines);
+}
+
+/**
+ * Bring the ledger in line with an issued invoice whose amounts, currency or
+ * issue date were just edited. Posted entries are never rewritten: the
+ * correction is a new `invoice_revision` entry, so the journal shows the
+ * original issue and every revision after it.
+ *
+ * On the same issue date that is one entry carrying the difference. When the
+ * issue date moved, the current posting is unwound on the old date and the
+ * revised one posted on the new date, so revenue lands in the period the
+ * invoice now says it was issued. Payments, credits and write-offs are left
+ * alone — `updateInvoice` refuses an edit that would strand them.
+ *
+ * Returns the number of entries posted (0 when nothing on the books moved).
+ */
+async function postInvoiceRevision(
+  invoice: Invoice,
+  previousIssueDate: Date,
+  actorUserId: string | null,
+): Promise<number> {
+  const [current, targetLines] = await Promise.all([
+    currentIssuePosting(invoice),
+    invoiceIssueLines(invoice),
+  ]);
+  const label = invoice.number || "invoice";
+  const base = {
     companyId: invoice.companyId,
-    date: invoice.issueDate,
-    memo: `Invoice ${invoice.number} issued`,
-    source: "invoice_issue",
+    source: "invoice_revision" as const,
     sourceRefId: invoice.id,
     createdById: actorUserId,
-    lines,
+  };
+  if (previousIssueDate.getTime() === invoice.issueDate.getTime()) {
+    const delta = netByAccount(targetLines);
+    for (const [accountId, cents] of current) {
+      delta.set(accountId, (delta.get(accountId) ?? 0) - cents);
+    }
+    const lines = linesForNet(delta, `${label} — revised`);
+    if (lines.length === 0) return 0;
+    await postLedgerEntry({
+      ...base,
+      date: invoice.issueDate,
+      memo: `Invoice ${label} revised`,
+      lines,
+    });
+    return 1;
+  }
+  let posted = 0;
+  const unwind = linesForNet(
+    new Map([...current].map(([accountId, cents]) => [accountId, -cents])),
+    `${label} — revised, moved off ${previousIssueDate.toISOString().slice(0, 10)}`,
+  );
+  if (unwind.length > 0) {
+    await postLedgerEntry({
+      ...base,
+      date: previousIssueDate,
+      memo: `Invoice ${label} revised — issue date moved to ${invoice.issueDate
+        .toISOString()
+        .slice(0, 10)}`,
+      lines: unwind,
+    });
+    posted += 1;
+  }
+  if (targetLines.length > 0) {
+    await postLedgerEntry({
+      ...base,
+      date: invoice.issueDate,
+      memo: `Invoice ${label} revised`,
+      lines: targetLines,
+    });
+    posted += 1;
+  }
+  return posted;
+}
+
+// ───────────────────────── Payment references ─────────────────────────
+
+/** A payment's reference as it is stored and compared: trimmed. */
+export function normalizePaymentReference(reference: string | null | undefined): string {
+  return (reference ?? "").trim();
+}
+
+/** A payment that is already in the books under the same reference. */
+export class DuplicatePaymentError extends Error {
+  readonly status = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "DuplicatePaymentError";
+  }
+}
+
+/**
+ * The payment already recorded under this reference anywhere in the company,
+ * with the invoice it settles, or null. References compare without case or
+ * surrounding space. A payment recorded with no reference can't be told apart
+ * from another of the same amount, so it never matches.
+ */
+export async function findPaymentByReference(
+  companyId: string,
+  reference: string | null | undefined,
+): Promise<{ payment: InvoicePayment; invoice: Invoice } | null> {
+  const ref = normalizePaymentReference(reference);
+  if (!ref) return null;
+  const payment = await AppDataSource.getRepository(InvoicePayment)
+    .createQueryBuilder("payment")
+    .innerJoin(Invoice, "invoice", "CAST(invoice.id AS text) = payment.invoiceId")
+    .where("invoice.companyId = :companyId", { companyId })
+    .andWhere("LOWER(TRIM(payment.reference)) = LOWER(:reference)", { reference: ref })
+    .orderBy("payment.createdAt", "ASC")
+    .getOne();
+  if (!payment) return null;
+  const invoice = await AppDataSource.getRepository(Invoice).findOneBy({
+    id: payment.invoiceId,
+    companyId,
   });
+  return invoice ? { payment, invoice } : null;
+}
+
+/**
+ * Refuse to record a payment that is already in the books. A reference — the
+ * bank transfer id, Stripe charge id or cheque number — names one real-world
+ * payment, and one payment settles one invoice once: recording it again,
+ * against this invoice or another, would count the same money twice. Shared
+ * by the Member route and the AI Employee `record_payment` tool, so neither
+ * can record a payment the other already has.
+ */
+export async function assertPaymentNotRecorded(
+  companyId: string,
+  invoice: Invoice,
+  reference: string | null | undefined,
+): Promise<void> {
+  const existing = await findPaymentByReference(companyId, reference);
+  if (!existing) return;
+  const ref = normalizePaymentReference(reference);
+  const amount = formatMoney(
+    existing.payment.amountCents,
+    existing.payment.currency || existing.invoice.currency,
+  );
+  if (existing.invoice.id === invoice.id) {
+    throw new DuplicatePaymentError(
+      `Payment "${ref}" (${amount}) is already recorded on this invoice. Recording it again would count the same money twice.`,
+    );
+  }
+  const other = existing.invoice.number || "another invoice";
+  throw new DuplicatePaymentError(
+    `Payment "${ref}" (${amount}) is already recorded on ${other}. A payment can settle only one invoice — if it belongs here, delete it from ${other} first.`,
+  );
 }
 
 /**
@@ -644,16 +956,18 @@ export async function voidInvoice(
   invoice.status = "void";
   invoice.voidedAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);
-  // Reverse ONLY the issue posting, and key it off the invoice id so
-  // re-voiding is a no-op. `reverseLedgerEntriesForSources` resolves
-  // `sources` against `sourceRefIds` as an UNPAIRED CROSS PRODUCT, so
-  // naming "invoice_payment" here alongside the payment ids used to
-  // reverse every payment too — posting CR Bank and driving cash down by
-  // money that was actually collected, with no refund anywhere. One
-  // source, one refId: keep it that way.
+  // Reverse ONLY the issue posting — the original plus any revisions an edit
+  // wrote, which together are what the books say this invoice is worth — and
+  // key it off the invoice id so re-voiding is a no-op.
+  // `reverseLedgerEntriesForSources` resolves `sources` against
+  // `sourceRefIds` as an UNPAIRED CROSS PRODUCT, so naming "invoice_payment"
+  // here alongside the payment ids used to reverse every payment too —
+  // posting CR Bank and driving cash down by money that was actually
+  // collected, with no refund anywhere. Both sources below are keyed on the
+  // invoice id and both are meant; never add a second refId.
   await reverseLedgerEntriesForSources({
     companyId: invoice.companyId,
-    sources: ["invoice_issue"],
+    sources: ISSUE_POSTING_SOURCES,
     sourceRefIds: [invoice.id],
     reverseAs: "invoice_void",
     reverseRefId: invoice.id,
@@ -662,6 +976,255 @@ export async function voidInvoice(
     createdById: actorUserId,
   });
   return invoice;
+}
+
+// ──────────────────────────── Editing ────────────────────────────────
+
+/** An edit the invoice's state forbids, with the status the route answers. */
+export class InvoiceEditError extends Error {
+  constructor(
+    message: string,
+    readonly status: 400 | 409,
+  ) {
+    super(message);
+    this.name = "InvoiceEditError";
+  }
+}
+
+export type InvoiceEditInput = {
+  subsidiaryId?: string | null;
+  customerId?: string;
+  issueDate?: Date;
+  dueDate?: Date;
+  currency?: string;
+  notes?: string;
+  footer?: string;
+  lines?: LineDraft[];
+};
+
+export type InvoiceEditResult = {
+  invoice: Invoice;
+  /** The fields whose value actually changed — what the History row names. */
+  changed: string[];
+  /** The invoice was already issued, so the customer holds an older copy. */
+  afterIssue: boolean;
+  previousTotalCents: number;
+  /** Journal entries posted to correct the books. */
+  revisionEntries: number;
+};
+
+/** Same calendar day in UTC: all a date field in the edit form can say. */
+export function sameUtcDay(a: Date, b: Date): boolean {
+  return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+/** Write already-priced lines as an invoice's complete set of lines. */
+async function saveInvoiceLines(
+  invoice: Invoice,
+  lines: ReadonlyArray<PricedLine | InvoiceLineItem>,
+): Promise<void> {
+  const lineRepo = AppDataSource.getRepository(InvoiceLineItem);
+  await lineRepo.delete({ invoiceId: invoice.id });
+  if (lines.length === 0) return;
+  await lineRepo.save(lines.map((line) => lineRepo.create({ ...line, invoiceId: invoice.id })));
+}
+
+/**
+ * Edit an invoice. A draft takes any change. An issued invoice — sent or
+ * paid — stays editable so a mistake can be corrected and the invoice resent
+ * under the same number, within what keeps it the same invoice and keeps the
+ * books whole:
+ *
+ *   - Its customer and issuer are fixed at issue: the number belongs to that
+ *     customer, from that legal entity. Void and duplicate it to change them.
+ *   - Its total must stay positive, and can't drop below what is already
+ *     settled — paid, credited or written off.
+ *   - Once money is applied its currency is fixed, and so is the issue date of
+ *     a foreign-currency invoice, whose payments cleared the receivable at
+ *     that date's exchange rate.
+ *   - A change to its amounts, currency or issue date posts an
+ *     `invoice_revision` entry ({@link postInvoiceRevision}), so it is refused
+ *     inside a closed period like any other posting. If the ledger refuses the
+ *     entry, the edit is put back and the ledger's reason surfaces.
+ *
+ * An issued invoice's unchanged lines are left exactly as saved, and changed
+ * ones keep the tax rates it was issued with. Nothing here emails the
+ * customer; resending is its own step.
+ */
+export async function updateInvoice(
+  invoice: Invoice,
+  input: InvoiceEditInput,
+  actorUserId: string | null,
+): Promise<InvoiceEditResult> {
+  if (invoice.status === "void") {
+    throw new InvoiceEditError("Voided invoices cannot be edited", 409);
+  }
+  const companyId = invoice.companyId;
+  const issued = invoice.status !== "draft";
+  const repo = AppDataSource.getRepository(Invoice);
+  const existingLines = await AppDataSource.getRepository(InvoiceLineItem).find({
+    where: { invoiceId: invoice.id },
+    order: { sortOrder: "ASC" },
+  });
+  const previous = {
+    subsidiaryId: invoice.subsidiaryId,
+    issuerSnapshot: invoice.issuerSnapshot,
+    customerId: invoice.customerId,
+    issueDate: invoice.issueDate,
+    dueDate: invoice.dueDate,
+    currency: invoice.currency,
+    notes: invoice.notes,
+    footer: invoice.footer,
+  };
+  const previousTotals = sumLines(existingLines);
+
+  const customerChanged = input.customerId !== undefined && input.customerId !== invoice.customerId;
+  const subsidiaryChanged =
+    input.subsidiaryId !== undefined && input.subsidiaryId !== invoice.subsidiaryId;
+  const currencyChanged = input.currency !== undefined && input.currency !== invoice.currency;
+  const issueDateChanged =
+    input.issueDate !== undefined && !sameUtcDay(input.issueDate, invoice.issueDate);
+  const dueDateChanged = input.dueDate !== undefined && !sameUtcDay(input.dueDate, invoice.dueDate);
+  const linesChanged = input.lines !== undefined && !linesUnchanged(existingLines, input.lines);
+  // A draft re-prices whatever lines it is sent, picking up current tax rates.
+  // An issued invoice only re-prices lines that actually changed.
+  const priced =
+    input.lines !== undefined && (!issued || linesChanged)
+      ? await priceLineDrafts(
+          companyId,
+          input.lines,
+          issued ? keptTaxSnapshots(existingLines) : undefined,
+        )
+      : null;
+  const nextTotals = priced ? sumLines(priced) : previousTotals;
+  // On an issued invoice the same day keeps the stored moment.
+  const nextIssueDate =
+    input.issueDate !== undefined && (!issued || issueDateChanged)
+      ? input.issueDate
+      : invoice.issueDate;
+
+  const label = invoice.number || "This invoice";
+  const amountsChanged =
+    nextTotals.totalCents !== previousTotals.totalCents ||
+    nextTotals.subtotalCents !== previousTotals.subtotalCents ||
+    nextTotals.taxCents !== previousTotals.taxCents;
+  const ledgerMoves = issued && (amountsChanged || currencyChanged || issueDateChanged);
+
+  if (issued) {
+    if (customerChanged) {
+      throw new InvoiceEditError(
+        `The customer can't change after an invoice is issued — ${label} is numbered for them. Void it and duplicate it to bill someone else.`,
+        409,
+      );
+    }
+    if (subsidiaryChanged) {
+      throw new InvoiceEditError(
+        "The issuer can't change after an invoice is issued. Void it and duplicate it to issue it from another entity.",
+        409,
+      );
+    }
+    const settled = invoice.paidCents + invoice.creditedCents + invoice.writtenOffCents;
+    if (currencyChanged && settled > 0) {
+      throw new InvoiceEditError(
+        "The currency can't change once a payment, credit or write-off is recorded against the invoice.",
+        409,
+      );
+    }
+    if (issueDateChanged && settled > 0) {
+      const { homeCurrency } = await getFinanceSettings(companyId);
+      if (invoice.currency.toUpperCase() !== homeCurrency.toUpperCase()) {
+        throw new InvoiceEditError(
+          `The issue date of a ${invoice.currency} invoice can't change once money is applied to it — its payments, credits and write-offs were booked at the original date's exchange rate.`,
+          409,
+        );
+      }
+    }
+    if (nextTotals.totalCents <= 0) {
+      throw new InvoiceEditError(
+        "An issued invoice must keep a positive total. Void it instead to cancel it.",
+        400,
+      );
+    }
+    if (nextTotals.totalCents < settled) {
+      throw new InvoiceEditError(
+        `The new total of ${formatMoney(nextTotals.totalCents, invoice.currency)} is less than the ${formatMoney(settled, invoice.currency)} already paid, credited or written off. Remove a payment, credit or write-off first.`,
+        400,
+      );
+    }
+    if (ledgerMoves) {
+      const closedNow = await findClosedPeriodCovering(companyId, previous.issueDate);
+      if (closedNow) {
+        throw new InvoiceEditError(
+          `${label} was issued in the closed period "${closedNow.name}", so its amounts and dates can't change. Reopen the period first.`,
+          409,
+        );
+      }
+      if (issueDateChanged) {
+        const closedNext = await findClosedPeriodCovering(companyId, nextIssueDate);
+        if (closedNext) {
+          throw new InvoiceEditError(
+            `The new issue date falls in the closed period "${closedNext.name}". Reopen it or choose another date.`,
+            409,
+          );
+        }
+      }
+    }
+  }
+
+  let customer: Customer | null = null;
+  if (customerChanged) {
+    customer = await AppDataSource.getRepository(Customer).findOneBy({
+      id: input.customerId,
+      companyId,
+    });
+    if (!customer) throw new InvoiceEditError("Invalid customer", 400);
+  }
+  if (subsidiaryChanged) {
+    Object.assign(invoice, await resolveDocumentIssuer(companyId, input.subsidiaryId ?? null));
+  }
+
+  const changed: string[] = [];
+  if (customerChanged) changed.push("customer");
+  if (subsidiaryChanged) changed.push("issuer");
+  if (issueDateChanged) changed.push("issueDate");
+  if (dueDateChanged) changed.push("dueDate");
+  if (currencyChanged) changed.push("currency");
+  if (input.notes !== undefined && input.notes !== invoice.notes) changed.push("notes");
+  if (input.footer !== undefined && input.footer !== invoice.footer) changed.push("footer");
+  if (linesChanged) changed.push("lines");
+
+  if (customer) invoice.customerId = customer.id;
+  if (input.notes !== undefined) invoice.notes = input.notes;
+  if (input.footer !== undefined) invoice.footer = input.footer;
+  if (input.currency !== undefined) invoice.currency = input.currency;
+  invoice.issueDate = nextIssueDate;
+  if (input.dueDate !== undefined && (!issued || dueDateChanged)) invoice.dueDate = input.dueDate;
+  await repo.save(invoice);
+  if (priced) await saveInvoiceLines(invoice, priced);
+  const recomputed = await recomputeInvoiceTotals(invoice);
+
+  let revisionEntries = 0;
+  if (ledgerMoves) {
+    try {
+      revisionEntries = await postInvoiceRevision(recomputed, previous.issueDate, actorUserId);
+    } catch (err) {
+      // The books refused the change (a missing exchange rate, an archived
+      // account). Put the invoice back so the document never says something
+      // the ledger doesn't.
+      Object.assign(recomputed, previous);
+      await repo.save(recomputed);
+      if (priced) await saveInvoiceLines(recomputed, existingLines);
+      await recomputeInvoiceTotals(recomputed);
+      throw new InvoiceEditError((err as Error).message, 400);
+    }
+  }
+  return {
+    invoice: recomputed,
+    changed,
+    afterIssue: issued,
+    previousTotalCents: previousTotals.totalCents,
+    revisionEntries,
+  };
 }
 
 // ─────────────────────────── Duplicate ───────────────────────────────

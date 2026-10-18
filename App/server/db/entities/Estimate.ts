@@ -14,11 +14,13 @@ import {
  *
  * - `draft`     — fully editable, deletable. `numberSeq` is 0 and no
  *                  display number until issued.
- * - `sent`      — locked (line items immutable). Number minted at issue.
- *                  Customer-facing; can be accepted, declined, voided, or
- *                  converted to an invoice.
+ * - `sent`      — Number minted at issue; customer and issuer fixed.
+ *                  Customer-facing; can be revised and resent under the
+ *                  same number (`services/estimates.ts > updateEstimate()`),
+ *                  accepted, declined, voided, or converted to an invoice.
  * - `accepted`  — customer has accepted. Can still be converted to an
- *                  invoice (the common path) or voided.
+ *                  invoice (the common path) or voided. Editing it returns
+ *                  it to `sent`.
  * - `declined`  — customer has declined. Terminal.
  * - `void`      — terminal. Cannot be edited or deleted.
  *

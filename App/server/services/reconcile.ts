@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BankFeed } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
@@ -464,8 +464,15 @@ export async function autoMatchFeed(feed: BankFeed): Promise<number> {
       ),
     },
   });
+  // A payment matched on *any* of the company's feeds is taken — not only on
+  // this one, or a second feed carrying the same deposit could claim it again.
   const claimed = new Set(
-    txns.filter((t) => t.matchedPaymentId).map((t) => t.matchedPaymentId as string),
+    (
+      await txnRepo.find({
+        where: { companyId: feed.companyId, matchedPaymentId: Not(IsNull()) },
+        select: ["matchedPaymentId"],
+      })
+    ).map((t) => t.matchedPaymentId as string),
   );
   const candidates = allPayments.filter((p) => !claimed.has(p.id));
 
@@ -511,6 +518,23 @@ export async function manualMatch(
       companyId: txn.companyId,
     });
     if (!owningInvoice) throw new Error("Payment not found");
+    // One bank line is one payment, and the reverse: a payment already matched
+    // to another line is spoken for. The candidate list hides it; this keeps a
+    // direct call from matching it twice.
+    const claimedBy = await repo.findOne({
+      where: { companyId: txn.companyId, matchedPaymentId: p.id, id: Not(txn.id) },
+      select: ["id", "date", "description"],
+    });
+    if (claimedBy) {
+      throw new Error(
+        `That payment on ${owningInvoice.number || "this invoice"} is already matched to the bank line from ${claimedBy.date
+          .toISOString()
+          .slice(
+            0,
+            10,
+          )}${claimedBy.description ? ` (${claimedBy.description})` : ""}. Unmatch that line first.`,
+      );
+    }
     txn.matchedPaymentId = p.id;
     txn.matchedLedgerEntryId = null;
   } else if (target.ledgerEntryId) {

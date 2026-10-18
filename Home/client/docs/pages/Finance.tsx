@@ -113,9 +113,10 @@ export function Finance() {
         <LI>
           <Strong>Sent</Strong> — clicking <Code>Issue</Code> (or <Code>Issue &amp; send</Code> to
           email the customer) mints a gapless number prefixed with the customer&apos;s slug — e.g.{" "}
-          <Code>ACME-CORP-EST-0001</Code> — and locks the line items, so two customers&apos; first
-          estimates never both read <Code>EST-0001</Code>. The URL slug becomes the lowercased
-          number.
+          <Code>ACME-CORP-EST-0001</Code> — so two customers&apos; first estimates never both read{" "}
+          <Code>EST-0001</Code>. The URL slug becomes the lowercased number. A sent estimate can
+          still be revised and resent under the same number — see{" "}
+          <DocLink to="/docs/finance#estimates-edit">Editing a sent estimate</DocLink>.
         </LI>
         <LI>
           <Strong>Accepted</Strong> / <Strong>Declined</Strong> — record the customer&apos;s
@@ -127,12 +128,35 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Expired</Strong> — a synthetic status shown when <Code>validUntil</Code> has
-          passed and the estimate is still in <Code>sent</Code>. Re-issue or void to clear it.
+          passed and the estimate is still in <Code>sent</Code>. Extend <Code>Valid until</Code>{" "}
+          from <Code>Edit</Code>, or void it.
         </LI>
         <LI>
           <Strong>Void</Strong> — terminal cancellation, available on any non-draft estimate.
         </LI>
       </OL>
+
+      <H3 id="estimates-edit">Editing a sent estimate</H3>
+      <P>
+        A quote that has gone out can still change. On a sent or accepted estimate, click{" "}
+        <Code>Edit</Code>: the lines, dates, currency, notes and footer are all editable, and the
+        estimate keeps its number. Its customer and issuer are fixed once it is issued, because the
+        number belongs to that customer — duplicate it to quote someone else. Saving never emails
+        the customer: <Code>Save changes</Code> only saves, while <Code>Save &amp; resend</Code>{" "}
+        saves and emails the updated estimate to the customer straight away, like{" "}
+        <Code>Resend email</Code>.
+      </P>
+      <P>
+        The customer accepted the version they saw, so any change to an <Strong>accepted</Strong>{" "}
+        estimate moves it back to <Strong>Sent</Strong> — mark it accepted again once they accept
+        the new one. Declined, void and converted estimates can&apos;t be edited: duplicate one to
+        quote again, or edit the invoice it became. Lines you leave alone stay exactly as they
+        were, and changed lines keep the tax rate the estimate was issued with even if that rate
+        has since changed. If the estimate changed after it was last emailed, its page says so with
+        a <Code>Resend</Code> button, and its{" "}
+        <DocLink to="/docs/security#record-history">History</DocLink> records the edit, what
+        changed, and the old and new totals.
+      </P>
 
       <H3 id="estimates-convert">Convert to an invoice</H3>
       <P>
@@ -245,6 +269,65 @@ export function Finance() {
         timestamps do not. The new draft picks up
         <em> today</em> as its issue date and a fourteen-day default due date, and stays unnumbered
         until you issue it.
+      </P>
+
+      <H3 id="invoices-edit">Editing and resending an invoice</H3>
+      <P>
+        A sent or paid invoice can be corrected and resent under the same number. Click{" "}
+        <Code>Edit</Code> on the invoice: the lines, dates, notes and footer are editable, and so is
+        the currency until money is applied. Then choose <Code>Save changes</Code>, or{" "}
+        <Code>Save &amp; resend</Code> to open the resend dialog with a note telling the customer
+        this copy replaces the earlier one — you still confirm the recipients and the message before
+        anything goes out. If you save without resending, the invoice&apos;s page says it changed
+        since it was last emailed, with a <Code>Resend</Code> button.
+      </P>
+      <P>
+        The books follow the edit. A change to the amounts, currency or issue date posts an{" "}
+        <Strong>Invoice revised</Strong> journal entry that brings Accounts Receivable, revenue and
+        tax payable to what the invoice now says; the original issue entry stays in the journal.
+        Moving the issue date moves the revenue to the new date&apos;s period, and voiding a revised
+        invoice reverses the revisions along with the original. What keeps an edit safe:
+      </P>
+      <UL>
+        <LI>
+          The customer and issuer are fixed — the number belongs to that customer, from that legal
+          entity. To bill someone else, void the invoice and duplicate it.
+        </LI>
+        <LI>
+          The total must stay positive and can&apos;t drop below what is already paid, credited or
+          written off. Raising the total of a paid invoice reopens it with the difference due.
+        </LI>
+        <LI>
+          Once money is applied, the currency is fixed, and so is the issue date of a
+          foreign-currency invoice, since its payments were booked at that date&apos;s exchange
+          rate.
+        </LI>
+        <LI>
+          An invoice issued in a <Strong>closed accounting period</Strong> can&apos;t change its
+          amounts or dates until the period is reopened; its notes, footer and due date stay
+          editable.
+        </LI>
+        <LI>
+          Lines you leave alone stay exactly as they were, and changed lines keep the tax rate the
+          invoice was issued with.
+        </LI>
+      </UL>
+      <P>
+        Every edit appears in the invoice&apos;s{" "}
+        <DocLink to="/docs/security#record-history">History</DocLink> as an edit made after it was
+        sent, with the fields that changed and the old and new totals.
+      </P>
+
+      <H3 id="invoices-payments">One payment, one invoice</H3>
+      <P>
+        A payment&apos;s <Code>Reference</Code> — the bank transfer id, Stripe charge id or cheque
+        number — names one real payment, and Genosyn records it only once. Recording a payment whose
+        reference is already on an invoice is refused with the invoice it is on, whether that is
+        another invoice or the same one, so the same money can&apos;t settle two invoices. The
+        match ignores capitals and surrounding spaces. If a payment went on the wrong invoice,
+        delete it there and record it on the right one. Payments recorded without a reference
+        can&apos;t be told apart, so they are never treated as the same payment. AI Employees
+        recording payments with <Code>record_payment</Code> are held to the same rule.
       </P>
 
       <H3 id="invoices-void">Voiding an invoice</H3>
@@ -426,7 +509,9 @@ export function Finance() {
         <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
         payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
         money-out side that payment matching alone used to miss. Entries already matched to another
-        line, and the categorization entries described below, are never offered twice.
+        line, and the categorization entries described below, are never offered twice, and a
+        payment matched to one bank line can&apos;t be matched to a second one — unmatch the first
+        line to move it.
       </P>
       <P>
         A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a

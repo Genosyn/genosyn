@@ -1,14 +1,16 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, Plus, Trash2 } from "lucide-react";
 import {
   api,
+  canEditEstimate,
   financeSubsidiaries,
   Subsidiary,
   InvoiceIssuer,
   Customer,
   Estimate,
   EstimateLineDraft,
+  type EstimateResentState,
   formatMoney,
   parseMoneyToCents,
   Product,
@@ -25,7 +27,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
-import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -89,8 +91,13 @@ export default function FinanceEstimateNew() {
 
 /**
  * Estimate form — handles both create (no `:estimateSlug` route param)
- * and edit (param present, status must be `draft`). The detail page is
- * where lifecycle actions live; this page is line-item editing only.
+ * and edit (param present). The detail page is where lifecycle actions
+ * live; this page is line-item editing only.
+ *
+ * A sent or accepted estimate edits in place under the same number, with its
+ * customer and issuer fixed; an accepted one goes back to Sent. Saving never
+ * emails the customer; Save & resend saves, then emails the updated estimate
+ * to the customer's address, as Resend email on the detail page does.
  */
 function EstimateForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -124,7 +131,9 @@ function EstimateForm() {
   const [notes, setNotes] = React.useState("");
   const [footer, setFooter] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
-  const [busy, setBusy] = React.useState(false);
+  // The estimate being edited, as loaded — what an issued one may still change.
+  const [existing, setExisting] = React.useState<Estimate | null>(null);
+  const [busy, setBusy] = React.useState<null | "save" | "resend">(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -144,11 +153,18 @@ function EstimateForm() {
           const existing = await api.get<Estimate>(
             `/api/companies/${company.id}/estimates/${estimateSlug}`,
           );
-          if (existing.status !== "draft") {
-            setLoadError("This estimate has already been issued. Only drafts can be edited.");
+          if (!canEditEstimate(existing)) {
+            setLoadError(
+              existing.invoiceId
+                ? "This estimate was converted to an invoice, so it can't be edited. Edit the invoice instead, or duplicate the estimate to quote again."
+                : existing.status === "declined"
+                  ? "A declined estimate can't be edited. Duplicate it to send the customer a revised quote."
+                  : "This estimate is void, so it can't be edited. Duplicate it to quote the same items again.",
+            );
             setReady(true);
             return;
           }
+          setExisting(existing);
           setCustomerId(existing.customerId);
           setSubsidiaryId(existing.subsidiaryId ?? "");
           setSavedIssuer(existing.issuerSnapshot);
@@ -246,12 +262,13 @@ function EstimateForm() {
   }, [lines, taxRates]);
 
   const canSave = !!customerId && lines.some((l) => l.description.trim().length > 0);
+  // Issued: the customer already holds a copy under this number.
+  const issued = existing !== null && existing.status !== "draft";
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSave) return;
+  async function save(then: "view" | "resend") {
+    if (!canSave || busy) return;
     setSaveError(null);
-    setBusy(true);
+    setBusy(then === "resend" ? "resend" : "save");
     try {
       const lineDrafts: EstimateLineDraft[] = lines
         .filter((l) => l.description.trim())
@@ -280,11 +297,30 @@ function EstimateForm() {
               body,
             )
           : await api.post<Estimate>(`/api/companies/${company.id}/estimates`, body);
-      navigate(`/c/${company.slug}/finance/estimates/${est.slug}`);
+      // The edit is saved either way; how the email went is reported on the
+      // detail page, which is where the estimate now lives.
+      let state: EstimateResentState | undefined;
+      if (then === "resend") {
+        try {
+          const result = await api.post<{
+            estimate: Estimate;
+            send: { status: string; errorMessage: string };
+          }>(`/api/companies/${company.id}/estimates/${est.slug}/send`);
+          state = {
+            resent: {
+              status: result.send.status,
+              errorMessage: result.send.errorMessage,
+              to: result.estimate.customer?.email ?? "",
+            },
+          };
+        } catch (err) {
+          state = { resent: { status: "failed", errorMessage: errorMessage(err), to: "" } };
+        }
+      }
+      navigate(`/c/${company.slug}/finance/estimates/${est.slug}`, state ? { state } : undefined);
     } catch (err) {
       setSaveError(errorMessage(err));
-    } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -352,7 +388,13 @@ function EstimateForm() {
   }
 
   return (
-    <form onSubmit={save} className="page-shell p-8">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save("view");
+      }}
+      className="page-shell p-8"
+    >
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -363,7 +405,7 @@ function EstimateForm() {
         />
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
             to={
@@ -376,10 +418,10 @@ function EstimateForm() {
             <ArrowLeft size={18} />
           </Link>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            {isEdit ? "Edit estimate" : "New estimate"}
+            {isEdit ? `Edit ${existing?.number || "estimate"}` : "New estimate"}
           </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Link
             to={
               isEdit && estimateSlug
@@ -387,28 +429,68 @@ function EstimateForm() {
                 : `/c/${company.slug}/finance/estimates`
             }
           >
-            <Button type="button" variant="secondary" disabled={busy}>
+            <Button type="button" variant="secondary" disabled={busy !== null}>
               Cancel
             </Button>
           </Link>
-          <Button type="submit" loading={busy} disabled={!canSave}>
+          <Button
+            type="submit"
+            variant={issued ? "secondary" : "primary"}
+            loading={busy === "save"}
+            disabled={!canSave || busy !== null}
+          >
             {isEdit ? "Save changes" : "Save draft"}
           </Button>
+          {issued && (
+            <Button
+              type="button"
+              onClick={() => void save("resend")}
+              loading={busy === "resend"}
+              disabled={!canSave || busy !== null}
+            >
+              <Mail size={14} /> Save &amp; resend
+            </Button>
+          )}
         </div>
       </div>
+
+      {issued && existing && (
+        <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+          <p>
+            <span className="font-medium">{existing.number} has already been sent.</span> Saving
+            keeps its number. The customer keeps the copy they have until you resend it —{" "}
+            <span className="font-medium">Save &amp; resend</span> emails them the updated estimate.
+          </p>
+          {existing.status === "accepted" && (
+            <p className="mt-2">
+              The customer accepted the earlier version, so saving a change moves it back to{" "}
+              <span className="font-medium">Sent</span>. Mark it accepted again once they accept
+              this one.
+            </p>
+          )}
+        </div>
+      )}
 
       <FormError message={saveError} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-6 max-w-xl">
-          <InvoiceIssuerSelect
-            company={company}
-            subsidiaries={subsidiaries}
-            value={subsidiaryId}
-            onChange={setSubsidiaryId}
-            savedIssuer={savedIssuer}
-            savedSubsidiaryId={savedSubsidiaryId}
-          />
+          {issued ? (
+            <InvoiceIssuerFixed
+              issuer={savedIssuer}
+              companyName={company.name}
+              hint="Fixed once the estimate is issued. Duplicate it to quote from another entity."
+            />
+          ) : (
+            <InvoiceIssuerSelect
+              company={company}
+              subsidiaries={subsidiaries}
+              value={subsidiaryId}
+              onChange={setSubsidiaryId}
+              savedIssuer={savedIssuer}
+              savedSubsidiaryId={savedSubsidiaryId}
+            />
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="sm:col-span-2">
@@ -416,6 +498,7 @@ function EstimateForm() {
               label="Customer"
               value={customerId}
               onChange={(e) => changeCustomer(e.target.value)}
+              disabled={issued}
               required
             >
               {customers?.map((c) => (
@@ -424,6 +507,11 @@ function EstimateForm() {
                 </option>
               ))}
             </Select>
+            {issued && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                The estimate number belongs to this customer. Duplicate it to quote someone else.
+              </p>
+            )}
             {requestedCustomerUnavailable && !customerId && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                 The customer you came from is archived or no longer exists. Choose who to bill.

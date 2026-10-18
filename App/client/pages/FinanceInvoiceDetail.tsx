@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Ban,
@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import {
   api,
+  changedSinceEmailed,
   displayInvoiceStatus,
+  type DocumentRevision,
   formatMoney,
   Invoice,
   InvoicePaymentMethod,
@@ -72,7 +74,11 @@ type InvoiceDetailPayload = Invoice & {
   emailDetails: InvoiceEmailDetails;
   writeOffs: InvoiceWriteOff[];
   creditApplications: CustomerCreditApplicationRow[];
+  revision: DocumentRevision;
 };
+
+/** Pre-filled in the resend dialog after an edit; the Member can change it. */
+const REVISED_MESSAGE = "We've updated this invoice — this copy replaces the one we sent earlier.";
 
 type InvoiceSendResponse = {
   invoice: Invoice;
@@ -98,6 +104,7 @@ export default function FinanceInvoiceDetail() {
   const canWrite = canWriteFinance(company);
   const { invoiceSlug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [emailDetails, setEmailDetails] = React.useState<InvoiceEmailDetails | null>(null);
@@ -116,6 +123,8 @@ export default function FinanceInvoiceDetail() {
   const [showWriteOff, setShowWriteOff] = React.useState(false);
   const [showCreditNote, setShowCreditNote] = React.useState(false);
   const [showResend, setShowResend] = React.useState(false);
+  const [resendMessage, setResendMessage] = React.useState("");
+  const [revision, setRevision] = React.useState<DocumentRevision | null>(null);
 
   // True once this slug has loaded. Issuing a draft re-slugs the invoice from
   // `draft-…` to `inv-nnnn`, and the socket refetch that write triggers can
@@ -135,6 +144,7 @@ export default function FinanceInvoiceDetail() {
       setEmailDetails(inv.emailDetails);
       setWriteOffs(inv.writeOffs ?? []);
       setCreditApplications(inv.creditApplications ?? []);
+      setRevision(inv.revision ?? null);
       shown.current = true;
       setLoadError(null);
     } catch (err) {
@@ -150,6 +160,20 @@ export default function FinanceInvoiceDetail() {
   }, [reload]);
 
   useLiveRefetch("invoice", reload);
+
+  // Save & resend on the edit page lands here to confirm the email. The state
+  // is cleared first, so a reload never reopens the dialog.
+  React.useEffect(() => {
+    if (!(location.state as { resendRevised?: boolean } | null)?.resendRevised) return;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    setResendMessage(REVISED_MESSAGE);
+    setShowResend(true);
+  }, [location, navigate]);
+
+  function openResend(message = "") {
+    setResendMessage(message);
+    setShowResend(true);
+  }
 
   async function issue() {
     if (!invoice) return;
@@ -355,6 +379,10 @@ export default function FinanceInvoiceDetail() {
 
   const ds = displayInvoiceStatus(invoice);
   const number = invoice.number || "DRAFT";
+  const issued = invoice.status !== "draft" && invoice.status !== "void";
+  const emailedOn = revision?.emailedAt
+    ? new Date(revision.emailedAt).toISOString().slice(0, 10)
+    : null;
 
   return (
     <div className="page-shell p-8">
@@ -400,6 +428,13 @@ export default function FinanceInvoiceDetail() {
                 </Button>
               </>
             )}
+            {issued && (
+              <Link to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}>
+                <Button variant="secondary" disabled={busy !== null}>
+                  <Pencil size={14} /> Edit
+                </Button>
+              </Link>
+            )}
             {invoice.status === "sent" && (
               <Button onClick={() => setShowPay(true)} disabled={busy !== null}>
                 <Plus size={14} /> Record payment
@@ -425,11 +460,7 @@ export default function FinanceInvoiceDetail() {
                 </Button>
               )}
             {invoice.status === "paid" && (
-              <Button
-                variant="secondary"
-                onClick={() => setShowResend(true)}
-                disabled={busy !== null}
-              >
+              <Button variant="secondary" onClick={() => openResend()} disabled={busy !== null}>
                 <Mail size={14} /> Resend email
               </Button>
             )}
@@ -467,7 +498,7 @@ export default function FinanceInvoiceDetail() {
                       label="Resend email"
                       onSelect={() => {
                         close();
-                        setShowResend(true);
+                        openResend();
                       }}
                     />
                   )}
@@ -535,6 +566,28 @@ export default function FinanceInvoiceDetail() {
           </a>
         )}
       </div>
+
+      {issued && emailedOn && changedSinceEmailed(revision) && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="flex min-w-[16rem] flex-1 items-start gap-2 text-amber-900 dark:text-amber-200">
+            <Pencil size={15} className="mt-0.5 shrink-0" />
+            <span>
+              Edited since it was last emailed on {emailedOn}. The customer still has the earlier
+              copy.
+            </span>
+          </div>
+          {canWrite && emailDetails && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => openResend(REVISED_MESSAGE)}
+              disabled={busy !== null}
+            >
+              <Mail size={14} /> Resend
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="space-y-6">
         <div>
@@ -832,6 +885,7 @@ export default function FinanceInvoiceDetail() {
           companyId={company.id}
           invoice={invoice}
           details={emailDetails}
+          initialMessage={resendMessage}
           onClose={() => setShowResend(false)}
           onFinished={() => {
             setShowResend(false);
@@ -1059,19 +1113,22 @@ function ResendInvoiceModal({
   companyId,
   invoice,
   details,
+  initialMessage = "",
   onClose,
   onFinished,
 }: {
   companyId: string;
   invoice: Invoice;
   details: InvoiceEmailDetails;
+  /** A note to start from, such as the one that says the invoice was updated. */
+  initialMessage?: string;
   onClose: () => void;
   onFinished: () => void;
 }) {
   const dialog = useDialog();
   const [to, setTo] = React.useState(details.toAddress);
   const [cc, setCc] = React.useState("");
-  const [message, setMessage] = React.useState("");
+  const [message, setMessage] = React.useState(initialMessage);
   const [attachPdf, setAttachPdf] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

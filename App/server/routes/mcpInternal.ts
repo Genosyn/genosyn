@@ -443,12 +443,15 @@ import {
   stageAiLedgerReview,
 } from "../services/transactionReviews.js";
 import {
+  assertPaymentNotRecorded,
   createInvoiceDraft,
   displayStatus,
+  DuplicatePaymentError,
   hydrateInvoices,
   issueInvoice,
   loadCustomerBySlug,
   loadInvoiceBySlug,
+  normalizePaymentReference,
   postInvoicePayment,
   recomputeInvoiceTotals,
   resolveInvoiceRecipients,
@@ -2990,6 +2993,17 @@ mcpInternalRouter.post(
         error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
       });
     }
+    // One payment settles one invoice once — the same guarantee the human
+    // route gives, checked first so a duplicate is named as one rather than
+    // reported as an overpayment.
+    const reference = normalizePaymentReference(body.reference);
+    try {
+      await assertPaymentNotRecorded(cid, inv, reference);
+    } catch (err) {
+      return res.status(err instanceof DuplicatePaymentError ? err.status : 400).json({
+        error: `${(err as Error).message} This payment is already in the books: do not record it again under another reference.`,
+      });
+    }
     // Refuse overpayment here too — the AI path posts through the same ledger
     // as the human route, so an over-balance amount would drive AR negative
     // with no credit-note tracking. Keep the two paths' guarantees identical.
@@ -3009,7 +3023,7 @@ mcpInternalRouter.post(
         currency: body.currency ?? inv.currency,
         paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
         method: body.method ?? "other",
-        reference: body.reference ?? "",
+        reference,
         notes: body.notes ?? "",
         createdById: null,
       }),

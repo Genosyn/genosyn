@@ -62,6 +62,36 @@ export function InvoiceIssuerSelect({
   );
 }
 
+/**
+ * The issuer on the edit form of a document that is already issued. It is
+ * fixed from then on, so it reads as a value rather than a choice, with the
+ * way round it in `hint`.
+ */
+export function InvoiceIssuerFixed({
+  issuer,
+  companyName,
+  hint,
+}: {
+  issuer: Issuer | null;
+  companyName: string;
+  hint: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Issued by</div>
+      <div className="text-sm text-slate-900 dark:text-slate-100">
+        {issuer?.name ?? companyName}
+      </div>
+      {issuer && (issuer.address || issuer.country) && (
+        <p className="whitespace-pre-line text-xs text-slate-500 dark:text-slate-400">
+          {[issuer.address, issuer.country].filter(Boolean).join("\n")}
+        </p>
+      )}
+      <p className="text-xs text-slate-500 dark:text-slate-400">{hint}</p>
+    </div>
+  );
+}
+
 export function InvoiceIssuerDetails({
   issuer,
   companyName,

@@ -4858,7 +4858,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "record_payment",
     description:
-      "Record a payment received against an issued invoice — this is how you mark an invoice paid. Auto-posts DR Bank / CR Accounts Receivable and flips the invoice to `paid` once payments cover the total. `amountCents` is in minor units. Needs `invoice` finance access.",
+      "Record a payment received against an issued invoice — this is how you mark an invoice paid. Auto-posts DR Bank / CR Accounts Receivable and flips the invoice to `paid` once payments cover the total. `amountCents` is in minor units. A `reference` names one real payment and is recorded once across all invoices: if it is refused as already recorded, the money is already in the books — never record it again under another reference. Needs `invoice` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4877,7 +4877,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "ISO datetime the payment was received; defaults to now.",
         },
         method: { type: "string", enum: ["cash", "bank_transfer", "stripe", "lightning", "other"] },
-        reference: { type: "string", description: "Payment reference / transaction id." },
+        reference: {
+          type: "string",
+          description:
+            "Payment reference / transaction id (bank transfer id, Stripe charge id, cheque number).",
+        },
         notes: { type: "string" },
       },
       required: ["invoiceSlug", "amountCents"],
