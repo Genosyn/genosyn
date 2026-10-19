@@ -1,6 +1,7 @@
 import React from "react";
 
 import { Button } from "../ui/Button";
+import { clsx } from "../ui/clsx";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
@@ -286,51 +287,74 @@ export function AccountMergeModal({
         )}
 
         {preview && conflicts.length > 0 && (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60">
-                <tr>
-                  <th className="px-3 py-2">Field</th>
-                  <th className="px-3 py-2">{preview.source.name} (archived)</th>
-                  <th className="px-3 py-2">{preview.target.name} (kept)</th>
-                  <th className="px-3 py-2">Keep</th>
-                </tr>
-              </thead>
-              <tbody>
-                {conflicts.map((conflict) => {
-                  const choosable = canTakeAccountMergeSource(conflict.field, financeAccess);
-                  return (
-                    <tr key={conflict.field} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-3 py-2 font-medium">{conflict.label}</td>
-                      <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                        {displayMergeValue(conflict.sourceValue)}
-                      </td>
-                      <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                        {displayMergeValue(conflict.targetValue)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Select
-                          aria-label={`Choose the ${conflict.label} to keep`}
-                          value={
-                            choosable ? (resolutions[conflict.field] ?? conflict.resolution) : "target"
-                          }
-                          disabled={!choosable}
-                          onChange={(event) =>
-                            setResolutions((current) => ({
-                              ...current,
-                              [conflict.field]: event.target.value as "source" | "target",
-                            }))
-                          }
+          <div>
+            <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
+              They disagree on {conflicts.length === 1 ? "one value" : `${conflicts.length} values`}
+              . Choose the one to keep for each.
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60">
+                  <tr>
+                    <th className="px-3 py-2">Field</th>
+                    <th className="px-3 py-2">{preview.source.name} (archived)</th>
+                    <th className="px-3 py-2">{preview.target.name} (kept)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conflicts.map((conflict) => {
+                    const choosable = canTakeAccountMergeSource(conflict.field, financeAccess);
+                    const chosen = choosable
+                      ? (resolutions[conflict.field] ?? conflict.resolution)
+                      : "target";
+                    // Click the value to keep: the two names are often alike,
+                    // so the choice is the value itself, not a menu of names.
+                    const option = (side: "source" | "target", value: unknown) => (
+                      <td className="px-2 py-1.5 align-top">
+                        <label
+                          className={clsx(
+                            "flex items-start gap-2 rounded-md px-2 py-1.5",
+                            chosen === side
+                              ? "bg-indigo-50 text-slate-900 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:text-slate-100 dark:ring-indigo-500/30"
+                              : "text-slate-600 dark:text-slate-300",
+                            choosable ? "cursor-pointer" : "cursor-not-allowed",
+                          )}
                         >
-                          <option value="target">{preview.target.name}</option>
-                          <option value="source">{preview.source.name}</option>
-                        </Select>
+                          <input
+                            type="radio"
+                            name={`merge-keep-${conflict.field}`}
+                            className="mt-0.5 shrink-0 accent-indigo-600"
+                            checked={chosen === side}
+                            disabled={!choosable}
+                            onChange={() =>
+                              setResolutions((current) => ({ ...current, [conflict.field]: side }))
+                            }
+                          />
+                          <span className="min-w-0 break-words">
+                            <span className="sr-only">
+                              {`Keep ${conflict.label} from ${
+                                side === "source" ? preview.source.name : preview.target.name
+                              }: `}
+                            </span>
+                            {displayMergeValue(value)}
+                          </span>
+                        </label>
                       </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    );
+                    return (
+                      <tr
+                        key={conflict.field}
+                        className="border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="px-3 py-2 align-top font-medium">{conflict.label}</td>
+                        {option("source", conflict.sourceValue)}
+                        {option("target", conflict.targetValue)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
