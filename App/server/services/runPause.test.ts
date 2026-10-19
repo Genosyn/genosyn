@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
@@ -736,6 +737,17 @@ describe("genosyn upgrade's pause step", () => {
   });
 });
 
+/** Recovery as a Postgres replica runs it: dispatch leases say who is alive. */
+async function asReplica<T>(work: () => Promise<T>): Promise<T> {
+  const driver = config.db.driver;
+  Object.assign(config.db, { driver: "postgres" });
+  try {
+    return await work();
+  } finally {
+    Object.assign(config.db, { driver });
+  }
+}
+
 describe("recovery after a restart", () => {
   async function runningRun(routine: Routine, values: Partial<Run> = {}) {
     return insert(Run, {
@@ -800,7 +812,7 @@ describe("recovery after a restart", () => {
     assert.equal(recovered.status, "error");
   });
 
-  test("an ordinary heartbeat never pauses a Run its owner is still running", async () => {
+  test("a replica's heartbeat never pauses a Run its owner is still running", async () => {
     const { routine } = await fixture();
     const live = await runningRun(routine, {
       // Well inside its limit: an ordinary pass leaves it to its owner.
@@ -816,10 +828,29 @@ describe("recovery after a restart", () => {
     await AppDataSource.getRepository(Run).update(live.id, {
       queueActiveEmployeeId: `run:${live.id}:owner`,
     });
-    const result = await reconcileOrphanedRuns({ now: new Date() });
+    const result = await asReplica(() => reconcileOrphanedRuns({ now: new Date() }));
     assert.equal(result.paused, 0);
     assert.equal(
       (await AppDataSource.getRepository(Run).findOneByOrFail({ id: live.id })).status,
+      "running",
+    );
+  });
+
+  test("on SQLite only the boot pauses: a later pass may be looking at a claim in flight", async () => {
+    const { routine } = await fixture();
+    // Marked running, not yet registered as this process's own — exactly how a
+    // Run looks between its claim and its start.
+    const claiming = await runningRun(routine, {
+      startedAt: new Date(),
+      continuationDeadlineAt: new Date(Date.now() + 60 * 60_000),
+      queueActiveEmployeeId: "run:claiming:token",
+    });
+    await holdRoutineQueue(new Date(Date.now() + 60_000 + HOLD_MARGIN_MS));
+    await markRunsForRestart([claiming.id], new Date(Date.now() + 1_000));
+    const result = await reconcileOrphanedRuns({ now: new Date() });
+    assert.equal(result.paused, 0);
+    assert.equal(
+      (await AppDataSource.getRepository(Run).findOneByOrFail({ id: claiming.id })).status,
       "running",
     );
   });
@@ -860,7 +891,7 @@ describe("recovery after a restart", () => {
       `INSERT INTO "scheduler_leases" ("name", "holderId", "expiresAt", "updatedAt") VALUES (?, ?, ?, datetime('now'))`,
       [`routine-run:${cutOff.id}`, "dead-replica", new Date(now.getTime() + 60_000).toISOString()],
     );
-    const early = await reconcileOrphanedRuns({ now });
+    const early = await asReplica(() => reconcileOrphanedRuns({ now }));
     assert.equal(early.paused, 0);
     assert.equal(early.interrupted, 0);
     assert.equal(
@@ -869,7 +900,7 @@ describe("recovery after a restart", () => {
     );
     // A heartbeat after the lease lapsed: the mark says a restart, not a crash.
     const later = new Date(now.getTime() + 2 * 60_000);
-    const result = await reconcileOrphanedRuns({ now: later });
+    const result = await asReplica(() => reconcileOrphanedRuns({ now: later }));
     assert.equal(result.paused, 1);
     assert.equal(result.interrupted, 0);
     assert.equal(

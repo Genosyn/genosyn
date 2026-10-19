@@ -235,7 +235,11 @@ export async function reconcileOrphanedRuns(opts?: {
         cutOffAt &&
         !locallyOwned &&
         (run.pauseCount ?? 0) < MAX_RUN_PAUSES &&
-        (singleProcessBoot || !(await hasLiveRoutineRunLease(run, now)))
+        // SQLite has one process, so its boot settles every Run a restart cut
+        // off; a later pass could only catch one this process is still
+        // claiming. On Postgres a lapsed lease says the owner is gone.
+        (singleProcessBoot ||
+          (config.db.driver === "postgres" && !(await hasLiveRoutineRunLease(run, now))))
       ) {
         if (await pauseCutOffRun(run, routine, cutOffAt)) result.paused += 1;
         continue;
