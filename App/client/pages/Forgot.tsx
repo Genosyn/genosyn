@@ -44,6 +44,7 @@ export default function Forgot() {
             label="Email"
             type="email"
             autoComplete="email"
+            data-credential
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoFocus

@@ -1,4 +1,5 @@
 import React from "react";
+import { passwordManagerProps } from "@/lib/passwordManagers";
 import { clsx } from "./clsx";
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
@@ -24,6 +25,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
         ref={ref}
         id={inputId}
         aria-invalid={invalid || undefined}
+        // Password managers stay out unless this is the person's own sign-in.
+        {...passwordManagerProps(rest)}
         {...rest}
         className={clsx(
           "h-10 rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-sm",

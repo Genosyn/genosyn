@@ -188,6 +188,7 @@ function ConfirmPasswordModal({
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
+          data-credential
           autoFocus
         />
         <FormError message={error} />
@@ -312,6 +313,7 @@ function AddAuthenticatorModal({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
+            data-credential
           />
           <FormError message={error} />
           <div className="flex justify-end gap-2">
@@ -349,6 +351,7 @@ function AddAuthenticatorModal({
                 onChange={(e) => setCode(e.target.value)}
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                data-credential
                 pattern="[0-9]{6}"
                 placeholder="000000"
                 required
@@ -488,6 +491,7 @@ function AddWebAuthnModal({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
+            data-credential
           />
           <FormError message={error} />
           <div className="flex justify-end gap-2">

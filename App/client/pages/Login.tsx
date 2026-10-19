@@ -174,6 +174,7 @@ export default function Login() {
           label="Email"
           type="email"
           autoComplete="email"
+          data-credential
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoFocus
@@ -183,6 +184,7 @@ export default function Login() {
           label="Password"
           type="password"
           autoComplete="current-password"
+          data-credential
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -450,6 +452,7 @@ function CompanySsoLinkConfirm({
         label="Password"
         type="password"
         autoComplete="current-password"
+        data-credential
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
@@ -558,6 +561,7 @@ function TwoFactorPrompt({
             onChange={(e) => setCode(e.target.value)}
             inputMode={recoveryMode ? "text" : "numeric"}
             autoComplete={recoveryMode ? "off" : "one-time-code"}
+            data-credential={recoveryMode ? undefined : true}
             placeholder={recoveryMode ? "XXXXX-XXXXX-XXXXX-XXXXX" : "000000"}
             pattern={recoveryMode ? undefined : "[0-9]{6}"}
             required

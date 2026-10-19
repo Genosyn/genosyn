@@ -43,6 +43,7 @@ export default function Reset() {
           label={setup ? "Password" : "New password"}
           type="password"
           autoComplete="new-password"
+          data-credential
           autoFocus
           value={password}
           onChange={(e) => setPassword(e.target.value)}
