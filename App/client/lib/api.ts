@@ -1125,6 +1125,10 @@ export type Run = {
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
   tokensOut?: number;
+  /** When Genosyn last paused this Run to restart; null when it never was. */
+  pausedAt?: string | null;
+  /** How many restarts this Run was paused for. A queued Run with any is paused. */
+  pauseCount?: number;
 };
 export type RunFollowUp = Pick<
   Run,
@@ -1214,6 +1218,10 @@ export type RunLog = {
   checkRemediations?: number;
   tokensIn?: number;
   tokensOut?: number;
+  /** When Genosyn last paused this Run to restart; null when it never was. */
+  pausedAt?: string | null;
+  /** How many restarts this Run was paused for. */
+  pauseCount?: number;
   /** A verdict is still owed: the run completed and its check hasn't landed. */
   awaitingOutcome?: boolean;
   /**

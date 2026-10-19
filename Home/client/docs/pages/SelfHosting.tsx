@@ -835,8 +835,8 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         <DocLink to="/docs/cli#automatic-updates">copy of the CLI</DocLink>, which needs no{" "}
         <Code>sudo</Code> even when <Code>/usr/local/bin/genosyn</Code> belongs to root, then pulls
         the latest image and retains the previous container until the new version becomes ready.
-        Before it restarts, running Routine Runs get up to 60 minutes to finish while new ones wait
-        in the queue (
+        Before it restarts, it pauses running Routine Runs — each saves its progress and waits in
+        the queue — and the upgraded version continues them where they stopped (
         <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). A failed start restarts the
         previous version with the current data volume. Backups are off by default; run{" "}
         <Code>genosyn upgrade --backup</Code> for a manual upgrade that also writes a verified

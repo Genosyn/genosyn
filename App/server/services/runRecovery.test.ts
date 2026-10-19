@@ -218,6 +218,7 @@ describe("Routine Run crash recovery", () => {
       timedOut: 0,
       retriesScheduled: 1,
       leasesCleared: 1,
+      paused: 0,
     });
     const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id: run.id });
     assert.equal(recovered.status, "error");
@@ -342,6 +343,7 @@ describe("Routine Run crash recovery", () => {
       timedOut: 0,
       retriesScheduled: 0,
       leasesCleared: 0,
+      paused: 0,
     });
     assert.equal(dispatch.started, 0);
     const unchanged = await AppDataSource.getRepository(Run).findOneByOrFail({
@@ -557,6 +559,7 @@ describe("Routine Run crash recovery", () => {
       timedOut: 0,
       retriesScheduled: 0,
       leasesCleared: 0,
+      paused: 0,
     });
     assert.equal(unchanged.retryAt, null);
     assert.equal(unchanged.logContent.split(ORPHAN_LOG_MARKER).length - 1, 1);
@@ -585,6 +588,7 @@ describe("Routine Run crash recovery", () => {
       timedOut: 0,
       retriesScheduled: 0,
       leasesCleared: 1,
+      paused: 0,
     });
     for (const id of [disabledRun.id, gatedRun.id, deletedRun.id]) {
       const recovered = await AppDataSource.getRepository(Run).findOneByOrFail({ id });

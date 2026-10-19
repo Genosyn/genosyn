@@ -280,6 +280,24 @@ export class Run {
   @Column({ type: "integer", default: 0 })
   tokensOut!: number;
 
+  /**
+   * When Genosyn last paused this Run to restart — an upgrade, a stop, a
+   * rollout. A paused Run is `queued` again with its transcript, tokens,
+   * progress and Effects intact, and the same Run continues once the server is
+   * back (`services/runPause.ts`). Null for a Run that was never paused. A
+   * pause is not a Standdown: nobody decided the work should stop.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  pausedAt!: Date | null;
+
+  /** How many restarts this Run has been paused for; bounds how often it resumes. */
+  @Column({ type: "integer", default: 0 })
+  pauseCount!: number;
+
+  /** The time-limit budget it had left when last paused, given back when it resumes. */
+  @Column({ type: "integer", nullable: true })
+  pauseRemainingMs!: number | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

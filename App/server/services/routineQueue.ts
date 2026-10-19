@@ -22,6 +22,7 @@ import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
+import { activeRunPause, resumeBudgetMs } from "./runPause.js";
 import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
 import { routineQueueHeldUntil } from "./routineQueueHold.js";
 import { isModelServiceUnavailable } from "./agent/modelError.js";
@@ -94,6 +95,9 @@ function requestRunDispatch(runId: string): void {
             await noteHeldForUpgrade(runId);
             return;
           }
+          // Nothing starts while this process is pausing its Runs: one that
+          // did would only be paused again on the spot.
+          if (activeRunPause()) return;
           // A saturated model admits no more Runs. This one stays queued, and
           // because its deadline starts at the claim, waiting costs it nothing.
           const target = await queuedRunModel(runId);
@@ -220,14 +224,18 @@ async function claimRun(
     // Queue time consumes no allowance. Publish the actual deadline with
     // ownership, before preparation can await another service. An automatic
     // continuation keeps its inherited deadline, moved by any credited wait.
+    // A Run paused for a restart gets back the time it had left: the restart
+    // and its wait in the queue spend none of its limit.
     const continuationDeadlineAt =
-      run.continuationCount > 0
-        ? run.continuationDeadlineAt &&
-          new Date(
-            run.continuationDeadlineAt.getTime() +
-              creditedQueueWaitMs({ createdAt: run.createdAt, startedAt }),
-          )
-        : new Date(startedAt.getTime() + Math.max(1, routine.timeoutSec) * 1000);
+      run.pauseCount > 0
+        ? new Date(startedAt.getTime() + resumeBudgetMs(run, routine.timeoutSec))
+        : run.continuationCount > 0
+          ? run.continuationDeadlineAt &&
+            new Date(
+              run.continuationDeadlineAt.getTime() +
+                creditedQueueWaitMs({ createdAt: run.createdAt, startedAt }),
+            )
+          : new Date(startedAt.getTime() + Math.max(1, routine.timeoutSec) * 1000);
     const claimed = await claims.update(
       { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
       {
@@ -320,12 +328,22 @@ async function skipQueuedRun(run: Run, reason: string): Promise<void> {
   const repo = AppDataSource.getRepository(Run);
   await repo.update(
     { id: run.id, status: "queued" },
-    {
-      routineId: run.routineId,
-      status: "skipped",
-      finishedAt: new Date(),
-      logContent: `[queue] ${reason}\n`,
-    },
+    run.pauseCount > 0
+      ? {
+          // It had already worked: its transcript stays, and the stop is an
+          // interruption of work under way, not a Run that never started.
+          routineId: run.routineId,
+          status: "error",
+          errorKind: "interrupted",
+          finishedAt: new Date(),
+          logContent: `${run.logContent ?? ""}\n[queue] Paused for a restart, this Run could not continue: ${reason}\n`,
+        }
+      : {
+          routineId: run.routineId,
+          status: "skipped",
+          finishedAt: new Date(),
+          logContent: `[queue] ${reason}\n`,
+        },
   );
   await settleQueuedApproval(run);
   await settleWaiter(run.id);
@@ -360,9 +378,12 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
         },
       );
     } else {
-      const skipped = error instanceof QueuedRoutineIneligibleError;
+      const ineligible = error instanceof QueuedRoutineIneligibleError;
+      // Work already under way that can no longer continue is an interruption,
+      // not a Run that was skipped before it began.
+      const skipped = ineligible && run.pauseCount <= 0;
       const retry =
-        !skipped &&
+        !ineligible &&
         routine.enabled &&
         !routine.requiresApproval &&
         shouldRetry({
@@ -378,7 +399,7 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
         {
           routineId: run.routineId,
           status: skipped ? "skipped" : "error",
-          errorKind: skipped ? null : "runtime",
+          errorKind: skipped ? null : ineligible ? "interrupted" : "runtime",
           finishedAt: new Date(),
           retryAt: retry
             ? new Date(
@@ -392,7 +413,10 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
                   }),
               )
             : null,
-          logContent: `[queue] Unable to start this Run: ${error instanceof Error ? error.message : "Unexpected dispatch error"}\n`,
+          logContent:
+            // A Run paused for a restart keeps the transcript it would have resumed from.
+            (run.pauseCount > 0 ? `${run.logContent ?? ""}\n` : "") +
+            `[queue] Unable to ${run.pauseCount > 0 ? "resume" : "start"} this Run: ${error instanceof Error ? error.message : "Unexpected dispatch error"}\n`,
         },
       );
     }
@@ -441,16 +465,17 @@ export async function dispatchQueuedRoutineRuns(): Promise<void> {
   }
   if (!canDispatch()) return;
   // Oldest first, so a Run waiting for a busy AI Model is offered a freed slot
-  // before Runs queued after it. Continuations go ahead of fresh work: they
-  // finish an occurrence that has already started.
+  // before Runs queued after it. Runs paused for a restart go first, then
+  // continuations, then fresh work: each finishes an occurrence already begun.
   const rows = await AppDataSource.getRepository(Run).find({
     where: { status: "queued", employeeId: Not(IsNull()) },
-    select: { id: true, continuationCount: true },
+    select: { id: true, continuationCount: true, pauseCount: true },
     order: { createdAt: "ASC" },
   });
-  const continuing = rows.filter((run) => run.continuationCount > 0);
-  const fresh = rows.filter((run) => run.continuationCount <= 0);
-  for (const run of [...continuing, ...fresh]) requestRunDispatch(run.id);
+  const resuming = rows.filter((run) => run.pauseCount > 0);
+  const continuing = rows.filter((run) => run.pauseCount <= 0 && run.continuationCount > 0);
+  const fresh = rows.filter((run) => run.pauseCount <= 0 && run.continuationCount <= 0);
+  for (const run of [...resuming, ...continuing, ...fresh]) requestRunDispatch(run.id);
 }
 
 type QueuedRunModel = {
@@ -464,11 +489,14 @@ type QueuedRunModel = {
 async function queuedRunModel(runId: string): Promise<QueuedRunModel | null> {
   const run = await AppDataSource.getRepository(Run).findOne({
     where: { id: runId, status: "queued" },
-    select: { id: true, routineId: true, continuationCount: true },
+    select: { id: true, routineId: true, continuationCount: true, pauseCount: true },
   });
   if (!run) return null;
   const capacity = await routineModelCapacity(run.routineId);
-  return capacity && { ...capacity, continuation: run.continuationCount > 0 };
+  // A paused Run, like a continuation, finishes work already under way.
+  return (
+    capacity && { ...capacity, continuation: run.continuationCount > 0 || run.pauseCount > 0 }
+  );
 }
 
 async function routineModelCapacity(
@@ -508,10 +536,22 @@ async function suspectOutageAfterModelFailure(runId: string, target: QueuedRunMo
     suspectModelOutage(target.capacity.key);
 }
 
+/**
+ * Say why a queued Run has not started, in its log. Never over a Run paused
+ * for a restart: its log is its transcript so far, which it resumes from, and
+ * its paused state already says why it waits.
+ */
+async function noteQueueWait(runId: string, values: { logContent: string }): Promise<void> {
+  await AppDataSource.getRepository(Run).update(
+    { id: runId, status: "queued", pauseCount: 0 },
+    values,
+  );
+}
+
 /** Say why a queued Run waits while its model server does not answer. */
 async function noteHeldForUpgrade(runId: string): Promise<void> {
-  await AppDataSource.getRepository(Run).update(
-    { id: runId, status: "queued" },
+  await noteQueueWait(
+    runId,
     {
       logContent:
         "[queue] Waiting for Genosyn to restart for an upgrade. This Run starts after the restart; " +
@@ -521,8 +561,8 @@ async function noteHeldForUpgrade(runId: string): Promise<void> {
 }
 
 async function noteModelNotAnswering(runId: string, target: QueuedRunModel): Promise<void> {
-  await AppDataSource.getRepository(Run).update(
-    { id: runId, status: "queued" },
+  await noteQueueWait(
+    runId,
     {
       logContent:
         `[queue] Waiting for the AI Model ${target.label}: its server is not answering. ` +
@@ -569,8 +609,8 @@ async function slotHeldForContinuation(target: QueuedRunModel): Promise<boolean>
 }
 
 async function noteWaitingForContinuation(runId: string, target: QueuedRunModel): Promise<void> {
-  await AppDataSource.getRepository(Run).update(
-    { id: runId, status: "queued" },
+  await noteQueueWait(
+    runId,
     {
       logContent:
         `[queue] Waiting for the AI Model ${target.label}: another Routine's unfinished work continues there first. ` +
@@ -583,8 +623,8 @@ async function noteWaitingForContinuation(runId: string, target: QueuedRunModel)
 async function noteWaitingForModel(runId: string, target: QueuedRunModel): Promise<void> {
   const limit = target.capacity.limit ?? 0;
   const inUse = Math.max(limit, await modelRunSlotsInUse(target.capacity));
-  await AppDataSource.getRepository(Run).update(
-    { id: runId, status: "queued" },
+  await noteQueueWait(
+    runId,
     {
       logContent:
         `[queue] Waiting for the AI Model ${target.label}: ${inUse} Run${inUse === 1 ? " is" : "s are"} already using it, ` +

@@ -165,6 +165,7 @@ export function publicRun(run: Run, followUpRun?: RunFollowUp | null) {
     requiredToolsJson: _requiredToolsJson,
     queueOptionsJson: _queueOptionsJson,
     queueActiveEmployeeId: _queueActiveEmployeeId,
+    pauseRemainingMs: _pauseRemainingMs,
     ...visible
   } = run;
   return { ...visible, queuedAt: run.createdAt, ...runContinuationView(run, followUpRun) };

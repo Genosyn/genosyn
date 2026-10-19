@@ -1018,14 +1018,48 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         evidence say so instead of inventing a cause.
       </P>
       <P>
-        Servers restart, containers get rescheduled, laptops go to sleep. Two things can go wrong,
-        and Genosyn handles them differently.
+        Servers restart, containers get rescheduled, laptops go to sleep. Genosyn handles a planned
+        restart, a crash, and downtime across scheduled slots differently.
+      </P>
+
+      <H3 id="paused-for-restart">Paused for a restart, then resumed</H3>
+      <P>
+        An upgrade, <Code>genosyn stop</Code>, <Code>docker stop</Code>, or a Kubernetes rollout
+        pauses the Runs that are working instead of cutting them off. Each one stops its model
+        turn and goes back to the queue as the same Run, keeping its transcript, tokens, saved
+        progress, and Effects. Its status reads <Strong>Resuming</Strong> — the Routine itself
+        stays Active — and its log says it is waiting for Genosyn to come back. Nothing needs
+        doing: once Genosyn is running again, the same Run continues where it stopped, ahead of
+        new work, with the time it had left on its limit — the restart and the wait spend none of
+        it.
+      </P>
+      <P>
+        An upgrade gives each Run up to 90 seconds to save its progress first, so the employee
+        records exactly where to pick up; a stop pauses at once. Because the model&apos;s
+        conversation does not survive a restart, the resumed turn opens with the record of what
+        the Run had done: its saved progress, the changes the server recorded for it, and the end
+        of its transcript. It checks the current state before repeating anything a step in flight
+        may already have done. The Run log shows one transcript, with a <Code>[paused]</Code> and
+        a <Code>[resumed]</Code> line where the restart happened.
+      </P>
+      <P>
+        A pause is not a failure: it is not counted against the Routine or the AI Employee, sends
+        no alert, and owes no retry. It is not a{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> either — a Standdown placed while a Run
+        is paused still holds it in the queue until it is lifted. A Routine disabled or removed
+        while one of its Runs was paused ends that Run with an interruption reason, keeping its
+        transcript. A Run Genosyn has to pause more than five times ends instead of resuming again.
       </P>
 
       <H3 id="crash-mid-run">The server stopped mid-run</H3>
       <P>
-        A Run that was executing when the process died can&apos;t report its own outcome — nobody
-        was left to write the row. The scheduler notices on its next heartbeat and marks it{" "}
+        A Run that was executing when the process died without pausing it — a crash, a power cut,
+        a kill — can&apos;t report its own outcome: nobody was left to write the row. If Genosyn
+        was stopping and the Run simply could not pause in time — stuck in a long call, or a
+        runtime that would not wait — the stopping process marked it first, so it is paused and
+        resumed as above from its last durable line, charged only the time it had worked. The same
+        goes for a Run an upgrade cut off while it was holding the queue, even on an image too old
+        to mark it. Otherwise the scheduler notices on its next heartbeat and marks it{" "}
         <Strong>Error</Strong> with an interruption reason, appending a line after the last durable
         checkpoint. The Run log still shows the model text and tool activity captured before the
         stop, so the final line identifies where the visible work ended. Nothing is known about work

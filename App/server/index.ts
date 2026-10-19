@@ -9,6 +9,7 @@ import { config } from "../config.js";
 import { AppDataSource, initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
+import { startRunPauseWatcher } from "./services/runPause.js";
 import { bootStanddowns } from "./services/standdowns.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
@@ -200,6 +201,9 @@ async function main() {
   await backfillRetiredIntegrationsIntoVault();
   await bootProactiveDefaults();
   await bootCron();
+  // `genosyn upgrade` asks the running server to pause its Routine Runs before
+  // it restarts. Started after boot recovery cleared any stale request.
+  startRunPauseWatcher();
   // M54: Routine event Triggers subscribe to the live-sync flush. Registered
   // here rather than imported by resourceEvents so the low-level module stays
   // out of the runner's dependency graph.
@@ -644,6 +648,12 @@ async function main() {
  * flush is bounded well inside that: losing a few sessions' cookies is bad, but
  * hanging until the runtime shoots us loses all of them *and* leaves the
  * container in a worse state.
+ *
+ * Running Routine Runs are paused first, not cut off: each stops its model
+ * turn and goes back to the queue with its transcript and progress, and the
+ * next process continues it (`services/runPause.ts`). Each is marked before
+ * it is asked, so one that cannot pause before the process exits is resumed
+ * by recovery — on the next boot or on another replica — instead of failing.
  */
 function installShutdownHandlers(server: http.Server): void {
   const FLUSH_BUDGET_MS = 6_000;
@@ -662,6 +672,7 @@ function installShutdownHandlers(server: http.Server): void {
     server.close();
 
     const flush = (async () => {
+      const pausedRuns = pauseRoutineRunsForShutdown(FLUSH_BUDGET_MS - 1_500);
       const [{ releaseAllPages }, { shutdownMeetingNotetakers }] = await Promise.all([
         import("./services/browserChromium.js"),
         import("./services/meetings/recorder.js"),
@@ -680,6 +691,14 @@ function installShutdownHandlers(server: http.Server): void {
       if (notetakerCount > 0) {
         // eslint-disable-next-line no-console
         console.log(`[genosyn] finalised ${notetakerCount} meeting recording(s)`);
+      }
+      const runs = await pausedRuns;
+      if (runs.asked > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[genosyn] paused ${runs.asked - runs.stillRunning} running Routine Run(s) to continue after the restart` +
+            (runs.stillRunning ? `; ${runs.stillRunning} did not pause in time` : ""),
+        );
       }
     })();
 
@@ -703,6 +722,34 @@ function installShutdownHandlers(server: http.Server): void {
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+}
+
+/**
+ * Stop claiming Routine work and pause what is running, within `budgetMs`.
+ * Never throws: a shutdown that cannot pause still shuts down, and boot
+ * recovery deals with whatever was left running.
+ */
+async function pauseRoutineRunsForShutdown(
+  budgetMs: number,
+): Promise<{ asked: number; stillRunning: number }> {
+  try {
+    const [{ stopRoutineQueue }, { markRunsForRestart, pauseLocalRuns, pausableRunIds }] =
+      await Promise.all([import("./services/routineQueue.js"), import("./services/runPause.js")]);
+    stopRoutineQueue();
+    const runIds = pausableRunIds();
+    if (runIds.length === 0 || !AppDataSource.isInitialized) {
+      return { asked: 0, stillRunning: 0 };
+    }
+    await markRunsForRestart(runIds).catch((error: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("[genosyn] could not mark running Routine Runs for the restart:", error);
+    });
+    return await pauseLocalRuns({ graceMs: 0, reason: "restart" }, { timeoutMs: budgetMs });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("[genosyn] could not pause running Routine Runs:", error);
+    return { asked: 0, stillRunning: 0 };
+  }
 }
 
 main().catch((err) => {

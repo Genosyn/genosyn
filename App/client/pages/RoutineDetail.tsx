@@ -1,6 +1,6 @@
 import React from "react";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
-import { isRunError } from "@/lib/runStatus";
+import { isRunError, isRunPaused } from "@/lib/runStatus";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -79,6 +79,7 @@ import {
   RunFailureNotice,
   RunLogPane,
   RunOutcomeChip,
+  RunPauseNotice,
   RunReviewNotice,
   RunStatusChip,
   formatDuration,
@@ -290,6 +291,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
                 <RunStatusChip
                   status={routine.lastRun.status}
                   errorKind={routine.lastRun.errorKind}
+                  pauseCount={routine.lastRun.pauseCount}
                   size="xs"
                 />
               )}
@@ -680,7 +682,12 @@ function OverviewTab({
                     onClick={() => onOpenRun(run.id)}
                     className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
                   >
-                    <RunStatusChip status={run.status} errorKind={run.errorKind} size="xs" />
+                    <RunStatusChip
+                      status={run.status}
+                      errorKind={run.errorKind}
+                      pauseCount={run.pauseCount}
+                      size="xs"
+                    />
                     {run.status !== "reviewed" && run.outcomeVerdict && (
                       <RunOutcomeChip
                         verdict={run.outcomeVerdict}
@@ -1321,6 +1328,13 @@ function RunsTab({
 
   return (
     <div className="flex flex-col gap-3">
+      {activeRun && (
+        <RunPauseNotice
+          status={log?.status ?? activeRun.status}
+          pauseCount={log?.pauseCount ?? activeRun.pauseCount}
+          pausedAt={log?.pausedAt ?? activeRun.pausedAt}
+        />
+      )}
       <RunContinuationNotice
         continuationPending={activeRun?.continuationPending}
         continuationStopReason={activeRun?.continuationStopReason}
@@ -1360,7 +1374,12 @@ function RunsTab({
                   }
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <RunStatusChip status={r.status} errorKind={r.errorKind} size="xs" />
+                    <RunStatusChip
+                      status={r.status}
+                      errorKind={r.errorKind}
+                      pauseCount={r.pauseCount}
+                      size="xs"
+                    />
                     {r.followUpRun && (
                       <span className="text-[10px] text-slate-500 dark:text-slate-400">
                         {runFollowUpLabel(r.followUpRun)}
@@ -1407,7 +1426,9 @@ function RunsTab({
                   </div>
                   <div className="text-slate-400 dark:text-slate-500">
                     {r.status === "queued"
-                      ? "Waiting to start"
+                      ? isRunPaused(r)
+                        ? "Paused for a restart"
+                        : "Waiting to start"
                       : formatDuration(r.startedAt, r.finishedAt)}
                   </div>
                 </button>

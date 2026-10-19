@@ -290,6 +290,18 @@ narrow, and widens what an AI may do without a human; a Standdown is imposed,
 broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.
 
+**A Run paused for a restart is not stood down.** An upgrade (`genosyn upgrade`'s
+pause step), `SIGTERM`, or recovery after a restart cut a Run off (its stopping
+process marked it, or an upgrade held the queue) puts it back in the queue as the
+same Run (`status: "queued"`, `pauseCount` > 0) with its transcript, tokens,
+checkpoint and Effects, and the queue resumes it first with the time it had left
+(`services/runPause.ts`). Nobody decided the work
+should stop, so a pause records no verdict, journal entry, alert, autonomy
+change or retry, and must never be counted as a failure. A Standdown placed
+while a Run is paused still defers it; a Standdown that lands while a Run is
+pausing wins, and the Run ends interrupted. Do not reuse the pause to stop work
+on purpose — that is what a Standdown is for.
+
 **"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they
 are not interchangeable. `unclear` is a judgement — the checker looked at the
 evidence and could not tell. `unverified` is the absence of one — the checker

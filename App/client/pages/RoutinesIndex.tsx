@@ -797,6 +797,7 @@ function RoutineRow({
                 <RunStatusChip
                   status={r.lastRun.status}
                   errorKind={r.lastRun.errorKind}
+                  pauseCount={r.lastRun.pauseCount}
                   size="xs"
                 />
                 {r.lastRun.status !== "reviewed" && r.lastRun.outcomeVerdict && (
