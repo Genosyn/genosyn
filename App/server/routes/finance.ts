@@ -59,7 +59,10 @@ import {
   voidInvoice,
 } from "../services/finance.js";
 import { documentRevisionState, reviseAction } from "../services/documentRevisions.js";
-import { normalizeAccountDomain } from "../services/revenue/accounts.js";
+import {
+  normalizeAccountDomain,
+  revenueAccountRestoreBlocker,
+} from "../services/revenue/accounts.js";
 import {
   createInvoiceWriteOff,
   listInvoiceWriteOffs,
@@ -621,9 +624,15 @@ financeRouter.patch(
       c.annualContractValueCents = body.annualContractValueCents;
     }
     if (body.notes !== undefined) c.notes = body.notes;
-    if (body.archived !== undefined) {
-      c.archivedAt = body.archived ? new Date() : null;
+    // Only a change of state is an archive or a restore; repeating either
+    // (a double click, a stale tab) keeps the original date and History.
+    const archiveChanged = body.archived !== undefined && body.archived !== !!c.archivedAt;
+    if (archiveChanged && !body.archived) {
+      // Unarchiving here and Restore on the Revenue account are one action.
+      const blocked = await revenueAccountRestoreBlocker(cid, c);
+      if (blocked) return res.status(409).json({ error: blocked });
     }
+    if (archiveChanged) c.archivedAt = body.archived ? new Date() : null;
     await AppDataSource.getRepository(Customer).save(c);
     const { archived, ...edits } = body;
     const target = { type: "customer", id: c.id, label: c.name };
@@ -631,7 +640,7 @@ financeRouter.patch(
     if (fields.length > 0) {
       await auditFinance(req, "finance.customer.update", target, { fields });
     }
-    if (archived !== undefined) {
+    if (archiveChanged) {
       await auditFinance(req, archived ? "finance.customer.archive" : "finance.customer.restore", target);
     }
     const [hydrated] = await hydrateCustomers(cid, [c]);

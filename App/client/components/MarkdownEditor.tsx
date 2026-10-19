@@ -31,19 +31,39 @@ export type MarkdownEditorProps = {
   rows?: number;
   /** Fires on ⌘/Ctrl+S. Parent can trigger save. */
   onSave?: () => void;
+  /**
+   * Preview a single line break as a break, for a document that renders its
+   * Markdown that way once saved (a text Resource does), so the preview
+   * matches what will be shown.
+   */
+  breaks?: boolean;
+  /** The pane to open on: side by side, or just the source. */
+  initialMode?: Mode;
+  placeholder?: string;
+  /** Style the preview as the saved document is styled (e.g. `doc-md`). */
+  previewClassName?: string;
 };
 
 type Mode = "edit" | "split" | "preview";
 
-export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownEditorProps) {
-  const [mode, setMode] = React.useState<Mode>("split");
+export function MarkdownEditor({
+  value,
+  onChange,
+  rows = 16,
+  onSave,
+  breaks = false,
+  initialMode = "split",
+  placeholder,
+  previewClassName = "prose prose-slate max-w-none dark:prose-invert",
+}: MarkdownEditorProps) {
+  const [mode, setMode] = React.useState<Mode>(initialMode);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const dialog = useDialog();
 
   const html = React.useMemo(() => {
-    const raw = marked.parse(value || "", { async: false }) as string;
+    const raw = marked.parse(value || "", { async: false, gfm: true, breaks }) as string;
     return DOMPurify.sanitize(raw);
-  }, [value]);
+  }, [value, breaks]);
 
   const wrap = React.useCallback(
     (before: string, after: string = before) => {
@@ -197,12 +217,13 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
             onKeyDown={onKeyDown}
             rows={rows}
             spellCheck={false}
+            placeholder={placeholder}
             className="rounded-none border-0 font-mono text-[13px] leading-relaxed shadow-none focus:ring-0"
           />
         )}
         {mode !== "edit" && (
           <div
-            className="prose prose-slate max-w-none overflow-y-auto p-4 text-sm dark:prose-invert"
+            className={clsx(previewClassName, "overflow-y-auto p-4 text-sm")}
             style={{ maxHeight: `${rows * 1.6}rem` }}
             dangerouslySetInnerHTML={{ __html: html }}
           />

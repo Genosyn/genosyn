@@ -5,13 +5,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   RunContinuationNotice,
   RunFailureNotice,
+  RunPauseNotice,
   RunStatusChip,
   runLogNeedsPolling,
   mergeRunContinuationState,
 } from "@/components/routines/RunViews";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { DialogProvider } from "@/components/ui/Dialog";
-import { runNeedsAttention } from "@/lib/runStatus";
+import { isRunPaused, runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
 import type { RunStatus } from "@/lib/api";
 import type { Company, Run, RunFollowUp, RunLog } from "@/lib/api";
 
@@ -295,5 +296,77 @@ describe("Routine Run failure and error presentation", () => {
     assert.match(html, />pending</);
     assert.doesNotMatch(html, /work queue|one at a time/);
     assert.doesNotMatch(html, /animate-spin/);
+  });
+});
+
+describe("a Run paused for a restart", () => {
+  test("reads as resuming while it waits, not as pending or paused", () => {
+    const paused = renderToStaticMarkup(
+      React.createElement(RunStatusChip, { status: "queued", pauseCount: 1 }),
+    );
+    assert.match(paused, />resuming</);
+    // "Paused" is a Routine switched off; the chip sits beside that toggle.
+    assert.doesNotMatch(paused, />paused</i);
+    assert.match(paused, /continues where it stopped/);
+    const pending = renderToStaticMarkup(
+      React.createElement(RunStatusChip, { status: "queued", pauseCount: 0 }),
+    );
+    assert.match(pending, />pending</);
+    assert.doesNotMatch(pending, /paused|resuming/i);
+    // Once it runs again it is simply running.
+    const resumed = renderToStaticMarkup(
+      React.createElement(RunStatusChip, { status: "running", pauseCount: 2 }),
+    );
+    assert.match(resumed, />running</);
+  });
+
+  test("says above its transcript that nothing needs doing", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RunPauseNotice, {
+        status: "queued",
+        pauseCount: 1,
+        pausedAt: "2026-10-19T02:17:00Z",
+      }),
+    );
+    assert.match(html, /while Genosyn restarted/);
+    assert.match(html, /nothing needs doing/);
+  });
+
+  test("once resumed, says its transcript spans the restarts", () => {
+    assert.match(
+      renderToStaticMarkup(
+        React.createElement(RunPauseNotice, { status: "completed", pauseCount: 1 }),
+      ),
+      /Paused for a restart and resumed/,
+    );
+    assert.match(
+      renderToStaticMarkup(
+        React.createElement(RunPauseNotice, { status: "running", pauseCount: 3 }),
+      ),
+      /Paused for 3 restarts and resumed/,
+    );
+  });
+
+  test("a Run never paused shows no notice", () => {
+    for (const pauseCount of [0, undefined, null]) {
+      assert.equal(
+        renderToStaticMarkup(
+          React.createElement(RunPauseNotice, { status: "queued", pauseCount }),
+        ),
+        "",
+      );
+    }
+  });
+
+  test("labels and hints come from one place", () => {
+    assert.equal(isRunPaused({ status: "queued", pauseCount: 1 }), true);
+    assert.equal(isRunPaused({ status: "queued" }), false);
+    assert.equal(isRunPaused({ status: "failed", pauseCount: 1 }), false);
+    assert.equal(runStatusLabel("queued", true), "resuming");
+    assert.equal(runStatusLabel("queued"), "pending");
+    assert.match(runStatusHint("queued", null, true) ?? "", /Paused while Genosyn restarted/);
+    assert.match(runStatusHint("queued") ?? "", /Waiting to start/);
+    // A paused Run never needs attention: it is not a failure.
+    assert.equal(runNeedsAttention("queued"), false);
   });
 });

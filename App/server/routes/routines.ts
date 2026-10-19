@@ -190,6 +190,8 @@ async function lastRunByRoutine(
       "run.continuationStopReason",
       "run.missedSlots",
       "run.outcomeVerdict",
+      "run.pausedAt",
+      "run.pauseCount",
     ])
     .where("run.routineId IN (:...routineIds)", { routineIds })
     .andWhere(
@@ -861,6 +863,8 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.checkRemediations",
       "run.tokensIn",
       "run.tokensOut",
+      "run.pausedAt",
+      "run.pauseCount",
     ])
     .where("run.routineId = :rid", { rid: found.routine.id })
     .orderBy("run.startedAt", "DESC")
@@ -1089,6 +1093,10 @@ routinesRouter.get("/runs/:runId/log", async (req, res, next) => {
         found.routine.acceptanceCriteria.trim().length > 0,
       tokensIn: run.tokensIn,
       tokensOut: run.tokensOut,
+      // A Run paused for a restart waits `queued` with its transcript; the
+      // modal says so rather than calling it pending.
+      pausedAt: run.pausedAt,
+      pauseCount: run.pauseCount,
       browserRecordings,
     });
   } catch (err) {

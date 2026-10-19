@@ -2,6 +2,8 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   Building2,
@@ -44,6 +46,7 @@ import {
 import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { withCustomerPick } from "../lib/customerPick";
+import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
 import { normalizeEnvelopeList, type SignatureEnvelope } from "../lib/signing";
 import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
@@ -54,6 +57,7 @@ import { RecordHistory } from "@/components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
+import { useBackgroundAction } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
@@ -372,6 +376,49 @@ function CustomerOverview({ company }: { company: Company }) {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [tab, ready]);
 
+  const background = useBackgroundAction();
+  const [announcement, setAnnouncement] = React.useState("");
+  const archiving = React.useRef(false);
+
+  /**
+   * Archive needs no confirm: invoices, deals, contacts, mail and contracts all
+   * stay linked, the banner says so at once, and the button turns into
+   * Unarchive where the pointer already is — the undo. An archived customer is
+   * only reachable from the list with Show archived on, so its own page must
+   * offer the way back too.
+   */
+  function toggleArchive() {
+    if (!customer || archiving.current) return;
+    archiving.current = true;
+    const archived = !customer.archivedAt;
+    const before = customer.archivedAt;
+    const setArchivedAt = (archivedAt: string | null) =>
+      setCustomer((current) => (current ? { ...current, archivedAt } : current));
+    setArchivedAt(archived ? new Date().toISOString() : null);
+    setAnnouncement(
+      archived ? `Archived ${customer.name}. Unarchive puts it back.` : `Unarchived ${customer.name}.`,
+    );
+    background(
+      () =>
+        api.patch<Customer>(`/api/companies/${company.id}/customers/${customer.slug}`, {
+          archived,
+        }),
+      {
+        title: `Couldn’t ${archived ? "archive" : "unarchive"} this customer`,
+        error: (err) => `${errorMessage(err)} The change was undone.`,
+        onSuccess: (updated) => {
+          archiving.current = false;
+          setArchivedAt(updated.archivedAt);
+        },
+        onError: () => {
+          archiving.current = false;
+          setAnnouncement("");
+          setArchivedAt(before);
+        },
+      },
+    );
+  }
+
   function setTab(next: CustomerTab) {
     setSearchParams(
       (prev) => {
@@ -619,8 +666,25 @@ function CustomerOverview({ company }: { company: Company }) {
               <Pencil size={14} /> Edit
             </Button>
           )}
+          {canWrite && (
+            <Button variant="secondary" onClick={toggleArchive}>
+              {customer.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              {customer.archivedAt ? "Unarchive" : "Archive"}
+            </Button>
+          )}
         </div>
       </div>
+
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
+      {customer.archivedAt && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          This customer is archived, so the Customers list hides it unless Show archived is on.
+          Its invoices, deals, contacts, and history are all kept.
+          {canWrite && " Unarchive brings it back."}
+        </div>
+      )}
 
       {/* Narrow screens swipe the tab row; its scrollbar would only add a gray bar. */}
       <div className="mb-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

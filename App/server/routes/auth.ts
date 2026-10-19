@@ -43,10 +43,10 @@ import { confirmEmailChangeToken, requestEmailChange } from "../services/emailCh
 import { configuredInstanceSsoIssuer } from "../services/ssoSettings.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { IsNull } from "typeorm";
+import { PASSWORD_MIN_LENGTH } from "../../shared/password.js";
 
 export const authRouter = Router();
 const BCRYPT_ROUNDS = 12;
-const PASSWORD_MIN_LENGTH = 12;
 
 function hashOneTimeToken(token: string): string {
   return hashToken(token);

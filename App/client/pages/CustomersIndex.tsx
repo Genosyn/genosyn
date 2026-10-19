@@ -438,6 +438,11 @@ function CustomerList({ company }: { company: Company }) {
                         >
                           {c.name}
                         </Link>
+                        {c.archivedAt && (
+                          <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            Archived
+                          </span>
+                        )}
                         {c.taxNumber && (
                           <div className="text-xs text-slate-500 dark:text-slate-400">
                             Tax #: {c.taxNumber}

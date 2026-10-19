@@ -29,7 +29,15 @@ import {
   releaseOrphanedQueueSlots,
 } from "./routineQueue.js";
 import { interruptRun } from "./standdowns.js";
-import { releaseRoutineQueue } from "./routineQueueHold.js";
+import { HOLD_MARGIN_MS, releaseRoutineQueue, routineQueueHoldEnd } from "./routineQueueHold.js";
+import {
+  clearExpiredRunRestartMarks,
+  clearLocalRunPause,
+  clearRunPauseRequest,
+  clearRunRestartMark,
+  MAX_RUN_PAUSES,
+  runRestartMarks,
+} from "./runPause.js";
 
 /**
  * Crash recovery for Runs.
@@ -63,6 +71,11 @@ export const ORPHAN_LOG_MARKER =
 export const STALE_RUN_LOG_MARKER =
   "\n[interrupted] Recovery found this Run past its time limit without a live owner. " +
   "A server restart is not confirmed. Work after the last durable line is unknown.\n";
+/** Appended to a Run a restart cut off, which goes back to the queue to continue. */
+export const CUT_OFF_PAUSE_LOG_MARKER =
+  "\n[paused] Genosyn restarted before this Run could pause on its own. " +
+  "It keeps everything above and continues once Genosyn is back; a step in flight at the " +
+  "restart may or may not have taken effect.\n";
 export const OVERDUE_RUN_LOG_MARKER =
   "\n[timeout] The Run exceeded its original time limit. Cancellation was requested; " +
   "another Run of this Routine must wait for its runtime cleanup to finish.\n";
@@ -72,6 +85,8 @@ export type RunRecoveryResult = {
   timedOut: number;
   retriesScheduled: number;
   leasesCleared: number;
+  /** Runs an upgrade restart cut off, put back in the queue to continue. */
+  paused: number;
 };
 
 /**
@@ -177,9 +192,22 @@ export async function reconcileOrphanedRuns(opts?: {
     timedOut: 0,
     retriesScheduled: 0,
     leasesCleared: 0,
+    paused: 0,
   };
 
   const running = await runRepo.find({ where: { status: "running" } });
+  // A Run still marked running that a restart cut off goes back to the queue
+  // to continue, as a paused Run, rather than failing (`runPause.ts`). Its
+  // stopping process marked it before trying to pause it, or an upgrade was
+  // holding the queue — the only record an image too old to mark it leaves.
+  const restartMarks =
+    running.length > 0
+      ? await runRestartMarks(
+          running.map((run) => run.id),
+          now,
+        )
+      : new Map<string, Date>();
+  const holdEnd = running.length > 0 ? await routineQueueHoldEnd() : null;
   if (running.length > 0) {
     const routineIds = [...new Set(running.map((r) => r.routineId))];
     const routines = await routineRepo.find({ where: { id: In(routineIds) } });
@@ -197,6 +225,25 @@ export async function reconcileOrphanedRuns(opts?: {
         ? run.continuationDeadlineAt.getTime() + ORPHAN_GRACE_MS < now.getTime()
         : isRunOrphaned(run.startedAt, timeoutSec, now);
       const locallyOwned = ownsRoutineRunClaim(run.id, run.queueActiveEmployeeId);
+      const cutOffAt = restartCutOffAt(run, {
+        mark: restartMarks.get(run.id) ?? null,
+        holdEnd,
+        boot: opts?.boot === true,
+        now,
+      });
+      if (
+        cutOffAt &&
+        !locallyOwned &&
+        (run.pauseCount ?? 0) < MAX_RUN_PAUSES &&
+        // SQLite has one process, so its boot settles every Run a restart cut
+        // off; a later pass could only catch one this process is still
+        // claiming. On Postgres a lapsed lease says the owner is gone.
+        (singleProcessBoot ||
+          (config.db.driver === "postgres" && !(await hasLiveRoutineRunLease(run, now))))
+      ) {
+        if (await pauseCutOffRun(run, routine, cutOffAt)) result.paused += 1;
+        continue;
+      }
       // Boot/restore must not mistake a Run already started by this process
       // for crash debris. Remote live leases retain their owner's lifecycle.
       if (!expired && (!singleProcessBoot || locallyOwned)) continue;
@@ -347,9 +394,14 @@ export async function reconcileOrphanedRuns(opts?: {
   }
 
   if (opts?.boot === true) {
-    // An upgrade held the queue so running Runs could finish before this
-    // restart. The restart has happened; queued Runs may start.
+    // An upgrade held the queue so running Runs could pause before this
+    // restart. The restart has happened; queued and paused Runs may start.
     await releaseRoutineQueue();
+    // The pause request was for the process being replaced. Left in force, it
+    // would pause the very Runs this one is about to resume.
+    await clearRunPauseRequest();
+    clearLocalRunPause();
+    await clearExpiredRunRestartMarks(now);
     // A process can die after the Run's terminal compare-and-set but before
     // its fragmented recording is promoted. Those Runs are no longer in the
     // `running` query above, so retry their artifact recovery idempotently on
@@ -358,7 +410,11 @@ export async function reconcileOrphanedRuns(opts?: {
       .createQueryBuilder("session")
       .select("DISTINCT session.runId", "runId")
       .innerJoin(Run, "run", "CAST(run.id AS text) = session.runId")
-      .where("run.status IN (:...statuses)", { statuses: ["error", "interrupted"] })
+      // A Run paused for the restart may also have left a recording partial.
+      .where(
+        "(run.status IN (:...statuses) OR (run.status = :queued AND run.pauseCount > 0))",
+        { statuses: ["error", "interrupted"], queued: "queued" },
+      )
       .andWhere("session.runId IS NOT NULL")
       .getRawMany<{ runId: string }>();
     await Promise.all(
@@ -374,13 +430,112 @@ export async function reconcileOrphanedRuns(opts?: {
   await releaseOrphanedQueueSlots(singleProcessBoot, now);
   result.leasesCleared = await clearLeases(singleProcessBoot, now);
 
-  if (result.interrupted || result.timedOut || result.retriesScheduled || result.leasesCleared) {
+  if (
+    result.interrupted ||
+    result.timedOut ||
+    result.retriesScheduled ||
+    result.leasesCleared ||
+    result.paused
+  ) {
     // eslint-disable-next-line no-console
     console.log(
-      `[recovery] interrupted=${result.interrupted} timedOut=${result.timedOut} retries=${result.retriesScheduled} leases=${result.leasesCleared}`,
+      `[recovery] interrupted=${result.interrupted} timedOut=${result.timedOut} retries=${result.retriesScheduled} leases=${result.leasesCleared} paused=${result.paused}`,
     );
   }
   return result;
+}
+
+/**
+ * When a restart cut this Run off, or null when nothing says one did.
+ *
+ * A restart mark is the stopping process's own record, and counts unless the
+ * Run has paused since — then it resumed, and that restart is behind it. An
+ * upgrade's hold is the fallback: a Run that started before the hold ended was
+ * running when the upgrade came. Only a boot or a cancelled upgrade releases
+ * a hold, so at boot one that expired meanwhile — a long backup, a long stop
+ * — still names the restart this boot follows; a later pass needs it live,
+ * since a hold an aborted upgrade left behind names no restart at all. A hold
+ * ends a margin after the latest the restart was due, so counting from there
+ * charges a Run at most the wait before it, never the downtime after.
+ */
+export function restartCutOffAt(
+  run: Pick<Run, "startedAt" | "pausedAt">,
+  args: { mark: Date | null; holdEnd: Date | null; boot: boolean; now: Date },
+): Date | null {
+  const started = run.startedAt.getTime();
+  const lastPaused = run.pausedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const { mark, holdEnd, now } = args;
+  let at: number | null = null;
+  if (mark && mark.getTime() > lastPaused) {
+    at = mark.getTime();
+  } else if (
+    holdEnd &&
+    started < holdEnd.getTime() &&
+    (args.boot || holdEnd.getTime() > now.getTime())
+  ) {
+    at = holdEnd.getTime() - HOLD_MARGIN_MS;
+  }
+  if (at === null) return null;
+  return new Date(Math.min(now.getTime(), Math.max(started, at)));
+}
+
+/**
+ * Put a Run a restart cut off back in the queue to continue — the same state
+ * a Run that paused on its own reaches (`runPause.ts`), minus the checkpoint
+ * it had no chance to save. Its transcript is durable to within a second, so
+ * the resumed turn sees nearly everything it had done, and its Effects are
+ * the server's own record. The time it gets back is what was left of its
+ * limit when it was cut off, never less than a resume needs.
+ */
+async function pauseCutOffRun(
+  run: Run,
+  routine: Routine | null,
+  cutOffAt: Date,
+): Promise<boolean> {
+  const runRepo = AppDataSource.getRepository(Run);
+  const deadline =
+    run.continuationDeadlineAt?.getTime() ??
+    run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? 3600) * 1000;
+  // Close any browser session the Run left open, as a terminal Run's would be.
+  await finalizeBrowserRecordingsForRun(run.id).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error(`[recovery] failed to finalize browser recordings for run ${run.id}:`, error);
+  });
+  try {
+    const latest = await runRepo.findOneBy({ id: run.id });
+    if (
+      !latest ||
+      latest.status !== "running" ||
+      latest.queueActiveEmployeeId !== run.queueActiveEmployeeId
+    )
+      return false;
+    const paused = await runRepo.update(
+      {
+        id: run.id,
+        status: "running",
+        queueActiveEmployeeId: latest.queueActiveEmployeeId ?? IsNull(),
+        logContent: latest.logContent,
+      },
+      {
+        routineId: run.routineId,
+        status: "queued",
+        queueActiveEmployeeId: null,
+        logContent: (latest.logContent ?? "") + CUT_OFF_PAUSE_LOG_MARKER,
+        pausedAt: cutOffAt,
+        pauseCount: (latest.pauseCount ?? 0) + 1,
+        pauseRemainingMs: Math.max(0, deadline - cutOffAt.getTime()),
+      },
+    );
+    if (paused.affected !== 1) return false;
+    await clearRunRestartMark(run.id).catch(() => undefined);
+    await recoverBrowserRecordingsForRun(run.id).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error(`[recovery] failed to recover browser recordings for run ${run.id}:`, error);
+    });
+    return true;
+  } finally {
+    releaseBrowserRecordingRunFinalizing(run.id);
+  }
 }
 
 /**

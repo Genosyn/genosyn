@@ -8,14 +8,17 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { RevenueOperation } from "../db/entities/RevenueOperation.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
+import { setRevenueAccountArchived } from "../services/revenue/accounts.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { financeRouter } from "./finance.js";
 
@@ -418,5 +421,158 @@ describe("customer hard deletion", () => {
     assert.equal(response.status, 200);
     assert.equal(response.body.ok, true);
     assert.equal(await AppDataSource.getRepository(Customer).findOneBy({ id: customer.id }), null);
+  });
+});
+
+describe("customer archive and unarchive", () => {
+  async function patchCustomer(
+    body: Record<string, unknown>,
+  ): Promise<{ status: number; body: ListedCustomer & { error?: string } }> {
+    const response = await fetch(
+      `${baseUrl}/api/companies/${company.id}/customers/${customer.slug}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return {
+      status: response.status,
+      body: (await response.json()) as ListedCustomer & { error?: string },
+    };
+  }
+
+  async function storedArchivedAt(): Promise<Date | null> {
+    return (await AppDataSource.getRepository(Customer).findOneByOrFail({ id: customer.id }))
+      .archivedAt;
+  }
+
+  async function archiveActions(): Promise<string[]> {
+    const rows = await AppDataSource.getRepository(AuditEvent).find({
+      where: { companyId: company.id, targetId: customer.id },
+      order: { createdAt: "ASC", id: "ASC" },
+    });
+    return rows.map((row) => row.action);
+  }
+
+  test("an archived customer can be opened and unarchived again", async () => {
+    const archived = await patchCustomer({ archived: true });
+    assert.equal(archived.status, 200);
+    assert.ok(archived.body.archivedAt, "the response carries the archive date");
+
+    // The customer's own page still loads once it is archived — that page is
+    // where Unarchive lives.
+    const opened = await fetch(
+      `${baseUrl}/api/companies/${company.id}/customers/${customer.slug}`,
+    );
+    assert.equal(opened.status, 200);
+    assert.ok(((await opened.json()) as ListedCustomer).archivedAt);
+    assert.deepEqual((await readPage("?limit=25")).customers, []);
+    assert.deepEqual(
+      (await readPage("?limit=25&archived=true")).customers.map((row) => row.id),
+      [customer.id],
+    );
+
+    const restored = await patchCustomer({ archived: false });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.archivedAt, null);
+    assert.equal(await storedArchivedAt(), null);
+    assert.deepEqual(
+      (await readPage("?limit=25")).customers.map((row) => row.id),
+      [customer.id],
+    );
+    assert.deepEqual(await archiveActions(), [
+      "finance.customer.archive",
+      "finance.customer.restore",
+    ]);
+  });
+
+  test("repeating an archive or an unarchive changes nothing and records nothing", async () => {
+    await patchCustomer({ archived: true });
+    const firstArchivedAt = await storedArchivedAt();
+    assert.ok(firstArchivedAt);
+
+    const again = await patchCustomer({ archived: true });
+    assert.equal(again.status, 200);
+    assert.equal((await storedArchivedAt())?.getTime(), firstArchivedAt.getTime());
+
+    await patchCustomer({ archived: false });
+    const unarchivedAgain = await patchCustomer({ archived: false });
+    assert.equal(unarchivedAgain.status, 200);
+    assert.equal(await storedArchivedAt(), null);
+    assert.deepEqual(await archiveActions(), [
+      "finance.customer.archive",
+      "finance.customer.restore",
+    ]);
+  });
+
+  test("an edit sent with an unarchive is saved and recorded with it", async () => {
+    await patchCustomer({ archived: true });
+    const restored = await patchCustomer({ archived: false, name: "Acme Renamed" });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.name, "Acme Renamed");
+    assert.equal(restored.body.archivedAt, null);
+    assert.deepEqual(await archiveActions(), [
+      "finance.customer.archive",
+      "finance.customer.update",
+      "finance.customer.restore",
+    ]);
+  });
+
+  test("refuses to unarchive a duplicate that was merged into another account", async () => {
+    const survivor = await insertCustomer({ name: "Acme Survivor", slug: "acme-survivor" });
+    await AppDataSource.getRepository(Customer).update(customer.id, { archivedAt: new Date() });
+    await insert(RevenueOperation, {
+      companyId: company.id,
+      kind: "merge",
+      resourceType: "account",
+      status: "completed",
+      sourceId: customer.id,
+      targetId: survivor.id,
+      requestJson: "{}",
+      summaryJson: "{}",
+      completedAt: new Date(),
+    });
+
+    const refused = await patchCustomer({ archived: false });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error ?? "", /merged into .*undo the merge instead/);
+    assert.ok(await storedArchivedAt(), "the merged duplicate stays archived");
+
+    // Revenue's Restore refuses the same thing in the same words.
+    await assert.rejects(setRevenueAccountArchived(company.id, customer.id, false), {
+      message: refused.body.error,
+    });
+  });
+
+  test("refuses to unarchive onto a domain an active account has taken since", async () => {
+    await AppDataSource.getRepository(Customer).update(customer.id, {
+      domain: "acme.example",
+      archivedAt: new Date(),
+    });
+    await insertCustomer({ name: "New Acme", slug: "new-acme", domain: "acme.example" });
+
+    const refused = await patchCustomer({ archived: false });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error ?? "", /New Acme already uses the domain acme\.example/);
+    assert.ok(await storedArchivedAt());
+    assert.deepEqual(await archiveActions(), []);
+  });
+
+  test("an archived account on another archived account's domain can still come back", async () => {
+    await AppDataSource.getRepository(Customer).update(customer.id, {
+      domain: "acme.example",
+      archivedAt: new Date(),
+    });
+    await insertCustomer({
+      name: "Old Acme",
+      slug: "old-acme",
+      domain: "acme.example",
+      archivedAt: new Date(),
+    });
+
+    const restored = await patchCustomer({ archived: false });
+    assert.equal(restored.status, 200);
+    assert.equal(await storedArchivedAt(), null);
   });
 });

@@ -183,7 +183,7 @@ code, UI copy, commits, and docs.
 | **AI Model** (backend brain record) | Provider, LLM config |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
 | **Run** (one execution of a Routine) | Execution, Invocation |
-| **Folder** (the exclusive, nestable filing tree for Routines — `RoutineFolder`) | Category, Group, Collection, Tag |
+| **Folder** (the exclusive, nestable filing tree for Routines and for Resources — `RoutineFolder`, `ResourceFolder`) | Category, Group, Collection, Tag |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Genosyn Connect** (the hosted sign-in service in `Connect/`; "Connect" for short) | Broker, Proxy, Sign-in provider (in product copy) |
@@ -289,6 +289,18 @@ It is the exact inverse of a **Waiver** — a Waiver is earned,
 narrow, and widens what an AI may do without a human; a Standdown is imposed,
 broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.
+
+**A Run paused for a restart is not stood down.** An upgrade (`genosyn upgrade`'s
+pause step), `SIGTERM`, or recovery after a restart cut a Run off (its stopping
+process marked it, or an upgrade held the queue) puts it back in the queue as the
+same Run (`status: "queued"`, `pauseCount` > 0) with its transcript, tokens,
+checkpoint and Effects, and the queue resumes it first with the time it had left
+(`services/runPause.ts`). Nobody decided the work
+should stop, so a pause records no verdict, journal entry, alert, autonomy
+change or retry, and must never be counted as a failure. A Standdown placed
+while a Run is paused still defers it; a Standdown that lands while a Run is
+pausing wins, and the Run ends interrupted. Do not reuse the pause to stop work
+on purpose — that is what a Standdown is for.
 
 **"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they
 are not interchangeable. `unclear` is a judgement — the checker looked at the
@@ -431,9 +443,11 @@ on `MailAccount.provider` to decide what a label is.
 sidebar. A **Tag** answers *what is this about* — many per resource, spanning
 every section of the app. M27 shipped tags saying they grouped resources
 "without forcing a folder hierarchy"; M48 added the hierarchy for Routines
-because a chip that narrows a flat list is not somewhere to put things. Do not
-add a `folderId` to a resource that only ever needed a tag, and do not model a
-folder as a reserved tag name.
+because a chip that narrows a flat list is not somewhere to put things, and
+the Resources library got the same files-and-folders tree (`ResourceFolder`,
+its own table with Routine folders' rules) when people asked to organise it
+that way. Do not add a `folderId` to a resource that only ever needed a tag,
+and do not model a folder as a reserved tag name.
 
 **A work timeline is not a Journal, and it is not the audit log.** All three
 answer "what did this employee do", and the differences are the whole reason

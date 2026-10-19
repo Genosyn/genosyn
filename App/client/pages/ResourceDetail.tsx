@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import ePub from "epubjs";
@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Folder,
   Hash,
   List,
   Loader2,
@@ -30,7 +31,9 @@ import {
   X,
 } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
+import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Button } from "../components/ui/Button";
+import { Select } from "../components/ui/Select";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
@@ -49,6 +52,8 @@ import {
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { isShareGrantPaused, resourceLibraryLevelsById } from "../lib/resourceAiAccess";
+import { folderOptions, folderTrail, resourceFolderHref } from "../lib/resourceFolders";
+import type { ResourcesOutletCtx } from "./ResourcesLayout";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -68,6 +73,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
   const { slug } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
+  const { folders, moveResource } = useOutletContext<ResourcesOutletCtx>();
+  const [moving, setMoving] = React.useState(false);
   const [row, setRow] = React.useState<Resource | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -140,6 +147,19 @@ export default function ResourceDetail({ company }: { company: Company }) {
     }
   }
 
+  async function moveTo(folderId: string | null) {
+    if (!row || folderId === row.folderId) return;
+    setMoving(true);
+    try {
+      if (await moveResource(row.slug, folderId)) {
+        const path = folderId ? (folders.find((f) => f.id === folderId)?.path ?? null) : null;
+        setRow((current) => (current ? { ...current, folderId, folderPath: path } : current));
+      }
+    } finally {
+      setMoving(false);
+    }
+  }
+
   function cancelEdit() {
     if (!row) return;
     setSaveError(null);
@@ -206,6 +226,12 @@ export default function ResourceDetail({ company }: { company: Company }) {
           items={[
             { label: company.name, to: `/c/${company.slug}` },
             { label: "Resources", to: `/c/${company.slug}/resources` },
+            ...(row.folderId
+              ? folderTrail(folders, row.folderId).map((folder) => ({
+                  label: folder.name,
+                  to: resourceFolderHref(company.slug, folder),
+                }))
+              : []),
             { label: row.title },
           ]}
         />
@@ -331,6 +357,36 @@ export default function ResourceDetail({ company }: { company: Company }) {
             )}
           </div>
 
+          <div className="mb-4 flex max-w-xl items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <Select
+                label="Folder"
+                value={row.folderId ?? ""}
+                onChange={(event) => void moveTo(event.target.value || null)}
+                disabled={moving}
+                aria-busy={moving || undefined}
+              >
+                <option value="">No folder</option>
+                {folderOptions(folders).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label.replace(/\//g, " / ")}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {row.folderId && (
+              <Link
+                to={resourceFolderHref(
+                  company.slug,
+                  folders.find((f) => f.id === row.folderId) ?? null,
+                )}
+                className="mb-2 inline-flex shrink-0 items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                <Folder size={12} /> Open folder
+              </Link>
+            )}
+          </div>
+
           <div className="mb-6 max-w-xl">
             <ResourceTagPicker
               companyId={company.id}
@@ -364,6 +420,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 body={body}
                 bodyText={row.bodyText ?? ""}
                 onChange={setBody}
+                onSave={() => void save()}
               />
             )}
             {row.sourceKind === "pdf" && row.storageKey && (
@@ -417,40 +474,29 @@ function TextContent({
   body,
   bodyText,
   onChange,
+  onSave,
 }: {
   editing: boolean;
   body: string;
   bodyText: string;
   onChange: (v: string) => void;
+  /** ⌘S inside the editor saves, as the Save button does. */
+  onSave: () => void;
 }) {
-  const ref = React.useRef<HTMLTextAreaElement | null>(null);
-
-  // Auto-grow the textarea to fit content so the editor reads like a
-  // document rather than a tiny chat box. Cap at 80vh so absurdly long
-  // pastes still scroll inside their own region.
-  React.useEffect(() => {
-    if (!editing || !ref.current) return;
-    const el = ref.current;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.8)}px`;
-  }, [editing, body]);
-
   if (editing) {
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-          <span className="inline-flex items-center gap-1">
-            <FileText size={12} /> Markdown
-          </span>
-          <span className="tabular-nums">{body.length.toLocaleString()} chars</span>
+        <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+          <FileText size={12} /> Markdown — the preview shows it as it will read once saved.
         </div>
-        <textarea
-          ref={ref}
+        <MarkdownEditor
           value={body}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Write in markdown — # headings, **bold**, [links](https://…), lists, code, tables…"
-          className="min-h-[24rem] w-full resize-none rounded-xl border border-slate-200 bg-white p-5 font-mono text-[13.5px] leading-7 text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
-          spellCheck={false}
+          onChange={onChange}
+          onSave={onSave}
+          rows={22}
+          breaks
+          previewClassName="doc-md"
+          placeholder="Write in Markdown — # headings, **bold**, [links](https://…), lists, code, tables…"
         />
         <p className="text-xs text-slate-400 dark:text-slate-500">
           Saved text is searched from the Resources page and by your AI employees through{" "}

@@ -491,6 +491,31 @@ export async function updateRevenueAccount(
   return repo.save(row);
 }
 
+/**
+ * Why an archived account cannot come back, or null when it can. Revenue's
+ * Restore and the Customers page's Unarchive both ask this, so the two doors
+ * to the same row refuse the same things: a merged duplicate (its history now
+ * lives on the survivor) and a domain an active account has taken since.
+ */
+export async function revenueAccountRestoreBlocker(
+  companyId: string,
+  row: Pick<Customer, "id" | "domain">,
+): Promise<string | null> {
+  const redirect = await findMergedRecordRedirect(companyId, "account", row.id);
+  if (redirect) {
+    return `Restore blocked: this Account was merged into ${redirect.targetId}; undo the merge instead`;
+  }
+  if (!row.domain) return null;
+  const existing = await AppDataSource.getRepository(Customer).findOneBy({
+    companyId,
+    domain: row.domain,
+    archivedAt: IsNull(),
+  });
+  return existing && existing.id !== row.id
+    ? `Restore blocked: ${existing.name} already uses the domain ${row.domain}`
+    : null;
+}
+
 export async function setRevenueAccountArchived(
   companyId: string,
   id: string,
@@ -500,22 +525,8 @@ export async function setRevenueAccountArchived(
   const row = await repo.findOneBy({ companyId, id });
   if (!row) return null;
   if (!archived) {
-    const redirect = await findMergedRecordRedirect(companyId, "account", id);
-    if (redirect) {
-      throw new Error(
-        `Restore blocked: this Account was merged into ${redirect.targetId}; undo the merge instead`,
-      );
-    }
-  }
-  if (!archived && row.domain) {
-    const existing = await repo.findOneBy({
-      companyId,
-      domain: row.domain,
-      archivedAt: IsNull(),
-    });
-    if (existing && existing.id !== row.id) {
-      throw new Error(`Restore blocked: ${existing.name} already uses the domain ${row.domain}`);
-    }
+    const blocked = await revenueAccountRestoreBlocker(companyId, row);
+    if (blocked) throw new Error(blocked);
   }
   row.archivedAt = archived ? new Date() : null;
   return repo.save(row);

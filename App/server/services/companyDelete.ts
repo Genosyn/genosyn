@@ -175,6 +175,7 @@ import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineIte
 import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
+import { ResourceFolder } from "../db/entities/ResourceFolder.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineFolder } from "../db/entities/RoutineFolder.js";
 import { EmployeeRoutineGrant } from "../db/entities/EmployeeRoutineGrant.js";
@@ -533,6 +534,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(VaultItem, { companyId });
     await m.delete(VaultSource, { companyId });
     await m.delete(Resource, { companyId });
+    await m.delete(ResourceFolder, { companyId });
     // Newer company-scoped surfaces: sales docs (Estimate / RecurringInvoice +
     // their line items and CustomerContact / CustomerContract), Explore
     // (Chart / Dashboard, with DashboardCard + employee grants cleared above),

@@ -2615,7 +2615,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_resources",
     description:
-      "Browse the Resources (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Newest first, paginated: the reply carries `total` and `hasMore`, so raise `offset` to see more. Each row carries a title, slug, sourceKind (url / text / pdf / epub / video), a summary preview, tag list, `status`, and `bodyLength`. This is for browsing the shelf; to answer a question use `search_resources`, which tells you which passage matched. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Resources are someone else's words, ingested for you to study.",
+      "Browse the Resources (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Newest first, paginated: the reply carries `total` and `hasMore`, so raise `offset` to see more. Each row carries a title, slug, sourceKind (url / text / pdf / epub / video), a summary preview, tag list, the `folder` path it is filed in (null when unfiled), `status`, and `bodyLength`. Pass `folder` to browse one folder and its subfolders. This is for browsing the shelf; to answer a question use `search_resources`, which tells you which passage matched. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Resources are someone else's words, ingested for you to study.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2624,6 +2624,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "How many to return (1–200, default 50).",
         },
         offset: { type: "number", description: "Rows to skip. Default 0." },
+        folder: {
+          type: "string",
+          description: "Folder path, e.g. 'Research/Competitors'. Lists that folder and its subfolders.",
+        },
       },
       additionalProperties: false,
     },
@@ -3085,6 +3089,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Optional comma-separated tags, e.g. 'pricing, b2b'.",
         },
+        folder: {
+          type: "string",
+          description:
+            "Optional folder path to file it in, e.g. 'Research/Competitors'; created if missing. Omit to leave it unfiled.",
+        },
       },
       required: ["sourceKind"],
       additionalProperties: false,
@@ -3093,7 +3102,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_resource",
     description:
-      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete. If an owner or admin has set your Resources access to read only (Resources → AI access), every update is refused whatever the share modal says.",
+      "Update an existing Resource's title, summary, tags, folder, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete. If an owner or admin has set your Resources access to read only (Resources → AI access), every update is refused whatever the share modal says.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3105,6 +3114,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description:
             "Markdown body. Only valid on text-kind resources; rejected with 400 otherwise.",
+        },
+        folder: {
+          type: "string",
+          description: "Folder path to move it to, created if missing; '' unfiles it.",
         },
       },
       required: ["resourceSlug"],

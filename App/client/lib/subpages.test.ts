@@ -693,14 +693,20 @@ function searchSubpagesFor(query: string, viewer: SubpageViewer, excludePaths: s
 // ─────────────────────────── Resources → AI access ───────────────────────────
 
 describe("Resources in the catalogue", () => {
-  test("draws the Resources rail as the library, then AI access", () => {
+  test("pins AI access beneath the library's own folder tree", () => {
+    // The layout draws All resources and the folders itself, like Routines.
     assert.deepEqual(
       railSubpages("resources").map((p) => [p.navLabel ?? p.label, p.path]),
-      [
-        ["Library", "/resources"],
-        ["AI access", "/resources/ai-access"],
-      ],
+      [["AI access", "/resources/ai-access"]],
     );
+    // The palette still finds the library page, by name and by what it holds.
+    assert.equal(page("/resources").rail, false);
+    for (const query of ["resource library", "folders", "reference material"]) {
+      assert.ok(
+        paths(searchSubpages(PALETTE_SUBPAGES, query, { viewer: OWNER })).includes("/resources"),
+        query,
+      );
+    }
   });
 
   test("offers AI access to every Member, like the sibling AI access pages", () => {

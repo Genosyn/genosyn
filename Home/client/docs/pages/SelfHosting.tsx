@@ -571,9 +571,11 @@ export function SelfHosting() {
       <P>
         The configured <Code>bootstrapMasterAdminEmail</Code> remains eligible to register while
         sign-ups are disabled if the instance has no master admin. It receives no operator access
-        until its email-verification link is used. After bootstrap, add people by promoting an
-        existing account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>, or by
-        inviting them into a company from that company&apos;s <Code>Settings → Members</Code>.
+        until its email-verification link is used. After bootstrap, add people yourself from{" "}
+        <Code>Admin → Users → Add user</Code> (see <DocLink to="/docs/self-hosting#users">Users</DocLink>{" "}
+        below), or invite them into a company from that company&apos;s{" "}
+        <Code>Settings → Members</Code>. Promote an existing account to{" "}
+        <Strong>master admin</Strong> from <Code>Admin → Users</Code>.
       </P>
       <P>
         A new Member follows the invitation email and chooses <Strong>Create account</Strong>. That
@@ -581,6 +583,32 @@ export function SelfHosting() {
         address only. Genosyn then returns them to the invitation, where they choose{" "}
         <Strong>Accept invitation</Strong>. Registering does not consume the invitation or add a
         company membership. An expired invitation needs to be replaced by an owner or admin.
+      </P>
+
+      <H3 id="users">Users</H3>
+      <P>
+        <Code>Admin → Users</Code> lists every account on the install. <Strong>Add user</Strong>{" "}
+        creates one by hand — useful when sign-ups are closed, when the install has no email
+        transport, or when people should not have to register themselves. Enter their name and
+        email, then choose how they get their first password:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Let them choose it</Strong> (the default) — the account gets a one-time setup
+          link that expires in 7 days. Genosyn emails it to them and also shows it to you, with a{" "}
+          <Strong>Copy</Strong> button, so you can pass it on yourself when nothing was emailed.
+        </LI>
+        <LI>
+          <Strong>Set it now</Strong> — choose their first password (at least 12 characters) and
+          give it to them yourself. They can change it later under <Code>Account → Profile</Code>.
+        </LI>
+      </UL>
+      <P>
+        Pick a <Strong>Company</Strong> to add them straight in as a <Code>Member</Code> or an{" "}
+        <Code>Admin</Code> — the company is chosen for you when the install has only one — or
+        leave it at <Strong>No company yet</Strong> and invite them later. The add is recorded in
+        that company&apos;s audit log. An account added here starts unverified, like one that
+        signed up, and is never a company owner or a master admin until you make it one.
       </P>
 
       <H3 id="sso">SSO</H3>
@@ -807,8 +835,8 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         <DocLink to="/docs/cli#automatic-updates">copy of the CLI</DocLink>, which needs no{" "}
         <Code>sudo</Code> even when <Code>/usr/local/bin/genosyn</Code> belongs to root, then pulls
         the latest image and retains the previous container until the new version becomes ready.
-        Before it restarts, running Routine Runs get up to 60 minutes to finish while new ones wait
-        in the queue (
+        Before it restarts, it pauses running Routine Runs — each saves its progress and waits in
+        the queue — and the upgraded version continues them where they stopped (
         <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). A failed start restarts the
         previous version with the current data volume. Backups are off by default; run{" "}
         <Code>genosyn upgrade --backup</Code> for a manual upgrade that also writes a verified

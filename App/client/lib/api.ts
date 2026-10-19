@@ -1125,6 +1125,10 @@ export type Run = {
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
   tokensOut?: number;
+  /** When Genosyn last paused this Run to restart; null when it never was. */
+  pausedAt?: string | null;
+  /** How many restarts this Run was paused for. A queued Run with any is paused. */
+  pauseCount?: number;
 };
 export type RunFollowUp = Pick<
   Run,
@@ -1214,6 +1218,10 @@ export type RunLog = {
   checkRemediations?: number;
   tokensIn?: number;
   tokensOut?: number;
+  /** When Genosyn last paused this Run to restart; null when it never was. */
+  pausedAt?: string | null;
+  /** How many restarts this Run was paused for. */
+  pauseCount?: number;
   /** A verdict is still owed: the run completed and its check hasn't landed. */
   awaitingOutcome?: boolean;
   /**
@@ -2854,8 +2862,42 @@ export type Resource = {
   createdById: string | null;
   createdByEmployeeId: string | null;
   createdBy: ResourceAuthor | null;
+  /** The folder it is filed in; null when it is unfiled. */
+  folderId: string | null;
+  /** "Research/Competitors" for a filed Resource; null when it is unfiled. */
+  folderPath: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/**
+ * One folder of the Resources library's tree, as `GET /resource-folders`
+ * returns it: flat, each row carrying its own parent, depth, and path.
+ */
+export type ResourceFolder = {
+  id: string;
+  companyId: string;
+  name: string;
+  /** Stable across renames and moves — what `?folder=<slug>` refers to. */
+  slug: string;
+  parentId: string | null;
+  sortOrder: number;
+  /** Slash-joined ancestor names, this folder last. */
+  path: string;
+  /** 1 for a top-level folder. */
+  depth: number;
+  /** Resources filed directly here. */
+  resourceCount: number;
+  /** Resources here and in everything nested beneath. */
+  totalResourceCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ResourceFolderTree = {
+  folders: ResourceFolder[];
+  unfiledCount: number;
+  maxDepth: number;
 };
 
 export type ResourceGrantEmployee = {

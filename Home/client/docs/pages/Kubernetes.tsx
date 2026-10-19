@@ -365,6 +365,14 @@ connect:
       <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:1.155.0
 kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
+        A rollout stops the old pod with <Code>SIGTERM</Code>, and Genosyn pauses the Routine Runs
+        it was working on before it exits: each goes back to the queue with its transcript and
+        progress, and the new pod continues the same Runs where they stopped. A Run that cannot
+        pause within the pod&apos;s termination grace period is marked first, so another pod
+        resumes it once its lease lapses instead of failing it. See{" "}
+        <DocLink to="/docs/routines#paused-for-restart">Paused for a restart</DocLink>.
+      </P>
+      <P>
         Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how you get repeatable
         deployments. Image tags carry no <Code>v</Code> prefix, even though the matching GitHub
         release does: the release is <Code>v1.155.0</Code>, the image is <Code>app:1.155.0</Code>.

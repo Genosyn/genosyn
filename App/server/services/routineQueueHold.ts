@@ -37,9 +37,18 @@ export async function releaseRoutineQueue(): Promise<void> {
 
 /** When the hold ends, or null when the queue is not held. */
 export async function routineQueueHeldUntil(now: Date = new Date()): Promise<Date | null> {
-  const lease = await AppDataSource.getRepository(SchedulerLease).findOneBy({ name: HOLD_LEASE });
-  const until = lease?.expiresAt ?? null;
+  const until = await routineQueueHoldEnd();
   return until && until.getTime() > now.getTime() ? until : null;
+}
+
+/**
+ * When the last hold ends or ended, expired or not; null once it is released.
+ * Only a boot or a cancelled upgrade releases a hold, so at boot one still
+ * here names the restart that boot follows, however long that took.
+ */
+export async function routineQueueHoldEnd(): Promise<Date | null> {
+  const lease = await AppDataSource.getRepository(SchedulerLease).findOneBy({ name: HOLD_LEASE });
+  return lease?.expiresAt ?? null;
 }
 
 /**

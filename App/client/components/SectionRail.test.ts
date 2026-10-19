@@ -21,6 +21,7 @@ import SignatureLayout from "../pages/SignatureLayout.js";
 import TldrsLayout from "../pages/TldrsLayout.js";
 import VaultLayout from "../pages/VaultLayout.js";
 import { SectionRailLinks } from "./SectionRail.js";
+import { DialogProvider } from "./ui/Dialog.js";
 
 const h = React.createElement;
 
@@ -364,7 +365,6 @@ describe("section layouts draw their rails from the catalogue", () => {
     ["marketing", "marketing", (c) => h(MarketingLayout, { company: c })],
     ["meetings", "meetings", (c) => h(MeetingsLayout, { company: c })],
     ["customers", "customers", (c) => h(CustomersLayout, { company: c })],
-    ["resources", "resources", (c) => h(ResourcesLayout, { company: c })],
     ["signatures", "signatures", (c) => h(SignatureLayout, { company: c })],
     ["tldrs", "tldrs", (c) => h(TldrsLayout, { company: c })],
     ["decisions", "decisions/history", (c) => h(DecisionsLayout, { company: c })],
@@ -423,6 +423,40 @@ describe("section layouts draw their rails from the catalogue", () => {
       expectedLinks("account"),
     );
     assert.match(account, /aria-label="Breadcrumb"[\s\S]*Account[\s\S]*Security/);
+  });
+
+  test("draws the Resources library and its folder tree above the catalogue's fixed pages", () => {
+    // Like Routines, the library rail draws its own All resources link and
+    // folder tree (which arrives after the first request), then pins the
+    // catalogue's fixed pages beneath it.
+    const html = renderAt(
+      "resources",
+      "resources/*",
+      h(DialogProvider, null, h(ResourcesLayout, { company })),
+    );
+    const rail = links(aside(html));
+    const expected = [
+      { href: "/c/acme/resources", text: "All resources" },
+      ...expectedLinks("resources"),
+    ];
+    if (productIntegrationScope("resources")) {
+      expected.push({ href: "/c/acme/resources/integrations", text: "Integrations" });
+    }
+    assert.deepEqual(
+      rail.map(({ href, text }) => ({ href, text })),
+      expected,
+    );
+    assert.deepEqual(
+      rail.filter((l) => l.current).map((l) => l.text),
+      ["All resources"],
+    );
+    for (const c of [admin, member, ...ADMINS_WITH_A_NONE_ROW]) {
+      assert.equal(
+        renderAt("resources", "resources/*", h(DialogProvider, null, h(ResourcesLayout, { company: c }))),
+        html,
+        `${c.role}, ${c.financeAccess}`,
+      );
+    }
   });
 
   test("still gives a Member no Vault rail at all", () => {

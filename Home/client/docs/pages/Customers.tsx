@@ -76,7 +76,16 @@ export function Customers() {
         can find Acme through a contact&apos;s Finance role. Results are shown 25 at a time with a
         visible range and Previous / Next controls. Search, page, and <Code>Show archived</Code> are
         kept in the page URL, so browser Back and Forward restore the same view. Archived customers
-        remain hidden unless <Code>Show archived</Code> is selected.
+        remain hidden unless <Code>Show archived</Code> is selected, and carry an{" "}
+        <Code>Archived</Code> badge when they are shown.
+      </P>
+      <P>
+        <Strong>Archive</Strong> and <Strong>Unarchive</Strong> sit on each customer&apos;s page
+        and in its row menu on the list. An archived customer&apos;s page says it is archived and
+        keeps every invoice, deal, contact, and email linked; Unarchive brings it back to the list.
+        Unarchiving is refused, with the reason, when the customer was merged into another account
+        (undo the merge instead) or when an active account now uses its domain — the same rules as{" "}
+        <Code>Restore</Code> on the Revenue account.
       </P>
       <P>
         Wherever you pick a customer — on an invoice, estimate, recurring invoice, contract,

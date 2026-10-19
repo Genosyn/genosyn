@@ -38,12 +38,17 @@ import {
   listDirectResourceGrants,
   resolveResourceFile,
   searchResources,
-  summarize,
+  summarizeBody,
   trimBodyText,
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
 import { resourceFileHeaders } from "../services/resourceFiles.js";
+import {
+  ResourceFolderError,
+  resolveResourceFolderForCompany,
+  resourceFolderPaths,
+} from "../services/resourceFolders.js";
 import {
   ResourceLibraryAccessNotFoundError,
   getResourceLibraryAccessRow,
@@ -104,6 +109,8 @@ type HydratedResource = Omit<Resource, "bodyText" | "tags"> & {
   tags: Tag[];
   tagList: string[];
   createdBy: AuthorRef;
+  /** "Research/Competitors" for a filed Resource; null when it is unfiled. */
+  folderPath: string | null;
 };
 
 /**
@@ -137,6 +144,9 @@ async function hydrate(
     "resource",
     rows.map((row) => row.id),
   );
+  const folderPaths = rows.some((row) => row.folderId)
+    ? await resourceFolderPaths(companyId)
+    : new Map<string, string>();
   return rows.map((r) => {
     let createdBy: AuthorRef = null;
     if (r.createdById) {
@@ -171,6 +181,7 @@ async function hydrate(
       tags,
       tagList,
       createdBy,
+      folderPath: (r.folderId && folderPaths.get(r.folderId)) || null,
     };
     if (!opts.includeBody) delete out.bodyText;
     return out;
@@ -320,8 +331,11 @@ const createUrlSchema = z.object({
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
   tagIds: z.array(z.string().uuid()).max(20).optional(),
+  /** The folder to file it in; null or absent leaves it unfiled. */
+  folderId: z.string().uuid().nullable().optional(),
 });
 
+/** A text Resource's body is Markdown. */
 const createTextSchema = z.object({
   sourceKind: z.literal("text"),
   title: z.string().min(1).max(200),
@@ -329,7 +343,24 @@ const createTextSchema = z.object({
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
   tagIds: z.array(z.string().uuid()).max(20).optional(),
+  folderId: z.string().uuid().nullable().optional(),
 });
+
+/** The folder a write names, refused with a 400 when it is not this company's. */
+async function folderIdFor(
+  companyId: string,
+  folderId: string | null | undefined,
+  res: import("express").Response,
+): Promise<string | null | undefined> {
+  if (folderId === undefined || folderId === null) return folderId;
+  try {
+    return (await resolveResourceFolderForCompany(companyId, folderId))?.id ?? null;
+  } catch (err) {
+    if (!(err instanceof ResourceFolderError)) throw err;
+    res.status(400).json({ error: err.message });
+    return undefined;
+  }
+}
 
 const createBodySchema = z.discriminatedUnion("sourceKind", [createUrlSchema, createTextSchema]);
 
@@ -346,6 +377,9 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
       return res.status(400).json({ error: message });
     }
   }
+  // Checked before a URL is fetched, so a bad folder costs nothing.
+  const folderId = await folderIdFor(cid, body.folderId, res);
+  if (folderId === undefined && body.folderId) return;
 
   let title = "";
   let summary = "";
@@ -368,7 +402,7 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
       status = graded.status;
       errorMessage = graded.errorMessage;
       bytes = bodyText.length;
-      summary = summarize(bodyText, body.summary);
+      summary = summarizeBody("url", bodyText, body.summary);
     } catch (err) {
       title = (body.title ?? body.url).slice(0, 200);
       status = "failed";
@@ -379,7 +413,7 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
     title = body.title;
     bodyText = trimBodyText(body.body);
     bytes = bodyText.length;
-    summary = summarize(bodyText, body.summary);
+    summary = summarizeBody("text", bodyText, body.summary);
   }
 
   const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
@@ -393,6 +427,7 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
     storageKey: null,
     summary,
     bodyText,
+    folderId: folderId ?? null,
     tags: (body.tags ?? "").trim(),
     bytes,
     status,
@@ -421,6 +456,7 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
       bytes: Number(row.bytes),
       status: row.status,
       grantedToEmployees: grantedCount,
+      ...(row.folderId ? { folderId: row.folderId } : {}),
     },
   });
 
@@ -448,6 +484,18 @@ resourcesRouter.post(
     if (!file) return res.status(400).json({ error: "No file uploaded" });
     if (file.size > RESOURCE_MAX_BYTES) {
       return res.status(400).json({ error: "File exceeds the 25 MB cap" });
+    }
+
+    const folderInput = (req.body as Record<string, string>)?.folderId || null;
+    if (folderInput !== null && !z.string().uuid().safeParse(folderInput).success) {
+      await deleteResourceBytes(path.basename(file.path), co.slug);
+      return res.status(400).json({ error: "Invalid folder id" });
+    }
+    const folderId = await folderIdFor(cid, folderInput, res);
+    if (folderId === undefined) {
+      // The upload is already on disk; a refused folder must not strand it.
+      await deleteResourceBytes(path.basename(file.path), co.slug);
+      return;
     }
 
     const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(file.originalname);
@@ -497,8 +545,9 @@ resourcesRouter.post(
       sourceUrl: null,
       sourceFilename: file.originalname,
       storageKey: path.basename(file.path),
-      summary: summarize(bodyText, summary),
+      summary: summarizeBody(sourceKind, bodyText, summary),
       bodyText,
+      folderId,
       tags: tags.trim(),
       bytes: file.size,
       status,
@@ -528,6 +577,7 @@ resourcesRouter.post(
         status: row.status,
         filename: row.sourceFilename,
         grantedToEmployees: grantedCount,
+        ...(row.folderId ? { folderId: row.folderId } : {}),
       },
     });
 
@@ -632,7 +682,10 @@ const patchSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
+  /** Markdown, on a text Resource only. */
   body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
+  /** Move to this folder; null unfiles it. */
+  folderId: z.string().uuid().nullable().optional(),
 });
 
 resourcesRouter.patch("/resources/:slug", validateBody(patchSchema), async (req, res) => {
@@ -640,6 +693,11 @@ resourcesRouter.patch("/resources/:slug", validateBody(patchSchema), async (req,
   const row = await loadResource(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Resource not found" });
   const body = req.body as z.infer<typeof patchSchema>;
+  if (body.folderId !== undefined) {
+    const folderId = await folderIdFor(cid, body.folderId, res);
+    if (folderId === undefined) return;
+    row.folderId = folderId;
+  }
   if (body.title !== undefined) row.title = body.title;
   if (body.summary !== undefined) row.summary = body.summary.trim();
   if (body.tags !== undefined) row.tags = body.tags.trim();
@@ -658,7 +716,7 @@ resourcesRouter.patch("/resources/:slug", validateBody(patchSchema), async (req,
     // still uses it as preview text and a stale summary would be
     // misleading.
     if (body.summary === undefined) {
-      row.summary = summarize(trimmed);
+      row.summary = summarizeBody(row.sourceKind, trimmed);
     }
     row.status = "ready";
     row.errorMessage = "";

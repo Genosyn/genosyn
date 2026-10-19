@@ -1,4 +1,4 @@
-import { Callout, Code, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
 
 type Cmd = {
   name: string;
@@ -17,7 +17,7 @@ const COMMANDS: Cmd[] = [
     name: "upgrade",
     flags: "[--backup] [--no-self-upgrade] [--drain-minutes N | --now]",
     blurb:
-      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. Running Routine Runs get up to 60 minutes to finish first while new ones wait; --drain-minutes N changes that and --now restarts without waiting. Backups are off by default; pass --backup to create a verified data backup and restore it on failure. Pass --no-self-upgrade to skip the script update.",
+      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. Running Routine Runs are paused — each saves its progress — and continue where they stopped after the upgrade, while new ones wait; --drain-minutes N lets them finish for up to N minutes first and --now pauses at once. Backups are off by default; pass --backup to create a verified data backup and restore it on failure. Pass --no-self-upgrade to skip the script update.",
   },
   {
     name: "self-upgrade",
@@ -225,8 +225,17 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_DRAIN_MINUTES",
             def: (
               <>
-                How long an upgrade lets running Routine Runs finish before it restarts the
-                container. Default <Code>60</Code>; <Code>0</Code> restarts without waiting.
+                How long an upgrade lets running Routine Runs keep working before it pauses the
+                rest. Default <Code>0</Code>: pause them right away.
+              </>
+            ),
+          },
+          {
+            term: "GENOSYN_PAUSE_GRACE_SECONDS",
+            def: (
+              <>
+                How long each Routine Run an upgrade pauses gets to save its progress first.
+                Default <Code>90</Code>; <Code>0</Code> pauses at once.
               </>
             ),
           },
@@ -270,18 +279,27 @@ genosyn auto-update on`}</Pre>
         new one becomes ready and is restarted if the upgrade fails, using the current data volume.
       </P>
 
-      <H3 id="upgrade-drain">Upgrades let running Routines finish</H3>
+      <H3 id="upgrade-drain">Upgrades pause running Routines and resume them</H3>
       <P>
-        A restart ends every running Routine Run, and Runs on a self-hosted model often take an
-        hour or more. Before an upgrade stops the container, it gives running Runs up to 60
-        minutes to finish. Meanwhile new Runs — scheduled, manual, or continuations — wait in the
-        queue and start in the upgraded container. A Run still going when the time is up is
-        interrupted as before.
+        A restart would end every running Routine Run, and Runs on a self-hosted model often take
+        an hour or more. So before an upgrade stops the container, it pauses them: each running Run
+        gets up to 90 seconds to save its progress, stops, and waits in the queue with its
+        transcript, tokens, and the changes it has made. New Runs — scheduled, manual, or
+        continuations — wait too. The upgraded container then continues the same Runs where they
+        stopped, with the time they had left, before it starts anything new. See{" "}
+        <DocLink to="/docs/routines#paused-for-restart">Paused for a restart</DocLink>.
       </P>
-      <Pre lang="bash">{`genosyn upgrade --drain-minutes 120   # give long Runs two hours
-genosyn upgrade --now                 # restart without waiting`}</Pre>
+      <Pre lang="bash">{`genosyn upgrade                        # pause running Runs, upgrade, resume them
+genosyn upgrade --drain-minutes 30     # let them finish for up to 30 minutes first
+genosyn upgrade --now                  # pause at once, without time to save progress`}</Pre>
       <P>
-        Pressing Ctrl-C while it waits cancels the upgrade and lets queued Runs start again.
+        A Run that does not pause in time, or one running on an image from before pausing, is
+        stopped by the restart instead — and the upgraded version still resumes it from its last
+        saved line, because it was marked as it stopped or the queue was held for the upgrade,
+        however long a <Code>--backup</Code> keeps Genosyn down. <Code>genosyn stop</Code> and{" "}
+        <Code>genosyn restart</Code> pause running Runs too, at once, and they continue when
+        Genosyn starts again. Pressing Ctrl-C while an
+        upgrade pauses cancels it, and the paused Runs continue in the running container.
       </P>
 
       <H3 id="upgrade-with-backup">Upgrade with a verified backup</H3>

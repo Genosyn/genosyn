@@ -131,6 +131,20 @@ const Run = z
         "Scheduled occurrences collapsed into this catch-up run: slots missed while the " +
           "server was unavailable, or that came due while this Run waited to start. 0 normally.",
       ),
+    pausedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "When Genosyn last paused this Run to restart (an upgrade or a stop). A paused Run is " +
+          "`queued` again with its transcript and progress kept, and the same Run continues " +
+          "once Genosyn is back. Null when it was never paused.",
+      ),
+    pauseCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe("How many restarts this Run has been paused for. 0 normally."),
   })
   .openapi("Run");
 

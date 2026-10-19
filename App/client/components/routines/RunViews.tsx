@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Download,
   Loader2,
+  Pause,
+  Play,
   Receipt,
   RotateCcw,
   Sparkles,
@@ -37,6 +39,7 @@ import { LiveBrowserRecording } from "@/components/routines/LiveBrowserRecording
 import { useAskAi, useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import {
+  isRunPaused,
   runExplanationLabel,
   runExplanationPrompt,
   runNeedsAttention,
@@ -79,15 +82,19 @@ const RUN_STATUS_STYLE: Record<RunStatus, string> = {
 export function RunStatusChip({
   status,
   errorKind,
+  pauseCount,
   size = "sm",
 }: {
   status: RunStatus;
   errorKind?: RunErrorKind | null;
+  /** Restarts this Run was paused for; a queued Run with any reads as resuming. */
+  pauseCount?: number | null;
   size?: "xs" | "sm";
 }) {
+  const paused = isRunPaused({ status, pauseCount });
   return (
     <span
-      title={runStatusHint(status, errorKind)}
+      title={runStatusHint(status, errorKind, paused)}
       className={
         "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
         (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
@@ -95,8 +102,45 @@ export function RunStatusChip({
       }
     >
       {status === "running" && <Loader2 size={10} className="animate-spin" />}
-      {runStatusLabel(status)}
+      {paused && <Play size={10} />}
+      {runStatusLabel(status, paused)}
     </span>
+  );
+}
+
+/**
+ * A Run Genosyn paused to restart says so above its transcript: while it waits,
+ * that it will continue where it stopped; once resumed, that its transcript
+ * spans the restart — the "[paused]" and "[resumed]" lines mark where.
+ */
+export function RunPauseNotice({
+  status,
+  pauseCount,
+  pausedAt,
+}: {
+  status: RunStatus;
+  pauseCount?: number | null;
+  pausedAt?: string | null;
+}) {
+  const count = pauseCount ?? 0;
+  if (count <= 0) return null;
+  const when = pausedAt ? new Date(pausedAt).toLocaleString() : null;
+  if (isRunPaused({ status, pauseCount })) {
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+        <Pause size={14} className="mt-0.5 shrink-0" />
+        <p>
+          Paused{when ? ` at ${when}` : ""} while Genosyn restarted. This Run keeps its work so
+          far and continues where it stopped as soon as it can start again — nothing needs doing.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <p className="text-xs text-slate-500 dark:text-slate-400">
+      Paused for {count === 1 ? "a restart" : `${count} restarts`} and resumed; the transcript
+      continues across {count === 1 ? "it" : "them"}.
+    </p>
   );
 }
 
@@ -1114,7 +1158,11 @@ function RunLiveModalContent({
         <div className="shrink-0 border-b border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:px-5 dark:border-slate-800 dark:bg-slate-950/30">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <RunStatusChip status={status} errorKind={log?.errorKind ?? initialRun.errorKind} />
+              <RunStatusChip
+                status={status}
+                errorKind={log?.errorKind ?? initialRun.errorKind}
+                pauseCount={log?.pauseCount ?? initialRun.pauseCount}
+              />
               {status !== "reviewed" && log?.outcomeVerdict && (
                 <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
               )}
@@ -1221,6 +1269,11 @@ function RunLiveModalContent({
           aria-label="Run log"
           className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5 [@media(max-height:500px)]:min-h-[300px] [@media(max-height:500px)]:shrink-0"
         >
+          <RunPauseNotice
+            status={status}
+            pauseCount={log?.pauseCount ?? initialRun.pauseCount}
+            pausedAt={log?.pausedAt ?? initialRun.pausedAt}
+          />
           <RunContinuationNotice
             continuationPending={log?.continuationPending ?? initialRun.continuationPending}
             continuationStopReason={

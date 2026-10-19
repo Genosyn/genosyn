@@ -72,7 +72,21 @@ import {
   unregisterRunInterrupter,
   workBlocked,
 } from "./standdowns.js";
-import { continuationEffects, priorAttemptEffects, renderPriorAttemptBlock } from "./runEffects.js";
+import {
+  continuationEffects,
+  priorAttemptEffects,
+  renderPriorAttemptBlock,
+  runEffects,
+} from "./runEffects.js";
+import {
+  clearRunRestartMark,
+  MAX_RUN_PAUSES,
+  registerRunPauser,
+  runPauseNotice,
+  runResumeBrief,
+  unregisterRunPauser,
+  type RunPauseRequest,
+} from "./runPause.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import { createRunBatchNotice, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
 import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
@@ -292,7 +306,13 @@ async function prepareRoutineRun(
     ? await runRepo.findOneBy({ id: parentId, routineId: routine.id })
     : null;
   const manualResume = !!opts.resumeFromRunId;
-  if (manualResume) {
+  // A Run paused for a restart was admitted when it first started; resuming
+  // it is the same Run carrying on, not a new start to be judged again.
+  const resuming = !!queued && (queued.pauseCount ?? 0) > 0;
+  if (resuming) {
+    // Current safety still applies below: the Routine must exist, belong to
+    // this employee, be enabled for automatic work, and not be stood down.
+  } else if (manualResume) {
     if (!model?.connectedAt)
       throw new RunManualResumeError("Connect an AI Model before resuming unfinished work.");
     if (
@@ -374,6 +394,31 @@ async function prepareRoutineRun(
           continuationParent.tokensOut
         : 0,
   });
+  if (resuming && queued) {
+    // The same Run carries on: its transcript, tokens, saved progress, failure
+    // report, and lineage are its own, not a fresh start's.
+    Object.assign(run, {
+      logContent: queued.logContent,
+      tokensIn: queued.tokensIn,
+      tokensOut: queued.tokensOut,
+      checkpointJson: queued.checkpointJson,
+      failureReason: queued.failureReason,
+      requiredToolsJson: queued.requiredToolsJson,
+      diagnosticsJson: queued.diagnosticsJson,
+      triggerKind: queued.triggerKind,
+      attempt: queued.attempt,
+      parentRunId: queued.parentRunId,
+      missedSlots: queued.missedSlots,
+      continuationCount: queued.continuationCount,
+      continuationOriginTriggerKind: queued.continuationOriginTriggerKind,
+      continuationReviewOnly: queued.continuationReviewOnly || run.continuationReviewOnly,
+      continuationTokensUsed: queued.continuationTokensUsed,
+      continuationStopReason: queued.continuationStopReason,
+      pausedAt: queued.pausedAt,
+      pauseCount: queued.pauseCount,
+      pauseRemainingMs: queued.pauseRemainingMs,
+    });
+  }
   let saved: Run;
   if (!queued) await opts.beforeRunPersist?.();
   if (queued) {
@@ -397,7 +442,7 @@ async function prepareRoutineRun(
     if (latestStop.blocked)
       throw new StanddownError("This Routine was stood down before starting.");
   }
-  if (manualResume) {
+  if (manualResume && !resuming) {
     const currentParent = await runRepo.findOneBy({ id: parentId!, routineId: routine.id });
     if (
       !currentParent ||
@@ -469,37 +514,53 @@ async function prepareRoutineRun(
     },
   });
   liveBuffers.set(saved.id, log);
-  log.write(
-    [
-      `[${startedAt.toISOString()}] run started`,
-      `routine=${routine.name} (${routine.slug})`,
-      `employee=${emp.name} (${emp.slug})`,
-      `company=${co.name} (${co.slug})`,
-      `model=${
-        model
-          ? `${model.provider}/${model.model} (${model.authMode})` +
-            (pinned ? " [pinned to this routine]" : " [employee's active model]")
-          : "not connected"
-      }`,
-      `cron=${routine.cronExpr}`,
-      `trigger=${saved.triggerKind}` +
-        (saved.attempt > 1
-          ? ` (attempt ${saved.attempt} of ${opts.attemptLimit ?? routine.maxAttempts}, retry of ${saved.parentRunId})`
-          : ""),
-      ...(continuationParent
-        ? [
-            manualResume
-              ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh time window and no total model-token limit; deadline ${new Date(deadlineAtMs).toISOString()}.`
-              : `[continuation] Resuming ${continuationParent.id}; shared deadline ${new Date(deadlineAtMs).toISOString()}.`,
-          ]
-        : []),
-      ...(missedSlots > 0
-        ? [`missed=${missedSlots} more scheduled occurrence(s) covered by this run`]
-        : []),
-      ...queueWaitLine(saved),
-      "",
-    ].join("\n") + "\n",
-  );
+  const modelLine = `model=${
+    model
+      ? `${model.provider}/${model.model} (${model.authMode})` +
+        (pinned ? " [pinned to this routine]" : " [employee's active model]")
+      : "not connected"
+  }`;
+  if (resuming) {
+    // The transcript so far, then where it resumed: one Run, one record.
+    log.write(saved.logContent.endsWith("\n") ? saved.logContent : `${saved.logContent}\n`);
+    log.write(
+      [
+        "",
+        `[${startedAt.toISOString()}] [resumed] Genosyn is back; this Run continues where it paused` +
+          (saved.pausedAt ? ` at ${saved.pausedAt.toISOString()}` : "") +
+          `, with its deadline at ${new Date(deadlineAtMs).toISOString()}.`,
+        modelLine,
+        "",
+      ].join("\n") + "\n",
+    );
+  } else {
+    log.write(
+      [
+        `[${startedAt.toISOString()}] run started`,
+        `routine=${routine.name} (${routine.slug})`,
+        `employee=${emp.name} (${emp.slug})`,
+        `company=${co.name} (${co.slug})`,
+        modelLine,
+        `cron=${routine.cronExpr}`,
+        `trigger=${saved.triggerKind}` +
+          (saved.attempt > 1
+            ? ` (attempt ${saved.attempt} of ${opts.attemptLimit ?? routine.maxAttempts}, retry of ${saved.parentRunId})`
+            : ""),
+        ...(continuationParent
+          ? [
+              manualResume
+                ? `[resume] An admin resumed unfinished Run ${continuationParent.id} with a fresh time window and no total model-token limit; deadline ${new Date(deadlineAtMs).toISOString()}.`
+                : `[continuation] Resuming ${continuationParent.id}; shared deadline ${new Date(deadlineAtMs).toISOString()}.`,
+            ]
+          : []),
+        ...(missedSlots > 0
+          ? [`missed=${missedSlots} more scheduled occurrence(s) covered by this run`]
+          : []),
+        ...queueWaitLine(saved),
+        "",
+      ].join("\n") + "\n",
+    );
+  }
   // Make the framing header durable before any model, repository, or tool work
   // begins. Even a crash inside the first checkpoint window then leaves a
   // useful starting boundary instead of an empty interrupted Run.
@@ -545,6 +606,11 @@ async function prepareRoutineRun(
     throw err;
   }
 
+  // Settles once this Run has finished or paused, for a restart waiting on it.
+  let settleRun!: () => void;
+  const runSettled = new Promise<void>((resolve) => {
+    settleRun = resolve;
+  });
   const completion = (async (): Promise<Run> => {
     let mcpToken: string | null = null;
     let interrupted = false;
@@ -569,6 +635,78 @@ async function prepareRoutineRun(
       await contractAutonomyOnBadRun({ run: saved, employee: emp });
       await updateRoutineFailureCount(saved, routine);
       return saved;
+    };
+    /**
+     * Put this Run back in the queue as itself for a restart (`runPause.ts`).
+     * Nothing about it is final: no verdict, journal entry, alert, autonomy
+     * change, or retry — the same Run continues once Genosyn is back, with the
+     * time it had left. Only a Run cut off by restart after restart stops.
+     */
+    const pauseForRestart = async (
+      request: RunPauseRequest | null,
+      runDeadlineMs: number,
+    ): Promise<Run> => {
+      const now = new Date();
+      const remainingMs = Math.max(0, runDeadlineMs - now.getTime());
+      if ((saved.pauseCount ?? 0) >= MAX_RUN_PAUSES) {
+        log.line(
+          `\n[interrupted] Genosyn restarted ${saved.pauseCount + 1} times during this Run, so it stops here rather than resuming again.`,
+        );
+        saved.finishedAt = now;
+        saved.status = "error";
+        saved.errorKind = "interrupted";
+        saved.exitCode = null;
+        diagnostics.fail("The Run was paused for a restart too many times.", "interrupted");
+        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
+        saved = finalization.run;
+        if (!finalization.persisted) return saved;
+        await settleAfterRun(routine.id, saved.finishedAt);
+        await journalQuietly(emp.id, routine, saved);
+        await updateRoutineFailureCount(saved, routine);
+        return saved;
+      }
+      const minutes = Math.max(1, Math.round(remainingMs / 60_000));
+      log.line(
+        `\n[paused] Genosyn is restarting${request?.reason === "upgrade" ? " for an upgrade" : ""}. ` +
+          `This Run keeps its transcript, progress and Effects, waits in the queue, and continues as soon as Genosyn is back, with about ${minutes} min of its time limit left.`,
+      );
+      // An upgrade has time to close the Run's browser sessions so their
+      // recordings are complete. A shutdown writes the row first; boot
+      // recovery promotes whatever recording it left partial.
+      if (request?.reason !== "restart") {
+        await finalizeBrowserRecordingsForRun(saved.id).catch(() => undefined);
+      }
+      try {
+        await log.stopCheckpointing();
+      } catch {
+        // The update below carries the whole transcript.
+      }
+      // Only from this process's own claim: a row recovered or finalized
+      // elsewhere in the meantime keeps that verdict.
+      await runRepo.update(
+        {
+          id: saved.id,
+          status: "running",
+          queueActiveEmployeeId: saved.queueActiveEmployeeId ?? IsNull(),
+        },
+        {
+          // ResourceChangeSubscriber routes this update to its Routine stream.
+          routineId: saved.routineId,
+          status: "queued",
+          queueActiveEmployeeId: null,
+          logContent: log.value(),
+          diagnosticsJson: diagnostics.json(),
+          tokensIn: saved.tokensIn,
+          tokensOut: saved.tokensOut,
+          pausedAt: now,
+          pauseCount: (saved.pauseCount ?? 0) + 1,
+          pauseRemainingMs: remainingMs,
+        },
+      );
+      releaseBrowserRecordingRunFinalizing(saved.id);
+      // Paused in time: the stopping process's mark has nothing left to say.
+      await clearRunRestartMark(saved.id).catch(() => undefined);
+      return (await runRepo.findOneBy({ id: saved.id })) ?? saved;
     };
     try {
       if (deadlineReached()) {
@@ -607,13 +745,16 @@ async function prepareRoutineRun(
         mailHandoverId: proactiveApproval?.payload.origin.mailHandoverId ?? null,
       });
       // No model connected → skip cleanly.
+      // Work already under way — a continuation, or a Run resuming after a
+      // restart — is unfinished, not skipped, when it cannot go on.
+      const workUnderWay = !!continuationParent || resuming;
       if (!model) {
         log.line(
-          `[${continuationParent ? "failed" : "skipped"}] This employee has no AI Model connected. Open the employee in the app and connect one.`,
+          `[${workUnderWay ? "failed" : "skipped"}] This employee has no AI Model connected. Open the employee in the app and connect one.`,
         );
         saved.finishedAt = new Date();
-        saved.status = continuationParent ? "failed" : "skipped";
-        if (continuationParent) {
+        saved.status = workUnderWay ? "failed" : "skipped";
+        if (workUnderWay) {
           saved.continuationStopReason =
             "The AI Employee no longer has a connected AI Model. Unfinished work needs attention.";
         }
@@ -744,10 +885,21 @@ async function prepareRoutineRun(
       const scopedMessage = routine.selfReviewOnly
         ? `${deliveryMessage}\n\nThis is a suggestion-only review. Your tools can read your work, maintain this review's Workstream, and propose one revision for a Member. They cannot change live Skills, Routines, acceptance criteria, Checks, or customer records, send messages, or start separate work. The scope remains in effect even if the Soul or brief asks otherwise.`
         : deliveryMessage;
+      // A resumed Run's conversation did not survive the restart; the brief
+      // carries what it had done — its progress, its Effects, its transcript.
+      const resumeBlock = resuming
+        ? runResumeBrief({
+            run: saved,
+            effects: await runEffects(saved.id, { companyId: co.id }).catch(() => []),
+            remainingMs: Math.max(0, deadlineAtMs - Date.now()),
+            checkpoint: readRunCheckpoint(saved),
+          })
+        : "";
       const userMessage = [
         scopedMessage,
         runBatchBrief({ continuationCount: saved.continuationCount, deadlineAtMs }),
         continuationParent ? continuationBrief(continuationParent, manualResume) : "",
+        resumeBlock,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -816,6 +968,31 @@ async function prepareRoutineRun(
           controller.abort();
         },
       );
+      // A restart pauses this Run rather than cutting it off (`runPause.ts`).
+      // Tool results ask the employee to save its progress; a successful save,
+      // or the grace running out, stops the turn, and the Run goes back to the
+      // queue as itself. A shutdown with no time to spare stops it at once.
+      let pauseRequest: RunPauseRequest | null = null;
+      let paused = false;
+      let pauseTimer: ReturnType<typeof setTimeout> | null = null;
+      const pauseNow = (): void => {
+        paused = true;
+        controller.abort();
+      };
+      registerRunPauser(
+        saved.id,
+        (request) => {
+          if (paused) return;
+          // Once pausing, only a stop that cannot wait changes anything: it
+          // cuts the grace short — a rollout's SIGTERM allows seconds.
+          if (pauseRequest && request.graceMs > 0) return;
+          pauseRequest = request;
+          if (request.graceMs <= 0) return pauseNow();
+          pauseTimer = setTimeout(pauseNow, request.graceMs);
+          pauseTimer.unref?.();
+        },
+        runSettled,
+      );
       const timer = setTimeout(() => {
         timedOut = true;
         controller.abort();
@@ -853,7 +1030,12 @@ async function prepareRoutineRun(
                 })
               : undefined,
             toolScope: selfReviewToolScope(routine.selfReviewOnly),
-            toolResultNotice: (context) => deadlineNotice(context) ?? batchNotice(context),
+            toolResultNotice: (context) =>
+              (pauseRequest && !paused
+                ? runPauseNotice({ canCheckpoint: context.canCheckpoint, reason: pauseRequest.reason })
+                : null) ??
+              deadlineNotice(context) ??
+              batchNotice(context),
             signal: controller.signal,
             callbacks: {
               onBackgroundWork: (pendingGroups) => {
@@ -910,6 +1092,17 @@ async function prepareRoutineRun(
                   );
                   controller.abort();
                 }
+                // Asked to pause, the employee saved its progress: stop here.
+                if (
+                  pauseRequest &&
+                  !paused &&
+                  !controller.signal.aborted &&
+                  name === "save_run_checkpoint" &&
+                  !r.isError
+                ) {
+                  log.line("\n[paused] Progress saved for the restart.");
+                  pauseNow();
+                }
               },
               onUsage: (u) => {
                 // Every turn's prompt is billed in full, so the Run's cost is
@@ -931,15 +1124,24 @@ async function prepareRoutineRun(
       } catch (err) {
         // Providers differ in whether an aborted request resolves with an
         // error result or rejects. Both represent the same timeout verdict
-        // once the absolute deadline has passed.
-        if (!timedOut && !deadlineReached() && !batchYielded) throw err;
+        // once the absolute deadline has passed, and the same pause.
+        if (!timedOut && !deadlineReached() && !batchYielded && !(paused && !interrupted))
+          throw err;
       } finally {
         clearTimeout(timer);
+        if (pauseTimer) clearTimeout(pauseTimer);
+        // Checks, grading and reflection finish where they are: a restart
+        // waits for them rather than pausing a Run whose work is done.
+        unregisterRunPauser(saved.id);
       }
 
       if (timedOut || deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
         return timedOutRun;
+      }
+      // A Standdown that landed during the pause still stops the Run outright.
+      if (paused && !interrupted && !batchYielded) {
+        return await pauseForRestart(pauseRequest, deadlineAtMs);
       }
       if (batchYielded) {
         saved.status = "failed";
@@ -1165,12 +1367,14 @@ async function prepareRoutineRun(
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
       unregisterRunInterrupter(saved.id);
+      unregisterRunPauser(saved.id);
       // Recovery may have won before the normal terminal finalizer. Its early
       // return still owns this log timer and must drain it before queue cleanup.
       await log.stopCheckpointing();
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
+      settleRun();
     }
   })();
 

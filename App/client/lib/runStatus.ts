@@ -24,15 +24,28 @@ export function runExplanationPrompt(status: RunStatus): string {
     : "Why did this Run fail, and what should change so the next one succeeds?";
 }
 
-export function runStatusLabel(status: RunStatus): string {
-  if (status === "queued") return "pending";
+/**
+ * A Run Genosyn paused to restart (an upgrade, a stop) waits in the queue with
+ * its transcript and progress, and the same Run continues once Genosyn is back.
+ * Its chip reads "resuming", never "paused": a Paused Routine is one switched
+ * off, and the chip sits beside that Routine's Active / Paused toggle.
+ */
+export function isRunPaused(run: { status: RunStatus; pauseCount?: number | null }): boolean {
+  return run.status === "queued" && (run.pauseCount ?? 0) > 0;
+}
+
+export function runStatusLabel(status: RunStatus, paused = false): string {
+  if (status === "queued") return paused ? "resuming" : "pending";
   return isRunError(status) ? "error" : status;
 }
 
 export function runStatusHint(
   status: RunStatus,
   errorKind?: RunErrorKind | null,
+  paused = false,
 ): string | undefined {
+  if (status === "queued" && paused)
+    return "Paused while Genosyn restarted. It keeps its work so far and continues where it stopped as soon as it can start again.";
   if (status === "queued")
     return "Waiting to start. A Standdown can defer this Run; other Routines run independently.";
   if (status === "reviewed")

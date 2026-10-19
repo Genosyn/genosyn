@@ -22,6 +22,10 @@ export type ResourceStatus = "pending" | "ready" | "failed";
  * `get_resource`). v1 retrieval is substring matching over title +
  * summary + body, same shape as `search_notes`.
  *
+ * A `text` Resource's body is Markdown: it is written in a Markdown editor,
+ * rendered as Markdown, and exported as `.md`. Every other kind holds the
+ * plain text extracted from its source.
+ *
  * `bodyText` holds the extracted plain text (cap enforced at the route
  * layer at 1 MiB so a single rogue ebook can't blow the SQLite row).
  * Original uploads land on disk under
@@ -32,6 +36,8 @@ export type ResourceStatus = "pending" | "ready" | "failed";
 @Entity("resources")
 @Index(["companyId", "slug"], { unique: true })
 @Index(["companyId", "status"])
+// A folder's page lists what is filed in it; unfiled rows are `folderId IS NULL`.
+@Index(["companyId", "folderId"])
 export class Resource {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -68,6 +74,13 @@ export class Resource {
   /** Extracted plain text — the full searchable body. Capped at 1 MiB. */
   @Column({ type: "text", default: "" })
   bodyText!: string;
+
+  /**
+   * The {@link ResourceFolder} this Resource is filed in, or null when it is
+   * unfiled. Exclusive, like a file in a folder; tags group across folders.
+   */
+  @Column({ type: "varchar", nullable: true })
+  folderId!: string | null;
 
   /** Comma-joined free-form tags so humans can group resources. */
   @Column({ type: "varchar", default: "" })

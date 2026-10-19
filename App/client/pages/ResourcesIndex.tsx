@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   AlertTriangle,
@@ -7,10 +7,15 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  ClipboardPaste,
+  ChevronRight,
   Clock,
   FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
   Globe,
+  Inbox,
+  PenLine,
   Layers,
   Library,
   Loader2,
@@ -27,16 +32,36 @@ import {
   X,
 } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
+import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { Textarea } from "../components/ui/Textarea";
+import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { api, Company, CompanyTag, Resource, ResourceSourceKind } from "../lib/api";
+import { clsx } from "../components/ui/clsx";
+import {
+  api,
+  Company,
+  CompanyTag,
+  Resource,
+  ResourceFolder,
+  ResourceSourceKind,
+} from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import {
+  folderOptions,
+  folderTrail,
+  RESOURCE_DRAG_TYPE,
+  readResourceDrag,
+  resourceFolderHref,
+  resourceFolderView,
+  resourcesInView,
+  subfoldersInView,
+} from "../lib/resourceFolders";
 import { TagChips, TagFilterBar, TagPicker } from "../components/TagPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
+import type { ResourcesOutletCtx } from "./ResourcesLayout";
 
 /**
  * Resources — knowledge ingestion. Humans paste a URL, paste raw text,
@@ -44,11 +69,13 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * extracts plain text and stores it on the row; AI employees query the
  * result via MCP tools.
  *
- * The index is a searchable library: a quiet stats strip up top, filters
- * by type and tag, sort + list/grid view (both persisted), and a card
- * grid or dense list of every entry. There's still no folder tree or
- * embeddings — grouping/vectorising waits for a later milestone once we
- * know what teams actually feed in.
+ * The index is a searchable library of files and folders: All resources
+ * lists everything with the top-level folders above it, and `?folder=<slug>`
+ * opens one folder — its subfolders, then what is filed directly in it, the
+ * way a file browser shows a directory. Cards drag onto a folder (here or in
+ * the sidebar) to file them. A quiet stats strip, filters by type and tag,
+ * and sort + list/grid view (both persisted) sit on top. Text Resources are
+ * written in Markdown.
  */
 /** One row of `GET /resources/search` — a list row plus why it matched. */
 type ResourceBodyHit = Resource & {
@@ -58,6 +85,14 @@ type ResourceBodyHit = Resource & {
 
 export default function ResourcesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
+  const { folders, foldersLoaded, createFolder, moveResource } =
+    useOutletContext<ResourcesOutletCtx>();
+  const [searchParams] = useSearchParams();
+  const folderParam = searchParams.get("folder");
+  const view = React.useMemo(
+    () => resourceFolderView(folderParam, folders),
+    [folderParam, folders],
+  );
   const [items, setItems] = React.useState<Resource[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showNew, setShowNew] = React.useState(false);
@@ -72,11 +107,11 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   // library were the only ones who could not search inside it.
   const [bodyHits, setBodyHits] = React.useState<ResourceBodyHit[] | null>(null);
   const [sort, setSort] = React.useState<SortKey>(() => readPref("sort", SORT_KEYS, "updated"));
-  const [view, setView] = React.useState<ViewMode>(() => readPref("view", VIEW_MODES, "grid"));
+  const [layout, setLayout] = React.useState<ViewMode>(() => readPref("view", VIEW_MODES, "grid"));
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => writePref("sort", sort), [sort]);
-  React.useEffect(() => writePref("view", view), [view]);
+  React.useEffect(() => writePref("view", layout), [layout]);
 
   const reload = React.useCallback(async () => {
     try {
@@ -150,11 +185,18 @@ export default function ResourcesIndex({ company }: { company: Company }) {
     return out;
   }, [bodyHits]);
 
+  /** What this view of the library holds before any filter or search narrows it. */
+  const scoped = React.useMemo(
+    () =>
+      items ? resourcesInView(items, folders, view, { searching: query.trim().length > 0 }) : null,
+    [items, folders, view, query],
+  );
+
   const filtered = React.useMemo(() => {
-    if (!items) return null;
+    if (!scoped) return null;
     const q = query.trim().toLowerCase();
     const contentMatched = new Set(snippetById.keys());
-    const matched = items.filter((r) => {
+    const matched = scoped.filter((r) => {
       if (failedOnly && r.status !== "failed") return false;
       if (selectedKind && r.sourceKind !== selectedKind) return false;
       if (selectedTagId && !r.tags.some((tag) => tag.id === selectedTagId)) return false;
@@ -177,17 +219,24 @@ export default function ResourcesIndex({ company }: { company: Company }) {
       return hay.includes(q);
     });
     return [...matched].sort(SORTERS[sort]);
-  }, [items, query, selectedTagId, selectedKind, failedOnly, sort, snippetById]);
+  }, [scoped, query, selectedTagId, selectedKind, failedOnly, sort, snippetById]);
 
+  // Facets follow the view, so a folder never offers a tag nothing in it has.
   const availableTags = React.useMemo(() => {
-    const byId = new Map((items ?? []).flatMap((item) => item.tags).map((tag) => [tag.id, tag]));
+    const byId = new Map((scoped ?? []).flatMap((item) => item.tags).map((tag) => [tag.id, tag]));
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [items]);
+  }, [scoped]);
 
   const availableKinds = React.useMemo(() => {
-    const present = new Set((items ?? []).map((r) => r.sourceKind));
+    const present = new Set((scoped ?? []).map((r) => r.sourceKind));
     return KIND_ORDER.filter((k) => present.has(k));
-  }, [items]);
+  }, [scoped]);
+
+  const subfolders = subfoldersInView(folders, view);
+  const trail = view.kind === "folder" ? folderTrail(folders, view.folder.id) : [];
+  const currentFolderId = view.kind === "folder" ? view.folder.id : null;
+  // A folder link opened before the tree arrives must not flash "not found".
+  const waitingForFolders = !!folderParam && !foldersLoaded;
 
   const stats = React.useMemo(() => {
     const all = items ?? [];
@@ -214,7 +263,18 @@ export default function ResourcesIndex({ company }: { company: Company }) {
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <Breadcrumbs
-          items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Resources" }]}
+          items={[
+            { label: company.name, to: `/c/${company.slug}` },
+            view.kind === "all"
+              ? { label: "Resources" }
+              : { label: "Resources", to: resourceFolderHref(company.slug, null) },
+            ...trail.map((folder, index) =>
+              index === trail.length - 1
+                ? { label: folder.name }
+                : { label: folder.name, to: resourceFolderHref(company.slug, folder) },
+            ),
+            ...(view.kind === "unfiled" ? [{ label: "Unfiled" }] : []),
+          ]}
         />
       </div>
 
@@ -222,26 +282,54 @@ export default function ResourcesIndex({ company }: { company: Company }) {
         <div className="page-shell px-6 pt-10 pb-16 md:px-10">
           <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Resources
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                {company.name}
+              {view.kind === "folder" ? (
+                <FolderTrail companySlug={company.slug} trail={trail} />
+              ) : (
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Resources
+                </div>
+              )}
+              <h1 className="flex items-center gap-2.5 text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                {view.kind === "folder" && (
+                  <FolderOpen size={26} className="shrink-0 text-indigo-500 dark:text-indigo-400" />
+                )}
+                {view.kind === "unfiled" && (
+                  <Inbox size={26} className="shrink-0 text-slate-400 dark:text-slate-500" />
+                )}
+                <span className="min-w-0 break-words">
+                  {view.kind === "folder"
+                    ? view.folder.name
+                    : view.kind === "unfiled"
+                      ? "Unfiled"
+                      : company.name}
+                </span>
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-                External material — articles, ebooks, transcripts — that AI employees can study and
-                search later. Paste a URL, drop a file, or paste raw text. Search finds the passage
-                inside, for you here and for your AI employees through their tools.
+                {view.kind === "folder"
+                  ? "Resources filed in this folder. Drag a card onto a folder to move it."
+                  : view.kind === "unfiled"
+                    ? "Resources in no folder yet. Drag a card onto a folder to file it."
+                    : "External material — articles, ebooks, transcripts, and Markdown notes — that AI employees can study and search later. Paste a URL, drop a file, or write in Markdown, and file it in folders. Search finds the passage inside, for you here and for your AI employees through their tools."}
               </p>
             </div>
-            {items && items.length > 0 && (
-              <Button onClick={() => openNew("url")} className="shrink-0">
-                <Plus size={15} /> New resource
-              </Button>
+            {items && (items.length > 0 || view.kind === "folder") && (
+              <div className="flex shrink-0 items-center gap-2">
+                {view.kind !== "unfiled" && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => void createFolder(view.kind === "folder" ? view.folder : null)}
+                  >
+                    <FolderPlus size={15} /> New folder
+                  </Button>
+                )}
+                <Button onClick={() => openNew("url")}>
+                  <Plus size={15} /> New resource
+                </Button>
+              </div>
             )}
           </div>
 
-          {items && items.length > 0 && <StatsStrip stats={stats} />}
+          {items && items.length > 0 && view.kind === "all" && <StatsStrip stats={stats} />}
 
           {stats.failed > 0 && (
             <button
@@ -269,8 +357,8 @@ export default function ResourcesIndex({ company }: { company: Company }) {
               searchRef={searchRef}
               sort={sort}
               onSort={setSort}
-              view={view}
-              onView={setView}
+              view={layout}
+              onView={setLayout}
             />
           )}
 
@@ -289,22 +377,63 @@ export default function ResourcesIndex({ company }: { company: Company }) {
             </div>
           )}
 
+          {subfolders.length > 0 && !waitingForFolders && (
+            <FolderTiles
+              companySlug={company.slug}
+              folders={subfolders}
+              onDropResource={(slug, from, to) => {
+                if (from !== to) void moveResource(slug, to);
+              }}
+            />
+          )}
+
           {loadError ? (
             <FormError message={loadError} className="mt-8" />
-          ) : items === null ? (
+          ) : items === null || waitingForFolders ? (
             <div className="mt-10 flex h-32 items-center justify-center">
               <Spinner size={20} />
             </div>
-          ) : items.length === 0 ? (
+          ) : view.kind === "missing" ? (
+            <div className="mt-8 rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-900">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                That folder no longer exists. Its Resources moved up when it was deleted.
+              </p>
+              <Link
+                to={resourceFolderHref(company.slug, null)}
+                className="mt-2 inline-block text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Show all resources
+              </Link>
+            </div>
+          ) : items.length === 0 && view.kind === "all" ? (
             <EmptyHero onPick={openNew} />
+          ) : scoped && scoped.length === 0 && !filtering ? (
+            <div className="mt-8 rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-900">
+              <Folder size={20} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {view.kind === "unfiled"
+                  ? "Everything is filed in a folder."
+                  : subfolders.length > 0
+                    ? "Nothing is filed directly in this folder — open a subfolder above."
+                    : "This folder is empty. Add a resource here, or drag one in from another folder."}
+              </p>
+              {view.kind === "folder" && (
+                <button
+                  onClick={() => openNew("url")}
+                  className="mt-2 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Add a resource to this folder
+                </button>
+              )}
+            </div>
           ) : (
             <>
               <div className="mb-3 mt-8 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   <Clock size={12} />
                   {filtering
-                    ? `${filtered?.length ?? 0} of ${items.length}`
-                    : `${items.length} ${items.length === 1 ? "resource" : "resources"}`}
+                    ? `${filtered?.length ?? 0} of ${scoped?.length ?? 0}`
+                    : `${scoped?.length ?? 0} ${scoped?.length === 1 ? "resource" : "resources"}`}
                 </div>
                 {filtering && (
                   <button
@@ -329,10 +458,20 @@ export default function ResourcesIndex({ company }: { company: Company }) {
                     Clear filters
                   </button>
                 </div>
-              ) : view === "grid" ? (
-                <ResourceGrid company={company} items={filtered ?? []} snippets={snippetById} />
+              ) : layout === "grid" ? (
+                <ResourceGrid
+                  company={company}
+                  items={filtered ?? []}
+                  snippets={snippetById}
+                  showFolder={view.kind === "all" || query.trim().length > 0}
+                />
               ) : (
-                <ResourceList company={company} items={filtered ?? []} snippets={snippetById} />
+                <ResourceList
+                  company={company}
+                  items={filtered ?? []}
+                  snippets={snippetById}
+                  showFolder={view.kind === "all" || query.trim().length > 0}
+                />
               )}
             </>
           )}
@@ -343,6 +482,8 @@ export default function ResourcesIndex({ company }: { company: Company }) {
         open={showNew}
         company={company}
         initialTab={tab}
+        folders={folders}
+        defaultFolderId={currentFolderId}
         onClose={() => setShowNew(false)}
         onCreated={(row) => {
           setShowNew(false);
@@ -611,14 +752,39 @@ function KindChip({
 
 // ───────────────────────────── Grid view ────────────────────────────────
 
+/**
+ * A Resource card carries itself when dragged, so dropping it on a folder —
+ * a tile on this page or a row in the sidebar — files it there.
+ */
+function startResourceDrag(event: React.DragEvent, resource: Resource): void {
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData(
+    RESOURCE_DRAG_TYPE,
+    JSON.stringify({ slug: resource.slug, folderId: resource.folderId }),
+  );
+  event.dataTransfer.setData("text/plain", resource.title);
+}
+
+function FolderChip({ path }: { path: string }) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+      <Folder size={11} className="shrink-0" />
+      <span className="truncate">{path.replace(/\//g, " / ")}</span>
+    </span>
+  );
+}
+
 function ResourceGrid({
   company,
   items,
   snippets,
+  showFolder,
 }: {
   company: Company;
   items: Resource[];
   snippets: Map<string, string>;
+  /** Say where each card is filed, when the list spans folders. */
+  showFolder: boolean;
 }) {
   const navigate = useNavigate();
   return (
@@ -626,6 +792,8 @@ function ResourceGrid({
       {items.map((r) => (
         <button
           key={r.id}
+          draggable
+          onDragStart={(event) => startResourceDrag(event, r)}
           onClick={() => navigate(`/c/${company.slug}/resources/${r.slug}`)}
           className="group flex min-h-[9.5rem] flex-col rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700"
         >
@@ -658,6 +826,11 @@ function ResourceGrid({
             )
           )}
           <div className="flex-1" />
+          {showFolder && r.folderPath && (
+            <div className="mt-2.5 min-w-0">
+              <FolderChip path={r.folderPath} />
+            </div>
+          )}
           {r.tags.length > 0 && (
             <div className="mt-3">
               <TagChips tags={r.tags} limit={3} />
@@ -686,10 +859,12 @@ function ResourceList({
   company,
   items,
   snippets,
+  showFolder,
 }: {
   company: Company;
   items: Resource[];
   snippets: Map<string, string>;
+  showFolder: boolean;
 }) {
   const navigate = useNavigate();
   return (
@@ -697,6 +872,8 @@ function ResourceList({
       {items.map((r, i) => (
         <button
           key={r.id}
+          draggable
+          onDragStart={(event) => startResourceDrag(event, r)}
           onClick={() => navigate(`/c/${company.slug}/resources/${r.slug}`)}
           className={
             "group flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
@@ -741,6 +918,12 @@ function ResourceList({
                   </span>
                 </>
               )}
+              {showFolder && r.folderPath && (
+                <>
+                  <span aria-hidden>·</span>
+                  <FolderChip path={r.folderPath} />
+                </>
+              )}
               {r.tags.length > 0 && (
                 <>
                   <span aria-hidden>·</span>
@@ -754,6 +937,93 @@ function ResourceList({
             className="mt-1 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-slate-500 dark:text-slate-600"
           />
         </button>
+      ))}
+    </div>
+  );
+}
+
+// ───────────────────────────── Folders ──────────────────────────────────
+
+/** "All resources › Research ›" above a folder's name, each step a link. */
+function FolderTrail({ companySlug, trail }: { companySlug: string; trail: ResourceFolder[] }) {
+  return (
+    <nav
+      aria-label="Folder"
+      className="mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+    >
+      <Link to={resourceFolderHref(companySlug, null)} className="hover:text-slate-800 dark:hover:text-slate-200">
+        Resources
+      </Link>
+      {trail.slice(0, -1).map((folder) => (
+        <React.Fragment key={folder.id}>
+          <ChevronRight size={12} className="shrink-0" />
+          <Link
+            to={resourceFolderHref(companySlug, folder)}
+            className="normal-case tracking-normal hover:text-slate-800 dark:hover:text-slate-200"
+          >
+            {folder.name}
+          </Link>
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * One level of the tree as folders, the way a file browser shows them above
+ * the files. Each tile opens its folder, and a Resource card dropped on one is
+ * filed there.
+ */
+function FolderTiles({
+  companySlug,
+  folders,
+  onDropResource,
+}: {
+  companySlug: string;
+  folders: ResourceFolder[];
+  onDropResource: (slug: string, fromFolderId: string | null, toFolderId: string) => void;
+}) {
+  const [over, setOver] = React.useState<string | null>(null);
+  return (
+    <div className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+      {folders.map((folder) => (
+        <Link
+          key={folder.id}
+          to={resourceFolderHref(companySlug, folder)}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes(RESOURCE_DRAG_TYPE)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setOver(folder.id);
+          }}
+          onDragLeave={() => setOver((current) => (current === folder.id ? null : current))}
+          onDrop={(event) => {
+            setOver(null);
+            const dragged = readResourceDrag(event.dataTransfer);
+            if (!dragged) return;
+            event.preventDefault();
+            onDropResource(dragged.slug, dragged.folderId, folder.id);
+          }}
+          className={clsx(
+            "group flex items-center gap-3 rounded-xl border bg-white px-3.5 py-3 shadow-sm transition dark:bg-slate-900",
+            over === folder.id
+              ? "border-indigo-400 ring-2 ring-indigo-200 dark:border-indigo-500 dark:ring-indigo-500/30"
+              : "border-slate-200 hover:border-indigo-300 hover:shadow-md dark:border-slate-700 dark:hover:border-indigo-700",
+          )}
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20">
+            {over === folder.id ? <FolderOpen size={17} /> : <Folder size={17} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {folder.name}
+            </span>
+            <span className="block text-xs tabular-nums text-slate-500 dark:text-slate-400">
+              {folder.totalResourceCount}{" "}
+              {folder.totalResourceCount === 1 ? "resource" : "resources"}
+            </span>
+          </span>
+        </Link>
       ))}
     </div>
   );
@@ -776,9 +1046,9 @@ function EmptyHero({ onPick }: { onPick: (kind: NewResourceTab) => void }) {
     },
     {
       kind: "text",
-      icon: <ClipboardPaste size={18} />,
-      label: "Paste text",
-      hint: "Notes, transcripts, snippets",
+      icon: <PenLine size={18} />,
+      label: "Write in Markdown",
+      hint: "Notes, transcripts, primers",
     },
     {
       kind: "file",
@@ -942,12 +1212,17 @@ function NewResourceModal({
   open,
   company,
   initialTab,
+  folders,
+  defaultFolderId,
   onClose,
   onCreated,
 }: {
   open: boolean;
   company: Company;
   initialTab: NewResourceTab;
+  folders: ResourceFolder[];
+  /** The folder the page is showing, where a new Resource lands by default. */
+  defaultFolderId: string | null;
   onClose: () => void;
   onCreated: (row: Resource) => void;
 }) {
@@ -958,6 +1233,7 @@ function NewResourceModal({
   // Shared fields
   const [title, setTitle] = React.useState("");
   const [tags, setTags] = React.useState<CompanyTag[]>([]);
+  const [folderId, setFolderId] = React.useState<string>(defaultFolderId ?? "");
 
   // URL tab
   const [url, setUrl] = React.useState("");
@@ -981,8 +1257,9 @@ function NewResourceModal({
       setDragging(false);
     } else {
       setTab(initialTab);
+      setFolderId(defaultFolderId ?? "");
     }
-  }, [open, initialTab]);
+  }, [open, initialTab, defaultFolderId]);
 
   async function submit() {
     setBusy(true);
@@ -996,15 +1273,17 @@ function NewResourceModal({
           url: url.trim(),
           title: title.trim() || undefined,
           tagIds: tags.map((tag) => tag.id),
+          folderId: folderId || null,
         });
       } else if (tab === "text") {
         if (!title.trim()) throw new Error("Give it a title.");
-        if (!body.trim()) throw new Error("Paste the text first.");
+        if (!body.trim()) throw new Error("Write or paste the text first.");
         row = await api.post<Resource>(`/api/companies/${company.id}/resources`, {
           sourceKind: "text",
           title: title.trim(),
           body,
           tagIds: tags.map((tag) => tag.id),
+          folderId: folderId || null,
         });
       } else {
         if (!file) throw new Error("Choose a file first.");
@@ -1012,6 +1291,7 @@ function NewResourceModal({
         fd.append("file", file);
         if (title.trim()) fd.append("title", title.trim());
         if (tags.length) fd.append("tagIds", JSON.stringify(tags.map((tag) => tag.id)));
+        if (folderId) fd.append("folderId", folderId);
         const res = await fetch(`/api/companies/${company.id}/resources/upload`, {
           method: "POST",
           credentials: "same-origin",
@@ -1051,7 +1331,7 @@ function NewResourceModal({
             <Globe size={14} /> URL
           </TabButton>
           <TabButton active={tab === "text"} onClick={() => setTab("text")}>
-            <ClipboardPaste size={14} /> Paste
+            <PenLine size={14} /> Write
           </TabButton>
           <TabButton active={tab === "file"} onClick={() => setTab("file")}>
             <Upload size={14} /> Upload
@@ -1086,13 +1366,20 @@ function NewResourceModal({
               onChange={(e) => setTitle(e.target.value)}
               autoFocus
             />
-            <Textarea
-              label="Content"
-              placeholder="Paste the article, transcript, or notes here…"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={10}
-            />
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Content <span className="font-normal text-slate-400">· Markdown</span>
+              </span>
+              <MarkdownEditor
+                value={body}
+                onChange={setBody}
+                rows={12}
+                breaks
+                initialMode="edit"
+                previewClassName="doc-md"
+                placeholder="Write or paste notes, a transcript, or a primer — # headings, **bold**, lists, links, tables, and code all render."
+              />
+            </div>
           </>
         )}
 
@@ -1151,6 +1438,21 @@ function NewResourceModal({
               onChange={(e) => setTitle(e.target.value)}
             />
           </>
+        )}
+
+        {folders.length > 0 && (
+          <Select
+            label="Folder"
+            value={folderId}
+            onChange={(event) => setFolderId(event.target.value)}
+          >
+            <option value="">No folder</option>
+            {folderOptions(folders).map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label.replace(/\//g, " / ")}
+              </option>
+            ))}
+          </Select>
         )}
 
         <TagPicker companyId={company.id} value={tags} onChange={setTags} />
