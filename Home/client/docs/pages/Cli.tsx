@@ -1,4 +1,4 @@
-import { Callout, Code, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
 
 type Cmd = {
   name: string;
