@@ -65,9 +65,7 @@ export function Customers() {
         <DocLink to="/docs/finance">Finance</DocLink>, so the numbers stay unique and self-identify
         across accounts. Accounts with linked Revenue or finance history cannot be deleted — archive
         them instead to keep the full relationship and billing history intact. If two rows represent
-        the same company, use{" "}
-        <DocLink to="/docs/revenue#account-merge">Revenue → Accounts → Merge</DocLink> to
-        transactionally consolidate both Revenue and Finance history and archive the duplicate.
+        the same company, <DocLink to="/docs/customers#merge">merge them</DocLink>.
       </P>
       <P>
         The customer list searches customer names, domains, billing email addresses, phone numbers,
@@ -86,6 +84,35 @@ export function Customers() {
         Unarchiving is refused, with the reason, when the customer was merged into another account
         (undo the merge instead) or when an active account now uses its domain — the same rules as{" "}
         <Code>Restore</Code> on the Revenue account.
+      </P>
+
+      <H3 id="merge">Merge duplicate customers</H3>
+      <P>
+        When two customers are the same company, open the one to fold away and press{" "}
+        <Strong>Merge</Strong>. Find the customer to keep by name, domain, or billing email, review
+        what moves — contacts, deals, activities, contracts, invoices, estimates, recurring
+        invoices, and credits — and choose, for each value the two disagree on, which one to keep.
+        Type the duplicate&apos;s name and press <Strong>Merge and archive</Strong>. Everything
+        moves in one transaction, issued invoice and estimate numbers stay as they were, and the
+        duplicate&apos;s name and domain stay searchable as aliases of the customer you kept, so
+        mail and imports still find it. To keep the other one instead, merge from its page.
+      </P>
+      <P>
+        Genosyn also looks for likely duplicates — the same domain, email, website, or name — when
+        it starts and every six hours. A customer it pairs with another says so at the top of its
+        page, with <Strong>Merge into</Strong> the other customer, or <Strong>Not a duplicate</Strong>{" "}
+        to stop suggesting that pair; the same suggestions appear in{" "}
+        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Data quality</DocLink>. Saving a
+        domain another active customer already uses names that customer, and offers to open it or,
+        when editing, to merge this customer into it.
+      </P>
+      <P>
+        A domain belongs to one active customer. An archived customer — a merged duplicate above
+        all — keeps its domain as history without blocking the customer that has it now. A merged
+        duplicate&apos;s page says which customer it was merged into and links there; it cannot be
+        unarchived, but the merge can be undone from{" "}
+        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Data quality</DocLink>. Merging
+        needs Full finance access; Read-only access shows the suggestions but not the buttons.
       </P>
       <P>
         Wherever you pick a customer — on an invoice, estimate, recurring invoice, contract,

@@ -1,6 +1,22 @@
 import type { ModelEffort } from "../../shared/modelEffort";
 export type { ModelEffort } from "../../shared/modelEffort";
 
+/**
+ * A refused API request: the sentence to show, plus the status and the JSON
+ * body for a page that acts on what the server said — a 409 that names the
+ * customer already using a domain, say.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly data: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -10,9 +26,17 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(errorMessageFrom(text, res.status, res.statusText));
+    throw new ApiError(errorMessageFrom(text, res.status, res.statusText), res.status, jsonOrNull(text));
   }
   return (text ? JSON.parse(text) : null) as T;
+}
+
+function jsonOrNull(text: string): unknown {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -4412,6 +4436,8 @@ export type Customer = {
   /** Additional people at this account. Populated by GET /customers and
    *  GET /customers/:slug; empty array when none have been added. */
   contacts: CustomerContact[];
+  /** GET /customers/:slug only: the customer a merged duplicate now lives in. */
+  mergedInto?: { id: string; slug: string; name: string } | null;
 };
 
 /** One of the customer's people on a mail conversation. */

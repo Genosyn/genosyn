@@ -4,24 +4,20 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 
 import { Breadcrumbs } from "../components/AppShell";
 import { RecordHistory } from "../components/RecordHistory";
+import { AccountMergeModal } from "../components/revenue/AccountMergeModal";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
-import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { api, type Customer, type Employee, type FinanceAccess, type Member } from "../lib/api";
-import { customerOptionLabel } from "../lib/customerLabel";
+import type { AccountMergePreview } from "../lib/accountMerge";
+import { api, type Employee, type Member } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import {
-  canTakeAccountMergeSource,
-  type RevenueAccount,
-  type RevenueAccountRecord,
-} from "../lib/revenue";
+import { type RevenueAccount, type RevenueAccountRecord } from "../lib/revenue";
 import type { RevenueContact } from "./RevenueContacts";
 import type { Deal } from "./RevenueDeals";
 import type { RevenueOutletCtx } from "./RevenueLayout";
@@ -31,46 +27,6 @@ type AccountDetail = {
   contacts: RevenueContact[];
   deals: Deal[];
 };
-
-type AccountMergeCounts = {
-  contacts: number;
-  deals: number;
-  activities: number;
-  partnerships: number;
-  revenueDocuments: number;
-  signalEvents: number;
-  billingContacts: number;
-  contracts: number;
-  invoices: number;
-  estimates: number;
-  recurringInvoices: number;
-  credits: number;
-  customValuesCopied: number;
-  customValueConflicts: number;
-};
-
-type AccountMergePreview = {
-  source: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
-  target: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
-  counts: AccountMergeCounts;
-  fieldConflicts?: MergeConflict[];
-  customFieldConflicts?: MergeConflict[];
-  /** Conflicts on billing details were left out: the viewer has no finance access. */
-  billingWithheld?: true;
-};
-
-type MergeConflict = {
-  field: string;
-  label: string;
-  sourceValue: unknown;
-  targetValue: unknown;
-  resolution: "source" | "target";
-};
-
-function displayMergeValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "Empty";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
 
 function ownerValue(account: RevenueAccountRecord): string {
   if (account.ownerId) return `user:${account.ownerId}`;
@@ -460,299 +416,38 @@ export default function RevenueAccountDetail() {
       <AccountMergeModal
         open={mergeOpen}
         onClose={() => setMergeOpen(false)}
-        base={base}
-        sectionUrl={sectionUrl}
+        noun="Account"
         source={account}
         financeAccess={company.financeAccess}
+        searchTargets={(query) =>
+          api
+            .get<{ rows: RevenueAccount[] }>(
+              `${base}/accounts?limit=200${query ? `&q=${encodeURIComponent(query)}` : ""}`,
+            )
+            .then((result) => result.rows)
+        }
+        loadPreview={(targetId) =>
+          api.get<AccountMergePreview>(
+            `${base}/accounts/${account.id}/merge-preview?targetAccountId=${targetId}`,
+          )
+        }
+        merge={({ targetId, confirmSourceName, resolutions }) =>
+          api.post<AccountMergePreview>(`${base}/accounts/${account.id}/merge`, {
+            targetAccountId: targetId,
+            confirmSourceName,
+            resolutions,
+          })
+        }
+        emptyHint={
+          <Link className="font-medium text-indigo-600" to={`${sectionUrl}/accounts`}>
+            Create or restore one first.
+          </Link>
+        }
         onMerged={(result) => {
           setMergeOpen(false);
           navigate(`${sectionUrl}/accounts/${result.target.id}`);
         }}
       />
     </div>
-  );
-}
-
-function AccountMergeModal({
-  open,
-  onClose,
-  base,
-  sectionUrl,
-  source,
-  financeAccess,
-  onMerged,
-}: {
-  open: boolean;
-  onClose: () => void;
-  base: string;
-  sectionUrl: string;
-  source: RevenueAccountRecord;
-  financeAccess: FinanceAccess;
-  onMerged: (result: AccountMergePreview) => void;
-}) {
-  const [accounts, setAccounts] = React.useState<RevenueAccount[] | null>(null);
-  const [targetId, setTargetId] = React.useState("");
-  const [preview, setPreview] = React.useState<AccountMergePreview | null>(null);
-  const [confirmName, setConfirmName] = React.useState("");
-  const [resolutions, setResolutions] = React.useState<Record<string, "source" | "target">>({});
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!open) return;
-    setTargetId("");
-    setPreview(null);
-    setConfirmName("");
-    setResolutions({});
-    setError(null);
-    setAccounts(null);
-    api
-      .get<{ rows: RevenueAccount[] }>(`${base}/accounts?limit=200`)
-      .then((result) => setAccounts(result.rows.filter((account) => account.id !== source.id)))
-      .catch((cause) => {
-        setAccounts([]);
-        setError(cause instanceof Error ? cause.message : String(cause));
-      });
-  }, [base, open, source.id]);
-
-  React.useEffect(() => {
-    if (!open || !targetId) {
-      setPreview(null);
-      return;
-    }
-    setPreview(null);
-    setError(null);
-    api
-      .get<AccountMergePreview>(
-        `${base}/accounts/${source.id}/merge-preview?targetAccountId=${targetId}`,
-      )
-      .then((result) => {
-        setPreview(result);
-        setResolutions(
-          Object.fromEntries(
-            [...(result.fieldConflicts ?? []), ...(result.customFieldConflicts ?? [])].map(
-              (conflict) => [conflict.field, conflict.resolution],
-            ),
-          ),
-        );
-      })
-      .catch((cause) => {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      });
-  }, [base, open, source.id, targetId]);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!preview || confirmName !== source.name) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api.post<AccountMergePreview>(`${base}/accounts/${source.id}/merge`, {
-        targetAccountId: targetId,
-        confirmSourceName: confirmName,
-        resolutions,
-      });
-      onMerged(result);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const countRows: Array<[string, number]> = preview
-    ? (
-        [
-          ["Contacts", preview.counts.contacts],
-          ["Deals", preview.counts.deals],
-          ["Activities", preview.counts.activities],
-          ["Partnerships", preview.counts.partnerships],
-          ["Revenue documents", preview.counts.revenueDocuments],
-          ["Signal events", preview.counts.signalEvents],
-          ["Billing contacts", preview.counts.billingContacts],
-          ["Contracts", preview.counts.contracts],
-          ["Invoices", preview.counts.invoices],
-          ["Estimates", preview.counts.estimates],
-          ["Recurring invoices", preview.counts.recurringInvoices],
-          ["Credits", preview.counts.credits],
-          ["Custom values copied", preview.counts.customValuesCopied],
-        ] satisfies Array<[string, number]>
-      ).filter(([, count]) => count > 0)
-    : [];
-  const billingLocked = (preview?.fieldConflicts ?? []).some(
-    (conflict) => !canTakeAccountMergeSource(conflict.field, financeAccess),
-  );
-
-  return (
-    <Modal open={open} onClose={onClose} title="Merge Account" size="lg">
-      <form className="space-y-5" onSubmit={submit}>
-        <div>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Move all Revenue and Finance history from{" "}
-            <span className="font-semibold text-slate-900 dark:text-slate-100">{source.name}</span>{" "}
-            into one active Account. Issued document numbers stay unchanged, you choose each
-            conflicting value, and the source is archived.
-          </p>
-          <p className="mt-2 text-xs text-slate-500">
-            This is one transaction: either every linked record moves, or none do.
-          </p>
-        </div>
-
-        {accounts === null ? (
-          <div className="flex justify-center py-6">
-            <Spinner />
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500 dark:border-slate-700">
-            There is no other active Account to merge into.{" "}
-            <Link className="font-medium text-indigo-600" to={`${sectionUrl}/accounts`}>
-              Create or restore one first.
-            </Link>
-          </div>
-        ) : (
-          <Select
-            label="Destination Account"
-            value={targetId}
-            onChange={(event) => setTargetId(event.target.value)}
-            required
-          >
-            <option value="">Choose an active Account…</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {customerOptionLabel(account)}
-              </option>
-            ))}
-          </Select>
-        )}
-
-        {targetId && !preview && !error && (
-          <div className="flex justify-center py-4">
-            <Spinner />
-          </div>
-        )}
-
-        {preview && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Merge preview
-            </h3>
-            {countRows.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">No linked records need moving.</p>
-            ) : (
-              <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                {countRows.map(([label, count]) => (
-                  <div key={label}>
-                    <dt className="text-slate-500">{label}</dt>
-                    <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
-                      {count}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {preview.counts.customValueConflicts > 0 && (
-              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-                {preview.counts.customValueConflicts} Account custom{" "}
-                {preview.counts.customValueConflicts === 1 ? "value needs" : "values need"} a
-                resolution below.
-              </p>
-            )}
-            {preview.billingWithheld && (
-              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                Their billing details differ too. Those follow finance access, so they aren&apos;t
-                shown here, and the destination keeps its own.
-              </p>
-            )}
-          </div>
-        )}
-
-        {preview &&
-          [...(preview.fieldConflicts ?? []), ...(preview.customFieldConflicts ?? [])].length >
-            0 && (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60">
-                  <tr>
-                    <th className="px-3 py-2">Field</th>
-                    <th className="px-3 py-2">Archived source</th>
-                    <th className="px-3 py-2">Destination</th>
-                    <th className="px-3 py-2">Keep</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...(preview.fieldConflicts ?? []), ...(preview.customFieldConflicts ?? [])].map(
-                    (conflict) => (
-                      <tr
-                        key={conflict.field}
-                        className="border-t border-slate-100 dark:border-slate-800"
-                      >
-                        <td className="px-3 py-2 font-medium">{conflict.label}</td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                          {displayMergeValue(conflict.sourceValue)}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                          {displayMergeValue(conflict.targetValue)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Select
-                            aria-label={`Choose ${conflict.label} value`}
-                            value={
-                              canTakeAccountMergeSource(conflict.field, financeAccess)
-                                ? (resolutions[conflict.field] ?? conflict.resolution)
-                                : "target"
-                            }
-                            disabled={!canTakeAccountMergeSource(conflict.field, financeAccess)}
-                            onChange={(event) =>
-                              setResolutions((current) => ({
-                                ...current,
-                                [conflict.field]: event.target.value as "source" | "target",
-                              }))
-                            }
-                          >
-                            <option value="target">Destination</option>
-                            <option value="source">Source</option>
-                          </Select>
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-        {billingLocked && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Taking the source&apos;s billing details needs full finance access, so the destination
-            keeps its own.
-          </p>
-        )}
-
-        {preview && (
-          <Input
-            label={`Type "${source.name}" to confirm`}
-            value={confirmName}
-            onChange={(event) => setConfirmName(event.target.value)}
-            autoComplete="off"
-          />
-        )}
-
-        {error && <FormError message={error} />}
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            variant="danger"
-            loading={busy}
-            disabled={!preview || confirmName !== source.name}
-          >
-            {busy ? "Merging…" : "Merge and archive"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
   );
 }

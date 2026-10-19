@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import { ArrowLeft, Plus, Star, Trash2 } from "lucide-react";
+import { ArrowLeft, GitMerge, Plus, Star, Trash2 } from "lucide-react";
 import {
   api,
   Company,
@@ -11,6 +11,7 @@ import {
   Member,
   parseMoneyToCents,
 } from "../lib/api";
+import { domainConflictOf, type DomainHolder } from "../lib/accountMerge";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -117,6 +118,8 @@ function CustomerForm({ company }: { company: Company }) {
   const [ready, setReady] = React.useState(!isEdit);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  // The customer already on the domain this save asked for — likely the same company.
+  const [domainHolder, setDomainHolder] = React.useState<DomainHolder | null>(null);
 
   const [customerId, setCustomerId] = React.useState<string | null>(null);
   const [name, setName] = React.useState("");
@@ -216,6 +219,7 @@ function CustomerForm({ company }: { company: Company }) {
     if (!name.trim()) return;
     setBusy(true);
     setSaveError(null);
+    setDomainHolder(null);
     try {
       const trimmedContacts = contacts
         .map((r, i) => ({ ...r, sortOrder: i }))
@@ -299,6 +303,7 @@ function CustomerForm({ company }: { company: Company }) {
       navigate(customerUrl);
     } catch (err) {
       setSaveError(errorMessage(err));
+      setDomainHolder(domainConflictOf(err));
     } finally {
       setBusy(false);
     }
@@ -369,7 +374,32 @@ function CustomerForm({ company }: { company: Company }) {
         </div>
       </div>
 
-      <FormError message={saveError} className="mb-6" />
+      <FormError message={saveError} className={domainHolder ? "mb-3" : "mb-6"} />
+      {domainHolder && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+          <p className="min-w-0 flex-1">
+            {isEdit
+              ? `If this is the same company as ${domainHolder.name}, merge it in: its contacts, invoices and history move to ${domainHolder.name}. Other changes on this page aren't saved.`
+              : `${domainHolder.name} is probably the customer you're adding. Open it instead of creating a duplicate.`}
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <Link to={`${customersUrl}/${domainHolder.slug}`}>
+              <Button type="button" variant="secondary" size="sm">
+                Open {domainHolder.name}
+              </Button>
+            </Link>
+            {isEdit && customerSlug && (
+              <Link
+                to={`${customersUrl}/${customerSlug}?mergeInto=${encodeURIComponent(domainHolder.slug)}`}
+              >
+                <Button type="button" size="sm">
+                  <GitMerge size={14} /> Merge into {domainHolder.name}
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
