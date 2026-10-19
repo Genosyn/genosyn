@@ -41,7 +41,7 @@ Genosyn is a self-hosted platform for running companies with AI Employees.
 | Actor | Trust |
 | --- | --- |
 | Operator and host: `App/config.ts`, environment, data directory, Docker or Kubernetes | Fully trusted. |
-| Master admin | Fully trusted across the install: the SQL console and runtime settings (`App/server/routes/admin.ts`), install-wide custom JavaScript, backups and restore, SSO, the outbound private-host allowlist. |
+| Master admin | Fully trusted across the install: the SQL console and runtime settings (`App/server/routes/admin.ts`), install-wide custom JavaScript, backups and restore, SSO, the outbound private-host allowlist, and adding user accounts directly (with a password they set or a one-time setup link they are shown). |
 | Company owner or admin | Trusted with their Company. In the default host execution mode they also decide what AI Employees run on the host (coding tools, stdio MCP servers, Repository command policies), so they are effectively trusted with the host. |
 | Company member | Authenticated, lower privilege: bound by role, Finance access, per-item access (Vault items, restricted Projects), and conversation ownership. |
 | AI Employee | Acts only through its Grants and the turn's tool scope. In an interactive turn, its access is intersected with the requesting Member's current access. |
@@ -170,7 +170,10 @@ trusted-origin check, is in `App/server/index.ts`.
 - **Master admins are fully trusted.** They have the SQL console, install-wide
   custom JavaScript that runs for every signed-in user on most App pages,
   backup and restore of the whole data directory (including its encryption
-  key), runtime settings, SSO, and the outbound private-host allowlist.
+  key), runtime settings, SSO, and the outbound private-host allowlist. They
+  can add accounts directly (Admin → Users → Add user) and see the one-time
+  setup link of an account they add; such an account starts unverified and is
+  never made a company owner or master admin there.
 - **Single-tenant trust.** Companies on one install share a host, a database,
   and an operator. An owner or admin who reaches another Company's data by
   running host commands is acting within the trust model. The supported
