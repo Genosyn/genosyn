@@ -1,6 +1,6 @@
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
-import { In, IsNull } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import multer from "multer";
 import cron from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
@@ -63,6 +63,7 @@ import {
   normalizeAccountDomain,
   revenueAccountRestoreBlocker,
 } from "../services/revenue/accounts.js";
+import { findMergedRecordRedirect } from "../services/revenue/operations.js";
 import {
   createInvoiceWriteOff,
   listInvoiceWriteOffs,
@@ -235,6 +236,7 @@ import { hydrateCustomers, listCustomers } from "../services/customers.js";
 import { listCustomerMail } from "../services/customerMail.js";
 import { resolveDocumentIssuer } from "../services/subsidiaries.js";
 import { subsidiariesRouter } from "./subsidiaries.js";
+import { customerMergeRouter } from "./customerMerge.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -248,6 +250,8 @@ export const financeRouter = Router({ mergeParams: true });
 financeRouter.use(requireAuth);
 financeRouter.use(requireCompanyMember);
 financeRouter.use("/finance/subsidiaries", subsidiariesRouter);
+// Merging duplicate customers. Its routes carry their own finance gates.
+financeRouter.use(customerMergeRouter);
 
 // Per-member finance authorization (M33 A4). Rather than repeat the guard on
 // ~130 routes (and risk missing one), wrap the router's verb methods so every
@@ -308,6 +312,33 @@ const currencySchema = z
 // ──────────────────────────── Customers ────────────────────────────────
 // `uniqueCustomerSlug` lives in services/finance.ts now (shared with the
 // AI `create_customer` tool).
+
+/**
+ * The active customer already on a domain, if any. A domain belongs to one
+ * active account, as in Revenue: an archived customer — a merged duplicate
+ * above all — keeps its domain as history, and Unarchive refuses to bring it
+ * back onto a domain taken since (`revenueAccountRestoreBlocker`).
+ */
+function activeCustomerOnDomain(
+  companyId: string,
+  domain: string,
+  exceptId?: string,
+): Promise<Customer | null> {
+  return AppDataSource.getRepository(Customer).findOneBy({
+    companyId,
+    domain,
+    archivedAt: IsNull(),
+    ...(exceptId ? { id: Not(exceptId) } : {}),
+  });
+}
+
+/** A taken domain names its customer, so the page can open it or merge into it. */
+function domainTaken(holder: Customer, domain: string) {
+  return {
+    error: `${holder.name} already uses the domain ${domain}`,
+    conflict: { id: holder.id, slug: holder.slug, name: holder.name },
+  };
+}
 
 // ─────────────────────── Customer contacts ────────────────────────────
 
@@ -393,9 +424,8 @@ financeRouter.post("/customers", validateBody(customerWriteSchema), async (req, 
   const body = req.body as z.infer<typeof customerWriteSchema>;
   const repo = AppDataSource.getRepository(Customer);
   const domain = normalizeAccountDomain(body.domain ?? "");
-  if (domain && (await repo.findOneBy({ companyId: cid, domain }))) {
-    return res.status(409).json({ error: "An account with that domain already exists" });
-  }
+  const taken = domain ? await activeCustomerOnDomain(cid, domain) : null;
+  if (taken) return res.status(409).json(domainTaken(taken, domain));
   const slug = await uniqueCustomerSlug(cid, toSlug(body.name));
   const c = repo.create({
     companyId: cid,
@@ -456,8 +486,22 @@ financeRouter.get("/customers/:slug", async (req, res) => {
   const c = await loadCustomerBySlug(cid, req.params.slug);
   if (!c) return res.status(404).json({ error: "Customer not found" });
   const [hydrated] = await hydrateCustomers(cid, [c]);
-  res.json(hydrated);
+  res.json({ ...hydrated, mergedInto: c.archivedAt ? await mergedInto(cid, c.id) : null });
 });
+
+/** Where a merged duplicate's history lives now — the end of any merge chain. */
+async function mergedInto(
+  companyId: string,
+  customerId: string,
+): Promise<Pick<Customer, "id" | "slug" | "name"> | null> {
+  const redirect = await findMergedRecordRedirect(companyId, "account", customerId);
+  if (!redirect) return null;
+  const survivor = await AppDataSource.getRepository(Customer).findOneBy({
+    companyId,
+    id: redirect.targetId,
+  });
+  return survivor ? { id: survivor.id, slug: survivor.slug, name: survivor.name } : null;
+}
 
 // Mail exchanged with the customer, across every connected mailbox — see
 // services/customerMail.ts for how a conversation is matched to an account.
@@ -593,12 +637,8 @@ financeRouter.patch(
     };
     if (body.domain !== undefined) {
       const domain = normalizeAccountDomain(body.domain);
-      const existing = domain
-        ? await AppDataSource.getRepository(Customer).findOneBy({ companyId: cid, domain })
-        : null;
-      if (existing && existing.id !== c.id) {
-        return res.status(409).json({ error: "An account with that domain already exists" });
-      }
+      const taken = domain ? await activeCustomerOnDomain(cid, domain, c.id) : null;
+      if (taken) return res.status(409).json(domainTaken(taken, domain));
       c.domain = domain;
     }
     if (body.name !== undefined) c.name = body.name;

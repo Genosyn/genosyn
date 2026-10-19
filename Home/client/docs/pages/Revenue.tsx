@@ -164,7 +164,9 @@ export function Revenue() {
       <P>
         Open <Code>Revenue → Data quality</Code> to merge duplicate Accounts, Contacts, Deals, or
         Partnerships. Archiving only removes a record from default lists; historical links remain,
-        and restore or guarded undo can bring it back.
+        and restore or guarded undo can bring it back. A customer&apos;s page in Customers offers
+        the same Account merge — see{" "}
+        <DocLink to="/docs/customers#merge">Merge duplicate customers</DocLink>.
       </P>
       <P>
         Choose the surviving record, then resolve every conflicting field explicitly: keep the

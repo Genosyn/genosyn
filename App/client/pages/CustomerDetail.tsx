@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   FileSignature,
   FileText,
+  GitMerge,
   Globe,
   Mail,
   Pencil,
@@ -36,6 +37,11 @@ import {
   RecurringInvoiceListItem,
 } from "../lib/api";
 import {
+  describeDuplicateReasons,
+  type AccountMergePreview,
+  type CustomerDuplicate,
+} from "../lib/accountMerge";
+import {
   CUSTOMER_TABS,
   dealTotalsByCurrency,
   describeMailSearch,
@@ -53,6 +59,10 @@ import { canWriteFinance, effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
+import {
+  AccountMergeModal,
+  type AccountMergeTarget,
+} from "../components/revenue/AccountMergeModal";
 import { RecordHistory } from "@/components/RecordHistory";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
@@ -379,6 +389,79 @@ function CustomerOverview({ company }: { company: Company }) {
   const background = useBackgroundAction();
   const [announcement, setAnnouncement] = React.useState("");
   const archiving = React.useRef(false);
+  const [mergeOpen, setMergeOpen] = React.useState(false);
+  const [mergeTarget, setMergeTarget] = React.useState<AccountMergeTarget | null>(null);
+  const [duplicates, setDuplicates] = React.useState<CustomerDuplicate[]>([]);
+
+  const reloadDuplicates = React.useCallback(async () => {
+    try {
+      setDuplicates(
+        await api.get<CustomerDuplicate[]>(
+          `/api/companies/${company.id}/customers/${customerSlug}/duplicates`,
+        ),
+      );
+    } catch {
+      // A hint, never the page: without it the customer reads as it always did.
+      setDuplicates([]);
+    }
+  }, [company.id, customerSlug]);
+
+  React.useEffect(() => {
+    void reloadDuplicates();
+  }, [reloadDuplicates]);
+
+  useLiveRefetch(["customer"], reloadDuplicates);
+
+  function openMerge(target: AccountMergeTarget | null) {
+    setMergeTarget(target);
+    setMergeOpen(true);
+  }
+
+  // A taken domain on the edit page sends the person here to merge into the
+  // customer that has it: open the merge with that customer chosen, once.
+  const mergeIntoSlug = searchParams.get("mergeInto");
+  React.useEffect(() => {
+    if (!mergeIntoSlug || !customerId) return;
+    let cancelled = false;
+    api
+      .get<Customer>(`/api/companies/${company.id}/customers/${encodeURIComponent(mergeIntoSlug)}`)
+      .then((target) => {
+        if (cancelled || !canWrite || target.id === customerId || target.archivedAt) return;
+        openMerge(target);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (cancelled) return;
+        setSearchParams(
+          (prev) => {
+            const params = new URLSearchParams(prev);
+            params.delete("mergeInto");
+            return params;
+          },
+          { replace: true },
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mergeIntoSlug, customerId, company.id, canWrite, setSearchParams]);
+
+  /** "Not a duplicate" takes the pair off this page and Revenue's Data quality for good. */
+  function dismissDuplicate(duplicate: CustomerDuplicate) {
+    if (!customer) return;
+    setDuplicates((current) => current.filter((row) => row.id !== duplicate.id));
+    background(
+      () =>
+        api.post(
+          `/api/companies/${company.id}/customers/${customer.slug}/duplicates/${duplicate.id}/dismiss`,
+        ),
+      {
+        title: "Couldn’t dismiss this duplicate",
+        error: (err) => `${errorMessage(err)} It is listed again.`,
+        onError: () => setDuplicates((current) => [duplicate, ...current]),
+      },
+    );
+  }
 
   /**
    * Archive needs no confirm: invoices, deals, contacts, mail and contracts all
@@ -666,7 +749,12 @@ function CustomerOverview({ company }: { company: Company }) {
               <Pencil size={14} /> Edit
             </Button>
           )}
-          {canWrite && (
+          {canWrite && !customer.mergedInto && (
+            <Button variant="secondary" onClick={() => openMerge(null)}>
+              <GitMerge size={14} /> Merge
+            </Button>
+          )}
+          {canWrite && !customer.mergedInto && (
             <Button variant="secondary" onClick={toggleArchive}>
               {customer.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
               {customer.archivedAt ? "Unarchive" : "Archive"}
@@ -678,12 +766,66 @@ function CustomerOverview({ company }: { company: Company }) {
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </p>
-      {customer.archivedAt && (
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-          This customer is archived, so the Customers list hides it unless Show archived is on.
-          Its invoices, deals, contacts, and history are all kept.
-          {canWrite && " Unarchive brings it back."}
+      {customer.mergedInto ? (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+          This customer was merged into{" "}
+          <Link
+            to={`${customersUrl}/${customer.mergedInto.slug}`}
+            className="font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+          >
+            {customer.mergedInto.name}
+          </Link>
+          . Its invoices, deals, contacts, and history live there now; this page is the record of
+          the duplicate.
         </div>
+      ) : (
+        customer.archivedAt && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            This customer is archived, so the Customers list hides it unless Show archived is on.
+            Its invoices, deals, contacts, and history are all kept.
+            {canWrite && " Unarchive brings it back."}
+          </div>
+        )
+      )}
+      {!customer.archivedAt && duplicates.length > 0 && (
+        <section
+          aria-label="Possible duplicates"
+          className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          <p className="font-medium">
+            {duplicates.length === 1
+              ? "This may be the same company as another customer"
+              : `This may be the same company as ${duplicates.length} other customers`}
+          </p>
+          <ul className="mt-2 space-y-2">
+            {duplicates.map((duplicate) => (
+              <li key={duplicate.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0">
+                  <Link
+                    to={`${customersUrl}/${duplicate.customer.slug}`}
+                    className="font-medium underline-offset-2 hover:underline"
+                  >
+                    {duplicate.customer.name}
+                  </Link>
+                  <span className="text-amber-800 dark:text-amber-200/80">
+                    {" "}
+                    — {describeDuplicateReasons(duplicate.reasons)}
+                  </span>
+                </span>
+                {canWrite && (
+                  <span className="flex shrink-0 flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => dismissDuplicate(duplicate)}>
+                      Not a duplicate
+                    </Button>
+                    <Button size="sm" onClick={() => openMerge(duplicate.customer)}>
+                      <GitMerge size={14} /> Merge into {duplicate.customer.name}
+                    </Button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Narrow screens swipe the tab row; its scrollbar would only add a gray bar. */}
@@ -1181,6 +1323,39 @@ function CustomerOverview({ company }: { company: Company }) {
             resourceId={customer.id}
           />
         </div>
+      )}
+
+      {canWrite && (
+        <AccountMergeModal
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          noun="customer"
+          source={customer}
+          financeAccess={effectiveFinanceAccess(company)}
+          initialTarget={mergeTarget}
+          searchTargets={(query) =>
+            api
+              .get<{ customers: Customer[] }>(
+                `/api/companies/${company.id}/customers?limit=50${query ? `&q=${encodeURIComponent(query)}` : ""}`,
+              )
+              .then((page) => page.customers)
+          }
+          loadPreview={(targetId) =>
+            api.get<AccountMergePreview>(
+              `/api/companies/${company.id}/customers/${customer.slug}/merge-preview?targetCustomerId=${targetId}`,
+            )
+          }
+          merge={({ targetId, confirmSourceName, resolutions }) =>
+            api.post<AccountMergePreview>(
+              `/api/companies/${company.id}/customers/${customer.slug}/merge`,
+              { targetCustomerId: targetId, confirmSourceName, resolutions },
+            )
+          }
+          onMerged={(result) => {
+            setMergeOpen(false);
+            navigate(`${customersUrl}/${result.target.slug}`);
+          }}
+        />
       )}
     </div>
   );
