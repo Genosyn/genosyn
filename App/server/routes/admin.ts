@@ -10,6 +10,8 @@ import { getInstanceHealthReport } from "../services/instanceHealth.js";
 import { getMigrationReport } from "../services/adminMigrations.js";
 import { AdminQueryError, getDbSchema, runAdminQuery } from "../services/adminDbConsole.js";
 import { listAdminCompanies, listAdminUsers } from "../services/adminDirectory.js";
+import { AdminUserCreateError, createUserAsAdmin } from "../services/adminUserCreate.js";
+import { PASSWORD_MIN_LENGTH } from "../../shared/password.js";
 import { getSignupSettings, setSignupsDisabled } from "../services/signupSettings.js";
 import {
   clearSsoSettings,
@@ -650,6 +652,41 @@ adminRouter.get("/users", async (_req, res, next) => {
   try {
     res.json(await listAdminUsers());
   } catch (err) {
+    next(err);
+  }
+});
+
+const createUserSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    email: z.string().trim().email().max(254),
+    /** Null leaves the first password to the person, through a setup link. */
+    password: z.string().min(PASSWORD_MIN_LENGTH).max(1024).nullable(),
+    companyId: z.string().uuid().nullable(),
+    role: z.enum(["member", "admin"]).default("member"),
+  })
+  .strict();
+
+/**
+ * Add a user by hand — Admin → Users → Add user. The account can start in a
+ * company (as a Member or an admin; ownership is never handed out here) and
+ * with either a password the admin chose or a one-time setup link, which the
+ * response returns so it can be passed on when no email transport is set up.
+ * See `services/adminUserCreate.ts`.
+ */
+adminRouter.post("/users", validateBody(createUserSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof createUserSchema>;
+    const result = await createUserAsAdmin({ ...body, actorUserId: req.userId ?? null });
+    res.status(201).json({
+      user: result.row,
+      setupLink: result.setupLink,
+      emailStatus: result.emailStatus,
+    });
+  } catch (err) {
+    if (err instanceof AdminUserCreateError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });

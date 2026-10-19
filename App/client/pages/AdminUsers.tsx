@@ -3,31 +3,50 @@ import { useOutletContext } from "react-router-dom";
 import {
   AtSign,
   Building2,
+  Copy,
+  KeyRound,
+  Link2,
   RefreshCw,
   Search,
   ShieldCheck,
   ShieldOff,
   Trash2,
+  UserPlus,
 } from "lucide-react";
-import { AdminUserRow, api } from "../lib/api";
+import { AdminCompanyRow, AdminUserRow, api } from "../lib/api";
+import {
+  addUserOutcome,
+  addUserProblem,
+  addUserRequest,
+  emptyAddUserDraft,
+  type AddUserDraft,
+  type AddUserResponse,
+} from "../lib/adminAddUser";
 import { Avatar, adminUserAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
+import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
+import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
+import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { errorMessage } from "../lib/errors";
+import { PASSWORD_MIN_LENGTH } from "../../shared/password";
 import type { AdminOutletCtx } from "./AdminLayout";
 
 /**
  * Admin → Users. The instance-wide directory of every human Member across all
- * companies, with the one destructive action that belongs at this altitude:
- * hard-deleting a person and everything account-scoped to them. Deletion is
- * blocked in the UI for yourself and for anyone who still owns a company (the
- * server enforces both too) — the row surfaces the owned companies so the
- * operator knows what to reassign first.
+ * companies. Add user creates an account by hand — with a password the admin
+ * sets or a one-time setup link — optionally straight into a company. The one
+ * destructive action that belongs at this altitude is hard-deleting a person
+ * and everything account-scoped to them. Deletion is blocked in the UI for
+ * yourself and for anyone who still owns a company (the server enforces both
+ * too) — the row surfaces the owned companies so the operator knows what to
+ * reassign first.
  */
 export function AdminUsers() {
   const { me } = useOutletContext<AdminOutletCtx>();
@@ -37,6 +56,7 @@ export function AdminUsers() {
   const [query, setQuery] = React.useState("");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [promotingId, setPromotingId] = React.useState<string | null>(null);
+  const [adding, setAdding] = React.useState(false);
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -119,11 +139,17 @@ export function AdminUsers() {
       <TopBar
         title="Users"
         right={
-          <Button variant="secondary" onClick={reload} loading={loading}>
-            <RefreshCw size={14} /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={reload} loading={loading}>
+              <RefreshCw size={14} /> Refresh
+            </Button>
+            <Button onClick={() => setAdding(true)}>
+              <UserPlus size={14} /> Add user
+            </Button>
+          </div>
         }
       />
+      <AddUserModal open={adding} onClose={() => setAdding(false)} onAdded={() => void reload()} />
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
@@ -172,7 +198,7 @@ export function AdminUsers() {
             title={rows && rows.length === 0 ? "No users yet" : "No matching users"}
             description={
               rows && rows.length === 0
-                ? "Users appear here once people sign up or accept a company invite."
+                ? "Users appear here once people sign up, accept a company invite, or you add them."
                 : "Try a different search term."
             }
           />
@@ -316,4 +342,258 @@ function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/**
+ * The Add user form, then — once the account exists — what happens next: the
+ * setup link to pass on (when there is one) and whether anything was emailed,
+ * because an install without an email transport sends nothing.
+ */
+function AddUserModal({
+  open,
+  onClose,
+  onAdded,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [companies, setCompanies] = React.useState<AdminCompanyRow[] | null>(null);
+  const [draft, setDraft] = React.useState<AddUserDraft>(() => emptyAddUserDraft([]));
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [added, setAdded] = React.useState<(AddUserResponse & { email: string }) | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setDraft(emptyAddUserDraft([]));
+    setError(null);
+    setAdded(null);
+    setCopied(false);
+    setCompanies(null);
+    api
+      .get<AdminCompanyRow[]>("/api/admin/companies")
+      .then((rows) => {
+        if (cancelled) return;
+        setCompanies(rows);
+        setDraft((current) => ({ ...current, companyId: emptyAddUserDraft(rows).companyId }));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // The account can still be added; it just cannot start in a company.
+        setCompanies([]);
+        setError(errorMessage(err, "Could not load companies"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const set = <K extends keyof AddUserDraft>(key: K, value: AddUserDraft[K]) =>
+    setDraft((current) => ({ ...current, [key]: value }));
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const problem = addUserProblem(draft);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await api.post<AddUserResponse>("/api/admin/users", addUserRequest(draft));
+      setAdded({ ...response, email: response.user.email });
+      onAdded();
+    } catch (err) {
+      setError(errorMessage(err, "Could not add the user"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      setError("Couldn't copy the link. Select it and copy it yourself.");
+    }
+  };
+
+  if (added) {
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        title={`Added ${added.user.name}`}
+        description={added.user.email}
+        footer={<Button onClick={onClose}>Done</Button>}
+      >
+        <div className="flex flex-col gap-3 text-sm text-slate-600 dark:text-slate-300">
+          <p>{addUserOutcome(added)}</p>
+          {added.setupLink && (
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={added.setupLink}
+                aria-label="Setup link"
+                onFocus={(event) => event.currentTarget.select()}
+                className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => copyLink(added.setupLink!)}
+              >
+                <Copy size={14} /> Copy
+              </Button>
+            </div>
+          )}
+          {copied && <FormSuccess message="Setup link copied" />}
+          <FormError message={error} />
+        </div>
+      </Modal>
+    );
+  }
+
+  const company = companies?.find((row) => row.id === draft.companyId) ?? null;
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add user"
+      description="Create an account for someone without asking them to sign up."
+      onSubmit={submit}
+      footer={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={saving}>
+            <UserPlus size={14} /> Add user
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <FormError message={error} />
+        <Input
+          label="Name"
+          value={draft.name}
+          onChange={(event) => set("name", event.target.value)}
+          autoFocus
+          required
+          maxLength={120}
+        />
+        <Input
+          label="Email"
+          type="email"
+          value={draft.email}
+          onChange={(event) => set("email", event.target.value)}
+          required
+          maxLength={254}
+        />
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+            Password
+          </legend>
+          <SignInChoice
+            selected={draft.signIn === "link"}
+            onSelect={() => set("signIn", "link")}
+            icon={<Link2 size={15} />}
+            title="Let them choose it"
+            detail="They get a setup link that works once and expires in 7 days. You get it too, to pass on."
+          />
+          <SignInChoice
+            selected={draft.signIn === "password"}
+            onSelect={() => set("signIn", "password")}
+            icon={<KeyRound size={15} />}
+            title="Set it now"
+            detail="Choose their first password and give it to them yourself."
+          />
+          {draft.signIn === "password" && (
+            <Input
+              label="Password"
+              type="password"
+              autoComplete="new-password"
+              value={draft.password}
+              onChange={(event) => set("password", event.target.value)}
+              minLength={PASSWORD_MIN_LENGTH}
+              required
+            />
+          )}
+        </fieldset>
+        <Select
+          label="Company"
+          value={draft.companyId}
+          onChange={(event) => set("companyId", event.target.value)}
+          disabled={companies === null}
+        >
+          <option value="">No company yet</option>
+          {(companies ?? []).map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </Select>
+        {company && (
+          <Select
+            label={`Role in ${company.name}`}
+            value={draft.role}
+            onChange={(event) => set("role", event.target.value as AddUserDraft["role"])}
+          >
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </Select>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function SignInChoice({
+  selected,
+  onSelect,
+  icon,
+  title,
+  detail,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <label
+      className={clsx(
+        "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition",
+        selected
+          ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-100 dark:border-indigo-600 dark:bg-indigo-500/10 dark:ring-indigo-950"
+          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-900",
+      )}
+    >
+      <input type="radio" name="signIn" checked={selected} onChange={onSelect} className="sr-only" />
+      <span
+        className={clsx(
+          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+          selected
+            ? "bg-indigo-600 text-white"
+            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+          {title}
+        </span>
+        <span className="block text-xs text-slate-500 dark:text-slate-400">{detail}</span>
+      </span>
+    </label>
+  );
 }
