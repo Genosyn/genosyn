@@ -31,6 +31,12 @@ import {
 } from "./ledger.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import {
+  discountProblem,
+  type DocumentDiscount,
+  documentTotals,
+  NO_DISCOUNT,
+} from "../../shared/documentDiscount.js";
+import {
   formatGlobalSmtpSender,
   getEffectiveGlobalSmtp,
 } from "./globalEmailTransport.js";
@@ -140,7 +146,13 @@ export type LineDraft = {
   sortOrder?: number;
 };
 
-export type CreateInvoiceDraftInput = {
+/** A discount as a create or edit asks for it: either field alone sets it. */
+export type DiscountInput = {
+  discountPercent?: number;
+  discountAmountCents?: number;
+};
+
+export type CreateInvoiceDraftInput = DiscountInput & {
   companyId: string;
   customerId: string;
   subsidiaryId?: string | null;
@@ -153,6 +165,41 @@ export type CreateInvoiceDraftInput = {
   createdById?: string | null;
 };
 
+/** The discount an estimate or invoice carries now. */
+export function discountOf(doc: DocumentDiscount): DocumentDiscount {
+  return {
+    discountPercent: Number(doc.discountPercent) || 0,
+    discountAmountCents: Number(doc.discountAmountCents) || 0,
+  };
+}
+
+/**
+ * The discount a create or edit asks for, checked. Sending either field
+ * replaces the whole discount — the other becomes zero, so switching from a
+ * percentage to an amount never leaves both set — and sending neither keeps
+ * `current`.
+ */
+export function requestedDiscount(
+  input: DiscountInput,
+  current: DocumentDiscount = NO_DISCOUNT,
+): DocumentDiscount {
+  const next =
+    input.discountPercent === undefined && input.discountAmountCents === undefined
+      ? current
+      : {
+          discountPercent: input.discountPercent ?? 0,
+          discountAmountCents: input.discountAmountCents ?? 0,
+        };
+  const problem = discountProblem(next);
+  if (problem) throw new Error(problem);
+  return next;
+}
+
+/** Whether two discounts would charge the customer the same way. */
+export function sameDiscount(a: DocumentDiscount, b: DocumentDiscount): boolean {
+  return a.discountPercent === b.discountPercent && a.discountAmountCents === b.discountAmountCents;
+}
+
 /** Validate the customer and issuer before persisting the new document. */
 export async function createInvoiceDraft(input: CreateInvoiceDraftInput): Promise<Invoice> {
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
@@ -160,6 +207,7 @@ export async function createInvoiceDraft(input: CreateInvoiceDraftInput): Promis
     companyId: input.companyId,
   });
   if (!customer) throw new Error("Invalid customer");
+  const discount = requestedDiscount(input);
   const issuer = await resolveDocumentIssuer(input.companyId, input.subsidiaryId);
   const issueDate = input.issueDate ?? new Date();
   const repo = AppDataSource.getRepository(Invoice);
@@ -174,6 +222,7 @@ export async function createInvoiceDraft(input: CreateInvoiceDraftInput): Promis
     issueDate,
     dueDate: input.dueDate ?? new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000),
     currency: input.currency ?? customer.currency ?? "USD",
+    ...discount,
     notes: input.notes ?? "",
     footer: input.footer ?? "",
     createdById: input.createdById ?? null,
@@ -291,17 +340,6 @@ export async function priceLineDrafts(
   return priced;
 }
 
-/** Subtotal, tax and total of a set of priced lines. */
-export function sumLines(
-  lines: ReadonlyArray<Pick<PricedLine, "lineSubtotalCents" | "lineTaxCents" | "lineTotalCents">>,
-): { subtotalCents: number; taxCents: number; totalCents: number } {
-  return {
-    subtotalCents: lines.reduce((s, l) => s + l.lineSubtotalCents, 0),
-    taxCents: lines.reduce((s, l) => s + l.lineTaxCents, 0),
-    totalCents: lines.reduce((s, l) => s + l.lineTotalCents, 0),
-  };
-}
-
 /**
  * Whether `drafts` would leave a document's lines exactly as they are — the
  * same items in the same order, at the same quantities, prices and tax rates.
@@ -358,10 +396,11 @@ export async function replaceInvoiceLines(
 // ───────────────────────────── Recompute ──────────────────────────────
 
 /**
- * Re-derive `subtotalCents` / `taxCents` / `totalCents` / `paidCents` /
- * `balanceCents` and the `paid` status from the current lines + payments.
- * Saves and returns the invoice. Idempotent — call after any line or
- * payment write.
+ * Re-derive `subtotalCents` / `discountCents` / `taxCents` / `totalCents` /
+ * `paidCents` / `balanceCents` and the `paid` status from the current lines,
+ * discount and payments (`shared/documentDiscount.ts` owns the discount
+ * math). Saves and returns the invoice. Idempotent — call after any line,
+ * discount or payment write.
  *
  * Status rules:
  *   - Drafts stay drafts (we never auto-issue).
@@ -378,12 +417,12 @@ export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice>
       where: { invoiceId: invoice.id },
     }),
   ]);
-  const subtotal = lines.reduce((s, l) => s + l.lineSubtotalCents, 0);
-  const tax = lines.reduce((s, l) => s + l.lineTaxCents, 0);
-  const total = lines.reduce((s, l) => s + l.lineTotalCents, 0);
+  const totals = documentTotals(lines, discountOf(invoice));
+  const total = totals.totalCents;
   const paid = payments.reduce((s, p) => s + p.amountCents, 0);
-  invoice.subtotalCents = subtotal;
-  invoice.taxCents = tax;
+  invoice.subtotalCents = totals.subtotalCents;
+  invoice.discountCents = totals.discountCents;
+  invoice.taxCents = totals.taxCents;
   invoice.totalCents = total;
   invoice.paidCents = paid;
   // Credits and write-offs settle an invoice without any cash arriving.
@@ -991,7 +1030,7 @@ export class InvoiceEditError extends Error {
   }
 }
 
-export type InvoiceEditInput = {
+export type InvoiceEditInput = DiscountInput & {
   subsidiaryId?: string | null;
   customerId?: string;
   issueDate?: Date;
@@ -1042,10 +1081,10 @@ async function saveInvoiceLines(
  *   - Once money is applied its currency is fixed, and so is the issue date of
  *     a foreign-currency invoice, whose payments cleared the receivable at
  *     that date's exchange rate.
- *   - A change to its amounts, currency or issue date posts an
- *     `invoice_revision` entry ({@link postInvoiceRevision}), so it is refused
- *     inside a closed period like any other posting. If the ledger refuses the
- *     entry, the edit is put back and the ledger's reason surfaces.
+ *   - A change to its amounts — lines or discount — currency or issue date
+ *     posts an `invoice_revision` entry ({@link postInvoiceRevision}), so it
+ *     is refused inside a closed period like any other posting. If the ledger
+ *     refuses the entry, the edit is put back and the ledger's reason surfaces.
  *
  * An issued invoice's unchanged lines are left exactly as saved, and changed
  * ones keep the tax rates it was issued with. Nothing here emails the
@@ -1066,6 +1105,7 @@ export async function updateInvoice(
     where: { invoiceId: invoice.id },
     order: { sortOrder: "ASC" },
   });
+  const previousDiscount = discountOf(invoice);
   const previous = {
     subsidiaryId: invoice.subsidiaryId,
     issuerSnapshot: invoice.issuerSnapshot,
@@ -1075,8 +1115,16 @@ export async function updateInvoice(
     currency: invoice.currency,
     notes: invoice.notes,
     footer: invoice.footer,
+    ...previousDiscount,
   };
-  const previousTotals = sumLines(existingLines);
+  const previousTotals = documentTotals(existingLines, previousDiscount);
+  let nextDiscount: DocumentDiscount;
+  try {
+    nextDiscount = requestedDiscount(input, previousDiscount);
+  } catch (err) {
+    throw new InvoiceEditError((err as Error).message, 400);
+  }
+  const discountChanged = !sameDiscount(nextDiscount, previousDiscount);
 
   const customerChanged = input.customerId !== undefined && input.customerId !== invoice.customerId;
   const subsidiaryChanged =
@@ -1096,7 +1144,7 @@ export async function updateInvoice(
           issued ? keptTaxSnapshots(existingLines) : undefined,
         )
       : null;
-  const nextTotals = priced ? sumLines(priced) : previousTotals;
+  const nextTotals = documentTotals(priced ?? existingLines, nextDiscount);
   // On an issued invoice the same day keeps the stored moment.
   const nextIssueDate =
     input.issueDate !== undefined && (!issued || issueDateChanged)
@@ -1192,8 +1240,10 @@ export async function updateInvoice(
   if (input.notes !== undefined && input.notes !== invoice.notes) changed.push("notes");
   if (input.footer !== undefined && input.footer !== invoice.footer) changed.push("footer");
   if (linesChanged) changed.push("lines");
+  if (discountChanged) changed.push("discount");
 
   if (customer) invoice.customerId = customer.id;
+  Object.assign(invoice, nextDiscount);
   if (input.notes !== undefined) invoice.notes = input.notes;
   if (input.footer !== undefined) invoice.footer = input.footer;
   if (input.currency !== undefined) invoice.currency = input.currency;
@@ -1231,7 +1281,7 @@ export async function updateInvoice(
 
 /**
  * Create a fresh `draft` invoice that copies the customer, currency,
- * notes, footer, and (tax-snapshotted) line items from `source`. Used
+ * discount, notes, footer, and (tax-snapshotted) line items from `source`. Used
  * by the "Duplicate" action on any invoice regardless of status — you
  * can fork a paid or void invoice back into a new draft without
  * touching the original (and without copying payments).
@@ -1262,6 +1312,7 @@ export async function duplicateInvoice(
     issueDate,
     dueDate,
     currency: source.currency,
+    ...discountOf(source),
     notes: source.notes,
     footer: source.footer,
     createdById: actorUserId,

@@ -4,6 +4,7 @@ import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
+import { discountLabel } from "../../shared/documentDiscount.js";
 import { getFinanceSettings } from "./fx.js";
 import { htmlToPdf } from "./htmlToPdf.js";
 import { documentIssuerFields } from "./subsidiaries.js";
@@ -202,6 +203,18 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
   const { estimate, customer, lines } = input;
   const issuer = documentIssuerFields(estimate, input);
   const cur = estimate.currency;
+  // The lines read as billed; the discount comes off their subtotal, and the
+  // stored subtotal is already net of it.
+  const discountCents = estimate.discountCents ?? 0;
+  const discountRow =
+    discountCents > 0
+      ? `<div class="row"><span>${esc(
+          discountLabel({
+            discountPercent: estimate.discountPercent ?? 0,
+            discountAmountCents: estimate.discountAmountCents ?? 0,
+          }),
+        )}</span><span class="num">-${formatMoney(discountCents, cur)}</span></div>`
+      : "";
   const lineRows = lines
     .map((l) => {
       const qty = fmtQty(l.quantity);
@@ -291,7 +304,8 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
     </table>
 
     <div class="totals">
-      <div class="row"><span>Subtotal</span><span class="num">${formatMoney(estimate.subtotalCents, cur)}</span></div>
+      <div class="row"><span>Subtotal</span><span class="num">${formatMoney(estimate.subtotalCents + discountCents, cur)}</span></div>
+      ${discountRow}
       <div class="row"><span>Tax</span><span class="num">${formatMoney(estimate.taxCents, cur)}</span></div>
       <div class="row grand"><span>Total</span><span class="num">${formatMoney(estimate.totalCents, cur)}</span></div>
     </div>

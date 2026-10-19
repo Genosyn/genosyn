@@ -45,6 +45,7 @@ import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { splitAddressList } from "@/lib/addressList";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { discountLabel } from "../../shared/documentDiscount";
 
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
@@ -676,9 +677,17 @@ export default function FinanceInvoiceDetail() {
               <div className="flex justify-between text-slate-500 dark:text-slate-400">
                 <span>Subtotal</span>
                 <span className="tabular-nums">
-                  {formatMoney(invoice.subtotalCents, invoice.currency)}
+                  {formatMoney(invoice.subtotalCents + invoice.discountCents, invoice.currency)}
                 </span>
               </div>
+              {invoice.discountCents > 0 && (
+                <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                  <span>{discountLabel(invoice)}</span>
+                  <span className="tabular-nums">
+                    -{formatMoney(invoice.discountCents, invoice.currency)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between text-slate-500 dark:text-slate-400">
                 <span>Tax</span>
                 <span className="tabular-nums">

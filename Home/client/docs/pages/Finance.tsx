@@ -49,8 +49,7 @@ export function Finance() {
         <LI>
           <Strong>Catalog</Strong> — reusable <Code>Products</Code> and <Code>Tax rates</Code>,
           snapshotted onto every line so editing a product never rewrites historical documents.
-          Click a product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open
-          it.
+          Click a product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
         </LI>
         <LI>
           <Strong>Ledger</Strong> — chart of accounts, journal entries, trial balance, P&amp;L /
@@ -136,24 +135,32 @@ export function Finance() {
         </LI>
       </OL>
 
+      <H3 id="estimates-discount">Discounts</H3>
+      <P>
+        Estimates take a discount just like invoices — a percentage or a fixed amount off the whole
+        quote, before tax. Converting the estimate copies the discount onto the invoice, so the
+        customer is billed what they were quoted. See{" "}
+        <DocLink to="/docs/finance#invoices-discount">Discounts</DocLink> under Invoices.
+      </P>
+
       <H3 id="estimates-edit">Editing a sent estimate</H3>
       <P>
         A quote that has gone out can still change. On a sent or accepted estimate, click{" "}
-        <Code>Edit</Code>: the lines, dates, currency, notes and footer are all editable, and the
-        estimate keeps its number. Its customer and issuer are fixed once it is issued, because the
-        number belongs to that customer — duplicate it to quote someone else. Saving never emails
-        the customer: <Code>Save changes</Code> only saves, while <Code>Save &amp; resend</Code>{" "}
-        saves and emails the updated estimate to the customer straight away, like{" "}
-        <Code>Resend email</Code>.
+        <Code>Edit</Code>: the lines, discount, dates, currency, notes and footer are all editable,
+        and the estimate keeps its number. Its customer and issuer are fixed once it is issued,
+        because the number belongs to that customer — duplicate it to quote someone else. Saving
+        never emails the customer: <Code>Save changes</Code> only saves, while{" "}
+        <Code>Save &amp; resend</Code> saves and emails the updated estimate to the customer
+        straight away, like <Code>Resend email</Code>.
       </P>
       <P>
         The customer accepted the version they saw, so any change to an <Strong>accepted</Strong>{" "}
         estimate moves it back to <Strong>Sent</Strong> — mark it accepted again once they accept
         the new one. Declined, void and converted estimates can&apos;t be edited: duplicate one to
-        quote again, or edit the invoice it became. Lines you leave alone stay exactly as they
-        were, and changed lines keep the tax rate the estimate was issued with even if that rate
-        has since changed. If the estimate changed after it was last emailed, its page says so with
-        a <Code>Resend</Code> button, and its{" "}
+        quote again, or edit the invoice it became. Lines you leave alone stay exactly as they were,
+        and changed lines keep the tax rate the estimate was issued with even if that rate has since
+        changed. If the estimate changed after it was last emailed, its page says so with a{" "}
+        <Code>Resend</Code> button, and its{" "}
         <DocLink to="/docs/security#record-history">History</DocLink> records the edit, what
         changed, and the old and new totals.
       </P>
@@ -259,8 +266,8 @@ export function Finance() {
         recipients, add optional additional <Code>Cc</Code> recipients, include a one-off message,
         and choose whether to attach the invoice PDF. Separate multiple addresses with commas. Every
         resend attempt then appears in the invoice&apos;s{" "}
-        <DocLink to="/docs/security#record-history">History</DocLink> with who sent it, its
-        delivery status, To and Cc recipients, and attachment result.
+        <DocLink to="/docs/security#record-history">History</DocLink> with who sent it, its delivery
+        status, To and Cc recipients, and attachment result.
       </P>
       <P>
         <Code>Duplicate</Code> works the same way as on estimates — from the row menu or the detail
@@ -271,22 +278,46 @@ export function Finance() {
         until you issue it.
       </P>
 
+      <H3 id="invoices-discount">Discounts</H3>
+      <P>
+        To give a customer a discount on a whole invoice or estimate, click{" "}
+        <Code>Add discount</Code> under the totals on its edit page and type a percentage or a fixed
+        amount — the toggle beside the box switches between <Code>%</Code> and the document&apos;s
+        currency. The totals update as you type. The discount comes off the subtotal{" "}
+        <Strong>before tax</Strong>, so tax is charged on the discounted price; with several lines
+        it is shared across them in proportion to their amounts, and each keeps its own tax rate.
+        The detail page, the PDF and the email show the subtotal, the discount and the total, and
+        the lines still read quantity × unit price.
+      </P>
+      <P>
+        A discount stays with the document. <Code>Duplicate</Code> keeps it, converting an estimate
+        carries it onto the invoice, and a full credit note credits what was charged — the lines
+        less a matching <Code>Discount</Code> line. In the books an invoice&apos;s revenue is its
+        discounted subtotal; no separate discount account is involved. A discount can be added to a
+        sent invoice or estimate like any other edit, so the same limits apply: it can&apos;t take
+        an invoice below what is already paid, and it posts an <Strong>Invoice revised</Strong>{" "}
+        entry. AI Employees can include one with <Code>discountPercent</Code> or{" "}
+        <Code>discountAmountCents</Code> on <Code>create_estimate</Code> and{" "}
+        <Code>create_invoice</Code>.
+      </P>
+
       <H3 id="invoices-edit">Editing and resending an invoice</H3>
       <P>
         A sent or paid invoice can be corrected and resent under the same number. Click{" "}
-        <Code>Edit</Code> on the invoice: the lines, dates, notes and footer are editable, and so is
-        the currency until money is applied. Then choose <Code>Save changes</Code>, or{" "}
+        <Code>Edit</Code> on the invoice: the lines, discount, dates, notes and footer are editable,
+        and so is the currency until money is applied. Then choose <Code>Save changes</Code>, or{" "}
         <Code>Save &amp; resend</Code> to open the resend dialog with a note telling the customer
         this copy replaces the earlier one — you still confirm the recipients and the message before
         anything goes out. If you save without resending, the invoice&apos;s page says it changed
         since it was last emailed, with a <Code>Resend</Code> button.
       </P>
       <P>
-        The books follow the edit. A change to the amounts, currency or issue date posts an{" "}
-        <Strong>Invoice revised</Strong> journal entry that brings Accounts Receivable, revenue and
-        tax payable to what the invoice now says; the original issue entry stays in the journal.
-        Moving the issue date moves the revenue to the new date&apos;s period, and voiding a revised
-        invoice reverses the revisions along with the original. What keeps an edit safe:
+        The books follow the edit. A change to the amounts — lines or discount — currency or issue
+        date posts an <Strong>Invoice revised</Strong> journal entry that brings Accounts
+        Receivable, revenue and tax payable to what the invoice now says; the original issue entry
+        stays in the journal. Moving the issue date moves the revenue to the new date&apos;s period,
+        and voiding a revised invoice reverses the revisions along with the original. What keeps an
+        edit safe:
       </P>
       <UL>
         <LI>
@@ -323,11 +354,11 @@ export function Finance() {
         A payment&apos;s <Code>Reference</Code> — the bank transfer id, Stripe charge id or cheque
         number — names one real payment, and Genosyn records it only once. Recording a payment whose
         reference is already on an invoice is refused with the invoice it is on, whether that is
-        another invoice or the same one, so the same money can&apos;t settle two invoices. The
-        match ignores capitals and surrounding spaces. If a payment went on the wrong invoice,
-        delete it there and record it on the right one. Payments recorded without a reference
-        can&apos;t be told apart, so they are never treated as the same payment. AI Employees
-        recording payments with <Code>record_payment</Code> are held to the same rule.
+        another invoice or the same one, so the same money can&apos;t settle two invoices. The match
+        ignores capitals and surrounding spaces. If a payment went on the wrong invoice, delete it
+        there and record it on the right one. Payments recorded without a reference can&apos;t be
+        told apart, so they are never treated as the same payment. AI Employees recording payments
+        with <Code>record_payment</Code> are held to the same rule.
       </P>
 
       <H3 id="invoices-void">Voiding an invoice</H3>
@@ -453,20 +484,20 @@ export function Finance() {
 
       <H3 id="recurring-reliability">Failed runs and downtime</H3>
       <P>
-        Each scheduled run is recorded before any work starts, so a crash, restart, or outage
-        cannot lose it. When the server comes back, it bills what came due while it was down
-        (several missed slots collapse into one invoice) and finishes any run it was in the middle
-        of. It continues that run&apos;s invoice rather than creating a second one, so a customer is
-        never billed twice for the same slot.
+        Each scheduled run is recorded before any work starts, so a crash, restart, or outage cannot
+        lose it. When the server comes back, it bills what came due while it was down (several
+        missed slots collapse into one invoice) and finishes any run it was in the middle of. It
+        continues that run&apos;s invoice rather than creating a second one, so a customer is never
+        billed twice for the same slot.
       </P>
       <P>
         If creating, issuing, or emailing the invoice fails, Genosyn retries it automatically after
-        1, 5, and 15 minutes, then 1, 3, and 6 hours, and every 6 hours after that until it succeeds.
-        Email stops after six failed attempts, or at once when no email transport is configured;
-        the invoice stays issued and you send it from its page. Meanwhile the list marks the
-        schedule <Strong>Retrying</Strong> or <Strong>Email not sent</Strong>, and the detail page
-        shows the error and the time of the next attempt. A schedule starts its next run only after
-        the current one finishes. Pausing or ending the schedule stops a run that hasn&apos;t
+        1, 5, and 15 minutes, then 1, 3, and 6 hours, and every 6 hours after that until it
+        succeeds. Email stops after six failed attempts, or at once when no email transport is
+        configured; the invoice stays issued and you send it from its page. Meanwhile the list marks
+        the schedule <Strong>Retrying</Strong> or <Strong>Email not sent</Strong>, and the detail
+        page shows the error and the time of the next attempt. A schedule starts its next run only
+        after the current one finishes. Pausing or ending the schedule stops a run that hasn&apos;t
         finished.
       </P>
 
@@ -487,13 +518,13 @@ export function Finance() {
         From the detail page, <Code>Run now</Code> generates an invoice immediately without
         consuming the scheduled slot, useful for catch-up runs or testing the template. While a
         scheduled run is retrying, the button reads <Code>Retry now</Code> and finishes that run
-        instead of creating an extra invoice. The{" "}
-        <Code>More actions</Code> menu holds the lifecycle controls: <Code>Pause</Code> stops
-        scheduled runs without losing the template and <Code>Resume</Code> restarts the next tick
-        from now; <Code>End</Code> is terminal — the schedule becomes read-only but every invoice it
-        already created stays in your books; <Code>Duplicate</Code> clones the template into a new,
-        paused schedule so you can tweak and resume it without touching the original. Optional caps
-        — max runs and end date — flip the status to <Code>ended</Code> automatically once hit.
+        instead of creating an extra invoice. The <Code>More actions</Code> menu holds the lifecycle
+        controls: <Code>Pause</Code> stops scheduled runs without losing the template and{" "}
+        <Code>Resume</Code> restarts the next tick from now; <Code>End</Code> is terminal — the
+        schedule becomes read-only but every invoice it already created stays in your books;{" "}
+        <Code>Duplicate</Code> clones the template into a new, paused schedule so you can tweak and
+        resume it without touching the original. Optional caps — max runs and end date — flip the
+        status to <Code>ended</Code> automatically once hit.
       </P>
 
       <H2 id="reconciliation">Bank reconciliation</H2>
@@ -509,9 +540,9 @@ export function Finance() {
         <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
         payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
         money-out side that payment matching alone used to miss. Entries already matched to another
-        line, and the categorization entries described below, are never offered twice, and a
-        payment matched to one bank line can&apos;t be matched to a second one — unmatch the first
-        line to move it.
+        line, and the categorization entries described below, are never offered twice, and a payment
+        matched to one bank line can&apos;t be matched to a second one — unmatch the first line to
+        move it.
       </P>
       <P>
         A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a
@@ -562,17 +593,17 @@ export function Finance() {
       <H2 id="ledger">Ledger and reports</H2>
       <P>
         Every state change on an invoice or bill emits a journal entry into the same ledger you can
-        write to by hand from <Code>Finance → Journal entries</Code>. The chart of accounts seeds sensible
-        defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable, 2300
-        Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can rename,
-        reparent, or add accounts freely as long as you don&apos;t touch the system codes the
-        auto-posting depends on. From there, the <Code>Trial balance</Code> and <Code>Reports</Code>{" "}
-        pages produce the standard accountant outputs (P&amp;L, balance sheet, cash flow) with
-        optional period comparisons. Each report opens with a monthly graph built from the same
-        ledger calculation as the table beneath it: revenue, expenses, and net income for P&amp;L;
-        assets, liabilities, and equity for the balance sheet; and operating, net, and closing cash
-        for cash flow. Custom periods longer than two years graph the most recent 24 months so the
-        axis stays readable.
+        write to by hand from <Code>Finance → Journal entries</Code>. The chart of accounts seeds
+        sensible defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable,
+        2300 Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can
+        rename, reparent, or add accounts freely as long as you don&apos;t touch the system codes
+        the auto-posting depends on. From there, the <Code>Trial balance</Code> and{" "}
+        <Code>Reports</Code> pages produce the standard accountant outputs (P&amp;L, balance sheet,
+        cash flow) with optional period comparisons. Each report opens with a monthly graph built
+        from the same ledger calculation as the table beneath it: revenue, expenses, and net income
+        for P&amp;L; assets, liabilities, and equity for the balance sheet; and operating, net, and
+        closing cash for cash flow. Custom periods longer than two years graph the most recent 24
+        months so the axis stays readable.
       </P>
 
       <H2 id="proposals">Proposals (maker-checker)</H2>
@@ -641,10 +672,10 @@ export function Finance() {
         <LI>
           <Strong>Read-only</Strong> — view every finance page but change nothing. Pages leave out
           the controls that would change something, such as <Strong>New invoice</Strong>,{" "}
-          <Strong>Issue &amp; send</Strong>, <Strong>Record payment</Strong>,{" "}
-          <Strong>Void</Strong>, and a proposal&apos;s <Strong>Apply</Strong>, and show settings,
-          templates, and a vendor&apos;s details for reading only. Following a saved link to a
-          create or edit form shows a note in its place, with a way back. The same holds in{" "}
+          <Strong>Issue &amp; send</Strong>, <Strong>Record payment</Strong>, <Strong>Void</Strong>,
+          and a proposal&apos;s <Strong>Apply</Strong>, and show settings, templates, and a
+          vendor&apos;s details for reading only. Following a saved link to a create or edit form
+          shows a note in its place, with a way back. The same holds in{" "}
           <DocLink to="/docs/customers#access">Customers</DocLink>: they can open every customer but
           not create, edit, archive, or delete one. Revenue holds an account&apos;s{" "}
           <DocLink to="/docs/revenue#billing-details">billing details</DocLink> to the same bar:
@@ -699,9 +730,9 @@ export function Finance() {
         it from <Code>Finance → AI access</Code>. Every write an AI Employee makes lands in the
         audit log (marked as an AI actor) and on the employee&apos;s journal, exactly like the human
         finance routes. Members still reach Finance through the app as usual; grants govern the AI
-        surface only. Any level also lets the employee&apos;s Revenue tools return an
-        account&apos;s <DocLink to="/docs/revenue#billing-details">billing details</DocLink>;
-        changing them through those tools takes Invoicing or Full accounting.
+        surface only. Any level also lets the employee&apos;s Revenue tools return an account&apos;s{" "}
+        <DocLink to="/docs/revenue#billing-details">billing details</DocLink>; changing them through
+        those tools takes Invoicing or Full accounting.
       </P>
       <P>
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer
@@ -731,10 +762,10 @@ export function Finance() {
         <Code> list_estimates</Code>, inspect their line items and notes with{" "}
         <Code>get_estimate</Code>, and read approved prices from <Code>list_finance_products</Code>.
         Lists return a bounded page and the next offset. The product catalogue includes prices in
-        their original currency and available default tax rates. Archived products, and estimates
-        a Member <a href="#estimates-archive">archived</a>, are hidden unless the employee passes{" "}
-        <Code>includeArchived</Code>. Missing pricing or unavailable tax defaults need clarification, never an invented
-        amount.
+        their original currency and available default tax rates. Archived products, and estimates a
+        Member <a href="#estimates-archive">archived</a>, are hidden unless the employee passes{" "}
+        <Code>includeArchived</Code>. Missing pricing or unavailable tax defaults need
+        clarification, never an invented amount.
       </P>
 
       <H3 id="ai-finance-tools">Finance tools</H3>

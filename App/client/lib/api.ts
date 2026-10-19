@@ -4587,7 +4587,12 @@ export type Invoice = {
   issueDate: string;
   dueDate: string;
   currency: string;
+  /** Pre-tax amount charged — already net of `discountCents`. */
   subtotalCents: number;
+  /** Whole-invoice discount; see `shared/documentDiscount.ts`. */
+  discountPercent: number;
+  discountAmountCents: number;
+  discountCents: number;
   taxCents: number;
   totalCents: number;
   paidCents: number;
@@ -4965,7 +4970,12 @@ export type Estimate = {
   issueDate: string;
   validUntil: string;
   currency: string;
+  /** Pre-tax amount charged — already net of `discountCents`. */
   subtotalCents: number;
+  /** Whole-estimate discount; see `shared/documentDiscount.ts`. */
+  discountPercent: number;
+  discountAmountCents: number;
+  discountCents: number;
   taxCents: number;
   totalCents: number;
   notes: string;

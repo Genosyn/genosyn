@@ -1587,6 +1587,7 @@ function serializeInvoiceRow(h: HydratedInvoiceRow) {
     issuerSnapshot: h.issuerSnapshot,
     customer: h.customer ? { name: h.customer.name, slug: h.customer.slug } : null,
     subtotalCents: h.subtotalCents,
+    discountCents: h.discountCents,
     taxCents: h.taxCents,
     totalCents: h.totalCents,
     paidCents: h.paidCents,
@@ -1600,6 +1601,8 @@ function serializeInvoiceFull(h: HydratedInvoiceRow) {
   return {
     ...serializeInvoiceRow(h),
     customerId: h.customerId,
+    discountPercent: h.discountPercent,
+    discountAmountCents: h.discountAmountCents,
     notes: h.notes,
     footer: h.footer,
     sentAt: h.sentAt,
@@ -1689,6 +1692,9 @@ function serializeEstimateFull(estimate: HydratedEstimate) {
       : null,
     customerId: estimate.customerId,
     subtotalCents: estimate.subtotalCents,
+    discountPercent: estimate.discountPercent,
+    discountAmountCents: estimate.discountAmountCents,
+    discountCents: estimate.discountCents,
     taxCents: estimate.taxCents,
     totalCents: estimate.totalCents,
     issueDate: estimate.issueDate,
@@ -2613,6 +2619,12 @@ mcpInternalRouter.post(
   },
 );
 
+/** A whole-document discount before tax: a percentage or an amount, not both. */
+const toolDiscountFields = {
+  discountPercent: z.number().min(0).max(100).optional(),
+  discountAmountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+};
+
 const createEstimateSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
@@ -2623,6 +2635,7 @@ const createEstimateSchema = z
     notes: z.string().max(4000).optional(),
     footer: z.string().max(1000).optional(),
     lines: z.array(invoiceLineSchema).min(1).max(200),
+    ...toolDiscountFields,
   })
   .strict();
 
@@ -2664,6 +2677,8 @@ mcpInternalRouter.post(
         notes: body.notes,
         footer: body.footer,
         lines: body.lines,
+        discountPercent: body.discountPercent,
+        discountAmountCents: body.discountAmountCents,
         createdById: null,
       });
       const [hydrated] = await hydrateEstimates(companyId, [estimate]);
@@ -2772,6 +2787,7 @@ const createInvoiceSchema = z
     notes: z.string().max(4000).optional(),
     footer: z.string().max(1000).optional(),
     lines: z.array(invoiceLineSchema).min(1).max(200),
+    ...toolDiscountFields,
   })
   .strict();
 
@@ -2820,6 +2836,8 @@ mcpInternalRouter.post(
         notes: body.notes,
         footer: body.footer,
         lines: body.lines,
+        discountPercent: body.discountPercent,
+        discountAmountCents: body.discountAmountCents,
         createdById: null,
       });
     } catch (err) {

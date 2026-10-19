@@ -15,7 +15,8 @@ import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { computeLineTotals, reconcilePartsToTotal, roundHalfAway } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import { findClosedPeriodCovering, postLedgerEntry, requireAccountsByCode } from "./ledger.js";
-import { recomputeInvoiceTotals } from "./finance.js";
+import { discountOf, recomputeInvoiceTotals } from "./finance.js";
+import { discountLabel, documentTotals } from "../../shared/documentDiscount.js";
 
 /**
  * Customer-credit service. Phase H of the Finance milestone (M19) — see
@@ -239,9 +240,10 @@ export async function createCreditNoteDraft(
 
 /**
  * Raise a credit memo directly from an invoice. `mode: "full"` copies every
- * invoice line VERBATIM (snapshots and all) so the memo mirrors the sale
- * exactly; `mode: "amount"` adds a single ex-tax adjustment line. Returns a
- * draft — the caller issues it.
+ * invoice line VERBATIM (snapshots and all), plus a line for the invoice's
+ * discount if it had one, so the memo mirrors the sale exactly;
+ * `mode: "amount"` adds a single ex-tax adjustment line. Returns a draft —
+ * the caller issues it.
  */
 export async function createCreditNoteFromInvoice(
   invoice: Invoice,
@@ -291,6 +293,31 @@ export async function createCreditNoteFromInvoice(
         }),
       ),
     );
+    // The sale was discounted, so crediting it in full credits what was
+    // charged: the lines as billed, less the same discount and the tax it
+    // saved — never more revenue or tax than the invoice booked.
+    const discount = discountOf(invoice);
+    const totals = documentTotals(invLines, discount);
+    if (totals.discountCents > 0) {
+      const taxBack = totals.taxCents - invLines.reduce((s, l) => s + l.lineTaxCents, 0);
+      await lineRepo.save(
+        lineRepo.create({
+          creditId: credit.id,
+          productId: null,
+          description: discountLabel(discount),
+          quantity: 1,
+          unitPriceCents: -totals.discountCents,
+          taxRateId: null,
+          taxName: "",
+          taxPercent: 0,
+          taxInclusive: false,
+          lineSubtotalCents: -totals.discountCents,
+          lineTaxCents: taxBack,
+          lineTotalCents: taxBack - totals.discountCents,
+          sortOrder: (invLines.at(-1)?.sortOrder ?? 0) + 1,
+        }),
+      );
+    }
   } else {
     const amount = Math.trunc(opts.amountCents ?? 0);
     if (amount <= 0) throw new Error("Credit amount must be positive");

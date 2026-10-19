@@ -5,6 +5,7 @@ import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
+import { discountLabel } from "../../shared/documentDiscount.js";
 import { getFinanceSettings } from "./fx.js";
 import { htmlToPdf } from "./htmlToPdf.js";
 import { documentIssuerFields } from "./subsidiaries.js";
@@ -229,6 +230,18 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
   const { invoice, customer, lines, payments } = input;
   const issuer = documentIssuerFields(invoice, input);
   const cur = invoice.currency;
+  // The lines read as billed; the discount comes off their subtotal, and the
+  // stored subtotal is already net of it.
+  const discountCents = invoice.discountCents ?? 0;
+  const discountRow =
+    discountCents > 0
+      ? `<div class="row"><span>${esc(
+          discountLabel({
+            discountPercent: invoice.discountPercent ?? 0,
+            discountAmountCents: invoice.discountAmountCents ?? 0,
+          }),
+        )}</span><span class="num">-${formatMoney(discountCents, cur)}</span></div>`
+      : "";
   const lineRows = lines
     .map((l) => {
       const qty = fmtQty(l.quantity);
@@ -355,7 +368,8 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
     </table>
 
     <div class="totals">
-      <div class="row"><span>Subtotal</span><span class="num">${formatMoney(invoice.subtotalCents, cur)}</span></div>
+      <div class="row"><span>Subtotal</span><span class="num">${formatMoney(invoice.subtotalCents + discountCents, cur)}</span></div>
+      ${discountRow}
       <div class="row"><span>Tax</span><span class="num">${formatMoney(invoice.taxCents, cur)}</span></div>
       <div class="row grand"><span>Total</span><span class="num">${formatMoney(invoice.totalCents, cur)}</span></div>
       ${invoice.paidCents > 0 ? `<div class="row"><span>Paid</span><span class="num">${formatMoney(invoice.paidCents, cur)}</span></div>` : ""}

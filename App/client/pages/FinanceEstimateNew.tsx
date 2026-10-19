@@ -17,6 +17,14 @@ import {
   TaxRate,
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import {
+  type DiscountDraft,
+  discountDraftFrom,
+  discountDraftProblem,
+  discountFromDraft,
+  NO_DISCOUNT_DRAFT,
+  previewTotals,
+} from "../lib/discountForm";
 import { initialCustomerPick, requestedCustomerPick } from "../lib/customerPick";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
@@ -29,6 +37,7 @@ import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
+import { DiscountField } from "@/components/finance/DiscountField";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -131,6 +140,7 @@ function EstimateForm() {
   const [notes, setNotes] = React.useState("");
   const [footer, setFooter] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
+  const [discount, setDiscount] = React.useState<DiscountDraft>(NO_DISCOUNT_DRAFT);
   // The estimate being edited, as loaded — what an issued one may still change.
   const [existing, setExisting] = React.useState<Estimate | null>(null);
   const [busy, setBusy] = React.useState<null | "save" | "resend">(null);
@@ -175,6 +185,7 @@ function EstimateForm() {
           setCurrency(existing.currency);
           setNotes(existing.notes);
           setFooter(existing.footer);
+          setDiscount(discountDraftFrom(existing));
           setLines(
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
@@ -230,38 +241,15 @@ function EstimateForm() {
     });
   }
 
-  const preview = React.useMemo(() => {
-    let subtotal = 0;
-    let tax = 0;
-    let total = 0;
-    for (const l of lines) {
-      const qty = Number(l.quantityText) || 0;
-      const unit = parseMoneyToCents(l.priceText);
-      const gross = Math.round(qty * unit);
-      const rate = taxRates.find((r) => r.id === l.taxRateId);
-      const pct = rate?.ratePercent ?? 0;
-      const inclusive = rate?.inclusive ?? false;
-      if (pct <= 0) {
-        subtotal += gross;
-        total += gross;
-        continue;
-      }
-      if (inclusive) {
-        const t = Math.round((gross * pct) / (100 + pct));
-        subtotal += gross - t;
-        tax += t;
-        total += gross;
-      } else {
-        const t = Math.round((gross * pct) / 100);
-        subtotal += gross;
-        tax += t;
-        total += gross + t;
-      }
-    }
-    return { subtotal, tax, total };
-  }, [lines, taxRates]);
+  const preview = React.useMemo(
+    () => previewTotals(lines, taxRates, discount),
+    [lines, taxRates, discount],
+  );
 
-  const canSave = !!customerId && lines.some((l) => l.description.trim().length > 0);
+  const canSave =
+    !!customerId &&
+    lines.some((l) => l.description.trim().length > 0) &&
+    !discountDraftProblem(discount);
   // Issued: the customer already holds a copy under this number.
   const issued = existing !== null && existing.status !== "draft";
 
@@ -289,6 +277,7 @@ function EstimateForm() {
         notes,
         footer,
         lines: lineDrafts,
+        ...discountFromDraft(discount),
       };
       const est =
         isEdit && estimateSlug
@@ -684,18 +673,26 @@ function EstimateForm() {
           </div>
         </div>
 
-        <div className="mt-6 ml-auto w-72 space-y-1 text-sm">
+        <div className="mt-6 ml-auto w-full space-y-1 text-sm sm:w-72">
           <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Subtotal</span>
-            <span className="tabular-nums">{formatMoney(preview.subtotal, currency)}</span>
+            <span className="tabular-nums">
+              {formatMoney(preview.subtotalCents + preview.discountCents, currency)}
+            </span>
           </div>
+          <DiscountField
+            draft={discount}
+            onChange={setDiscount}
+            currency={currency}
+            discountCents={preview.discountCents}
+          />
           <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Tax</span>
-            <span className="tabular-nums">{formatMoney(preview.tax, currency)}</span>
+            <span className="tabular-nums">{formatMoney(preview.taxCents, currency)}</span>
           </div>
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-slate-100">
             <span>Total</span>
-            <span className="tabular-nums">{formatMoney(preview.total, currency)}</span>
+            <span className="tabular-nums">{formatMoney(preview.totalCents, currency)}</span>
           </div>
         </div>
       </div>

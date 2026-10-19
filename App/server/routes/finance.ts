@@ -967,6 +967,14 @@ const lineDraftSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+// A whole-document discount, taken off before tax: a percentage or a fixed
+// amount, never both. Sending either replaces the discount; zero for both
+// removes it. `shared/documentDiscount.ts` owns the math.
+const discountFields = {
+  discountPercent: z.number().min(0).max(100).optional(),
+  discountAmountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+};
+
 export const invoiceCreateSchema = z.object({
   subsidiaryId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid(),
@@ -976,6 +984,7 @@ export const invoiceCreateSchema = z.object({
   notes: z.string().max(4000).optional(),
   footer: z.string().max(1000).optional(),
   lines: z.array(lineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 financeRouter.get("/invoices", async (req, res) => {
@@ -1015,6 +1024,8 @@ financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, r
       notes: body.notes,
       footer: body.footer,
       lines: body.lines,
+      discountPercent: body.discountPercent,
+      discountAmountCents: body.discountAmountCents,
       createdById: req.userId ?? null,
     });
     await auditFinance(
@@ -1075,6 +1086,7 @@ export const invoicePatchSchema = z.object({
   issueDate: z.string().datetime().optional(),
   currency: currencySchema.optional(),
   lines: z.array(lineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 // Edit a draft, or an issued invoice so it can be corrected and resent under
@@ -1097,6 +1109,8 @@ financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (
         notes: body.notes,
         footer: body.footer,
         lines: body.lines,
+        discountPercent: body.discountPercent,
+        discountAmountCents: body.discountAmountCents,
       },
       req.userId ?? null,
     );
@@ -2198,6 +2212,7 @@ export const estimateCreateSchema = z.object({
   notes: z.string().max(4000).optional(),
   footer: z.string().max(1000).optional(),
   lines: z.array(lineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 financeRouter.get("/estimates", async (req, res) => {
@@ -2239,6 +2254,8 @@ financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req,
       notes: body.notes,
       footer: body.footer,
       lines: body.lines,
+      discountPercent: body.discountPercent,
+      discountAmountCents: body.discountAmountCents,
       createdById: req.userId ?? null,
     });
     await auditFinance(req, "finance.estimate.create", { type: "estimate", id: estimate.id, label: estimate.number || "Draft estimate" }, {
@@ -2297,6 +2314,7 @@ export const estimatePatchSchema = z.object({
   issueDate: z.string().datetime().optional(),
   currency: currencySchema.optional(),
   lines: z.array(lineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 // Edit a draft, or a sent or accepted estimate so a quote can be revised and
@@ -2317,6 +2335,8 @@ financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async
       notes: body.notes,
       footer: body.footer,
       lines: body.lines,
+      discountPercent: body.discountPercent,
+      discountAmountCents: body.discountAmountCents,
     });
     const updated = result.estimate;
     if (result.changed.length > 0) {

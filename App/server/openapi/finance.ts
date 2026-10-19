@@ -188,7 +188,7 @@ for (const document of [
     create: invoiceCreateSchema,
     patch: invoicePatchSchema,
     patchDescription:
-      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. A sent or paid invoice stays editable so it can be corrected and resent under the same number, but its customer and issuer cannot change. Its total must stay positive and cannot drop below what is already paid, credited, or written off; once money is applied its currency is fixed, as is the issue date of a foreign-currency invoice. A change to an issued invoice's amounts, currency, or issue date posts an invoice_revision journal entry and is refused inside a closed period. Editing never emails the customer; resend it with the send endpoint.",
+      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. Sending discountPercent or discountAmountCents replaces the whole-document discount (the other becomes zero; zero for both removes it). A sent or paid invoice stays editable so it can be corrected and resent under the same number, but its customer and issuer cannot change. Its total must stay positive and cannot drop below what is already paid, credited, or written off; once money is applied its currency is fixed, as is the issue date of a foreign-currency invoice. A change to an issued invoice's amounts (lines or discount), currency, or issue date posts an invoice_revision journal entry and is refused inside a closed period. Editing never emails the customer; resend it with the send endpoint.",
     response: invoiceResponse,
   },
   {
@@ -197,7 +197,7 @@ for (const document of [
     create: estimateCreateSchema,
     patch: estimatePatchSchema,
     patchDescription:
-      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. A sent or accepted estimate stays editable so it can be revised and resent under the same number, but its customer and issuer cannot change, and any change to an accepted estimate returns it to sent. Declined, voided, and converted estimates cannot be edited. Editing never emails the customer; resend it with the send endpoint.",
+      "Requires full Finance access. A draft takes any change. Changing subsidiaryId saves fresh issuer details; null restores the company default. Omitting the field or retaining its current value preserves the saved snapshot. Sending discountPercent or discountAmountCents replaces the whole-document discount (the other becomes zero; zero for both removes it). A sent or accepted estimate stays editable so it can be revised and resent under the same number, but its customer and issuer cannot change, and any change to an accepted estimate returns it to sent. Declined, voided, and converted estimates cannot be edited. Editing never emails the customer; resend it with the send endpoint.",
     response: estimateResponse,
   },
 ] as const) {
@@ -206,7 +206,7 @@ for (const document of [
     path: `/api/companies/{cid}/${document.path}`,
     summary: `Create a draft ${document.label}`,
     description:
-      "Requires full Finance access. Pass subsidiaryId to select an active legal entity in this company; omit it or pass null for the company default. Subsidiary details are saved on the draft and used in its email and PDF. Creating a draft does not issue or email it.",
+      "Requires full Finance access. Pass subsidiaryId to select an active legal entity in this company; omit it or pass null for the company default. Subsidiary details are saved on the draft and used in its email and PDF. Pass discountPercent (0–100) or discountAmountCents, not both, for a discount on the whole document taken before tax; subtotalCents in the response is already net of discountCents. Creating a draft does not issue or email it.",
     tags: ["Finance"],
     security: defaultSecurity,
     request: {

@@ -10,15 +10,19 @@ import { sendEmail } from "./email.js";
 import { renderEstimateHtmlForCompany } from "./estimateHtml.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
 import {
+  type DiscountInput,
+  discountOf,
   issueInvoice,
   keptTaxSnapshots,
   type LineDraft,
   type LineTaxSnapshot,
   linesUnchanged,
   priceLineDrafts,
+  requestedDiscount,
+  sameDiscount,
   sameUtcDay,
-  sumLines,
 } from "./finance.js";
+import { type DocumentDiscount, documentTotals } from "../../shared/documentDiscount.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
 
 /**
@@ -91,25 +95,23 @@ export async function replaceEstimateLines(
 // ───────────────────────────── Recompute ──────────────────────────────
 
 /**
- * Re-derive `subtotalCents` / `taxCents` / `totalCents` from the current
- * lines. Saves and returns the estimate. Idempotent — call after any
- * line write. Status is not touched: estimates carry no payments so
- * there's no automatic status flip equivalent to the invoice `paid`
- * transition.
+ * Re-derive `subtotalCents` / `discountCents` / `taxCents` / `totalCents`
+ * from the current lines and discount (`shared/documentDiscount.ts`). Saves
+ * and returns the estimate. Idempotent — call after any line or discount
+ * write. Status is not touched: estimates carry no payments so there's no
+ * automatic status flip equivalent to the invoice `paid` transition.
  */
 export async function recomputeEstimateTotals(estimate: Estimate): Promise<Estimate> {
   const lines = await AppDataSource.getRepository(EstimateLineItem).find({
     where: { estimateId: estimate.id },
   });
-  estimate.subtotalCents = lines.reduce((s, l) => s + l.lineSubtotalCents, 0);
-  estimate.taxCents = lines.reduce((s, l) => s + l.lineTaxCents, 0);
-  estimate.totalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
+  Object.assign(estimate, documentTotals(lines, discountOf(estimate)));
   return AppDataSource.getRepository(Estimate).save(estimate);
 }
 
 // ───────────────────────────── Draft creation ─────────────────────────
 
-export type CreateEstimateDraftInput = {
+export type CreateEstimateDraftInput = DiscountInput & {
   companyId: string;
   customerId: string;
   subsidiaryId?: string | null;
@@ -133,6 +135,7 @@ export async function createEstimateDraft(input: CreateEstimateDraftInput): Prom
     companyId: input.companyId,
   });
   if (!customer) throw new Error("Invalid customer");
+  const discount = requestedDiscount(input);
   const issuer = await resolveDocumentIssuer(input.companyId, input.subsidiaryId);
 
   const issueDate = input.issueDate ?? new Date();
@@ -150,6 +153,7 @@ export async function createEstimateDraft(input: CreateEstimateDraftInput): Prom
     issueDate,
     validUntil,
     currency: input.currency ?? customer.currency ?? "USD",
+    ...discount,
     notes: input.notes ?? "",
     footer: input.footer ?? "",
     createdById: input.createdById ?? null,
@@ -253,7 +257,7 @@ export class EstimateEditError extends Error {
   }
 }
 
-export type EstimateEditInput = {
+export type EstimateEditInput = DiscountInput & {
   subsidiaryId?: string | null;
   customerId?: string;
   issueDate?: Date;
@@ -318,7 +322,15 @@ export async function updateEstimate(
     where: { estimateId: estimate.id },
     order: { sortOrder: "ASC" },
   });
-  const previousTotals = sumLines(existingLines);
+  const previousDiscount = discountOf(estimate);
+  const previousTotals = documentTotals(existingLines, previousDiscount);
+  let nextDiscount: DocumentDiscount;
+  try {
+    nextDiscount = requestedDiscount(input, previousDiscount);
+  } catch (err) {
+    throw new EstimateEditError((err as Error).message, 400);
+  }
+  const discountChanged = !sameDiscount(nextDiscount, previousDiscount);
 
   const customerChanged =
     input.customerId !== undefined && input.customerId !== estimate.customerId;
@@ -369,8 +381,10 @@ export async function updateEstimate(
   if (input.notes !== undefined && input.notes !== estimate.notes) changed.push("notes");
   if (input.footer !== undefined && input.footer !== estimate.footer) changed.push("footer");
   if (linesChanged) changed.push("lines");
+  if (discountChanged) changed.push("discount");
 
   if (customer) estimate.customerId = customer.id;
+  Object.assign(estimate, nextDiscount);
   if (input.notes !== undefined) estimate.notes = input.notes;
   if (input.footer !== undefined) estimate.footer = input.footer;
   if (input.currency !== undefined) estimate.currency = input.currency;
@@ -407,7 +421,7 @@ export async function updateEstimate(
 /**
  * One-shot conversion of an `accepted` (or `sent`) estimate into a
  * fully issued `Invoice`. The new invoice copies the estimate's lines
- * (already tax-snapshotted), inherits the same currency, and goes
+ * (already tax-snapshotted) and discount, inherits the same currency, and goes
  * straight to `sent` so it lands on the books with a real `INV-####`
  * number and the auto-posted journal entry. The estimate keeps its
  * status but stamps `invoiceId` + `convertedAt` so the UI can show a
@@ -455,6 +469,7 @@ export async function convertEstimateToInvoice(
     issueDate,
     dueDate,
     currency: estimate.currency,
+    ...discountOf(estimate),
     notes: estimate.notes,
     footer: estimate.footer,
     createdById: actorUserId,
@@ -500,7 +515,7 @@ export async function convertEstimateToInvoice(
 
 /**
  * Create a fresh `draft` estimate that copies the customer, currency,
- * notes, footer, and (tax-snapshotted) line items from `source`. Used
+ * discount, notes, footer, and (tax-snapshotted) line items from `source`. Used
  * by the "Duplicate" action on any estimate regardless of status — you
  * can fork a void or declined estimate back into a new draft without
  * touching the original.
@@ -531,6 +546,7 @@ export async function duplicateEstimate(
     issueDate,
     validUntil,
     currency: source.currency,
+    ...discountOf(source),
     notes: source.notes,
     footer: source.footer,
     createdById: actorUserId,

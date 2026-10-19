@@ -91,8 +91,26 @@ export class Invoice {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
+  /** Pre-tax amount charged: the lines' subtotal less any discount, so
+   *  `subtotalCents + taxCents = totalCents` and revenue is the subtotal. */
   @Column({ type: "int", default: 0 })
   subtotalCents!: number;
+
+  /** Whole-document discount as a percentage (0–100), taken off before tax.
+   *  Zero when the discount is a fixed amount or there is none — see
+   *  `shared/documentDiscount.ts`. */
+  @Column({ type: "real", default: 0 })
+  discountPercent!: number;
+
+  /** Whole-document discount as a fixed pre-tax amount in minor units. Zero
+   *  when the discount is a percentage or there is none. */
+  @Column({ type: "int", default: 0 })
+  discountAmountCents!: number;
+
+  /** The discount actually taken, pre-tax. Derived like the other cent
+   *  columns; `subtotalCents` is already net of it. */
+  @Column({ type: "int", default: 0 })
+  discountCents!: number;
 
   @Column({ type: "int", default: 0 })
   taxCents!: number;

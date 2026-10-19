@@ -141,6 +141,17 @@ function money(cents: number, currency: string): string {
   return formatMoney(cents, currency);
 }
 
+/** "$100.00 (10%) off before tax", or null when the document has no discount. */
+function discountFact(
+  doc: { discountCents: number; discountPercent: number },
+  currency: string,
+): string | null {
+  if (!doc.discountCents) return null;
+  const share =
+    doc.discountPercent > 0 ? ` (${Number(Number(doc.discountPercent).toFixed(2))}%)` : "";
+  return `${money(doc.discountCents, currency)}${share} off before tax`;
+}
+
 /** A user-typed value squeezed onto one line, so it cannot start a heading. */
 function oneLine(value: string | null | undefined, max = 200): string {
   const flat = (value ?? "").replace(/\s+/g, " ").trim();
@@ -437,7 +448,8 @@ async function invoiceItem(companyId: string, invoice: Invoice): Promise<AskAiCo
       ["Issue date", day(invoice.issueDate)],
       ["Due date", day(invoice.dueDate)],
       ["Currency", cur],
-      ["Subtotal", money(invoice.subtotalCents, cur)],
+      ["Subtotal", money(invoice.subtotalCents + invoice.discountCents, cur)],
+      ["Discount", discountFact(invoice, cur)],
       ["Tax", money(invoice.taxCents, cur)],
       ["Total", money(invoice.totalCents, cur)],
       ["Paid", money(invoice.paidCents, cur)],
@@ -810,7 +822,8 @@ export const resolveEstimate: AskAiResolver = async ({ companyId, member, ref })
           : null,
       ],
       ["Currency", cur],
-      ["Subtotal", money(estimate.subtotalCents, cur)],
+      ["Subtotal", money(estimate.subtotalCents + estimate.discountCents, cur)],
+      ["Discount", discountFact(estimate, cur)],
       ["Tax", money(estimate.taxCents, cur)],
       ["Total", money(estimate.totalCents, cur)],
       ["Sent", estimate.sentAt ? stamp(estimate.sentAt) : estimate.status === "draft" ? "not yet" : null],

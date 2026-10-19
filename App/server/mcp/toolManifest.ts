@@ -4715,6 +4715,18 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         notes: { type: "string" },
         footer: { type: "string" },
+        discountPercent: {
+          type: "number",
+          minimum: 0,
+          maximum: 100,
+          description: "Optional discount on the whole estimate, before tax, e.g. 10 for 10%.",
+        },
+        discountAmountCents: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Optional fixed discount before tax, in cents. Use this or discountPercent, not both.",
+        },
         lines: {
           type: "array",
           minItems: 1,
@@ -4805,6 +4817,18 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         dueDate: { type: "string", description: "ISO datetime; defaults to 14 days after issue." },
         notes: { type: "string" },
         footer: { type: "string" },
+        discountPercent: {
+          type: "number",
+          minimum: 0,
+          maximum: 100,
+          description: "Optional discount on the whole invoice, before tax, e.g. 10 for 10%.",
+        },
+        discountAmountCents: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Optional fixed discount before tax, in cents. Use this or discountPercent, not both.",
+        },
         lines: {
           type: "array",
           minItems: 1,
