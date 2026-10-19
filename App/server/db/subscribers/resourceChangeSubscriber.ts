@@ -160,6 +160,9 @@ const REGISTRY: Record<string, Mapping> = {
 
   // ── Resources ────────────────────────────────────────────────────────────
   Resource: { kind: "resource", company: "direct" },
+  // The folder tree renders beside the Resources it files — the RoutineFolder
+  // reasoning, on the "resource" kind.
+  ResourceFolder: { kind: "resource", company: "direct" },
 
   // ── Explore (charts + dashboards) ────────────────────────────────────────
   Chart: { kind: "chart", company: "direct" },

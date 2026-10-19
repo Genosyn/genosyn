@@ -394,13 +394,19 @@ import {
   inferSourceKindFromFilename,
   listAccessibleResourceIds,
   searchResources,
-  summarize,
+  summarizeBody,
   trimBodyText,
   uniqueResourceSlug,
   upsertResourceGrant,
   windowText,
   writeResourceBytes,
 } from "../services/resources.js";
+import {
+  ResourceFolderError,
+  resolveResourceFolderPath,
+  resourceFolderPaths,
+  resourceFolderSubtreeIds,
+} from "../services/resourceFolders.js";
 import {
   RESOURCE_READ_ONLY_ERROR,
   canWriteResourceLibrary,
@@ -14387,7 +14393,10 @@ async function isNoteDescendant(
   return false;
 }
 
-function serializeResource(r: Resource, opts: { includeBody?: boolean } = {}) {
+function serializeResource(
+  r: Resource,
+  opts: { includeBody?: boolean; folderPaths?: Map<string, string> } = {},
+) {
   const tagList = r.tags
     ? r.tags
         .split(",")
@@ -14403,6 +14412,8 @@ function serializeResource(r: Resource, opts: { includeBody?: boolean } = {}) {
     sourceFilename: r.sourceFilename,
     summary: r.summary,
     tags: tagList,
+    // Where the team filed it, as a path; null when it is in no folder.
+    folder: (r.folderId && opts.folderPaths?.get(r.folderId)) || null,
     bodyLength: r.bodyText?.length ?? 0,
     bytes: Number(r.bytes),
     status: r.status,
@@ -14435,6 +14446,8 @@ const listResourcesSchema = z
   .object({
     limit: z.number().int().min(1).max(200).default(50),
     offset: z.number().int().min(0).default(0),
+    /** A folder path: only what is filed there or in its subfolders. */
+    folder: z.string().max(400).optional(),
   })
   .strict();
 
@@ -14448,8 +14461,8 @@ const NO_GRANT_NOTE =
  *  is only skimming. Mirrors the routine-brief preview. */
 const RESOURCE_SUMMARY_PREVIEW_CHARS = 280;
 
-function serializeResourceForList(r: Resource) {
-  const base = serializeResource(r) as Record<string, unknown>;
+function serializeResourceForList(r: Resource, folderPaths?: Map<string, string>) {
+  const base = serializeResource(r, { folderPaths }) as Record<string, unknown>;
   const summary = typeof base.summary === "string" ? base.summary : "";
   if (summary.length > RESOURCE_SUMMARY_PREVIEW_CHARS) {
     base.summary = summary.slice(0, RESOURCE_SUMMARY_PREVIEW_CHARS - 1) + "…";
@@ -14470,7 +14483,21 @@ mcpInternalRouter.post(
       return res.json({ resources: [], total: 0, hasMore: false, note: NO_GRANT_NOTE });
     }
     const repo = AppDataSource.getRepository(Resource);
-    const where = { companyId: co.id, id: In([...accessible]) };
+    let folderIds: string[] | null = null;
+    if (body.folder?.trim()) {
+      try {
+        const folder = await resolveResourceFolderPath(co.id, body.folder);
+        folderIds = folder ? await resourceFolderSubtreeIds(co.id, folder.id) : null;
+      } catch (err) {
+        if (!(err instanceof ResourceFolderError)) throw err;
+        return res.status(400).json({ error: err.message });
+      }
+    }
+    const where = {
+      companyId: co.id,
+      id: In([...accessible]),
+      ...(folderIds ? { folderId: In(folderIds) } : {}),
+    };
     const total = await repo.count({ where });
     const rows = await repo.find({
       where,
@@ -14478,8 +14505,9 @@ mcpInternalRouter.post(
       skip: body.offset,
       take: body.limit,
     });
+    const folderPaths = await resourceFolderPaths(co.id);
     res.json({
-      resources: rows.map((r) => serializeResourceForList(r)),
+      resources: rows.map((r) => serializeResourceForList(r, folderPaths)),
       total,
       hasMore: body.offset + rows.length < total,
     });
@@ -14511,9 +14539,10 @@ mcpInternalRouter.post(
       limit: body.limit,
       offset: body.offset,
     });
+    const folderPaths = await resourceFolderPaths(co.id);
     res.json({
       resources: found.hits.map((hit) => ({
-        ...serializeResource(hit.resource),
+        ...serializeResource(hit.resource, { folderPaths }),
         matchedIn: hit.matchedIn,
         snippet: hit.match?.snippet ?? null,
         // Feed this straight back to `get_resource` as `offset` to read the
@@ -14568,7 +14597,7 @@ mcpInternalRouter.post(
     });
     res.json({
       resource: {
-        ...serializeResource(row),
+        ...serializeResource(row, { folderPaths: await resourceFolderPaths(co.id) }),
         bodyText: win.text,
         windowStart: win.windowStart,
         windowEnd: win.windowEnd,
@@ -15453,6 +15482,8 @@ const createResourceSchema = z
     filename: z.string().min(1).max(200).optional(),
     summary: z.string().max(2000).optional(),
     tags: z.string().max(500).optional(),
+    /** Folder path, e.g. "Research/Competitors"; created if missing. */
+    folder: z.string().max(400).optional(),
   })
   .strict();
 
@@ -15464,6 +15495,16 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     if (!(await requireResourceWrite(req, res))) return;
+    // Resolved before any fetch or byte reaches disk, so a bad path costs nothing.
+    let folderId: string | null = null;
+    if (body.folder?.trim()) {
+      try {
+        folderId = (await resolveResourceFolderPath(co.id, body.folder, { create: true }))?.id ?? null;
+      } catch (err) {
+        if (!(err instanceof ResourceFolderError)) throw err;
+        return res.status(400).json({ error: err.message });
+      }
+    }
 
     let title = body.title?.trim() ?? "";
     let bodyText = "";
@@ -15550,7 +15591,7 @@ mcpInternalRouter.post(
 
     const repo = AppDataSource.getRepository(Resource);
     const slug = await uniqueResourceSlug(co.id, toSlug(title) || "resource");
-    const summary = summarize(bodyText, body.summary);
+    const summary = summarizeBody(sourceKind, bodyText, body.summary);
     const row = repo.create({
       companyId: co.id,
       title,
@@ -15561,6 +15602,7 @@ mcpInternalRouter.post(
       storageKey,
       summary,
       bodyText,
+      folderId,
       tags: (body.tags ?? "").trim(),
       bytes,
       status,
@@ -15632,7 +15674,10 @@ mcpInternalRouter.post(
           "it in the summary if you know what it contains."
         : undefined;
     res.json({
-      resource: serializeResource(row, { includeBody: true }),
+      resource: serializeResource(row, {
+        includeBody: true,
+        folderPaths: await resourceFolderPaths(co.id),
+      }),
       ...(note ? { note } : {}),
     });
   },
@@ -15645,6 +15690,8 @@ const updateResourceSchema = z
     summary: z.string().max(2000).optional(),
     tags: z.string().max(500).optional(),
     body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
+    /** Folder path to move it to, created if missing; "" unfiles it. */
+    folder: z.string().max(400).optional(),
   })
   .strict();
 
@@ -15665,6 +15712,16 @@ mcpInternalRouter.post(
     if (!(await hasResourceAccess(self.id, row.id, "edit"))) {
       return res.status(403).json({ error: "No edit permission on that resource" });
     }
+    if (body.folder !== undefined) {
+      try {
+        row.folderId = body.folder.trim()
+          ? ((await resolveResourceFolderPath(co.id, body.folder, { create: true }))?.id ?? null)
+          : null;
+      } catch (err) {
+        if (!(err instanceof ResourceFolderError)) throw err;
+        return res.status(400).json({ error: err.message });
+      }
+    }
 
     if (body.title !== undefined) row.title = body.title;
     if (body.summary !== undefined) row.summary = body.summary.trim();
@@ -15681,7 +15738,7 @@ mcpInternalRouter.post(
       const trimmed = trimBodyText(body.body);
       row.bodyText = trimmed;
       row.bytes = trimmed.length;
-      if (body.summary === undefined) row.summary = summarize(trimmed);
+      if (body.summary === undefined) row.summary = summarizeBody(row.sourceKind, trimmed);
       row.status = "ready";
       row.errorMessage = "";
     }
@@ -15709,7 +15766,12 @@ mcpInternalRouter.post(
       "Via the built-in MCP tool.",
     );
 
-    res.json({ resource: serializeResource(row, { includeBody: true }) });
+    res.json({
+      resource: serializeResource(row, {
+        includeBody: true,
+        folderPaths: await resourceFolderPaths(co.id),
+      }),
+    });
   },
 );
 

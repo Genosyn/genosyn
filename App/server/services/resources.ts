@@ -286,6 +286,51 @@ export function summarize(text: string, summary?: string): string {
   return oneLine.slice(0, RESOURCE_AUTO_SUMMARY_CHARS - 1) + "…";
 }
 
+/**
+ * The words of a Markdown document without its syntax — what a card preview
+ * or a list row should show for a `text` Resource, whose body is Markdown.
+ * Deliberately a light pass: it drops the marks a reader never sees rendered
+ * (heading hashes, emphasis, code fences, link targets, list bullets, table
+ * pipes, HTML tags) and keeps every word, so it can only ever shorten.
+ */
+export function markdownToPlainText(markdown: string): string {
+  return (
+    markdown
+      // Fenced code: keep the code, lose the fence line and its language tag.
+      .replace(/^\s*(```|~~~)[^\n]*$/gm, "")
+      // Images keep their alt text; links keep their label.
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      // Reference-style link definitions carry only a target.
+      .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, "")
+      .replace(/<[^>\n]+>/g, " ")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/^\s{0,3}>\s?/gm, "")
+      .replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/gm, "")
+      // Horizontal rules and table separator rows.
+      .replace(/^\s*(?:[-*_]\s*){3,}$/gm, "")
+      .replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, "")
+      .replace(/\|/g, " ")
+      // Emphasis, strikethrough, and inline code markers. An underscore inside
+      // a word (snake_case, a_b) is never emphasis, as in CommonMark.
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "$1")
+      .replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?![\w])/g, "$1$2")
+      .replace(/\*(?=\S)([^*\n]*?\S)\*/g, "$1")
+      .replace(/(^|[^\w])_(?=\S)([^_\n]*?\S)_(?![\w])/g, "$1$2")
+      .replace(/~~(?=\S)([\s\S]*?\S)~~/g, "$1")
+      .replace(/`+([^`]*)`+/g, "$1")
+  );
+}
+
+/**
+ * The auto-summary for a Resource of this kind. A `text` Resource's body is
+ * Markdown, so its preview is read without the syntax; every other kind's
+ * body is already the plain text extracted from its source.
+ */
+export function summarizeBody(sourceKind: ResourceSourceKind, text: string, summary?: string): string {
+  return summarize(sourceKind === "text" ? markdownToPlainText(text) : text, summary);
+}
+
 // ---------- Storage / file helpers ----------
 
 export function resolveResourceFile(companySlug: string, storageKey: string): string | null {

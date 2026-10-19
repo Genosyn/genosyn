@@ -183,7 +183,7 @@ code, UI copy, commits, and docs.
 | **AI Model** (backend brain record) | Provider, LLM config |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
 | **Run** (one execution of a Routine) | Execution, Invocation |
-| **Folder** (the exclusive, nestable filing tree for Routines — `RoutineFolder`) | Category, Group, Collection, Tag |
+| **Folder** (the exclusive, nestable filing tree for Routines and for Resources — `RoutineFolder`, `ResourceFolder`) | Category, Group, Collection, Tag |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Genosyn Connect** (the hosted sign-in service in `Connect/`; "Connect" for short) | Broker, Proxy, Sign-in provider (in product copy) |
@@ -431,9 +431,11 @@ on `MailAccount.provider` to decide what a label is.
 sidebar. A **Tag** answers *what is this about* — many per resource, spanning
 every section of the app. M27 shipped tags saying they grouped resources
 "without forcing a folder hierarchy"; M48 added the hierarchy for Routines
-because a chip that narrows a flat list is not somewhere to put things. Do not
-add a `folderId` to a resource that only ever needed a tag, and do not model a
-folder as a reserved tag name.
+because a chip that narrows a flat list is not somewhere to put things, and
+the Resources library got the same files-and-folders tree (`ResourceFolder`,
+its own table with Routine folders' rules) when people asked to organise it
+that way. Do not add a `folderId` to a resource that only ever needed a tag,
+and do not model a folder as a reserved tag name.
 
 **A work timeline is not a Journal, and it is not the audit log.** All three
 answer "what did this employee do", and the differences are the whole reason

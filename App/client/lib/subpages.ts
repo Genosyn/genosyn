@@ -419,11 +419,23 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
     },
   ],
   resources: [
+    // The rail draws the library itself — All resources above its folder
+    // tree, as Routines does — and pins the fixed pages beneath. The palette
+    // still finds the library by name.
     {
       label: "Library",
       path: "/resources",
       icon: Library,
-      keywords: ["resource library", "documents", "ebooks", "articles", "reference material"],
+      rail: false,
+      keywords: [
+        "resource library",
+        "documents",
+        "ebooks",
+        "articles",
+        "reference material",
+        "folders",
+        "files",
+      ],
     },
     {
       label: "AI access",

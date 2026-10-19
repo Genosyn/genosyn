@@ -54,8 +54,10 @@ export function Resources() {
           re-fetch later.
         </LI>
         <LI>
-          <Strong>Paste text</Strong> — a transcript, an email thread, anything you can copy. This
-          one stays editable afterwards as a markdown document.
+          <Strong>Write in Markdown</Strong> — notes, a transcript, a primer, anything you can type
+          or copy. The <Strong>Write</Strong> tab is a Markdown editor with a toolbar and a live
+          preview: headings, bold and italics, lists, links, tables and code all render. It stays
+          editable afterwards in the same editor, where <Code>⌘S</Code> saves.
         </LI>
         <LI>
           <Strong>Upload a file</Strong> — PDF, EPUB, Word, plain text, Markdown or HTML, up to
@@ -64,7 +66,44 @@ export function Resources() {
       </UL>
       <P>
         Whatever you add, the original is kept and the extracted text is what gets searched. A
-        Resource can carry any number of <DocLink to="/docs/tags">tags</DocLink>.
+        Resource can carry any number of <DocLink to="/docs/tags">tags</DocLink>, and lives in at
+        most one <DocLink to="/docs/resources#folders">folder</DocLink>. A text Resource&apos;s
+        card shows its words without the Markdown syntax.
+      </P>
+
+      <H2 id="folders">Files and folders</H2>
+      <P>
+        The Resources sidebar is a folder tree: <Strong>All resources</Strong>, your folders with
+        how much each holds, and <Strong>Unfiled</Strong> for anything in no folder. Folders nest
+        up to five levels deep, and a Resource lives in one folder at a time — like a file on a
+        drive. Tags still group Resources across folders.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Make a folder</Strong> with <Strong>New folder</Strong> on the page or the folder
+          button in the sidebar. A folder&apos;s menu adds a subfolder, renames it, moves it back
+          to the top level, or deletes it.
+        </LI>
+        <LI>
+          <Strong>Open a folder</Strong> to see its subfolders first and then the Resources filed
+          directly in it. Searching inside a folder also finds what is in its subfolders.{" "}
+          <Strong>All resources</Strong> lists everything, with each card saying which folder it
+          is in.
+        </LI>
+        <LI>
+          <Strong>File a Resource</Strong> by dragging its card onto a folder — a folder on the
+          page or one in the sidebar, or onto <Strong>Unfiled</Strong> to take it out of every
+          folder. Its own page has a <Strong>Folder</Strong> picker too, and a new Resource lands
+          in the folder you are looking at.
+        </LI>
+        <LI>
+          <Strong>Deleting a folder never deletes what is in it.</Strong> Its Resources and
+          subfolders move up to the folder above it, or to Unfiled for a top-level folder.
+        </LI>
+      </UL>
+      <P>
+        Renaming or moving a folder keeps its address, so a link to it keeps working. Any Member
+        can organise folders, just as any Member can add or edit Resources.
       </P>
 
       <Callout kind="info" title="If nothing could be extracted, the Resource says so.">
@@ -94,13 +133,15 @@ export function Resources() {
           },
           {
             term: "list_resources",
-            def: "Browses the shelf — titles, summaries and tags, newest first, paginated. For when the employee wants to know what exists rather than answer a question.",
+            def: "Browses the shelf — titles, summaries, tags and the folder each is filed in, newest first, paginated. Pass a folder path such as Research/Competitors to browse one folder and its subfolders. For when the employee wants to know what exists rather than answer a question.",
           },
         ]}
       />
       <P>
-        Employees can also curate: <Code>create_resource</Code> files a URL, a paste, or a file it
-        already holds — an emailed contract, a form it downloaded. <Code>update_resource</Code> and{" "}
+        Employees can also curate: <Code>create_resource</Code> files a URL, a Markdown document,
+        or a file it already holds — an emailed contract, a form it downloaded — optionally into a
+        folder path, which is created if it does not exist yet. <Code>update_resource</Code> can
+        move a Resource to another folder, or out of every folder. <Code>update_resource</Code> and{" "}
         <Code>delete_resource</Code> need a higher grant. <Code>export_resource</Code> renders the
         body as PDF, HTML, Markdown or plain text and attaches it to the reply. None of the three
         write tools work for an employee set to{" "}
@@ -179,8 +220,9 @@ export function Resources() {
       <H2 id="reading">Reading and exporting</H2>
       <P>
         The detail page is type-aware: PDFs open in the browser&apos;s viewer, EPUBs in a reader
-        with a table of contents and saved position, text Resources as an editable markdown
-        document, and a URL Resource shows a card linking the original. Everything can be exported
+        with a table of contents and saved position, text Resources as a rendered Markdown
+        document you edit in the same Markdown editor, and a URL Resource shows a card linking the
+        original. Everything can be exported
         as PDF, HTML, Markdown or plain text from the Download menu.
       </P>
       <P>

@@ -83,6 +83,7 @@ import { Team } from "./entities/Team.js";
 import { Handoff } from "./entities/Handoff.js";
 import { ApiKey } from "./entities/ApiKey.js";
 import { Resource } from "./entities/Resource.js";
+import { ResourceFolder } from "./entities/ResourceFolder.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
 import { EmployeeResourceLibraryGrant } from "./entities/EmployeeResourceLibraryGrant.js";
 import { Repository } from "./entities/Repository.js";
@@ -316,6 +317,7 @@ const entities = [
   Handoff,
   ApiKey,
   Resource,
+  ResourceFolder,
   EmployeeResourceGrant,
   EmployeeResourceLibraryGrant,
   Repository,

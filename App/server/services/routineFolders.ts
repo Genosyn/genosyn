@@ -60,7 +60,7 @@ export type RoutineFolderWithMeta = RoutineFolder & {
  * would otherwise render a path that {@link resolveFolderPath} reads back as
  * two folders, so the name and the path would disagree about the tree.
  */
-function cleanFolderName(value: string): string {
+export function cleanFolderName(value: string): string {
   return value
     .replace(new RegExp(FOLDER_PATH_SEPARATOR, "g"), " ")
     .trim()

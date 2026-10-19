@@ -1,10 +1,14 @@
-import type { CompanyTag, RoutineFolder, RoutineWithMeta } from "./api";
+import type { CompanyTag, RoutineWithMeta } from "./api";
 
 /**
  * Client-side reads of the folder tree. The server hands back a flat list —
  * every row carrying its own `parentId` and `depth` — so the shapes the UI
- * actually renders are derived here rather than in the components.
+ * actually renders are derived here rather than in the components. The tree
+ * walks take any folder row, so the Resources library's tree uses them too.
  */
+
+/** What a tree walk needs of a folder row: Routine and Resource folders both fit. */
+export type FolderNode = { id: string; parentId: string | null };
 
 /**
  * A folder and every folder beneath it.
@@ -18,7 +22,7 @@ import type { CompanyTag, RoutineFolder, RoutineWithMeta } from "./api";
  * refuses to create a cycle, but a client that looped on a bad payload would
  * hang the tab, so the walk tracks what it has already visited.
  */
-export function folderAndDescendants(folders: RoutineFolder[], rootId: string): Set<string> {
+export function folderAndDescendants<F extends FolderNode>(folders: F[], rootId: string): Set<string> {
   const childIds = childrenByParent(folders);
   const out = new Set<string>();
   const stack = [rootId];
@@ -55,11 +59,9 @@ export function routineTagsInScope(
  * hand-edited in the database — and a folder nobody can see is a folder nobody
  * can fix, so it surfaces at the root instead of vanishing.
  */
-export function childrenByParent(
-  folders: RoutineFolder[],
-): Map<string | null, RoutineFolder[]> {
+export function childrenByParent<F extends FolderNode>(folders: F[]): Map<string | null, F[]> {
   const present = new Set(folders.map((folder) => folder.id));
-  const map = new Map<string | null, RoutineFolder[]>();
+  const map = new Map<string | null, F[]>();
   for (const folder of folders) {
     const parentId = folder.parentId && present.has(folder.parentId) ? folder.parentId : null;
     const siblings = map.get(parentId) ?? [];

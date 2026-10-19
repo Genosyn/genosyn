@@ -4,10 +4,13 @@ import { describe, test } from "node:test";
 import { PDFDocument } from "pdf-lib";
 
 import {
+  RESOURCE_AUTO_SUMMARY_CHARS,
   RESOURCE_MAX_MATCHES,
   buildMatchSnippet,
   gradeExtraction,
+  markdownToPlainText,
   pdfBufferToText,
+  summarizeBody,
   windowText,
 } from "./resources.js";
 
@@ -168,5 +171,76 @@ describe("gradeExtraction", () => {
     const graded = gradeExtraction("The handbook says thirty days.", "pdf");
     assert.equal(graded.status, "ready");
     assert.equal(graded.errorMessage, "");
+  });
+});
+
+/**
+ * A text Resource's body is Markdown; its card preview is read without the
+ * syntax. Every other kind's body is already plain extracted text, so its
+ * preview is left exactly as extracted.
+ */
+describe("markdownToPlainText", () => {
+  const plain = (markdown: string) => markdownToPlainText(markdown).replace(/\s+/g, " ").trim();
+
+  test("drops heading marks, emphasis, strikethrough, and inline code", () => {
+    assert.equal(
+      plain("# Title\n\n## Sub\n\nSome **bold**, __strong__, *em*, _em_, ~~gone~~ and `code`."),
+      "Title Sub Some bold, strong, em, em, gone and code.",
+    );
+  });
+
+  test("keeps link labels and image alt text, and drops their targets", () => {
+    assert.equal(
+      plain("Read [the guide](https://example.com/a?b=c) and ![a diagram](https://x/y.png)."),
+      "Read the guide and a diagram.",
+    );
+    assert.equal(plain("See [docs].\n\n[docs]: https://example.com/docs"), "See [docs].");
+  });
+
+  test("drops list bullets, task boxes, quote marks, rules, and table pipes", () => {
+    assert.equal(
+      plain("- one\n* two\n+ three\n1. four\n2) five\n- [ ] six\n- [x] seven"),
+      "one two three four five six seven",
+    );
+    assert.equal(plain("> quoted\n> more\n\n---\n\nafter"), "quoted more after");
+    assert.equal(
+      plain("| Plan | Price |\n| --- | :---: |\n| Pro | $10 |"),
+      "Plan Price Pro $10",
+    );
+  });
+
+  test("keeps fenced code but not the fence or its language", () => {
+    assert.equal(plain("Before\n```ts\nconst a = 1;\n```\nAfter"), "Before const a = 1; After");
+  });
+
+  test("drops HTML tags and leaves ordinary prose untouched", () => {
+    assert.equal(plain("<b>Hi</b> there<br/>friend"), "Hi there friend");
+    const prose = "Revenue grew 12% in Q3 — 3 * 4 = 12, and a_b stays a_b.";
+    assert.equal(plain(prose), prose);
+  });
+
+  test("only ever shortens", () => {
+    for (const sample of ["# a", "**b**", "[c](d)", "plain", "1. x", "|a|b|"]) {
+      assert.ok(markdownToPlainText(sample).length <= sample.length, sample);
+    }
+  });
+});
+
+describe("summarizeBody", () => {
+  test("reads a text Resource's Markdown as plain text", () => {
+    assert.equal(summarizeBody("text", "# Pricing\n\n**Three** tiers."), "Pricing Three tiers.");
+  });
+
+  test("leaves every other kind's extracted text as it is", () => {
+    for (const kind of ["url", "pdf", "epub", "video"] as const) {
+      assert.equal(summarizeBody(kind, "# Not a heading here"), "# Not a heading here");
+    }
+  });
+
+  test("an explicit summary still wins, and long previews are cut", () => {
+    assert.equal(summarizeBody("text", "# Body", "Mine"), "Mine");
+    const long = summarizeBody("text", `# Long\n\n${"word ".repeat(200)}`);
+    assert.equal(long.length, RESOURCE_AUTO_SUMMARY_CHARS);
+    assert.ok(long.endsWith("…"));
   });
 });
