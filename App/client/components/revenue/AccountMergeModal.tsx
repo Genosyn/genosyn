@@ -210,8 +210,6 @@ export function AccountMergeModal({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Name, domain or email"
               autoComplete="off"
-              data-1p-ignore
-              data-lpignore="true"
             />
             {options === null ? (
               <div className="flex justify-center py-2">
@@ -371,8 +369,6 @@ export function AccountMergeModal({
             value={confirmName}
             onChange={(event) => setConfirmName(event.target.value)}
             autoComplete="off"
-            data-1p-ignore
-            data-lpignore="true"
           />
         )}
 
