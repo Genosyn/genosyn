@@ -1,4 +1,5 @@
 import React from "react";
+import { passwordManagerProps } from "@/lib/passwordManagers";
 import { clsx } from "./clsx";
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
@@ -25,6 +26,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
         ref={ref}
         id={tid}
         aria-describedby={hint ? hintId : undefined}
+        {...passwordManagerProps(rest)}
         {...rest}
         className={clsx(
           "min-h-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm",

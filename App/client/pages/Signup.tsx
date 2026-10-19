@@ -133,6 +133,7 @@ export default function Signup() {
           label="Email"
           type="email"
           autoComplete="email"
+          data-credential
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           aria-describedby={invitationToken ? "signup-invitation-hint" : undefined}
@@ -142,6 +143,7 @@ export default function Signup() {
           label="Password"
           type="password"
           autoComplete="new-password"
+          data-credential
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={12}
