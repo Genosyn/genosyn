@@ -832,6 +832,14 @@ Think **Linear × Notion**. Clean, quiet, fast.
   screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`
   beside the control that started it.
 - Mobile-responsive is expected, not optional.
+- Password managers stay out of fields that are not the person's own sign-in.
+  A customer's email, an SMTP password or a Vault secret is not theirs to
+  fill, so every field is marked for 1Password, LastPass, Bitwarden and
+  Dashlane to ignore (`client/lib/passwordManagers.ts`: the shared `Input` and
+  `Textarea` render the marks, and a guard adds them to every other field).
+  Only the person's own Genosyn email, password or one-time code on the
+  sign-in, sign-up, password and two-factor screens carries `data-credential`;
+  do not add it anywhere else.
 - Show the basics and put everything else behind a single **Advanced**
   disclosure (`components/ui/Disclosure.tsx`), closed by default. A collapsed
   disclosure says what is configured inside ("Approval required · 2 Checks"),

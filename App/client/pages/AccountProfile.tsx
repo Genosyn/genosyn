@@ -176,6 +176,8 @@ export function AccountProfile() {
               <Input
                 label="Email"
                 type="email"
+                autoComplete="email"
+                data-credential
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -189,6 +191,7 @@ export function AccountProfile() {
                     value={profileCurrentPassword}
                     onChange={(e) => setProfileCurrentPassword(e.target.value)}
                     autoComplete="current-password"
+                    data-credential
                     required
                   />
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -268,6 +271,7 @@ export function AccountProfile() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 autoComplete="current-password"
+                data-credential
                 required
               />
               <Input
@@ -276,6 +280,7 @@ export function AccountProfile() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 autoComplete="new-password"
+                data-credential
                 minLength={12}
                 required
               />
@@ -285,6 +290,7 @@ export function AccountProfile() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 autoComplete="new-password"
+                data-credential
                 minLength={12}
                 required
               />

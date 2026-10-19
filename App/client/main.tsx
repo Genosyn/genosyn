@@ -6,9 +6,12 @@ import {
   installNavigationHistoryGuard,
 } from "./components/NavigationGuard";
 import App from "./App";
+import { installPasswordManagerGuard } from "./lib/passwordManagers";
 import "./styles/index.css";
 
 installNavigationHistoryGuard();
+// Password managers fill the person's own sign-in, not every email field.
+installPasswordManagerGuard(document.body);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
