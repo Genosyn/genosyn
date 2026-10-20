@@ -11,6 +11,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { BoardLetter } from "../db/entities/BoardLetter.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Notification } from "../db/entities/Notification.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -166,6 +167,7 @@ const ROUTES: Array<[string, string, unknown?]> = [
   ["POST", "/board-letters/write", {}],
   ["GET", "/board-letters/1"],
   ["POST", "/board-letters/1/audit", {}],
+  ["POST", "/board-letters/1/read", {}],
 ];
 
 describe("who may reach letters to the board", () => {
@@ -321,5 +323,55 @@ describe("writing and auditing on request", () => {
     assert.equal((await call("POST", "/board-letters/7/audit", {})).status, 404);
     assert.equal((await call("POST", "/board-letters/x/audit", {})).status, 400);
     assert.equal((await call("GET", "/board-letters/0")).status, 400);
+  });
+});
+
+describe("reading a letter", () => {
+  async function bell(userId: string, letterId: string): Promise<Notification> {
+    return insert(Notification, {
+      companyId: company.id,
+      userId,
+      kind: "board_letter_ready",
+      title: "Letter No. 1 to the board · September 2026",
+      body: "On track.",
+      link: "/c/letters-sunwise/tldrs/letters/1",
+      actorKind: "ai",
+      actorId: writer.id,
+      entityKind: "board_letter",
+      entityId: letterId,
+    });
+  }
+
+  async function readAt(id: string): Promise<Date | null> {
+    return (await AppDataSource.getRepository(Notification).findOneByOrFail({ id })).readAt;
+  }
+
+  test("marks the reader's own notification read, and nobody else's", async () => {
+    const sent = await letter({ deliveredAt: new Date("2026-10-01T06:02:00Z") });
+    const ownerBell = await bell(owner.id, sent.id);
+    const adminBell = await bell(admin.id, sent.id);
+
+    const read = await call("POST", "/board-letters/1/read", {});
+    assert.equal(read.status, 200);
+    assert.deepEqual(read.body, { ok: true });
+    assert.ok(await readAt(ownerBell.id));
+    assert.equal(await readAt(adminBell.id), null);
+    // Again, or with nothing left unread, it still answers the same.
+    assert.equal((await call("POST", "/board-letters/1/read", {})).status, 200);
+  });
+
+  test("is refused a Member who still holds a bell row from their time as admin", async () => {
+    const sent = await letter({ deliveredAt: new Date("2026-10-01T06:02:00Z") });
+    const kept = await bell(member.id, sent.id);
+    actingUserId = member.id;
+    assert.equal((await call("POST", "/board-letters/1/read", {})).status, 403);
+    assert.equal(await readAt(kept.id), null);
+  });
+
+  test("validates the letter and the body at the boundary", async () => {
+    await letter();
+    assert.equal((await call("POST", "/board-letters/7/read", {})).status, 404);
+    assert.equal((await call("POST", "/board-letters/x/read", {})).status, 400);
+    assert.equal((await call("POST", "/board-letters/1/read", { all: true })).status, 400);
   });
 });

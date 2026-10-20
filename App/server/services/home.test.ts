@@ -4,11 +4,13 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
+import { BoardLetter } from "../db/entities/BoardLetter.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Notification } from "../db/entities/Notification.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -18,6 +20,7 @@ import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { getHomeData } from "./home.js";
+import { deliverBoardLetter } from "./boardLetterNotice.js";
 import { createDecision } from "./decisions.js";
 import { listHomeRepositoryWork } from "./homeRepositoryWork.js";
 import { createMailReviewApproval } from "./mail/reviewApprovals.js";
@@ -27,8 +30,9 @@ import { repositoryCheckoutExists } from "./repositoryWorkspace.js";
 /**
  * Home is an aggregation, not a named lookup, so it is the surface where a
  * visibility rule enforced on a dedicated route is easiest to forget. These
- * tests pin the two that matter: approval copy is redacted here exactly as the
- * approvals inbox redacts it, and Vault capture rows stay owner/admin-only.
+ * tests pin the ones that matter: approval copy is redacted here exactly as the
+ * approvals inbox redacts it, and Vault capture rows and letters to the board
+ * stay owner/admin-only.
  */
 
 before(initTestDb);
@@ -377,6 +381,105 @@ describe("Home TLDR briefings", () => {
     assert.equal(ownerHome.unreadTldrCount, 4);
     assert.equal(ownerHome.tldrs.length, 3);
     assert.equal(ownerHome.tldrs[0].title, "Brief 3");
+  });
+});
+
+describe("Home letters to the board", () => {
+  const originalLog = console.log;
+
+  /** A finished letter, told to the board the way the scheduler tells it. */
+  async function deliveredLetter(number: number, month: string, summary: string) {
+    const periodStart = new Date(`${month}-01T00:00:00Z`);
+    const letter = await insert(BoardLetter, {
+      companyId: company.id,
+      number,
+      month,
+      periodStart,
+      periodEnd: new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1)),
+      status: "ready",
+      startedAt: periodStart,
+      writtenAt: periodStart,
+      figuresJson: JSON.stringify({ figures: [], goals: [] }),
+      writerEmployeeId: employee.id,
+      writerName: employee.name,
+      writerRole: employee.role,
+      auditStatus: "exceptions",
+      auditorName: "Otto",
+      auditFindingsJson: JSON.stringify([{ quote: summary, problem: "Unsupported." }]),
+      untracedCount: 1,
+      summary,
+      body: `${summary} The rest of the letter.`,
+    });
+    // The email goes to the console when no transport is set up.
+    console.log = () => undefined;
+    try {
+      assert.equal(await deliverBoardLetter(letter.id), true);
+    } finally {
+      console.log = originalLog;
+    }
+    return letter;
+  }
+
+  async function boardMember(email: string, role: "admin" | "member"): Promise<User> {
+    const user = await insert(User, { email, name: email, passwordHash: "x" });
+    await insert(Membership, { companyId: company.id, userId: user.id, role });
+    return user;
+  }
+
+  test("shows each owner and admin the newest letter they have not read, and how many wait", async () => {
+    const admin = await boardMember("admin@example.test", "admin");
+    await deliveredLetter(1, "2026-08", "August held steady.");
+    await deliveredLetter(2, "2026-09", "September grew 41%.");
+
+    for (const [user, role] of [
+      [owner, "owner"],
+      [admin, "admin"],
+    ] as const) {
+      const data = await getHomeData({ companyId: company.id, userId: user.id, role });
+      assert.equal(data.unreadBoardLetterCount, 2, role);
+      assert.equal(data.boardLetter?.number, 2, role);
+      assert.equal(data.boardLetter?.monthLabel, "September 2026");
+      assert.equal(data.boardLetter?.summary, "September grew 41%.");
+      assert.equal(data.boardLetter?.auditStatus, "exceptions");
+      assert.equal(data.boardLetter?.findingsCount, 1);
+      assert.equal(data.boardLetter?.untracedCount, 1);
+      // A summary, never the letter itself or what its writer was given.
+      assert.equal("body" in (data.boardLetter ?? {}), false);
+      assert.equal("figures" in (data.boardLetter ?? {}), false);
+      // The bell rows stay where they are for the board.
+      assert.equal(
+        data.notifications.filter((row) => row.kind === "board_letter_ready").length,
+        2,
+        role,
+      );
+    }
+  });
+
+  test("never gives a Member a letter, not even the bell row a former admin kept", async () => {
+    const formerAdmin = await boardMember("former-admin@example.test", "admin");
+    await deliveredLetter(1, "2026-09", "September grew 41%.");
+    await AppDataSource.getRepository(Membership).update(
+      { companyId: company.id, userId: formerAdmin.id },
+      { role: "member" },
+    );
+    // The row is still theirs and still unread: Home leaves it out, it is not absent.
+    assert.equal(
+      await AppDataSource.getRepository(Notification).countBy({
+        companyId: company.id,
+        userId: formerAdmin.id,
+        kind: "board_letter_ready",
+      }),
+      1,
+    );
+
+    for (const user of [member, formerAdmin]) {
+      const data = await getHomeData({ companyId: company.id, userId: user.id, role: "member" });
+      assert.equal(data.boardLetter, null);
+      assert.equal(data.unreadBoardLetterCount, 0);
+      assert.deepEqual(data.notifications, []);
+      assert.equal(data.unreadNotificationCount, 0);
+      assert.doesNotMatch(JSON.stringify(data), /to the board|September grew|board_letter/);
+    }
   });
 });
 

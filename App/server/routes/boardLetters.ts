@@ -17,6 +17,7 @@ import {
   updateBoardLetterSettings,
   writeBoardLetterNow,
 } from "../services/boardLetters.js";
+import { markBoardLetterRead } from "../services/boardLetterReads.js";
 
 /**
  * Letters to the board: the monthly letter, its writer, and its auditor.
@@ -26,7 +27,8 @@ import {
  * carries the company's money figures, which a Member's Finance access may not
  * allow. There is deliberately no route that edits or deletes a letter, and no
  * MCP tool behind any of these: the AI Employees can neither appoint their own
- * auditor nor touch what it concluded.
+ * auditor nor touch what it concluded. Reading one changes only the reader's
+ * own bell notification for it (`services/boardLetterReads.ts`).
  */
 export const boardLettersRouter = Router({ mergeParams: true });
 boardLettersRouter.use(requireAuth);
@@ -125,6 +127,23 @@ boardLettersRouter.get(
   validateParams(letterParamsSchema),
   h(async (req, res) => {
     res.json(await getBoardLetter(cid(req), letterNumber(req)));
+  }),
+);
+
+boardLettersRouter.post(
+  "/board-letters/:number/read",
+  validateParams(letterParamsSchema),
+  validateBody(emptyBodySchema),
+  h(async (req, res) => {
+    // The letter page calls this when it shows a delivered letter, and Home's
+    // Dismiss does too. Only the caller's own notification is marked read, so
+    // the letter leaves their Home and their bell, and nobody else's.
+    await markBoardLetterRead({
+      companyId: cid(req),
+      userId: req.userId!,
+      number: letterNumber(req),
+    });
+    res.json({ ok: true });
   }),
 );
 

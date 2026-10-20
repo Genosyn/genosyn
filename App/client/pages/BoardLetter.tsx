@@ -11,7 +11,8 @@ import {
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import { Breadcrumbs } from "@/components/AppShell";
-import { useLiveRefetch } from "@/components/CompanySocket";
+import { useCompanySocketSubscription, useLiveRefetch } from "@/components/CompanySocket";
+import { LetterBadgePill } from "@/components/boardLetters/LetterBadgePill";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Disclosure } from "@/components/ui/Disclosure";
@@ -42,7 +43,7 @@ import {
 } from "@/lib/boardLetters";
 import { errorMessage } from "@/lib/errors";
 import { canOpenSubpage, subpageAt } from "@/lib/subpages";
-import { LetterBadgePill, LettersClosed } from "@/pages/BoardLetters";
+import { LettersClosed } from "@/pages/BoardLetters";
 import type { TldrsOutletContext } from "@/pages/TldrsLayout";
 
 /**
@@ -90,6 +91,33 @@ function LetterView({ company, number }: { company: Company; number: number }) {
   }, [reload]);
 
   useLiveRefetch("board_letter", reload);
+
+  // Opening a letter reads it, wherever the reader came from: their bell
+  // notification for it is marked read, and with it the letter leaves their
+  // Home. A failure leaves both as they were until the letter is opened again,
+  // which is the harmless way to fail, so it does not interrupt the reading.
+  const letterId = letter?.id ?? null;
+  const delivered = Boolean(letter?.deliveredAt);
+  const markRead = React.useCallback(() => {
+    void api
+      .post(`/api/companies/${company.id}/board-letters/${number}/read`, {})
+      .catch(() => undefined);
+  }, [company.id, number]);
+  React.useEffect(() => {
+    if (letterId && delivered) markRead();
+  }, [letterId, delivered, markRead]);
+  // A letter that finishes while this page is open is delivered after the page
+  // has loaded it, so its notification arrives while the reader is looking at it.
+  useCompanySocketSubscription((event) => {
+    if (
+      event.type === "notification.new" &&
+      letterId !== null &&
+      event.notification.entityKind === "board_letter" &&
+      event.notification.entityId === letterId
+    ) {
+      markRead();
+    }
+  });
 
   async function act(kind: "write" | "audit") {
     setActing(kind);

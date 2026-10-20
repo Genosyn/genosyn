@@ -69,6 +69,8 @@ function homeData(changes: Partial<HomeData> = {}): HomeData {
     failedRunCount: 0,
     tldrs: [],
     unreadTldrCount: 0,
+    boardLetter: null,
+    unreadBoardLetterCount: 0,
     systemHealth: { status: "ok", issueCount: 0, checks: [] },
     counts: { employees: 1, projects: 1 },
     ...changes,

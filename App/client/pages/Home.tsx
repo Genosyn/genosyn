@@ -33,6 +33,7 @@ import {
 // (used for the push-permission check) stays reachable in value positions.
 import {
   api,
+  BoardLetterSummary,
   Company,
   Employee,
   HomeApproval,
@@ -59,6 +60,7 @@ import { NotificationPeekModal } from "../components/home/NotificationPeekModal"
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
 import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RepositoryWorkCard } from "@/components/home/RepositoryWorkCard";
+import { BoardLetterCard, showsBoardLetter } from "@/components/home/BoardLetterCard";
 import { RunLiveModal, RunStatusChip } from "../components/routines/RunViews";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { runExplanationLabel, runExplanationPrompt } from "@/lib/runStatus";
@@ -92,7 +94,9 @@ import { clsx } from "../components/ui/clsx";
  * Home — the landing page after sign-in. One aggregation call
  * (`GET /api/companies/:cid/home`) fills the cards: unread notifications,
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
- * email summaries, and unread channels. Every card deep-links into the full section.
+ * email summaries, unread channels, and, for owners and admins, the newest
+ * letter to the board they have not read. Every card deep-links into the full
+ * section.
  *
  * Every queue here hides itself when it has nothing. An empty queue is not
  * news — a card that spends a grid slot to say "nothing is waiting on you"
@@ -260,7 +264,10 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   }, [reload, reloadPeople]);
   // Keep Home counts, briefings, and the pending Decision preview current when
   // their source rows change in another tab.
-  useLiveRefetch(["approval", "decision", "tldr", "tldr_question", "repository"], reload);
+  useLiveRefetch(
+    ["approval", "decision", "tldr", "tldr_question", "board_letter", "repository"],
+    reload,
+  );
   useLiveRefetch("employee", reloadPeople);
 
   function dismissTldr(item: TldrItem) {
@@ -292,6 +299,59 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         });
       },
     });
+  }
+
+  /**
+   * Dismissing the letter reads it, for this person only: the same read as
+   * opening it, so it also leaves their bell. It goes at once; the next unread
+   * letter, if there is one, arrives with the refetch that follows.
+   */
+  function dismissBoardLetter(letter: BoardLetterSummary) {
+    const successfulRequestAtClick = homeSuccessfulRequest.current;
+    const companyId = company.id;
+    setData((current) =>
+      current?.boardLetter?.id === letter.id
+        ? {
+            ...current,
+            boardLetter: null,
+            unreadBoardLetterCount: Math.max(0, current.unreadBoardLetterCount - 1),
+          }
+        : current,
+    );
+
+    background(
+      () => api.post(`/api/companies/${companyId}/board-letters/${letter.number}/read`, {}),
+      {
+        title: "Couldn’t dismiss the letter",
+        error: (err) =>
+          `${errorMessage(err)} ${
+            activeCompanyId.current !== companyId ||
+            homeSuccessfulRequest.current > successfulRequestAtClick
+              ? "The latest Home data has been kept."
+              : "It has been restored."
+          }`,
+        onSuccess: () => {
+          if (activeCompanyId.current === companyId) void reload();
+        },
+        onError: () => {
+          setData((current) => {
+            if (
+              activeCompanyId.current !== companyId ||
+              homeSuccessfulRequest.current > successfulRequestAtClick ||
+              !current ||
+              current.boardLetter
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              boardLetter: letter,
+              unreadBoardLetterCount: current.unreadBoardLetterCount + 1,
+            };
+          });
+        },
+      },
+    );
   }
 
   function markChannelRead(channel: HomeChannel): boolean {
@@ -478,6 +538,12 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
                   data={data}
                   onChanged={reload}
                   onOpen={setOverlay}
+                />
+                <BoardLetterCard
+                  company={company}
+                  letter={data.boardLetter}
+                  unreadCount={data.unreadBoardLetterCount}
+                  onDismiss={dismissBoardLetter}
                 />
                 <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
                 <StatStrip company={company} data={data} />
@@ -693,6 +759,7 @@ function hasAnythingToShow(data: HomeData, company: Company): boolean {
     homeDecisionReviews(company, data).length > 0 ||
     data.repositoryWorkCount > 0 ||
     data.failedRuns.length > 0 ||
+    showsBoardLetter(company, data.boardLetter) ||
     data.tldrs.length > 0 ||
     data.draftEmailCount > 0 ||
     data.starredEmailCount > 0 ||

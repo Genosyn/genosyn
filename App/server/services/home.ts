@@ -21,6 +21,12 @@ import { mailReviewDetails, reconcileMailReviewApprovals } from "./mail/reviewAp
 import { approvalInboxSelect } from "./approvalInbox.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
+import type { BoardLetterSummaryDTO } from "./boardLetters.js";
+import {
+  BOARD_LETTER_NOTIFICATION_KIND,
+  canReadBoardLetters,
+  listUnreadBoardLetters,
+} from "./boardLetterReads.js";
 import { findLiveRunFailures } from "./runFailures.js";
 import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runContinuationView.js";
 import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositoryWork.js";
@@ -34,8 +40,10 @@ import {
  * Aggregation behind the Home page — the landing surface after sign-in.
  * One round-trip gathers everything that might need the member's
  * attention: unread bell rows, todos assigned to them, reviews waiting on
- * their sign-off, pending approvals, unread channels/DMs, and a one-line
- * digest of today's AI activity. Each card deep-links to the full section.
+ * their sign-off, pending approvals, unread channels/DMs, the newest unread
+ * TLDR, the newest unread letter to the board for owners and admins, and a
+ * one-line digest of today's AI activity. Each card deep-links to the full
+ * section.
  */
 
 export type HomeTodo = {
@@ -94,6 +102,13 @@ export type HomeData = {
   /** Latest company TLDRs this Member has not dismissed. */
   tldrs: TldrDTO[];
   unreadTldrCount: number;
+  /**
+   * The newest letter to the board sent to this owner or admin that they have
+   * not read (`services/boardLetterReads.ts`). Always null for a Member:
+   * letters are owner/admin-only, reads included.
+   */
+  boardLetter: BoardLetterSummaryDTO | null;
+  unreadBoardLetterCount: number;
   notifications: NotificationDTO[];
   unreadNotificationCount: number;
   /** The Decision Stack — questions AI employees raised, highest urgency first. */
@@ -385,20 +400,26 @@ export async function getHomeData(params: {
       .filter((r): r is HomeFailedRun => r !== null);
   }
 
+  // A letter to the board is owner/admin-only, reads included, so a Member's
+  // Home carries none of one: not the letter, and not the bell row a former
+  // admin still holds from when they were on the board.
+  const hiddenNotificationKinds = canReadBoardLetters(role) ? [] : [BOARD_LETTER_NOTIFICATION_KIND];
   const [
     notifications,
     unreadNotificationCount,
     systemHealth,
     decisionStack,
     homeTldrs,
+    boardLetters,
     repositoryWork,
     homeDrafts,
   ] = await Promise.all([
-    listUnreadForUser({ companyId, userId, limit: 8 }),
-    countUnreadForUser({ companyId, userId }),
+    listUnreadForUser({ companyId, userId, limit: 8, excludeKinds: hiddenNotificationKinds }),
+    countUnreadForUser({ companyId, userId, excludeKinds: hiddenNotificationKinds }),
     getSystemHealthSummary(companyId),
     listPendingDecisions({ companyId, limit: 5, viewer: { userId, role } }),
     listHomeTldrs({ companyId, userId, limit: 3 }),
+    listUnreadBoardLetters({ companyId, userId, role }),
     canReadRepositoryWork
       ? listHomeRepositoryWork({ companyId })
       : Promise.resolve({ items: [], total: 0 }),
@@ -408,6 +429,8 @@ export async function getHomeData(params: {
   return {
     tldrs: homeTldrs.items,
     unreadTldrCount: homeTldrs.unreadCount,
+    boardLetter: boardLetters.letter,
+    unreadBoardLetterCount: boardLetters.unreadCount,
     notifications,
     unreadNotificationCount,
     decisions: decisionStack.decisions,

@@ -58,7 +58,8 @@ export function BoardLetters() {
       <UL>
         <LI>
           Each owner and admin gets a bell notification and an email carrying the whole letter: the
-          figures, the prose, which numbers matched, and the audit.
+          figures, the prose, which numbers matched, and the audit. The letter also waits on their{" "}
+          <DocLink to="/docs/board-letters#home">Home</DocLink> until they read it.
         </LI>
         <LI>
           If the writer fails, a scheduled letter is tried again an hour later, up to three
@@ -70,6 +71,25 @@ export function BoardLetters() {
           letter waits. It is written once the Standdown is lifted, not worked around.
         </LI>
       </UL>
+
+      <H2 id="home">On Home</H2>
+      <P>
+        Until you read it, the newest letter sent to you waits on <Strong>Home</Strong>, above the
+        latest TLDR. The card shows its number and month, its one-sentence summary, and the same
+        badges as the list: what the audit found and whether every number matched a figure. Choose{" "}
+        <Strong>Read the letter</Strong> to open it, or <Strong>All letters</Strong> for the list.
+        When several are waiting, the card says how many more.
+      </P>
+      <P>
+        A letter leaves your Home once you open it, from Home, the bell, the email, or the list.{" "}
+        <Strong>Dismiss</Strong> takes it off without opening it, and so does marking its bell
+        notification read. Either way it is yours alone: the other owners and admins keep it until
+        they read it, and the letter itself stays under <Strong>What happened → Letters</Strong>.
+      </P>
+      <P>
+        Home shows the letters that were sent to you. If you joined the board after a letter went
+        out, you will find it in the list rather than on Home.
+      </P>
 
       <H2 id="contents">What a letter says</H2>
       <P>
@@ -190,8 +210,10 @@ export function BoardLetters() {
       <P>
         The company&apos;s owners and admins: they set its Goals and place its Standdowns, so in
         Genosyn today they are its board. A letter carries the company&apos;s money figures. A
-        Member never sees <Strong>Letters</Strong> in the menu, and gets a note instead if they
-        follow a link. Briefings and the Journal stay open to everyone.
+        Member never sees <Strong>Letters</Strong> in the menu or a letter on Home, and gets a note
+        instead if they follow a link. That holds for an admin who is made a Member, too: the
+        letters already sent to them leave their Home. Briefings and the Journal stay open to
+        everyone.
       </P>
       <P>
         Every change to these settings, including who appointed or removed the auditor, is in{" "}
