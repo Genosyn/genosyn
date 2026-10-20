@@ -20,21 +20,21 @@ import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
-type StatusFilter = "all" | InvoiceStatus | "overdue" | "written_off" | "credited";
+/** Every status tab, plus Active: everything not voided, which the list opens on. */
+type StatusFilter = "active" | InvoiceStatus | "overdue" | "written_off" | "credited";
 
-const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "All" },
+const FILTERS: { key: Exclude<StatusFilter, "void">; label: string }[] = [
+  { key: "active", label: "Active" },
   { key: "draft", label: "Drafts" },
   { key: "sent", label: "Sent" },
   { key: "overdue", label: "Overdue" },
   { key: "paid", label: "Paid" },
   { key: "credited", label: "Credited" },
   { key: "written_off", label: "Written off" },
-  { key: "void", label: "Void" },
 ];
 
 const STATUS_BADGE: Record<StatusFilter, string> = {
-  all: "",
+  active: "",
   draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
@@ -48,6 +48,8 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
  * Invoice list with status-tab filter. Phase A of the Finance milestone
  * (M19). Click any row to open the detail page. A read-only Member gets the
  * list without New invoice or the row menu, whose every entry is a write.
+ * It opens on Active: a voided invoice stays in the records but leaves that
+ * view for its own Void tab.
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -56,7 +58,7 @@ export default function FinanceInvoices() {
   const dialog = useDialog();
   const navigate = useNavigate();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
-  const [filter, setFilter] = React.useState<StatusFilter>("all");
+  const [filter, setFilter] = React.useState<StatusFilter>("active");
 
   const reload = React.useCallback(async () => {
     const list = await api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`);
@@ -141,13 +143,13 @@ export default function FinanceInvoices() {
 
   const filtered = React.useMemo(() => {
     if (!invoices) return null;
-    if (filter === "all") return invoices;
+    if (filter === "active") return invoices.filter((inv) => inv.status !== "void");
     return invoices.filter((inv) => displayInvoiceStatus(inv) === filter);
   }, [invoices, filter]);
 
   const counts = React.useMemo(() => {
     const c: Record<StatusFilter, number> = {
-      all: 0,
+      active: 0,
       draft: 0,
       sent: 0,
       overdue: 0,
@@ -157,7 +159,7 @@ export default function FinanceInvoices() {
       void: 0,
     };
     for (const inv of invoices ?? []) {
-      c.all += 1;
+      if (inv.status !== "void") c.active += 1;
       c[displayInvoiceStatus(inv)] += 1;
     }
     return c;
@@ -181,26 +183,31 @@ export default function FinanceInvoices() {
         )}
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
         {FILTERS.map((f) => (
-          <button
+          <FilterTab
             key={f.key}
+            active={filter === f.key}
+            label={f.label}
+            count={invoices ? counts[f.key] : null}
             onClick={() => setFilter(f.key)}
-            className={
-              "rounded-md px-3 py-1.5 text-xs font-medium transition " +
-              (filter === f.key
-                ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
-            }
-          >
-            {f.label}
-            {invoices && (
-              <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">
-                {counts[f.key]}
-              </span>
-            )}
-          </button>
+          />
         ))}
+        {/* Void sits apart, outside Active. Kept together so the divider never
+            ends a wrapped line; on a phone, where the tabs wrap anyway, it is
+            dropped. */}
+        <span className="flex items-center">
+          <span
+            aria-hidden
+            className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
+          />
+          <FilterTab
+            active={filter === "void"}
+            label="Void"
+            count={invoices ? counts.void : null}
+            onClick={() => setFilter("void")}
+          />
+        </span>
       </div>
 
       {filtered === null ? (
@@ -212,7 +219,7 @@ export default function FinanceInvoices() {
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             No invoices in this view
           </h3>
-          {filter !== "all" ? (
+          {filter !== "active" ? (
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Try a different status filter.
             </p>
@@ -321,6 +328,35 @@ export default function FinanceInvoices() {
         </div>
       )}
     </div>
+  );
+}
+
+function FilterTab({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number | null;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "rounded-md px-3 py-1.5 text-xs font-medium transition " +
+        (active
+          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+          : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
+      }
+    >
+      {label}
+      {count !== null && (
+        <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">{count}</span>
+      )}
+    </button>
   );
 }
 

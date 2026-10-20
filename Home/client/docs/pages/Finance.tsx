@@ -282,6 +282,11 @@ export function Finance() {
         <Code>Make recurring</Code> — see{" "}
         <DocLink to="/docs/finance#recurring-from-document">From an invoice or estimate</DocLink>.
       </P>
+      <P>
+        <Code>Finance → Invoices</Code> opens on <Strong>Active</Strong>: every invoice that
+        isn&apos;t void, from drafts to paid. Voided invoices stay in your records under the{" "}
+        <Code>Void</Code> tab, and the other tabs narrow Active down by status.
+      </P>
 
       <H3 id="invoices-paid-confirmation">Paid confirmation</H3>
       <P>
@@ -384,7 +389,8 @@ export function Finance() {
         <Code>Void</Code> means <em>this invoice should never have been issued</em>. It posts a
         reversing entry that unwinds the original{" "}
         <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>, keeping both the original
-        and the reversal in the journal so the audit trail stays intact.
+        and the reversal in the journal so the audit trail stays intact. A voided invoice leaves the
+        default <Strong>Active</Strong> list; find it under the <Code>Void</Code> tab.
       </P>
       <P>
         Two things it deliberately will not do. Voiding an invoice that already has{" "}
