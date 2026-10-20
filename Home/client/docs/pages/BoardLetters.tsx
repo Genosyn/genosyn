@@ -212,8 +212,8 @@ export function BoardLetters() {
         Genosyn today they are its board. A letter carries the company&apos;s money figures. A
         Member never sees <Strong>Letters</Strong> in the menu or a letter on Home, and gets a note
         instead if they follow a link. That holds for an admin who is made a Member, too: the
-        letters already sent to them leave their Home. Briefings and the Journal stay open to
-        everyone.
+        letters already sent to them leave their Home and their bell until they are made an admin
+        again. Briefings and the Journal stay open to everyone.
       </P>
       <P>
         Every change to these settings, including who appointed or removed the auditor, is in{" "}
