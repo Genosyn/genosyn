@@ -183,6 +183,7 @@ import {
   listLedgerEntriesForReview,
   returnLedgerReview,
 } from "../services/transactionReviews.js";
+import { findReviewedCategoryDrift } from "../services/reviewedCategoryDrift.js";
 import {
   accountActivity,
   balanceSheet,
@@ -3030,6 +3031,21 @@ financeRouter.post("/ledger-entries/bulk", validateBody(ledgerBulkSchema), async
     res.status(400).json({ error: (err as Error).message });
   }
 });
+
+// Reversed entries that still carry a category Entry review gave them, from
+// before reversals took a reviewed category back. Read-only: it lists what is
+// left over and the change that would clear it, and posts nothing.
+financeRouter.get(
+  "/ledger-review-drift",
+  validateQuery(z.object({}).strict()),
+  async (req, res) => {
+    if (!canApproveFinance(req)) {
+      return res.status(403).json({ error: "Only owners and admins can check reviewed categories" });
+    }
+    const cid = (req.params as Record<string, string>).cid;
+    res.json({ drift: await findReviewedCategoryDrift(cid) });
+  },
+);
 
 // ─────────────────────────── Trial balance ─────────────────────────────
 

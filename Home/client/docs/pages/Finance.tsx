@@ -728,6 +728,15 @@ export function Finance() {
         refund or a write-off.
       </P>
       <P>
+        Before that, a reversal or an Undo on Banking took back only the entry&apos;s own lines,
+        and Entry review could change a reversal or an entry already reversed. Books kept from
+        then can still have a reviewed category holding money that the original category owes.
+        Owners and admins can list those entries with{" "}
+        <Code>GET /api/companies/:cid/ledger-review-drift</Code>: each shows its reversals, the
+        changes involved, what is left on each account, and the category change that would
+        clear it. Listing them posts nothing.
+      </P>
+      <P>
         Some entries take no category change here. They show their categories without a picker,
         with the reason, and are approved as they are:
       </P>
