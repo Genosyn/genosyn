@@ -53,7 +53,7 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Banking</Strong> — your bank accounts and cards with every transaction on them:
-          mark an invoice paid from a deposit, match what is already in the books, or give a
+          mark the invoices a deposit paid, match what is already in the books, or give a
           transaction a category. See <DocLink to="/docs/banking">Banking</DocLink>.
         </LI>
         <LI>
@@ -637,12 +637,13 @@ export function Finance() {
       <H2 id="banking">Banking</H2>
       <P>
         Bank accounts, cards, and Stripe payouts live under <Code>Finance → Banking</Code>, with
-        every transaction on them in one list. Mark which invoice a deposit paid — Genosyn records
-        the payment on the invoice and matches the two in one step — match a transaction to a
-        payment or entry already in the books, or give it a category. Card purchases are filed
-        under their card&apos;s default category as they arrive. Banking is the one place a bank
-        or card transaction&apos;s category changes. Banking replaced the separate Reconciliation
-        and Card expenses pages; their old links open it.{" "}
+        every transaction on them in one list. Mark which invoices a deposit paid — one, or several
+        a customer settled with one transfer; Genosyn records a payment on each and matches them
+        to the deposit in one step — match a transaction to a payment or entry already in the
+        books, or give it a category. Card purchases are filed under their card&apos;s default
+        category as they arrive. Banking is the one place a bank or card transaction&apos;s
+        category changes. Banking replaced the separate Reconciliation and Card expenses pages;
+        their old links open it.{" "}
         <DocLink to="/docs/banking">Banking</DocLink> covers it step by step.
       </P>
 

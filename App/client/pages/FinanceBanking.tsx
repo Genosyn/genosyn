@@ -258,8 +258,10 @@ export default function FinanceBanking() {
               row.txn.description,
               row.txn.reference,
               nameById.get(row.txn.feedId),
-              row.txn.match?.kind === "payment"
-                ? `${row.txn.match.invoiceNumber} ${row.txn.match.customerName}`
+              row.txn.match?.kind === "payments"
+                ? row.txn.match.payments
+                    .map((payment) => `${payment.invoiceNumber} ${payment.customerName}`)
+                    .join(" ")
                 : accountName(row.txn.match?.categoryAccountId),
               formatMoney(Math.abs(row.txn.amountCents), homeCurrency),
             ]
@@ -349,8 +351,8 @@ export default function FinanceBanking() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Banking</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Your bank accounts and cards, and every transaction on them. Go through the ones
-            waiting for review: say which invoice a deposit paid, or what a payment was for.
+            Your bank accounts and cards, and every transaction on them. Go through the ones waiting
+            for review: say which invoices a deposit paid, or what a payment was for.
           </p>
         </div>
         {canWrite && (
@@ -674,7 +676,7 @@ function NoAccounts({ canWrite, onAdd }: { canWrite: boolean; onAdd: () => void 
       </h2>
       <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
         {canWrite
-          ? "Upload your bank's CSV statements, or connect Brex or Stripe to bring transactions in automatically. Then mark which invoice each deposit paid, and give everything else a category."
+          ? "Upload your bank's CSV statements, or connect Brex or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
           : "No bank accounts or cards have been added yet. Someone with full Finance access can add them."}
       </p>
       {canWrite && (

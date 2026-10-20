@@ -9,7 +9,7 @@ export function Banking() {
         lead={
           <>
             Your bank accounts and cards, and every transaction on them, in one list. Say which
-            invoice a deposit paid, or what a payment was for, and Genosyn keeps the books. Find it
+            invoices a deposit paid, or what a payment was for, and Genosyn keeps the books. Find it
             under <Code>Finance → Banking</Code>.
           </>
         }
@@ -27,7 +27,7 @@ export function Banking() {
         </LI>
         <LI>
           <Strong>Work through To review</Strong> — open each transaction and choose what it was:
-          the payment of an invoice, something already in your books, or a category.
+          the payment of one or more invoices, something already in your books, or a category.
         </LI>
       </OL>
       <P>
@@ -107,7 +107,7 @@ export function Banking() {
         and you pick one.
       </P>
 
-      <H3 id="mark-paid">It paid an invoice</H3>
+      <H3 id="mark-paid">It paid invoices</H3>
       <P>
         For money coming in, Genosyn lists the invoices still waiting for payment, best guess
         first: one whose amount due is exactly the deposit, or whose customer or number the
@@ -116,18 +116,31 @@ export function Banking() {
         with a search box.
       </P>
       <P>
-        <Code>Mark paid</Code> records the deposit as the invoice&apos;s payment and links the two,
-        in one step. The payment is a <Code>Bank transfer</Code> dated the day the money arrived,
-        posted to the bank account it arrived in, with a note on the invoice saying it was recorded
-        from Banking. A deposit smaller than what is due pays part of the invoice. When it settles
-        the invoice, the invoice turns <Code>Paid</Code> and owners and admins get the usual{" "}
-        <DocLink to="/docs/finance#invoices-paid-confirmation">paid confirmation</DocLink>.
+        Tick the invoices the deposit paid — one, or several a customer settled with one transfer.
+        A ticked invoice takes what is still due on it, or what is left of the deposit when that is
+        less, and you can change the amount to pay part of an invoice. Below the list, the ticked
+        amounts add up against the deposit; once they match it exactly, <Code>Mark paid</Code>{" "}
+        records a payment on every ticked invoice and links them all to the deposit, in one step.
+        When exactly one invoice is both the same amount and named in the description, it starts
+        ticked.
+      </P>
+      <P>
+        When several of one customer&apos;s invoices add up to exactly the deposit, Genosyn says so
+        above the list, and <Code>Tick these</Code> ticks them. Customers usually clear their
+        oldest invoices first, so those are suggested first.
+      </P>
+      <P>
+        Each payment is a <Code>Bank transfer</Code> dated the day the money arrived, posted to the
+        bank account it arrived in, with a note on the invoice saying it was recorded from Banking.
+        An invoice it settles turns <Code>Paid</Code>, and owners and admins get the usual{" "}
+        <DocLink to="/docs/finance#invoices-paid-confirmation">paid confirmation</DocLink>. It is
+        all or nothing: if one payment can&apos;t be recorded, none are.
       </P>
       <UL>
-        <LI>One deposit pays one invoice.</LI>
         <LI>
-          A deposit bigger than what is due can&apos;t pay the invoice here. Record it on the
-          invoice with <Code>Record the excess as an on-account customer credit</Code> ticked (see{" "}
+          No invoice can take more than what is still due on it. If the customer paid more than the
+          invoices owe, record the payment on the invoice with{" "}
+          <Code>Record the excess as an on-account customer credit</Code> ticked (see{" "}
           <DocLink to="/docs/finance#refunds-deposits">overpayments</DocLink>), then match the
           deposit to that payment.
         </LI>
@@ -172,8 +185,8 @@ export function Banking() {
       </P>
       <UL>
         <LI>
-          A payment recorded with <Code>Mark paid</Code> comes off its invoice, which shows that
-          amount due again.
+          Every payment recorded with <Code>Mark paid</Code> comes off its invoice, which shows
+          that amount due again.
         </LI>
         <LI>
           A category is reversed with an opposite entry, from the category the transaction is
@@ -184,9 +197,11 @@ export function Banking() {
         </LI>
       </UL>
       <P>
-        Deleting a payment from an invoice sends the bank transaction it explained back to{" "}
-        <Code>To review</Code> too, so a transaction never claims a payment that is gone. A
-        category in a{" "}
+        Deleting a payment from an invoice sends the bank transaction it came in back to{" "}
+        <Code>To review</Code> too, so a transaction never claims a payment that is gone. When the
+        deposit paid several invoices, the others stay paid from it and the transaction shows{" "}
+        <Code>Part paid</Code>: open it to tick what the rest paid, or <Code>Undo</Code> to take
+        the other payments off too and start over. A category in a{" "}
         <DocLink to="/docs/finance#ledger">closed accounting period</DocLink> can&apos;t be
         undone until the period is reopened.
       </P>

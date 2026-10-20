@@ -6,16 +6,21 @@ import {
   AccountType,
   api,
   BankTransaction,
+  BankTransactionPayment,
   CardTransaction,
   Company,
+  DepositInvoiceOptions,
   formatMoney,
   MatchCandidate,
   OpenInvoiceCandidate,
+  OpenInvoiceSet,
+  parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { ledgerSourceLabel } from "../lib/ledgerSources";
 import { canWriteFinance } from "../lib/subpages";
 import { Button } from "../components/ui/Button";
+import { Checkbox } from "../components/ui/Checkbox";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
@@ -23,9 +28,9 @@ import { Spinner } from "../components/ui/Spinner";
 
 /**
  * One transaction on Banking. A bank transaction opens to the three ways it
- * can be explained — it paid an invoice, it is something already in the
- * books, or it gets a category — and, once explained, to what explains it and
- * an Undo. A card transaction is already in the books under its card's
+ * can be explained — it paid one or more invoices, it is something already in
+ * the books, or it gets a category — and, once explained, to what explains it
+ * and an Undo. A card transaction is already in the books under its card's
  * default category, so its row is just that category, changeable in place.
  */
 
@@ -106,15 +111,90 @@ function accountLabel(accounts: Account[], id: string | null | undefined): strin
   return account ? `${account.code} ${account.name}` : "a category";
 }
 
+/** "A", "A and B", "A, B and C". */
+function listOf(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** The payments a transaction is linked to — its invoices, paid from it. */
+function paymentsOf(txn: BankTransaction): BankTransactionPayment[] {
+  return txn.match?.kind === "payments" ? txn.match.payments : [];
+}
+
 /** What explains a bank transaction, in a few words for its row. */
 function outcomeSummary(txn: BankTransaction, accounts: Account[]): string {
   const match = txn.match;
   if (!match) return "Matched";
-  if (match.kind === "payment") return `Paid ${match.invoiceNumber}`;
+  if (match.kind === "payments") {
+    return match.payments.length === 1
+      ? `Paid ${match.payments[0].invoiceNumber}`
+      : `Paid ${match.payments.length} invoices`;
+  }
   if (match.categoryAccountId) {
     return accounts.find((account) => account.id === match.categoryAccountId)?.name ?? "Categorized";
   }
   return ledgerSourceLabel(match.source, match.sourceRefId);
+}
+
+/**
+ * What Undo is about to do, said before it does it: payments Banking recorded
+ * come off their invoices, a category is reversed, and a plain match only
+ * unlinks.
+ */
+function undoConfirmation(
+  txn: BankTransaction,
+  accounts: Account[],
+  homeCurrency: string,
+): { title: string; message: string } {
+  const money = (cents: number) => formatMoney(cents, homeCurrency);
+  const match = txn.match;
+  const after = txn.reconciledAt
+    ? "this transaction goes back to To review"
+    : "this transaction stays in To review";
+  if (match?.kind === "payments") {
+    const removed = match.payments.filter((payment) => payment.recordedHere);
+    const kept = match.payments.filter((payment) => !payment.recordedHere);
+    const stays =
+      kept.length === 0
+        ? ""
+        : kept.length === 1
+          ? ` The payment on ${kept[0].invoiceNumber} stays; only its link to this transaction goes.`
+          : ` The payments on ${listOf(kept.map((p) => p.invoiceNumber))} stay; only their links to this transaction go.`;
+    if (removed.length === 0) {
+      return {
+        title: "Undo this match?",
+        message:
+          kept.length === 1
+            ? `The payment stays on ${kept[0].invoiceNumber}; only the link to this transaction is removed, and ${after}.`
+            : `The payments stay on their invoices; only their links to this transaction are removed, and ${after}.`,
+      };
+    }
+    if (removed.length === 1) {
+      return {
+        title: `Take the payment off ${removed[0].invoiceNumber}?`,
+        message: `The ${money(removed[0].amountCents)} payment comes off ${removed[0].invoiceNumber}, which will show that much due again, and ${after}.${stays}`,
+      };
+    }
+    const parts = removed.map(
+      (payment, i) =>
+        `${money(payment.amountCents)}${i === 0 ? " comes" : ""} off ${payment.invoiceNumber}`,
+    );
+    return {
+      title: `Take the payments off ${removed.length} invoices?`,
+      message: `${listOf(parts)}, and each will show that much due again. Then ${after}.${stays}`,
+    };
+  }
+  if (match?.kind === "ledger_entry" && match.categoryAccountId) {
+    return {
+      title: "Remove the category?",
+      message: `Genosyn reverses the ${money(Math.abs(txn.amountCents))} it filed under ${accountLabel(accounts, match.categoryAccountId)}, and ${after}.`,
+    };
+  }
+  return {
+    title: "Undo this match?",
+    message: `The entry stays in your books, and ${after}.`,
+  };
 }
 
 // ─────────────────────────────── Bank rows ────────────────────────────────
@@ -173,7 +253,7 @@ export function BankTransactionRow({
           </span>
         ) : (
           <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 md:inline-flex dark:bg-amber-500/15 dark:text-amber-300">
-            To review
+            {paymentsOf(txn).length > 0 ? "Part paid" : "To review"}
           </span>
         )}
         <span className="w-28 shrink-0 text-right">
@@ -236,42 +316,49 @@ function ReviewPanel({
   onChanged: () => Promise<void>;
 }) {
   const canWrite = canWriteFinance(company);
+  const dialog = useDialog();
   const incoming = txn.amountCents > 0;
-  const [invoices, setInvoices] = React.useState<OpenInvoiceCandidate[] | null>(null);
+  // Part of the deposit already paid invoices, and one of those payments was
+  // deleted since: what is left can only go on invoices, or be undone.
+  const partlyPaid = paymentsOf(txn).length > 0;
+  const [options, setOptions] = React.useState<DepositInvoiceOptions | null>(null);
   const [matches, setMatches] = React.useState<MatchCandidate[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [showAllInvoices, setShowAllInvoices] = React.useState(false);
   const [showAllMatches, setShowAllMatches] = React.useState(false);
-  const [invoiceSearch, setInvoiceSearch] = React.useState("");
   const [category, setCategory] = React.useState("");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let alive = true;
+    const none: DepositInvoiceOptions = { remainingCents: 0, invoices: [], sets: [] };
     Promise.all([
       incoming
-        ? api.get<OpenInvoiceCandidate[]>(
+        ? api.get<DepositInvoiceOptions>(
             `/api/companies/${company.id}/bank-transactions/${txn.id}/open-invoices`,
           )
-        : Promise.resolve([]),
-      api.get<MatchCandidate[]>(`/api/companies/${company.id}/bank-transactions/${txn.id}/candidates`),
+        : Promise.resolve(none),
+      partlyPaid
+        ? Promise.resolve([])
+        : api.get<MatchCandidate[]>(
+            `/api/companies/${company.id}/bank-transactions/${txn.id}/candidates`,
+          ),
     ])
       .then(([open, recorded]) => {
         if (!alive) return;
-        setInvoices(open);
+        setOptions(open);
         setMatches(recorded);
       })
       .catch((err: unknown) => {
         if (!alive) return;
-        setInvoices([]);
+        setOptions(none);
         setMatches([]);
         setLoadError(errorMessage(err, "Couldn't load the suggestions"));
       });
     return () => {
       alive = false;
     };
-  }, [company.id, incoming, txn.id]);
+  }, [company.id, incoming, partlyPaid, txn.id]);
 
   async function run(key: string, work: () => Promise<unknown>) {
     setBusy(key);
@@ -286,11 +373,19 @@ function ReviewPanel({
     }
   }
 
-  function payInvoice(invoice: OpenInvoiceCandidate) {
-    void run(`invoice:${invoice.invoiceId}`, () =>
-      api.post(`/api/companies/${company.id}/bank-transactions/${txn.id}/pay-invoice`, {
-        invoiceId: invoice.invoiceId,
+  function payInvoices(shares: Array<{ invoiceId: string; amountCents: number }>) {
+    void run("pay", () =>
+      api.post(`/api/companies/${company.id}/bank-transactions/${txn.id}/pay-invoices`, {
+        invoices: shares,
       }),
+    );
+  }
+
+  async function undo() {
+    const { title, message } = undoConfirmation(txn, accounts, homeCurrency);
+    if (!(await dialog.confirm({ title, message, confirmLabel: "Undo" }))) return;
+    void run("undo", () =>
+      api.post(`/api/companies/${company.id}/bank-transactions/${txn.id}/unmatch`),
     );
   }
 
@@ -313,27 +408,19 @@ function ReviewPanel({
     );
   }
 
-  const needle = invoiceSearch.trim().toLowerCase();
-  const shownInvoices = (invoices ?? [])
-    .filter(
-      (invoice) =>
-        !needle ||
-        `${invoice.number} ${invoice.customerName}`.toLowerCase().includes(needle),
-    )
-    .slice(0, showAllInvoices ? undefined : TOP_INVOICES);
-  const sameAmount = (matches ?? []).filter(
-    (candidate) => Math.abs(candidate.amountCents) === Math.abs(txn.amountCents),
-  );
-  const shownMatches = showAllMatches ? (matches ?? []) : sameAmount;
-  const hiddenMatches = (matches ?? []).length - sameAmount.length;
-
-  if (invoices === null || matches === null) {
+  if (options === null || matches === null) {
     return (
       <div className="flex justify-center border-t border-slate-100 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-800/30">
         <Spinner size={16} />
       </div>
     );
   }
+
+  const sameAmount = matches.filter(
+    (candidate) => Math.abs(candidate.amountCents) === Math.abs(txn.amountCents),
+  );
+  const shownMatches = showAllMatches ? matches : sameAmount;
+  const hiddenMatches = matches.length - sameAmount.length;
 
   return (
     <div className="space-y-5 border-t border-slate-100 bg-slate-50 px-4 py-4 sm:pl-11 dark:border-slate-800 dark:bg-slate-800/30">
@@ -344,97 +431,24 @@ function ReviewPanel({
           title="Did this pay an invoice?"
           hint={
             canWrite
-              ? "Mark it paid: the deposit is recorded as the invoice's payment, on the day it arrived."
+              ? "Tick the invoices it paid — one, or several a customer settled with one transfer. Each is marked paid with its share, on the day the money arrived."
               : undefined
           }
         >
-          {invoices.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              No invoices in {homeCurrency} are waiting for payment.
-            </p>
-          ) : (
-            <>
-              {showAllInvoices && (
-                <label className="relative mb-2 block sm:w-72">
-                  <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
-                  <input
-                    value={invoiceSearch}
-                    onChange={(event) => setInvoiceSearch(event.target.value)}
-                    placeholder="Search invoice or customer"
-                    aria-label="Search open invoices"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
-                  />
-                </label>
-              )}
-              <ul
-                className={
-                  "space-y-1.5 " + (showAllInvoices ? "max-h-72 overflow-y-auto pr-1" : "")
-                }
-              >
-                {shownInvoices.map((invoice) => (
-                  <li
-                    key={invoice.invoiceId}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <Link
-                          to={`/c/${company.slug}/finance/invoices/${invoice.slug}`}
-                          className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
-                        >
-                          {invoice.number}
-                        </Link>
-                        <span className="truncate text-slate-700 dark:text-slate-200">
-                          {invoice.customerName}
-                        </span>
-                        {invoice.exactAmount && <Tag>Same amount</Tag>}
-                        {invoice.mentioned && <Tag>Named in the description</Tag>}
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {formatMoney(invoice.balanceCents, invoice.currency)} due · due{" "}
-                        {transactionDate(invoice.dueDate)}
-                        {invoice.exceedsBalance && (
-                          <>
-                            {" · "}
-                            <span className="text-amber-700 dark:text-amber-400">
-                              this deposit is more than what&apos;s due — record it on the invoice
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    {canWrite && (
-                      <Button
-                        size="sm"
-                        variant={invoice.exactAmount ? "primary" : "secondary"}
-                        onClick={() => payInvoice(invoice)}
-                        loading={busy === `invoice:${invoice.invoiceId}`}
-                        disabled={busy !== null || invoice.exceedsBalance}
-                      >
-                        Mark paid
-                      </Button>
-                    )}
-                  </li>
-                ))}
-                {shownInvoices.length === 0 && (
-                  <li className="text-sm text-slate-500 dark:text-slate-400">No matching invoices.</li>
-                )}
-              </ul>
-              {invoices.length > TOP_INVOICES && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllInvoices((value) => !value)}
-                  className="mt-2 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                >
-                  {showAllInvoices ? "Show fewer" : `Show all ${invoices.length} open invoices`}
-                </button>
-              )}
-            </>
-          )}
+          <PayInvoices
+            company={company}
+            txn={txn}
+            options={options}
+            homeCurrency={homeCurrency}
+            canWrite={canWrite}
+            busy={busy}
+            onPay={payInvoices}
+            onUndo={undo}
+          />
         </PanelSection>
       )}
 
-      {(matches.length > 0 || !incoming) && (
+      {!partlyPaid && (matches.length > 0 || !incoming) && (
         <PanelSection
           title="Is it already in your books?"
           hint="A payment, bill payment, or entry someone already recorded for this money."
@@ -513,7 +527,7 @@ function ReviewPanel({
         </PanelSection>
       )}
 
-      {canWrite && (
+      {canWrite && !partlyPaid && (
         <PanelSection
           title={incoming || matches.length > 0 ? "Or give it a category" : "Give it a category"}
           hint={
@@ -550,6 +564,357 @@ function ReviewPanel({
   );
 }
 
+/** "1200.00" — how a share's amount is written in its box. */
+function amountText(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+/**
+ * The invoices a deposit could have paid, to tick: each ticked invoice gets
+ * a share of the deposit — what is still due on it, or what is left of the
+ * deposit when that is less — which can be changed, and the total runs
+ * against the deposit until they match and Mark paid records them all.
+ */
+function PayInvoices({
+  company,
+  txn,
+  options,
+  homeCurrency,
+  canWrite,
+  busy,
+  onPay,
+  onUndo,
+}: {
+  company: Company;
+  txn: BankTransaction;
+  options: DepositInvoiceOptions;
+  homeCurrency: string;
+  canWrite: boolean;
+  busy: string | null;
+  onPay: (shares: Array<{ invoiceId: string; amountCents: number }>) => void;
+  onUndo: () => void;
+}) {
+  const { invoices, sets, remainingCents } = options;
+  const money = (cents: number) => formatMoney(cents, homeCurrency);
+  const already = paymentsOf(txn);
+  const whole = already.length === 0;
+  const byId = new Map(invoices.map((invoice) => [invoice.invoiceId, invoice]));
+  // An invoice whose amount due is exactly the deposit and that the bank's
+  // description names starts ticked — when it is the only one.
+  const [picked, setPicked] = React.useState<Map<string, string>>(() => {
+    const sure = invoices.filter((invoice) => invoice.exactAmount && invoice.mentioned);
+    return new Map(
+      canWrite && sure.length === 1 ? [[sure[0].invoiceId, amountText(sure[0].balanceCents)]] : [],
+    );
+  });
+  const [showAll, setShowAll] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+
+  const shares = invoices
+    .filter((invoice) => picked.has(invoice.invoiceId))
+    .map((invoice) => ({
+      invoice,
+      cents: parseMoneyToCents(picked.get(invoice.invoiceId) ?? ""),
+    }));
+  const total = shares.reduce((sum, share) => sum + share.cents, 0);
+  const left = remainingCents - total;
+  const ready =
+    shares.length > 0 &&
+    left === 0 &&
+    shares.every((share) => share.cents > 0 && share.cents <= share.invoice.balanceCents);
+  // Everything the ticked customers owe is ticked in full and money is still
+  // left: the customer paid more than it owed.
+  const tickedCustomers = new Set(shares.map((share) => share.invoice.customerName));
+  const overpaid =
+    left > 0 &&
+    shares.length > 0 &&
+    shares.every((share) => share.cents === share.invoice.balanceCents) &&
+    invoices.every(
+      (invoice) => picked.has(invoice.invoiceId) || !tickedCustomers.has(invoice.customerName),
+    );
+
+  function toggle(invoice: OpenInvoiceCandidate) {
+    setPicked((previous) => {
+      const next = new Map(previous);
+      if (next.delete(invoice.invoiceId)) return next;
+      const placed = [...next.values()].reduce(
+        (sum, text) => sum + Math.max(parseMoneyToCents(text), 0),
+        0,
+      );
+      const open = remainingCents - placed;
+      next.set(
+        invoice.invoiceId,
+        amountText(open > 0 ? Math.min(invoice.balanceCents, open) : invoice.balanceCents),
+      );
+      return next;
+    });
+  }
+
+  function setAmount(invoiceId: string, text: string) {
+    setPicked((previous) => new Map(previous).set(invoiceId, text));
+  }
+
+  function tickSet(set: OpenInvoiceSet) {
+    setPicked(
+      new Map(
+        set.invoiceIds.flatMap((id): Array<[string, string]> => {
+          const invoice = byId.get(id);
+          return invoice ? [[id, amountText(invoice.balanceCents)]] : [];
+        }),
+      ),
+    );
+  }
+
+  function isTicked(set: OpenInvoiceSet): boolean {
+    return (
+      set.invoiceIds.length === picked.size &&
+      set.invoiceIds.every(
+        (id) => parseMoneyToCents(picked.get(id) ?? "") === byId.get(id)?.balanceCents,
+      )
+    );
+  }
+
+  const needle = search.trim().toLowerCase();
+  const listed = invoices.filter(
+    (invoice, index) =>
+      picked.has(invoice.invoiceId) ||
+      (showAll
+        ? !needle || `${invoice.number} ${invoice.customerName}`.toLowerCase().includes(needle)
+        : index < TOP_INVOICES),
+  );
+
+  return (
+    <>
+      {!whole && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          <span className="min-w-0 flex-1">
+            {money(already.reduce((sum, payment) => sum + payment.amountCents, 0))} of this deposit
+            already paid {listOf(already.map((payment) => payment.invoiceNumber))}.{" "}
+            {!canWrite
+              ? remainingCents > 0
+                ? `The other ${money(remainingCents)} isn't on an invoice yet.`
+                : ""
+              : remainingCents > 0
+                ? `Tick what the other ${money(remainingCents)} paid, or undo it to start over.`
+                : "Undo it to start over."}
+          </span>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onUndo}
+              loading={busy === "undo"}
+              disabled={busy !== null}
+            >
+              <Undo2 size={14} /> Undo
+            </Button>
+          )}
+        </div>
+      )}
+
+      {invoices.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          No invoices in {homeCurrency} are waiting for payment.
+        </p>
+      ) : (
+        <>
+          {canWrite && sets.length > 0 && (
+            <ul className="mb-2 space-y-1.5">
+              {sets.map((set) => (
+                <li
+                  key={set.invoiceIds.join(",")}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-sm dark:border-emerald-500/30 dark:bg-emerald-500/10"
+                >
+                  <span className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                    {set.customerName}&apos;s{" "}
+                    {listOf(set.invoiceIds.map((id) => byId.get(id)?.number ?? "invoice"))} add up
+                    to exactly {whole ? "this deposit" : "what is left of it"}.
+                  </span>
+                  {isTicked(set) ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      <Check size={12} /> Ticked
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => tickSet(set)}
+                      disabled={busy !== null}
+                    >
+                      Tick these
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {showAll && (
+            <label className="relative mb-2 block sm:w-72">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-2.5 text-slate-400"
+              />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search invoice or customer"
+                aria-label="Search open invoices"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
+              />
+            </label>
+          )}
+          <ul className={"space-y-1.5 " + (showAll ? "max-h-80 overflow-y-auto pr-1" : "")}>
+            {listed.map((invoice) => {
+              const text = picked.get(invoice.invoiceId);
+              const cents = text === undefined ? 0 : parseMoneyToCents(text);
+              return (
+                <li
+                  key={invoice.invoiceId}
+                  className={
+                    "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-3 py-2 " +
+                    (text === undefined
+                      ? "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                      : "border-indigo-200 bg-indigo-50/50 dark:border-indigo-500/40 dark:bg-indigo-500/10")
+                  }
+                >
+                  <label
+                    className={
+                      "flex min-w-0 flex-1 items-start gap-3 " + (canWrite ? "cursor-pointer" : "")
+                    }
+                  >
+                    {canWrite && (
+                      <Checkbox
+                        checked={text !== undefined}
+                        onChange={() => toggle(invoice)}
+                        disabled={busy !== null}
+                        label={`${invoice.number} was paid by this deposit`}
+                        className="mt-0.5"
+                      />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2 text-sm">
+                        <Link
+                          to={`/c/${company.slug}/finance/invoices/${invoice.slug}`}
+                          className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                        >
+                          {invoice.number}
+                        </Link>
+                        <span className="truncate text-slate-700 dark:text-slate-200">
+                          {invoice.customerName}
+                        </span>
+                        {invoice.exactAmount && (
+                          <Tag>{whole ? "Same amount" : "Same as what is left"}</Tag>
+                        )}
+                        {invoice.mentioned && <Tag>Named in the description</Tag>}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                        {money(invoice.balanceCents)} due · due {transactionDate(invoice.dueDate)}
+                      </span>
+                    </span>
+                  </label>
+                  {text !== undefined && (
+                    <div className="w-full pl-7 sm:w-auto sm:pl-0">
+                      <input
+                        value={text}
+                        onChange={(event) => setAmount(invoice.invoiceId, event.target.value)}
+                        inputMode="decimal"
+                        disabled={busy !== null}
+                        aria-label={`Amount paid on ${invoice.number}`}
+                        className="h-8 w-28 rounded-lg border border-slate-200 bg-white px-2 text-right text-sm tabular-nums outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
+                      />
+                      {cents > invoice.balanceCents && (
+                        <p className="mt-0.5 text-xs text-amber-700 sm:text-right dark:text-amber-400">
+                          More than the {money(invoice.balanceCents)} due
+                        </p>
+                      )}
+                      {cents <= 0 && (
+                        <p className="mt-0.5 text-xs text-amber-700 sm:text-right dark:text-amber-400">
+                          Enter an amount
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+            {listed.length === 0 && (
+              <li className="text-sm text-slate-500 dark:text-slate-400">No matching invoices.</li>
+            )}
+          </ul>
+          {invoices.length > TOP_INVOICES && (
+            <button
+              type="button"
+              onClick={() => setShowAll((value) => !value)}
+              className="mt-2 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              {showAll ? "Show fewer" : `Show all ${invoices.length} open invoices`}
+            </button>
+          )}
+          {canWrite && (
+            <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <p className="text-sm">
+                  {shares.length === 0 ? (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Tick the invoices {whole ? "this deposit" : "the rest of it"} paid.
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-medium tabular-nums text-slate-800 dark:text-slate-100">
+                        {money(total)}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {" "}
+                        of the {money(remainingCents)} {whole ? "deposit" : "left"}
+                      </span>
+                      {left > 0 && (
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {" "}
+                          · {money(left)} not on an invoice yet
+                        </span>
+                      )}
+                      {left < 0 && (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          {" "}
+                          · {money(-left)} more than {whole ? "the deposit" : "what is left"}
+                        </span>
+                      )}
+                      {left === 0 && (
+                        <span className="text-emerald-700 dark:text-emerald-400"> · adds up</span>
+                      )}
+                    </>
+                  )}
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    onPay(
+                      shares.map((share) => ({
+                        invoiceId: share.invoice.invoiceId,
+                        amountCents: share.cents,
+                      })),
+                    )
+                  }
+                  loading={busy === "pay"}
+                  disabled={busy !== null || !ready}
+                >
+                  Mark paid
+                </Button>
+              </div>
+              {overpaid && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  That is {money(left)} more than these invoices owe. To keep the extra as a
+                  customer credit, record the payment on the invoice, then match it here.
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 function candidateKey(candidate: MatchCandidate): string {
   return candidate.kind === "payment" ? candidate.paymentId : candidate.ledgerEntryId;
 }
@@ -559,6 +924,61 @@ function Tag({ children }: { children: React.ReactNode }) {
     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
       {children}
     </span>
+  );
+}
+
+/** The invoices a deposit paid, each linked, with its share when there are several. */
+function PaidInvoices({
+  company,
+  txn,
+  payments,
+  homeCurrency,
+}: {
+  company: Company;
+  txn: BankTransaction;
+  payments: BankTransactionPayment[];
+  homeCurrency: string;
+}) {
+  const invoiceLink = (payment: BankTransactionPayment) => (
+    <Link
+      to={`/c/${company.slug}/finance/invoices/${payment.invoiceSlug}`}
+      className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      {payment.invoiceNumber}
+    </Link>
+  );
+  if (payments.length === 1) {
+    const [payment] = payments;
+    return (
+      <>
+        Paid {invoiceLink(payment)} from {payment.customerName}
+        {payment.amountCents !== Math.abs(txn.amountCents) && (
+          <span className="text-slate-500 dark:text-slate-400">
+            {" "}
+            ({formatMoney(payment.amountCents, homeCurrency)} of it)
+          </span>
+        )}
+      </>
+    );
+  }
+  const customers = [...new Set(payments.map((payment) => payment.customerName))];
+  return (
+    <>
+      Paid {payments.length} invoices{customers.length === 1 ? ` from ${customers[0]}` : ""}
+      <ul className="mt-1 space-y-0.5">
+        {payments.map((payment) => (
+          <li key={payment.paymentId} className="flex items-baseline gap-2 text-xs">
+            {invoiceLink(payment)}
+            {customers.length > 1 && (
+              <span className="text-slate-500 dark:text-slate-400">{payment.customerName}</span>
+            )}
+            <span className="tabular-nums text-slate-600 dark:text-slate-300">
+              {formatMoney(payment.amountCents, homeCurrency)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -579,21 +999,9 @@ function DonePanel({
   const dialog = useDialog();
   const [busy, setBusy] = React.useState(false);
   const match = txn.match;
-  const amount = formatMoney(Math.abs(txn.amountCents), homeCurrency);
 
   async function undo() {
-    let title = "Undo this match?";
-    let message: React.ReactNode =
-      "The entry stays in your books, and this transaction goes back to To review.";
-    if (match?.kind === "payment" && match.recordedHere) {
-      title = `Take the payment off ${match.invoiceNumber}?`;
-      message = `The ${formatMoney(match.amountCents, homeCurrency)} payment comes off ${match.invoiceNumber}, which will show that much due again, and this transaction goes back to To review.`;
-    } else if (match?.kind === "payment") {
-      message = `The payment stays on ${match.invoiceNumber}; only the link to this transaction is removed, and it goes back to To review.`;
-    } else if (match?.kind === "ledger_entry" && match.categoryAccountId) {
-      title = "Remove the category?";
-      message = `Genosyn reverses the ${amount} it filed under ${accountLabel(accounts, match.categoryAccountId)}, and this transaction goes back to To review.`;
-    }
+    const { title, message } = undoConfirmation(txn, accounts, homeCurrency);
     if (!(await dialog.confirm({ title, message, confirmLabel: "Undo" }))) return;
     setBusy(true);
     try {
@@ -609,23 +1017,13 @@ function DonePanel({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-4 sm:pl-11 dark:border-slate-800 dark:bg-slate-800/30">
       <div className="text-sm text-slate-700 dark:text-slate-200">
-        {match?.kind === "payment" ? (
-          <>
-            Paid{" "}
-            <Link
-              to={`/c/${company.slug}/finance/invoices/${match.invoiceSlug}`}
-              className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              {match.invoiceNumber}
-            </Link>{" "}
-            from {match.customerName}
-            {match.amountCents !== Math.abs(txn.amountCents) && (
-              <span className="text-slate-500 dark:text-slate-400">
-                {" "}
-                ({formatMoney(match.amountCents, homeCurrency)} of it)
-              </span>
-            )}
-          </>
+        {match?.kind === "payments" ? (
+          <PaidInvoices
+            company={company}
+            txn={txn}
+            payments={match.payments}
+            homeCurrency={homeCurrency}
+          />
         ) : match?.kind === "ledger_entry" && match.categoryAccountId ? (
           <>Categorized as {accountLabel(accounts, match.categoryAccountId)}</>
         ) : match?.kind === "ledger_entry" ? (

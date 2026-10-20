@@ -18,10 +18,11 @@ import {
  * Recording and removing a payment a Member received against an invoice.
  *
  * Two doors lead here: Record payment on the invoice itself, and Banking,
- * where a deposit on a bank account is marked as the payment of an invoice in
- * one step. Both must keep the same guarantees — one payment settles one
- * invoice once, an overpayment is refused unless its excess becomes a customer
- * credit, and the ledger and the invoice never disagree — so both call these.
+ * where a deposit on a bank account is marked as the payment of one or more
+ * invoices in one step. Both must keep the same guarantees — one payment
+ * settles one invoice once, an overpayment is refused unless its excess
+ * becomes a customer credit, and the ledger and the invoice never disagree —
+ * so both call these.
  * (The AI Employee `record_payment` tool keeps its own stricter copy: it never
  * records an overpayment.)
  */
@@ -50,6 +51,8 @@ export type RecordInvoicePaymentInput = {
   allowOverpayment?: boolean;
   /** The asset account the money landed in. `1100 Bank` when unset. */
   bankAccountId?: string | null;
+  /** The bank transaction on Banking the payment arrived in, linked from the start. */
+  bankTransactionId?: string | null;
 };
 
 export type RecordedInvoicePayment = {
@@ -126,6 +129,7 @@ export async function recordInvoicePayment(
           method: input.method ?? "other",
           reference,
           notes: input.notes ?? "",
+          bankTransactionId: input.bankTransactionId ?? null,
           createdById: actorUserId,
         }),
       );
@@ -161,9 +165,11 @@ export async function recordInvoicePayment(
 
 /**
  * Take a payment back off its invoice: reverse its journal entry (the original
- * stays for the audit trail) and delete the row. A bank transaction that was
- * matched to it is no longer explained by anything, so it goes back to the
- * Banking review list rather than pointing at a payment that is gone.
+ * stays for the audit trail) and delete the row. The bank transaction it came
+ * in is no longer fully explained, so it goes back to the Banking review list
+ * rather than pointing at a payment that is gone. When that deposit paid other
+ * invoices too, their payments stay on them and linked to it, and what is left
+ * of the deposit waits for review.
  */
 export async function removeInvoicePayment(
   invoice: Invoice,
@@ -187,9 +193,16 @@ export async function removeInvoicePayment(
   // posting + the reversal — then hard-delete the payment row.
   await reverseInvoicePayment(invoice, payment, actorUserId);
   await repo.delete({ id: payment.id });
-  await AppDataSource.getRepository(BankTransaction).update(
+  const transactions = AppDataSource.getRepository(BankTransaction);
+  await transactions.update(
     { companyId: invoice.companyId, matchedPaymentId: payment.id },
     { matchedPaymentId: null, reconciledAt: null, reconciledById: null },
   );
+  if (payment.bankTransactionId) {
+    await transactions.update(
+      { companyId: invoice.companyId, id: payment.bankTransactionId },
+      { reconciledAt: null, reconciledById: null },
+    );
+  }
   return { invoice: await recomputeInvoiceTotals(invoice), payment };
 }
