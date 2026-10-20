@@ -17,9 +17,10 @@ import {
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
+import { documentTotals } from "../../shared/documentDiscount.js";
 import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
 import { recordAudit } from "./audit.js";
-import { issueInvoice, sendInvoiceEmail } from "./finance.js";
+import { discountOf, issueInvoice, sendInvoiceEmail } from "./finance.js";
 import { emitResourceChange } from "./resourceEvents.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
 import { SchedulerLeaseLostError, withSchedulerLease } from "./schedulerLeases.js";
@@ -258,6 +259,8 @@ export type HydratedRecurringInvoice = RecurringInvoice & {
   lines: RecurringInvoiceLineItem[];
   /** What one run bills, tax included: the generated invoice's total. */
   totalCents: number;
+  /** What the schedule's discount takes off one run, pre-tax. 0 without one. */
+  discountCents: number;
   /** The most recent scheduled run, so a retrying or failed one is visible. */
   latestRun: RecurringInvoiceRunSummary | null;
 };
@@ -319,14 +322,16 @@ export async function hydrateRecurringInvoices(
   return rows.map((r) => {
     const riLines = linesByRi.get(r.id) ?? [];
     const run = runByRi.get(r.id);
+    const totals = documentTotals(
+      riLines.map((line) => priceTemplateLine(line, rates)),
+      discountOf(r),
+    );
     return {
       ...r,
       customer: customerById.get(r.customerId) ?? null,
       lines: riLines,
-      totalCents: riLines.reduce(
-        (sum, line) => sum + priceTemplateLine(line, rates).lineTotalCents,
-        0,
-      ),
+      totalCents: totals.totalCents,
+      discountCents: totals.discountCents,
       latestRun: run
         ? {
             status: run.status,
@@ -425,6 +430,8 @@ export async function duplicateRecurringInvoice(
     currency: source.currency,
     notes: source.notes,
     footer: source.footer,
+    discountPercent: source.discountPercent,
+    discountAmountCents: source.discountAmountCents,
     nextRunAt: null,
     lastRunAt: null,
     lastInvoiceSlug: "",
@@ -528,7 +535,8 @@ async function createInvoiceFromTemplate(
   const priced = templateLines.map((line) => ({ line, ...priceTemplateLine(line, rates) }));
   const slug = await uniqueDraftInvoiceSlug(ri.companyId);
   const issueDate = new Date();
-  const totalCents = priced.reduce((sum, p) => sum + p.lineTotalCents, 0);
+  const discount = discountOf(ri);
+  const totals = documentTotals(priced, discount);
 
   return withSerializedTransaction(async (manager) => {
     const invoiceRepo = manager.getRepository(Invoice);
@@ -546,12 +554,14 @@ async function createInvoiceFromTemplate(
         currency: ri.currency || customer.currency || "USD",
         notes: ri.notes,
         footer: ri.footer,
+        ...discount,
         // A fresh draft carries no payments or credits, so these are exactly
         // what `recomputeInvoiceTotals` would store.
-        subtotalCents: priced.reduce((sum, p) => sum + p.lineSubtotalCents, 0),
-        taxCents: priced.reduce((sum, p) => sum + p.lineTaxCents, 0),
-        totalCents,
-        balanceCents: totalCents,
+        subtotalCents: totals.subtotalCents,
+        discountCents: totals.discountCents,
+        taxCents: totals.taxCents,
+        totalCents: totals.totalCents,
+        balanceCents: totals.totalCents,
         createdById: actorUserId,
       }),
     );

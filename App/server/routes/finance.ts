@@ -37,6 +37,7 @@ import { formatMoney } from "../lib/money.js";
 import {
   assertPaymentNotRecorded,
   createInvoiceDraft,
+  discountOf,
   DuplicatePaymentError,
   duplicateInvoice,
   getInvoiceEmailDetails,
@@ -51,6 +52,7 @@ import {
   normalizePaymentReference,
   postInvoicePayment,
   recomputeInvoiceTotals,
+  requestedDiscount,
   resolveInvoiceRecipients,
   reverseInvoicePayment,
   sendInvoiceEmail,
@@ -4327,6 +4329,7 @@ export const recurringInvoiceCreateSchema = z.object({
   maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
   endsOn: z.string().datetime().nullable().optional(),
   lines: z.array(recurringLineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 financeRouter.get("/recurring-invoices", async (req, res) => {
@@ -4364,8 +4367,10 @@ financeRouter.post(
     if (!name) return res.status(400).json({ error: RECURRING_INVOICE_NAME_REQUIRED_ERROR });
 
     let subsidiaryId: string | null;
+    let discount: ReturnType<typeof requestedDiscount>;
     try {
       subsidiaryId = (await resolveDocumentIssuer(cid, body.subsidiaryId)).subsidiaryId;
+      discount = requestedDiscount(body);
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
@@ -4387,6 +4392,7 @@ financeRouter.post(
       currency: body.currency ?? customer.currency ?? "USD",
       notes: body.notes ?? "",
       footer: body.footer ?? "",
+      ...discount,
       maxRuns: body.maxRuns ?? null,
       endsOn: body.endsOn ? new Date(body.endsOn) : null,
       runsCreated: 0,
@@ -4443,6 +4449,7 @@ export const recurringInvoicePatchSchema = z.object({
   maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
   endsOn: z.string().datetime().nullable().optional(),
   lines: z.array(recurringLineDraftSchema).max(200).optional(),
+  ...discountFields,
 });
 
 financeRouter.patch(
@@ -4460,6 +4467,11 @@ financeRouter.patch(
       } catch (err) {
         return res.status(400).json({ error: (err as Error).message });
       }
+    }
+    try {
+      Object.assign(ri, requestedDiscount(body, discountOf(ri)));
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
     }
     if (body.customerId !== undefined) {
       const c = await AppDataSource.getRepository(Customer).findOneBy({

@@ -28,7 +28,8 @@ import {
  *      `nextRunAt` from *now*.
  *   2. Materializes a fresh `Invoice` (status `draft` or `sent`
  *      depending on `autoSend`) with line items snapshotted from the
- *      template lines, issueDate = now, dueDate = now + daysUntilDue.
+ *      template lines and the schedule's discount, issueDate = now,
+ *      dueDate = now + daysUntilDue.
  *   3. Posts ledger entries via the existing `issueInvoice` path when
  *      auto-send is on (or just leaves it as a draft if not).
  *   4. Optionally calls `sendInvoiceEmail` if `autoSend` is true.
@@ -123,6 +124,18 @@ export class RecurringInvoice {
   /** Free-form footer copied onto each generated invoice. */
   @Column({ type: "text", default: "" })
   footer!: string;
+
+  /** Whole-invoice discount stamped on each generated invoice, as a
+   *  percentage (0–100) taken off before tax. Zero when the discount is a
+   *  fixed amount or there is none — see `shared/documentDiscount.ts`. */
+  @Column({ type: "real", default: 0 })
+  discountPercent!: number;
+
+  /** The same discount as a fixed pre-tax amount in minor units. Zero when
+   *  it is a percentage or there is none. What it takes off is worked out
+   *  per invoice, from the lines that run bills. */
+  @Column({ type: "int", default: 0 })
+  discountAmountCents!: number;
 
   /** Next scheduled fire. Null when paused / ended / cron unparseable. */
   @Column({ type: dateTimeColumnType, nullable: true })

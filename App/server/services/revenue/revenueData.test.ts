@@ -208,6 +208,21 @@ describe("buildMonthlyRevenueSnapshots", () => {
     assert.equal(snapshots.get("2026-02")?.get(customer.id), 4_998);
   });
 
+  test("a schedule's discount comes off before tax, as on the invoices it creates", async () => {
+    const percent = await makeCustomer();
+    await makeSchedule(percent, { discountPercent: 10 }, { unitPriceCents: 50_000 });
+    const fixed = await makeCustomer();
+    await makeSchedule(
+      fixed,
+      { frequency: "yearly", discountAmountCents: 24_000 },
+      { unitPriceCents: 120_000 },
+    );
+    const snapshots = await snapshotsFor();
+    assert.equal(snapshots.get("2026-02")?.get(percent.id), 45_000);
+    // (120_000 − 24_000) / 12
+    assert.equal(snapshots.get("2026-02")?.get(fixed.id), 8_000);
+  });
+
   test("two schedules on one customer are summed", async () => {
     const customer = await makeCustomer();
     await makeSchedule(customer, {}, { unitPriceCents: 50_000 });

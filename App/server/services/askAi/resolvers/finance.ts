@@ -689,7 +689,9 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
     : [];
   const taxById = new Map(taxes.map((t) => [t.id, t]));
   const cur = ri.currency;
-  const perRun = lines.reduce((sum, l) => sum + Math.round(l.quantity * l.unitPriceCents), 0);
+  const perRun =
+    lines.reduce((sum, l) => sum + Math.round(l.quantity * l.unitPriceCents), 0) -
+    (hydrated?.discountCents ?? 0);
   const label = `Recurring invoice ${oneLine(ri.name, 80)}`;
 
   const body = [
@@ -726,6 +728,7 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
       ],
       ["Payment terms", `due ${ri.daysUntilDue} day(s) after each run`],
       ["Currency", cur],
+      ["Discount", hydrated ? discountFact(hydrated, cur) : null],
       ["Per run, before tax", money(perRun, cur)],
     ]),
     "",

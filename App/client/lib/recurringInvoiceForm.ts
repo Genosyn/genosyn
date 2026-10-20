@@ -1,3 +1,4 @@
+import type { DocumentDiscount } from "../../shared/documentDiscount.js";
 import {
   defaultRecurringInvoiceName,
   resolveRecurringInvoiceName,
@@ -132,8 +133,8 @@ export type RecurringInvoiceSourceDocument = {
   dueDate?: string | null;
   notes: string;
   footer: string;
-  /** The whole-document discount taken, pre-tax. */
-  discountCents: number;
+  discountPercent: number;
+  discountAmountCents: number;
   lines: ReadonlyArray<{
     productId: string | null;
     description: string;
@@ -170,11 +171,8 @@ export type RecurringInvoicePrefill = {
   notes: string;
   footer: string;
   lines: RecurringInvoicePrefillLine[];
-  /**
-   * The source's discount, which a schedule cannot carry: each invoice it
-   * creates bills the full line prices. 0 when there was none.
-   */
-  droppedDiscountCents: number;
+  /** The source's discount, taken off every invoice the schedule creates. */
+  discount: DocumentDiscount;
   /** Taxed lines whose tax rate has since been deleted, so they start untaxed here. */
   untaxedLines: number;
 };
@@ -192,8 +190,8 @@ function paymentTermsDays(issueDate: string, dueDate: string | null | undefined)
 /**
  * A new schedule's starting values, copied from an invoice or estimate: who it
  * bills and from which entity, in what currency and on what terms, for which
- * lines, with what notes and footer. The schedule itself is the person's to
- * choose — a document has no cadence to copy.
+ * lines at what discount, with what notes and footer. The schedule itself is
+ * the person's to choose — a document has no cadence to copy.
  *
  * A line keeps its description, quantity and price. A product or tax rate the
  * form no longer offers is dropped rather than carried as an id nothing shows,
@@ -231,7 +229,10 @@ export function recurringInvoicePrefill(
     notes: source.notes,
     footer: source.footer,
     lines,
-    droppedDiscountCents: Math.max(0, source.discountCents),
+    discount: {
+      discountPercent: source.discountPercent,
+      discountAmountCents: source.discountAmountCents,
+    },
     untaxedLines,
   };
 }

@@ -4503,6 +4503,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         currency: { type: "string", description: "ISO 4217 code; defaults to the customer." },
         notes: { type: "string", description: "Copied onto every generated invoice." },
         footer: { type: "string", description: "Copied onto every generated invoice." },
+        discountPercent: {
+          type: "number",
+          minimum: 0,
+          maximum: 100,
+          description:
+            "Optional discount on every generated invoice, before tax, e.g. 10 for 10%.",
+        },
+        discountAmountCents: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Optional fixed discount before tax on every generated invoice, in cents. Use this or discountPercent, not both.",
+        },
         maxRuns: {
           type: ["integer", "null"],
           minimum: 1,
@@ -4562,6 +4575,18 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         currency: { type: "string", description: "ISO 4217 code." },
         notes: { type: "string" },
         footer: { type: "string" },
+        discountPercent: {
+          type: "number",
+          minimum: 0,
+          maximum: 100,
+          description:
+            "Discount on future invoices, before tax. Sending this or discountAmountCents replaces the discount; 0 for both removes it.",
+        },
+        discountAmountCents: {
+          type: "integer",
+          minimum: 0,
+          description: "Fixed discount on future invoices, before tax, in cents.",
+        },
         maxRuns: { type: ["integer", "null"], minimum: 1, maximum: 10000 },
         endsOn: { type: ["string", "null"], description: "ISO datetime or null." },
         lines: {

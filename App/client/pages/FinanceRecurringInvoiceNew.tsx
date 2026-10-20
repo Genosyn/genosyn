@@ -29,6 +29,14 @@ import {
   withTime,
 } from "../lib/schedule";
 import { customerOptionLabel } from "../lib/customerLabel";
+import {
+  type DiscountDraft,
+  discountDraftFrom,
+  discountDraftProblem,
+  discountFromDraft,
+  NO_DISCOUNT_DRAFT,
+  previewTotals,
+} from "../lib/discountForm";
 import { errorMessage } from "../lib/errors";
 import {
   changeRecurringInvoiceNameCustomer,
@@ -57,6 +65,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
+import { DiscountField } from "@/components/finance/DiscountField";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -110,8 +119,6 @@ type SourceSummary = {
   /** Empty for a draft, which has no number yet. */
   number: string;
   path: string;
-  currency: string;
-  droppedDiscountCents: number;
   untaxedLines: number;
 };
 
@@ -206,6 +213,7 @@ function RecurringInvoiceForm() {
   const [maxRunsText, setMaxRunsText] = React.useState("");
   const [endsOn, setEndsOn] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
+  const [discount, setDiscount] = React.useState<DiscountDraft>(NO_DISCOUNT_DRAFT);
   const [source, setSource] = React.useState<SourceSummary | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -246,6 +254,7 @@ function RecurringInvoiceForm() {
           setLines(
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
+          setDiscount(discountDraftFrom(existing));
         } else {
           const ref = sourceKind && sourceSlug ? { kind: sourceKind, slug: sourceSlug } : null;
           const loaded = ref ? await loadSourceDocument(company.id, ref) : null;
@@ -276,12 +285,11 @@ function RecurringInvoiceForm() {
             setNotes(prefill.notes);
             setFooter(prefill.footer);
             if (prefill.lines.length > 0) setLines(prefill.lines.map(lineRowFromExisting));
+            setDiscount(discountDraftFrom(prefill.discount));
             setSource({
               kind: ref.kind,
               number: loaded.number,
               path: sourceDocumentPath(`/c/${company.slug}/finance`, ref),
-              currency: prefill.currency,
-              droppedDiscountCents: prefill.droppedDiscountCents,
               untaxedLines: prefill.untaxedLines,
             });
           }
@@ -333,43 +341,22 @@ function RecurringInvoiceForm() {
 
   const scheduleSummary = React.useMemo(() => describeParts(schedule), [schedule]);
 
-  const preview = React.useMemo(() => {
-    let subtotal = 0;
-    let tax = 0;
-    let total = 0;
-    for (const l of lines) {
-      const qty = Number(l.quantityText) || 0;
-      const unit = parseMoneyToCents(l.priceText);
-      const gross = Math.round(qty * unit);
-      const rate = taxRates.find((r) => r.id === l.taxRateId);
-      const pct = rate?.ratePercent ?? 0;
-      const inclusive = rate?.inclusive ?? false;
-      if (pct <= 0) {
-        subtotal += gross;
-        total += gross;
-        continue;
-      }
-      if (inclusive) {
-        const t = Math.round((gross * pct) / (100 + pct));
-        subtotal += gross - t;
-        tax += t;
-        total += gross;
-      } else {
-        const t = Math.round((gross * pct) / 100);
-        subtotal += gross;
-        tax += t;
-        total += gross + t;
-      }
-    }
-    return { subtotal, tax, total };
-  }, [lines, taxRates]);
+  // What each run's invoice will total, worked out the way the server prices
+  // it, discount included.
+  const preview = React.useMemo(
+    () => previewTotals(lines, taxRates, discount),
+    [lines, taxRates, discount],
+  );
 
   const selectedCustomer = customers?.find((c) => c.id === customerId) ?? null;
   const customerName = defaultRecurringInvoiceName(selectedCustomer);
   const nameToSave = recurringInvoiceNameToSave(name, selectedCustomer);
 
   const canSave =
-    !!customerId && !!nameToSave && lines.some((l) => l.description.trim().length > 0);
+    !!customerId &&
+    !!nameToSave &&
+    lines.some((l) => l.description.trim().length > 0) &&
+    !discountDraftProblem(discount);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -404,6 +391,7 @@ function RecurringInvoiceForm() {
         maxRuns,
         endsOn: endsOn ? new Date(endsOn).toISOString() : null,
         lines: lineDrafts,
+        ...discountFromDraft(discount),
       };
       const ri =
         isEdit && recurringSlug
@@ -845,18 +833,26 @@ function RecurringInvoiceForm() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col items-end gap-1 text-sm tabular-nums">
-          <div className="flex w-64 justify-between text-slate-500 dark:text-slate-400">
+        <div className="mt-4 ml-auto w-full space-y-1 text-sm sm:w-72">
+          <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Subtotal</span>
-            <span>{formatMoney(preview.subtotal, currency)}</span>
+            <span className="tabular-nums">
+              {formatMoney(preview.subtotalCents + preview.discountCents, currency)}
+            </span>
           </div>
-          <div className="flex w-64 justify-between text-slate-500 dark:text-slate-400">
+          <DiscountField
+            draft={discount}
+            onChange={setDiscount}
+            currency={currency}
+            discountCents={preview.discountCents}
+          />
+          <div className="flex justify-between text-slate-500 dark:text-slate-400">
             <span>Tax</span>
-            <span>{formatMoney(preview.tax, currency)}</span>
+            <span className="tabular-nums">{formatMoney(preview.taxCents, currency)}</span>
           </div>
-          <div className="flex w-64 justify-between text-base font-semibold text-slate-900 dark:text-slate-100">
+          <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-slate-100">
             <span>Total per invoice</span>
-            <span>{formatMoney(preview.total, currency)}</span>
+            <span className="tabular-nums">{formatMoney(preview.totalCents, currency)}</span>
           </div>
         </div>
 
@@ -892,8 +888,7 @@ function RecurringInvoiceForm() {
 
 /**
  * Which invoice or estimate this schedule copies, and what of it could not
- * come along: a discount, which a schedule has no field for, or a tax rate
- * deleted since the document was written.
+ * come along: a tax rate deleted since the document was written.
  */
 function SourceNote({ source }: { source: SourceSummary }) {
   const noun = source.kind;
@@ -911,13 +906,6 @@ function SourceNote({ source }: { source: SourceSummary }) {
         Copied from {source.number ? <>{noun} {link}</> : link}. Choose how often to bill it
         below; the {noun} itself stays as it is.
       </p>
-      {source.droppedDiscountCents > 0 && (
-        <p className="text-amber-700 dark:text-amber-300">
-          The {noun} takes a {formatMoney(source.droppedDiscountCents, source.currency)} discount.
-          A recurring invoice can&apos;t carry one, so each invoice it creates bills the full line
-          prices. Adjust them below if the discount should continue.
-        </p>
-      )}
       {source.untaxedLines > 0 && (
         <p className="text-amber-700 dark:text-amber-300">
           {source.untaxedLines === 1 ? "One line" : `${source.untaxedLines} lines`} on the {noun}{" "}

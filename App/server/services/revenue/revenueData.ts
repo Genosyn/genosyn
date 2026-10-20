@@ -14,6 +14,7 @@ import {
 } from "../../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../../db/entities/RecurringInvoiceLineItem.js";
 import { DEFAULT_CURRENCY, roundHalfAway } from "../../lib/money.js";
+import { discountCentsFor } from "../../../shared/documentDiscount.js";
 import type { FunnelDeal, StageLike } from "./funnel.js";
 import { monthRange, normalizeToMonthlyCents, type BillingInterval } from "./mrr.js";
 
@@ -243,7 +244,8 @@ function creditMonths(
  *    somebody edits their timezone setting is worse than one consistently off
  *    by a few hours at the boundary.
  * 4. **Tax is excluded, cron is not parsed** — see {@link lineCents} and
- *    {@link monthlyCentsForSchedule}.
+ *    {@link monthlyCentsForSchedule}. A schedule's discount comes off before
+ *    tax, as it does on the invoices the schedule creates.
  * 5. **A customer whose total is zero or less is absent from the month.**
  *    `mrr.ts` reads a zero entry as "not a customer", and writing one anyway
  *    would make churn and reactivation ambiguous.
@@ -289,9 +291,10 @@ export async function buildMonthlyRevenueSnapshots(
 
   for (const schedule of schedules) {
     if (!customerIds.has(schedule.customerId)) continue;
+    const baseCents = templateCents.get(schedule.id) ?? 0;
     const monthlyCents = monthlyCentsForSchedule(
       schedule,
-      templateCents.get(schedule.id) ?? 0,
+      baseCents - discountCentsFor(baseCents, schedule),
     );
     // An unreadable cadence does not suppress the fallback: ACV is a worse
     // number than a real schedule but a better one than nothing.

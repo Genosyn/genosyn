@@ -431,6 +431,14 @@ export default function FinanceRecurringInvoiceDetail() {
               label="Auto-send"
               value={ri.autoSend ? "Issue + email each tick" : "Create draft only"}
             />
+            {(ri.discountPercent > 0 || ri.discountAmountCents > 0) && (
+              <Row
+                label="Discount"
+                value={`${
+                  ri.discountPercent > 0 ? `${Number(ri.discountPercent.toFixed(2))}% · ` : ""
+                }-${formatMoney(ri.discountCents, ri.currency)}`}
+              />
+            )}
             <Row label="Total per invoice" value={formatMoney(ri.totalCents, ri.currency)} />
           </dl>
         </div>

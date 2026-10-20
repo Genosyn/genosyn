@@ -767,3 +767,50 @@ test("the tool manifest lets create_recurring_invoice leave the name out", () =>
   assert.equal(updateSchema.properties.name.maxLength, 200);
   assert.match(updateSchema.properties.customerSlug.description ?? "", /keeps its name/);
 });
+
+test("create_recurring_invoice and update_recurring_invoice carry a discount onto every run", async () => {
+  const created = await createAnnualSchedule({ discountPercent: 10 });
+  assert.equal(created.discountPercent, 10);
+  assert.equal(created.discountAmountCents, 0);
+
+  // Sending one kind replaces the other, as it does on an invoice.
+  const replaced = await callTool("update_recurring_invoice", {
+    recurringInvoiceSlug: created.slug,
+    discountAmountCents: 20_000,
+  });
+  assert.equal(replaced.status, 200, replaced.body.error);
+  const schedule = replaced.body.recurringInvoice as Record<string, unknown>;
+  assert.equal(schedule.discountPercent, 0);
+  assert.equal(schedule.discountAmountCents, 20_000);
+
+  const both = await callTool(
+    "create_recurring_invoice",
+    annualSchedule({ discountPercent: 5, discountAmountCents: 100 }),
+  );
+  assert.equal(both.status, 400);
+  assert.match(String(both.body.error), /percentage or an amount/);
+  const bothEdit = await callTool("update_recurring_invoice", {
+    recurringInvoiceSlug: created.slug,
+    discountPercent: 5,
+    discountAmountCents: 100,
+  });
+  assert.equal(bothEdit.status, 400);
+
+  assert.equal(await AppDataSource.getRepository(RecurringInvoice).count(), 1);
+  const stored = await AppDataSource.getRepository(RecurringInvoice).findOneByOrFail({
+    id: String(created.id),
+  });
+  assert.equal(stored.discountPercent, 0);
+  assert.equal(stored.discountAmountCents, 20_000);
+});
+
+test("the tool manifest offers a discount when creating and updating a schedule", () => {
+  type Schema = { properties: Record<string, { type?: string; maximum?: number }> };
+  for (const name of ["create_recurring_invoice", "update_recurring_invoice"]) {
+    const tool = STATIC_TOOLS.find((candidate) => candidate.name === name);
+    assert.ok(tool, name);
+    const schema = tool.inputSchema as unknown as Schema;
+    assert.equal(schema.properties.discountPercent?.maximum, 100, name);
+    assert.equal(schema.properties.discountAmountCents?.type, "integer", name);
+  }
+});

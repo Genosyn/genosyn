@@ -283,7 +283,8 @@ describe("Make recurring on an invoice or estimate", () => {
     dueDate: "2026-10-31T00:00:00.000Z",
     notes: "Thanks for your business.",
     footer: "IBAN DE00 0000",
-    discountCents: 0,
+    discountPercent: 0,
+    discountAmountCents: 0,
     lines: [
       {
         productId: null,
@@ -306,7 +307,7 @@ describe("Make recurring on an invoice or estimate", () => {
     ],
   };
 
-  test("copies the customer, issuer, currency, terms, notes, footer and lines in order", () => {
+  test("copies the customer, issuer, currency, terms, notes, footer, lines and discount", () => {
     assert.deepEqual(recurringInvoicePrefill(invoice, options), {
       customerId: "c-acme",
       subsidiaryId: "s-emea",
@@ -330,7 +331,7 @@ describe("Make recurring on an invoice or estimate", () => {
           taxRateId: "t-vat",
         },
       ],
-      droppedDiscountCents: 0,
+      discount: { discountPercent: 0, discountAmountCents: 0 },
       untaxedLines: 0,
     });
   });
@@ -376,10 +377,14 @@ describe("Make recurring on an invoice or estimate", () => {
     assert.equal(recurringInvoicePrefill({ ...invoice, subsidiaryId: null }, options).subsidiaryId, "");
   });
 
-  test("reports a discount the schedule cannot carry", () => {
-    assert.equal(
-      recurringInvoicePrefill({ ...invoice, discountCents: 88_000 }, options).droppedDiscountCents,
-      88_000,
+  test("carries a percentage or a fixed discount onto the schedule", () => {
+    assert.deepEqual(
+      recurringInvoicePrefill({ ...invoice, discountPercent: 10 }, options).discount,
+      { discountPercent: 10, discountAmountCents: 0 },
+    );
+    assert.deepEqual(
+      recurringInvoicePrefill({ ...invoice, discountAmountCents: 88_000 }, options).discount,
+      { discountPercent: 0, discountAmountCents: 88_000 },
     );
   });
 });

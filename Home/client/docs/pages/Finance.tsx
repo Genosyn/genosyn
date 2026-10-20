@@ -314,14 +314,16 @@ export function Finance() {
       </P>
       <P>
         A discount stays with the document. <Code>Duplicate</Code> keeps it, converting an estimate
-        carries it onto the invoice, and a full credit note credits what was charged — the lines
-        less a matching <Code>Discount</Code> line. In the books an invoice&apos;s revenue is its
+        carries it onto the invoice, <Code>Make recurring</Code> carries it onto every invoice the
+        schedule creates, and a full credit note credits what was charged — the lines less a
+        matching <Code>Discount</Code> line. In the books an invoice&apos;s revenue is its
         discounted subtotal; no separate discount account is involved. A discount can be added to a
         sent invoice or estimate like any other edit, so the same limits apply: it can&apos;t take
         an invoice below what is already paid, and it posts an <Strong>Invoice revised</Strong>{" "}
         entry. AI Employees can include one with <Code>discountPercent</Code> or{" "}
-        <Code>discountAmountCents</Code> on <Code>create_estimate</Code> and{" "}
-        <Code>create_invoice</Code>.
+        <Code>discountAmountCents</Code> on <Code>create_estimate</Code>,{" "}
+        <Code>create_invoice</Code>, <Code>create_recurring_invoice</Code> and{" "}
+        <Code>update_recurring_invoice</Code>.
       </P>
 
       <H3 id="invoices-edit">Editing and resending an invoice</H3>
@@ -469,13 +471,17 @@ export function Finance() {
         already picked. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
         <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
-        and compose the line items just like a normal invoice. The count lets you say{" "}
+        and compose the line items just like a normal invoice. <Code>Add discount</Code> under
+        the totals takes a percentage or a fixed amount off every invoice the schedule creates,
+        before tax, exactly as on an{" "}
+        <DocLink to="/docs/finance#invoices-discount">invoice</DocLink>. The count lets you say{" "}
         <Code>every 2 weeks</Code> or <Code>every 3 months</Code>, not just every one. A
         plain-English summary (for example <Code>Every 2 weeks on Monday at 9:00 AM</Code>) appears
         beneath the picker so you can confirm the cadence before saving.
       </P>
       <P>
-        The list shows what each schedule bills per run, tax included, with its currency, and
+        The list shows what each schedule bills per run, discount taken and tax included, with its
+        currency, and
         whether each run creates a draft or issues and emails the invoice. The same schedules appear
         on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
       </P>
@@ -484,16 +490,15 @@ export function Finance() {
       <P>
         To bill an existing invoice or estimate on a schedule, click <Code>Make recurring</Code> in
         its row menu or in the <Code>More actions</Code> menu on its page. The New recurring invoice
-        form opens filled in from it: the customer, issuer, currency, line items, notes and footer,
-        and, from an invoice, its payment terms as <Strong>Days until due</Strong>. Choose how often
-        to bill and click <Code>Create schedule</Code>. The invoice or estimate itself doesn&apos;t
-        change, and nothing is billed until the schedule&apos;s first run.
+        form opens filled in from it: the customer, issuer, currency, line items, discount, notes
+        and footer, and, from an invoice, its payment terms as <Strong>Days until due</Strong>.
+        Choose how often to bill and click <Code>Create schedule</Code>. The invoice or estimate
+        itself doesn&apos;t change, and nothing is billed until the schedule&apos;s first run.
       </P>
       <P>
-        A schedule has no discount. When the document has one, the form says so, and each invoice
-        the schedule creates bills the full line prices unless you adjust them. A line whose tax rate
-        has since been deleted starts untaxed, and the form says that too. If the document&apos;s
-        customer has been archived, the form asks you to choose one rather than billing someone else.
+        A line whose tax rate has since been deleted starts untaxed, and the form says so. If the
+        document&apos;s customer has been archived, the form asks you to choose one rather than
+        billing someone else.
       </P>
 
       <H3 id="recurring-names">Naming a schedule</H3>
@@ -544,8 +549,8 @@ export function Finance() {
       <H3 id="recurring-ai-employees">Using an AI Employee</H3>
       <P>
         An AI Employee with <Strong>Invoicing</Strong> Finance access can list and inspect recurring
-        invoices, create a schedule, and update its cadence, customer, line items, limits, or
-        status. The four tools are <Code>list_recurring_invoices</Code>,{" "}
+        invoices, create a schedule, and update its cadence, customer, line items, discount,
+        limits, or status. The four tools are <Code>list_recurring_invoices</Code>,{" "}
         <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{" "}
         <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
         tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>

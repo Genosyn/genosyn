@@ -4945,6 +4945,10 @@ export type RecurringInvoice = {
   currency: string;
   notes: string;
   footer: string;
+  /** Whole-invoice discount on every invoice the schedule creates; see
+   *  `shared/documentDiscount.ts`. */
+  discountPercent: number;
+  discountAmountCents: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastInvoiceSlug: string;
@@ -4958,6 +4962,8 @@ export type RecurringInvoice = {
   lines: RecurringInvoiceLineItem[];
   /** What one run bills, tax included: the generated invoice's total. */
   totalCents: number;
+  /** What the discount takes off one run, pre-tax. 0 without one. */
+  discountCents: number;
   /** The most recent scheduled run, so one that is retrying or failed shows. */
   latestRun: RecurringInvoiceRunSummary | null;
 };

@@ -451,6 +451,7 @@ import {
 import {
   assertPaymentNotRecorded,
   createInvoiceDraft,
+  discountOf,
   displayStatus,
   DuplicatePaymentError,
   hydrateInvoices,
@@ -460,6 +461,7 @@ import {
   normalizePaymentReference,
   postInvoicePayment,
   recomputeInvoiceTotals,
+  requestedDiscount,
   resolveInvoiceRecipients,
   sendInvoiceEmail,
   uniqueCustomerSlug,
@@ -1652,6 +1654,8 @@ function serializeRecurringInvoiceRow(schedule: HydratedRecurringInvoice) {
       ? { name: schedule.customer.name, slug: schedule.customer.slug }
       : null,
     currency: schedule.currency,
+    discountPercent: schedule.discountPercent,
+    discountAmountCents: schedule.discountAmountCents,
     daysUntilDue: schedule.daysUntilDue,
     autoSend: schedule.autoSend,
     nextRunAt: schedule.nextRunAt,
@@ -2256,6 +2260,12 @@ mcpInternalRouter.post(
   },
 );
 
+/** A whole-document discount before tax: a percentage or an amount, not both. */
+const toolDiscountFields = {
+  discountPercent: z.number().min(0).max(100).optional(),
+  discountAmountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+};
+
 const recurringInvoiceMutationFields = {
   customerSlug: z.string().min(1).max(200).optional(),
   subsidiaryId: z.string().uuid().nullable().optional(),
@@ -2283,6 +2293,7 @@ const recurringInvoiceMutationFields = {
   maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
   endsOn: z.string().datetime().nullable().optional(),
   lines: z.array(recurringInvoiceLineSchema).min(1).max(200).optional(),
+  ...toolDiscountFields,
 };
 
 const createRecurringInvoiceSchema = z
@@ -2361,6 +2372,7 @@ mcpInternalRouter.post(
 
     try {
       const issuer = await resolveDocumentIssuer(companyId, body.subsidiaryId);
+      const discount = requestedDiscount(body);
       const schedule = await AppDataSource.transaction(async (manager) => {
         const repo = manager.getRepository(RecurringInvoice);
         const row = repo.create({
@@ -2378,6 +2390,7 @@ mcpInternalRouter.post(
           currency: body.currency ?? customer.currency ?? "USD",
           notes: body.notes ?? "",
           footer: body.footer ?? "",
+          ...discount,
           maxRuns: body.maxRuns ?? null,
           endsOn: body.endsOn ? new Date(body.endsOn) : null,
           runsCreated: 0,
@@ -2509,6 +2522,7 @@ mcpInternalRouter.post(
       if (body.currency !== undefined) schedule.currency = body.currency;
       if (body.notes !== undefined) schedule.notes = body.notes;
       if (body.footer !== undefined) schedule.footer = body.footer;
+      Object.assign(schedule, requestedDiscount(body, discountOf(schedule)));
       if (body.maxRuns !== undefined) schedule.maxRuns = body.maxRuns;
       if (body.endsOn !== undefined) {
         schedule.endsOn = body.endsOn ? new Date(body.endsOn) : null;
@@ -2624,12 +2638,6 @@ mcpInternalRouter.post(
     );
   },
 );
-
-/** A whole-document discount before tax: a percentage or an amount, not both. */
-const toolDiscountFields = {
-  discountPercent: z.number().min(0).max(100).optional(),
-  discountAmountCents: z.number().int().min(0).max(2_000_000_000).optional(),
-};
 
 const createEstimateSchema = z
   .object({
