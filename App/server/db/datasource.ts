@@ -222,6 +222,8 @@ import { TldrQuestion } from "./entities/TldrQuestion.js";
 import { TldrQuestionMessage } from "./entities/TldrQuestionMessage.js";
 import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
 import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
+import { BoardLetter } from "./entities/BoardLetter.js";
+import { BoardLetterSettings } from "./entities/BoardLetterSettings.js";
 import { CompanySso } from "./entities/CompanySso.js";
 import { PhoneNumber } from "./entities/PhoneNumber.js";
 import { PhoneMessage } from "./entities/PhoneMessage.js";
@@ -451,6 +453,8 @@ const entities = [
   TldrQuestionMessage,
   TldrQuestionAction,
   TldrStandingQuestion,
+  BoardLetterSettings,
+  BoardLetter,
   // Per-company SSO (M56 Phase B).
   CompanySso,
   // Phone numbers — Twilio numbers given to AI Employees, with their texts

@@ -43,6 +43,7 @@ import {
   emitResourceChange,
 } from "../services/resourceEvents.js";
 import { rescheduleCompanyRoutines } from "../services/companyTimeZone.js";
+import { rescheduleBoardLetters } from "../services/boardLetters.js";
 
 export const companiesRouter = Router();
 
@@ -346,6 +347,8 @@ companiesRouter.patch(
       // event-triggered work: nothing here is business content.
       await rescheduleCompanyRoutines(co.id);
       emitResourceChange(co.id, "routine", undefined, { trigger: false });
+      // The first of the month moved too, and with it when the letter is due.
+      await rescheduleBoardLetters(new Date(), co.id);
     }
     res.json({
       id: co.id,

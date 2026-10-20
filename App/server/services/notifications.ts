@@ -36,7 +36,8 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
  * person now — a question or an Approval that holds up work, a mention, a
  * review someone named you for, an email handed to you, a follow-up you set —
  * and for the few events an owner hears about at once: a Goal settled or
- * waiting for someone to confirm it was met, a Budget spent, a Standdown placed.
+ * waiting for someone to confirm it was met, a Budget spent, a Standdown placed,
+ * the monthly letter to the board.
  *
  * The rest wait quietly in the bell and on Home: a failed or off-goal Run, a
  * reminder about something already pushed, a proposed edit or Initiative to
@@ -56,6 +57,7 @@ export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<
   "goal_confirmation_pending",
   "budget_exhausted",
   "standdown_placed",
+  "board_letter_ready",
 ]);
 
 export type CreateNotificationInput = {

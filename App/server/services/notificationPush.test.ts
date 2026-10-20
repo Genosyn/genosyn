@@ -21,6 +21,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   goal_confirmation_pending: "push",
   budget_exhausted: "push",
   standdown_placed: "push",
+  board_letter_ready: "push",
   finance_review_ready: "bell",
   run_failed: "bell",
   run_off_goal: "bell",

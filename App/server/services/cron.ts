@@ -34,6 +34,11 @@ import {
 } from "./tldrs.js";
 import { releaseInterruptedTldrQuestionActions } from "./tldrQuestionActions.js";
 import {
+  dispatchDueBoardLetters,
+  reconcileStaleBoardLetters,
+  rescheduleBoardLetters,
+} from "./boardLetters.js";
+import {
   retireStaleStandingClaims,
   sweepPendingStandingQuestions,
 } from "./tldrStandingQuestions.js";
@@ -648,6 +653,10 @@ async function runHeartbeat(generation: number): Promise<void> {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR recovery failed:", err);
       });
+      await reconcileStaleBoardLetters(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] letter recovery failed:", err);
+      });
 
       // Phase 2 — schedule. Oldest due slot first and capped, so a restart
       // with a big overdue set can't fire everything at once (and can't keep
@@ -728,6 +737,13 @@ async function runHeartbeat(generation: number): Promise<void> {
       await dispatchDueTldrs(now, {}, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR dispatch failed:", err);
+      });
+      // The monthly letter to the board, claimed the same way: the claim is
+      // durable before the writer and the auditor run in the background.
+      assertHeld();
+      await dispatchDueBoardLetters(now, {}, assertHeld).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] letter dispatch failed:", err);
       });
 
       // Phase 6 — finish the standing questions a brief is still owed. The
@@ -842,6 +858,7 @@ async function initialSweep(): Promise<void> {
   });
   if (orphans.length === 0) {
     await sweepTldrSchedules();
+    await rescheduleBoardLetters();
     return;
   }
   const now = new Date();
@@ -860,6 +877,7 @@ async function initialSweep(): Promise<void> {
     await repo.save(r);
   }
   await sweepTldrSchedules(now);
+  await rescheduleBoardLetters(now);
 }
 
 /**
@@ -892,6 +910,7 @@ export async function resetSchedulesAfterRestore(): Promise<void> {
     await repo.save(r);
   }
   await resetTldrSchedulesAfterRestore(now);
+  await rescheduleBoardLetters(now);
 }
 
 export async function bootCron(): Promise<void> {

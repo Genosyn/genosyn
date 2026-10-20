@@ -57,6 +57,7 @@ import {
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
 import { detachEmployeeFromTldrs, ensureDefaultTldrSchedule } from "../services/tldrs.js";
+import { detachEmployeeFromBoardLetters } from "../services/boardLetters.js";
 import {
   deleteBrowserRecordingsForRunIds,
   markBrowserRecordingEmployeeDeleting,
@@ -441,6 +442,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
 
   await closeAllBrowserSessionsForEmployee(emp.id);
   await detachEmployeeFromTldrs(emp.companyId, emp.id);
+  await detachEmployeeFromBoardLetters(emp.companyId, emp.id);
 
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: emp.id },
@@ -546,6 +548,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   // deletion, and this pass clears any assignment that committed just before
   // it.
   await detachEmployeeFromTldrs(emp.companyId, emp.id);
+  await detachEmployeeFromBoardLetters(emp.companyId, emp.id);
 
   await removeBrowserStorageForEmployee(emp.companyId, emp.id);
   removeRepositoryPrivateStateForEmployee(emp.companyId, emp.id);

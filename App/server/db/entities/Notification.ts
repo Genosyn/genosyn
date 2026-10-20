@@ -38,7 +38,8 @@ export type NotificationKind =
   | "autonomy_revoked"
   | "budget_exhausted"
   | "initiative_pending"
-  | "standdown_placed";
+  | "standdown_placed"
+  | "board_letter_ready";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -57,7 +58,8 @@ export type NotificationEntityKind =
   | "employee"
   | "budget"
   | "initiative"
-  | "standdown";
+  | "standdown"
+  | "board_letter";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])
