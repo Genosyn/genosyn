@@ -278,6 +278,19 @@ export function Finance() {
         until you issue it.
       </P>
 
+      <H3 id="invoices-paid-confirmation">Paid confirmation</H3>
+      <P>
+        When an invoice becomes <Code>paid</Code>, Genosyn emails each of the company&apos;s owners
+        and admins a confirmation: the invoice number, customer and total, the payments that settled
+        it, and a link to the invoice. The customer is not emailed. It goes out once, at the moment
+        the invoice turns Paid, whoever got it there — a Member recording a payment, an AI Employee
+        using <Code>record_payment</Code>, or a credit note covering what payments left — and again
+        only if the invoice reopens and is paid a second time. An invoice settled only by a write-off
+        or a credit shows as <Code>Written off</Code> or <Code>Credited</Code> and sends nothing,
+        because nobody paid it. The confirmation goes through the company&apos;s email transport, and
+        each copy appears under <Code>Settings → Email Logs</Code>.
+      </P>
+
       <H3 id="invoices-discount">Discounts</H3>
       <P>
         To give a customer a discount on a whole invoice or estimate, click{" "}

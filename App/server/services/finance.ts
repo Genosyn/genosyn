@@ -19,6 +19,7 @@ import {
 import { sendEmail } from "./email.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
+import { isPaidInCash, notifyInvoicePaid } from "./invoicePaidNotice.js";
 import { documentIssuerFields, resolveDocumentIssuer } from "./subsidiaries.js";
 import { Company } from "../db/entities/Company.js";
 import {
@@ -407,8 +408,11 @@ export async function replaceInvoiceLines(
  *   - Voided invoices stay voided (terminal).
  *   - sent ↔ paid flips on the `paidCents >= totalCents` boundary, with
  *     `paidAt` set/cleared accordingly.
+ *   - Becoming Paid emails the company's owners and admins a confirmation
+ *     (`services/invoicePaidNotice.ts`) — never the customer.
  */
 export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice> {
+  const wasPaid = isPaidInCash(invoice);
   const [lines, payments] = await Promise.all([
     AppDataSource.getRepository(InvoiceLineItem).find({
       where: { invoiceId: invoice.id },
@@ -443,7 +447,9 @@ export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice>
       invoice.paidAt = null;
     }
   }
-  return AppDataSource.getRepository(Invoice).save(invoice);
+  const saved = await AppDataSource.getRepository(Invoice).save(invoice);
+  if (!wasPaid && isPaidInCash(saved)) await notifyInvoicePaid(saved);
+  return saved;
 }
 
 // ───────────────────────── Status transitions ──────────────────────────
