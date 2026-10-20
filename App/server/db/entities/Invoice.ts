@@ -49,6 +49,7 @@ export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
 @Index(["companyId", "customerId"])
 @Index(["companyId", "numberSeq"])
 @Index(["companyId", "archivedAt"])
+@Index(["companyId", "recurringInvoiceId"])
 export class Invoice {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -164,6 +165,14 @@ export class Invoice {
    *  (`recomputeInvoiceTotals`). Restoring clears it. */
   @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
+
+  /** The recurring invoice schedule that created this invoice, or null for
+   *  one made any other way. Set when a scheduled run or Run now creates the
+   *  invoice (`services/recurringInvoices.ts`) and never changed after, except
+   *  that deleting the schedule clears it. A duplicate is made by hand, so it
+   *  never carries one. */
+  @Column({ type: "varchar", nullable: true })
+  recurringInvoiceId!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;

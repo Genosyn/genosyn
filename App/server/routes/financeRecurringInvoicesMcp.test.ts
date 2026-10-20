@@ -24,7 +24,10 @@ import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { errorHandler } from "../middleware/error.js";
 import { deadToolNames } from "../services/agent/tools/grantDead.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
-import { RECURRING_INVOICE_NAME_REQUIRED_ERROR } from "../services/recurringInvoices.js";
+import {
+  generateInvoiceFromRecurring,
+  RECURRING_INVOICE_NAME_REQUIRED_ERROR,
+} from "../services/recurringInvoices.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -813,4 +816,45 @@ test("the tool manifest offers a discount when creating and updating a schedule"
     assert.equal(schema.properties.discountPercent?.maximum, 100, name);
     assert.equal(schema.properties.discountAmountCents?.type, "integer", name);
   }
+});
+
+test("list_invoices lists the invoices one schedule created, and each row names its schedule", async () => {
+  const created = await createAnnualSchedule();
+  const schedule = await AppDataSource.getRepository(RecurringInvoice).findOneByOrFail({
+    id: String(created.id),
+  });
+  const { invoice: generated } = await generateInvoiceFromRecurring(schedule, null);
+  const byHand = await insert(Invoice, {
+    companyId: company.id,
+    customerId: customer.id,
+    slug: "draft-byhand",
+    issueDate: new Date(),
+    dueDate: new Date(),
+  });
+
+  const filtered = await callTool("list_invoices", { recurringInvoiceSlug: schedule.slug });
+  assert.equal(filtered.status, 200, filtered.body.error);
+  const rows = filtered.body.invoices as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    [generated.id],
+  );
+  assert.deepEqual(rows[0].recurringInvoice, { name: schedule.name, slug: schedule.slug });
+
+  const all = (await callTool("list_invoices")).body.invoices as Array<Record<string, unknown>>;
+  assert.equal(all.length, 2);
+  assert.equal(all.find((row) => row.id === byHand.id)?.recurringInvoice, null);
+
+  const missing = await callTool("list_invoices", { recurringInvoiceSlug: "ri-missing" });
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error, 'Recurring invoice "ri-missing" not found');
+});
+
+test("the tool manifest lets list_invoices filter to one recurring invoice", () => {
+  type Schema = { properties: Record<string, { type?: string }> };
+  const tool = STATIC_TOOLS.find((candidate) => candidate.name === "list_invoices");
+  assert.ok(tool);
+  const schema = tool.inputSchema as unknown as Schema;
+  assert.equal(schema.properties.recurringInvoiceSlug?.type, "string");
+  assert.match(tool.description, /recurringInvoiceSlug/);
 });

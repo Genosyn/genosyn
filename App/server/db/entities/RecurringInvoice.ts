@@ -29,7 +29,8 @@ import {
  *   2. Materializes a fresh `Invoice` (status `draft` or `sent`
  *      depending on `autoSend`) with line items snapshotted from the
  *      template lines and the schedule's discount, issueDate = now,
- *      dueDate = now + daysUntilDue.
+ *      dueDate = now + daysUntilDue, naming this schedule in its
+ *      `recurringInvoiceId`.
  *   3. Posts ledger entries via the existing `issueInvoice` path when
  *      auto-send is on (or just leaves it as a draft if not).
  *   4. Optionally calls `sendInvoiceEmail` if `autoSend` is true.
@@ -146,8 +147,9 @@ export class RecurringInvoice {
   @Column({ type: dateTimeColumnType, nullable: true })
   lastRunAt!: Date | null;
 
-  /** Slug of the last invoice produced by this schedule — handy for the
-   *  detail view's "latest run" callout without an extra query. */
+  /** Slug of the last invoice produced by this schedule, kept current when
+   *  issuing that draft renames it (`issueInvoice`). Every invoice it produced
+   *  names it back in `Invoice.recurringInvoiceId`, which is what lists them. */
   @Column({ type: "varchar", default: "" })
   lastInvoiceSlug!: string;
 

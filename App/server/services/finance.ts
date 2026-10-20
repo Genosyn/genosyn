@@ -10,6 +10,7 @@ import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { LedgerEntry, type LedgerEntrySource } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
+import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import {
   computeLineTotals,
@@ -527,6 +528,18 @@ export async function issueInvoice(
       await AppDataSource.getRepository(Customer).save(customer);
     }
     throw err;
+  }
+  // Issuing renamed the draft. A schedule whose last invoice it is points at
+  // it by slug, so move that pointer with it.
+  if (recomputed.recurringInvoiceId && recomputed.slug !== draftState.slug) {
+    await AppDataSource.getRepository(RecurringInvoice).update(
+      {
+        id: recomputed.recurringInvoiceId,
+        companyId: recomputed.companyId,
+        lastInvoiceSlug: draftState.slug,
+      },
+      { lastInvoiceSlug: recomputed.slug },
+    );
   }
   return recomputed;
 }
@@ -1460,16 +1473,26 @@ export type CustomerStub = {
   email: string;
 };
 
+/** The recurring invoice schedule that created an invoice. */
+export type InvoiceScheduleStub = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 export type HydratedInvoice = Invoice & {
   customer: CustomerStub | null;
+  /** The schedule named by `recurringInvoiceId`; null for a hand-made invoice. */
+  recurringInvoice: InvoiceScheduleStub | null;
   lines: InvoiceLineItem[];
   payments: InvoicePayment[];
 };
 
 /**
- * Bulk-hydrate a list of invoices with their customer stub + line item +
- * payment children. Three queries instead of N×3 — important for the
- * list view, where 100+ rows are common.
+ * Bulk-hydrate a list of invoices with their customer stub, the schedule
+ * stub of any a recurring invoice created, and their line item + payment
+ * children. A handful of queries instead of N×4 — important for the list
+ * view, where 100+ rows are common.
  */
 export async function hydrateInvoices(
   companyId: string,
@@ -1478,11 +1501,20 @@ export async function hydrateInvoices(
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
   const customerIds = [...new Set(invoices.map((i) => i.customerId))];
-  const [customers, lines, payments] = await Promise.all([
+  const scheduleIds = [
+    ...new Set(invoices.flatMap((i) => (i.recurringInvoiceId ? [i.recurringInvoiceId] : []))),
+  ];
+  const [customers, schedules, lines, payments] = await Promise.all([
     AppDataSource.getRepository(Customer).find({
       where: { id: In(customerIds), companyId },
       select: ["id", "name", "slug", "email"],
     }),
+    scheduleIds.length > 0
+      ? AppDataSource.getRepository(RecurringInvoice).find({
+          where: { id: In(scheduleIds), companyId },
+          select: ["id", "name", "slug"],
+        })
+      : Promise.resolve([] as RecurringInvoice[]),
     AppDataSource.getRepository(InvoiceLineItem).find({
       where: { invoiceId: In(ids) },
       order: { sortOrder: "ASC" },
@@ -1493,6 +1525,9 @@ export async function hydrateInvoices(
     }),
   ]);
   const customerById = new Map(customers.map((c) => [c.id, c]));
+  const scheduleById = new Map(
+    schedules.map(({ id, name, slug }) => [id, { id, name, slug } satisfies InvoiceScheduleStub]),
+  );
   const linesByInvoice = new Map<string, InvoiceLineItem[]>();
   for (const l of lines) {
     const arr = linesByInvoice.get(l.invoiceId) ?? [];
@@ -1508,6 +1543,9 @@ export async function hydrateInvoices(
   return invoices.map((inv) => ({
     ...inv,
     customer: customerById.get(inv.customerId) ?? null,
+    recurringInvoice: inv.recurringInvoiceId
+      ? (scheduleById.get(inv.recurringInvoiceId) ?? null)
+      : null,
     lines: linesByInvoice.get(inv.id) ?? [],
     payments: paymentsByInvoice.get(inv.id) ?? [],
   }));

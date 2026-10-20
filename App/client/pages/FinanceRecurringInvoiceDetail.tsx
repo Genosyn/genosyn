@@ -6,7 +6,10 @@ import {
   ArchiveRestore,
   ArrowLeft,
   Ban,
+  ChevronDown,
+  ChevronUp,
   Copy,
+  FileText,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -17,10 +20,12 @@ import {
 } from "lucide-react";
 import {
   api,
+  displayInvoiceStatus,
   financeSubsidiaries,
   Subsidiary,
   formatMoney,
   Invoice,
+  InvoiceListItem,
   RecurringInvoice,
   RecurringInvoiceBulkAction,
   RecurringInvoiceBulkResult,
@@ -28,16 +33,24 @@ import {
   RecurringInvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import {
+  formatScheduleTotal,
+  hasScheduleTotal,
+  summarizeScheduleInvoices,
+  unlistedScheduleInvoices,
+} from "../lib/recurringInvoiceHistory";
 import { describeCron } from "../lib/schedule";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { RecordHistory } from "@/components/RecordHistory";
 import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
+import { InvoiceStatusBadge } from "@/components/finance/InvoiceStatusBadge";
 import { recurringInvoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -53,8 +66,9 @@ function formatStamp(iso: string | null): string {
 }
 
 /**
- * Recurring-invoice detail. Shows the schedule, the template line items,
- * and, to Members who may change finances, the lifecycle controls
+ * Recurring-invoice detail. Shows the schedule, what it has billed so far and
+ * every invoice it has created, the template line items, and, to Members who
+ * may change finances, the lifecycle controls
  * (pause / resume / end / run-now / delete), plus Archive / Restore, which
  * files a paused or ended schedule in or out of the lists. Resuming an
  * archived schedule restores it, so nothing bills from out of sight.
@@ -95,6 +109,31 @@ export default function FinanceRecurringInvoiceDetail() {
 
   useLiveRefetch("recurringinvoice", reload);
 
+  // Every invoice this schedule created, archived and void ones too: this is
+  // its history, not a worklist. Newest first, as the server lists them.
+  const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
+  const [invoicesError, setInvoicesError] = React.useState<string | null>(null);
+  const scheduleId = ri?.id ?? null;
+  const reloadInvoices = React.useCallback(async () => {
+    if (!scheduleId) return;
+    try {
+      const list = await api.get<InvoiceListItem[]>(
+        `/api/companies/${company.id}/invoices?recurringInvoiceId=${scheduleId}&archived=true`,
+      );
+      setInvoices(list);
+      setInvoicesError(null);
+    } catch (err) {
+      setInvoicesError(errorMessage(err, "Could not load the invoices this schedule created"));
+    }
+  }, [company.id, scheduleId]);
+
+  React.useEffect(() => {
+    void reloadInvoices();
+  }, [reloadInvoices]);
+
+  // A payment, an issue, or a void elsewhere moves a row; so does a new run.
+  useLiveRefetch(["invoice", "recurringinvoice"], reloadInvoices);
+
   async function patchStatus(next: RecurringInvoiceStatus) {
     if (!ri) return;
     setBusy("status");
@@ -121,9 +160,10 @@ export default function FinanceRecurringInvoiceDetail() {
         emailStatus: "sent" | "skipped" | "failed" | "not_attempted";
         emailError: string;
       }>(`/api/companies/${company.id}/recurring-invoices/${ri.slug}/run-now`);
-      // The header, the schedule rows, and the "Latest run" panel all move
-      // when a run lands — only the email half needs saying out loud.
+      // The header, the schedule rows, and the invoice list all move when a
+      // run lands — only the email half needs saying out loud.
       setRi(result.recurringInvoice);
+      void reloadInvoices();
       if (result.emailStatus === "failed") {
         void dialog.error(result.emailError, {
           title: "Invoice generated, but the email failed",
@@ -132,6 +172,7 @@ export default function FinanceRecurringInvoiceDetail() {
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t run the schedule" });
       void reload();
+      void reloadInvoices();
     } finally {
       setBusy(null);
     }
@@ -190,7 +231,7 @@ export default function FinanceRecurringInvoiceDetail() {
     const ok = await dialog.confirm({
       title: `Delete "${ri.name}"?`,
       message:
-        "This removes the recurring schedule. Invoices it has already generated stay in your records.",
+        "This removes the recurring schedule. Invoices it has already created stay in your records as ordinary invoices, no longer linked to it.",
       variant: "danger",
       confirmLabel: "Delete",
     });
@@ -239,9 +280,6 @@ export default function FinanceRecurringInvoiceDetail() {
   // Restore is always on offer; Archive only once the schedule bills nobody.
   const canArchive = isArchived || !recurringInvoiceArchiveBlocker(ri);
   const retrying = ri.status === "active" && ri.latestRun?.status === "pending";
-  // A run still in flight may already have created its invoice; that one is
-  // newer than the last finished run's.
-  const latestInvoiceSlug = ri.latestRun?.invoiceSlug || ri.lastInvoiceSlug;
 
   return (
     <div className="page-shell p-8">
@@ -258,7 +296,7 @@ export default function FinanceRecurringInvoiceDetail() {
         />
       </div>
 
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <Link
             to={`/c/${company.slug}/finance/recurring-invoices`}
@@ -499,41 +537,23 @@ export default function FinanceRecurringInvoiceDetail() {
           </dl>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Latest run
-          </h3>
-          {latestInvoiceSlug ? (
-            <Link
-              to={`/c/${company.slug}/finance/invoices/${latestInvoiceSlug}`}
-              className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              Open last generated invoice →
-            </Link>
-          ) : (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              This schedule hasn&apos;t fired yet.{" "}
-              {ri.status === "active" && ri.nextRunAt
-                ? `Next run: ${formatStamp(ri.nextRunAt)}.`
-                : ri.status === "paused"
-                  ? "Resume it to start scheduling runs."
-                  : ""}
-            </p>
-          )}
-          {ri.runsCreated > 0 && (
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              All generated invoices show up in the regular{" "}
-              <Link
-                to={`/c/${company.slug}/finance/invoices`}
-                className="text-indigo-600 hover:underline dark:text-indigo-400"
-              >
-                Invoices
-              </Link>{" "}
-              list — filter by this customer to see only theirs.
-            </p>
-          )}
-        </div>
+        <InvoicesSoFar
+          ri={ri}
+          invoices={invoices}
+          failed={invoicesError !== null}
+          companySlug={company.slug}
+        />
       </div>
+
+      <ScheduleInvoices
+        ri={ri}
+        invoices={invoices}
+        error={invoicesError}
+        companySlug={company.slug}
+        onRunNow={canWrite && ri.status !== "ended" ? () => void runNow("run") : null}
+        running={busy === "run"}
+        busy={busy !== null}
+      />
 
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-800">
@@ -612,6 +632,387 @@ export default function FinanceRecurringInvoiceDetail() {
         ]}
       />
     </div>
+  );
+}
+
+/** How many of a schedule's invoices its list shows before "Show all". */
+const INVOICES_SHOWN = 10;
+
+function isoDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+/**
+ * The third card: what the schedule has billed so far, from the invoices it
+ * created. Drafts are counted but not billed; void invoices bill nothing.
+ */
+function InvoicesSoFar({
+  ri,
+  invoices,
+  failed,
+  companySlug,
+}: {
+  ri: RecurringInvoice;
+  invoices: InvoiceListItem[] | null;
+  failed: boolean;
+  companySlug: string;
+}) {
+  const summary = React.useMemo(
+    () => (invoices ? summarizeScheduleInvoices(invoices, ri.currency) : null),
+    [invoices, ri.currency],
+  );
+  const latest = invoices?.[0] ?? null;
+  const owed = summary ? hasScheduleTotal(summary.totals, "outstandingCents") : false;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        Invoices so far
+      </h3>
+      {summary === null ? (
+        failed ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Couldn&apos;t load them.</p>
+        ) : (
+          <div className="flex justify-center py-6">
+            <Spinner size={16} />
+          </div>
+        )
+      ) : (
+        <dl className="space-y-2 text-sm">
+          <Row
+            label="Created"
+            value={
+              <span className="tabular-nums">
+                {summary.count}
+                {summary.drafts > 0 && (
+                  <span className="text-slate-400 dark:text-slate-500">
+                    {" · "}
+                    {summary.drafts} {summary.drafts === 1 ? "draft" : "drafts"}
+                  </span>
+                )}
+              </span>
+            }
+          />
+          <Row
+            label="Invoiced"
+            value={
+              <span className="tabular-nums">
+                {formatScheduleTotal(summary.totals, "invoicedCents", ri.currency)}
+              </span>
+            }
+          />
+          <Row
+            label="Paid"
+            value={
+              <span className="tabular-nums">
+                {formatScheduleTotal(summary.totals, "paidCents", ri.currency)}
+              </span>
+            }
+          />
+          <Row
+            label="Outstanding"
+            value={
+              <span
+                className={"tabular-nums" + (owed ? " text-amber-700 dark:text-amber-400" : "")}
+              >
+                {formatScheduleTotal(summary.totals, "outstandingCents", ri.currency)}
+                {summary.overdue > 0 && (
+                  <span className="text-red-600 dark:text-red-400">
+                    {" · "}
+                    {summary.overdue} overdue
+                  </span>
+                )}
+              </span>
+            }
+          />
+          {latest && (
+            <Row
+              label="Latest"
+              value={
+                <Link
+                  to={`/c/${companySlug}/finance/invoices/${latest.slug}`}
+                  className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {latest.number || "Draft"} · {isoDay(latest.issueDate)}
+                </Link>
+              }
+            />
+          )}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every invoice the schedule has created, newest first: drafts, issued,
+ * paid, void, and archived alike, each opening its invoice. The run count can
+ * include invoices the list cannot show — drafts deleted since, and ones made
+ * before invoices were linked to their schedule — and a note says so.
+ */
+function ScheduleInvoices({
+  ri,
+  invoices,
+  error,
+  companySlug,
+  onRunNow,
+  running,
+  busy,
+}: {
+  ri: RecurringInvoice;
+  invoices: InvoiceListItem[] | null;
+  error: string | null;
+  companySlug: string;
+  /** Omitted for a read-only Member, and once the schedule has ended. */
+  onRunNow: (() => void) | null;
+  running: boolean;
+  busy: boolean;
+}) {
+  const navigate = useNavigate();
+  const [showAll, setShowAll] = React.useState(false);
+  const shown = invoices ? (showAll ? invoices : invoices.slice(0, INVOICES_SHOWN)) : [];
+  const unlisted = invoices ? unlistedScheduleInvoices(ri.runsCreated, invoices.length) : 0;
+  const billingTab = ri.customer ? `/c/${companySlug}/customers/${ri.customer.slug}?tab=billing` : null;
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Invoices
+          {invoices && invoices.length > 0 && (
+            <span className="ml-2 text-xs font-normal tabular-nums text-slate-400 dark:text-slate-500">
+              {invoices.length}
+            </span>
+          )}
+        </h3>
+        <span className="hidden text-xs text-slate-400 sm:inline dark:text-slate-500">
+          Created by this schedule, newest first
+        </span>
+      </div>
+
+      {error ? (
+        <div className="p-5">
+          <FormError message={error} />
+        </div>
+      ) : invoices === null ? (
+        <div className="flex justify-center p-10">
+          <Spinner size={18} />
+        </div>
+      ) : invoices.length === 0 ? (
+        <div className="px-6 py-10 text-center">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+            <FileText size={18} />
+          </div>
+          <h4 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {ri.runsCreated > 0
+              ? "No invoices to list"
+              : ri.status === "ended"
+                ? "No invoices"
+                : "No invoices yet"}
+          </h4>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">
+            {ri.status === "ended"
+              ? ri.runsCreated > 0
+                ? "This schedule has ended."
+                : "This schedule ended without creating an invoice."
+              : ri.status === "paused"
+                ? "Each invoice it creates will be listed here. Resume the schedule to start billing."
+                : ri.nextRunAt
+                  ? `Each invoice it creates will be listed here. The next run is ${formatStamp(ri.nextRunAt)}.`
+                  : "Each invoice it creates will be listed here."}
+          </p>
+          {onRunNow && (
+            <div className="mt-4">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onRunNow}
+                loading={running}
+                disabled={busy}
+              >
+                <PlayCircle size={14} /> Run now
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Below lg — phones, and tablets beside the section rail — the six
+              columns don't fit, so each invoice is one stacked row rather than
+              a table that hides its totals off to the side. */}
+          <ul className="divide-y divide-slate-100 lg:hidden dark:divide-slate-800">
+            {shown.map((inv) => {
+              const isVoid = inv.status === "void";
+              const owed = inv.status === "sent" && inv.balanceCents > 0;
+              return (
+                <li key={inv.id}>
+                  <Link
+                    to={`/c/${companySlug}/finance/invoices/${inv.slug}`}
+                    className="block px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span
+                        className={
+                          "truncate font-mono text-xs font-semibold " +
+                          (isVoid
+                            ? "text-slate-400 dark:text-slate-500"
+                            : "text-indigo-600 dark:text-indigo-400")
+                        }
+                      >
+                        {inv.number || "DRAFT"}
+                      </span>
+                      <span
+                        className={
+                          "whitespace-nowrap text-sm tabular-nums " +
+                          (isVoid
+                            ? "text-slate-400 line-through dark:text-slate-500"
+                            : "text-slate-900 dark:text-slate-100")
+                        }
+                      >
+                        {formatMoney(inv.totalCents, inv.currency)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-1.5">
+                        <InvoiceStatusBadge status={displayInvoiceStatus(inv)} />
+                        {inv.archivedAt && <ArchivedBadge />}
+                      </span>
+                      <span className="whitespace-nowrap text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                        {isoDay(inv.issueDate)}
+                        {owed && (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            {" · "}
+                            {formatMoney(inv.balanceCents, inv.currency)} due
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">Number</th>
+                  <th className="px-4 py-2 text-left font-medium">Status</th>
+                  <th className="px-4 py-2 text-left font-medium">Issued</th>
+                  <th className="px-4 py-2 text-left font-medium">Due</th>
+                  <th className="px-4 py-2 text-right font-medium">Total</th>
+                  <th className="px-4 py-2 text-right font-medium">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {shown.map((inv) => {
+                  const to = `/c/${companySlug}/finance/invoices/${inv.slug}`;
+                  const isVoid = inv.status === "void";
+                  // Only an issued invoice is owed anything.
+                  const billed = inv.status === "sent" || inv.status === "paid";
+                  return (
+                    <tr
+                      key={inv.id}
+                      onClick={() => navigate(to)}
+                      className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    >
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
+                        <Link
+                          to={to}
+                          onClick={(event) => event.stopPropagation()}
+                          className={
+                            "font-semibold hover:underline " +
+                            (isVoid
+                              ? "text-slate-400 dark:text-slate-500"
+                              : "text-indigo-600 dark:text-indigo-400")
+                          }
+                        >
+                          {inv.number || "DRAFT"}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5">
+                          <InvoiceStatusBadge status={displayInvoiceStatus(inv)} />
+                          {inv.archivedAt && <ArchivedBadge />}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {isoDay(inv.issueDate)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {isoDay(inv.dueDate)}
+                      </td>
+                      <td
+                        className={
+                          "whitespace-nowrap px-4 py-3 text-right tabular-nums " +
+                          (isVoid
+                            ? "text-slate-400 line-through dark:text-slate-500"
+                            : "text-slate-900 dark:text-slate-100")
+                        }
+                      >
+                        {formatMoney(inv.totalCents, inv.currency)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                        {billed ? (
+                          <span
+                            className={
+                              inv.balanceCents > 0
+                                ? "text-amber-700 dark:text-amber-400"
+                                : "text-slate-400 dark:text-slate-500"
+                            }
+                          >
+                            {formatMoney(inv.balanceCents, inv.currency)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 dark:text-slate-600">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {invoices.length > INVOICES_SHOWN && (
+            <div className="border-t border-slate-100 px-5 py-2.5 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowAll((value) => !value)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                {showAll ? (
+                  <>
+                    Show the latest {INVOICES_SHOWN} <ChevronUp size={12} />
+                  </>
+                ) : (
+                  <>
+                    Show all {invoices.length} invoices <ChevronDown size={12} />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {invoices && unlisted > 0 && (
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+          {unlisted === 1
+            ? "1 more invoice this schedule created isn’t listed: a draft that was deleted, or one made before invoices were linked to their schedule."
+            : `${unlisted} more invoices this schedule created aren’t listed: drafts that were deleted, or ones made before invoices were linked to their schedule.`}
+          {billingTab && (
+            <>
+              {" "}
+              <Link
+                to={billingTab}
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                See all of {ri.customer?.name}&apos;s invoices
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+    </section>
   );
 }
 

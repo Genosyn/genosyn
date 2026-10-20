@@ -446,6 +446,12 @@ async function invoiceItem(companyId: string, invoice: Invoice): Promise<AskAiCo
           : `${status} (stored status ${invoice.status})${status === "overdue" ? `, ${daysLate(invoice.dueDate, now)} day(s) past due` : ""}`,
       ],
       ["Customer", customer ? `${oneLine(customer.name)} (slug \`${customer.slug}\`)` : "missing"],
+      [
+        "Created by",
+        hydrated?.recurringInvoice
+          ? `the recurring invoice ${oneLine(hydrated.recurringInvoice.name)} (slug \`${hydrated.recurringInvoice.slug}\`) — pass the slug as \`recurringInvoiceSlug\` to \`get_recurring_invoice\``
+          : null,
+      ],
       ["Issued by", invoice.issuerSnapshot?.name ? oneLine(invoice.issuerSnapshot.name) : null],
       ["Issue date", day(invoice.issueDate)],
       ["Due date", day(invoice.dueDate)],
@@ -521,7 +527,7 @@ async function invoiceItem(companyId: string, invoice: Invoice): Promise<AskAiCo
     href: `/finance/invoices/${invoice.slug}`,
     gate: FINANCE_GATE,
     body: parts.join("\n"),
-    tools: INVOICE_TOOLS,
+    tools: hydrated?.recurringInvoice ? [...INVOICE_TOOLS, "get_recurring_invoice"] : INVOICE_TOOLS,
     briefing: financeBriefing((level) => [
       `### ${invoiceLabel(invoice)}`,
       `The teammate has this invoice open. Your Finance access level is "${level}". Fetch the live record with \`get_invoice\` (invoiceSlug \`${invoice.slug}\`) before quoting a balance that may have moved.`,
@@ -682,14 +688,24 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
     (slug) => loadRecurringInvoiceBySlug(companyId, slug),
   );
   if (!ri) return [];
-  const [[hydrated], customer, subsidiary, lastInvoice] = await Promise.all([
+  const now = new Date();
+  const [[hydrated], customer, subsidiary, created, createdCount] = await Promise.all([
     hydrateRecurringInvoices(companyId, [ri]),
     customerById(companyId, ri.customerId),
     ri.subsidiaryId
       ? AppDataSource.getRepository(Subsidiary).findOneBy({ id: ri.subsidiaryId, companyId })
       : Promise.resolve(null),
-    ri.lastInvoiceSlug ? loadInvoiceBySlug(companyId, ri.lastInvoiceSlug) : Promise.resolve(null),
+    // Every invoice it created, archived ones included: this is its history.
+    AppDataSource.getRepository(Invoice).find({
+      where: { companyId, recurringInvoiceId: ri.id },
+      order: { createdAt: "DESC" },
+      take: RECENT_DOCUMENTS,
+    }),
+    AppDataSource.getRepository(Invoice).count({ where: { companyId, recurringInvoiceId: ri.id } }),
   ]);
+  const lastInvoice =
+    created[0] ??
+    (ri.lastInvoiceSlug ? await loadInvoiceBySlug(companyId, ri.lastInvoiceSlug) : null);
   const lines = hydrated?.lines ?? [];
   const taxIds = [...new Set(lines.map((l) => l.taxRateId).filter((id): id is string => !!id))];
   const taxes = taxIds.length
@@ -762,6 +778,17 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
       cur,
       "call `get_recurring_invoice` for the rest",
     ),
+    "",
+    `### Invoices it created (${createdCount})`,
+    ...(created.length === 0
+      ? ["(none yet)"]
+      : created.map(
+          (inv) =>
+            `- ${inv.number || "draft"} (slug \`${inv.slug}\`) · ${displayStatus(inv, now)} · issued ${day(inv.issueDate)} · total ${money(inv.totalCents, inv.currency)} · balance ${money(inv.balanceCents, inv.currency)} · due ${day(inv.dueDate)}${inv.archivedAt ? " · archived" : ""}`,
+        )),
+    ...(createdCount > created.length
+      ? ["… older invoices omitted — use `list_invoices` with this recurringInvoiceSlug."]
+      : []),
     ...freeText("Notes printed on each invoice", ri.notes, NOTE_CAP),
     ...freeText("Footer", ri.footer, FOOTER_CAP),
   ].join("\n");
@@ -775,7 +802,13 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
       href: `/finance/recurring-invoices/${ri.slug}`,
       gate: FINANCE_GATE,
       body,
-      tools: ["get_recurring_invoice", "list_recurring_invoices", "update_recurring_invoice", "get_customer"],
+      tools: [
+        "get_recurring_invoice",
+        "list_recurring_invoices",
+        "update_recurring_invoice",
+        "list_invoices",
+        "get_customer",
+      ],
       briefing: financeBriefing((level) => [
         `### ${label}`,
         `The teammate has this recurring invoice schedule open. Your Finance access level is "${level}".`,

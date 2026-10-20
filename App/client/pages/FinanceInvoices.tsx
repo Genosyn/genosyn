@@ -30,6 +30,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { ArchiveBulkBar, ArchivedTabLabel, FilterTab } from "../components/finance/ArchiveControls";
+import { InvoiceStatusBadge } from "../components/finance/InvoiceStatusBadge";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
 import { invoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -49,16 +50,6 @@ const FILTERS: { key: Exclude<StatusFilter, "void" | "archived">; label: string 
   { key: "credited", label: "Credited" },
   { key: "written_off", label: "Written off" },
 ];
-
-const STATUS_BADGE: Record<Exclude<StatusFilter, "active" | "archived">, string> = {
-  draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  credited: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  written_off: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
-  void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-};
 
 /** Beside the disabled tick box of an invoice that still has money to collect. */
 const BALANCE_DUE_HINT =
@@ -368,13 +359,23 @@ export default function FinanceInvoices() {
                         />
                       </td>
                     )}
-                    <td className="px-4 py-3 font-mono text-xs">
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                       <Link
                         to={`/c/${company.slug}/finance/invoices/${inv.slug}`}
                         className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                       >
                         {inv.number || "DRAFT"}
                       </Link>
+                      {inv.recurringInvoice && (
+                        <Link
+                          to={`/c/${company.slug}/finance/recurring-invoices/${inv.recurringInvoice.slug}`}
+                          title={`Created by the recurring invoice ${inv.recurringInvoice.name}`}
+                          aria-label={`Created by the recurring invoice ${inv.recurringInvoice.name}`}
+                          className="ml-1.5 inline-flex rounded p-0.5 align-middle text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
+                        >
+                          <Repeat size={12} />
+                        </Link>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                       {inv.customer?.name ?? "—"}
@@ -383,14 +384,7 @@ export default function FinanceInvoices() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={
-                          "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
-                          STATUS_BADGE[ds]
-                        }
-                      >
-                        {ds}
-                      </span>
+                      <InvoiceStatusBadge status={ds} />
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                       {new Date(inv.issueDate).toISOString().slice(0, 10)}

@@ -1594,6 +1594,9 @@ function serializeInvoiceRow(h: HydratedInvoiceRow) {
     subsidiaryId: h.subsidiaryId,
     issuerSnapshot: h.issuerSnapshot,
     customer: h.customer ? { name: h.customer.name, slug: h.customer.slug } : null,
+    recurringInvoice: h.recurringInvoice
+      ? { name: h.recurringInvoice.name, slug: h.recurringInvoice.slug }
+      : null,
     subtotalCents: h.subtotalCents,
     discountCents: h.discountCents,
     taxCents: h.taxCents,
@@ -1931,6 +1934,7 @@ const listInvoicesSchema = z
   .object({
     status: z.enum(["draft", "sent", "paid", "void"]).optional(),
     customerSlug: z.string().min(1).max(200).optional(),
+    recurringInvoiceSlug: z.string().min(1).max(200).optional(),
     includeArchived: z.boolean().default(false),
     limit: z.number().int().min(1).max(100).optional(),
   })
@@ -1954,6 +1958,15 @@ mcpInternalRouter.post(
         return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
       }
       where.customerId = customer.id;
+    }
+    if (body.recurringInvoiceSlug) {
+      const schedule = await loadRecurringInvoiceBySlug(cid, body.recurringInvoiceSlug);
+      if (!schedule) {
+        return res
+          .status(404)
+          .json({ error: `Recurring invoice "${body.recurringInvoiceSlug}" not found` });
+      }
+      where.recurringInvoiceId = schedule.id;
     }
     const invoices = await AppDataSource.getRepository(Invoice).find({
       where,

@@ -39,8 +39,9 @@ import { SchedulerLeaseLostError, withSchedulerLease } from "./schedulerLeases.j
  * The generated invoice is a normal `Invoice` row — issuing, sending,
  * voiding, ledger posting, and reports all flow through the same code
  * paths that humans use. The only thing that differentiates a recurring-
- * sourced invoice from a hand-authored one is the `notes` line we stamp
- * onto it ("Auto-generated from recurring schedule …").
+ * sourced invoice from a hand-authored one is `Invoice.recurringInvoiceId`,
+ * which names the schedule that created it, so the schedule's page can list
+ * every invoice it has created.
  */
 
 // ─────────────────────────── Scheduling ────────────────────────────────
@@ -467,6 +468,29 @@ export async function duplicateRecurringInvoice(
   return copy;
 }
 
+// ──────────────────────────── Deletion ─────────────────────────────────
+
+/**
+ * Delete a schedule with its template lines and run history, in one
+ * transaction. The invoices it created stay in the books as ordinary
+ * invoices: their link back to it is cleared so none names a schedule that no
+ * longer exists, and their History still says which schedule created them.
+ */
+export async function deleteRecurringInvoice(ri: RecurringInvoice): Promise<void> {
+  await withSerializedTransaction(async (manager) => {
+    await manager
+      .getRepository(Invoice)
+      .update({ companyId: ri.companyId, recurringInvoiceId: ri.id }, { recurringInvoiceId: null });
+    await manager.getRepository(RecurringInvoiceLineItem).delete({ recurringInvoiceId: ri.id });
+    await manager.getRepository(RecurringInvoiceRun).delete({ recurringInvoiceId: ri.id });
+    await manager.getRepository(RecurringInvoice).delete({ id: ri.id });
+  });
+  // Bulk writes hand the change subscriber no rows, so open pages are told
+  // directly: the schedule is gone, and so is its invoices' link to it.
+  emitResourceChange(ri.companyId, "recurringinvoice", undefined, { trigger: false });
+  emitResourceChange(ri.companyId, "invoice", undefined, { trigger: false });
+}
+
 // ──────────────────────────── Generation ───────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -545,6 +569,7 @@ async function createInvoiceFromTemplate(
       invoiceRepo.create({
         companyId: ri.companyId,
         customerId: ri.customerId,
+        recurringInvoiceId: ri.id,
         ...issuer,
         slug,
         numberSeq: 0,

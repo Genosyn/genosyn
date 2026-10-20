@@ -21,8 +21,6 @@ import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
-import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
-import { RecurringInvoiceRun } from "../db/entities/RecurringInvoiceRun.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -133,6 +131,7 @@ import {
 } from "../services/financeGrants.js";
 import {
   applyRecurringInvoiceStatus,
+  deleteRecurringInvoice,
   duplicateRecurringInvoice,
   findPendingRecurringInvoiceRun,
   generateInvoiceFromRecurring,
@@ -1053,13 +1052,20 @@ financeRouter.get("/invoices", async (req, res) => {
   if (typeof status === "string" && status) where.status = status;
   const customerId = req.query.customerId;
   if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  // The invoices one recurring invoice schedule created, for its own page.
+  const recurringInvoiceId = req.query.recurringInvoiceId;
+  if (typeof recurringInvoiceId === "string" && recurringInvoiceId) {
+    where.recurringInvoiceId = recurringInvoiceId;
+  }
   // Archived invoices are filed away, so lists leave them out unless asked —
   // the same `archived=true` that estimates take. A page that totals money
   // asks: an archived invoice still counts.
   if (String(req.query.archived ?? "") !== "true") where.archivedAt = IsNull();
   const invoices = await AppDataSource.getRepository(Invoice).find({
     where,
-    order: { createdAt: "DESC" },
+    // SQLite stamps `createdAt` to the second; the issue date a new invoice
+    // takes is to the millisecond, so two made in the same second keep order.
+    order: { createdAt: "DESC", issueDate: "DESC" },
   });
   const hydrated = await hydrateInvoices(cid, invoices);
   // Strip lines + payments from the list view to keep payloads small —
@@ -4535,11 +4541,7 @@ financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
   if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
-  await AppDataSource.getRepository(RecurringInvoiceLineItem).delete({
-    recurringInvoiceId: ri.id,
-  });
-  await AppDataSource.getRepository(RecurringInvoiceRun).delete({ recurringInvoiceId: ri.id });
-  await AppDataSource.getRepository(RecurringInvoice).delete({ id: ri.id });
+  await deleteRecurringInvoice(ri);
   await auditFinance(req, "finance.recurring_invoice.delete", { type: "recurring_invoice", id: ri.id, label: ri.name });
   res.json({ ok: true });
 });

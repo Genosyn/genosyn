@@ -68,8 +68,25 @@ const invoiceResponse = documentIdentity
       .describe(
         "When the invoice was archived out of the default lists, or null. Archiving never changes its status, payments, or balance.",
       ),
+    recurringInvoiceId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe(
+        "The recurring invoice schedule that created this invoice, by a scheduled run or Run now, or null for an invoice made any other way. Deleting the schedule clears it.",
+      ),
+    recurringInvoice: z
+      .object({ id: z.string().uuid(), name: z.string(), slug: z.string() })
+      .nullable()
+      .describe("The schedule named by recurringInvoiceId, or null."),
   })
   .openapi("FinanceInvoice");
+const invoiceListItem = invoiceResponse
+  .extend({
+    linesCount: z.number().int(),
+    paymentsCount: z.number().int(),
+  })
+  .openapi("FinanceInvoiceListItem");
 const estimateResponse = documentIdentity
   .extend({
     status: z.enum(["draft", "sent", "accepted", "declined", "void"]),
@@ -303,6 +320,39 @@ registry.registerPath({
       description: "Unknown action, or ids missing, malformed, or more than 500",
       content: { "application/json": { schema: errorResponse } },
     },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/invoices",
+  summary: "List invoices",
+  description:
+    "Requires Read Finance access. Newest first, without line items or payments; fetch one invoice by slug for those. Filter by status, customerId, or recurringInvoiceId for the invoices one recurring invoice schedule created. Archived invoices are left out unless archived=true, which includes them alongside the rest.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: {
+    params: companyParams,
+    query: z.object({
+      status: z.enum(["draft", "sent", "paid", "void"]).optional(),
+      customerId: z.string().uuid().optional(),
+      recurringInvoiceId: z
+        .string()
+        .uuid()
+        .optional()
+        .describe("Only the invoices this recurring invoice schedule created."),
+      archived: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("true includes archived invoices alongside the rest."),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Invoices, newest first",
+      content: { "application/json": { schema: z.array(invoiceListItem) } },
+    },
+    ...errors,
   },
 });
 

@@ -36,7 +36,7 @@ export function Finance() {
         <LI>
           <Strong>Recurring invoices</Strong> — invoice templates that fire on a repeating schedule
           (monthly retainers, annual licences). Each run materializes a fresh invoice into the
-          regular invoice list.
+          regular invoice list, and the schedule lists every invoice it has created.
         </LI>
         <LI>
           <Strong>Bills</Strong> — the AP mirror of invoices, for what your company owes vendors.
@@ -528,6 +528,45 @@ export function Finance() {
         on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
       </P>
 
+      <H3 id="recurring-invoices-created">The invoices a schedule created</H3>
+      <P>
+        Open a schedule to see every invoice it has created, from its scheduled runs and from{" "}
+        <Code>Run now</Code>, newest first. Each row shows the invoice number (or{" "}
+        <Code>DRAFT</Code>), its status, issue and due dates, total, and balance; click a row to
+        open the invoice. Drafts, paid, void, and{" "}
+        <DocLink to="/docs/finance#invoices-archive">archived</DocLink> invoices are all listed,
+        since this is the schedule&apos;s history rather than a worklist. The latest 10 show first,
+        and <Code>Show all</Code> lists the rest.
+      </P>
+      <P>
+        The <Strong>Invoices so far</Strong> card beside the schedule sums them up: how many it
+        created and how many are still drafts, what was invoiced (issued invoices, void ones left
+        out), what has been paid, what is still outstanding and how many invoices are overdue,
+        and a link to the latest invoice. A schedule whose currency was changed shows a total for
+        each currency rather than adding them together.
+      </P>
+      <P>
+        Each invoice links back as well. Under its number, an invoice a schedule created reads{" "}
+        <Code>Created by the recurring invoice</Code> followed by the schedule&apos;s name, which
+        opens it. In <Code>Finance → Invoices</Code> and on a customer&apos;s{" "}
+        <DocLink to="/docs/customers#overview">Billing tab</DocLink>, a small repeat mark beside
+        the number shows which invoices came from a schedule; in Invoices it opens that schedule.
+        Deleting a schedule keeps the invoices it created as ordinary invoices, no longer linked to
+        it; their History still records which schedule created them.
+      </P>
+      <P>
+        Invoices a schedule created before invoices recorded their schedule are linked wherever
+        Genosyn&apos;s records show which schedule created them: the schedule&apos;s run log, the
+        invoice&apos;s History, and the schedule&apos;s pointer to its latest invoice. One those
+        records don&apos;t cover stays unlinked rather than being guessed at, so the run count can
+        be higher than the list; the page then says how many invoices aren&apos;t listed and links
+        to the customer&apos;s Billing tab, which shows them all. Through the API, every invoice
+        carries{" "}
+        <Code>recurringInvoiceId</Code>, and{" "}
+        <Code>GET /api/companies/:cid/invoices?recurringInvoiceId=…&amp;archived=true</Code> lists
+        one schedule&apos;s invoices.
+      </P>
+
       <H3 id="recurring-from-document">From an invoice or estimate</H3>
       <P>
         To bill an existing invoice or estimate on a schedule, click <Code>Make recurring</Code> in
@@ -597,7 +636,10 @@ export function Finance() {
         <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
         tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>
         explicitly to issue and email every future invoice automatically. A schedule the employee
-        doesn&apos;t name is named after its customer, as in the form.
+        doesn&apos;t name is named after its customer, as in the form. To see what a schedule has
+        billed, the employee passes its slug to <Code>list_invoices</Code> as{" "}
+        <Code>recurringInvoiceSlug</Code>; every invoice that tool returns names the schedule that
+        created it, if any.
       </P>
 
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
