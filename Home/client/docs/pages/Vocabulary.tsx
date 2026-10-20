@@ -220,6 +220,17 @@ export function Vocabulary() {
             def: "A gate that blocks an action until a human ✓. Kinds include routine, browser_action, mcp_tool, and ad_spend.",
           },
           {
+            term: "Auditor",
+            def: (
+              <>
+                The AI Employee only owners and admins appoint to read each monthly letter to the
+                board against its figures before they do. Never the letter&apos;s writer, and no
+                AI Employee can appoint or replace it. Not the audit log, which records actions.
+                See <DocLink to="/docs/board-letters#auditor">Letters to the board</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Budget",
             def: (
               <>
@@ -277,6 +288,18 @@ export function Vocabulary() {
                 the Routine&apos;s future Run briefs until dismissed. Never &quot;Learning,&quot;
                 &quot;Insight,&quot; or &quot;Retro.&quot; See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Letter",
+            def: (
+              <>
+                The monthly letter to the board: the Goal first, then what happened, what went
+                wrong, and where the money went, with every number checked against figures read
+                from the books. A TLDR is the frequent recap; a letter is for the owners and
+                admins. Never &quot;report,&quot; &quot;digest,&quot; or &quot;newsletter.&quot;
+                See <DocLink to="/docs/board-letters">Letters to the board</DocLink>.
               </>
             ),
           },

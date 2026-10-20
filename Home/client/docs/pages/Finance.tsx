@@ -700,7 +700,9 @@ export function Finance() {
         from the same ledger calculation as the table beneath it: revenue, expenses, and net income
         for P&amp;L; assets, liabilities, and equity for the balance sheet; and operating, net, and
         closing cash for cash flow. Custom periods longer than two years graph the most recent 24
-        months so the axis stays readable.
+        months so the axis stays readable. A money figure in a{" "}
+        <DocLink to="/docs/board-letters">letter to the board</DocLink> links here, opening the
+        report and dates it was read from.
       </P>
 
       <H2 id="proposals">Proposals (maker-checker)</H2>

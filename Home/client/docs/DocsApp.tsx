@@ -32,6 +32,7 @@ import { AskAi } from "@/docs/pages/AskAi";
 import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
 import { PhoneNumbers } from "@/docs/pages/PhoneNumbers";
 import { Tldrs } from "@/docs/pages/Tldrs";
+import { BoardLetters } from "@/docs/pages/BoardLetters";
 import { Vault } from "@/docs/pages/Vault";
 import { VaultSources } from "@/docs/pages/VaultSources";
 import { Connect } from "@/docs/pages/Connect";
@@ -94,6 +95,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/chat-surfaces": ChatSurfaces,
   "/docs/phone-numbers": PhoneNumbers,
   "/docs/tldrs": Tldrs,
+  "/docs/board-letters": BoardLetters,
   "/docs/vault": Vault,
   "/docs/vault-sources": VaultSources,
   "/docs/connect": Connect,

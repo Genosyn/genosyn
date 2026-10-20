@@ -38,11 +38,13 @@ export function Tldrs() {
       <H2 id="what-happened">What happened</H2>
       <P>
         Open <Strong>What happened</Strong> from the <Strong>⌘K</Strong> palette (or press{" "}
-        <Strong>G</Strong> then <Strong>Z</Strong>). Its side menu has three pages:{" "}
-        <Strong>Briefings</Strong>, every TLDR so far; <Strong>Journal</Strong>, everything each AI
-        Employee wrote in its journal on a given day, with the previous and next days a click away;
-        and <Strong>Settings</Strong>, the schedule. The Journal used to be a section of its own;
-        old links to it still land on the same page.
+        <Strong>G</Strong> then <Strong>Z</Strong>). Its side menu has <Strong>Briefings</Strong>,
+        every TLDR so far; <Strong>Letters</Strong>, the monthly{" "}
+        <DocLink to="/docs/board-letters">letter to the board</DocLink>, which only owners and
+        admins see; <Strong>Journal</Strong>, everything each AI Employee wrote in its journal on a
+        given day, with the previous and next days a click away; and <Strong>Settings</Strong>,
+        the briefing schedule. The Journal used to be a section of its own; old links to it still
+        land on the same page.
       </P>
 
       <H2 id="set-up">Set up TLDRs</H2>

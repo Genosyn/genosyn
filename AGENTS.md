@@ -210,6 +210,8 @@ code, UI copy, commits, and docs.
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
+| **Letter** (the monthly letter to the board — `BoardLetter`; owners and admins read it) | Report, Digest, Newsletter, Recap (a TLDR is the recap) |
+| **Auditor** (the AI Employee owners and admins appoint to read each letter — `BoardLetterSettings.auditorEmployeeId`) | Reviewer, Checker (the outcome checker owns that), Verifier; never the audit log |
 | **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
@@ -465,6 +467,27 @@ work, never independent verification: status, outcome and Check badges retain
 their own meaning, and the Run log retains the transcript and Effects. Do not
 give the timeline an entity, add Journal entries to its sources, or route it
 through `GET /audit`.
+
+**A letter to the board has three authors, and only one of them is an AI
+Employee.** The server computes every figure (`services/boardLetterFigures.ts`)
+from rows the roster cannot narrate — the ledger through the same report
+functions as Finance → Reports, the Goals, Run statuses and verdicts, the
+Decision stack — and links each to where it can be seen. The writer, an AI
+Employee owners and admins choose, writes only the prose, in a restricted turn
+whose one tool submits it (`services/boardLetterWriting.ts`). The trace
+(`services/boardLetterTrace.ts`) then matches every number in the prose to a
+figure, as written or honestly rounded, and the auditor gives its opinion in
+another one-tool turn (`services/boardLetterAudit.ts`). Owners and admins
+appoint the auditor, it is never the writer, and an auditor that could not
+give an opinion leaves the letter `unverified`, never clean — the same rule as
+a Run's verdict. Keep it so: no MCP tool writes a letter, changes its figures,
+trace or audit, or appoints, replaces or instructs the auditor; no route edits
+or deletes a letter; and letters are announced to open pages with
+`trigger: false` rather than registered in the resource-change subscriber,
+because every registered kind is one a Routine Trigger can subscribe to. The
+board in Genosyn today is a company's owners and admins, who write its Goals
+and place its Standdowns; a letter is theirs, and Members never read one. There
+is no AI CEO yet: the writer is chosen, not seated.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
@@ -965,6 +988,10 @@ public site until it reaches `release`. See
   exists — an employee sees its Routine's Checks in its Run brief and can read
   a Run's report — but the write side belongs to a human at an admin-gated
   route, permanently.
+- Giving an AI Employee a tool that writes a letter to the board outside its
+  restricted turn, changes a letter's figures, trace or audit, or appoints,
+  replaces or instructs the board's auditor. An auditor the audited can appoint
+  is not an auditor. See §3.
 - Treating a null or `unverified` outcome verdict as a clean Run. See §3.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
