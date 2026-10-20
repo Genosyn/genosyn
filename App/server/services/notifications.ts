@@ -173,20 +173,29 @@ export async function createNotifications(
   return rows;
 }
 
+/** `kind` matching none of `excludeKinds`, or no condition when there are none. */
+function kindFilter(excludeKinds: readonly NotificationKind[] | undefined) {
+  return excludeKinds && excludeKinds.length > 0 ? { kind: Not(In([...excludeKinds])) } : {};
+}
+
 /**
  * Unread rows only, newest first — powers the Home page "needs your
- * attention" card without dragging in already-read history.
+ * attention" card without dragging in already-read history. `excludeKinds`
+ * leaves out rows the reader may no longer see, such as a letter to the board
+ * that reached them while they were an admin.
  */
 export async function listUnreadForUser(params: {
   companyId: string;
   userId: string;
   limit: number;
+  excludeKinds?: readonly NotificationKind[];
 }): Promise<NotificationDTO[]> {
   const rows = await repo().find({
     where: {
       companyId: params.companyId,
       userId: params.userId,
       readAt: IsNull(),
+      ...kindFilter(params.excludeKinds),
     },
     order: { createdAt: "DESC" },
     take: params.limit,
@@ -216,12 +225,14 @@ export async function listForUser(params: {
 export async function countUnreadForUser(params: {
   companyId: string;
   userId: string;
+  excludeKinds?: readonly NotificationKind[];
 }): Promise<number> {
   return repo().count({
     where: {
       companyId: params.companyId,
       userId: params.userId,
       readAt: IsNull(),
+      ...kindFilter(params.excludeKinds),
     },
   });
 }
@@ -267,17 +278,20 @@ export async function markAllRead(params: { companyId: string; userId: string })
 }
 
 /**
- * Mark every unread bell for one shared entity as read for every recipient.
+ * Mark every unread bell for one shared entity as read for every recipient,
+ * or for one recipient when `userId` is given.
  *
  * Resolving or snoozing a shared row changes it for the whole company, so a
  * stale bell must not keep telling another Member that the old state still
- * needs attention. Grouping the normal `notification.read` frame by recipient
- * keeps each connected badge in sync with the bulk update.
+ * needs attention. Reading a letter to the board is one person's, so it
+ * passes that person. Grouping the normal `notification.read` frame by
+ * recipient keeps each connected badge in sync with the bulk update.
  */
 export async function markEntityNotificationsRead(params: {
   companyId: string;
   entityKind: NotificationEntityKind;
   entityId: string;
+  userId?: string;
 }): Promise<void> {
   const unread = await repo().find({
     where: {
@@ -285,6 +299,7 @@ export async function markEntityNotificationsRead(params: {
       entityKind: params.entityKind,
       entityId: params.entityId,
       readAt: IsNull(),
+      ...(params.userId ? { userId: params.userId } : {}),
     },
     select: ["id", "userId"],
   });

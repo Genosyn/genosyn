@@ -13,6 +13,7 @@ import { createServer } from "vite";
 import { chromium, type Locator, type Page, type WebSocketRoute } from "playwright-core";
 import type {
   Approval,
+  BoardLetterSummary,
   Decision,
   Employee,
   EmployeeQueueItem,
@@ -269,6 +270,8 @@ function homeData(
     failedRunCount: 0,
     tldrs: [],
     unreadTldrCount: 0,
+    boardLetter: null,
+    unreadBoardLetterCount: 0,
     draftEmails: [],
     draftEmailCount: 0,
     draftEmailAccounts: [],
@@ -316,6 +319,36 @@ function timeline(employees: Employee[], query: URLSearchParams, working = false
           },
         ]
       : [],
+  };
+}
+function boardLetter(changes: Partial<BoardLetterSummary> = {}): BoardLetterSummary {
+  return {
+    id: "letter-3",
+    number: 3,
+    month: "2026-08",
+    monthLabel: "August 2026",
+    status: "ready",
+    auditStatus: "exceptions",
+    summary: "August closed with revenue up a quarter and the Goal at 6,200 roofs.",
+    untracedCount: 1,
+    findingsCount: 2,
+    writer: {
+      id: "employee-1",
+      name: "Jamie Mallers",
+      role: "CEO",
+      slug: "jamie",
+      avatarKey: null,
+    },
+    auditor: { id: "auditor", name: "Otto", role: "Auditor", slug: "otto", avatarKey: null },
+    triggerKind: "schedule",
+    attempts: 1,
+    retryAt: null,
+    errorMessage: "",
+    createdAt: "2026-09-01T06:00:00.000Z",
+    writtenAt: "2026-09-01T06:01:00.000Z",
+    auditedAt: "2026-09-01T06:02:00.000Z",
+    deliveredAt: "2026-09-01T06:02:00.000Z",
+    ...changes,
   };
 }
 function queueItem(changes: Partial<EmployeeQueueItem> = {}): EmployeeQueueItem {
@@ -372,6 +405,10 @@ type FixtureOptions = {
   live?: boolean;
   /** The Goals the company has written; the all-clear card shows the first active one. */
   goals?: Array<Record<string, unknown>>;
+  /** What Home's payload carries; the server sends one only to owners and admins. */
+  boardLetter?: BoardLetterSummary;
+  unreadBoardLetterCount?: number;
+  letterReadError?: boolean;
 };
 function fixtureGoal(values: Record<string, unknown> = {}) {
   return {
@@ -453,6 +490,8 @@ async function open(options: FixtureOptions = {}) {
     options.channels ?? (options.quiet ? [] : [channel("support", "Support", 2)])
   ).map((row) => ({ ...row }));
   let notifications = (options.notifications ?? []).map((row) => ({ ...row }));
+  let shownLetter = options.boardLetter ?? null;
+  let unreadBoardLetterCount = options.unreadBoardLetterCount ?? (shownLetter ? 1 : 0);
   let releaseWork: () => void = () => {};
   const workGate = new Promise<void>((resolve) => {
     releaseWork = resolve;
@@ -639,6 +678,20 @@ async function open(options: FixtureOptions = {}) {
     }
     if (
       request.method() === "POST" &&
+      shownLetter &&
+      url.pathname === `/api/companies/company/board-letters/${shownLetter.number}/read`
+    ) {
+      writes.push(`${request.method()} ${url.pathname}`);
+      mutations.push({ path: url.pathname, body: request.postDataJSON() });
+      if (options.letterReadError) {
+        return route.fulfill({ status: 503, json: { error: "Letters are unavailable." } });
+      }
+      shownLetter = null;
+      unreadBoardLetterCount = Math.max(0, unreadBoardLetterCount - 1);
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (
+      request.method() === "POST" &&
       url.pathname === "/api/companies/company/notifications/mark-all-read"
     ) {
       writes.push(`${request.method()} ${url.pathname}`);
@@ -691,6 +744,8 @@ async function open(options: FixtureOptions = {}) {
           pendingDecisionApprovalCount,
           failedRuns,
           failedRunCount: failedRuns.length,
+          boardLetter: shownLetter,
+          unreadBoardLetterCount,
         },
       });
     }
@@ -3184,6 +3239,106 @@ try {
       await page.close();
     },
   );
+  for (const [role, width, dark] of [
+    ["owner", 390, false],
+    ["admin", 1440, true],
+  ] as const) {
+    await check(`${role} finds the newest unread letter to the board on Home`, async () => {
+      const fixture = await open({
+        role,
+        width,
+        dark,
+        boardLetter: boardLetter(),
+        unreadBoardLetterCount: 2,
+      });
+      const letter = card(fixture.page, "Letter to the board");
+      await letter.waitFor();
+      for (const text of [
+        "No.",
+        "3",
+        "August 2026",
+        "Audited · 2 exceptions",
+        "1 number untraced",
+        "August closed with revenue up a quarter and the Goal at 6,200 roofs.",
+        "Jamie Mallers · audited by Otto",
+        "1 more unread letter",
+      ])
+        await letter.getByText(text, { exact: true }).first().waitFor();
+      assert.equal(
+        await letter
+          .getByRole("link", { name: "Read the letter", exact: true })
+          .getAttribute("href"),
+        "/c/company/tldrs/letters/3",
+      );
+      assert.equal(
+        await letter.getByRole("link", { name: "All letters", exact: true }).getAttribute("href"),
+        "/c/company/tldrs/letters",
+      );
+      await fits(fixture.page);
+      const bounds = await box(letter);
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "the card fits the viewport");
+      assert.deepEqual(fixture.writes, [], "showing a letter reads nothing");
+      await fixture.page.screenshot({
+        path: path.join(output, `home-board-letter-${role}.png`),
+        fullPage: true,
+      });
+      await fixture.page.close();
+    });
+  }
+
+  await check("Dismiss reads the letter once and Home refetches without it", async () => {
+    const fixture = await open({ role: "owner", boardLetter: boardLetter() });
+    const letter = card(fixture.page, "Letter to the board");
+    const refetched = fixture.page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/companies/company/home",
+    );
+    await letter.getByRole("button", { name: "Dismiss Letter No. 3", exact: true }).click();
+    await letter.waitFor({ state: "detached" });
+    await refetched;
+    assert.deepEqual(fixture.writes, ["POST /api/companies/company/board-letters/3/read"]);
+    assert.deepEqual(fixture.mutations, [
+      { path: "/api/companies/company/board-letters/3/read", body: {} },
+    ]);
+    assert.equal(await card(fixture.page, "Letter to the board").count(), 0);
+    await fixture.page.close();
+  });
+
+  await check("a failed Dismiss puts the letter back and says why in a dialog", async () => {
+    const fixture = await open({
+      role: "admin",
+      boardLetter: boardLetter(),
+      letterReadError: true,
+    });
+    const letter = card(fixture.page, "Letter to the board");
+    await letter.getByRole("button", { name: "Dismiss Letter No. 3", exact: true }).click();
+    const dialog = fixture.page.getByRole("dialog", {
+      name: "Couldn’t dismiss the letter",
+      exact: true,
+    });
+    await dialog.waitFor();
+    await dialog
+      .getByText("Letters are unavailable. It has been restored.", { exact: true })
+      .waitFor();
+    await card(fixture.page, "Letter to the board")
+      .getByText("August 2026", { exact: true })
+      .waitFor();
+    assert.deepEqual(fixture.writes, ["POST /api/companies/company/board-letters/3/read"]);
+    await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+    await dialog.waitFor({ state: "detached" });
+    await fixture.page.close();
+  });
+
+  await check("a Member is never shown a letter to the board", async () => {
+    const fixture = await open({ boardLetter: boardLetter() });
+    assert.equal(await card(fixture.page, "Letter to the board").count(), 0);
+    assert.equal(
+      await fixture.page.getByText("August closed with revenue", { exact: false }).count(),
+      0,
+    );
+    assert.deepEqual(fixture.writes, []);
+    await fixture.page.close();
+  });
+
   assert.deepEqual(browserErrors, [], "browser must have no uncaught errors or duplicate keys");
   assert.deepEqual(unexpectedRequests, [], "browser must only make expected fixture requests");
   console.log(`PASS ${checks} Home layout browser regressions`);

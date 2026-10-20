@@ -1,4 +1,4 @@
-import { type EntityManager, In, LessThan, LessThanOrEqual } from "typeorm";
+import { type EntityManager, type FindOptionsSelect, In, LessThan, LessThanOrEqual } from "typeorm";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -1191,40 +1191,43 @@ export function serializeBoardLetter(letter: BoardLetter): BoardLetterDTO {
   };
 }
 
+/** The columns {@link serializeBoardLetterSummary} reads: never the body, figures or evidence. */
+export const BOARD_LETTER_SUMMARY_SELECT: FindOptionsSelect<BoardLetter> = {
+  id: true,
+  companyId: true,
+  number: true,
+  month: true,
+  status: true,
+  auditStatus: true,
+  summary: true,
+  untracedCount: true,
+  auditFindingsJson: true,
+  writerEmployeeId: true,
+  writerName: true,
+  writerRole: true,
+  writerSlug: true,
+  writerAvatarKey: true,
+  auditorEmployeeId: true,
+  auditorName: true,
+  auditorRole: true,
+  auditorSlug: true,
+  auditorAvatarKey: true,
+  triggerKind: true,
+  attempts: true,
+  retryAt: true,
+  errorMessage: true,
+  createdAt: true,
+  writtenAt: true,
+  auditedAt: true,
+  deliveredAt: true,
+};
+
 /** Every letter the company has, newest first. One a month, so never many. */
 export async function listBoardLetters(companyId: string): Promise<BoardLetterSummaryDTO[]> {
   const letters = await AppDataSource.getRepository(BoardLetter).find({
     where: { companyId },
     order: { number: "DESC" },
-    select: {
-      id: true,
-      companyId: true,
-      number: true,
-      month: true,
-      status: true,
-      auditStatus: true,
-      summary: true,
-      untracedCount: true,
-      auditFindingsJson: true,
-      writerEmployeeId: true,
-      writerName: true,
-      writerRole: true,
-      writerSlug: true,
-      writerAvatarKey: true,
-      auditorEmployeeId: true,
-      auditorName: true,
-      auditorRole: true,
-      auditorSlug: true,
-      auditorAvatarKey: true,
-      triggerKind: true,
-      attempts: true,
-      retryAt: true,
-      errorMessage: true,
-      createdAt: true,
-      writtenAt: true,
-      auditedAt: true,
-      deliveredAt: true,
-    },
+    select: BOARD_LETTER_SUMMARY_SELECT,
   });
   return letters.map(serializeBoardLetterSummary);
 }

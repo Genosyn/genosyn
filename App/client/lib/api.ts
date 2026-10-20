@@ -4304,6 +4304,12 @@ export type HomeData = {
   /** The newest TLDRs this Member has not dismissed, newest first. */
   tldrs: TldrItem[];
   unreadTldrCount: number;
+  /**
+   * The newest letter to the board sent to this owner or admin that they have
+   * not read, and how many wait. Always null and 0 for a Member.
+   */
+  boardLetter: BoardLetterSummary | null;
+  unreadBoardLetterCount: number;
   systemHealth: SystemHealthSummary;
   counts: { employees: number; projects: number };
 };

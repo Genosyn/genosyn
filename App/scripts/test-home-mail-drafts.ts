@@ -89,6 +89,8 @@ function home(
     failedRunCount: 0,
     tldrs: [],
     unreadTldrCount: 0,
+    boardLetter: null,
+    unreadBoardLetterCount: 0,
     draftEmails: drafts,
     draftEmailCount: count,
     draftEmailAccounts: count ? [{ id: "support", email: "support@example.test", count }] : [],
