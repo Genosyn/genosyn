@@ -8,10 +8,14 @@ import {
   initialRecurringInvoiceName,
   newRecurringInvoicePath,
   RECURRING_INVOICE_CUSTOMER_PARAM,
+  recurringInvoiceFromDocumentPath,
   recurringInvoiceNameToSave,
+  recurringInvoicePrefill,
   requestedRecurringInvoiceCustomerId,
+  requestedRecurringInvoiceSource,
   typedRecurringInvoiceName,
   type RecurringInvoiceNameState,
+  type RecurringInvoiceSourceDocument,
 } from "./recurringInvoiceForm.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 
@@ -240,5 +244,142 @@ describe("links to the New recurring invoice form", () => {
     assert.equal(requestedRecurringInvoiceCustomerId(new URLSearchParams("customerId=%20")), null);
     assert.equal(requestedRecurringInvoiceCustomerId(new URLSearchParams("customerId=%20c-acme%20")), "c-acme");
     assert.equal(requestedRecurringInvoiceCustomerId(new URLSearchParams("customer=c-acme")), null);
+  });
+});
+
+describe("Make recurring on an invoice or estimate", () => {
+  const base = "/c/acme/finance";
+
+  test("links to the form with the document named, and the form reads it back", () => {
+    const fromInvoice = recurringInvoiceFromDocumentPath(base, {
+      kind: "invoice",
+      slug: "acme-corp-inv-0001",
+    });
+    assert.equal(fromInvoice, "/c/acme/finance/recurring-invoices/new?fromInvoice=acme-corp-inv-0001");
+    const fromEstimate = recurringInvoiceFromDocumentPath(base, { kind: "estimate", slug: "est 1&x" });
+    const params = new URL(fromEstimate, "https://genosyn.example").searchParams;
+    assert.deepEqual(requestedRecurringInvoiceSource(params), { kind: "estimate", slug: "est 1&x" });
+  });
+
+  test("asks for no document when none is named, and an invoice wins over an estimate", () => {
+    assert.equal(requestedRecurringInvoiceSource(new URLSearchParams()), null);
+    assert.equal(requestedRecurringInvoiceSource(new URLSearchParams("fromInvoice=%20")), null);
+    assert.deepEqual(
+      requestedRecurringInvoiceSource(new URLSearchParams("fromEstimate=e-1&fromInvoice=i-1")),
+      { kind: "invoice", slug: "i-1" },
+    );
+  });
+
+  const options = {
+    productIds: new Set(["p-retainer"]),
+    taxRateIds: new Set(["t-vat"]),
+    subsidiaryIds: new Set(["s-emea", "s-archived"]),
+  };
+  const invoice: RecurringInvoiceSourceDocument = {
+    customerId: "c-acme",
+    subsidiaryId: "s-emea",
+    currency: "EUR",
+    issueDate: "2026-10-01T00:00:00.000Z",
+    dueDate: "2026-10-31T00:00:00.000Z",
+    notes: "Thanks for your business.",
+    footer: "IBAN DE00 0000",
+    discountCents: 0,
+    lines: [
+      {
+        productId: null,
+        description: "Hosting",
+        quantity: 2,
+        unitPriceCents: 5_000,
+        taxRateId: "t-vat",
+        taxPercent: 19,
+        sortOrder: 1,
+      },
+      {
+        productId: "p-retainer",
+        description: "Monthly retainer",
+        quantity: 1,
+        unitPriceCents: 880_000,
+        taxRateId: null,
+        taxPercent: 0,
+        sortOrder: 0,
+      },
+    ],
+  };
+
+  test("copies the customer, issuer, currency, terms, notes, footer and lines in order", () => {
+    assert.deepEqual(recurringInvoicePrefill(invoice, options), {
+      customerId: "c-acme",
+      subsidiaryId: "s-emea",
+      currency: "EUR",
+      daysUntilDue: 30,
+      notes: "Thanks for your business.",
+      footer: "IBAN DE00 0000",
+      lines: [
+        {
+          productId: "p-retainer",
+          description: "Monthly retainer",
+          quantity: 1,
+          unitPriceCents: 880_000,
+          taxRateId: null,
+        },
+        {
+          productId: null,
+          description: "Hosting",
+          quantity: 2,
+          unitPriceCents: 5_000,
+          taxRateId: "t-vat",
+        },
+      ],
+      droppedDiscountCents: 0,
+      untaxedLines: 0,
+    });
+  });
+
+  test("an estimate has no due date, so the form keeps its own payment terms", () => {
+    const { dueDate: _dueDate, ...estimate } = invoice;
+    assert.equal(recurringInvoicePrefill(estimate, options).daysUntilDue, null);
+  });
+
+  test("payment terms stay within the 0–365 days the form accepts", () => {
+    const long = { ...invoice, dueDate: "2028-10-01T00:00:00.000Z" };
+    assert.equal(recurringInvoicePrefill(long, options).daysUntilDue, 365);
+    const backwards = { ...invoice, dueDate: "2026-09-01T00:00:00.000Z" };
+    assert.equal(recurringInvoicePrefill(backwards, options).daysUntilDue, 0);
+  });
+
+  test("cuts loose a product or tax rate the form no longer offers, and counts lines left untaxed", () => {
+    const prefill = recurringInvoicePrefill(invoice, {
+      ...options,
+      productIds: new Set(),
+      taxRateIds: new Set(),
+    });
+    assert.deepEqual(
+      prefill.lines.map((line) => [line.description, line.productId, line.taxRateId]),
+      [
+        ["Monthly retainer", null, null],
+        ["Hosting", null, null],
+      ],
+    );
+    // Only the taxed line lost anything: the retainer was never taxed.
+    assert.equal(prefill.untaxedLines, 1);
+  });
+
+  test("keeps an archived issuer for the form to flag, but not one that is gone", () => {
+    assert.equal(
+      recurringInvoicePrefill({ ...invoice, subsidiaryId: "s-archived" }, options).subsidiaryId,
+      "s-archived",
+    );
+    assert.equal(
+      recurringInvoicePrefill({ ...invoice, subsidiaryId: "s-deleted" }, options).subsidiaryId,
+      "",
+    );
+    assert.equal(recurringInvoicePrefill({ ...invoice, subsidiaryId: null }, options).subsidiaryId, "");
+  });
+
+  test("reports a discount the schedule cannot carry", () => {
+    assert.equal(
+      recurringInvoicePrefill({ ...invoice, discountCents: 88_000 }, options).droppedDiscountCents,
+      88_000,
+    );
   });
 });

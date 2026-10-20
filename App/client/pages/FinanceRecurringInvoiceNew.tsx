@@ -6,7 +6,9 @@ import {
   financeSubsidiaries,
   Subsidiary,
   Customer,
+  Estimate,
   formatMoney,
+  Invoice,
   parseMoneyToCents,
   Product,
   RecurringInvoice,
@@ -34,9 +36,14 @@ import {
   initialRecurringInvoiceCustomer,
   initialRecurringInvoiceName,
   recurringInvoiceNameToSave,
+  recurringInvoicePrefill,
   requestedRecurringInvoiceCustomerId,
+  requestedRecurringInvoiceSource,
   typedRecurringInvoiceName,
   type RecurringInvoiceNameState,
+  type RecurringInvoiceSourceDocument,
+  type RecurringInvoiceSourceKind,
+  type RecurringInvoiceSourceRef,
 } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import {
@@ -97,6 +104,34 @@ function lineRowFromExisting(l: {
 const scheduleField =
   "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/25";
 
+/** The invoice or estimate a new schedule was copied from, as the form describes it. */
+type SourceSummary = {
+  kind: RecurringInvoiceSourceKind;
+  /** Empty for a draft, which has no number yet. */
+  number: string;
+  path: string;
+  currency: string;
+  droppedDiscountCents: number;
+  untaxedLines: number;
+};
+
+function sourceDocumentPath(financeBase: string, source: RecurringInvoiceSourceRef): string {
+  return `${financeBase}/${source.kind === "invoice" ? "invoices" : "estimates"}/${source.slug}`;
+}
+
+async function loadSourceDocument(
+  companyId: string,
+  source: RecurringInvoiceSourceRef,
+): Promise<{ document: RecurringInvoiceSourceDocument; number: string }> {
+  const slug = encodeURIComponent(source.slug);
+  if (source.kind === "invoice") {
+    const invoice = await api.get<Invoice>(`/api/companies/${companyId}/invoices/${slug}`);
+    return { document: invoice, number: invoice.number };
+  }
+  const estimate = await api.get<Estimate>(`/api/companies/${companyId}/estimates/${slug}`);
+  return { document: estimate, number: estimate.number };
+}
+
 /**
  * `recurring-invoices/new` and `recurring-invoices/:recurringSlug/edit`.
  * Saving either needs Full finance access, so a read-only Member who lands
@@ -125,6 +160,8 @@ export default function FinanceRecurringInvoiceNew() {
  * A new schedule is named after its customer until the person types a name
  * of their own (`lib/recurringInvoiceForm.ts`). `?customerId=` picks the
  * customer it starts with, which is how a customer's Billing tab opens it.
+ * `?fromInvoice=` / `?fromEstimate=` start it as a copy of that document —
+ * Make recurring on an invoice or estimate — leaving only the schedule to pick.
  */
 function RecurringInvoiceForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -133,6 +170,18 @@ function RecurringInvoiceForm() {
   const isEdit = Boolean(recurringSlug);
   const [searchParams] = useSearchParams();
   const requestedCustomerId = isEdit ? null : requestedRecurringInvoiceCustomerId(searchParams);
+  const sourceRef = isEdit ? null : requestedRecurringInvoiceSource(searchParams);
+  const sourceKind = sourceRef?.kind ?? null;
+  const sourceSlug = sourceRef?.slug ?? null;
+  const financeBase = `/c/${company.slug}/finance`;
+  // Cancel returns to where the person came from: the schedule being edited,
+  // the document being copied, or the list.
+  const backPath =
+    isEdit && recurringSlug
+      ? `${financeBase}/recurring-invoices/${recurringSlug}`
+      : sourceRef
+        ? sourceDocumentPath(financeBase, sourceRef)
+        : `${financeBase}/recurring-invoices`;
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -157,6 +206,7 @@ function RecurringInvoiceForm() {
   const [maxRunsText, setMaxRunsText] = React.useState("");
   const [endsOn, setEndsOn] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
+  const [source, setSource] = React.useState<SourceSummary | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -197,13 +247,44 @@ function RecurringInvoiceForm() {
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
         } else {
-          const initial = initialRecurringInvoiceCustomer(c, requestedCustomerId);
+          const ref = sourceKind && sourceSlug ? { kind: sourceKind, slug: sourceSlug } : null;
+          const loaded = ref ? await loadSourceDocument(company.id, ref) : null;
+          const prefill = loaded
+            ? recurringInvoicePrefill(loaded.document, {
+                productIds: new Set(p.map((product) => product.id)),
+                taxRateIds: new Set(t.map((rate) => rate.id)),
+                subsidiaryIds: new Set(subsidiaries.map((subsidiary) => subsidiary.id)),
+              })
+            : null;
+          // A copied document's customer is asked for like a `?customerId=`
+          // one: if it is archived, the form starts with nobody rather than
+          // billing whoever is first in the list.
+          const initial = initialRecurringInvoiceCustomer(
+            c,
+            prefill?.customerId ?? requestedCustomerId,
+          );
           setRequestedCustomerUnavailable(initial.requestedUnavailable);
           if (initial.customer) {
             setCustomerId(initial.customer.id);
             setCurrency(initial.customer.currency || "USD");
           }
           setName(initialRecurringInvoiceName(initial.customer));
+          if (ref && loaded && prefill) {
+            setSubsidiaryId(prefill.subsidiaryId);
+            setCurrency(prefill.currency);
+            if (prefill.daysUntilDue !== null) setDaysUntilDue(prefill.daysUntilDue);
+            setNotes(prefill.notes);
+            setFooter(prefill.footer);
+            if (prefill.lines.length > 0) setLines(prefill.lines.map(lineRowFromExisting));
+            setSource({
+              kind: ref.kind,
+              number: loaded.number,
+              path: sourceDocumentPath(`/c/${company.slug}/finance`, ref),
+              currency: prefill.currency,
+              droppedDiscountCents: prefill.droppedDiscountCents,
+              untaxedLines: prefill.untaxedLines,
+            });
+          }
         }
         setReady(true);
       } catch (err) {
@@ -211,7 +292,7 @@ function RecurringInvoiceForm() {
         setReady(true);
       }
     })();
-  }, [company.id, recurringSlug, isEdit, requestedCustomerId]);
+  }, [company.id, company.slug, recurringSlug, isEdit, requestedCustomerId, sourceKind, sourceSlug]);
 
   function changeCustomer(id: string) {
     setCustomerId(id);
@@ -367,13 +448,7 @@ function RecurringInvoiceForm() {
           {loadError}
         </div>
         <div className="mt-4">
-          <Link
-            to={
-              recurringSlug
-                ? `/c/${company.slug}/finance/recurring-invoices/${recurringSlug}`
-                : `/c/${company.slug}/finance/recurring-invoices`
-            }
-          >
+          <Link to={backPath}>
             <Button variant="secondary">Back</Button>
           </Link>
         </div>
@@ -429,11 +504,7 @@ function RecurringInvoiceForm() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            to={
-              isEdit && recurringSlug
-                ? `/c/${company.slug}/finance/recurring-invoices/${recurringSlug}`
-                : `/c/${company.slug}/finance/recurring-invoices`
-            }
+            to={backPath}
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
@@ -443,13 +514,7 @@ function RecurringInvoiceForm() {
           </h1>
         </div>
         <div className="flex gap-2">
-          <Link
-            to={
-              isEdit && recurringSlug
-                ? `/c/${company.slug}/finance/recurring-invoices/${recurringSlug}`
-                : `/c/${company.slug}/finance/recurring-invoices`
-            }
-          >
+          <Link to={backPath}>
             <Button type="button" variant="secondary" disabled={busy}>
               Cancel
             </Button>
@@ -461,6 +526,8 @@ function RecurringInvoiceForm() {
       </div>
 
       <FormError message={error} className="mb-4" />
+
+      {source && <SourceNote source={source} />}
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-6 max-w-xl">
@@ -820,5 +887,44 @@ function RecurringInvoiceForm() {
         </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * Which invoice or estimate this schedule copies, and what of it could not
+ * come along: a discount, which a schedule has no field for, or a tax rate
+ * deleted since the document was written.
+ */
+function SourceNote({ source }: { source: SourceSummary }) {
+  const noun = source.kind;
+  const link = (
+    <Link
+      to={source.path}
+      className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      {source.number || `this draft ${noun}`}
+    </Link>
+  );
+  return (
+    <div className="mb-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
+      <p>
+        Copied from {source.number ? <>{noun} {link}</> : link}. Choose how often to bill it
+        below; the {noun} itself stays as it is.
+      </p>
+      {source.droppedDiscountCents > 0 && (
+        <p className="text-amber-700 dark:text-amber-300">
+          The {noun} takes a {formatMoney(source.droppedDiscountCents, source.currency)} discount.
+          A recurring invoice can&apos;t carry one, so each invoice it creates bills the full line
+          prices. Adjust them below if the discount should continue.
+        </p>
+      )}
+      {source.untaxedLines > 0 && (
+        <p className="text-amber-700 dark:text-amber-300">
+          {source.untaxedLines === 1 ? "One line" : `${source.untaxedLines} lines`} on the {noun}{" "}
+          used a tax rate that has since been deleted, so{" "}
+          {source.untaxedLines === 1 ? "it starts" : "they start"} untaxed here.
+        </p>
+      )}
+    </div>
   );
 }

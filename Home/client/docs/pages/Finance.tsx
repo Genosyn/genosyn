@@ -172,7 +172,10 @@ export function Finance() {
         immediately issues it — which mints the next invoice number and posts the journal entry (
         <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>) into the ledger. The
         original estimate stays in the system with its <Code>invoiceId</Code> set, so you can always
-        trace which quote produced which sale.
+        trace which quote produced which sale. For work billed again and again, such as a monthly
+        retainer, click <Code>Make recurring</Code> instead to start a recurring invoice from the
+        estimate — see{" "}
+        <DocLink to="/docs/finance#recurring-from-document">From an invoice or estimate</DocLink>.
       </P>
 
       <H3 id="estimates-duplicate">Duplicate</H3>
@@ -275,7 +278,9 @@ export function Finance() {
         draft. Lines, customer, currency, notes, and footer come along; payments and status
         timestamps do not. The new draft picks up
         <em> today</em> as its issue date and a fourteen-day default due date, and stays unnumbered
-        until you issue it.
+        until you issue it. To bill the same invoice on a schedule instead, use{" "}
+        <Code>Make recurring</Code> — see{" "}
+        <DocLink to="/docs/finance#recurring-from-document">From an invoice or estimate</DocLink>.
       </P>
 
       <H3 id="invoices-paid-confirmation">Paid confirmation</H3>
@@ -467,6 +472,22 @@ export function Finance() {
         The list shows what each schedule bills per run, tax included, with its currency, and
         whether each run creates a draft or issues and emails the invoice. The same schedules appear
         on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
+      </P>
+
+      <H3 id="recurring-from-document">From an invoice or estimate</H3>
+      <P>
+        To bill an existing invoice or estimate on a schedule, click <Code>Make recurring</Code> in
+        its row menu or in the <Code>More actions</Code> menu on its page. The New recurring invoice
+        form opens filled in from it: the customer, issuer, currency, line items, notes and footer,
+        and, from an invoice, its payment terms as <Strong>Days until due</Strong>. Choose how often
+        to bill and click <Code>Create schedule</Code>. The invoice or estimate itself doesn&apos;t
+        change, and nothing is billed until the schedule&apos;s first run.
+      </P>
+      <P>
+        A schedule has no discount. When the document has one, the form says so, and each invoice
+        the schedule creates bills the full line prices unless you adjust them. A line whose tax rate
+        has since been deleted starts untaxed, and the form says that too. If the document&apos;s
+        customer has been archived, the form asks you to choose one rather than billing someone else.
       </P>
 
       <H3 id="recurring-names">Naming a schedule</H3>

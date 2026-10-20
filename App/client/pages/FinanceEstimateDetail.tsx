@@ -12,6 +12,7 @@ import {
   Mail,
   MoreHorizontal,
   Pencil,
+  Repeat,
   Send,
   Trash2,
   XCircle,
@@ -30,6 +31,7 @@ import {
   Invoice,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -514,6 +516,19 @@ export default function FinanceEstimateDetail() {
                     onSelect={() => {
                       close();
                       duplicate();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Repeat size={14} />}
+                    label="Make recurring"
+                    onSelect={() => {
+                      close();
+                      navigate(
+                        recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                          kind: "estimate",
+                          slug: estimate.slug,
+                        }),
+                      );
                     }}
                   />
                   <MenuItem

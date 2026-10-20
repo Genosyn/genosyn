@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Ban, Copy, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Ban, Copy, MoreHorizontal, Plus, Repeat, Trash2 } from "lucide-react";
 import {
   api,
   displayInvoiceStatus,
@@ -10,6 +10,7 @@ import {
   InvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -300,6 +301,14 @@ export default function FinanceInvoices() {
                           invoice={inv}
                           onDelete={() => deleteDraft(inv)}
                           onDuplicate={() => duplicate(inv)}
+                          onMakeRecurring={() =>
+                            navigate(
+                              recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                                kind: "invoice",
+                                slug: inv.slug,
+                              }),
+                            )
+                          }
                           onVoid={() => voidInvoice(inv)}
                         />
                       </td>
@@ -319,11 +328,13 @@ function RowMenu({
   invoice,
   onDelete,
   onDuplicate,
+  onMakeRecurring,
   onVoid,
 }: {
   invoice: InvoiceListItem;
   onDelete: () => void;
   onDuplicate: () => void;
+  onMakeRecurring: () => void;
   onVoid: () => void;
 }) {
   const isDraft = invoice.status === "draft";
@@ -353,6 +364,14 @@ function RowMenu({
             onSelect={() => {
               close();
               onDuplicate();
+            }}
+          />
+          <MenuItem
+            icon={<Repeat size={14} />}
+            label="Make recurring"
+            onSelect={() => {
+              close();
+              onMakeRecurring();
             }}
           />
           {canVoid && (

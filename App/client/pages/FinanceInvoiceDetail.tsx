@@ -11,6 +11,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Repeat,
   Send,
   Trash2,
   Undo2,
@@ -29,6 +30,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -527,6 +529,19 @@ export default function FinanceInvoiceDetail() {
                     onSelect={() => {
                       close();
                       duplicate();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Repeat size={14} />}
+                    label="Make recurring"
+                    onSelect={() => {
+                      close();
+                      navigate(
+                        recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                          kind: "invoice",
+                          slug: invoice.slug,
+                        }),
+                      );
                     }}
                   />
                   {invoice.status !== "void" && invoice.status !== "draft" && (

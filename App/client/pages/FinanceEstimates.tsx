@@ -1,6 +1,16 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Archive, ArchiveRestore, Ban, Copy, MoreHorizontal, Plus, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Ban,
+  Copy,
+  MoreHorizontal,
+  Plus,
+  Repeat,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   api,
   DisplayEstimateStatus,
@@ -12,6 +22,7 @@ import {
   formatMoney,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -487,6 +498,14 @@ export default function FinanceEstimates() {
                           estimate={est}
                           onDelete={() => deleteDraft(est)}
                           onDuplicate={() => duplicate(est)}
+                          onMakeRecurring={() =>
+                            navigate(
+                              recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                                kind: "estimate",
+                                slug: est.slug,
+                              }),
+                            )
+                          }
                           onVoid={() => voidEstimate(est)}
                           onArchive={() => archiveOne(est, est.archivedAt ? "restore" : "archive")}
                         />
@@ -595,12 +614,14 @@ function RowMenu({
   estimate,
   onDelete,
   onDuplicate,
+  onMakeRecurring,
   onVoid,
   onArchive,
 }: {
   estimate: EstimateListItem;
   onDelete: () => void;
   onDuplicate: () => void;
+  onMakeRecurring: () => void;
   onVoid: () => void;
   onArchive: () => void;
 }) {
@@ -631,6 +652,14 @@ function RowMenu({
             onSelect={() => {
               close();
               onDuplicate();
+            }}
+          />
+          <MenuItem
+            icon={<Repeat size={14} />}
+            label="Make recurring"
+            onSelect={() => {
+              close();
+              onMakeRecurring();
             }}
           />
           <MenuItem
