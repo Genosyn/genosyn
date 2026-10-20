@@ -179,9 +179,9 @@ export default function FinancePeriods() {
         Periods & exports
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Define your fiscal periods and close them at month/quarter end. Closed periods are locked —
-        no entry can post inside them until you re-open. CSV exports below are what most external
-        accountants ask for.
+        Close a month or quarter once its books are final: nothing can be posted into a closed
+        period until someone reopens it. The CSV exports below are what most outside accountants
+        ask for.
       </p>
 
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

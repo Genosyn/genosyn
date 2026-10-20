@@ -56,6 +56,7 @@ import { WordDocuments } from "@/docs/pages/WordDocuments";
 import { ExcelWorkbooks } from "@/docs/pages/ExcelWorkbooks";
 import { Signatures } from "@/docs/pages/Signatures";
 import { Finance } from "@/docs/pages/Finance";
+import { Banking } from "@/docs/pages/Banking";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
 import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
@@ -119,6 +120,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/excel-workbooks": ExcelWorkbooks,
   "/docs/signatures": Signatures,
   "/docs/finance": Finance,
+  "/docs/banking": Banking,
   "/docs/self-hosting": SelfHosting,
   "/docs/cli": Cli,
   "/docs/kubernetes": Kubernetes,

@@ -92,9 +92,9 @@ export function matchLabelText(label: string, q: string): TextMatch | null {
 
 /**
  * A skip-match that must start where a word starts: "rcrng" reaches
- * "Recurring invoices", but "inv" doesn't reach "Transaction review" by
- * collecting an i, an n, and a v from three different words. Over a long list
- * of multi-word labels the unanchored version matches nearly anything.
+ * "Recurring invoices", but "inv" doesn't reach a label just by collecting an
+ * i, an n, and a v from three different words. Over a long list of
+ * multi-word labels the unanchored version matches nearly anything.
  */
 export function isWordAnchoredSubsequence(hay: string, needle: string): boolean {
   if (!needle) return true;

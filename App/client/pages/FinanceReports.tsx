@@ -152,8 +152,9 @@ export default function FinanceReports() {
         />
       </div>
       <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Reports</h1>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Pulled live from the general ledger. Click any line to drill through to its source entries.
+      <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+        Profit and loss, balance sheet, and cash flow, straight from your books. Click any line to
+        see the entries behind it.
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">

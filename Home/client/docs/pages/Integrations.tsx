@@ -402,15 +402,15 @@ export function Integrations() {
       <P>
         The Connection contributes read-only cash-account, Cash transaction, and card transaction
         tools to employees who receive a Grant. To bring Cash transactions into the books, open{" "}
-        <DocLink to="/docs/finance">Finance → Reconciliation</DocLink>, create a{" "}
-        <Code>Brex Cash</Code> feed, choose the Connection and Cash account, then click{" "}
-        <Code>Sync</Code>.
+        <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
+        <Code>Add account</Code>, choose <Code>Brex business account</Code>, pick the Connection
+        and Cash account, then click <Code>Update now</Code>.
       </P>
       <P>
-        For corporate card accounting, open <Code>Finance → Card expenses</Code>
-        and map the Brex Connection to a card liability, default expense category, and payment
-        account. Brex exposes only settled transactions: pending card activity appears after it
-        settles.
+        For corporate card accounting, add a <Code>Brex card</Code> the same way. Its purchases are
+        filed under a default expense category you can change per purchase, and{" "}
+        <Code>Advanced</Code> sets the card liability and the bank account that pays the card. Brex
+        exposes only settled transactions: pending card activity appears after it settles.
       </P>
 
       <H3 id="stripe-reads">Stripe reads and coverage</H3>

@@ -117,9 +117,9 @@ export default function FinanceTrialBalance() {
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
             Trial balance
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Snapshot of every account&apos;s debit and credit totals.
-            Debits should equal credits.
+          <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+            Every account&apos;s total on a date, the check an accountant runs before closing the
+            books: the debit and credit columns should add up to the same amount.
           </p>
         </div>
         <div className="w-44">

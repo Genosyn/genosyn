@@ -52,10 +52,20 @@ export function Finance() {
           Click a product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
         </LI>
         <LI>
-          <Strong>Ledger</Strong> — chart of accounts, journal entries, trial balance, P&amp;L /
-          balance sheet / cash flow reports, bank-feed reconciliation, and accounting periods.
+          <Strong>Banking</Strong> — your bank accounts and cards with every transaction on them:
+          mark an invoice paid from a deposit, match what is already in the books, or give a
+          transaction a category. See <DocLink to="/docs/banking">Banking</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Accounting</Strong> — P&amp;L / balance sheet / cash flow reports, the chart of
+          accounts, journal entries, entry review, trial balance, and accounting periods.
         </LI>
       </UL>
+      <P>
+        The Finance sidebar follows the same split: <Code>Overview</Code> and{" "}
+        <Code>Banking</Code> at the top, then <Code>Sales</Code>, <Code>Purchases</Code>,{" "}
+        <Code>Accounting</Code>, and <Code>Catalog</Code>.
+      </P>
 
       <H2 id="subsidiaries">Invoice from different legal entities</H2>
       <P>
@@ -624,42 +634,18 @@ export function Finance() {
         out unless asked to include them.
       </P>
 
-      <H2 id="reconciliation">Bank reconciliation</H2>
+      <H2 id="banking">Banking</H2>
       <P>
-        Open <Code>Finance → Reconciliation</Code> to match external bank lines to the payments and
-        journal entries already recorded in Genosyn. CSV upload works with any bank; Stripe payout
-        and Brex Cash feeds can pull directly from an encrypted Connection under{" "}
-        <DocLink to="/docs/integrations">Finance → Integrations</DocLink>.
-      </P>
-      <P>
-        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded{" "}
-        <Strong>invoice payments</Strong> (the money-in side), and any posted{" "}
-        <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
-        payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
-        money-out side that payment matching alone used to miss. Entries already matched to another
-        line, and the categorization entries described below, are never offered twice, and a payment
-        matched to one bank line can&apos;t be matched to a second one — unmatch the first line to
-        move it.
-      </P>
-      <P>
-        A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a
-        cash sale — can be <Strong>categorized</Strong> straight into the books. Expand the line and
-        pick a category account under <Code>Or post it straight to a category</Code>: Genosyn posts
-        a balanced journal entry (money in debits the bank account and credits the category; money
-        out reverses) and marks the line reconciled. Unmatching a categorized line reverses that
-        entry, so the books always follow what you see on the feed. (Bank categorization is
-        home-currency in this release.)
-      </P>
-      <P>
-        For Brex, create a <Code>Brex</Code> Connection using a read-only user token, then click{" "}
-        <Code>New feed</Code>, choose <Code>Brex Cash</Code>, select the Connection and Cash
-        account, and map it to the corresponding asset account in the chart of accounts.{" "}
-        <Code>Sync</Code> walks the settled transaction history on the first pull and fetches only
-        recent changes after that. Repeated syncs are safe because Genosyn deduplicates rows by Brex
-        transaction id.
+        Bank accounts, cards, and Stripe payouts live under <Code>Finance → Banking</Code>, with
+        every transaction on them in one list. Mark which invoice a deposit paid — Genosyn records
+        the payment on the invoice and matches the two in one step — match a transaction to a
+        payment or entry already in the books, or give it a category. Card purchases are filed
+        under their card&apos;s default category as they arrive and can be changed in place.
+        Banking replaced the separate Reconciliation and Card expenses pages; their old links open
+        it. <DocLink to="/docs/banking">Banking</DocLink> covers it step by step.
       </P>
 
-      <H3 id="vendor-credits">Vendor credits</H3>
+      <H2 id="vendor-credits">Vendor credits</H2>
       <P>
         The AP mirror of credit notes. When a supplier credits you — a return, a billing correction
         — open the bill and click <Code>Vendor credit</Code>. Issuing posts{" "}
@@ -672,29 +658,19 @@ export function Finance() {
         unapply, void and reverse work exactly like the customer side.
       </P>
 
-      <H2 id="card-expenses">Corporate card expenses</H2>
+      <H2 id="ledger">Accounting: the chart of accounts, journal, and reports</H2>
       <P>
-        Open <Code>Finance → Card expenses</Code> to connect the primary Brex corporate card
-        account. Choose the <Code>2300 Corporate Card Payable</Code> liability, a default expense
-        category, and the bank asset used to pay the statement. The Brex user token needs{" "}
-        <Code>transactions.card.readonly</Code>.
-      </P>
-      <P>
-        Sync imports the complete settled card history and posts balanced entries automatically:
-        purchases debit the expense category and credit the card liability; refunds reverse those
-        legs; statement payments debit the liability and credit the selected bank account. Changing
-        a purchase category writes a separate reclassification entry, preserving the audit trail.
-        Failed postings remain visible with a retry action.
-      </P>
-
-      <H2 id="ledger">Ledger and reports</H2>
-      <P>
-        Every state change on an invoice or bill emits a journal entry into the same ledger you can
-        write to by hand from <Code>Finance → Journal entries</Code>. The chart of accounts seeds
-        sensible defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable,
-        2300 Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can
-        rename, reparent, or add accounts freely as long as you don&apos;t touch the system codes
-        the auto-posting depends on. From there, the <Code>Trial balance</Code> and{" "}
+        Every state change on an invoice or bill, and every bank or card transaction you explain on
+        Banking, emits a journal entry into the same ledger you can write to by hand from{" "}
+        <Code>Finance → Journal entries</Code>. Each entry is labeled with what posted it — an
+        invoice, a payment, a bill payment, a card expense, a categorized bank transaction — and
+        only an entry someone posted by hand can be deleted, until it is approved. The{" "}
+        <Code>Chart of accounts</Code> is the list of categories everything is filed under, grouped
+        as assets, liabilities, equity, income, and expenses, each with a line on what it holds. It
+        seeds sensible defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax
+        Payable, 2300 Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), and
+        you can rename or add accounts freely; the system accounts invoices, bills, and banking
+        rely on can be renamed but not removed. From there, the <Code>Trial balance</Code> and{" "}
         <Code>Reports</Code> pages produce the standard accountant outputs (P&amp;L, balance sheet,
         cash flow) with optional period comparisons. Each report opens with a monthly graph built
         from the same ledger calculation as the table beneath it: revenue, expenses, and net income
@@ -705,7 +681,7 @@ export function Finance() {
         report and dates it was read from.
       </P>
 
-      <H2 id="proposals">Proposals (maker-checker)</H2>
+      <H2 id="proposals">Proposed entries (maker-checker)</H2>
       <P>
         A journal entry can be <Strong>staged for review</Strong> instead of posted straight away —
         the classic accounting maker-checker control, where one person drafts an entry and another
@@ -715,7 +691,7 @@ export function Finance() {
         yet.
       </P>
       <P>
-        Staged entries collect under <Code>Finance → Proposals</Code>. Expand one to see its full
+        Staged entries collect under <Code>Finance → Proposed entries</Code>. Expand one to see its full
         debits and credits, then <Code>Apply</Code> to post it — it becomes an ordinary manual
         journal entry, tagged as one that went through review — or <Code>Reject</Code> it with an
         optional note back to the proposer. Applying re-checks everything a direct posting would
@@ -730,15 +706,17 @@ export function Finance() {
         log with who decided and when.
       </P>
 
-      <H2 id="transaction-review">Review and approve transactions</H2>
+      <H2 id="transaction-review">Entry review</H2>
       <P>
-        Open <Code>Finance → Transactions</Code>. Every posted journal entry — whether it came from
-        an invoice, bill, card purchase, or a manual posting — starts under{" "}
-        <Strong>Needs review</Strong>. Open a row to inspect its complete debits and credits.
-        Expense and revenue lines have an account-category picker; control accounts such as Bank,
-        Accounts Receivable, and Card Payable stay visible but cannot be casually recategorized.
-        Owners and admins click <Code>Approve transaction</Code>
-        for final sign-off.
+        Open <Code>Finance → Entry review</Code> to sign off on what reaches your books. Every
+        posted journal entry — whether it came from an invoice, a bill, a payment, a bank or card
+        transaction explained on <DocLink to="/docs/banking">Banking</DocLink>, or a manual
+        posting — starts under <Strong>Needs review</Strong>, showing what posted it and the
+        categories it was filed under. Open a row to see each line with its debits and credits.
+        Income and expense lines have a category picker; control accounts such as Bank, Accounts
+        Receivable, and Card Payable stay visible but cannot be casually recategorized. Owners and
+        admins click <Code>Approve</Code> for final sign-off. Entry review is optional: nothing on
+        Banking waits for it.
       </P>
       <P>
         Category corrections are append-only. Approval writes a balanced reclassification entry and
@@ -746,12 +724,12 @@ export function Finance() {
         decision. Nothing edits a posted ledger line in place.
       </P>
       <P>
-        When several transactions call for the same decision, tick the checkbox on each row (or the
+        When several entries call for the same decision, tick the checkbox on each row (or the
         header checkbox to take the whole list) and a selection bar appears with bulk{" "}
         <Code>Approve</Code>, <Code>Return</Code>, <Code>Change category</Code>, and{" "}
-        <Code>Delete</Code>. <Strong>Change category</Strong> moves each transaction&apos;s single
-        expense or revenue line to one category and approves it in the same step. Bulk delete only
-        removes unapproved manual drafts. Every action runs per-transaction: rows that don&apos;t
+        <Code>Delete</Code>. <Strong>Change category</Strong> moves each entry&apos;s single
+        income or expense line to one category and approves it in the same step. Bulk delete only
+        removes unapproved entries someone posted by hand. Every action runs per entry: rows that don&apos;t
         qualify — already approved, auto-posted, or the wrong shape for a shared category — are
         skipped and reported back, never silently changed. Approve, Return, and Change category stay
         limited to owners and admins.

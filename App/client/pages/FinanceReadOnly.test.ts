@@ -8,9 +8,9 @@ import type { Company } from "../lib/api.js";
 import { DialogProvider } from "../components/ui/Dialog.js";
 import FinanceAccounts from "./FinanceAccounts.js";
 import FinanceAiAccess from "./FinanceAiAccess.js";
+import FinanceBanking from "./FinanceBanking.js";
 import FinanceBillNew from "./FinanceBillNew.js";
 import FinanceBills from "./FinanceBills.js";
-import FinanceCardExpenses from "./FinanceCardExpenses.js";
 import FinanceEstimateNew from "./FinanceEstimateNew.js";
 import FinanceEstimates from "./FinanceEstimates.js";
 import FinanceIndex from "./FinanceIndex.js";
@@ -20,7 +20,6 @@ import FinanceJournal from "./FinanceJournal.js";
 import FinanceLayout from "./FinanceLayout.js";
 import FinancePeriods from "./FinancePeriods.js";
 import FinanceProducts from "./FinanceProducts.js";
-import FinanceReconcile from "./FinanceReconcile.js";
 import FinanceRecurringInvoiceNew from "./FinanceRecurringInvoiceNew.js";
 import FinanceRecurringInvoices from "./FinanceRecurringInvoices.js";
 import FinanceTaxRates from "./FinanceTaxRates.js";
@@ -111,8 +110,7 @@ const ROUTES: [string, React.ComponentType][] = [
   ["accounts", FinanceAccounts],
   ["journal", FinanceJournal],
   ["periods", FinancePeriods],
-  ["reconcile", FinanceReconcile],
-  ["card-expenses", FinanceCardExpenses],
+  ["banking", FinanceBanking],
   ["ai-access", FinanceAiAccess],
 ];
 
@@ -209,10 +207,9 @@ describe("Finance for a Member with read-only access", () => {
       ["products", "Products & services", "New product"],
       ["tax-rates", "Tax rates", "New rate"],
       ["accounts", "Chart of accounts", "New account"],
-      ["journal", "Journal", "Manual entry"],
+      ["journal", "Journal entries", "Manual entry"],
       ["periods", "Periods & exports", "New period"],
-      ["reconcile", "Reconciliation", "New feed"],
-      ["card-expenses", "Card expenses", "Connect card feed"],
+      ["banking", "Banking", "Add account"],
     ];
     for (const [at, title, label] of pages) {
       for (const [who, company] of WRITERS) {

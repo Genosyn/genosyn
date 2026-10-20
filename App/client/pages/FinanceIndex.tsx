@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { ArrowRight, FileText, Plus, Users, Wallet } from "lucide-react";
-import { api, Customer, formatMoney, InvoiceListItem } from "../lib/api";
+import { ArrowRight, FileText, Landmark, Plus, Users, Wallet } from "lucide-react";
+import { api, BankingAccount, Customer, formatMoney, InvoiceListItem } from "../lib/api";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -11,20 +11,25 @@ import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
  * Finance overview — landing page at `/c/:slug/finance`. Surfaces the
- * three numbers a small business actually checks: outstanding receivables,
- * paid-this-period, customer count. Plus a recent-invoices feed and
- * quick-action buttons. Phase A; richer dashboards (P&L, cash flow) land
- * in Phase C.
+ * numbers a small business actually checks: outstanding receivables,
+ * paid-this-period, customer count, and how many bank and card transactions
+ * wait on Banking. Plus a recent-invoices feed and quick-action buttons.
  */
 export default function FinanceIndex() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const canWrite = canWriteFinance(company);
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
+  const [banking, setBanking] = React.useState<BankingAccount[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
 
   const reload = React.useCallback(() => {
+    // Banking is a side panel here: if it fails, the rest of the overview stands.
+    api
+      .get<BankingAccount[]>(`/api/companies/${company.id}/banking/accounts`)
+      .then(setBanking)
+      .catch(() => setBanking([]));
     return Promise.all([
       // Archived invoices too: archiving files an invoice away, but its money
       // still counts in the totals below.
@@ -47,7 +52,7 @@ export default function FinanceIndex() {
     reload();
   }, [reload]);
 
-  useLiveRefetch(["invoice", "customer"], reload);
+  useLiveRefetch(["invoice", "customer", "reconcile", "cardexpense"], reload);
 
   async function retry() {
     setRetrying(true);
@@ -111,7 +116,7 @@ export default function FinanceIndex() {
             Finance
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Invoices, bills, and revenue at a glance.
+            What you&apos;re owed, what came in, and what&apos;s waiting on you.
           </p>
         </div>
         {canWrite && (
@@ -143,7 +148,7 @@ export default function FinanceIndex() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               icon={<Wallet size={16} />}
               label="Outstanding"
@@ -166,6 +171,7 @@ export default function FinanceIndex() {
                 </div>
               }
             />
+            <BankingCard companySlug={company.slug} accounts={banking} canWrite={canWrite} />
           </div>
 
           <div className="mt-8 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -230,6 +236,56 @@ export default function FinanceIndex() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** Bank and card transactions waiting on Banking, or a way to add the first account. */
+function BankingCard({
+  companySlug,
+  accounts,
+  canWrite,
+}: {
+  companySlug: string;
+  accounts: BankingAccount[] | null;
+  canWrite: boolean;
+}) {
+  const toReview = (accounts ?? []).reduce((sum, account) => sum + account.toReview, 0);
+  const to = `/c/${companySlug}/finance/banking`;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+        <span className="text-slate-400 dark:text-slate-500">
+          <Landmark size={16} />
+        </span>
+        Bank transactions to review
+      </div>
+      <div className="mt-2">
+        {accounts === null ? (
+          <div className="text-sm text-slate-400 dark:text-slate-500">—</div>
+        ) : accounts.length === 0 ? (
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            No bank accounts yet.
+            {canWrite && (
+              <>
+                {" "}
+                <Link to={to} className="text-indigo-600 hover:underline dark:text-indigo-400">
+                  Add one
+                </Link>
+              </>
+            )}
+          </div>
+        ) : (
+          <Link to={to} className="group flex items-baseline justify-between gap-2">
+            <span className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {toReview}
+            </span>
+            <span className="flex items-center gap-1 text-xs text-indigo-600 group-hover:underline dark:text-indigo-400">
+              {toReview > 0 ? "Review" : "Open Banking"} <ArrowRight size={12} />
+            </span>
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

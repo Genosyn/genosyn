@@ -45,6 +45,7 @@ const transactionParamsSchema = companyParamsSchema.extend({
 });
 const transactionQuerySchema = z.object({
   feedId: z.string().uuid().optional(),
+  status: z.enum(["review", "done"]).optional(),
 });
 const cardFeedCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -122,7 +123,7 @@ cardExpensesRouter.get("/card-transactions", async (req, res) => {
   if (!params.success || !query.success) {
     return res.status(400).json({ error: "Invalid card transaction query" });
   }
-  res.json(await listCardTransactions(params.data.cid, query.data.feedId));
+  res.json(await listCardTransactions(params.data.cid, query.data.feedId, query.data.status));
 });
 
 cardExpensesRouter.patch(

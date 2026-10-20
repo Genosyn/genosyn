@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { type FindOptionsWhere, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { CardFeed } from "../db/entities/CardFeed.js";
@@ -416,11 +417,20 @@ export async function loadCardFeed(companyId: string, feedId: string): Promise<C
   });
 }
 
+/**
+ * The newest card transactions, optionally on one card. `review` holds the
+ * ones whose posting failed — every other purchase is already filed under its
+ * card's default category — and `done` the ones in the books.
+ */
 export async function listCardTransactions(
   companyId: string,
   feedId?: string,
+  status?: "review" | "done",
 ): Promise<CardTransaction[]> {
-  const where = feedId ? { companyId, feedId } : { companyId };
+  const where: FindOptionsWhere<CardTransaction> = { companyId };
+  if (feedId) where.feedId = feedId;
+  if (status === "review") where.ledgerEntryId = IsNull();
+  if (status === "done") where.ledgerEntryId = Not(IsNull());
   return AppDataSource.getRepository(CardTransaction).find({
     where,
     order: { postedAt: "DESC", createdAt: "DESC" },

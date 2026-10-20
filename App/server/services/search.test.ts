@@ -81,9 +81,9 @@ describe("company search product areas follow finance access", () => {
     "recurring-invoices": "Recurring invoices",
     products: "Products & services",
     bills: "Bills",
-    transactions: "Finance transactions",
+    transactions: "Entry review",
     "finance-reports": "Finance reports",
-    reconciliation: "Reconciliation",
+    reconciliation: "Banking",
   };
   let companyId: string;
 
