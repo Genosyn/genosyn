@@ -13,6 +13,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { isDeletableManualEntry, ledgerSourceLabel } from "../lib/ledgerSources";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -24,126 +25,48 @@ import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
-const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = {
-  manual: {
-    label: "Manual",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  credit_note_issue: {
-    label: "Credit note",
-    cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
-  },
-  credit_note_apply: {
-    label: "Credit applied",
-    cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  },
-  credit_note_unapply: {
-    label: "Credit unapplied",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  credit_note_void: {
-    label: "Credit voided",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  customer_refund: {
-    label: "Refund",
-    cls: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
-  },
-  customer_refund_void: {
-    label: "Refund reversed",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  invoice_writeoff: {
-    label: "Write-off",
-    cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  },
-  invoice_writeoff_reversal: {
-    label: "Write-off reversed",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  vendor_credit_issue: {
-    label: "Vendor credit",
-    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-  },
-  vendor_credit_apply: {
-    label: "Vendor credit applied",
-    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-  },
-  vendor_credit_unapply: {
-    label: "Vendor credit unapplied",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  vendor_credit_void: {
-    label: "Vendor credit voided",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  vendor_refund: {
-    label: "Vendor refund",
-    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-  },
-  vendor_refund_void: {
-    label: "Vendor refund reversed",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  bank_categorization: {
-    label: "Bank categorized",
-    cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
-  },
-  bank_categorization_void: {
-    label: "Bank uncategorized",
-    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  },
-  invoice_issue: {
-    label: "Invoice issued",
-    cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  },
-  invoice_revision: {
-    label: "Invoice revised",
-    cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  },
-  invoice_payment: {
-    label: "Payment",
-    cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  },
-  invoice_void: {
-    label: "Reversal",
-    cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  },
-  brex_card_expense: {
-    label: "Card expense",
-    cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  },
-  brex_card_refund: {
-    label: "Card refund",
-    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-  },
-  brex_card_payment: {
-    label: "Card payment",
-    cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  },
-  brex_card_reclass: {
-    label: "Reclassification",
-    cls: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
-  },
-  ledger_reclass: {
-    label: "Approved category",
-    cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
-  },
+/** Each origin's badge colour; `lib/ledgerSources.ts` holds its words. */
+const SOURCE_TONE: Record<LedgerEntrySource, string> = {
+  manual: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  credit_note_issue: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+  credit_note_apply: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  credit_note_unapply: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  credit_note_void: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  customer_refund: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
+  customer_refund_void: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  invoice_writeoff: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  invoice_writeoff_reversal: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  vendor_credit_issue: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  vendor_credit_apply: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  vendor_credit_unapply: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  vendor_credit_void: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  vendor_refund: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  vendor_refund_void: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  bank_categorization: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
+  bank_categorization_void: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  invoice_issue: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  invoice_revision: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  invoice_payment: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  invoice_void: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  brex_card_expense: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  brex_card_refund: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  brex_card_payment: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  brex_card_reclass: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+  ledger_reclass: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
 };
 
-const UNKNOWN_SOURCE_BADGE = {
-  label: "Other",
-  cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-};
+const UNKNOWN_SOURCE_TONE = "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200";
 
 /**
  * Journal — chronological feed of every `LedgerEntry`. Phase B of the
  * Finance milestone (M19).
  *
- * Each row expands to show its `LedgerLine` legs. Auto-posted entries
- * (from invoice issue / payment / void) are not deletable here; only
- * `manual` entries can be deleted. Deleting one, like posting or proposing
- * one, needs Full finance access, so a read-only Member is offered neither.
+ * Each row expands to show its `LedgerLine` legs. Only an entry someone
+ * posted by hand can be deleted, and only until it is approved
+ * (`isDeletableManualEntry`): bills, the period close, and applied proposals
+ * post as `manual` too, but their own flows undo them. Deleting one, like
+ * posting or proposing one, needs Full finance access, so a read-only Member
+ * is offered neither.
  */
 export default function FinanceJournal() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -219,15 +142,21 @@ export default function FinanceJournal() {
     <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Journal" }]}
+          items={[
+            { label: "Finance", to: `/c/${company.slug}/finance` },
+            { label: "Journal entries" },
+          ]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Journal</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Every double-entry transaction in chronological order. Invoice issue / payment / void
-            rows are auto-posted; manual rows are for accountant adjustments.
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+            Journal entries
+          </h1>
+          <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+            Every change to your books, newest first. Invoices, bills, payments, and bank and card
+            transactions post here on their own; add a manual entry for an adjustment your
+            accountant asks for.
           </p>
         </div>
         {canWrite && (
@@ -266,7 +195,8 @@ export default function FinanceJournal() {
             No journal entries yet
           </h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Issue an invoice or post a manual entry to populate the ledger.
+            Issue an invoice, categorize a bank transaction, or post a manual entry, and it shows
+            up here.
           </p>
         </div>
       ) : (
@@ -325,7 +255,7 @@ function EntryRow({
   useAskAiPageContext(open ? [{ kind: "journal_entry", id: entry.id }] : null);
   // Ledger sources are persisted strings. Keep the Journal usable if a newer
   // backend source reaches an older client before its dedicated badge ships.
-  const badge = SOURCE_BADGE[entry.source] ?? UNKNOWN_SOURCE_BADGE;
+  const tone = SOURCE_TONE[entry.source] ?? UNKNOWN_SOURCE_TONE;
   const total = entry.lines.reduce((s, l) => s + l.debitCents, 0);
 
   return (
@@ -351,10 +281,10 @@ function EntryRow({
         <span
           className={
             "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
-            badge.cls
+            tone
           }
         >
-          {badge.label}
+          {ledgerSourceLabel(entry.source, entry.sourceRefId)}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
           {entry.memo || <span className="text-slate-400">(no memo)</span>}
@@ -362,7 +292,7 @@ function EntryRow({
         <span className="tabular-nums text-sm font-medium text-slate-900 dark:text-slate-100">
           {formatMoney(total, homeCurrency)}
         </span>
-        {onDelete && entry.source === "manual" && (
+        {onDelete && isDeletableManualEntry(entry) && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -531,7 +461,7 @@ function NewEntryModal({
   }
 
   // Maker-checker: stage the same entry as a `FinanceProposal` instead of
-  // posting it, so a second member applies it from the Proposals queue. Nothing
+  // posting it, so a second member applies it from Proposed entries. Nothing
   // hits the ledger until they do.
   async function propose() {
     setError(null);
@@ -542,7 +472,7 @@ function NewEntryModal({
     setBusy("propose");
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals`, buildBody());
-      onSaved("Staged for review");
+      onSaved("Staged for review — it waits under Proposed entries until someone applies it.");
     } catch (err) {
       setError(errorMessage(err));
     } finally {

@@ -1,5 +1,6 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { Account } from "../db/entities/Account.js";
 import { Customer } from "../db/entities/Customer.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { EmailProvider } from "../db/entities/EmailProvider.js";
@@ -838,14 +839,31 @@ export async function assertPaymentNotRecorded(
   );
 }
 
+/** An active asset account of this company that cash can move through. */
+async function requireCashAccount(companyId: string, accountId: string): Promise<Account> {
+  const account = await AppDataSource.getRepository(Account).findOneBy({
+    id: accountId,
+    companyId,
+  });
+  if (!account) throw new Error("Bank account not found");
+  if (account.type !== "asset") throw new Error("Cash must move through an asset account");
+  if (account.archivedAt) throw new Error("That account is archived");
+  return account;
+}
+
 /**
  * Post the journal entry for a single received payment: DR Bank /
  * CR Accounts Receivable. Idempotent on `(invoice_payment, payment.id)`.
+ *
+ * The cash lands in `1100 Bank` unless `bankAccountId` names the asset
+ * account it really arrived in — a payment recorded from a bank account
+ * that reconciles against its own ledger account, say.
  */
 export async function postInvoicePayment(
   invoice: Invoice,
   payment: InvoicePayment,
   actorUserId: string | null,
+  options: { bankAccountId?: string | null } = {},
 ): Promise<void> {
   if (payment.amountCents <= 0) return;
   if (
@@ -867,7 +885,9 @@ export async function postInvoicePayment(
     "4910",
     "6900",
   ]);
-  const bank = accounts.get("1100")!;
+  const bank = options.bankAccountId
+    ? await requireCashAccount(invoice.companyId, options.bankAccountId)
+    : accounts.get("1100")!;
   const ar = accounts.get("1200")!;
   const fxGain = accounts.get("4910")!;
   const fxLoss = accounts.get("6900")!;

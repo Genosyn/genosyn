@@ -685,6 +685,8 @@ export type MatchCandidate =
       ledgerEntryId: string;
       memo: string;
       source: string;
+      /** What posted the entry — a bill payment is `bill_payment:<id>`. */
+      sourceRefId: string | null;
       date: string;
       /** The bank-account line amount, signed (+ in / − out). */
       amountCents: number;
@@ -810,6 +812,7 @@ export async function findMatchCandidates(txn: BankTransaction): Promise<MatchCa
         ledgerEntryId: e.id,
         memo: e.memo || "(no memo)",
         source: e.source,
+        sourceRefId: e.sourceRefId,
         date: e.date.toISOString(),
         amountCents: wantIn ? lineAmount : -lineAmount,
         score,

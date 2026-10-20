@@ -5267,7 +5267,8 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
   asset: "Asset",
   liability: "Liability",
   equity: "Equity",
-  revenue: "Revenue",
+  // The type is `revenue` in the books; people call it income.
+  revenue: "Income",
   expense: "Expense",
 };
 
@@ -5522,11 +5523,23 @@ export type BankTransactionMatch =
   | {
       kind: "payment";
       paymentId: string;
+      invoiceId: string;
       invoiceNumber: string;
       invoiceSlug: string;
       customerName: string;
+      amountCents: number;
+      /** Banking recorded this payment from the deposit, so undoing removes it. */
+      recordedHere: boolean;
     }
-  | { kind: "ledger_entry"; entryId: string; memo: string };
+  | {
+      kind: "ledger_entry";
+      entryId: string;
+      memo: string;
+      source: string;
+      sourceRefId: string | null;
+      /** The category the transaction was filed under, when it was categorized. */
+      categoryAccountId: string | null;
+    };
 
 export type BankTransaction = {
   id: string;
@@ -5563,10 +5576,39 @@ export type MatchCandidate =
       ledgerEntryId: string;
       memo: string;
       source: string;
+      sourceRefId: string | null;
       date: string;
       amountCents: number;
       score: number;
     };
+
+/** Whether a transaction still waits for someone, or is explained. */
+export type BankingStatus = "review" | "done";
+
+/** A bank account or card on Banking, with how many of its transactions wait. */
+export type BankingAccount =
+  | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
+  | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+
+/** An open invoice a deposit could be the payment of. */
+export type OpenInvoiceCandidate = {
+  invoiceId: string;
+  slug: string;
+  number: string;
+  customerName: string;
+  currency: string;
+  totalCents: number;
+  balanceCents: number;
+  issueDate: string;
+  dueDate: string;
+  /** The deposit is exactly what is still due. */
+  exactAmount: boolean;
+  /** The bank's description names the customer or the invoice number. */
+  mentioned: boolean;
+  /** The deposit is more than what is still due, so it can't pay this invoice. */
+  exceedsBalance: boolean;
+  score: number;
+};
 
 // ─────────────────────── Finance proposals (M33 A3) ────────────────────
 

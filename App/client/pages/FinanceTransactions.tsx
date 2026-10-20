@@ -23,6 +23,7 @@ import {
   LedgerReviewStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { isDeletableManualEntry, ledgerSourceLabel } from "../lib/ledgerSources";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -48,17 +49,17 @@ const STATUS_TABS: Array<{
   {
     value: "unreviewed",
     label: "Needs review",
-    description: "Posted transactions not checked yet",
+    description: "Posted to the books, not signed off yet",
   },
   {
     value: "ai_reviewed",
     label: "AI reviewed",
-    description: "Category proposals ready for a human",
+    description: "An AI Employee checked it and may suggest a different category",
   },
   {
     value: "approved",
     label: "Approved",
-    description: "Final human sign-off complete",
+    description: "Signed off by an owner or admin",
   },
 ];
 
@@ -77,12 +78,20 @@ function statusLabel(status: LedgerReviewStatus): string {
   return "Needs review";
 }
 
-function sourceLabel(source: LedgerEntry["source"]): string {
-  return source
-    .replace("invoice_", "invoice ")
-    .replace("brex_card_", "card ")
-    .replace("ledger_reclass", "category change")
-    .replaceAll("_", " ");
+/**
+ * The categories an entry was filed under — its income and expense lines,
+ * which is what a reviewer checks. Bank, receivables, and the other control
+ * accounts only say where the money sat, so they are named only when an entry
+ * (a payment, a transfer) touches nothing else.
+ */
+function categorySummary(entry: LedgerEntry, accountById: Map<string, Account>): string {
+  const accounts = entry.lines
+    .map((line) => accountById.get(line.accountId))
+    .filter((account): account is Account => !!account);
+  const categories = accounts.filter(
+    (account) => account.type === "expense" || account.type === "revenue",
+  );
+  return [...new Set((categories.length ? categories : accounts).map((a) => a.name))].join(", ");
 }
 
 /** A checkbox that can render the third "some but not all" state, which HTML
@@ -164,7 +173,7 @@ export default function FinanceTransactions() {
     } catch (err) {
       setRows([]);
       setAccounts([]);
-      setLoadError(errorMessage(err, "Could not load transactions"));
+      setLoadError(errorMessage(err, "Could not load entries"));
     }
   }, [company.id, status]);
 
@@ -223,9 +232,7 @@ export default function FinanceTransactions() {
 
   const anyApprovable = selectedEntries.some((entry) => entry.reviewStatus !== "approved");
   const anyReturnable = selectedEntries.some((entry) => entry.reviewStatus === "ai_reviewed");
-  const anyDeletable = selectedEntries.some(
-    (entry) => entry.source === "manual" && entry.reviewStatus !== "approved",
-  );
+  const anyDeletable = selectedEntries.some(isDeletableManualEntry);
 
   function toggleOne(id: string) {
     setSelectedIds((prev) => {
@@ -261,7 +268,7 @@ export default function FinanceTransactions() {
   // straight from the selection bar and has no form to sit in.
   function reportBulkFailure(action: LedgerBulkAction, message: string) {
     if (action === "return") {
-      void dialog.error(message, { title: "Couldn’t return the transactions" });
+      void dialog.error(message, { title: "Couldn’t return the entries" });
       return;
     }
     setBulkError(message);
@@ -306,15 +313,15 @@ export default function FinanceTransactions() {
   return (
     <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs
-        items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Transactions" }]}
+        items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Entry review" }]}
       />
       <div className="mt-5">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Transaction review
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Entry review</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-          Check every posting and its account categories. AI employees can prepare category changes,
-          but only a human owner or admin can apply them and give final approval.
+          A sign-off on everything that reaches your books — invoices, bills, payments, and the
+          bank and card transactions you categorize on Banking. Check each entry&apos;s category and
+          approve it. AI Employees can suggest a different category; only an owner or admin
+          approves.
         </p>
       </div>
 
@@ -361,10 +368,10 @@ export default function FinanceTransactions() {
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-              {statusLabel(status)} transactions
+              {statusLabel(status)}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Open a row to inspect every debit and credit before deciding.
+              Open an entry to see each line and its category before deciding.
             </p>
           </div>
           <label className="relative block sm:w-72">
@@ -375,8 +382,8 @@ export default function FinanceTransactions() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              aria-label="Search transactions by memo, source, or account"
-              placeholder="Search memo, source, or account"
+              aria-label="Search entries by memo, origin, or account"
+              placeholder="Search memo, origin, or account"
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-500/25"
             />
           </label>
@@ -392,10 +399,13 @@ export default function FinanceTransactions() {
           <div className="p-14 text-center">
             <CheckCircle2 className="mx-auto text-slate-300 dark:text-slate-600" size={28} />
             <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">
-              No {statusLabel(status).toLowerCase()} transactions
+              {status === "unreviewed"
+                ? "Nothing waiting for sign-off"
+                : `No entries ${statusLabel(status).toLowerCase()} yet`}
             </p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              New ledger postings appear here automatically.
+              Entries show up here as invoices, bills, payments, and bank or card transactions
+              reach your books.
             </p>
           </div>
         ) : (
@@ -413,11 +423,11 @@ export default function FinanceTransactions() {
                   checked={allSelected}
                   indeterminate={someSelected}
                   onChange={toggleAllInView}
-                  ariaLabel={allSelected ? "Clear selection" : "Select all transactions"}
+                  ariaLabel={allSelected ? "Clear selection" : "Select all entries"}
                 />
                 {selectedCount === 0 ? (
                   <span className="text-xs text-slate-500 dark:text-slate-400">
-                    Select transactions to approve, recategorize, or delete together.
+                    Select entries to approve, change their category, or delete them together.
                   </span>
                 ) : (
                   <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
@@ -495,7 +505,7 @@ export default function FinanceTransactions() {
                       <TriCheckbox
                         checked={isSelected}
                         onChange={() => toggleOne(entry.id)}
-                        ariaLabel={`Select ${entry.memo || "transaction"}`}
+                        ariaLabel={`Select ${entry.memo || "entry"}`}
                       />
                     )}
                     <button
@@ -507,12 +517,12 @@ export default function FinanceTransactions() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                          {entry.memo || "Untitled transaction"}
+                          {entry.memo || "Untitled entry"}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <span className="capitalize">{sourceLabel(entry.source)}</span>
+                          <span>{ledgerSourceLabel(entry.source, entry.sourceRefId)}</span>
                           <span>·</span>
-                          <span>{entry.lines.length} ledger lines</span>
+                          <span>{categorySummary(entry, accountById)}</span>
                           {entry.reviewedByEmployee && (
                             <>
                               <span>·</span>
@@ -598,24 +608,24 @@ function BulkConfirmModal({
   onConfirm: () => void;
 }) {
   const isDelete = action === "delete";
-  const plural = count === 1 ? "" : "s";
+  const noun = count === 1 ? "entry" : "entries";
   return (
     <Modal
       open
       onClose={onClose}
-      title={isDelete ? "Delete transactions" : "Approve transactions"}
+      title={isDelete ? "Delete entries" : "Approve entries"}
     >
       <p className="text-sm text-slate-600 dark:text-slate-300">
         {isDelete ? (
           <>
-            You&apos;re about to delete {count} selected transaction{plural}. Only unapproved,
-            manually posted drafts are removed — approved or auto-posted entries are skipped and left
-            untouched.
+            You&apos;re about to delete {count} selected {noun}. Only unapproved
+            entries someone posted by hand are removed — approved or automatic entries are skipped
+            and left untouched.
           </>
         ) : (
           <>
-            Approve {count} selected transaction{plural}? Any staged category changes are posted to
-            the ledger and each transaction gets final human sign-off. Rows already approved are
+            Approve {count} selected {noun}? Any suggested category changes are
+            posted to the books, and each entry is signed off. Entries already approved are
             skipped.
           </>
         )}
@@ -663,17 +673,16 @@ function BulkCategoryModal({
   }, [accounts, search]);
   const groups: Array<{ label: string; list: Account[] }> = [
     { label: "Expense", list: options.filter((account) => account.type === "expense") },
-    { label: "Revenue", list: options.filter((account) => account.type === "revenue") },
+    { label: "Income", list: options.filter((account) => account.type === "revenue") },
   ];
-  const plural = count === 1 ? "" : "s";
+  const noun = count === 1 ? "entry" : "entries";
 
   return (
     <Modal open onClose={onClose} title="Change category" size="lg">
       <p className="text-sm text-slate-600 dark:text-slate-300">
-        Apply one category to {count} selected transaction{plural} and approve them. Each
-        transaction&apos;s single expense or revenue line moves to the category you pick;
-        transactions with a different shape — no matching line, or more than one — are skipped so you
-        can open them individually.
+        Give {count} selected {noun} one category and approve them. Each
+        entry&apos;s single income or expense line moves to the category you pick; entries with no
+        such line, or more than one, are skipped so you can open them one at a time.
       </p>
       <label className="relative mt-4 block">
         <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
@@ -795,7 +804,7 @@ function TransactionReviewModal({
       });
       await onChanged();
     } catch (err) {
-      setError(errorMessage(err, "Could not approve transaction"));
+      setError(errorMessage(err, "Could not approve the entry"));
     } finally {
       setBusy(null);
     }
@@ -810,22 +819,22 @@ function TransactionReviewModal({
       });
       await onChanged();
     } catch (err) {
-      setError(errorMessage(err, "Could not return transaction"));
+      setError(errorMessage(err, "Could not return the entry"));
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <Modal open onClose={onClose} title="Review transaction" size="xl">
+    <Modal open onClose={onClose} title="Review entry" size="xl">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            {entry.memo || "Untitled transaction"}
+            {entry.memo || "Untitled entry"}
           </div>
           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {new Date(entry.date).toISOString().slice(0, 10)} ·{" "}
-            <span className="capitalize">{sourceLabel(entry.source)}</span> · ID{" "}
+            {ledgerSourceLabel(entry.source, entry.sourceRefId)} · ID{" "}
             <span className="font-mono">{entry.id.slice(0, 8)}</span>
           </div>
         </div>
@@ -847,7 +856,7 @@ function TransactionReviewModal({
                   askAi.ask({ refs: askAiRef });
                   onClose();
                 }}
-                title="Ask AI about this transaction"
+                title="Ask AI about this entry"
               >
                 <Sparkles size={13} /> Ask AI
               </Button>
@@ -862,8 +871,8 @@ function TransactionReviewModal({
             <Sparkles size={14} /> {entry.reviewedByEmployee.name} semi-approved this
           </div>
           <p className="mt-1 text-xs text-violet-700 dark:text-violet-300">
-            Any category changes below are proposals only. They enter the ledger when a human gives
-            final approval.
+            Any category changes below are only suggestions. They reach the books when an owner or
+            admin approves the entry.
           </p>
         </div>
       )}
@@ -872,8 +881,8 @@ function TransactionReviewModal({
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Ledger line</th>
-              <th className="px-3 py-2 text-left font-medium">Account category</th>
+              <th className="px-3 py-2 text-left font-medium">Line</th>
+              <th className="px-3 py-2 text-left font-medium">Category</th>
               <th className="w-32 px-3 py-2 text-right font-medium">Debit</th>
               <th className="w-32 px-3 py-2 text-right font-medium">Credit</th>
             </tr>
@@ -921,7 +930,7 @@ function TransactionReviewModal({
                           {current ? `${current.code} ${current.name}` : "Missing account"}
                         </div>
                         <div className="mt-0.5 text-xs text-slate-400">
-                          Control account · reviewed, not recategorized
+                          Where the money sat — its category doesn&apos;t change here
                         </div>
                       </div>
                     )}
@@ -940,7 +949,7 @@ function TransactionReviewModal({
       </div>
 
       <label className="mt-5 block">
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Review note</span>
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Note</span>
         <textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}
@@ -954,8 +963,7 @@ function TransactionReviewModal({
 
       {!canApprove && entry.reviewStatus !== "approved" && (
         <p className="mt-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-          You can inspect this transaction, but final approval is limited to company owners and
-          admins.
+          You can look through this entry, but only owners and admins can approve it.
         </p>
       )}
 
@@ -978,7 +986,7 @@ function TransactionReviewModal({
         {canApprove && entry.reviewStatus !== "approved" && (
           <Button onClick={approve} loading={busy === "approve"} disabled={busy !== null}>
             <CheckCircle2 size={14} />
-            Approve transaction
+            Approve
           </Button>
         )}
       </div>

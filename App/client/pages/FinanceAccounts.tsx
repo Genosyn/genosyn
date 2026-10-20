@@ -18,6 +18,15 @@ import { FinanceOutletCtx } from "./FinanceLayout";
 
 const TYPES: AccountType[] = ["asset", "liability", "equity", "revenue", "expense"];
 
+/** What each kind of account holds, in a line. */
+const TYPE_MEANING: Record<AccountType, string> = {
+  asset: "What the company owns — bank balances, and money customers owe you.",
+  liability: "What the company owes — card balances, unpaid bills, tax collected.",
+  equity: "What the owners put in, and the profit kept in the business.",
+  revenue: "Money the company earns — sales, and income from anything else.",
+  expense: "What the company spends money on. Most bank and card payments are filed here.",
+};
+
 const TYPE_BADGE: Record<AccountType, string> = {
   asset: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
   liability: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
@@ -123,7 +132,10 @@ export default function FinanceAccounts() {
     <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Accounts" }]}
+          items={[
+            { label: "Finance", to: `/c/${company.slug}/finance` },
+            { label: "Chart of accounts" },
+          ]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
@@ -131,9 +143,10 @@ export default function FinanceAccounts() {
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
             Chart of accounts
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            The list of buckets every transaction posts into. System accounts (1100, 1200, 2100,
-            4000) are reserved for invoice auto-posting and can be renamed but not removed.
+          <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
+            The categories every amount in your books is filed under — the ones you pick when you
+            categorize a bank or card transaction. Accounts marked system are used automatically by
+            invoices, bills, and banking: rename them freely, but they can&apos;t be removed.
           </p>
         </div>
         {canWrite && (
@@ -157,12 +170,13 @@ export default function FinanceAccounts() {
                 key={type}
                 className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
               >
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
                   <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <span className={"rounded px-1.5 py-0.5 " + TYPE_BADGE[type]}>
                       {ACCOUNT_TYPE_LABEL[type]}
                     </span>
                   </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{TYPE_MEANING[type]}</p>
                 </div>
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -366,8 +380,8 @@ function AccountEditor({
         </Select>
         {isSystem && (
           <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-            This is a system account — the auto-post hooks look it up by code, so the code and type
-            can&apos;t change. Renaming is fine.
+            This is a system account — invoices, bills, and banking find it by its code, so the
+            code and type can&apos;t change. Renaming it is fine.
           </p>
         )}
         <FormError message={error} />

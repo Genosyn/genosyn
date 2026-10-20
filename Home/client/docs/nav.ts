@@ -345,6 +345,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Finance",
         blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting.",
       },
+      {
+        path: "/docs/banking",
+        title: "Banking",
+        blurb:
+          "Bank accounts and cards in one list: mark invoices paid from deposits, match, and categorize.",
+      },
     ],
   },
   {

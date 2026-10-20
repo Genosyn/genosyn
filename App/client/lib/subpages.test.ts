@@ -111,7 +111,6 @@ describe("subpage catalogue", () => {
     assert.equal(page("/finance/recurring-invoices").label, "Recurring invoices");
     assert.equal(page("/finance/recurring-invoices").navLabel, "Recurring");
     assert.equal(page("/finance/accounts").label, "Chart of accounts");
-    assert.equal(page("/finance/reconcile").label, "Reconciliation");
     assert.equal(page("/mail/settings").label, "Email settings");
     assert.equal(page("/tldrs/settings").label, "TLDR settings");
   });
@@ -144,23 +143,22 @@ describe("subpage catalogue", () => {
     const rail = railSubpages("finance").map((p) => [p.navLabel ?? p.label, p.navGroup ?? ""]);
     assert.deepEqual(rail, [
       ["Overview", ""],
-      ["Estimates", ""],
-      ["Invoices", ""],
-      ["Customer statements", ""],
-      ["Credit notes", ""],
-      ["Recurring", ""],
-      ["Bills", ""],
-      ["Vendors", ""],
-      ["Vendor credits", ""],
-      ["Transactions", "Ledger"],
-      ["Journal entries", "Ledger"],
-      ["Proposals", "Ledger"],
-      ["Accounts", "Ledger"],
-      ["Trial balance", "Ledger"],
-      ["Reports", "Ledger"],
-      ["Reconcile", "Ledger"],
-      ["Card expenses", "Ledger"],
-      ["Periods & exports", "Ledger"],
+      ["Banking", ""],
+      ["Estimates", "Sales"],
+      ["Invoices", "Sales"],
+      ["Customer statements", "Sales"],
+      ["Credit notes", "Sales"],
+      ["Recurring", "Sales"],
+      ["Bills", "Purchases"],
+      ["Vendors", "Purchases"],
+      ["Vendor credits", "Purchases"],
+      ["Reports", "Accounting"],
+      ["Chart of accounts", "Accounting"],
+      ["Journal entries", "Accounting"],
+      ["Entry review", "Accounting"],
+      ["Proposed entries", "Accounting"],
+      ["Trial balance", "Accounting"],
+      ["Periods & exports", "Accounting"],
       ["Products", "Catalog"],
       ["Tax rates", "Catalog"],
       ["Currencies", "Catalog"],
@@ -488,8 +486,8 @@ describe("subpage search", () => {
   });
 
   test("answers to the rail's shorter name without highlighting the title", () => {
-    const [top] = searchSubpages(PALETTE_SUBPAGES, "reconcile", { viewer: OWNER });
-    assert.equal(top.page.path, "/finance/reconcile");
+    const [top] = searchSubpages(PALETTE_SUBPAGES, "activities", { viewer: OWNER });
+    assert.equal(top.page.path, "/revenue/activities");
     assert.equal(top.score, MATCH_SCORE.exact);
     assert.equal(top.hit, null);
   });
@@ -498,6 +496,10 @@ describe("subpage search", () => {
     const top = (q: string, viewer = OWNER) =>
       searchSubpages(PALETTE_SUBPAGES, q, { viewer })[0]?.page.path;
     assert.equal(top("p&l"), "/finance/reports");
+    // Banking replaced Reconciliation and Card expenses; their words still find it.
+    assert.equal(top("reconcile"), "/finance/banking");
+    assert.equal(top("card expenses"), "/finance/banking");
+    assert.equal(top("bank transactions"), "/finance/banking");
     assert.equal(top("2fa"), "/account/security");
     assert.equal(top("bitwarden"), "/vault/integrations");
     assert.equal(top("bitwarden", MEMBER_FULL), undefined, "admin-only for Members");

@@ -55,6 +55,14 @@ import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
 import { invoiceArchiveBlocker } from "../../shared/invoiceArchive";
 
+const PAYMENT_METHOD_LABEL: Record<InvoicePaymentMethod, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank transfer",
+  stripe: "Stripe",
+  lightning: "Lightning",
+  other: "Other",
+};
+
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
@@ -836,9 +844,15 @@ export default function FinanceInvoiceDetail() {
                       {formatMoney(p.amountCents, p.currency)}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {new Date(p.paidAt).toISOString().slice(0, 10)} · {p.method}
+                      {new Date(p.paidAt).toISOString().slice(0, 10)} ·{" "}
+                      {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
                       {p.reference ? ` · ${p.reference}` : ""}
                     </div>
+                    {p.notes && (
+                      <div className="mt-0.5 truncate text-xs text-slate-400" title={p.notes}>
+                        {p.notes}
+                      </div>
+                    )}
                   </div>
                   {canWrite && (
                     <button

@@ -80,15 +80,23 @@ export default function FinanceProposals() {
   const pendingCount = proposals?.filter((p) => p.status === "pending").length ?? 0;
 
   return (
-    <div className="space-y-5">
-      <Breadcrumbs items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Proposals" }]} />
+    <div className="page-shell space-y-5 p-4 sm:p-8">
+      <Breadcrumbs
+        items={[
+          { label: "Finance", to: `/c/${company.slug}/finance` },
+          { label: "Proposed entries" },
+        ]}
+      />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Proposals</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+            Proposed entries
+          </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Staged journal entries awaiting review. One member proposes an entry from the Journal
-            page; another applies it here. Nothing touches the ledger until it&apos;s applied.
+            Journal entries waiting for a second pair of eyes. Someone writes an entry under
+            Journal entries and chooses Propose for review; someone else applies or rejects it
+            here. Nothing reaches your books until it&apos;s applied.
           </p>
         </div>
         <div className="inline-flex overflow-hidden rounded-md border border-slate-200 text-sm dark:border-slate-700">
@@ -132,7 +140,7 @@ export default function FinanceProposals() {
           </p>
           {canWrite && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-              Open the Journal page and use <span className="font-medium">Propose for review</span>{" "}
+              Open Journal entries and use <span className="font-medium">Propose for review</span>{" "}
               to stage an entry.
             </p>
           )}

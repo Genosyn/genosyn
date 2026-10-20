@@ -29,16 +29,14 @@ import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
-import { validateBody, validateQuery } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import {
-  assertPaymentNotRecorded,
   createInvoiceDraft,
   discountOf,
-  DuplicatePaymentError,
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
@@ -49,18 +47,20 @@ import {
   loadCustomerBySlug,
   loadInvoiceBySlug,
   loadProductBySlug,
-  normalizePaymentReference,
-  postInvoicePayment,
-  recomputeInvoiceTotals,
   requestedDiscount,
   resolveInvoiceRecipients,
-  reverseInvoicePayment,
   sendInvoiceEmail,
   setInvoicesArchived,
   uniqueCustomerSlug,
   updateInvoice,
   voidInvoice,
 } from "../services/finance.js";
+import {
+  InvoicePaymentError,
+  type RecordedInvoicePayment,
+  recordInvoicePayment,
+  removeInvoicePayment,
+} from "../services/invoicePayments.js";
 import { documentRevisionState, reviseAction } from "../services/documentRevisions.js";
 import {
   normalizeAccountDomain,
@@ -84,7 +84,6 @@ import {
   applyCustomerCredit,
   createCreditNoteFromInvoice,
   createDeposit,
-  createOverpaymentCredit,
   creditOpenCents,
   getCreditLines,
   issueCreditNote,
@@ -200,8 +199,15 @@ import {
   listBrexCashAccountsForConnection,
   manualMatch,
   syncBankFeed,
-  unmatch,
 } from "../services/reconcile.js";
+import {
+  hydrateBankTransactions,
+  listBankingAccounts,
+  listBankTransactions,
+  openInvoicesForBankTransaction,
+  payInvoiceFromBankTransaction,
+  undoBankTransaction,
+} from "../services/banking.js";
 import {
   getFinanceSettings,
   seedCurrencies,
@@ -1538,144 +1544,83 @@ financeRouter.post(
     const cid = (req.params as Record<string, string>).cid;
     const inv = await loadInvoiceBySlug(cid, req.params.slug);
     if (!inv) return res.status(404).json({ error: "Invoice not found" });
-    if (inv.status === "draft") {
-      return res.status(409).json({ error: "Issue the invoice before recording payments" });
-    }
-    if (inv.status === "void") {
-      return res.status(409).json({ error: "Voided invoices cannot be paid" });
-    }
     const body = req.body as z.infer<typeof paymentCreateSchema>;
-    // The ledger applies the payment in the invoice's currency
-    // (postInvoicePayment never reads payment.currency), so a mismatched code
-    // would silently misbook cash and the paid/balance math. Refuse it rather
-    // than corrupt the books.
-    if (body.currency && body.currency !== inv.currency) {
-      return res.status(400).json({
-        error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
-      });
-    }
-    // A payment already in the books — on this invoice or any other — is not
-    // recorded twice under the same reference. Checked before the balance, so a
-    // duplicate on a settled invoice is never steered into an overpayment credit.
-    const reference = normalizePaymentReference(body.reference);
+    let recorded: RecordedInvoicePayment;
     try {
-      await assertPaymentNotRecorded(cid, inv, reference);
+      recorded = await recordInvoicePayment(
+        inv,
+        {
+          amountCents: body.amountCents,
+          currency: body.currency,
+          paidAt: body.paidAt ? new Date(body.paidAt) : undefined,
+          method: body.method,
+          reference: body.reference,
+          notes: body.notes,
+          allowOverpayment: body.allowOverpayment,
+        },
+        req.userId ?? null,
+      );
     } catch (err) {
       return res
-        .status(err instanceof DuplicatePaymentError ? err.status : 400)
+        .status(err instanceof InvoicePaymentError ? err.status : 400)
         .json({ error: (err as Error).message });
     }
-    // Overpayment splits into the applied portion (a normal payment) and the
-    // excess (an on-account customer credit, DR Bank / CR 2400), instead of
-    // driving AR negative. Off by default, so every existing caller — and the
-    // AI record_payment tool — keeps today's exact refuse-overpayment
-    // guarantee unless the human explicitly opts in.
-    const paidAt = body.paidAt ? new Date(body.paidAt) : new Date();
-    if (body.amountCents > inv.balanceCents && !body.allowOverpayment) {
-      return res.status(400).json({
-        error:
-          inv.balanceCents <= 0
-            ? "This invoice is already fully paid. Turn on overpayment to record the excess as a customer credit."
-            : `Payment exceeds the ${formatMoney(inv.balanceCents, inv.currency)} balance due. Turn on overpayment to record the excess as a customer credit.`,
-      });
-    }
-    const applied = Math.min(body.amountCents, Math.max(inv.balanceCents, 0));
-    const excess = body.amountCents - applied;
-    const repo = AppDataSource.getRepository(InvoicePayment);
-    let paymentRow: InvoicePayment | null = null;
-    try {
-      // No InvoicePayment row when the whole amount is excess (invoice already
-      // settled) — the excess is purely a customer credit.
-      if (applied > 0) {
-        paymentRow = await repo.save(
-          repo.create({
-            invoiceId: inv.id,
-            amountCents: applied,
-            currency: body.currency ?? inv.currency,
-            paidAt,
-            method: body.method ?? "other",
-            reference,
-            notes: body.notes ?? "",
-            createdById: req.userId ?? null,
-          }),
-        );
-        await postInvoicePayment(inv, paymentRow, req.userId ?? null);
-      }
-      if (excess > 0) {
-        const credit = await createOverpaymentCredit(
-          cid,
-          {
-            customerId: inv.customerId,
-            amountCents: excess,
-            currency: inv.currency,
-            bankAccountId: null,
-            paidAt,
-          },
-          req.userId ?? null,
-        );
-        await auditFinance(
-          req,
-          "finance.credit_note.create",
-          { type: "credit_note", id: credit.id, label: credit.number },
-          { amountCents: excess, overpaidInvoice: inv.number || inv.slug },
-        );
-      }
-    } catch (err) {
-      // Keep the GL and sub-ledger consistent: if the applied payment posted
-      // but the excess credit failed, reverse the payment before bailing.
-      if (paymentRow) {
-        await reverseInvoicePayment(inv, paymentRow, req.userId ?? null);
-        await repo.delete({ id: paymentRow.id });
-      }
-      return res.status(400).json({ error: (err as Error).message });
-    }
-    const recomputed = await recomputeInvoiceTotals(inv);
-    await auditFinance(
-      req,
-      "finance.invoice.payment",
-      { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
-      {
-        amountCents: body.amountCents,
-        ...(excess > 0 ? { creditedCents: excess } : {}),
-        method: body.method ?? "other",
-        reference,
-        balanceCents: recomputed.balanceCents,
-        status: recomputed.status,
-      },
-    );
-    const [hydrated] = await hydrateInvoices(cid, [recomputed]);
+    await auditInvoicePayment(req, inv, recorded, body.amountCents, body.method ?? "other");
+    const [hydrated] = await hydrateInvoices(cid, [recorded.invoice]);
     res.json(hydrated);
   },
 );
+
+/** The audit rows a recorded payment leaves: its credit, if any, then the payment. */
+async function auditInvoicePayment(
+  req: Request,
+  inv: Invoice,
+  recorded: RecordedInvoicePayment,
+  amountCents: number,
+  method: string,
+): Promise<void> {
+  if (recorded.credit) {
+    await auditFinance(
+      req,
+      "finance.credit_note.create",
+      { type: "credit_note", id: recorded.credit.id, label: recorded.credit.number },
+      { amountCents: recorded.excessCents, overpaidInvoice: inv.number || inv.slug },
+    );
+  }
+  await auditFinance(
+    req,
+    "finance.invoice.payment",
+    { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
+    {
+      amountCents,
+      ...(recorded.excessCents > 0 ? { creditedCents: recorded.excessCents } : {}),
+      method,
+      reference: recorded.reference,
+      balanceCents: recorded.invoice.balanceCents,
+      status: recorded.invoice.status,
+    },
+  );
+}
 
 financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  // Voiding already reversed every payment posting for this invoice. Deleting
-  // a payment now would reverse the same entry a second time (the two
-  // reversals use different keys, so the idempotency guard misses it),
-  // double-crediting Bank. Block it — the payment rows stay as history.
-  if (inv.status === "void") {
-    return res.status(409).json({
-      error: "This invoice is voided — its payments were already reversed and can't be deleted.",
-    });
+  let removed: Awaited<ReturnType<typeof removeInvoicePayment>>;
+  try {
+    removed = await removeInvoicePayment(inv, req.params.pid, req.userId ?? null);
+  } catch (err) {
+    return res
+      .status(err instanceof InvoicePaymentError ? err.status : 400)
+      .json({ error: (err as Error).message });
   }
-  const payRepo = AppDataSource.getRepository(InvoicePayment);
-  const p = await payRepo.findOneBy({ id: req.params.pid, invoiceId: inv.id });
-  if (!p) return res.status(404).json({ error: "Payment not found" });
-  // Reverse the ledger entry first so the audit trail captures the
-  // original posting + the reversal — then hard-delete the payment row.
-  await reverseInvoicePayment(inv, p, req.userId ?? null);
-  await payRepo.delete({ id: p.id });
-  const recomputed = await recomputeInvoiceTotals(inv);
   await auditFinance(
     req,
     "finance.invoice.payment.delete",
     { type: "invoice", id: inv.id, label: inv.number || "Invoice" },
-    { amountCents: p.amountCents, balanceCents: recomputed.balanceCents },
+    { amountCents: removed.payment.amountCents, balanceCents: removed.invoice.balanceCents },
   );
-  const [hydrated] = await hydrateInvoices(cid, [recomputed]);
+  const [hydrated] = await hydrateInvoices(cid, [removed.invoice]);
   res.json(hydrated);
 });
 
@@ -3345,96 +3290,38 @@ financeRouter.post("/bank-feeds/:id/import", csvUpload.single("file"), async (re
 
 // ─────────────────────── Bank transactions ─────────────────────────────
 
-type HydratedBankTransaction = BankTransaction & {
-  match:
-    | null
-    | {
-        kind: "payment";
-        paymentId: string;
-        invoiceNumber: string;
-        invoiceSlug: string;
-        customerName: string;
-      }
-    | { kind: "ledger_entry"; entryId: string; memo: string };
-};
+const bankTransactionListQuerySchema = z.object({
+  feedId: z.string().uuid().optional(),
+  // `review` waits for someone to explain it; `done` is matched or categorized.
+  status: z.enum(["review", "done"]).optional(),
+  // The original spelling of `status=review`, kept for existing callers.
+  unmatched: z.enum(["true", "false"]).optional(),
+});
 
-async function hydrateBankTxns(
-  companyId: string,
-  txns: BankTransaction[],
-): Promise<HydratedBankTransaction[]> {
-  if (txns.length === 0) return [];
-  const paymentIds = [
-    ...new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x)),
-  ];
-  const entryIds = [
-    ...new Set(txns.map((t) => t.matchedLedgerEntryId).filter((x): x is string => !!x)),
-  ];
-  const [payments, entries] = await Promise.all([
-    paymentIds.length
-      ? AppDataSource.getRepository(InvoicePayment).find({
-          where: { id: In(paymentIds) },
-        })
-      : Promise.resolve([]),
-    entryIds.length
-      ? AppDataSource.getRepository(LedgerEntry).find({
-          where: { id: In(entryIds), companyId },
-        })
-      : Promise.resolve([]),
-  ]);
-  const invIds = [...new Set(payments.map((p) => p.invoiceId))];
-  const invoices = invIds.length
-    ? await AppDataSource.getRepository(Invoice).find({
-        where: { id: In(invIds), companyId },
-      })
-    : [];
-  const customerIds = [...new Set(invoices.map((i) => i.customerId))];
-  const customers = customerIds.length
-    ? await AppDataSource.getRepository(Customer).find({
-        where: { id: In(customerIds), companyId },
-      })
-    : [];
-  const invById = new Map(invoices.map((i) => [i.id, i]));
-  const custById = new Map(customers.map((c) => [c.id, c]));
-  const payById = new Map(payments.map((p) => [p.id, p]));
-  const entryById = new Map(entries.map((e) => [e.id, e]));
-  return txns.map((t) => {
-    let match: HydratedBankTransaction["match"] = null;
-    if (t.matchedPaymentId) {
-      const p = payById.get(t.matchedPaymentId);
-      const inv = p ? invById.get(p.invoiceId) : null;
-      const cust = inv ? custById.get(inv.customerId) : null;
-      if (p && inv) {
-        match = {
-          kind: "payment",
-          paymentId: p.id,
-          invoiceNumber: inv.number || "(draft)",
-          invoiceSlug: inv.slug,
-          customerName: cust?.name ?? "—",
-        };
-      }
-    } else if (t.matchedLedgerEntryId) {
-      const e = entryById.get(t.matchedLedgerEntryId);
-      if (e) match = { kind: "ledger_entry", entryId: e.id, memo: e.memo };
-    }
-    return { ...t, match };
-  });
-}
+financeRouter.get(
+  "/bank-transactions",
+  validateQuery(bankTransactionListQuerySchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const query = req.query as z.infer<typeof bankTransactionListQuerySchema>;
+    const txns = await listBankTransactions(cid, {
+      feedId: query.feedId,
+      status: query.status ?? (query.unmatched === "true" ? "review" : undefined),
+    });
+    res.json(await hydrateBankTransactions(cid, txns));
+  },
+);
 
-financeRouter.get("/bank-transactions", async (req, res) => {
+// Every bank account and card, with how many of their transactions wait for
+// review — the account strip on Banking and the count on the Overview.
+financeRouter.get("/banking/accounts", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const where: Record<string, unknown> = { companyId: cid };
-  if (typeof req.query.feedId === "string" && req.query.feedId) {
-    where.feedId = req.query.feedId;
-  }
-  let txns = await AppDataSource.getRepository(BankTransaction).find({
-    where,
-    order: { date: "DESC", createdAt: "DESC" },
-    take: 500,
-  });
-  if (String(req.query.unmatched ?? "") === "true") {
-    txns = txns.filter((t) => !t.reconciledAt);
-  }
-  res.json(await hydrateBankTxns(cid, txns));
+  res.json(await listBankingAccounts(cid));
+});
+
+const bankTransactionParamsSchema = z.object({
+  cid: z.string().min(1),
+  id: z.string().uuid(),
 });
 
 financeRouter.get("/bank-transactions/:id/candidates", async (req, res) => {
@@ -3445,6 +3332,45 @@ financeRouter.get("/bank-transactions/:id/candidates", async (req, res) => {
   const candidates = await findMatchCandidates(t);
   res.json(candidates);
 });
+
+// The open invoices a deposit could be the payment of, best guess first.
+financeRouter.get(
+  "/bank-transactions/:id/open-invoices",
+  validateParams(bankTransactionParamsSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as z.infer<typeof bankTransactionParamsSchema>;
+    const t = await AppDataSource.getRepository(BankTransaction).findOneBy({ id, companyId: cid });
+    if (!t) return res.status(404).json({ error: "Transaction not found" });
+    res.json(await openInvoicesForBankTransaction(t));
+  },
+);
+
+const payInvoiceSchema = z.object({ invoiceId: z.string().uuid() });
+
+// Mark an invoice paid with this deposit: records the payment on the invoice
+// and matches the deposit to it in one step.
+financeRouter.post(
+  "/bank-transactions/:id/pay-invoice",
+  validateParams(bankTransactionParamsSchema),
+  validateBody(payInvoiceSchema),
+  async (req, res) => {
+    const { cid, id } = req.params as z.infer<typeof bankTransactionParamsSchema>;
+    const t = await AppDataSource.getRepository(BankTransaction).findOneBy({ id, companyId: cid });
+    if (!t) return res.status(404).json({ error: "Transaction not found" });
+    const body = req.body as z.infer<typeof payInvoiceSchema>;
+    let paid: Awaited<ReturnType<typeof payInvoiceFromBankTransaction>>;
+    try {
+      paid = await payInvoiceFromBankTransaction(t, body.invoiceId, req.userId ?? null);
+    } catch (err) {
+      return res
+        .status(err instanceof InvoicePaymentError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+    await auditInvoicePayment(req, paid.invoice, paid.recorded, t.amountCents, "bank_transfer");
+    const [hydrated] = await hydrateBankTransactions(cid, [paid.transaction]);
+    res.json(hydrated);
+  },
+);
 
 const matchSchema = z.object({
   paymentId: z.string().uuid().nullable().optional(),
@@ -3459,25 +3385,40 @@ financeRouter.post("/bank-transactions/:id/match", validateBody(matchSchema), as
   const body = req.body as z.infer<typeof matchSchema>;
   try {
     const fresh = await manualMatch(t, body, req.userId ?? null);
-    const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+    const [hydrated] = await hydrateBankTransactions(cid, [fresh]);
     res.json(hydrated);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
 });
 
+// Undo whatever explains the transaction and put it back to review: a category
+// is reversed, and a payment Banking recorded from this deposit comes off its
+// invoice again. A payment recorded on the invoice itself stays there.
 financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const repo = AppDataSource.getRepository(BankTransaction);
   const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
   if (!t) return res.status(404).json({ error: "Transaction not found" });
+  let undone: Awaited<ReturnType<typeof undoBankTransaction>>;
   try {
-    const fresh = await unmatch(t);
-    const [hydrated] = await hydrateBankTxns(cid, [fresh]);
-    res.json(hydrated);
+    undone = await undoBankTransaction(t, req.userId ?? null);
   } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
+    return res
+      .status(err instanceof InvoicePaymentError ? err.status : 400)
+      .json({ error: (err as Error).message });
   }
+  if (undone.removedPayment) {
+    const { invoice, payment } = undone.removedPayment;
+    await auditFinance(
+      req,
+      "finance.invoice.payment.delete",
+      { type: "invoice", id: invoice.id, label: invoice.number || "Invoice" },
+      { amountCents: payment.amountCents, balanceCents: invoice.balanceCents },
+    );
+  }
+  const [hydrated] = await hydrateBankTransactions(cid, [undone.transaction]);
+  res.json(hydrated);
 });
 
 const categorizeSchema = z.object({ accountId: z.string().uuid() });
@@ -3502,7 +3443,7 @@ financeRouter.post(
         targetLabel: t.description || t.reference || t.id,
         metadata: { accountId: body.accountId, amountCents: t.amountCents },
       });
-      const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+      const [hydrated] = await hydrateBankTransactions(cid, [fresh]);
       res.json(hydrated);
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
