@@ -84,6 +84,8 @@ import HomePage from "./pages/Home";
 import TldrsLayout from "./pages/TldrsLayout";
 import TldrsIndex from "./pages/TldrsIndex";
 import TldrSettingsPage from "./pages/TldrSettings";
+import BoardLettersPage from "./pages/BoardLetters";
+import BoardLetterPage from "./pages/BoardLetter";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
@@ -446,9 +448,12 @@ function CompanyRoutes({
           />
 
           {/* What happened — periodic company briefings written by a selected
-            AI Employee, and the Journal they summarise. */}
+            AI Employee, the monthly letter to the board, and the Journal they
+            summarise. */}
           <Route path="tldrs" element={<TldrsLayout company={company} />}>
             <Route index element={<TldrsIndex />} />
+            <Route path="letters" element={<BoardLettersPage />} />
+            <Route path="letters/:number" element={<BoardLetterPage />} />
             <Route path="journal" element={<Inbox company={company} />} />
             <Route path="settings" element={<TldrSettingsPage />} />
           </Route>

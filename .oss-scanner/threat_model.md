@@ -270,7 +270,10 @@ Most, roughly in order:
    the only path that creates a Decision. An AI Employee's Goal report
    (`App/server/services/goals.ts`) reaches only Goals it owns or its
    Routines serve and never settles one, and the Explore MCP tools refuse to
-   change the SQL of, or delete, a Chart a Goal reads.
+   change the SQL of, or delete, a Chart a Goal reads. Letters to the board
+   (`App/server/services/boardLetters.ts`) are owner/admin-only, reads
+   included; no MCP tool writes a letter, changes its figures, trace or
+   audit, or appoints the auditor, which is never the letter's writer.
 6. **Mail automation**: the analysis action allowlist
    (`App/server/services/mail/analysisAutomation.ts`: star, mark read,
    archive, a label the cited instruction names, and the email's own verified
@@ -431,7 +434,7 @@ self-hosted install: single-tenant, host execution, SQLite.
 - Privilege escalation within a Company: Member to admin or owner, Finance
   `none` or `read` to writing Finance data, or a Member reaching admin-only
   data (the audit log, Approval payloads, Genosyn-browser recordings, Secret
-  values) or admin-only actions.
+  values, letters to the board) or admin-only actions.
 - A Member getting host command execution, or coding, browser, company MCP,
   or Memory tools, outside the work-session path the Company enabled.
   Examples: through chat, through another employee's authority, on a
@@ -439,8 +442,9 @@ self-hosted install: single-tenant, host execution, SQLite.
 - Bypassing a human gate: performing a held action without its Approval,
   changing what an Approval replays after it was granted, acting while a
   Standdown covers the scope, an AI Employee or Member writing a Check or
-  Waiver or lifting a Standdown, or an AI Employee settling a Goal or
-  changing the SQL of, or deleting, a Chart a Goal reads.
+  Waiver or lifting a Standdown, or an AI Employee settling a Goal,
+  changing the SQL of, or deleting, a Chart a Goal reads, appointing or
+  replacing the board's auditor, or changing a letter's figures or audit.
 - Bypassing a Grant: an AI Employee using a Connection, Vault item,
   Repository, Base, mailbox, or Project it was not granted. Also a Vault
   `use` Grant returning plaintext to the model, or Vault fill typing into

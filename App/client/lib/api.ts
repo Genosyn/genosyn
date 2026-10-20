@@ -3587,7 +3587,9 @@ export type NotificationKind =
   /** A monthly ad-spend Budget refused an increase — the envelope is spent. */
   | "budget_exhausted"
   /** An employee filed an Initiative — standing work awaiting a human. */
-  | "initiative_pending";
+  | "initiative_pending"
+  /** The monthly letter to the board is written, traced and audited. */
+  | "board_letter_ready";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -3605,7 +3607,8 @@ export type NotificationEntityKind =
   | "revision_proposal"
   | "employee"
   | "budget"
-  | "initiative";
+  | "initiative"
+  | "board_letter";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -4377,6 +4380,172 @@ export type TldrSettings = {
 export const MAX_STANDING_QUESTIONS = 8;
 
 export type TldrGenerateResponse = { status: "created"; tldr: TldrItem } | { status: "empty" };
+
+// ──────────────────────── Letters to the board ────────────────────────────
+
+export type BoardLetterStatus = "writing" | "auditing" | "ready" | "failed";
+
+/**
+ * The auditor's opinion. `unverified` and `not_appointed` both mean nobody
+ * audited the letter; neither is ever shown as clean.
+ */
+export type BoardLetterAuditStatus =
+  | "pending"
+  | "clean"
+  | "exceptions"
+  | "unverified"
+  | "not_appointed";
+
+export type BoardLetterEmployee = {
+  id: string | null;
+  name: string;
+  role: string;
+  slug: string;
+  avatarKey: string | null;
+};
+
+export type LetterFigureGroup = "goals" | "money" | "work" | "decisions";
+
+export type LetterFigure = {
+  key: string;
+  group: LetterFigureGroup;
+  label: string;
+  kind: "money" | "count" | "percent" | "number";
+  value: number;
+  display: string;
+  source: string;
+  /** A page under `/c/<slug>` that shows the same number. */
+  href: string | null;
+  note?: string;
+};
+
+export type LetterGoal = {
+  id: string;
+  title: string;
+  unit: string;
+  direction: "increase_to" | "decrease_to";
+  status: "active" | "achieved" | "missed" | "archived";
+  current: number | null;
+  target: number;
+  start: number | null;
+  progress: number | null;
+  met: boolean;
+  basis: "member" | "employee" | "chart" | null;
+  awaitingConfirmation: boolean;
+  updatedAt: string | null;
+  dueAt: string | null;
+  settledAt: string | null;
+};
+
+export type LetterFigures = {
+  version: 1;
+  computedAt: string;
+  month: string;
+  timeZone: string;
+  periodStart: string;
+  periodEnd: string;
+  ledgerFrom: string;
+  ledgerTo: string;
+  currency: string | null;
+  goals: LetterGoal[];
+  figures: LetterFigure[];
+};
+
+export type LetterEvidence = {
+  goals: Array<{ title: string; description: string; status: string }>;
+  briefings: Array<{ at: string; title: string; summary: string }>;
+  failures: Array<{
+    routine: string;
+    employee: string;
+    count: number;
+    lastAt: string;
+    lastStatus: string;
+    reasons: string[];
+  }>;
+  lessons: Array<{ at: string; employee: string; routine: string; cause: string; advice: string }>;
+  standdowns: Array<{
+    placedAt: string;
+    liftedAt: string | null;
+    scope: string;
+    reason: string;
+    liftedReason: string;
+  }>;
+  decisions: Array<{ at: string; title: string; status: string; answer: string | null }>;
+  truncated: boolean;
+};
+
+export type LetterTraceToken = {
+  text: string;
+  start: number;
+  end: number;
+  kind: "money" | "percent" | "plain";
+  value: number;
+};
+
+export type LetterTrace = {
+  traced: Array<LetterTraceToken & { figureKey: string }>;
+  untraced: LetterTraceToken[];
+};
+
+export type AuditFinding = { quote: string; problem: string };
+
+export type BoardLetterSummary = {
+  id: string;
+  number: number;
+  month: string;
+  monthLabel: string;
+  status: BoardLetterStatus;
+  auditStatus: BoardLetterAuditStatus;
+  summary: string;
+  untracedCount: number;
+  findingsCount: number;
+  writer: BoardLetterEmployee;
+  auditor: BoardLetterEmployee | null;
+  triggerKind: "schedule" | "manual";
+  attempts: number;
+  retryAt: string | null;
+  errorMessage: string;
+  createdAt: string;
+  writtenAt: string | null;
+  auditedAt: string | null;
+  deliveredAt: string | null;
+};
+
+export type BoardLetter = BoardLetterSummary & {
+  periodStart: string;
+  periodEnd: string;
+  timeZone: string;
+  body: string;
+  figures: LetterFigures | null;
+  evidence: LetterEvidence | null;
+  trace: { summary: LetterTrace; body: LetterTrace };
+  audit: { note: string; findings: AuditFinding[] };
+};
+
+export type BoardLetterSettings = {
+  enabled: boolean;
+  enabledAt: string | null;
+  writer: BoardLetterEmployee | null;
+  auditor: BoardLetterEmployee | null;
+  auditorAppointedAt: string | null;
+  auditorAppointedBy: { id: string; name: string } | null;
+  timeZone: string;
+  lastMonth: {
+    month: string;
+    label: string;
+    letterNumber: number | null;
+    status: BoardLetterStatus | null;
+    canWrite: boolean;
+  };
+  nextLetter: { month: string; label: string; dueAt: string } | null;
+  waiting: string | null;
+  lastError: string;
+};
+
+export type BoardLetterListResponse = {
+  settings: BoardLetterSettings;
+  letters: BoardLetterSummary[];
+};
 
 // ─────────────────────────── Finance (M19) ───────────────
 

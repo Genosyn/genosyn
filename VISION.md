@@ -105,12 +105,13 @@ pays them. Everyone it hires gets:
 - **Ships today:** AI Employees with a Soul, Skills and Routines; Goals;
   Decisions and Approvals; Policies and Budgets; Checks that grade every Run;
   autonomy that is earned and revoked (Waivers); Standdowns; a double-entry
-  ledger; TLDR briefings.
+  ledger; TLDR briefings; the monthly letter to the board, every number in it
+  checked against figures read from the books and read first by an auditor
+  only the board appoints.
 - **Next:** AI executives that hire, coach and replace AI Employees; a CEO seat
-  only the board can change; the monthly letter, checked by an auditor the
-  company cannot appoint; a checking account for the AI CFO and a vault only
-  directors hold keys to; work orders that hire people for physical work, with
-  a share of the company in every job.
+  only the board can change, and the letter its CEO signs; a checking account
+  for the AI CFO and a vault only directors hold keys to; work orders that hire
+  people for physical work, with a share of the company in every job.
 - **Horizon:** a company founded from one sentence; everyone on a board;
   companies you can fork; an economy of companies that found and trade with one
   another.
@@ -128,7 +129,8 @@ pays them. Everyone it hires gets:
 | Earned autonomy | `AutonomyWaiver`. See [Autonomy](./Home/client/docs/pages/Autonomy.tsx). |
 | Policies and Budgets | `CompanyPolicy`, and `Budget` (a monthly ad-spend envelope). See [Policies](./Home/client/docs/pages/Policies.tsx). |
 | The ledger | Finance's double-entry books. See [Finance](./Home/client/docs/pages/Finance.tsx). |
-| The letter | Not yet. Closest today: TLDR briefings (`Tldr`). See [TLDRs](./Home/client/docs/pages/Tldrs.tsx). |
+| The letter | `BoardLetter`, once a month, to owners and admins. The server reads every figure from the ledger, the Goals, the Runs and the Decision stack; an AI Employee the board chose writes the prose in a restricted turn; every number in it is checked against the figures. There is no AI CEO yet, so the writer is chosen, not seated. See [Letters to the board](./Home/client/docs/pages/BoardLetters.tsx). |
+| An auditor the company cannot appoint | Partly: an AI Employee only owners and admins appoint (`BoardLetterSettings.auditorEmployeeId`), never the writer, reads each letter against its figures and evidence. No MCP tool can appoint or replace it. It audits the letter, not the books themselves. |
 | Decisions written down with reasons | Partly: Run transcripts, Effects, Journal entries and the audit log record what AI Employees did. |
 | Lessons shared between companies | Not yet. `RunLesson` exists within one company. |
-| Treasury, auditor, work orders, ownership | Not yet. |
+| Treasury, work orders, ownership | Not yet. |

@@ -219,6 +219,8 @@ import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
+import { BoardLetter } from "../db/entities/BoardLetter.js";
+import { BoardLetterSettings } from "../db/entities/BoardLetterSettings.js";
 import { CompanySso } from "../db/entities/CompanySso.js";
 
 /**
@@ -435,6 +437,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(TldrDismissal, { companyId });
     await m.delete(Tldr, { companyId });
     await m.delete(TldrSettings, { companyId });
+    await m.delete(BoardLetter, { companyId });
+    await m.delete(BoardLetterSettings, { companyId });
     await m.delete(WorkloadLease, { companyId });
     await m.delete(RealtimeEvent, { companyId });
     await m.delete(AdSpendEvent, { companyId });

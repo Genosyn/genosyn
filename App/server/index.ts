@@ -124,6 +124,7 @@ import { navigationRouter } from "./routes/navigation.js";
 import { workTimelineRouter } from "./routes/workTimeline.js";
 import { employeeWorkQueueRouter } from "./routes/employeeWorkQueue.js";
 import { tldrsRouter } from "./routes/tldrs.js";
+import { boardLettersRouter } from "./routes/boardLetters.js";
 import { searchRouter } from "./routes/search.js";
 import { systemHealthRouter } from "./routes/systemHealth.js";
 import { pushRouter } from "./routes/push.js";
@@ -461,6 +462,9 @@ async function main() {
   app.use("/api/companies/:cid", employeeWorkQueueRouter);
   // Scheduled company briefs: configuration, history, and per-Member dismissal.
   app.use("/api/companies/:cid", tldrsRouter);
+  // The monthly letter to the board, its writer and its auditor. Owners and
+  // admins only, reads included.
+  app.use("/api/companies/:cid", boardLettersRouter);
   // Company-wide quick search — entity results for the ⌘K palette.
   app.use("/api/companies/:cid", searchRouter);
   // Which sections the palette lists, and what waits beside the Decision stack.

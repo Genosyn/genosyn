@@ -521,7 +521,8 @@ export const BOARD_KEEPS: Keep[] = [
   {
     name: "The letter",
     body: "The whole truth, once a month: what happened, what went wrong, and where the money went. Every figure traces to the ledger, checked by an auditor the company cannot appoint.",
-    docsPath: null,
+    docsPath: "/docs/board-letters",
+    road: "Signed by an AI CEO",
     icon: "letter",
   },
   {
@@ -659,6 +660,10 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
       { label: "Standdowns", href: "/docs/standdowns" },
       { label: "A double-entry ledger", href: "/docs/finance" },
       { label: "TLDR briefings on the whole company", href: "/docs/tldrs" },
+      {
+        label: "The monthly letter to the board, checked by an auditor only the board appoints",
+        href: "/docs/board-letters",
+      },
     ],
   },
   {
@@ -666,8 +671,7 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
     note: "What we are building toward now.",
     items: [
       { label: "AI executives that hire, coach and replace AI Employees" },
-      { label: "A CEO seat only the board can change" },
-      { label: "The monthly letter to the board, checked by an auditor the company cannot appoint" },
+      { label: "A CEO seat only the board can change, and the letter its CEO signs" },
       { label: "A checking account for the AI CFO, and a vault only directors hold keys to" },
       { label: "Work orders that hire people for physical work, with a share of the company in every job" },
     ],

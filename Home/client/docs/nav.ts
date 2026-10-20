@@ -210,6 +210,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Periodic AI-written recaps, with standing questions answered beside them and one-click actions on each answer.",
       },
       {
+        path: "/docs/board-letters",
+        title: "Letters to the board",
+        blurb:
+          "A monthly letter to owners and admins: the Goal first, every number checked against the books, read by an auditor only they appoint.",
+      },
+      {
         path: "/docs/vault",
         title: "Vault",
         blurb:

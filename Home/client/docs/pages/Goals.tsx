@@ -206,6 +206,11 @@ export function Goals() {
         picks the one that moves a number the company actually wrote down — without anyone pasting
         strategy into a brief.
       </P>
+      <P>
+        The monthly <DocLink to="/docs/board-letters">letter to the board</DocLink> opens with the
+        same top-level Goals: where each stands, and whether its number came from a person, a
+        Chart, or an AI Employee no person has confirmed.
+      </P>
 
       <H2 id="routines">Goals and Routines</H2>
       <P>

@@ -313,6 +313,7 @@ describe("subpage visibility", () => {
       "/settings/sso",
       "/settings/usage",
       "/skills/new",
+      "/tldrs/letters",
       "/vault/integrations",
     ]);
   });
