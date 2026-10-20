@@ -169,12 +169,16 @@ describe("SectionRailLinks", () => {
       h(SectionRailLinks, { section: "finance", companySlug: "acme" }),
     );
     assert.deepEqual(headings(finance), [
-      { text: "Ledger", spacing: "pt-3" },
+      { text: "Sales", spacing: "pt-3" },
+      { text: "Purchases", spacing: "pt-3" },
+      { text: "Accounting", spacing: "pt-3" },
       { text: "Catalog", spacing: "pt-3" },
     ]);
-    const ledger = finance.indexOf(">Ledger<");
-    assert.ok(ledger > finance.indexOf("Vendor credits"));
-    assert.ok(ledger < finance.indexOf("Transactions"));
+    // Overview and Banking lead the rail without a heading of their own.
+    assert.ok(finance.indexOf(">Sales<") > finance.indexOf("Banking"));
+    const accounting = finance.indexOf(">Accounting<");
+    assert.ok(accounting > finance.indexOf("Vendor credits"));
+    assert.ok(accounting < finance.indexOf("Entry review"));
 
     const settings = renderAt(
       "settings/company",
@@ -338,7 +342,7 @@ describe("SectionRailLinks", () => {
         h(SectionRailLinks, { section: "finance", companySlug: "acme", viewer }),
       );
     // Every Finance page needs at least Read, so None leaves no links, and no
-    // "Ledger" or "Catalog" heading standing over an empty group.
+    // "Accounting" or "Catalog" heading standing over an empty group.
     assert.equal(finance(memberNoFinance), "");
     // Read opens every rail page: the create forms that need Full aren't on it.
     assert.equal(finance(memberReadOnly), finance());
