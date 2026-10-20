@@ -1,5 +1,5 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { X } from "lucide-react";
 import {
   AccountActivityReport,
@@ -18,6 +18,7 @@ import {
   ReportEnvelope,
   ReportRow,
 } from "../lib/api";
+import { parseFinanceReportLink } from "../../shared/financeReportLink";
 import { Breadcrumbs } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -60,8 +61,12 @@ function dateInputValue(d: Date): string {
  */
 export default function FinanceReports() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const [tab, setTab] = React.useState<Tab>("income");
-  const [preset, setPreset] = React.useState<PeriodPreset>("this_year");
+  // A link from elsewhere — a letter to the board's money figure — opens the
+  // report it names on the dates it was read for. Read once, on arrival.
+  const [searchParams] = useSearchParams();
+  const [linked] = React.useState(() => parseFinanceReportLink(searchParams));
+  const [tab, setTab] = React.useState<Tab>(linked?.report ?? "income");
+  const [preset, setPreset] = React.useState<PeriodPreset>(linked ? "custom" : "this_year");
   const [compare, setCompare] = React.useState(false);
   // Drill-through state: when set, render the side panel for this
   // account + period. Cleared when the user closes it.
@@ -70,8 +75,10 @@ export default function FinanceReports() {
   );
 
   const range = React.useMemo(() => rangeFromPreset(preset), [preset]);
-  const [customFrom, setCustomFrom] = React.useState(() => dateInputValue(range.from));
-  const [customTo, setCustomTo] = React.useState(() => dateInputValue(range.to));
+  const [customFrom, setCustomFrom] = React.useState(
+    () => linked?.from ?? dateInputValue(range.from),
+  );
+  const [customTo, setCustomTo] = React.useState(() => linked?.to ?? dateInputValue(range.to));
 
   // Sync custom inputs to preset selection so switching from a preset to
   // custom remembers what the preset showed.

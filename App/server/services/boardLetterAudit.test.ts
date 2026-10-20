@@ -65,7 +65,7 @@ function context(): LetterContext {
           count: 3,
           lastAt: "2026-09-20T00:00:00.000Z",
           lastStatus: "failed",
-          lastReason: "Bank feed down",
+          reasons: ["Bank feed down"],
         },
       ],
       lessons: [],

@@ -495,7 +495,11 @@ describe("evidence", () => {
     assert.equal(failure.employee, "Ada");
     assert.equal(failure.count, 2);
     assert.equal(failure.lastAt, "2026-09-20T10:00:00.000Z");
-    assert.doesNotMatch(failure.lastReason, /SECRETSECRET/);
+    // Both reasons, newest first, the secret in one of them redacted.
+    assert.equal(failure.reasons.length, 2);
+    assert.match(failure.reasons[0], /^Login failed with key /);
+    assert.doesNotMatch(failure.reasons[0], /SECRETSECRET/);
+    assert.equal(failure.reasons[1], "The inverter API was down");
     // Briefings arrive as data: whitespace collapsed, wording untouched.
     assert.deepEqual(evidence.briefings, [
       {

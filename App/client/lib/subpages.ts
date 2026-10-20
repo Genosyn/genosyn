@@ -257,6 +257,23 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
   ],
   tldrs: [
     { label: "Briefings", path: "/tldrs", icon: FileText, keywords: ["tldr feed", "recaps"] },
+    // The monthly letter to the board. Owners and admins only: it is addressed
+    // to them and carries the company's money figures.
+    {
+      label: "Letters to the board",
+      navLabel: "Letters",
+      path: "/tldrs/letters",
+      icon: ScrollText,
+      access: ADMIN,
+      keywords: [
+        "board letter",
+        "monthly letter",
+        "letter to the board",
+        "auditor",
+        "owners",
+        "monthly update",
+      ],
+    },
     // Today's journal entries across every AI Employee — the raw record the
     // briefings summarise. It was a section of its own, called Journal.
     {

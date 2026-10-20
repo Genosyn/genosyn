@@ -17,6 +17,7 @@ import { Run } from "../db/entities/Run.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { Standdown } from "../db/entities/Standdown.js";
 import { Tldr } from "../db/entities/Tldr.js";
+import { financeReportHref } from "../../shared/financeReportLink.js";
 import { DEFAULT_CURRENCY, formatMoney } from "../lib/money.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
 import { type LetterMonth, monthAYearEarlier, ledgerDates } from "./boardLetterPeriods.js";
@@ -108,7 +109,8 @@ export type LetterEvidence = {
     count: number;
     lastAt: string;
     lastStatus: string;
-    lastReason: string;
+    /** Up to three distinct reasons, newest first. */
+    reasons: string[];
   }>;
   lessons: Array<{ at: string; employee: string; routine: string; cause: string; advice: string }>;
   standdowns: Array<{
@@ -128,6 +130,7 @@ const MAX_TOP_EXPENSES = 5;
 const MAX_BRIEFINGS = 40;
 const MAX_FAILED_RUNS_READ = 500;
 const MAX_FAILURE_ROUTINES = 20;
+const MAX_FAILURE_REASONS = 3;
 const MAX_LESSONS = 20;
 const MAX_STANDDOWNS = 10;
 const MAX_DECISIONS = 20;
@@ -278,10 +281,6 @@ function goalFigures(goals: LetterGoal[]): LetterFigure[] {
 
 // ──────────────────────────────── Money ──────────────────────────────────
 
-function reportHref(report: "income" | "cashflow", from: string, to: string): string {
-  return `/finance/reports?report=${report}&from=${from}&to=${to}`;
-}
-
 function utcDate(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);
 }
@@ -321,8 +320,8 @@ async function moneyFigures(
   const prior = points.length >= 2 ? points[points.length - 2] : null;
   const aYearAgo = points.length >= 13 ? points[0] : null;
 
-  const pnl = reportHref("income", month.ledgerFrom, month.ledgerTo);
-  const cash = reportHref("cashflow", month.ledgerFrom, month.ledgerTo);
+  const pnl = financeReportHref("income", month.ledgerFrom, month.ledgerTo);
+  const cash = financeReportHref("cashflow", month.ledgerFrom, month.ledgerTo);
   const dates = `${month.ledgerFrom} to ${month.ledgerTo}`;
   const money = (
     key: string,
@@ -402,7 +401,7 @@ async function moneyFigures(
         "Revenue the month before",
         prior.revenue,
         `Profit and loss, ${priorDates.ledgerFrom} to ${priorDates.ledgerTo}: total revenue`,
-        reportHref("income", priorDates.ledgerFrom, priorDates.ledgerTo),
+        financeReportHref("income", priorDates.ledgerFrom, priorDates.ledgerTo),
       ),
     );
     const change = percentChange(current.revenue, prior.revenue);
@@ -425,7 +424,7 @@ async function moneyFigures(
         "Revenue in the same month a year earlier",
         aYearAgo.revenue,
         `Profit and loss, ${yearAgo.ledgerFrom} to ${yearAgo.ledgerTo}: total revenue`,
-        reportHref("income", yearAgo.ledgerFrom, yearAgo.ledgerTo),
+        financeReportHref("income", yearAgo.ledgerFrom, yearAgo.ledgerTo),
       ),
     );
     const growth = percentChange(current.revenue, aYearAgo.revenue);
@@ -935,22 +934,28 @@ async function failureEvidence(
   const byRoutine = new Map<string, LetterEvidence["failures"][number]>();
   for (const run of runs.slice(0, MAX_FAILED_RUNS_READ)) {
     const routine = routines.get(run.routineId);
-    const existing = byRoutine.get(run.routineId);
-    if (existing) {
-      existing.count += 1;
-      continue;
+    const reason = cleanEvidenceText(
+      run.failureReason || (run.errorKind ? `Stopped by ${run.errorKind}` : ""),
+      SHORT_TEXT,
+    );
+    let row = byRoutine.get(run.routineId);
+    if (!row) {
+      row = {
+        routine: routine?.name ?? "A deleted Routine",
+        employee: (routine && names.get(routine.employeeId)) || "A former AI Employee",
+        count: 0,
+        lastAt: run.startedAt.toISOString(),
+        lastStatus: run.status,
+        reasons: [],
+      };
+      byRoutine.set(run.routineId, row);
     }
-    byRoutine.set(run.routineId, {
-      routine: routine?.name ?? "A deleted Routine",
-      employee: (routine && names.get(routine.employeeId)) || "A former AI Employee",
-      count: 1,
-      lastAt: run.startedAt.toISOString(),
-      lastStatus: run.status,
-      lastReason: cleanEvidenceText(
-        run.failureReason || (run.errorKind ? `Stopped by ${run.errorKind}` : ""),
-        SHORT_TEXT,
-      ),
-    });
+    row.count += 1;
+    // The newest failure is not always the telling one: a timeout after a
+    // week of outages would otherwise hide the outages.
+    if (reason && !row.reasons.includes(reason) && row.reasons.length < MAX_FAILURE_REASONS) {
+      row.reasons.push(reason);
+    }
   }
   const rows = [...byRoutine.values()].sort(
     (a, b) => b.count - a.count || b.lastAt.localeCompare(a.lastAt),

@@ -14,6 +14,7 @@ import {
   Lightbulb,
   Mail,
   PiggyBank,
+  ScrollText,
   ShieldAlert,
   ShieldCheck,
   Target,
@@ -416,6 +417,8 @@ function KindIcon({
       return <PiggyBank size={size} className={className} />;
     case "initiative_pending":
       return <Lightbulb size={size} className={className} />;
+    case "board_letter_ready":
+      return <ScrollText size={size} className={className} />;
   }
 }
 
@@ -499,6 +502,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   initiative_pending: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  board_letter_ready: {
+    iconBg: "bg-violet-100 dark:bg-violet-500/15",
+    iconFg: "text-violet-600 dark:text-violet-300",
   },
 };
 
