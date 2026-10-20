@@ -22,11 +22,7 @@ import { approvalInboxSelect } from "./approvalInbox.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 import type { BoardLetterSummaryDTO } from "./boardLetters.js";
-import {
-  BOARD_LETTER_NOTIFICATION_KIND,
-  canReadBoardLetters,
-  listUnreadBoardLetters,
-} from "./boardLetterReads.js";
+import { listUnreadBoardLetters, notificationKindsHiddenFrom } from "./boardLetterReads.js";
 import { findLiveRunFailures } from "./runFailures.js";
 import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runContinuationView.js";
 import { listHomeRepositoryWork, type HomeRepositoryWork } from "./homeRepositoryWork.js";
@@ -403,7 +399,7 @@ export async function getHomeData(params: {
   // A letter to the board is owner/admin-only, reads included, so a Member's
   // Home carries none of one: not the letter, and not the bell row a former
   // admin still holds from when they were on the board.
-  const hiddenNotificationKinds = canReadBoardLetters(role) ? [] : [BOARD_LETTER_NOTIFICATION_KIND];
+  const hiddenNotificationKinds = notificationKindsHiddenFrom(role);
   const [
     notifications,
     unreadNotificationCount,
