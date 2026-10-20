@@ -1,6 +1,6 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { useOutletContext, useSearchParams } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   ChevronRight,
@@ -20,8 +20,10 @@ import {
   LedgerBulkAction,
   LedgerBulkResult,
   LedgerEntry,
+  LedgerLine,
   LedgerReviewStatus,
 } from "../lib/api";
+import { isCardCategoryEntry } from "../../shared/cardCategory";
 import { errorMessage } from "../lib/errors";
 import { isDeletableManualEntry, ledgerSourceLabel } from "../lib/ledgerSources";
 import { canWriteFinance } from "../lib/subpages";
@@ -231,6 +233,11 @@ export default function FinanceTransactions() {
   const someSelected = selectedInView > 0 && !allSelected;
 
   const anyApprovable = selectedEntries.some((entry) => entry.reviewStatus !== "approved");
+  // A card purchase's category is changed on Banking, so a selection of only
+  // card purchases has nothing Change category could move.
+  const anyRecategorizable = selectedEntries.some(
+    (entry) => entry.reviewStatus !== "approved" && !isCardCategoryEntry(entry),
+  );
   const anyReturnable = selectedEntries.some((entry) => entry.reviewStatus === "ai_reviewed");
   const anyDeletable = selectedEntries.some(isDeletableManualEntry);
 
@@ -455,7 +462,7 @@ export default function FinanceTransactions() {
                           <Undo2 size={14} /> Return
                         </Button>
                       )}
-                      {canApprove && anyApprovable && (
+                      {canApprove && anyRecategorizable && (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -577,6 +584,7 @@ export default function FinanceTransactions() {
         <TransactionReviewModal
           key={`${selected.id}-${selected.reviewStatus}-${selected.reviewedAt ?? ""}`}
           companyId={company.id}
+          companySlug={company.slug}
           homeCurrency={homeCurrency}
           canApprove={company.role === "owner" || company.role === "admin"}
           entry={selected}
@@ -682,7 +690,8 @@ function BulkCategoryModal({
       <p className="text-sm text-slate-600 dark:text-slate-300">
         Give {count} selected {noun} one category and approve them. Each
         entry&apos;s single income or expense line moves to the category you pick; entries with no
-        such line, or more than one, are skipped so you can open them one at a time.
+        such line, or more than one, are skipped so you can open them one at a time. Card
+        purchases are skipped too: change their category on Banking.
       </p>
       <label className="relative mt-4 block">
         <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
@@ -750,6 +759,7 @@ function BulkCategoryModal({
 
 function TransactionReviewModal({
   companyId,
+  companySlug,
   homeCurrency,
   canApprove,
   entry,
@@ -758,6 +768,7 @@ function TransactionReviewModal({
   onChanged,
 }: {
   companyId: string;
+  companySlug: string;
   homeCurrency: string;
   canApprove: boolean;
   entry: LedgerEntry;
@@ -790,8 +801,23 @@ function TransactionReviewModal({
   );
   useAskAiPageContext(askAiRef);
 
+  // A card purchase's lines show where its first entry put the money, which
+  // Banking may since have moved, so its category is changed there and never
+  // picked here (`shared/cardCategory.ts`).
+  const cardPurchase = isCardCategoryEntry(entry);
+  function isCategoryLine(line: LedgerLine): boolean {
+    const type = accountById.get(line.accountId)?.type;
+    return type === "expense" || type === "revenue";
+  }
+
   const changes = entry.lines
-    .filter((line) => categories[line.id] && categories[line.id] !== line.accountId)
+    .filter(
+      (line) =>
+        !cardPurchase &&
+        isCategoryLine(line) &&
+        categories[line.id] &&
+        categories[line.id] !== line.accountId,
+    )
     .map((line) => ({ lineId: line.id, accountId: categories[line.id] }));
 
   async function approve() {
@@ -890,7 +916,13 @@ function TransactionReviewModal({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {entry.lines.map((line) => {
               const current = accountById.get(line.accountId);
-              const editable = current?.type === "expense" || current?.type === "revenue";
+              const categoryLine = isCategoryLine(line);
+              // With no picker to preselect it in, a category an AI Employee
+              // proposed for a card purchase (before that was refused) is
+              // spelled out, so approving doesn't quietly drop it.
+              const suggested = cardPurchase
+                ? accountById.get(proposedByLine.get(line.id) ?? "")
+                : undefined;
               return (
                 <tr key={line.id}>
                   <td className="px-3 py-3">
@@ -902,7 +934,7 @@ function TransactionReviewModal({
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    {editable ? (
+                    {categoryLine && !cardPurchase ? (
                       <Select
                         value={categories[line.id] ?? line.accountId}
                         onChange={(event) =>
@@ -930,7 +962,20 @@ function TransactionReviewModal({
                           {current ? `${current.code} ${current.name}` : "Missing account"}
                         </div>
                         <div className="mt-0.5 text-xs text-slate-400">
-                          Where the money sat — its category doesn&apos;t change here
+                          {categoryLine ? (
+                            <>
+                              {suggested && `Suggested: ${suggested.code} ${suggested.name}. `}
+                              A card purchase&apos;s category is changed on{" "}
+                              <Link
+                                to={`/c/${companySlug}/finance/banking?status=done`}
+                                className="text-indigo-600 hover:underline dark:text-indigo-400"
+                              >
+                                Banking
+                              </Link>
+                            </>
+                          ) : (
+                            <>Where the money sat — its category doesn&apos;t change here</>
+                          )}
                         </div>
                       </div>
                     )}

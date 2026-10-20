@@ -6,6 +6,7 @@ import { LedgerEntry, type LedgerReviewStatus } from "../db/entities/LedgerEntry
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Company } from "../db/entities/Company.js";
+import { CARD_CATEGORY_ON_BANKING, isCardCategoryEntry } from "../../shared/cardCategory.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { createNotifications } from "./notifications.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
@@ -164,6 +165,11 @@ async function validateReviewChanges(
   changes: LedgerReviewChangeInput[],
 ): Promise<LedgerReviewChange[]> {
   if (changes.length === 0) return [];
+  // A reclass here would move money out of the line as first posted, which a
+  // card purchase may have left on Banking — and Banking would never hear of
+  // it. Even a "change" to the posted category is refused: the purchase may be
+  // filed somewhere else now, so it would not do what it says.
+  if (isCardCategoryEntry(entry)) throw new Error(CARD_CATEGORY_ON_BANKING);
   const lineIds = changes.map((change) => change.lineId);
   if (new Set(lineIds).size !== lineIds.length) {
     throw new Error("Each ledger line can have only one category change");
@@ -404,7 +410,8 @@ async function deleteLedgerEntry(companyId: string, entryId: string): Promise<vo
  *  category and approve it in the same step (posting a reclass is itself the
  *  human sign-off). Transactions whose editable line does not match the target
  *  account type, or that carry more than one such line, are skipped so the
- *  owner can open them and decide by hand. */
+ *  owner can open them and decide by hand. Card purchases are skipped too:
+ *  their category is changed on Banking (`shared/cardCategory.ts`). */
 async function recategorizeBatch(args: {
   companyId: string;
   userId: string;
@@ -439,6 +446,9 @@ async function recategorizeBatch(args: {
       if (entry.reviewStatus === "approved") {
         throw new Error("Already approved — locked");
       }
+      // Ahead of the line count, so a reclassification Banking posted (two
+      // expense lines) is not sent to be opened and picked by hand.
+      if (isCardCategoryEntry(entry)) throw new Error(CARD_CATEGORY_ON_BANKING);
       const candidates = entry.lines.filter(
         (line) => accountById.get(line.accountId)?.type === target.type,
       );

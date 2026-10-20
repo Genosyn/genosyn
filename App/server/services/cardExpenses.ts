@@ -337,6 +337,12 @@ export async function retryCardTransaction(transaction: CardTransaction): Promis
   return transaction;
 }
 
+/**
+ * Move a card purchase to another category: the one place its category
+ * changes (`shared/cardCategory.ts`). The reclassification moves the amount
+ * out of the category the purchase is filed under now, which only the
+ * purchase itself knows — not the category its first entry was posted to.
+ */
 export async function reclassifyCardTransaction(
   transaction: CardTransaction,
   expenseAccountId: string,
