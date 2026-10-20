@@ -640,9 +640,10 @@ export function Finance() {
         every transaction on them in one list. Mark which invoice a deposit paid — Genosyn records
         the payment on the invoice and matches the two in one step — match a transaction to a
         payment or entry already in the books, or give it a category. Card purchases are filed
-        under their card&apos;s default category as they arrive and can be changed in place.
-        Banking replaced the separate Reconciliation and Card expenses pages; their old links open
-        it. <DocLink to="/docs/banking">Banking</DocLink> covers it step by step.
+        under their card&apos;s default category as they arrive, and Banking is the one place
+        their category changes. Banking replaced the separate Reconciliation and Card expenses
+        pages; their old links open it. <DocLink to="/docs/banking">Banking</DocLink> covers it
+        step by step.
       </P>
 
       <H2 id="vendor-credits">Vendor credits</H2>
@@ -717,6 +718,13 @@ export function Finance() {
         Banking waits for it.
       </P>
       <P>
+        Card purchases are the exception. Their category is changed on{" "}
+        <DocLink to="/docs/banking#cards">Banking</DocLink>, which moves a purchase from wherever
+        it is filed now, while an entry here only shows where the purchase was first posted. So a
+        card expense, a card refund, and the reclassification entries Banking posts for them show
+        their categories without a picker, with a link to Banking, and are approved as they are.
+      </P>
+      <P>
         Category corrections are append-only. Approval writes a balanced reclassification entry and
         preserves the original posting, so the Journal and audit log show both sides of the
         decision. Nothing edits a posted ledger line in place.
@@ -726,11 +734,12 @@ export function Finance() {
         header checkbox to take the whole list) and a selection bar appears with bulk{" "}
         <Code>Approve</Code>, <Code>Return</Code>, <Code>Change category</Code>, and{" "}
         <Code>Delete</Code>. <Strong>Change category</Strong> moves each entry&apos;s single
-        income or expense line to one category and approves it in the same step. Bulk delete only
-        removes unapproved entries someone posted by hand. Every action runs per entry: rows that don&apos;t
-        qualify — already approved, auto-posted, or the wrong shape for a shared category — are
-        skipped and reported back, never silently changed. Approve, Return, and Change category stay
-        limited to owners and admins.
+        income or expense line to one category and approves it in the same step; it skips card
+        purchases, and isn&apos;t offered when only card purchases are selected. Bulk delete only
+        removes unapproved entries someone posted by hand. Every action runs per entry: rows that
+        don&apos;t qualify — already approved, auto-posted, a card purchase, or the wrong shape for
+        a shared category — are skipped and reported back, never silently changed. Approve,
+        Return, and Change category stay limited to owners and admins.
       </P>
 
       <H2 id="finance-access">Who can see and change finances</H2>
@@ -898,7 +907,8 @@ export function Finance() {
         proposals. The proposal does not change the ledger. It moves the transaction to{" "}
         <Strong>AI reviewed</Strong> and notifies company owners/admins, who accept the proposal,
         change it, or return the transaction for another look. AI Employees cannot issue final
-        approval.
+        approval. A card purchase takes no category proposal, since its category is changed on
+        Banking: the employee reviews it as it is and names the category it would use in its note.
       </P>
     </>
   );

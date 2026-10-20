@@ -191,6 +191,13 @@ export function Banking() {
         that paid it — match that payment on the bank account&apos;s side rather than categorizing
         it, or it would count twice.
       </P>
+      <P>
+        Banking is the only place a card purchase&apos;s category changes. Each change moves the
+        purchase from the category it is filed under now, so the category in the list is always
+        the one in your books, however many times you change it.{" "}
+        <DocLink to="/docs/finance#transaction-review">Entry review</DocLink> shows a card
+        purchase&apos;s entries without a category picker and approves them as they are.
+      </P>
 
       <Callout kind="tip" title="Entry review">
         Everything Banking puts in your books also appears under{" "}
