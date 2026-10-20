@@ -14,7 +14,12 @@ import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplicat
 import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { computeLineTotals, reconcilePartsToTotal, roundHalfAway } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
-import { findClosedPeriodCovering, postLedgerEntry, requireAccountsByCode } from "./ledger.js";
+import {
+  findClosedPeriodCovering,
+  postLedgerEntry,
+  requireAccountsByCode,
+  reversalAsBooked,
+} from "./ledger.js";
 import { discountOf, recomputeInvoiceTotals } from "./finance.js";
 import { discountLabel, documentTotals } from "../../shared/documentDiscount.js";
 
@@ -631,7 +636,11 @@ export async function voidCreditNote(
     sourceRefId: credit.id,
     createdById: actorUserId,
     reviewStatus: "approved",
-    lines,
+    lines: await reversalAsBooked(
+      credit.companyId,
+      { source: "credit_note_issue", sourceRefId: credit.id },
+      lines,
+    ),
   });
 
   credit.status = "void";
@@ -943,7 +952,11 @@ export async function voidCustomerRefund(
     sourceRefId: refund.id,
     createdById: actorUserId,
     reviewStatus: "approved",
-    lines,
+    lines: await reversalAsBooked(
+      refund.companyId,
+      { source: "customer_refund", sourceRefId: refund.id },
+      lines,
+    ),
   });
 
   refund.reversedAt = date;

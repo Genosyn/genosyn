@@ -16,6 +16,7 @@ import {
   Account,
   api,
   CompanyFinanceSettings,
+  EntryCategoryLock,
   formatMoney,
   LedgerBulkAction,
   LedgerBulkResult,
@@ -23,7 +24,6 @@ import {
   LedgerLine,
   LedgerReviewStatus,
 } from "../lib/api";
-import { isCardCategoryEntry } from "../../shared/cardCategory";
 import { errorMessage } from "../lib/errors";
 import { isDeletableManualEntry, ledgerSourceLabel } from "../lib/ledgerSources";
 import { canWriteFinance } from "../lib/subpages";
@@ -233,10 +233,11 @@ export default function FinanceTransactions() {
   const someSelected = selectedInView > 0 && !allSelected;
 
   const anyApprovable = selectedEntries.some((entry) => entry.reviewStatus !== "approved");
-  // A card purchase's category is changed on Banking, so a selection of only
-  // card purchases has nothing Change category could move.
+  // A locked entry's category doesn't change here (a bank or card transaction
+  // changes on Banking), so a selection of only those has nothing Change
+  // category could move.
   const anyRecategorizable = selectedEntries.some(
-    (entry) => entry.reviewStatus !== "approved" && !isCardCategoryEntry(entry),
+    (entry) => entry.reviewStatus !== "approved" && !entry.categoryLock,
   );
   const anyReturnable = selectedEntries.some((entry) => entry.reviewStatus === "ai_reviewed");
   const anyDeletable = selectedEntries.some(isDeletableManualEntry);
@@ -690,8 +691,9 @@ function BulkCategoryModal({
       <p className="text-sm text-slate-600 dark:text-slate-300">
         Give {count} selected {noun} one category and approve them. Each
         entry&apos;s single income or expense line moves to the category you pick; entries with no
-        such line, or more than one, are skipped so you can open them one at a time. Card
-        purchases are skipped too: change their category on Banking.
+        such line, or more than one, are skipped so you can open them one at a time. Bank and
+        card transactions are skipped too, since their category is changed on Banking, and so
+        are reversals and entries reversed since.
       </p>
       <label className="relative mt-4 block">
         <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
@@ -757,6 +759,29 @@ function BulkCategoryModal({
   );
 }
 
+/** Why a locked entry's category line has no picker (`shared/entryCategory.ts`). */
+function CategoryLockNote({ lock, companySlug }: { lock: EntryCategoryLock; companySlug: string }) {
+  const banking = (
+    <Link
+      to={`/c/${companySlug}/finance/banking?status=done`}
+      className="text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      Banking
+    </Link>
+  );
+  if (lock === "card") return <>A card purchase&apos;s category is changed on {banking}</>;
+  if (lock === "bank") {
+    return (
+      <>
+        A bank transaction&apos;s category is changed on {banking}: undo it there and categorize it
+        again
+      </>
+    );
+  }
+  if (lock === "reversal") return <>A reversal&apos;s categories follow the entry it reverses</>;
+  return <>Reversed since, so its categories stay as they are</>;
+}
+
 function TransactionReviewModal({
   companyId,
   companySlug,
@@ -801,10 +826,11 @@ function TransactionReviewModal({
   );
   useAskAiPageContext(askAiRef);
 
-  // A card purchase's lines show where its first entry put the money, which
-  // Banking may since have moved, so its category is changed there and never
-  // picked here (`shared/cardCategory.ts`).
-  const cardPurchase = isCardCategoryEntry(entry);
+  // A locked entry's lines show where it first put the money, which may not be
+  // where the money sits now — Banking moves a bank or card transaction, and a
+  // reversal follows the entry it reverses — so its categories are never
+  // picked here (`shared/entryCategory.ts`).
+  const lock = entry.categoryLock;
   function isCategoryLine(line: LedgerLine): boolean {
     const type = accountById.get(line.accountId)?.type;
     return type === "expense" || type === "revenue";
@@ -813,7 +839,7 @@ function TransactionReviewModal({
   const changes = entry.lines
     .filter(
       (line) =>
-        !cardPurchase &&
+        !lock &&
         isCategoryLine(line) &&
         categories[line.id] &&
         categories[line.id] !== line.accountId,
@@ -918,9 +944,9 @@ function TransactionReviewModal({
               const current = accountById.get(line.accountId);
               const categoryLine = isCategoryLine(line);
               // With no picker to preselect it in, a category an AI Employee
-              // proposed for a card purchase (before that was refused) is
+              // proposed for a locked entry (before that was refused) is
               // spelled out, so approving doesn't quietly drop it.
-              const suggested = cardPurchase
+              const suggested = lock
                 ? accountById.get(proposedByLine.get(line.id) ?? "")
                 : undefined;
               return (
@@ -934,7 +960,7 @@ function TransactionReviewModal({
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    {categoryLine && !cardPurchase ? (
+                    {categoryLine && !lock ? (
                       <Select
                         value={categories[line.id] ?? line.accountId}
                         onChange={(event) =>
@@ -962,16 +988,10 @@ function TransactionReviewModal({
                           {current ? `${current.code} ${current.name}` : "Missing account"}
                         </div>
                         <div className="mt-0.5 text-xs text-slate-400">
-                          {categoryLine ? (
+                          {categoryLine && lock ? (
                             <>
                               {suggested && `Suggested: ${suggested.code} ${suggested.name}. `}
-                              A card purchase&apos;s category is changed on{" "}
-                              <Link
-                                to={`/c/${companySlug}/finance/banking?status=done`}
-                                className="text-indigo-600 hover:underline dark:text-indigo-400"
-                              >
-                                Banking
-                              </Link>
+                              <CategoryLockNote lock={lock} companySlug={companySlug} />
                             </>
                           ) : (
                             <>Where the money sat — its category doesn&apos;t change here</>
