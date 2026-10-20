@@ -7,6 +7,11 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import {
+  CardCategoryFixError,
+  cardCategoryFixesToReview,
+  fixSplitCardCategory,
+} from "../services/cardCategoryRepair.js";
+import {
   createCardFeed,
   deleteEmptyCardFeed,
   listCardTransactions,
@@ -56,6 +61,19 @@ const cardFeedCreateSchema = z.object({
 });
 const categorySchema = z.object({
   expenseAccountId: z.string().uuid(),
+});
+/** The correcting entry the person was shown, which the fix must still match. */
+const fixCategorySchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        accountId: z.string().uuid(),
+        debitCents: z.number().int().nonnegative(),
+        creditCents: z.number().int().nonnegative(),
+      }),
+    )
+    .min(2)
+    .max(50),
 });
 
 cardExpensesRouter.get("/card-feeds", async (req, res) => {
@@ -125,6 +143,40 @@ cardExpensesRouter.get("/card-transactions", async (req, res) => {
   }
   res.json(await listCardTransactions(params.data.cid, query.data.feedId, query.data.status));
 });
+
+// Card purchases whose books no longer match the category Banking shows, from
+// before Banking was the one place it changes, that need a person to fix.
+cardExpensesRouter.get("/card-transactions/category-drift", async (req, res) => {
+  const params = companyParamsSchema.safeParse(req.params);
+  if (!params.success) {
+    return res.status(400).json({ error: "Invalid company id" });
+  }
+  res.json(await cardCategoryFixesToReview(params.data.cid));
+});
+
+cardExpensesRouter.post(
+  "/card-transactions/:transactionId/fix-category",
+  validateBody(fixCategorySchema),
+  async (req, res) => {
+    const params = transactionParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "Invalid card transaction id" });
+    }
+    try {
+      res.json(
+        await fixSplitCardCategory({
+          companyId: params.data.cid,
+          transactionId: params.data.transactionId,
+          lines: (req.body as z.infer<typeof fixCategorySchema>).lines,
+          actorUserId: req.userId ?? null,
+        }),
+      );
+    } catch (err) {
+      const status = err instanceof CardCategoryFixError ? err.status : 400;
+      res.status(status).json({ error: (err as Error).message });
+    }
+  },
+);
 
 cardExpensesRouter.patch(
   "/card-transactions/:transactionId/category",

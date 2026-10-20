@@ -738,7 +738,9 @@ export function Finance() {
           it is filed now. An entry here only shows where it was first posted. Change a card
           purchase&apos;s category in the list; undo a bank transaction and categorize it again.
           This covers card expenses and refunds, categorized bank transactions, and the
-          reclassification and undo entries Banking posts for them.
+          reclassification and undo entries Banking posts for them. Card purchases whose category
+          was changed here before are{" "}
+          <DocLink to="/docs/banking#fix-card-categories">put right on Banking</DocLink>.
         </LI>
         <LI>
           <Strong>Reversals</Strong>, such as a void or a deleted payment. Their categories follow
