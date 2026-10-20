@@ -7,7 +7,12 @@ import {
   type InvoiceWriteOffKind,
 } from "../db/entities/InvoiceWriteOff.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
-import { findClosedPeriodCovering, postLedgerEntry, requireAccountsByCode } from "./ledger.js";
+import {
+  findClosedPeriodCovering,
+  postLedgerEntry,
+  requireAccountsByCode,
+  reversalAsBooked,
+} from "./ledger.js";
 import { recomputeInvoiceTotals } from "./finance.js";
 
 /**
@@ -187,14 +192,18 @@ export async function reverseInvoiceWriteOff(
     sourceRefId: writeOff.id,
     createdById: actorUserId,
     reviewStatus: "approved",
-    lines: [
-      { accountId: ar.id, debitCents: writeOff.homeCents, description: "Write-off reversal" },
-      {
-        accountId: writeOff.expenseAccountId,
-        creditCents: writeOff.homeCents,
-        description: "Write-off reversal",
-      },
-    ],
+    lines: await reversalAsBooked(
+      writeOff.companyId,
+      { source: "invoice_writeoff", sourceRefId: writeOff.id },
+      [
+        { accountId: ar.id, debitCents: writeOff.homeCents, description: "Write-off reversal" },
+        {
+          accountId: writeOff.expenseAccountId,
+          creditCents: writeOff.homeCents,
+          description: "Write-off reversal",
+        },
+      ],
+    ),
   });
 
   writeOff.reversedAt = date;

@@ -8,7 +8,6 @@ import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
-import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { formatMoney } from "../lib/money.js";
 import { getFinanceSettings } from "./fx.js";
 import {
@@ -17,6 +16,7 @@ import {
   recordInvoicePayment,
   removeInvoicePayment,
 } from "./invoicePayments.js";
+import { bookedLines } from "./ledger.js";
 import { unmatch } from "./reconcile.js";
 
 /**
@@ -167,11 +167,9 @@ export async function hydrateBankTransactions(
     entryIds.length
       ? AppDataSource.getRepository(LedgerEntry).find({ where: { id: In(entryIds), companyId } })
       : Promise.resolve([]),
-    entryIds.length
-      ? AppDataSource.getRepository(LedgerLine).find({
-          where: { ledgerEntryId: In(entryIds), companyId },
-        })
-      : Promise.resolve([]),
+    // As the books hold them now, so a categorization Entry review once moved
+    // names the category it was moved to.
+    bookedLines(companyId, entryIds),
     AppDataSource.getRepository(BankFeed).find({ where: { id: In(feedIds), companyId } }),
   ]);
   const invIds = [...new Set(payments.map((p) => p.invoiceId))];
@@ -212,7 +210,7 @@ export async function hydrateBankTransactions(
         const categorizedHere = e.source === "bank_categorization" && e.sourceRefId === t.id;
         const bankAccountId = feedAccount.get(t.feedId);
         const categoryLine = categorizedHere
-          ? entryLines.find((l) => l.ledgerEntryId === e.id && l.accountId !== bankAccountId)
+          ? entryLines.get(e.id)?.find((l) => l.accountId !== bankAccountId)
           : undefined;
         match = {
           kind: "ledger_entry",

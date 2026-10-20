@@ -284,9 +284,130 @@ export async function hasEntryFor(
   return count > 0;
 }
 
+/** A journal line as the reversal paths read and write it. */
+export type BookedLine = {
+  accountId: string;
+  debitCents: number;
+  creditCents: number;
+  description: string;
+};
+
+/** One line per account carrying what the lines leave on it; accounts left at zero drop out. */
+function netPerAccount(lines: ReadonlyArray<BookedLine>): BookedLine[] {
+  const byAccount = new Map<string, { cents: number; description: string }>();
+  for (const line of lines) {
+    const net = byAccount.get(line.accountId);
+    const cents = line.debitCents - line.creditCents;
+    if (net) net.cents += cents;
+    else byAccount.set(line.accountId, { cents, description: line.description });
+  }
+  const net: BookedLine[] = [];
+  for (const [accountId, { cents, description }] of byAccount) {
+    if (cents > 0) net.push({ accountId, debitCents: cents, creditCents: 0, description });
+    else if (cents < 0) net.push({ accountId, debitCents: 0, creditCents: -cents, description });
+  }
+  return net;
+}
+
+function booked(line: LedgerLineDraft): BookedLine {
+  return {
+    accountId: line.accountId,
+    debitCents: line.debitCents ?? 0,
+    creditCents: line.creditCents ?? 0,
+    description: line.description ?? "",
+  };
+}
+
+function mirrored(line: BookedLine): BookedLine {
+  return { ...line, debitCents: line.creditCents, creditCents: line.debitCents };
+}
+
+/**
+ * The lines of the category changes Entry review approved for each of these
+ * entries. Approval posts them as a `ledger_reclass` entry keyed on the entry
+ * it re-files, and leaves that entry's own lines where they were posted.
+ */
+async function categoryChanges(
+  companyId: string,
+  entryIds: ReadonlyArray<string>,
+): Promise<Map<string, BookedLine[]>> {
+  const changes = new Map<string, BookedLine[]>();
+  if (entryIds.length === 0) return changes;
+  const reclasses = await AppDataSource.getRepository(LedgerEntry).find({
+    where: { companyId, source: "ledger_reclass", sourceRefId: In([...entryIds]) },
+    select: ["id", "sourceRefId"],
+  });
+  if (reclasses.length === 0) return changes;
+  const changedEntry = new Map(reclasses.map((reclass) => [reclass.id, reclass.sourceRefId!]));
+  const lines = await AppDataSource.getRepository(LedgerLine).find({
+    where: { companyId, ledgerEntryId: In([...changedEntry.keys()]) },
+    order: { sortOrder: "ASC" },
+  });
+  for (const line of lines) {
+    const entryId = changedEntry.get(line.ledgerEntryId)!;
+    changes.set(entryId, [...(changes.get(entryId) ?? []), booked(line)]);
+  }
+  return changes;
+}
+
+/**
+ * Each entry's lines as the books hold them now: with the category changes
+ * Entry review approved for it. Reversing an entry's own lines alone left a
+ * reviewed category holding the money and the original one owing it, so
+ * whatever reverses an entry reverses these (`shared/entryCategory.ts`). An
+ * entry Entry review never re-filed keeps its own lines as posted; one it did
+ * gets one line per account it still touches.
+ */
+export async function bookedLines(
+  companyId: string,
+  entryIds: ReadonlyArray<string>,
+): Promise<Map<string, BookedLine[]>> {
+  const result = new Map<string, BookedLine[]>();
+  if (entryIds.length === 0) return result;
+  const [own, changes] = await Promise.all([
+    AppDataSource.getRepository(LedgerLine).find({
+      where: { companyId, ledgerEntryId: In([...entryIds]) },
+      order: { sortOrder: "ASC" },
+    }),
+    categoryChanges(companyId, entryIds),
+  ]);
+  for (const line of own) {
+    result.set(line.ledgerEntryId, [...(result.get(line.ledgerEntryId) ?? []), booked(line)]);
+  }
+  for (const [entryId, changeLines] of changes) {
+    result.set(entryId, netPerAccount([...(result.get(entryId) ?? []), ...changeLines]));
+  }
+  return result;
+}
+
+/**
+ * A reversal rebuilt from a document's own amounts, moved to wherever Entry
+ * review has re-filed the entry it reverses: its approved category changes
+ * are reversed with it, so the two net to nothing as the books hold them now
+ * ({@link bookedLines}). Returned as given when Entry review changed nothing.
+ */
+export async function reversalAsBooked(
+  companyId: string,
+  reverses: { source: LedgerEntrySource; sourceRefId: string },
+  lines: ReadonlyArray<LedgerLineDraft>,
+): Promise<LedgerLineDraft[]> {
+  const entries = await AppDataSource.getRepository(LedgerEntry).find({
+    where: { companyId, source: reverses.source, sourceRefId: reverses.sourceRefId },
+    select: ["id"],
+  });
+  const changes = await categoryChanges(
+    companyId,
+    entries.map((entry) => entry.id),
+  );
+  if (changes.size === 0) return [...lines];
+  return netPerAccount([...lines.map(booked), ...[...changes.values()].flat().map(mirrored)]);
+}
+
 /**
  * Reverse every entry tied to `(source, sourceRefId)` by writing a new
- * entry per original with debits and credits swapped. Original entries
+ * entry per original with debits and credits swapped — as the books hold
+ * the original now, so a category change Entry review approved for it is
+ * reversed with it ({@link bookedLines}). Original entries
  * are kept (audit trail) — accountants want to see the issue *and* the
  * void, not lose the original.
  *
@@ -336,16 +457,10 @@ export async function reverseLedgerEntriesForSources(args: {
   });
   if (alreadyReversed > 0) return 0;
 
-  const allLines = await AppDataSource.getRepository(LedgerLine).find({
-    where: { ledgerEntryId: In(entries.map((e) => e.id)) },
-    order: { sortOrder: "ASC" },
-  });
-  const linesByEntry = new Map<string, LedgerLine[]>();
-  for (const l of allLines) {
-    const arr = linesByEntry.get(l.ledgerEntryId) ?? [];
-    arr.push(l);
-    linesByEntry.set(l.ledgerEntryId, arr);
-  }
+  const linesByEntry = await bookedLines(
+    args.companyId,
+    entries.map((e) => e.id),
+  );
 
   let reversed = 0;
   for (const orig of entries) {

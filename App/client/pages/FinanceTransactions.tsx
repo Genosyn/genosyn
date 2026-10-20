@@ -1,6 +1,6 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { useOutletContext, useSearchParams } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   ChevronRight,
@@ -16,10 +16,12 @@ import {
   Account,
   api,
   CompanyFinanceSettings,
+  EntryCategoryLock,
   formatMoney,
   LedgerBulkAction,
   LedgerBulkResult,
   LedgerEntry,
+  LedgerLine,
   LedgerReviewStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
@@ -231,6 +233,12 @@ export default function FinanceTransactions() {
   const someSelected = selectedInView > 0 && !allSelected;
 
   const anyApprovable = selectedEntries.some((entry) => entry.reviewStatus !== "approved");
+  // A locked entry's category doesn't change here (a bank or card transaction
+  // changes on Banking), so a selection of only those has nothing Change
+  // category could move.
+  const anyRecategorizable = selectedEntries.some(
+    (entry) => entry.reviewStatus !== "approved" && !entry.categoryLock,
+  );
   const anyReturnable = selectedEntries.some((entry) => entry.reviewStatus === "ai_reviewed");
   const anyDeletable = selectedEntries.some(isDeletableManualEntry);
 
@@ -455,7 +463,7 @@ export default function FinanceTransactions() {
                           <Undo2 size={14} /> Return
                         </Button>
                       )}
-                      {canApprove && anyApprovable && (
+                      {canApprove && anyRecategorizable && (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -577,6 +585,7 @@ export default function FinanceTransactions() {
         <TransactionReviewModal
           key={`${selected.id}-${selected.reviewStatus}-${selected.reviewedAt ?? ""}`}
           companyId={company.id}
+          companySlug={company.slug}
           homeCurrency={homeCurrency}
           canApprove={company.role === "owner" || company.role === "admin"}
           entry={selected}
@@ -682,7 +691,9 @@ function BulkCategoryModal({
       <p className="text-sm text-slate-600 dark:text-slate-300">
         Give {count} selected {noun} one category and approve them. Each
         entry&apos;s single income or expense line moves to the category you pick; entries with no
-        such line, or more than one, are skipped so you can open them one at a time.
+        such line, or more than one, are skipped so you can open them one at a time. Bank and
+        card transactions are skipped too, since their category is changed on Banking, and so
+        are reversals and entries reversed since.
       </p>
       <label className="relative mt-4 block">
         <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
@@ -748,8 +759,32 @@ function BulkCategoryModal({
   );
 }
 
+/** Why a locked entry's category line has no picker (`shared/entryCategory.ts`). */
+function CategoryLockNote({ lock, companySlug }: { lock: EntryCategoryLock; companySlug: string }) {
+  const banking = (
+    <Link
+      to={`/c/${companySlug}/finance/banking?status=done`}
+      className="text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      Banking
+    </Link>
+  );
+  if (lock === "card") return <>A card purchase&apos;s category is changed on {banking}</>;
+  if (lock === "bank") {
+    return (
+      <>
+        A bank transaction&apos;s category is changed on {banking}: undo it there and categorize it
+        again
+      </>
+    );
+  }
+  if (lock === "reversal") return <>A reversal&apos;s categories follow the entry it reverses</>;
+  return <>Reversed since, so its categories stay as they are</>;
+}
+
 function TransactionReviewModal({
   companyId,
+  companySlug,
   homeCurrency,
   canApprove,
   entry,
@@ -758,6 +793,7 @@ function TransactionReviewModal({
   onChanged,
 }: {
   companyId: string;
+  companySlug: string;
   homeCurrency: string;
   canApprove: boolean;
   entry: LedgerEntry;
@@ -790,8 +826,24 @@ function TransactionReviewModal({
   );
   useAskAiPageContext(askAiRef);
 
+  // A locked entry's lines show where it first put the money, which may not be
+  // where the money sits now — Banking moves a bank or card transaction, and a
+  // reversal follows the entry it reverses — so its categories are never
+  // picked here (`shared/entryCategory.ts`).
+  const lock = entry.categoryLock;
+  function isCategoryLine(line: LedgerLine): boolean {
+    const type = accountById.get(line.accountId)?.type;
+    return type === "expense" || type === "revenue";
+  }
+
   const changes = entry.lines
-    .filter((line) => categories[line.id] && categories[line.id] !== line.accountId)
+    .filter(
+      (line) =>
+        !lock &&
+        isCategoryLine(line) &&
+        categories[line.id] &&
+        categories[line.id] !== line.accountId,
+    )
     .map((line) => ({ lineId: line.id, accountId: categories[line.id] }));
 
   async function approve() {
@@ -890,7 +942,13 @@ function TransactionReviewModal({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {entry.lines.map((line) => {
               const current = accountById.get(line.accountId);
-              const editable = current?.type === "expense" || current?.type === "revenue";
+              const categoryLine = isCategoryLine(line);
+              // With no picker to preselect it in, a category an AI Employee
+              // proposed for a locked entry (before that was refused) is
+              // spelled out, so approving doesn't quietly drop it.
+              const suggested = lock
+                ? accountById.get(proposedByLine.get(line.id) ?? "")
+                : undefined;
               return (
                 <tr key={line.id}>
                   <td className="px-3 py-3">
@@ -902,7 +960,7 @@ function TransactionReviewModal({
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    {editable ? (
+                    {categoryLine && !lock ? (
                       <Select
                         value={categories[line.id] ?? line.accountId}
                         onChange={(event) =>
@@ -930,7 +988,14 @@ function TransactionReviewModal({
                           {current ? `${current.code} ${current.name}` : "Missing account"}
                         </div>
                         <div className="mt-0.5 text-xs text-slate-400">
-                          Where the money sat — its category doesn&apos;t change here
+                          {categoryLine && lock ? (
+                            <>
+                              {suggested && `Suggested: ${suggested.code} ${suggested.name}. `}
+                              <CategoryLockNote lock={lock} companySlug={companySlug} />
+                            </>
+                          ) : (
+                            <>Where the money sat — its category doesn&apos;t change here</>
+                          )}
                         </div>
                       </div>
                     )}

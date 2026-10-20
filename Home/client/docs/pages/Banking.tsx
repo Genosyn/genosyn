@@ -155,6 +155,14 @@ export function Banking() {
         money out takes it the other way. The categories are your{" "}
         <DocLink to="/docs/finance#ledger">chart of accounts</DocLink>; add one there if none fits.
       </P>
+      <P>
+        Banking is the only place a bank transaction&apos;s category changes: to file one
+        somewhere else, <DocLink to="#undo">undo</DocLink> it and categorize it again.{" "}
+        <DocLink to="/docs/finance#transaction-review">Entry review</DocLink> shows its entries
+        without a category picker and approves them as they are. A transaction Entry review moved
+        to another category in the past shows the category it is in now, and Undo takes it out of
+        that one.
+      </P>
 
       <H3 id="undo">Undo</H3>
       <P>
@@ -167,7 +175,10 @@ export function Banking() {
           A payment recorded with <Code>Mark paid</Code> comes off its invoice, which shows that
           amount due again.
         </LI>
-        <LI>A category is reversed with an opposite entry, so the books follow the list.</LI>
+        <LI>
+          A category is reversed with an opposite entry, from the category the transaction is
+          filed under now, so the books follow the list.
+        </LI>
         <LI>
           A match only unlinks: the payment or entry it was matched to stays where it is.
         </LI>
@@ -190,6 +201,13 @@ export function Banking() {
         category, and card bill payments move what you owe on the card against the bank account
         that paid it — match that payment on the bank account&apos;s side rather than categorizing
         it, or it would count twice.
+      </P>
+      <P>
+        Banking is the only place a card purchase&apos;s category changes. Each change moves the
+        purchase from the category it is filed under now, so the category in the list is always
+        the one in your books, however many times you change it.{" "}
+        <DocLink to="/docs/finance#transaction-review">Entry review</DocLink> shows a card
+        purchase&apos;s entries without a category picker and approves them as they are.
       </P>
 
       <Callout kind="tip" title="Entry review">
