@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Ban,
   CheckCircle2,
@@ -23,6 +25,8 @@ import {
   type DocumentRevision,
   formatMoney,
   Invoice,
+  InvoiceBulkAction,
+  InvoiceBulkResult,
   InvoicePaymentMethod,
   InvoiceWriteOff,
   InvoiceWriteOffKind,
@@ -44,10 +48,12 @@ import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
+import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
 import { splitAddressList } from "@/lib/addressList";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
+import { invoiceArchiveBlocker } from "../../shared/invoiceArchive";
 
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
@@ -98,9 +104,11 @@ type InvoiceSendResponse = {
  *
  * Renders the line items + payments and exposes the lifecycle actions
  * (Issue / Send / Mark paid / Void / Delete) appropriate to the current
- * status. The printable HTML lives at a separate route so File → Print
- * gives a clean PDF without app chrome. A read-only Member gets the invoice
- * and its PDF, and none of the actions the server would refuse them.
+ * status, plus Archive / Restore, which files an invoice with nothing left to
+ * collect in or out of the lists without touching any of that. The printable
+ * HTML lives at a separate route so File → Print gives a clean PDF without
+ * app chrome. A read-only Member gets the invoice and its PDF, and none of
+ * the actions the server would refuse them.
  */
 export default function FinanceInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -116,9 +124,9 @@ export default function FinanceInvoiceDetail() {
     CustomerCreditApplicationRow[]
   >([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState<null | "issue" | "send" | "void" | "duplicate" | "delete">(
-    null,
-  );
+  const [busy, setBusy] = React.useState<
+    null | "issue" | "send" | "void" | "duplicate" | "delete" | InvoiceBulkAction
+  >(null);
   const [deletingPaymentId, setDeletingPaymentId] = React.useState<string | null>(null);
   const [reversingWriteOffId, setReversingWriteOffId] = React.useState<string | null>(null);
   const [unapplyingCreditId, setUnapplyingCreditId] = React.useState<string | null>(null);
@@ -268,6 +276,27 @@ export default function FinanceInvoiceDetail() {
     }
   }
 
+  // Archiving is undone by restoring, so neither direction asks to confirm.
+  async function setArchived(action: InvoiceBulkAction) {
+    if (!invoice) return;
+    const title =
+      action === "archive" ? "Couldn’t archive the invoice" : "Couldn’t restore the invoice";
+    setBusy(action);
+    try {
+      const result = await api.post<InvoiceBulkResult>(
+        `/api/companies/${company.id}/invoices/bulk`,
+        { action, ids: [invoice.id] },
+      );
+      const refused = result.skipped.find((skip) => skip.id === invoice.id);
+      if (refused) void dialog.error(`${refused.reason}.`, { title });
+      await reload();
+    } catch (err) {
+      void dialog.error(err, { title });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function deleteDraft() {
     if (!invoice) return;
     const ok = await dialog.confirm({
@@ -383,6 +412,12 @@ export default function FinanceInvoiceDetail() {
   const ds = displayInvoiceStatus(invoice);
   const number = invoice.number || "DRAFT";
   const issued = invoice.status !== "draft" && invoice.status !== "void";
+  const isArchived = !!invoice.archivedAt;
+  const archivedOn = invoice.archivedAt
+    ? new Date(invoice.archivedAt).toISOString().slice(0, 10)
+    : null;
+  // Restore is always on offer; Archive only once nothing is left to collect.
+  const canArchive = isArchived || !invoiceArchiveBlocker(invoice);
   const emailedOn = revision?.emailedAt
     ? new Date(revision.emailedAt).toISOString().slice(0, 10)
     : null;
@@ -416,6 +451,7 @@ export default function FinanceInvoiceDetail() {
           >
             {STATUS_LABEL[ds] ?? ds}
           </span>
+          {isArchived && <ArchivedBadge />}
         </div>
         {canWrite ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -544,6 +580,16 @@ export default function FinanceInvoiceDetail() {
                       );
                     }}
                   />
+                  {canArchive && (
+                    <MenuItem
+                      icon={isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                      label={isArchived ? "Restore" : "Archive"}
+                      onSelect={() => {
+                        close();
+                        void setArchived(isArchived ? "restore" : "archive");
+                      }}
+                    />
+                  )}
                   {invoice.status !== "void" && invoice.status !== "draft" && (
                     <>
                       <MenuSeparator />
@@ -582,6 +628,18 @@ export default function FinanceInvoiceDetail() {
           </a>
         )}
       </div>
+
+      {archivedOn && (
+        <ArchivedBanner
+          onRestore={canWrite ? () => void setArchived("restore") : undefined}
+          restoring={busy === "restore"}
+          disabled={busy !== null}
+        >
+          Archived on {archivedOn}. It is listed under Invoices → Archived instead of the status
+          tabs and the customer&apos;s page; its status, payments, and PDF are unchanged, and it
+          still counts in every total. If it is owed money again, it comes back on its own.
+        </ArchivedBanner>
+      )}
 
       {issued && emailedOn && changedSinceEmailed(revision) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
@@ -900,6 +958,7 @@ export default function FinanceInvoiceDetail() {
             { label: "Invoice issued", at: invoice.sentAt, covers: ["issue", "send"] },
             { label: "Invoice paid", at: invoice.paidAt, covers: ["payment", "mark_paid"] },
             { label: "Invoice voided", at: invoice.voidedAt, covers: ["void"] },
+            { label: "Invoice archived", at: invoice.archivedAt, covers: ["archive"] },
           ]}
         />
       </div>

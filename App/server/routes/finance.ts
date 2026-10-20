@@ -56,6 +56,7 @@ import {
   resolveInvoiceRecipients,
   reverseInvoicePayment,
   sendInvoiceEmail,
+  setInvoicesArchived,
   uniqueCustomerSlug,
   updateInvoice,
   voidInvoice,
@@ -143,6 +144,7 @@ import {
   RECURRING_INVOICE_NAME_REQUIRED_ERROR,
   registerRecurringInvoice,
   replaceRecurringInvoiceLines,
+  setRecurringInvoicesArchived,
 } from "../services/recurringInvoices.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
@@ -1045,6 +1047,10 @@ financeRouter.get("/invoices", async (req, res) => {
   if (typeof status === "string" && status) where.status = status;
   const customerId = req.query.customerId;
   if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  // Archived invoices are filed away, so lists leave them out unless asked —
+  // the same `archived=true` that estimates take. A page that totals money
+  // asks: an archived invoice still counts.
+  if (String(req.query.archived ?? "") !== "true") where.archivedAt = IsNull();
   const invoices = await AppDataSource.getRepository(Invoice).find({
     where,
     order: { createdAt: "DESC" },
@@ -1087,6 +1093,31 @@ financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, r
     );
     const [hydrated] = await hydrateInvoices(cid, [invoice]);
     res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+export const invoiceBulkSchema = z.object({
+  action: z.enum(["archive", "restore"]),
+  ids: z.array(z.string().uuid()).min(1).max(500),
+});
+
+// Archive or restore many invoices at once. Ids rather than slugs: issuing a
+// draft re-slugs it, and a selection made a moment earlier must still land.
+financeRouter.post("/invoices/bulk", validateBody(invoiceBulkSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof invoiceBulkSchema>;
+  try {
+    const { changed, skipped } = await setInvoicesArchived(cid, body.ids, body.action);
+    // One row per invoice, so each one's History shows it was archived or
+    // restored — not only the first of the selection.
+    for (const inv of changed) {
+      await auditFinance(req, `finance.invoice.${body.action}`, { type: "invoice", id: inv.id, label: inv.number || "Draft invoice" }, {
+        bulk: changed.length > 1,
+      });
+    }
+    res.json({ action: body.action, succeeded: changed.map((inv) => inv.id), skipped });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -4339,6 +4370,8 @@ financeRouter.get("/recurring-invoices", async (req, res) => {
   if (typeof status === "string" && status) where.status = status;
   const customerId = req.query.customerId;
   if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  // Archived schedules are filed away, so lists leave them out unless asked.
+  if (String(req.query.archived ?? "") !== "true") where.archivedAt = IsNull();
   const rows = await AppDataSource.getRepository(RecurringInvoice).find({
     where,
     order: { createdAt: "DESC" },
@@ -4411,6 +4444,34 @@ financeRouter.post(
     });
     const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
     res.json(hydrated);
+  },
+);
+
+export const recurringInvoiceBulkSchema = z.object({
+  action: z.enum(["archive", "restore"]),
+  ids: z.array(z.string().uuid()).min(1).max(500),
+});
+
+// Archive or restore many schedules at once, by id like the other bulk
+// endpoints. An active schedule is skipped: it would bill from out of sight.
+financeRouter.post(
+  "/recurring-invoices/bulk",
+  validateBody(recurringInvoiceBulkSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof recurringInvoiceBulkSchema>;
+    try {
+      const { changed, skipped } = await setRecurringInvoicesArchived(cid, body.ids, body.action);
+      // One row per schedule, so each one's History shows it.
+      for (const ri of changed) {
+        await auditFinance(req, `finance.recurring_invoice.${body.action}`, { type: "recurring_invoice", id: ri.id, label: ri.name }, {
+          bulk: changed.length > 1,
+        });
+      }
+      res.json({ action: body.action, succeeded: changed.map((ri) => ri.id), skipped });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
   },
 );
 

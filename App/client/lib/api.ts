@@ -4672,6 +4672,10 @@ export type Invoice = {
   sentAt: string | null;
   paidAt: string | null;
   voidedAt: string | null;
+  /** Filed out of the default lists; status, payments, and balance are
+   *  unaffected. Only an invoice with nothing left to collect can be archived
+   *  (`shared/invoiceArchive.ts`). */
+  archivedAt: string | null;
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -4829,6 +4833,14 @@ export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {
   paymentsCount: number;
 };
 
+export type InvoiceBulkAction = "archive" | "restore";
+
+export type InvoiceBulkResult = {
+  action: InvoiceBulkAction;
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
+};
+
 export type InvoiceLineDraft = {
   productId?: string | null;
   description: string;
@@ -4955,6 +4967,9 @@ export type RecurringInvoice = {
   runsCreated: number;
   maxRuns: number | null;
   endsOn: string | null;
+  /** Filed out of the default lists. Only a paused or ended schedule can be
+   *  archived, and resuming one clears it (`shared/invoiceArchive.ts`). */
+  archivedAt: string | null;
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -4984,6 +4999,14 @@ export type RecurringInvoiceRunSummary = {
 
 export type RecurringInvoiceListItem = Omit<RecurringInvoice, "lines"> & {
   linesCount: number;
+};
+
+export type RecurringInvoiceBulkAction = "archive" | "restore";
+
+export type RecurringInvoiceBulkResult = {
+  action: RecurringInvoiceBulkAction;
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
 };
 
 export type RecurringInvoiceLineDraft = {

@@ -48,6 +48,7 @@ export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
 @Index(["companyId", "status"])
 @Index(["companyId", "customerId"])
 @Index(["companyId", "numberSeq"])
+@Index(["companyId", "archivedAt"])
 export class Invoice {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -154,6 +155,15 @@ export class Invoice {
 
   @Column({ type: dateTimeColumnType, nullable: true })
   voidedAt!: Date | null;
+
+  /** Filing, not a status: an archived invoice leaves the default lists but
+   *  keeps its number, status, payments, PDF, and ledger entries, and still
+   *  counts in every balance, statement, and report. Only an invoice with
+   *  nothing left to collect can be archived (`shared/invoiceArchive.ts`),
+   *  and one that is owed money again comes back to the lists by itself
+   *  (`recomputeInvoiceTotals`). Restoring clears it. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  archivedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;

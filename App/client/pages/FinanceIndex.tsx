@@ -26,7 +26,9 @@ export default function FinanceIndex() {
 
   const reload = React.useCallback(() => {
     return Promise.all([
-      api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`),
+      // Archived invoices too: archiving files an invoice away, but its money
+      // still counts in the totals below.
+      api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices?archived=true`),
       api.get<Customer[]>(`/api/companies/${company.id}/customers`),
     ])
       .then(([inv, cust]) => {
@@ -84,9 +86,11 @@ export default function FinanceIndex() {
     return { open, paidThisMonth };
   }, [invoices]);
 
+  // The feed is a list, so it leaves archived invoices out as the others do.
   const recent = React.useMemo(
     () =>
-      [...(invoices ?? [])]
+      (invoices ?? [])
+        .filter((inv) => !inv.archivedAt)
         .sort(
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

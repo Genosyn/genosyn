@@ -2,6 +2,8 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Ban,
   Copy,
@@ -20,6 +22,8 @@ import {
   formatMoney,
   Invoice,
   RecurringInvoice,
+  RecurringInvoiceBulkAction,
+  RecurringInvoiceBulkResult,
   RecurringInvoiceRunSummary,
   RecurringInvoiceStatus,
 } from "../lib/api";
@@ -33,6 +37,8 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { RecordHistory } from "@/components/RecordHistory";
+import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
+import { recurringInvoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const STATUS_BADGE: Record<RecurringInvoiceStatus, string> = {
@@ -49,7 +55,9 @@ function formatStamp(iso: string | null): string {
 /**
  * Recurring-invoice detail. Shows the schedule, the template line items,
  * and, to Members who may change finances, the lifecycle controls
- * (pause / resume / end / run-now / delete).
+ * (pause / resume / end / run-now / delete), plus Archive / Restore, which
+ * files a paused or ended schedule in or out of the lists. Resuming an
+ * archived schedule restores it, so nothing bills from out of sight.
  */
 export default function FinanceRecurringInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -61,7 +69,7 @@ export default function FinanceRecurringInvoiceDetail() {
   const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<
-    null | "status" | "run" | "retry" | "duplicate" | "delete"
+    null | "status" | "run" | "retry" | "duplicate" | "delete" | RecurringInvoiceBulkAction
   >(null);
 
   const reload = React.useCallback(async () => {
@@ -143,6 +151,27 @@ export default function FinanceRecurringInvoiceDetail() {
     }
   }
 
+  // Archiving is undone by restoring, so neither direction asks to confirm.
+  async function setArchived(action: RecurringInvoiceBulkAction) {
+    if (!ri) return;
+    const title =
+      action === "archive" ? "Couldn’t archive the schedule" : "Couldn’t restore the schedule";
+    setBusy(action);
+    try {
+      const result = await api.post<RecurringInvoiceBulkResult>(
+        `/api/companies/${company.id}/recurring-invoices/bulk`,
+        { action, ids: [ri.id] },
+      );
+      const refused = result.skipped.find((skip) => skip.id === ri.id);
+      if (refused) void dialog.error(`${refused.reason}.`, { title });
+      await reload();
+    } catch (err) {
+      void dialog.error(err, { title });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function endSchedule() {
     if (!ri) return;
     const ok = await dialog.confirm({
@@ -205,6 +234,10 @@ export default function FinanceRecurringInvoiceDetail() {
   }
 
   const customerUrl = ri.customer ? `/c/${company.slug}/customers/${ri.customer.slug}` : null;
+  const isArchived = !!ri.archivedAt;
+  const archivedOn = ri.archivedAt ? new Date(ri.archivedAt).toISOString().slice(0, 10) : null;
+  // Restore is always on offer; Archive only once the schedule bills nobody.
+  const canArchive = isArchived || !recurringInvoiceArchiveBlocker(ri);
   const retrying = ri.status === "active" && ri.latestRun?.status === "pending";
   // A run still in flight may already have created its invoice; that one is
   // newer than the last finished run's.
@@ -246,6 +279,7 @@ export default function FinanceRecurringInvoiceDetail() {
               >
                 {ri.status}
               </span>
+              {isArchived && <ArchivedBadge />}
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               <Repeat size={12} className="mr-1 inline" />
@@ -325,6 +359,16 @@ export default function FinanceRecurringInvoiceDetail() {
                       duplicate();
                     }}
                   />
+                  {canArchive && (
+                    <MenuItem
+                      icon={isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                      label={isArchived ? "Restore" : "Archive"}
+                      onSelect={() => {
+                        close();
+                        void setArchived(isArchived ? "restore" : "archive");
+                      }}
+                    />
+                  )}
                   {ri.status !== "ended" && (
                     <MenuItem
                       icon={<Ban size={14} />}
@@ -350,6 +394,18 @@ export default function FinanceRecurringInvoiceDetail() {
           </div>
         )}
       </div>
+
+      {archivedOn && (
+        <ArchivedBanner
+          onRestore={canWrite ? () => void setArchived("restore") : undefined}
+          restoring={busy === "restore"}
+          disabled={busy !== null}
+        >
+          Archived on {archivedOn}. It is listed under Recurring invoices → Archived instead of the
+          status tabs and the customer&apos;s page; its cadence, lines, and run history are
+          unchanged.{ri.status === "paused" && " Resuming it brings it back to the lists."}
+        </ArchivedBanner>
+      )}
 
       {subsidiaries.find((item) => item.id === ri.subsidiaryId)?.archived && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
@@ -550,7 +606,10 @@ export default function FinanceRecurringInvoiceDetail() {
         targetId={ri.id}
         noun="this recurring invoice"
         currency={ri.currency}
-        milestones={[{ label: "Recurring invoice created", at: ri.createdAt, covers: ["create"] }]}
+        milestones={[
+          { label: "Recurring invoice created", at: ri.createdAt, covers: ["create"] },
+          { label: "Recurring invoice archived", at: ri.archivedAt, covers: ["archive"] },
+        ]}
       />
     </div>
   );

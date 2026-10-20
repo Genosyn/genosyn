@@ -41,6 +41,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
+import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
@@ -406,11 +407,7 @@ export default function FinanceEstimateDetail() {
           >
             {ds}
           </span>
-          {isArchived && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:bg-slate-700/40 dark:text-slate-300">
-              <Archive size={10} /> Archived
-            </span>
-          )}
+          {isArchived && <ArchivedBadge />}
         </div>
         {canWrite ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -604,26 +601,14 @@ export default function FinanceEstimateDetail() {
       )}
 
       {archivedOn && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/40">
-          <div className="flex min-w-[16rem] flex-1 items-start gap-2 text-slate-600 dark:text-slate-300">
-            <Archive size={15} className="mt-0.5 shrink-0 text-slate-400" />
-            <span>
-              Archived on {archivedOn}. It is listed under Estimates → Archived instead of the
-              status tabs and the customer&apos;s page; its status, number, and PDF are unchanged.
-            </span>
-          </div>
-          {canWrite && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void setArchived("restore")}
-              loading={busy === "restore"}
-              disabled={busy !== null}
-            >
-              <ArchiveRestore size={14} /> Restore
-            </Button>
-          )}
-        </div>
+        <ArchivedBanner
+          onRestore={canWrite ? () => void setArchived("restore") : undefined}
+          restoring={busy === "restore"}
+          disabled={busy !== null}
+        >
+          Archived on {archivedOn}. It is listed under Estimates → Archived instead of the status
+          tabs and the customer&apos;s page; its status, number, and PDF are unchanged.
+        </ArchivedBanner>
       )}
 
       {isConverted && estimate.invoice && (

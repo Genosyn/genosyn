@@ -3,8 +3,10 @@ import {
   estimateBulkSchema,
   estimateCreateSchema,
   estimatePatchSchema,
+  invoiceBulkSchema,
   invoiceCreateSchema,
   invoicePatchSchema,
+  recurringInvoiceBulkSchema,
   recurringInvoiceCreateSchema,
   recurringInvoicePatchSchema,
 } from "../routes/finance.js";
@@ -59,6 +61,13 @@ const invoiceResponse = documentIdentity
   .extend({
     status: z.enum(["draft", "sent", "paid", "void"]),
     dueDate: z.string().datetime(),
+    archivedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "When the invoice was archived out of the default lists, or null. Archiving never changes its status, payments, or balance.",
+      ),
   })
   .openapi("FinanceInvoice");
 const estimateResponse = documentIdentity
@@ -83,6 +92,24 @@ const estimateBulkResult = z
       .describe("Ids left as they were, each with the reason."),
   })
   .openapi("FinanceEstimateBulkResult");
+const invoiceBulkResult = z
+  .object({
+    action: z.enum(["archive", "restore"]),
+    succeeded: z.array(z.string().uuid()).describe("Invoices whose archived state changed."),
+    skipped: z
+      .array(z.object({ id: z.string(), reason: z.string() }))
+      .describe("Ids left as they were, each with the reason."),
+  })
+  .openapi("FinanceInvoiceBulkResult");
+const recurringBulkResult = z
+  .object({
+    action: z.enum(["archive", "restore"]),
+    succeeded: z.array(z.string().uuid()).describe("Schedules whose archived state changed."),
+    skipped: z
+      .array(z.object({ id: z.string(), reason: z.string() }))
+      .describe("Ids left as they were, each with the reason."),
+  })
+  .openapi("FinanceRecurringInvoiceBulkResult");
 const recurringResponse = z
   .object({
     id: z.string().uuid(),
@@ -100,6 +127,13 @@ const recurringResponse = z
     daysUntilDue: z.number().int(),
     notes: z.string(),
     footer: z.string(),
+    archivedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "When the paused or ended schedule was archived out of the default lists, or null. Resuming a schedule clears it.",
+      ),
   })
   .passthrough()
   .openapi("FinanceRecurringInvoice");
@@ -263,6 +297,59 @@ registry.registerPath({
     200: {
       description: "Which estimates changed and which were skipped",
       content: { "application/json": { schema: estimateBulkResult } },
+    },
+    ...errors,
+    400: {
+      description: "Unknown action, or ids missing, malformed, or more than 500",
+      content: { "application/json": { schema: errorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/invoices/bulk",
+  summary: "Archive or restore invoices",
+  description:
+    "Requires full Finance access. Send action archive to file up to 500 invoices out of the default lists, or restore to bring archived invoices back. Only an invoice with nothing left to collect can be archived: a draft, a void invoice, or an issued one that is paid, credited, or written off. Archiving changes no status, number, payment, PDF, or ledger entry, archived invoices still open by slug, and they still count in balances, statements, and reports. An archived invoice that is owed money again, such as an archived draft that is issued or a paid one whose payment is deleted, is restored automatically. Ids that are not this company's invoices, are already in the requested state, or still have a balance due are returned in skipped instead of failing the request. List invoices with archived=true to include archived ones.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: {
+    params: companyParams,
+    body: { required: true, content: { "application/json": { schema: invoiceBulkSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Which invoices changed and which were skipped",
+      content: { "application/json": { schema: invoiceBulkResult } },
+    },
+    ...errors,
+    400: {
+      description: "Unknown action, or ids missing, malformed, or more than 500",
+      content: { "application/json": { schema: errorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/recurring-invoices/bulk",
+  summary: "Archive or restore recurring invoice schedules",
+  description:
+    "Requires full Finance access. Send action archive to file up to 500 paused or ended schedules out of the default lists, or restore to bring archived schedules back. An active schedule is skipped, since it would keep billing from out of sight, and resuming an archived schedule restores it. Archiving changes no status, cadence, template line, or run history. Ids that are not this company's schedules, are already in the requested state, or are still active are returned in skipped instead of failing the request. List recurring invoices with archived=true to include archived ones.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: {
+    params: companyParams,
+    body: {
+      required: true,
+      content: { "application/json": { schema: recurringInvoiceBulkSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Which schedules changed and which were skipped",
+      content: { "application/json": { schema: recurringBulkResult } },
     },
     ...errors,
     400: {

@@ -18,6 +18,7 @@ import { TaxRate } from "../db/entities/TaxRate.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
 import { documentTotals } from "../../shared/documentDiscount.js";
+import { recurringInvoiceArchiveBlocker } from "../../shared/invoiceArchive.js";
 import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
 import { recordAudit } from "./audit.js";
 import { discountOf, issueInvoice, sendInvoiceEmail } from "./finance.js";
@@ -1111,6 +1112,9 @@ export async function bootRecurringInvoices(): Promise<void> {
  * Apply a user-driven status change. Centralized so the route handler
  * doesn't have to know about side effects (clearing nextRunAt, capping
  * runs, etc.).
+ *
+ * Resuming an archived schedule brings it back to the lists: only a schedule
+ * that bills nobody stays archived, so nothing ever bills from out of sight.
  */
 export function applyRecurringInvoiceStatus(
   ri: RecurringInvoice,
@@ -1119,9 +1123,76 @@ export function applyRecurringInvoiceStatus(
   ri.status = next;
   if (next === "active") {
     registerRecurringInvoice(ri);
+    // Registering can end it at once (run cap reached, past its end date);
+    // then it still bills nobody and may stay where it was filed.
+    if (ri.status === "active") ri.archivedAt = null;
   } else {
     ri.nextRunAt = null;
   }
+}
+
+// ──────────────────────────── Archive ─────────────────────────────────
+
+export type RecurringInvoiceArchiveAction = "archive" | "restore";
+
+export type RecurringInvoiceArchiveOutcome = {
+  /** Schedules whose archived state changed, in request order. */
+  changed: RecurringInvoice[];
+  /** Ids left as they were, each with the reason. */
+  skipped: Array<{ id: string; reason: string }>;
+};
+
+/**
+ * Archive or restore a set of recurring invoice schedules in one call — the
+ * list page's bulk action, and the detail page's action too.
+ *
+ * Archiving files a schedule out of the default lists and nothing else: its
+ * status, cadence, template lines, run history, and the invoices it already
+ * created stay exactly as they were. Only a paused or ended schedule can be
+ * archived (`recurringInvoiceArchiveBlocker`), and resuming one restores it
+ * (`applyRecurringInvoiceStatus`). An id that is not this company's schedule,
+ * is already in the requested state, or is still active is skipped with a
+ * reason rather than failing the rest of the batch.
+ */
+export async function setRecurringInvoicesArchived(
+  companyId: string,
+  ids: string[],
+  action: RecurringInvoiceArchiveAction,
+): Promise<RecurringInvoiceArchiveOutcome> {
+  const requested = [...new Set(ids)];
+  if (requested.length === 0) return { changed: [], skipped: [] };
+  const repo = AppDataSource.getRepository(RecurringInvoice);
+  const found = await repo.findBy({ companyId, id: In(requested) });
+  const byId = new Map(found.map((schedule) => [schedule.id, schedule]));
+  const archivedAt = action === "archive" ? new Date() : null;
+  const changed: RecurringInvoice[] = [];
+  const skipped: RecurringInvoiceArchiveOutcome["skipped"] = [];
+  for (const id of requested) {
+    const schedule = byId.get(id);
+    const blocker =
+      schedule && action === "archive" ? recurringInvoiceArchiveBlocker(schedule) : null;
+    if (!schedule) {
+      skipped.push({ id, reason: "Recurring invoice not found" });
+    } else if (action === "archive" && schedule.archivedAt) {
+      skipped.push({ id, reason: "Already archived" });
+    } else if (action === "restore" && !schedule.archivedAt) {
+      skipped.push({ id, reason: "Not archived" });
+    } else if (blocker) {
+      skipped.push({ id, reason: blocker });
+    } else {
+      schedule.archivedAt = archivedAt;
+      changed.push(schedule);
+    }
+  }
+  // Only `archivedAt` is written, so a manual run since the read above keeps
+  // the counts it set. A partial `save` rather than a bulk UPDATE: the
+  // live-sync subscriber needs each row to tell open pages to refetch.
+  if (changed.length > 0) {
+    await repo.save(
+      changed.map((schedule) => ({ id: schedule.id, archivedAt: schedule.archivedAt })),
+    );
+  }
+  return { changed, skipped };
 }
 
 // Re-export for the route layer.

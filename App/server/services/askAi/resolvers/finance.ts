@@ -246,8 +246,10 @@ async function customerItem(
       order: { isPrimary: "DESC", sortOrder: "ASC", createdAt: "ASC" },
       take: MAX_CONTACTS + 1,
     }),
+    // Archived invoices are filed away, as on the customer page itself. They
+    // have nothing left to collect, so the outstanding total below is whole.
     AppDataSource.getRepository(Invoice).find({
-      where: { companyId, customerId: customer.id },
+      where: { companyId, customerId: customer.id, archivedAt: IsNull() },
       order: { createdAt: "DESC" },
       take: RECENT_DOCUMENTS + 1,
     }),
@@ -459,6 +461,12 @@ async function invoiceItem(companyId: string, invoice: Invoice): Promise<AskAiCo
       ["Sent", invoice.sentAt ? stamp(invoice.sentAt) : invoice.status === "draft" ? "not yet" : null],
       ["Paid in full", invoice.paidAt ? stamp(invoice.paidAt) : null],
       ["Voided", invoice.voidedAt ? stamp(invoice.voidedAt) : null],
+      [
+        "Archived",
+        invoice.archivedAt
+          ? `${stamp(invoice.archivedAt)} — filed out of the lists by a Member; status and balance unchanged`
+          : null,
+      ],
     ]),
     "",
     `### Line items (${hydrated?.lines.length ?? 0})`,
@@ -720,6 +728,12 @@ export const resolveRecurringInvoice: AskAiResolver = async ({ companyId, member
       ],
       ["Runs so far", `${ri.runsCreated}${ri.maxRuns ? ` of at most ${ri.maxRuns}` : ""}`],
       ["Ends on", ri.endsOn ? day(ri.endsOn) : null],
+      [
+        "Archived",
+        ri.archivedAt
+          ? `${stamp(ri.archivedAt)} — filed out of the lists by a Member; resuming it restores it`
+          : null,
+      ],
       [
         "Delivery",
         ri.autoSend

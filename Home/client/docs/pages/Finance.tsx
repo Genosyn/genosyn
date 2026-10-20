@@ -285,7 +285,9 @@ export function Finance() {
       <P>
         <Code>Finance → Invoices</Code> opens on <Strong>Active</Strong>: every invoice that
         isn&apos;t void, from drafts to paid. Voided invoices stay in your records under the{" "}
-        <Code>Void</Code> tab, and the other tabs narrow Active down by status.
+        <Code>Void</Code> tab, invoices you{" "}
+        <DocLink to="/docs/finance#invoices-archive">archive</DocLink> wait under{" "}
+        <Code>Archived</Code>, and the other tabs narrow Active down by status.
       </P>
 
       <H3 id="invoices-paid-confirmation">Paid confirmation</H3>
@@ -402,6 +404,36 @@ export function Finance() {
         the reversal carries today&apos;s date and would pull a closed period&apos;s revenue into
         the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>{" "}
         on a bill.
+      </P>
+
+      <H3 id="invoices-archive">Archive</H3>
+      <P>
+        Archive the invoices you no longer need in front of you — paid ones, voided ones, drafts you
+        may come back to — without deleting or changing anything. In{" "}
+        <Code>Finance → Invoices</Code>, tick the checkbox beside each one (shift-click ticks a
+        range, and the header checkbox ticks every invoice in the current tab that can be archived),
+        then click <Code>Archive</Code> in the bar that appears. One invoice can also be archived
+        from its row menu or from the <Code>More actions</Code> menu on its detail page. There is
+        no confirmation, because nothing is lost: archiving only files an invoice away.
+      </P>
+      <P>
+        Only an invoice with nothing left to collect can be archived: a draft, a void invoice, or
+        an issued one that is paid, credited, or{" "}
+        <DocLink to="/docs/finance#invoices-write-off">written off</DocLink>. An invoice with a
+        balance due keeps its checkbox disabled and has no <Code>Archive</Code> in its menus, so
+        money still owed to you is never out of sight. If an archived invoice is owed money again —
+        you issue an archived draft, delete a payment, reverse a write-off, or unapply a credit — it
+        comes back to the lists by itself.
+      </P>
+      <P>
+        An archived invoice keeps its number, status, payments, PDF, and ledger entries, and it
+        still counts in every total: outstanding and paid on the Finance overview, the
+        customer&apos;s outstanding and lifetime billed, statements, and reports. It still opens
+        from its link, and every action on it works as before. It leaves the status tabs and the
+        customer&apos;s page for the <Code>Archived</Code> tab, where you can select invoices and
+        click <Code>Restore</Code> to bring them back — or use <Code>Restore</Code> on the invoice
+        itself. AI Employees see the same split: <Code>list_invoices</Code> leaves archived
+        invoices out unless asked to include them.
       </P>
 
       <H3 id="invoices-write-off">Writing off a balance</H3>
@@ -570,6 +602,26 @@ export function Finance() {
         <Code>Duplicate</Code> clones the template into a new, paused schedule so you can tweak and
         resume it without touching the original. Optional caps — max runs and end date — flip the
         status to <Code>ended</Code> automatically once hit.
+      </P>
+
+      <H3 id="recurring-archive">Archive</H3>
+      <P>
+        Archive the schedules you no longer need in front of you, such as a retainer that ended or
+        one you have paused for good. In <Code>Finance → Recurring</Code>, tick the checkbox beside
+        each one (shift-click ticks a range, and the header checkbox ticks every schedule in the
+        current tab that can be archived), then click <Code>Archive</Code> in the bar that appears.
+        A single schedule can also be archived from the <Code>More actions</Code> menu on its page.
+        There is no confirmation, because nothing is lost.
+      </P>
+      <P>
+        Only a <Code>paused</Code> or <Code>ended</Code> schedule can be archived. An active one
+        would go on billing from out of sight, so its checkbox stays disabled; pause or end it
+        first. An archived schedule keeps its cadence, line items, and run history, and the invoices
+        it created stay in your books. It leaves the status tabs and the customer&apos;s page for
+        the <Code>Archived</Code> tab, where <Code>Restore</Code> brings it back. Resuming an
+        archived schedule restores it as well, so a schedule that bills is always in the list. AI
+        Employees see the same split: <Code>list_recurring_invoices</Code> leaves archived schedules
+        out unless asked to include them.
       </P>
 
       <H2 id="reconciliation">Bank reconciliation</H2>
@@ -828,7 +880,10 @@ export function Finance() {
         <Code>void_invoice</Code>, <Code>create_customer</Code>, and <Code>update_customer</Code>)
         need <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so{" "}
         <Code>5000</Code> is $50.00. Without a Finance grant, calls are refused with a clear access
-        error and the tools are deprioritized in discovery.
+        error and the tools are deprioritized in discovery. Invoices and recurring invoices a Member{" "}
+        <a href="#invoices-archive">archived</a> are left out of <Code>list_invoices</Code> and{" "}
+        <Code>list_recurring_invoices</Code> unless the employee passes{" "}
+        <Code>includeArchived</Code>; reports and balances always count archived invoices.
       </P>
       <P>
         When an AI Employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is

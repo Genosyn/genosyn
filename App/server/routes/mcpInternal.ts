@@ -1602,6 +1602,7 @@ function serializeInvoiceRow(h: HydratedInvoiceRow) {
     balanceCents: h.balanceCents,
     issueDate: h.issueDate,
     dueDate: h.dueDate,
+    archived: !!h.archivedAt,
   };
 }
 
@@ -1616,6 +1617,7 @@ function serializeInvoiceFull(h: HydratedInvoiceRow) {
     sentAt: h.sentAt,
     paidAt: h.paidAt,
     voidedAt: h.voidedAt,
+    archivedAt: h.archivedAt,
     lines: h.lines.map((l) => ({
       id: l.id,
       description: l.description,
@@ -1665,6 +1667,7 @@ function serializeRecurringInvoiceRow(schedule: HydratedRecurringInvoice) {
     maxRuns: schedule.maxRuns,
     endsOn: schedule.endsOn,
     linesCount: schedule.lines.length,
+    archived: !!schedule.archivedAt,
     createdAt: schedule.createdAt,
     updatedAt: schedule.updatedAt,
   };
@@ -1676,6 +1679,7 @@ function serializeRecurringInvoiceFull(schedule: HydratedRecurringInvoice) {
     customerId: schedule.customerId,
     notes: schedule.notes,
     footer: schedule.footer,
+    archivedAt: schedule.archivedAt,
     lines: schedule.lines.map((line) => ({
       id: line.id,
       productId: line.productId,
@@ -1927,6 +1931,7 @@ const listInvoicesSchema = z
   .object({
     status: z.enum(["draft", "sent", "paid", "void"]).optional(),
     customerSlug: z.string().min(1).max(200).optional(),
+    includeArchived: z.boolean().default(false),
     limit: z.number().int().min(1).max(100).optional(),
   })
   .strict();
@@ -1940,6 +1945,9 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listInvoicesSchema>;
     const where: Record<string, unknown> = { companyId: cid };
     if (body.status) where.status = body.status;
+    // Archived invoices are ones a Member filed away with nothing left to
+    // collect, so they stay out — as in Finance → Invoices — unless asked.
+    if (!body.includeArchived) where.archivedAt = IsNull();
     if (body.customerSlug) {
       const customer = await loadCustomerBySlug(cid, body.customerSlug);
       if (!customer) {
@@ -2212,6 +2220,7 @@ const listRecurringInvoicesSchema = z
   .object({
     status: z.enum(["active", "paused", "ended"]).optional(),
     customerSlug: z.string().min(1).max(200).optional(),
+    includeArchived: z.boolean().default(false),
     limit: z.number().int().min(1).max(100).optional(),
   })
   .strict();
@@ -2225,6 +2234,8 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listRecurringInvoicesSchema>;
     const where: Record<string, unknown> = { companyId };
     if (body.status) where.status = body.status;
+    // An archived schedule is a paused or ended one a Member filed away.
+    if (!body.includeArchived) where.archivedAt = IsNull();
     if (body.customerSlug) {
       const customer = await loadCustomerBySlug(companyId, body.customerSlug);
       if (!customer) {

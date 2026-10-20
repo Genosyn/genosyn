@@ -53,6 +53,7 @@ export type RecurringInvoiceFrequency = "daily" | "weekly" | "monthly" | "quarte
 @Index(["companyId", "status"])
 @Index(["companyId", "customerId"])
 @Index(["status", "nextRunAt"])
+@Index(["companyId", "archivedAt"])
 export class RecurringInvoice {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -162,6 +163,15 @@ export class RecurringInvoice {
   /** Optional cutoff date. After this, status auto-flips to `ended`. */
   @Column({ type: dateTimeColumnType, nullable: true })
   endsOn!: Date | null;
+
+  /** Filing, not a status: an archived schedule leaves the default lists and
+   *  keeps its cadence, lines, and run history. Only a schedule that has
+   *  stopped billing — paused or ended — can be archived
+   *  (`shared/invoiceArchive.ts`), and resuming one brings it back
+   *  (`applyRecurringInvoiceStatus`), so an archived schedule never bills
+   *  anyone. Restoring clears it. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  archivedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;

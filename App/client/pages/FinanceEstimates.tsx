@@ -9,7 +9,6 @@ import {
   Plus,
   Repeat,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   api,
@@ -17,7 +16,6 @@ import {
   displayEstimateStatus,
   Estimate,
   EstimateBulkAction,
-  EstimateBulkResult,
   EstimateListItem,
   formatMoney,
 } from "../lib/api";
@@ -31,6 +29,8 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { ArchiveBulkBar, ArchivedTabLabel, FilterTab } from "../components/finance/ArchiveControls";
+import { useArchiveSelection } from "../components/finance/useArchiveSelection";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /** Every status tab, plus the Archived view that holds what was filed away. */
@@ -57,9 +57,6 @@ const STATUS_BADGE: Record<DisplayEstimateStatus, string> = {
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
-/** The server takes 500 ids a request; a select-all over a long list is sent in parts. */
-const BULK_CHUNK = 200;
-
 /**
  * Estimate (Quotation) list with status-tab filter. Mirrors the
  * Invoices list — click any row to open the detail page, and a read-only
@@ -75,10 +72,6 @@ export default function FinanceEstimates() {
   const navigate = useNavigate();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
-  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
-  const [bulkBusy, setBulkBusy] = React.useState<EstimateBulkAction | null>(null);
-  /** Where a shift-click range started. */
-  const anchorRef = React.useRef<string | null>(null);
 
   const reload = React.useCallback(async () => {
     // Archived rows come too: they fill the Archived view and its count.
@@ -94,18 +87,6 @@ export default function FinanceEstimates() {
 
   useLiveRefetch("estimate", reload);
 
-  // A different tab is a different set of rows — carrying a selection across
-  // it would act on estimates nobody can see any more.
-  React.useEffect(() => {
-    setSelectedIds(new Set());
-    anchorRef.current = null;
-  }, [filter]);
-
-  function forget(ids: Iterable<string>) {
-    const gone = new Set(ids);
-    setSelectedIds((current) => new Set([...current].filter((id) => !gone.has(id))));
-  }
-
   async function deleteDraft(est: EstimateListItem) {
     const ok = await dialog.confirm({
       title: "Delete this draft?",
@@ -116,7 +97,7 @@ export default function FinanceEstimates() {
     if (!ok) return;
     const originalIndex = estimates?.findIndex((item) => item.id === est.id) ?? -1;
     setEstimates((current) => current?.filter((item) => item.id !== est.id) ?? current);
-    forget([est.id]);
+    selection.forget([est.id]);
     background(() => api.del(`/api/companies/${company.id}/estimates/${est.slug}`), {
       title: "Couldn’t delete the estimate",
       error: (error) => `${errorMessage(error)} It has been restored.`,
@@ -180,38 +161,6 @@ export default function FinanceEstimates() {
     );
   }
 
-  /** Mark rows archived (or not) here, ahead of the live refetch that confirms it. */
-  function markArchived(ids: Set<string>, action: EstimateBulkAction) {
-    const archivedAt = action === "archive" ? new Date().toISOString() : null;
-    setEstimates(
-      (current) =>
-        current?.map((item) => (ids.has(item.id) ? { ...item, archivedAt } : item)) ?? current,
-    );
-  }
-
-  /** One row from its menu: it leaves the view at once and returns if the server refuses. */
-  function archiveOne(est: EstimateListItem, action: EstimateBulkAction) {
-    markArchived(new Set([est.id]), action);
-    forget([est.id]);
-    background(
-      () =>
-        api.post<EstimateBulkResult>(`/api/companies/${company.id}/estimates/bulk`, {
-          action,
-          ids: [est.id],
-        }),
-      {
-        title:
-          action === "archive" ? "Couldn’t archive the estimate" : "Couldn’t restore the estimate",
-        error: (error) => `${errorMessage(error)} The change was undone.`,
-        onError: () => {
-          setEstimates(
-            (current) => current?.map((item) => (item.id === est.id ? est : item)) ?? current,
-          );
-        },
-      },
-    );
-  }
-
   const filtered = React.useMemo(() => {
     if (!estimates) return null;
     if (filter === "archived") return estimates.filter((est) => est.archivedAt);
@@ -243,92 +192,28 @@ export default function FinanceEstimates() {
     return c;
   }, [estimates]);
 
-  // Selection is reconciled against the rows on screen, so an id that has
-  // since left the view — archived elsewhere, deleted — never drives a call.
   const rows = React.useMemo(() => filtered ?? [], [filtered]);
-  const selectedRows = React.useMemo(
-    () => rows.filter((est) => selectedIds.has(est.id)),
-    [rows, selectedIds],
-  );
-  const selectedCount = selectedRows.length;
-  const allSelected = rows.length > 0 && selectedCount === rows.length;
+  const selection = useArchiveSelection({
+    rows,
+    canSelect: () => true,
+    view: filter,
+    bulkUrl: `/api/companies/${company.id}/estimates/bulk`,
+    noun: { one: "estimate", many: "estimates" },
+    onChanged: (ids, action) => {
+      const archivedAt = action === "archive" ? new Date().toISOString() : null;
+      setEstimates(
+        (current) =>
+          current?.map((item) => (ids.has(item.id) ? { ...item, archivedAt } : item)) ?? current,
+      );
+    },
+    onRevert: (est) =>
+      setEstimates(
+        (current) => current?.map((item) => (item.id === est.id ? est : item)) ?? current,
+      ),
+  });
   const bulkAction: EstimateBulkAction = filter === "archived" ? "restore" : "archive";
 
-  function toggleOne(est: EstimateListItem, extend: boolean) {
-    // Read and move the anchor outside the updater, which StrictMode runs twice.
-    const anchor = anchorRef.current;
-    anchorRef.current = est.id;
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      const index = rows.findIndex((row) => row.id === est.id);
-      const anchorIndex = anchor ? rows.findIndex((row) => row.id === anchor) : -1;
-      // Shift-click extends from the last row ticked, as in Mail.
-      if (extend && anchorIndex >= 0 && index >= 0) {
-        const [from, to] = anchorIndex < index ? [anchorIndex, index] : [index, anchorIndex];
-        const selecting = !current.has(est.id);
-        for (let i = from; i <= to; i += 1) {
-          if (selecting) next.add(rows[i].id);
-          else next.delete(rows[i].id);
-        }
-      } else if (next.has(est.id)) {
-        next.delete(est.id);
-      } else {
-        next.add(est.id);
-      }
-      return next;
-    });
-  }
-
-  function toggleAll() {
-    setSelectedIds(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
-  }
-
-  /**
-   * Archive or restore the selection. Archiving is undone by restoring, so it
-   * asks no confirmation; a failure opens the error modal, since the bar has
-   * no form to hold it.
-   */
-  async function runBulk(action: EstimateBulkAction) {
-    const ids = selectedRows.map((est) => est.id);
-    if (ids.length === 0) return;
-    setBulkBusy(action);
-    const changed = new Set<string>();
-    const skipped: EstimateBulkResult["skipped"] = [];
-    let failure: unknown = null;
-    try {
-      for (let i = 0; i < ids.length; i += BULK_CHUNK) {
-        const result = await api.post<EstimateBulkResult>(
-          `/api/companies/${company.id}/estimates/bulk`,
-          { action, ids: ids.slice(i, i + BULK_CHUNK) },
-        );
-        result.succeeded.forEach((id) => changed.add(id));
-        skipped.push(...result.skipped);
-      }
-    } catch (err) {
-      failure = err;
-    } finally {
-      // Whatever went through stays done, even when a later part failed.
-      if (changed.size > 0) {
-        markArchived(changed, action);
-        forget(changed);
-      }
-      setBulkBusy(null);
-    }
-    const title =
-      action === "archive" ? "Couldn’t archive the estimates" : "Couldn’t restore the estimates";
-    if (failure) {
-      void dialog.error(
-        changed.size > 0
-          ? `${errorMessage(failure)} ${changed.size} of ${ids.length} went through.`
-          : failure,
-        { title },
-      );
-    } else if (changed.size === 0 && skipped.length > 0) {
-      void dialog.error(`Nothing changed — ${skipped[0].reason.toLowerCase()}.`, { title });
-    }
-  }
-
-  const showBulkBar = canWrite && selectedCount > 0;
+  const showBulkBar = canWrite && selection.selectedCount > 0;
 
   return (
     <div className={"page-shell p-8" + (showBulkBar ? " pb-28" : "")}>
@@ -367,11 +252,7 @@ export default function FinanceEstimates() {
           />
           <FilterTab
             active={filter === "archived"}
-            label={
-              <span className="inline-flex items-center gap-1">
-                <Archive size={12} /> Archived
-              </span>
-            }
+            label={<ArchivedTabLabel />}
             count={estimates ? counts.archived : null}
             onClick={() => setFilter("archived")}
           />
@@ -419,10 +300,12 @@ export default function FinanceEstimates() {
                 {canWrite && (
                   <th className="w-10 py-2 pl-4 pr-0 text-left font-medium">
                     <Checkbox
-                      checked={allSelected}
-                      indeterminate={selectedCount > 0}
-                      onChange={toggleAll}
-                      label={allSelected ? "Clear selection" : "Select every estimate in view"}
+                      checked={selection.allSelected}
+                      indeterminate={selection.selectedCount > 0}
+                      onChange={selection.toggleAll}
+                      label={
+                        selection.allSelected ? "Clear selection" : "Select every estimate in view"
+                      }
                     />
                   </th>
                 )}
@@ -438,7 +321,7 @@ export default function FinanceEstimates() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filtered.map((est) => {
                 const ds = displayEstimateStatus(est);
-                const isSelected = selectedIds.has(est.id);
+                const isSelected = selection.selectedIds.has(est.id);
                 return (
                   <tr
                     key={est.id}
@@ -453,7 +336,7 @@ export default function FinanceEstimates() {
                         <Checkbox
                           checked={isSelected}
                           onChange={(event) =>
-                            toggleOne(est, (event.nativeEvent as MouseEvent).shiftKey)
+                            selection.toggleOne(est, (event.nativeEvent as MouseEvent).shiftKey)
                           }
                           label={`Select ${est.number || "draft estimate"}`}
                         />
@@ -507,7 +390,9 @@ export default function FinanceEstimates() {
                             )
                           }
                           onVoid={() => voidEstimate(est)}
-                          onArchive={() => archiveOne(est, est.archivedAt ? "restore" : "archive")}
+                          onArchive={() =>
+                            selection.runOne(est, est.archivedAt ? "restore" : "archive")
+                          }
                         />
                       </td>
                     )}
@@ -520,92 +405,14 @@ export default function FinanceEstimates() {
       )}
 
       {showBulkBar && (
-        <BulkBar
-          count={selectedCount}
+        <ArchiveBulkBar
+          count={selection.selectedCount}
           action={bulkAction}
-          busy={bulkBusy}
-          onRun={() => void runBulk(bulkAction)}
-          onClear={() => setSelectedIds(new Set())}
+          busy={selection.busy}
+          onRun={() => void selection.run(bulkAction)}
+          onClear={selection.clear}
         />
       )}
-    </div>
-  );
-}
-
-function FilterTab({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: React.ReactNode;
-  count: number | null;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={
-        "rounded-md px-3 py-1.5 text-xs font-medium transition " +
-        (active
-          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-          : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
-      }
-    >
-      {label}
-      {count !== null && (
-        <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">{count}</span>
-      )}
-    </button>
-  );
-}
-
-/**
- * Floating bar for a selection. One verb — Archive, or Restore in the
- * Archived view; voiding and deleting stay on the row menu, where they can't
- * sweep up a hundred estimates by accident.
- */
-function BulkBar({
-  count,
-  action,
-  busy,
-  onRun,
-  onClear,
-}: {
-  count: number;
-  action: EstimateBulkAction;
-  busy: EstimateBulkAction | null;
-  onRun: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
-      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        <span className="px-1 text-sm font-medium tabular-nums text-slate-700 dark:text-slate-200">
-          {count} selected
-        </span>
-        <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
-        <Button size="sm" variant="ghost" loading={busy === action} onClick={onRun}>
-          {action === "archive" ? (
-            <>
-              <Archive size={14} /> Archive
-            </>
-          ) : (
-            <>
-              <ArchiveRestore size={14} /> Restore
-            </>
-          )}
-        </Button>
-        <button
-          onClick={onClear}
-          disabled={busy !== null}
-          aria-label="Clear selection"
-          className="ml-1 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-60 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        >
-          <X size={14} />
-        </button>
-      </div>
     </div>
   );
 }

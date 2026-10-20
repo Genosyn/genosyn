@@ -4362,7 +4362,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_invoices",
     description:
-      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Needs `read` finance access.",
+      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Invoices a Member archived are hidden unless includeArchived is true; an archived invoice has nothing left to collect but still counts in balances and reports, so include them when totalling what a customer was billed or paid. Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4371,6 +4371,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Filter to one customer (from list_customers).",
         },
+        includeArchived: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
       additionalProperties: false,
@@ -4392,7 +4393,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_recurring_invoices",
     description:
-      "List recurring invoice schedules, newest first. Filter by lifecycle status or customer. Returns the cadence, next and last run, draft-vs-auto-send mode, run caps, and latest generated invoice; call get_recurring_invoice for template lines. Needs `read` finance access.",
+      "List recurring invoice schedules, newest first. Filter by lifecycle status or customer. Returns the cadence, next and last run, draft-vs-auto-send mode, run caps, and latest generated invoice; call get_recurring_invoice for template lines. Schedules a Member archived (always paused or ended, so they bill nobody) are hidden unless includeArchived is true. Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4401,6 +4402,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Filter to one customer (from list_customers).",
         },
+        includeArchived: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
       additionalProperties: false,

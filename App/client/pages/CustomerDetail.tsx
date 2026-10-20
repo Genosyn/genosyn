@@ -219,8 +219,10 @@ function CustomerOverview({ company }: { company: Company }) {
       );
       setCustomer(c);
       const [inv, est] = await Promise.all([
+        // Archived invoices come too: the totals still count them, though the
+        // list and the action-needed queue leave them out.
         api.get<InvoiceListItem[]>(
-          `/api/companies/${company.id}/invoices?customerId=${c.id}`,
+          `/api/companies/${company.id}/invoices?customerId=${c.id}&archived=true`,
         ),
         api.get<EstimateListItem[]>(
           `/api/companies/${company.id}/estimates?customerId=${c.id}`,
@@ -514,6 +516,13 @@ function CustomerOverview({ company }: { company: Company }) {
     );
   }
 
+  // Invoices a Member archived are filed away: off the billing list and the
+  // action-needed queue, but never out of the totals below.
+  const listedInvoices = React.useMemo(
+    () => invoices.filter((inv) => !inv.archivedAt),
+    [invoices],
+  );
+
   // Outstanding (issued + unpaid) and lifetime-billed totals, grouped by
   // currency so a multi-currency account is never summed into a meaningless
   // single number.
@@ -536,7 +545,7 @@ function CustomerOverview({ company }: { company: Company }) {
   const actions = React.useMemo<ActionItem[]>(() => {
     const now = new Date();
     const items: ActionItem[] = [];
-    for (const inv of invoices) {
+    for (const inv of listedInvoices) {
       const st = displayInvoiceStatus(inv, now);
       const to = `${financeBase}/invoices/${inv.slug}`;
       const num = inv.number || "Draft invoice";
@@ -614,7 +623,7 @@ function CustomerOverview({ company }: { company: Company }) {
     }
     const rank: Record<Tone, number> = { danger: 0, warn: 1, info: 2 };
     return items.sort((a, b) => rank[a.tone] - rank[b.tone]);
-  }, [invoices, estimates, recurring, financeBase]);
+  }, [listedInvoices, estimates, recurring, financeBase]);
 
   const deals = React.useMemo(
     () => orderAccountDeals(relationship?.deals ?? []),
@@ -666,7 +675,7 @@ function CustomerOverview({ company }: { company: Company }) {
     deals: relationship?.deals.length,
     people,
     meetings: relationship?.meetings.length,
-    billing: invoices.length + estimates.length + recurring.length + credits.length,
+    billing: listedInvoices.length + estimates.length + recurring.length + credits.length,
   };
   const openPipeline = dealTotalsByCurrency(deals, "open");
   const wonValue = dealTotalsByCurrency(deals, "won");
@@ -1172,7 +1181,7 @@ function CustomerOverview({ company }: { company: Company }) {
           <FormError message={billingError} />
           <DocSection
             title="Invoices"
-            count={invoices.length}
+            count={listedInvoices.length}
             newLabel="New invoice"
             newTo={
               canWrite ? withCustomerPick(`${financeBase}/invoices/new`, customer.id) : undefined
@@ -1180,10 +1189,10 @@ function CustomerOverview({ company }: { company: Company }) {
             emptyText="No invoices for this customer yet."
             first
           >
-            {invoices.length > 0 && (
+            {listedInvoices.length > 0 && (
               <DocTable
                 head={["Number", "Status", "Due", "Total", "Balance"]}
-                rows={invoices.map((inv) => ({
+                rows={listedInvoices.map((inv) => ({
                   key: inv.id,
                   to: `${financeBase}/invoices/${inv.slug}`,
                   cells: [

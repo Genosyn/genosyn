@@ -37,6 +37,7 @@ import {
   documentTotals,
   NO_DISCOUNT,
 } from "../../shared/documentDiscount.js";
+import { invoiceArchiveBlocker } from "../../shared/invoiceArchive.js";
 import {
   formatGlobalSmtpSender,
   getEffectiveGlobalSmtp,
@@ -410,6 +411,10 @@ export async function replaceInvoiceLines(
  *     `paidAt` set/cleared accordingly.
  *   - Becoming Paid emails the company's owners and admins a confirmation
  *     (`services/invoicePaidNotice.ts`) — never the customer.
+ *   - An archived invoice that is owed money again — an archived draft
+ *     issued, a payment deleted, a write-off reversed, a credit unapplied,
+ *     an edit that raises the total — comes back to the lists, so nothing
+ *     left to collect is ever out of sight (`shared/invoiceArchive.ts`).
  */
 export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice> {
   const wasPaid = isPaidInCash(invoice);
@@ -447,6 +452,7 @@ export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice>
       invoice.paidAt = null;
     }
   }
+  if (invoice.archivedAt && invoiceArchiveBlocker(invoice)) invoice.archivedAt = null;
   const saved = await AppDataSource.getRepository(Invoice).save(invoice);
   if (!wasPaid && isPaidInCash(saved)) await notifyInvoicePaid(saved);
   return saved;
@@ -1361,6 +1367,68 @@ async function uniqueDraftInvoiceSlug(companyId: string): Promise<string> {
     if (!(await repo.findOneBy({ companyId, slug }))) return slug;
   }
   return `draft-${Date.now().toString(36)}`;
+}
+
+// ──────────────────────────── Archive ─────────────────────────────────
+
+export type InvoiceArchiveAction = "archive" | "restore";
+
+export type InvoiceArchiveOutcome = {
+  /** Invoices whose archived state changed, in request order. */
+  changed: Invoice[];
+  /** Ids left as they were, each with the reason. */
+  skipped: Array<{ id: string; reason: string }>;
+};
+
+/**
+ * Archive or restore a set of invoices in one call — the list page's bulk
+ * action, and the single-row and detail-page actions too.
+ *
+ * Archiving files an invoice out of the default lists and nothing else: its
+ * status, number, payments, PDF, and ledger entries stay exactly as they
+ * were, and it still counts in every balance, statement, and report. Only an
+ * invoice with nothing left to collect can be archived
+ * (`invoiceArchiveBlocker`); `recomputeInvoiceTotals` brings one back if it
+ * is owed money again. An id that is not this company's invoice, is already
+ * in the requested state, or still has a balance due is skipped with a
+ * reason rather than failing the rest of the batch.
+ */
+export async function setInvoicesArchived(
+  companyId: string,
+  ids: string[],
+  action: InvoiceArchiveAction,
+): Promise<InvoiceArchiveOutcome> {
+  const requested = [...new Set(ids)];
+  if (requested.length === 0) return { changed: [], skipped: [] };
+  const repo = AppDataSource.getRepository(Invoice);
+  const found = await repo.findBy({ companyId, id: In(requested) });
+  const byId = new Map(found.map((invoice) => [invoice.id, invoice]));
+  const archivedAt = action === "archive" ? new Date() : null;
+  const changed: Invoice[] = [];
+  const skipped: InvoiceArchiveOutcome["skipped"] = [];
+  for (const id of requested) {
+    const invoice = byId.get(id);
+    const blocker = invoice && action === "archive" ? invoiceArchiveBlocker(invoice) : null;
+    if (!invoice) {
+      skipped.push({ id, reason: "Invoice not found" });
+    } else if (action === "archive" && invoice.archivedAt) {
+      skipped.push({ id, reason: "Already archived" });
+    } else if (action === "restore" && !invoice.archivedAt) {
+      skipped.push({ id, reason: "Not archived" });
+    } else if (blocker) {
+      skipped.push({ id, reason: blocker });
+    } else {
+      invoice.archivedAt = archivedAt;
+      changed.push(invoice);
+    }
+  }
+  // Only `archivedAt` is written, so a payment recorded since the read above
+  // keeps the balance it set. A partial `save` rather than a bulk UPDATE: the
+  // live-sync subscriber needs each row to tell open pages to refetch.
+  if (changed.length > 0) {
+    await repo.save(changed.map((invoice) => ({ id: invoice.id, archivedAt: invoice.archivedAt })));
+  }
+  return { changed, skipped };
 }
 
 // ─────────────────────────── Hydration ────────────────────────────────
