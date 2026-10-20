@@ -4362,7 +4362,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_invoices",
     description:
-      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Invoices a Member archived are hidden unless includeArchived is true; an archived invoice has nothing left to collect but still counts in balances and reports, so include them when totalling what a customer was billed or paid. Needs `read` finance access.",
+      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void), `customerSlug`, or `recurringInvoiceSlug` for the invoices one recurring invoice schedule created. Returns compact rows (number, status, customer, the schedule that created it if any, totals, balance, dates); call get_invoice for line items and payments. Invoices a Member archived are hidden unless includeArchived is true; an archived invoice has nothing left to collect but still counts in balances and reports, so include them when totalling what a customer was billed or paid. Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4370,6 +4370,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         customerSlug: {
           type: "string",
           description: "Filter to one customer (from list_customers).",
+        },
+        recurringInvoiceSlug: {
+          type: "string",
+          description:
+            "Filter to the invoices one recurring invoice schedule created (from list_recurring_invoices).",
         },
         includeArchived: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 100 },
@@ -4411,7 +4416,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_recurring_invoice",
     description:
-      "Fetch one recurring invoice schedule in full, including customer, cadence, lifecycle, delivery mode, run history, notes, and template line items. Needs `read` finance access.",
+      "Fetch one recurring invoice schedule in full, including customer, cadence, lifecycle, delivery mode, run history, notes, and template line items. For the invoices it has created, call list_invoices with its slug as `recurringInvoiceSlug`. Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {

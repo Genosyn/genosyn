@@ -4849,12 +4849,24 @@ export type Invoice = {
    *  unaffected. Only an invoice with nothing left to collect can be archived
    *  (`shared/invoiceArchive.ts`). */
   archivedAt: string | null;
+  /** The recurring invoice schedule that created this invoice, or null for
+   *  one made any other way. */
+  recurringInvoiceId: string | null;
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
   customer: InvoiceCustomerStub | null;
+  /** The schedule named by `recurringInvoiceId`. */
+  recurringInvoice: InvoiceScheduleStub | null;
   lines: InvoiceLineItem[];
   payments: InvoicePayment[];
+};
+
+/** The recurring invoice schedule that created an invoice. */
+export type InvoiceScheduleStub = {
+  id: string;
+  name: string;
+  slug: string;
 };
 
 export type InvoiceWriteOffKind = "bad_debt" | "residual";

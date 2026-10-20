@@ -209,7 +209,10 @@ export function Customers() {
           <DocLink to="/docs/finance#estimates-archive">Estimates</DocLink>,{" "}
           <DocLink to="/docs/finance#invoices-archive">Invoices</DocLink>, or{" "}
           <DocLink to="/docs/finance#recurring-archive">Recurring</DocLink>. Archived invoices still
-          count in the outstanding and lifetime billed totals.{" "}
+          count in the outstanding and lifetime billed totals. A small repeat mark beside an
+          invoice&apos;s number shows that{" "}
+          <DocLink to="/docs/finance#recurring-invoices-created">a recurring invoice</DocLink>{" "}
+          created it.{" "}
           <Code>New invoice</Code> and <Code>New estimate</Code> open with this customer and their
           currency picked, and <Code>New recurring invoice</Code> opens a schedule for this
           customer, named after it (see{" "}

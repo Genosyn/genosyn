@@ -49,6 +49,7 @@ import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
+import { InvoiceStatusBadge } from "@/components/finance/InvoiceStatusBadge";
 import { splitAddressList } from "@/lib/addressList";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -61,21 +62,6 @@ const PAYMENT_METHOD_LABEL: Record<InvoicePaymentMethod, string> = {
   stripe: "Stripe",
   lightning: "Lightning",
   other: "Other",
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-  sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  credited: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  written_off: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
-  void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  written_off: "Written off",
-  credited: "Credited",
 };
 
 type InvoiceEmailDetails = {
@@ -448,23 +434,32 @@ export default function FinanceInvoiceDetail() {
       </div>
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <Link
             to={`/c/${company.slug}/finance/invoices`}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="mt-0.5 rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
-          <span
-            className={
-              "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
-              (STATUS_BADGE[ds] ?? STATUS_BADGE.draft)
-            }
-          >
-            {STATUS_LABEL[ds] ?? ds}
-          </span>
-          {isArchived && <ArchivedBadge />}
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
+              <InvoiceStatusBadge status={ds} />
+              {isArchived && <ArchivedBadge />}
+            </div>
+            {invoice.recurringInvoice && (
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <Repeat size={12} className="mr-1 inline" />
+                Created by the recurring invoice{" "}
+                <Link
+                  to={`/c/${company.slug}/finance/recurring-invoices/${invoice.recurringInvoice.slug}`}
+                  className="font-medium text-slate-700 hover:text-indigo-600 hover:underline dark:text-slate-300 dark:hover:text-indigo-400"
+                >
+                  {invoice.recurringInvoice.name}
+                </Link>
+              </p>
+            )}
+          </div>
         </div>
         {canWrite ? (
           <div className="flex flex-wrap items-center gap-2">

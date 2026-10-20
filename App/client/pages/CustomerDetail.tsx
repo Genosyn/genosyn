@@ -1196,8 +1196,21 @@ function CustomerOverview({ company }: { company: Company }) {
                   key: inv.id,
                   to: `${financeBase}/invoices/${inv.slug}`,
                   cells: [
-                    <span key="num" className="font-mono text-xs font-semibold">
+                    <span
+                      key="num"
+                      className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold"
+                    >
                       {inv.number || "DRAFT"}
+                      {inv.recurringInvoice && (
+                        <span
+                          role="img"
+                          title={`Created by the recurring invoice ${inv.recurringInvoice.name}`}
+                          aria-label={`Created by the recurring invoice ${inv.recurringInvoice.name}`}
+                          className="text-slate-400 dark:text-slate-500"
+                        >
+                          <Repeat size={12} />
+                        </span>
+                      )}
                     </span>,
                     <StatusBadge key="status" status={displayInvoiceStatus(inv)} />,
                     fmtDate(inv.dueDate),

@@ -693,6 +693,54 @@ describe("resolveRecurringInvoice", () => {
     assertFencedHostile(item.body);
   });
 
+  test("lists the invoices it created, newest first, and each names it back", async () => {
+    const co = testCompanyId();
+    const { customer, ri } = await seedSchedule(co);
+    const older = await seedInvoice(co, customer.id, {
+      recurringInvoiceId: ri.id,
+      slug: "acme-corp-inv-0041",
+      number: "ACME-CORP-INV-0041",
+      status: "paid",
+      paidCents: 12_000,
+      balanceCents: 0,
+      dueDate: FUTURE,
+      createdAt: new Date("2026-09-01T09:00:00Z"),
+    });
+    await seedInvoice(co, customer.id, {
+      recurringInvoiceId: ri.id,
+      slug: "draft-abc123",
+      number: "",
+      status: "draft",
+      dueDate: FUTURE,
+      createdAt: new Date("2026-10-01T09:00:00Z"),
+    });
+    await seedInvoice(co, customer.id, { slug: "draft-byhand", number: "", status: "draft" });
+
+    const [item] = await call(resolveRecurringInvoice, co, "recurring_invoice", ri.slug);
+    assert.match(item.body, /### Invoices it created \(2\)/);
+    assert.match(item.body, /- Last invoice: draft \(slug `draft-abc123`\) · draft/);
+    const draftAt = item.body.indexOf("- draft (slug `draft-abc123`) · draft");
+    const paidAt = item.body.indexOf("- ACME-CORP-INV-0041 (slug `acme-corp-inv-0041`) · paid");
+    assert.ok(draftAt > 0 && paidAt > draftAt, "newest first");
+    assert.doesNotMatch(item.body, /draft-byhand/, "a hand-made invoice is not its history");
+    assert.ok(item.tools?.includes("list_invoices"));
+
+    const [invoiceItem] = await call(resolveInvoice, co, "invoice", older.slug);
+    assert.match(
+      invoiceItem.body,
+      /- Created by: the recurring invoice Monthly retainer \(slug `monthly-retainer`\)/,
+    );
+    assert.ok(invoiceItem.tools?.includes("get_recurring_invoice"));
+  });
+
+  test("a schedule that has created nothing says so", async () => {
+    const co = testCompanyId();
+    const { ri } = await seedSchedule(co);
+    const [item] = await call(resolveRecurringInvoice, co, "recurring_invoice", ri.slug);
+    assert.match(item.body, /### Invoices it created \(0\)\n\(none yet\)/);
+    assert.doesNotMatch(item.body, /- Last invoice:/);
+  });
+
   test("uuid, other company, finance access, garbage", async () => {
     const co = testCompanyId();
     const { ri } = await seedSchedule(co);
