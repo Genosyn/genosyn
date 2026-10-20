@@ -10,7 +10,12 @@ import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.
 import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { roundHalfAway } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
-import { findClosedPeriodCovering, postLedgerEntry, requireAccountsByCode } from "./ledger.js";
+import {
+  findClosedPeriodCovering,
+  postLedgerEntry,
+  requireAccountsByCode,
+  reversalAsBooked,
+} from "./ledger.js";
 import { recomputeBillTotals } from "./bills.js";
 
 /**
@@ -467,7 +472,11 @@ export async function voidVendorCredit(
     sourceRefId: credit.id,
     createdById: actorUserId,
     reviewStatus: "approved",
-    lines: draft,
+    lines: await reversalAsBooked(
+      credit.companyId,
+      { source: "vendor_credit_issue", sourceRefId: credit.id },
+      draft,
+    ),
   });
 
   credit.status = "void";
@@ -587,7 +596,11 @@ export async function voidVendorRefund(
     sourceRefId: refund.id,
     createdById: actorUserId,
     reviewStatus: "approved",
-    lines,
+    lines: await reversalAsBooked(
+      refund.companyId,
+      { source: "vendor_refund", sourceRefId: refund.id },
+      lines,
+    ),
   });
   refund.reversedAt = date;
   refund.reversedById = actorUserId;

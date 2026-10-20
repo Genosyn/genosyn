@@ -1,4 +1,6 @@
+import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
+export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
 
 /**
@@ -5403,6 +5405,8 @@ export type LedgerEntry = {
   createdAt: string;
   lines: LedgerLine[];
   totalCents: number;
+  /** Why Entry review can't change its categories, or null when it can (`shared/entryCategory.ts`). */
+  categoryLock: EntryCategoryLock | null;
 };
 
 export type LedgerLineDraft = {

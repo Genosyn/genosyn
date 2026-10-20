@@ -2,11 +2,20 @@ import { In, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { LedgerEntry, type LedgerReviewStatus } from "../db/entities/LedgerEntry.js";
+import {
+  LedgerEntry,
+  type LedgerEntrySource,
+  type LedgerReviewStatus,
+} from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Company } from "../db/entities/Company.js";
-import { CARD_CATEGORY_ON_BANKING, isCardCategoryEntry } from "../../shared/cardCategory.js";
+import {
+  ENTRY_CATEGORY_LOCK_REASON,
+  type EntryCategoryLock,
+  entryCategoryLockBySource,
+  reversalKey,
+} from "../../shared/entryCategory.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { createNotifications } from "./notifications.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
@@ -31,7 +40,52 @@ export type HydratedLedgerEntry = LedgerEntry & {
     name: string;
     slug: string;
   } | null;
+  /** Why its categories can't be changed here, or null when they can. */
+  categoryLock: EntryCategoryLock | null;
 };
+
+/**
+ * What keeps Entry review from changing each entry's categories, if anything
+ * (`shared/entryCategory.ts`): what posted the entry, or a reversal of it
+ * posted since.
+ */
+async function categoryLocks(
+  entries: ReadonlyArray<Pick<LedgerEntry, "id" | "companyId" | "source" | "sourceRefId">>,
+): Promise<Map<string, EntryCategoryLock>> {
+  const locks = new Map<string, EntryCategoryLock>();
+  const keyOf = (companyId: string, source: string, sourceRefId: string | null) =>
+    JSON.stringify([companyId, source, sourceRefId]);
+  const awaitingReversal = new Map<string, string[]>();
+  const sources = new Set<string>();
+  const refs = new Set<string>();
+  for (const entry of entries) {
+    const lock = entryCategoryLockBySource(entry);
+    if (lock) {
+      locks.set(entry.id, lock);
+      continue;
+    }
+    const reversal = reversalKey(entry);
+    if (!reversal) continue;
+    const key = keyOf(entry.companyId, reversal.source, reversal.sourceRefId);
+    awaitingReversal.set(key, [...(awaitingReversal.get(key) ?? []), entry.id]);
+    sources.add(reversal.source);
+    refs.add(reversal.sourceRefId);
+  }
+  if (awaitingReversal.size === 0) return locks;
+  const reversals = await AppDataSource.getRepository(LedgerEntry).find({
+    where: {
+      companyId: In([...new Set(entries.map((entry) => entry.companyId))]),
+      source: In([...sources] as LedgerEntrySource[]),
+      sourceRefId: In([...refs]),
+    },
+    select: ["companyId", "source", "sourceRefId"],
+  });
+  for (const reversal of reversals) {
+    const key = keyOf(reversal.companyId, reversal.source, reversal.sourceRefId);
+    for (const entryId of awaitingReversal.get(key) ?? []) locks.set(entryId, "reversed");
+  }
+  return locks;
+}
 
 function parseReviewChanges(raw: string | null): LedgerReviewChange[] {
   if (!raw) return [];
@@ -58,7 +112,7 @@ export async function hydrateLedgerEntries(entries: LedgerEntry[]): Promise<Hydr
       entries.map((entry) => entry.reviewedByEmployeeId).filter((id): id is string => !!id),
     ),
   ];
-  const [lines, reviewers] = await Promise.all([
+  const [lines, reviewers, locks] = await Promise.all([
     AppDataSource.getRepository(LedgerLine).find({
       where: { ledgerEntryId: In(entries.map((entry) => entry.id)) },
       order: { sortOrder: "ASC" },
@@ -69,6 +123,7 @@ export async function hydrateLedgerEntries(entries: LedgerEntry[]): Promise<Hydr
           select: ["id", "name", "slug"],
         })
       : Promise.resolve([]),
+    categoryLocks(entries),
   ]);
   const byEntry = new Map<string, LedgerLine[]>();
   for (const line of lines) {
@@ -90,6 +145,7 @@ export async function hydrateLedgerEntries(entries: LedgerEntry[]): Promise<Hydr
       reviewedByEmployee: reviewer
         ? { id: reviewer.id, name: reviewer.name, slug: reviewer.slug }
         : null,
+      categoryLock: locks.get(entry.id) ?? null,
     };
   });
 }
@@ -165,11 +221,15 @@ async function validateReviewChanges(
   changes: LedgerReviewChangeInput[],
 ): Promise<LedgerReviewChange[]> {
   if (changes.length === 0) return [];
-  // A reclass here would move money out of the line as first posted, which a
-  // card purchase may have left on Banking — and Banking would never hear of
-  // it. Even a "change" to the posted category is refused: the purchase may be
-  // filed somewhere else now, so it would not do what it says.
-  if (isCardCategoryEntry(entry)) throw new Error(CARD_CATEGORY_ON_BANKING);
+  // A change here posts a reclass keyed on this entry, which the entry's
+  // reversal takes back with it. Not on a locked entry: Banking changes a bank
+  // or card transaction's category from where it is filed now and would never
+  // hear of it, a reversal's categories are those of the entry it reverses,
+  // and once an entry is reversed nothing would take the change back. Even a
+  // "change" to the posted category is refused there — the money may sit
+  // somewhere else by now, so it would not do what it says.
+  const lock = (await categoryLocks([entry])).get(entry.id);
+  if (lock) throw new Error(ENTRY_CATEGORY_LOCK_REASON[lock]);
   const lineIds = changes.map((change) => change.lineId);
   if (new Set(lineIds).size !== lineIds.length) {
     throw new Error("Each ledger line can have only one category change");
@@ -410,8 +470,9 @@ async function deleteLedgerEntry(companyId: string, entryId: string): Promise<vo
  *  category and approve it in the same step (posting a reclass is itself the
  *  human sign-off). Transactions whose editable line does not match the target
  *  account type, or that carry more than one such line, are skipped so the
- *  owner can open them and decide by hand. Card purchases are skipped too:
- *  their category is changed on Banking (`shared/cardCategory.ts`). */
+ *  owner can open them and decide by hand. Entries whose categories can't
+ *  change here — bank and card transactions, reversals, and entries reversed
+ *  since — are skipped too (`shared/entryCategory.ts`). */
 async function recategorizeBatch(args: {
   companyId: string;
   userId: string;
@@ -446,9 +507,10 @@ async function recategorizeBatch(args: {
       if (entry.reviewStatus === "approved") {
         throw new Error("Already approved — locked");
       }
-      // Ahead of the line count, so a reclassification Banking posted (two
-      // expense lines) is not sent to be opened and picked by hand.
-      if (isCardCategoryEntry(entry)) throw new Error(CARD_CATEGORY_ON_BANKING);
+      // Ahead of the line count, so a locked entry with two such lines (a
+      // reclassification Banking posted) is not sent to be opened and picked
+      // by hand.
+      if (entry.categoryLock) throw new Error(ENTRY_CATEGORY_LOCK_REASON[entry.categoryLock]);
       const candidates = entry.lines.filter(
         (line) => accountById.get(line.accountId)?.type === target.type,
       );

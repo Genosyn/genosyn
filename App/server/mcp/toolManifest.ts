@@ -4297,7 +4297,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "review_finance_transaction",
     description:
-      "Semi-approve an accounting transaction as an AI employee. Inspect the full debit/credit entry first. Pass zero category changes when it is already correct, or stage expense/revenue line moves to another account of the same type. This never posts a reclassification or gives final approval: it notifies owners/admins and waits for a human decision. A card purchase's category (sources brex_card_expense, brex_card_refund, brex_card_reclass) is changed only on Finance → Banking, so stage no change for one: review it as it is and name the category you would use in your note.",
+      "Semi-approve an accounting transaction as an AI employee. Inspect the full debit/credit entry first. Pass zero category changes when it is already correct, or stage expense/revenue line moves to another account of the same type. This never posts a reclassification or gives final approval: it notifies owners/admins and waits for a human decision. Stage no change for a transaction whose categoryLock is set — a card purchase or bank transaction (card, bank), whose category is changed only on Finance → Banking, or a reversal or an entry reversed since (reversal, reversed): review it as it is and name the category you would use in your note.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4306,7 +4306,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "array",
           maxItems: 20,
           description:
-            "Proposed category changes. Omit or pass [] when the current categories are correct, and for a card purchase.",
+            "Proposed category changes. Omit or pass [] when the current categories are correct, and when the transaction's categoryLock is set.",
           items: {
             type: "object",
             properties: {

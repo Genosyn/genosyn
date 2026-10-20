@@ -16,7 +16,7 @@ import {
 import { decryptConnectionConfig } from "./integrations.js";
 import { Account } from "../db/entities/Account.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
-import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
+import { bookedLines, findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
 /**
  * Reconciliation service. Phase D of the Finance milestone (M19) — see
@@ -569,10 +569,10 @@ export async function unmatch(txn: BankTransaction): Promise<BankTransaction> {
           `This line was categorized into the closed period "${closed.name}" and can't be unmatched. Reopen the period first.`,
         );
       }
-      const origLines = await AppDataSource.getRepository(LedgerLine).find({
-        where: { ledgerEntryId: entry.id },
-        order: { sortOrder: "ASC" },
-      });
+      // As the books hold it now, with any category change Entry review
+      // approved before Banking became the one place to make one, so the undo
+      // takes the money out of wherever it sits.
+      const origLines = (await bookedLines(txn.companyId, [entry.id])).get(entry.id) ?? [];
       // Explicit forward-posted mirror keyed on the entry id (unique per
       // categorization), so re-categorizing and unmatching again never
       // collides with a prior reversal's idempotency key.
