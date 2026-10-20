@@ -141,7 +141,8 @@ export function Introduction() {
         Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — pending
         Decisions, unread mentions and DMs, todos assigned to you, reviews and Approvals waiting on
         you, your <DocLink to="/docs/email">Drafts and Starred email totals</DocLink>, the latest
-        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
+        unread <DocLink to="/docs/tldrs">TLDR</DocLink> and, for owners and admins, the newest{" "}
+        <DocLink to="/docs/board-letters#home">letter to the board</DocLink> they have not read, the{" "}
         <DocLink to="/docs/employees#work-timeline">AI Employee bubbles</DocLink> beside your
         greeting. The small bubbles sit in the header, leaving the cards below the full width of the
         page. Each bubble shows who is working now; choose one to open that employee&apos;s work
@@ -160,6 +161,7 @@ export function Introduction() {
         email, Approvals, system health — disappears when it&apos;s empty rather than sitting there
         reporting that nothing is waiting. Dismissing a TLDR removes it from your Home only; its
         history remains available, and colleagues keep seeing it until they dismiss it themselves.
+        A letter to the board works the same way, and also leaves once you open it.
         Use <Strong>Mark all as read</Strong> on <Strong>Needs your attention</Strong> to clear your
         unread notifications together; they remain available in the bell&apos;s history, which the{" "}
         <Strong>Unread notifications</Strong> counter and <Strong>Bell has history</Strong> open in
