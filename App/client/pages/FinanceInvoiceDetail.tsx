@@ -325,9 +325,14 @@ export default function FinanceInvoiceDetail() {
 
   async function deletePayment(paymentId: string) {
     if (!invoice) return;
+    const fromDeposit = invoice.payments.some(
+      (payment) => payment.id === paymentId && payment.bankTransactionId,
+    );
     const ok = await dialog.confirm({
       title: "Delete this payment?",
-      message: "The invoice balance will recompute and may revert from paid to sent.",
+      message:
+        "The invoice balance will recompute and may revert from paid to sent." +
+        (fromDeposit ? " The bank deposit it came in goes back to To review on Banking." : ""),
       variant: "danger",
       confirmLabel: "Delete",
     });

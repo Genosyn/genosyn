@@ -1,4 +1,4 @@
-import { In, IsNull, Not } from "typeorm";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BankFeed } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
@@ -16,6 +16,13 @@ import {
 import { decryptConnectionConfig } from "./integrations.js";
 import { Account } from "../db/entities/Account.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
+import {
+  claimedPaymentIds,
+  hasLinkedPayments,
+  linkedPayments,
+  transactionClaiming,
+  unlinkPayments,
+} from "./bankPaymentLinks.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
 /**
@@ -29,16 +36,23 @@ import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
  *      candidate.
  *   3. Manual match / unmatch from the UI.
  *
- * Match outcomes are stored on the `BankTransaction` row itself
- * (`matchedPaymentId`, `matchedLedgerEntryId`, `reconciledAt`); we
- * don't post any ledger entries here. The payment/entry was already
- * posted by Phase B's invoice flow — reconciliation just records that
- * we've seen the bank's side of the same money.
+ * A match to a payment is written on the payment
+ * (`InvoicePayment.bankTransactionId`, older ones on
+ * `BankTransaction.matchedPaymentId` — see `bankPaymentLinks.ts`), and a
+ * match to an entry on the transaction (`matchedLedgerEntryId`), which
+ * `reconciledAt` marks done. We don't post any ledger entries for a
+ * match. The payment/entry was already posted by Phase B's invoice flow
+ * — reconciliation just records that we've seen the bank's side of the
+ * same money.
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
 const MATCH_DATE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const BREX_SYNC_OVERLAP_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Why a deposit that already paid some invoices can't be matched or categorized whole. */
+export const PARTLY_PAID =
+  "Part of this deposit already paid invoices. Mark what the rest paid, or undo it to start over.";
 
 // ─────────────────────────── Stripe payouts ────────────────────────────
 
@@ -437,6 +451,8 @@ function parseCsv(text: string): string[][] {
  *   - There is exactly one candidate payment with the same
  *     `amountCents` and a `paidAt` within ±3 days.
  *   - That payment is not already matched to another bank txn.
+ *   - No payment is linked to the txn yet: a deposit that already
+ *     paid some invoices waits for a person to say what the rest paid.
  *
  * Returns the count of newly matched rows. Conservative on purpose
  * — when in doubt, accountants want to see the candidate set, not
@@ -465,36 +481,38 @@ export async function autoMatchFeed(feed: BankFeed): Promise<number> {
     },
   });
   // A payment matched on *any* of the company's feeds is taken — not only on
-  // this one, or a second feed carrying the same deposit could claim it again.
-  const claimed = new Set(
-    (
-      await txnRepo.find({
-        where: { companyId: feed.companyId, matchedPaymentId: Not(IsNull()) },
-        select: ["matchedPaymentId"],
-      })
-    ).map((t) => t.matchedPaymentId as string),
+  // this one, or a second feed carrying the same deposit could claim it again
+  // — and so is one this run has just matched.
+  const claimed = new Set((await claimedPaymentIds(feed.companyId)).keys());
+  const holding = new Set(
+    allPayments.map((p) => p.bankTransactionId).filter((id): id is string => !!id),
   );
-  const candidates = allPayments.filter((p) => !claimed.has(p.id));
 
-  let matched = 0;
+  const linked: InvoicePayment[] = [];
   for (const t of unmatched) {
+    if (holding.has(t.id)) continue;
     const tWindow = t.date.getTime();
-    const hits = candidates.filter(
+    const hits = allPayments.filter(
       (p) =>
+        !claimed.has(p.id) &&
         p.amountCents === t.amountCents &&
         Math.abs(p.paidAt.getTime() - tWindow) <= MATCH_DATE_WINDOW_MS,
     );
     if (hits.length === 1) {
-      t.matchedPaymentId = hits[0].id;
+      hits[0].bankTransactionId = t.id;
+      t.matchedPaymentId = null;
       t.matchedLedgerEntryId = null;
       t.reconciledAt = new Date();
       t.reconciledById = null;
       claimed.add(hits[0].id);
-      matched += 1;
+      linked.push(hits[0]);
     }
   }
-  if (matched > 0) await txnRepo.save(unmatched.filter((t) => t.reconciledAt));
-  return matched;
+  if (linked.length > 0) {
+    await AppDataSource.getRepository(InvoicePayment).save(linked);
+    await txnRepo.save(unmatched.filter((t) => t.reconciledAt));
+  }
+  return linked.length;
 }
 
 export async function manualMatch(
@@ -503,6 +521,24 @@ export async function manualMatch(
   actorUserId: string | null,
 ): Promise<BankTransaction> {
   const repo = AppDataSource.getRepository(BankTransaction);
+  // Matching explains the whole line. One already explained — or holding the
+  // payments of invoices part of it paid — is undone first, so no payment it
+  // links to is silently dropped and no category is left posted beside it.
+  // Matching it again to what already explains it changes nothing.
+  const linked = await linkedPayments(txn);
+  if (txn.reconciledAt || linked.length > 0) {
+    const unchanged =
+      !!txn.reconciledAt &&
+      (target.paymentId
+        ? linked.length === 1 && linked[0].id === target.paymentId
+        : !!target.ledgerEntryId && target.ledgerEntryId === txn.matchedLedgerEntryId);
+    if (unchanged) return txn;
+    throw new Error(
+      txn.reconciledAt
+        ? "This transaction is already matched or categorized. Undo that first."
+        : PARTLY_PAID,
+    );
+  }
   if (target.paymentId) {
     const p = await AppDataSource.getRepository(InvoicePayment).findOneBy({
       id: target.paymentId,
@@ -518,13 +554,10 @@ export async function manualMatch(
       companyId: txn.companyId,
     });
     if (!owningInvoice) throw new Error("Payment not found");
-    // One bank line is one payment, and the reverse: a payment already matched
-    // to another line is spoken for. The candidate list hides it; this keeps a
-    // direct call from matching it twice.
-    const claimedBy = await repo.findOne({
-      where: { companyId: txn.companyId, matchedPaymentId: p.id, id: Not(txn.id) },
-      select: ["id", "date", "description"],
-    });
+    // A payment is in one bank line at most: one already matched to another
+    // line, or recorded from another deposit, is spoken for. The candidate list
+    // hides it; this keeps a direct call from matching it twice.
+    const claimedBy = await transactionClaiming(txn.companyId, p, txn.id);
     if (claimedBy) {
       throw new Error(
         `That payment on ${owningInvoice.number || "this invoice"} is already matched to the bank line from ${claimedBy.date
@@ -535,7 +568,9 @@ export async function manualMatch(
           )}${claimedBy.description ? ` (${claimedBy.description})` : ""}. Unmatch that line first.`,
       );
     }
-    txn.matchedPaymentId = p.id;
+    p.bankTransactionId = txn.id;
+    await AppDataSource.getRepository(InvoicePayment).save(p);
+    txn.matchedPaymentId = null;
     txn.matchedLedgerEntryId = null;
   } else if (target.ledgerEntryId) {
     const e = await AppDataSource.getRepository(LedgerEntry).findOneBy({
@@ -555,8 +590,9 @@ export async function manualMatch(
 
 export async function unmatch(txn: BankTransaction): Promise<BankTransaction> {
   // A plain match just links to a pre-existing payment/entry — clearing the
-  // flags is enough. But if this line was *categorized* (we posted a journal
-  // entry for it), unmatching must reverse that entry so the books truly undo.
+  // links is enough, and the payments stay on their invoices. But if this line
+  // was *categorized* (we posted a journal entry for it), unmatching must
+  // reverse that entry so the books truly undo.
   if (txn.matchedLedgerEntryId) {
     const entry = await AppDataSource.getRepository(LedgerEntry).findOneBy({
       id: txn.matchedLedgerEntryId,
@@ -592,6 +628,7 @@ export async function unmatch(txn: BankTransaction): Promise<BankTransaction> {
       });
     }
   }
+  await unlinkPayments(txn);
   txn.matchedPaymentId = null;
   txn.matchedLedgerEntryId = null;
   txn.reconciledAt = null;
@@ -614,6 +651,7 @@ export async function categorizeBankTransaction(
   if (txn.reconciledAt) {
     throw new Error("This bank line is already reconciled — unmatch it first");
   }
+  if (await hasLinkedPayments(txn)) throw new Error(PARTLY_PAID);
   if (txn.amountCents === 0) throw new Error("Cannot categorize a zero-amount line");
   const feed = await AppDataSource.getRepository(BankFeed).findOneBy({
     id: txn.feedId,
@@ -725,14 +763,11 @@ export async function findMatchCandidates(txn: BankTransaction): Promise<MatchCa
     const allPayments = await AppDataSource.getRepository(InvoicePayment).find({
       where: { invoiceId: In(invIds) },
     });
-    const txns = await AppDataSource.getRepository(BankTransaction).find({
-      where: { companyId: txn.companyId },
-      select: ["matchedPaymentId"],
-    });
-    const claimed = new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x));
+    const claimed = await claimedPaymentIds(txn.companyId);
     const invById = new Map(invoices.map((i) => [i.id, i]));
     for (const p of allPayments) {
-      if (claimed.has(p.id) && p.id !== txn.matchedPaymentId) continue;
+      const claimedBy = claimed.get(p.id);
+      if (claimedBy && claimedBy !== txn.id) continue;
       const inv = invById.get(p.invoiceId);
       if (!inv) continue;
       const amtMatch = p.amountCents === txn.amountCents ? 0.6 : 0;

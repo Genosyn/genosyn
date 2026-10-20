@@ -4602,6 +4602,8 @@ export type InvoicePayment = {
   method: InvoicePaymentMethod;
   reference: string;
   notes: string;
+  /** The deposit on Banking this payment arrived in, when it is linked to one. */
+  bankTransactionId: string | null;
   createdById: string | null;
   createdAt: string;
 };
@@ -5519,17 +5521,27 @@ export type CardSyncResult = {
   failed: number;
 };
 
+/** One invoice payment a bank transaction is linked to. */
+export type BankTransactionPayment = {
+  paymentId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceSlug: string;
+  customerName: string;
+  amountCents: number;
+  /** Banking recorded this payment from the deposit, so undoing removes it. */
+  recordedHere: boolean;
+};
+
 export type BankTransactionMatch =
   | {
-      kind: "payment";
-      paymentId: string;
-      invoiceId: string;
-      invoiceNumber: string;
-      invoiceSlug: string;
-      customerName: string;
-      amountCents: number;
-      /** Banking recorded this payment from the deposit, so undoing removes it. */
-      recordedHere: boolean;
+      /**
+       * The invoice payments the transaction is: one, or several when one
+       * deposit paid several invoices. A transaction still in review with
+       * payments here paid them with part of its money, and the rest waits.
+       */
+      kind: "payments";
+      payments: BankTransactionPayment[];
     }
   | {
       kind: "ledger_entry";
@@ -5601,13 +5613,28 @@ export type OpenInvoiceCandidate = {
   balanceCents: number;
   issueDate: string;
   dueDate: string;
-  /** The deposit is exactly what is still due. */
+  /** What is still due is exactly what is left of the deposit. */
   exactAmount: boolean;
   /** The bank's description names the customer or the invoice number. */
   mentioned: boolean;
-  /** The deposit is more than what is still due, so it can't pay this invoice. */
-  exceedsBalance: boolean;
   score: number;
+};
+
+/** Several of one customer's open invoices that add up to exactly what is left of a deposit. */
+export type OpenInvoiceSet = {
+  customerName: string;
+  /** Oldest due first. */
+  invoiceIds: string[];
+};
+
+/** What a deposit could pay — `GET …/bank-transactions/:id/open-invoices`. */
+export type DepositInvoiceOptions = {
+  /** What is left of the deposit to put on invoices: all of it, unless part already paid some. */
+  remainingCents: number;
+  /** The invoices it could pay, best guess first. */
+  invoices: OpenInvoiceCandidate[];
+  /** One customer's invoices that add up to exactly `remainingCents`, best guess first. */
+  sets: OpenInvoiceSet[];
 };
 
 // ─────────────────────── Finance proposals (M33 A3) ────────────────────

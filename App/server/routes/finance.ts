@@ -205,7 +205,8 @@ import {
   listBankingAccounts,
   listBankTransactions,
   openInvoicesForBankTransaction,
-  payInvoiceFromBankTransaction,
+  payInvoicesFromBankTransaction,
+  removeBankFeed,
   undoBankTransaction,
 } from "../services/banking.js";
 import {
@@ -3250,11 +3251,12 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
 
 financeRouter.delete("/bank-feeds/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const repo = AppDataSource.getRepository(BankFeed);
-  const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  const f = await AppDataSource.getRepository(BankFeed).findOneBy({
+    id: req.params.id,
+    companyId: cid,
+  });
   if (!f) return res.status(404).json({ error: "Feed not found" });
-  await AppDataSource.getRepository(BankTransaction).delete({ feedId: f.id });
-  await repo.delete({ id: f.id });
+  await removeBankFeed(f);
   res.json({ ok: true });
 });
 
@@ -3333,7 +3335,8 @@ financeRouter.get("/bank-transactions/:id/candidates", async (req, res) => {
   res.json(candidates);
 });
 
-// The open invoices a deposit could be the payment of, best guess first.
+// The open invoices a deposit could be the payment of, best guess first, and
+// the sets of one customer's invoices that add up to exactly the deposit.
 financeRouter.get(
   "/bank-transactions/:id/open-invoices",
   validateParams(bankTransactionParamsSchema),
@@ -3345,29 +3348,48 @@ financeRouter.get(
   },
 );
 
-const payInvoiceSchema = z.object({ invoiceId: z.string().uuid() });
+const payInvoicesSchema = z.object({
+  invoices: z
+    .array(
+      z.object({
+        invoiceId: z.string().uuid(),
+        amountCents: z.number().int().positive(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
 
-// Mark an invoice paid with this deposit: records the payment on the invoice
-// and matches the deposit to it in one step.
+// Mark invoices paid with this deposit: records a payment on each invoice for
+// its share and matches the deposit to them in one step. The shares add up to
+// the deposit, and none is more than what is still due on its invoice.
 financeRouter.post(
-  "/bank-transactions/:id/pay-invoice",
+  "/bank-transactions/:id/pay-invoices",
   validateParams(bankTransactionParamsSchema),
-  validateBody(payInvoiceSchema),
+  validateBody(payInvoicesSchema),
   async (req, res) => {
     const { cid, id } = req.params as z.infer<typeof bankTransactionParamsSchema>;
     const t = await AppDataSource.getRepository(BankTransaction).findOneBy({ id, companyId: cid });
     if (!t) return res.status(404).json({ error: "Transaction not found" });
-    const body = req.body as z.infer<typeof payInvoiceSchema>;
-    let paid: Awaited<ReturnType<typeof payInvoiceFromBankTransaction>>;
+    const body = req.body as z.infer<typeof payInvoicesSchema>;
+    let result: Awaited<ReturnType<typeof payInvoicesFromBankTransaction>>;
     try {
-      paid = await payInvoiceFromBankTransaction(t, body.invoiceId, req.userId ?? null);
+      result = await payInvoicesFromBankTransaction(t, body.invoices, req.userId ?? null);
     } catch (err) {
       return res
         .status(err instanceof InvoicePaymentError ? err.status : 400)
         .json({ error: (err as Error).message });
     }
-    await auditInvoicePayment(req, paid.invoice, paid.recorded, t.amountCents, "bank_transfer");
-    const [hydrated] = await hydrateBankTransactions(cid, [paid.transaction]);
+    for (const { invoice, recorded } of result.paid) {
+      await auditInvoicePayment(
+        req,
+        invoice,
+        recorded,
+        recorded.payment.amountCents,
+        "bank_transfer",
+      );
+    }
+    const [hydrated] = await hydrateBankTransactions(cid, [result.transaction]);
     res.json(hydrated);
   },
 );
@@ -3393,8 +3415,8 @@ financeRouter.post("/bank-transactions/:id/match", validateBody(matchSchema), as
 });
 
 // Undo whatever explains the transaction and put it back to review: a category
-// is reversed, and a payment Banking recorded from this deposit comes off its
-// invoice again. A payment recorded on the invoice itself stays there.
+// is reversed, and every payment Banking recorded from this deposit comes off
+// its invoice again. A payment recorded on the invoice itself stays there.
 financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const repo = AppDataSource.getRepository(BankTransaction);
@@ -3408,8 +3430,7 @@ financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
       .status(err instanceof InvoicePaymentError ? err.status : 400)
       .json({ error: (err as Error).message });
   }
-  if (undone.removedPayment) {
-    const { invoice, payment } = undone.removedPayment;
+  for (const { invoice, payment } of undone.removedPayments) {
     await auditFinance(
       req,
       "finance.invoice.payment.delete",
