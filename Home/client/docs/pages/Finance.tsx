@@ -723,6 +723,8 @@ export function Finance() {
         it is filed now, while an entry here only shows where the purchase was first posted. So a
         card expense, a card refund, and the reclassification entries Banking posts for them show
         their categories without a picker, with a link to Banking, and are approved as they are.
+        Purchases whose category was changed here before are{" "}
+        <DocLink to="/docs/banking#fix-card-categories">put right on Banking</DocLink>.
       </P>
       <P>
         Category corrections are append-only. Approval writes a balanced reclassification entry and

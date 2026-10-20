@@ -20,6 +20,7 @@ import {
   BankingStatus,
   BankTransaction,
   BrexCashAccount,
+  CardCategoryDrift,
   CardFeed,
   CardSyncResult,
   CardTransaction,
@@ -42,6 +43,7 @@ import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { CardCategoryFixes } from "./FinanceBankingCardFixes";
 import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransaction";
 
 /**
@@ -114,6 +116,7 @@ export default function FinanceBanking() {
   const [syncing, setSyncing] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [cardFixes, setCardFixes] = React.useState<CardCategoryDrift[]>([]);
 
   const reloadAccounts = React.useCallback(async () => {
     try {
@@ -179,7 +182,32 @@ export default function FinanceBanking() {
     await Promise.all([reloadAccounts(), reloadTransactions()]);
   }, [reloadAccounts, reloadTransactions]);
 
+  // Card purchases Entry review moved before Banking was the one place their
+  // category changes, still filed under more than one category. Only a notice:
+  // if the list can't load, the rest of Banking works as it always does.
+  const hasCards = !!accounts?.some((account) => account.kind === "card");
+  const reloadCardFixes = React.useCallback(async () => {
+    if (!hasCards) {
+      setCardFixes([]);
+      return;
+    }
+    try {
+      setCardFixes(
+        await api.get<CardCategoryDrift[]>(
+          `/api/companies/${company.id}/card-transactions/category-drift`,
+        ),
+      );
+    } catch {
+      setCardFixes([]);
+    }
+  }, [company.id, hasCards]);
+
+  React.useEffect(() => {
+    void reloadCardFixes();
+  }, [reloadCardFixes]);
+
   useLiveRefetch(["reconcile", "cardexpense"], () => void reloadAll());
+  useLiveRefetch("cardexpense", () => void reloadCardFixes());
   useLiveRefetch("financeaccount", () => void reloadAccounts());
 
   // A sync or import summary is about one account — drop it when the view moves.
@@ -246,6 +274,10 @@ export default function FinanceBanking() {
   }, [bankTxns, cardTxns, homeCurrency, ledger, nameById, search]);
 
   const scope = selected ? [selected] : (accounts ?? []);
+  // On one account only its own purchases; a bank account has none.
+  const visibleCardFixes = selected
+    ? cardFixes.filter((drift) => drift.transaction.feedId === selected.feed.id)
+    : cardFixes;
   const toReview = scope.reduce((sum, account) => sum + account.toReview, 0);
   const total = scope.reduce((sum, account) => sum + account.total, 0);
   const counts: Record<Tab, number> = { review: toReview, done: total - toReview, all: total };
@@ -373,6 +405,15 @@ export default function FinanceBanking() {
             />
           )}
           <FormSuccess message={notice} className="mt-3" />
+          <CardCategoryFixes
+            company={company}
+            drifts={visibleCardFixes}
+            accounts={ledger}
+            homeCurrency={homeCurrency}
+            onFixed={async () => {
+              await Promise.all([reloadCardFixes(), reloadAll()]);
+            }}
+          />
 
           <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="flex flex-col gap-3 border-b border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">

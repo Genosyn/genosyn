@@ -5513,6 +5513,43 @@ export type CardTransaction = {
   updatedAt: string;
 };
 
+/** One line of the entry that fixes a card purchase's category. */
+export type CardCategoryLine = { accountId: string; debitCents: number; creditCents: number };
+
+/**
+ * A card purchase whose books no longer match the category Banking shows,
+ * from before Banking was the one place it changes
+ * (`server/services/cardCategoryDrift.ts`). Banking lists the ones only a
+ * person can fix: `split_in_books`, with the entry Fix would post, and
+ * `unrecognized`, with why it can't be fixed there.
+ */
+export type CardCategoryDrift = {
+  kind: "banking_out_of_date" | "split_in_books" | "unrecognized";
+  transaction: Pick<
+    CardTransaction,
+    | "id"
+    | "feedId"
+    | "description"
+    | "postedAt"
+    | "amountCents"
+    | "currency"
+    | "accountingKind"
+    | "expenseAccountId"
+    | "ledgerEntryId"
+  >;
+  feedName: string;
+  /** What the purchase's posting put on its category, in the home currency. */
+  bookedCents: number;
+  /** Where the books hold the purchase, by category: debits minus credits. */
+  filed: Array<{ accountId: string; cents: number }>;
+  reviewEntryIds: string[];
+  repair:
+    | { kind: "show_category"; accountId: string }
+    | { kind: "reclassify"; lines: CardCategoryLine[] }
+    | null;
+  problem: string | null;
+};
+
 export type CardSyncResult = {
   inserted: number;
   posted: number;

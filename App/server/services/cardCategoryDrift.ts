@@ -30,11 +30,11 @@ import { LedgerLine } from "../db/entities/LedgerLine.js";
  * approved on either — and only purchases Entry review changed are looked at.
  * A journal entry someone posted by hand to correct one is not among them.
  *
- * This only reads. `repair` says what would put each purchase right; nothing
- * here applies it. A repair only ever moves an amount between expense
- * categories, so total expenses stay as they are: a purchase filed under
- * anything else is `unrecognized`, with no repair, like one whose entries
- * don't add up.
+ * This only reads. `repair` says what would put each purchase right, and
+ * `cardCategoryRepair.ts` applies it. A repair only ever moves an amount
+ * between expense categories, so total expenses stay as they are: a purchase
+ * filed under anything else is `unrecognized`, with no repair, like one whose
+ * entries don't add up.
  */
 
 export type CardCategoryDriftKind = "banking_out_of_date" | "split_in_books" | "unrecognized";
@@ -42,14 +42,14 @@ export type CardCategoryDriftKind = "banking_out_of_date" | "split_in_books" | "
 /** Debits minus credits on one category: positive for a purchase, negative for a refund. */
 export type FiledAmount = { accountId: string; cents: number };
 
+/** One line of a correcting entry: exactly one of the two amounts is non-zero. */
+export type CategoryLine = { accountId: string; debitCents: number; creditCents: number };
+
 export type CardCategoryRepair =
   /** Banking shows the category the books already hold the purchase under. */
   | { kind: "show_category"; accountId: string }
   /** One reclassification leaves the purchase under the category Banking shows, and nowhere else. */
-  | {
-      kind: "reclassify";
-      lines: Array<{ accountId: string; debitCents: number; creditCents: number }>;
-    };
+  | { kind: "reclassify"; lines: CategoryLine[] };
 
 export type CardCategoryDrift = {
   kind: CardCategoryDriftKind;
@@ -115,11 +115,7 @@ function groupBy<T>(items: T[], key: (item: T) => string | null): Map<string, T[
 }
 
 /** The lines that move `filed` to the whole amount on one category and nothing anywhere else. */
-function linesLeavingOnly(
-  filed: FiledAmount[],
-  accountId: string,
-  cents: number,
-): Array<{ accountId: string; debitCents: number; creditCents: number }> {
+function linesLeavingOnly(filed: FiledAmount[], accountId: string, cents: number): CategoryLine[] {
   const target = new Map(filed.map((amount) => [amount.accountId, 0]));
   target.set(accountId, cents);
   const current = new Map(filed.map((amount) => [amount.accountId, amount.cents]));

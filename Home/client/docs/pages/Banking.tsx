@@ -199,6 +199,32 @@ export function Banking() {
         purchase&apos;s entries without a category picker and approves them as they are.
       </P>
 
+      <H3 id="fix-card-categories">Purchases Entry review changed</H3>
+      <P>
+        Before Banking was the only place, Entry review could change a card purchase&apos;s
+        category without telling Banking. Genosyn puts right what that left behind:
+      </P>
+      <UL>
+        <LI>
+          If your books hold a purchase under one category and Banking showed another, Banking
+          now shows the one in your books. Genosyn does this by itself when it starts, and posts
+          nothing.
+        </LI>
+        <LI>
+          If your books file a purchase under more than one category, a notice above the list
+          says how many. <Code>Review</Code> shows each one: the category Banking shows, where
+          your books have it, and the one entry <Code>Fix</Code> posts, dated today, so that only
+          Banking&apos;s category holds it. The entry only moves an amount between expense
+          categories, so your total expenses stay the same, and a closed period is never touched.
+        </LI>
+      </UL>
+      <P>
+        <Code>Fix</Code> needs Full finance access and is recorded in the audit log. If you
+        already corrected a purchase with a journal entry, leave it: fixing it here as well would
+        correct it twice. A purchase whose entries don&apos;t add up says why and has no{" "}
+        <Code>Fix</Code>; correct it with a journal entry.
+      </P>
+
       <Callout kind="tip" title="Entry review">
         Everything Banking puts in your books also appears under{" "}
         <DocLink to="/docs/finance#transaction-review">Finance → Entry review</DocLink>, for a
@@ -210,9 +236,10 @@ export function Banking() {
       <P>
         Banking follows each Member&apos;s{" "}
         <DocLink to="/docs/finance#finance-access">Finance access</DocLink>. With{" "}
-        <Strong>Full</Strong> access a Member adds and removes accounts, imports, updates, and
-        explains or undoes transactions. With <Strong>Read-only</Strong> access they see every
-        account and transaction, and what explains it, without any of those controls.
+        <Strong>Full</Strong> access a Member adds and removes accounts, imports, updates,
+        explains or undoes transactions, and fixes card categories. With{" "}
+        <Strong>Read-only</Strong> access they see every account and transaction, and what
+        explains it, without any of those controls.
       </P>
     </>
   );

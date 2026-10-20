@@ -154,6 +154,7 @@ import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
+import { matchCardCategoriesToBooks } from "./services/cardCategoryRepair.js";
 import { rejectAiBrowserAppRequests } from "./services/browserRequestBoundary.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -199,6 +200,10 @@ async function main() {
   // can still reveal it, before dropping the dead Connection. Runs after the
   // key ring is bound and validated, which is why it is not a migration.
   await backfillRetiredIntegrationsIntoVault();
+  // Card purchases Entry review moved before Banking became the one place
+  // their category changes: Banking shows the category their books hold.
+  // Purchases split across several categories wait for a person on Banking.
+  await matchCardCategoriesToBooks();
   await bootProactiveDefaults();
   await bootCron();
   // `genosyn upgrade` asks the running server to pause its Routine Runs before

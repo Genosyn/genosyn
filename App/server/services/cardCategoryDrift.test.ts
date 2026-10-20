@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -8,10 +7,22 @@ import { CardFeed } from "../db/entities/CardFeed.js";
 import { CardTransaction } from "../db/entities/CardTransaction.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
+import {
+  accountCodes,
+  balancesByCode,
+  type CardBooks,
+  cardBooks,
+  cardPurchase,
+  legacyEntryReview,
+  moveOnBanking,
+  PURCHASE_DAY,
+  reload,
+} from "../test/cardFixtures.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { type CardCategoryDrift, findCardCategoryDrift } from "./cardCategoryDrift.js";
-import { reclassifyCardTransaction, retryCardTransaction } from "./cardExpenses.js";
-import { accountByCode, postLedgerEntry, seedChartOfAccounts } from "./ledger.js";
+import { fixSplitCardCategory, matchCardCategoriesToBooks } from "./cardCategoryRepair.js";
+import { reclassifyCardTransaction } from "./cardExpenses.js";
+import { postLedgerEntry } from "./ledger.js";
 import { approveLedgerReview } from "./transactionReviews.js";
 
 /**
@@ -19,8 +30,8 @@ import { approveLedgerReview } from "./transactionReviews.js";
  * Entry review could move one too, and the purchase never heard of it. The
  * finder has to spot every purchase that left behind — whichever entry Entry
  * review changed, in whichever order the two pages were used — and say what
- * would put it right: the books holding the purchase under exactly one
- * category, the one Banking shows, so that Banking's next change works again.
+ * puts it right: the books holding the purchase under exactly one category,
+ * the one Banking shows, so that Banking's next change works again.
  */
 
 before(initTestDb);
@@ -29,178 +40,47 @@ after(closeTestDb);
 
 const CO = "co_card_category_drift";
 const OTHER_CO = "co_card_category_drift_other";
-const PURCHASE_DAY = new Date("2026-03-14T12:00:00Z");
 const AMOUNT = 12_000;
 const REFUND = 3_000;
 
-async function setup(companyId = CO) {
-  await seedChartOfAccounts(companyId);
-  const general = (await accountByCode(companyId, "6000"))!;
-  const payable = (await accountByCode(companyId, "2300"))!;
-  const bank = (await accountByCode(companyId, "1100"))!;
-  const expense = (code: string, name: string) =>
-    insert(Account, { companyId, code, name, type: "expense" });
-  const travel = await expense("6200", "Travel");
-  const software = await expense("6300", "Software");
-  const meals = await expense("6400", "Meals");
-  const office = await expense("6500", "Office");
-  const feed = await insert(CardFeed, {
-    companyId,
-    name: "Brex card",
-    kind: "brex_card",
-    connectionId: "conn",
-    liabilityAccountId: payable.id,
-    defaultExpenseAccountId: general.id,
-    paymentAccountId: bank.id,
-  });
-  return { companyId, general, bank, travel, software, meals, office, feed };
-}
-
-type Setup = Awaited<ReturnType<typeof setup>>;
 type Category = "general" | "travel" | "software" | "meals" | "office";
 
-/** A card purchase (or refund) synced and posted under the card's default category. */
-async function purchase(
+const setup = (companyId = CO) => cardBooks(companyId);
+const balances = () => balancesByCode(CO);
+
+function purchase(
   feed: CardFeed,
   options: { kind?: "expense" | "refund"; cents?: number; postedAt?: Date } = {},
-): Promise<{ card: CardTransaction; posting: LedgerEntry }> {
-  const kind = options.kind ?? "expense";
-  const cents = options.cents ?? AMOUNT;
-  const card = await retryCardTransaction(
-    await insert(CardTransaction, {
-      companyId: feed.companyId,
-      feedId: feed.id,
-      externalId: randomUUID(),
-      postedAt: options.postedAt ?? PURCHASE_DAY,
-      // Brex counts a purchase as positive and a refund as negative.
-      amountCents: kind === "refund" ? -cents : cents,
-      currency: "USD",
-      description: kind === "refund" ? "Refund: Delta Air Lines" : "Delta Air Lines",
-      accountingKind: kind,
-      expenseAccountId: feed.defaultExpenseAccountId,
-    }),
-  );
-  return { card, posting: await reload(LedgerEntry, card.ledgerEntryId!) };
-}
-
-async function reload<T extends { id: string }>(entity: new () => T, id: string): Promise<T> {
-  return AppDataSource.getRepository(entity).findOneByOrFail({ id } as never);
-}
-
-/** Banking moves the purchase, and returns the reclassification it posted. */
-async function onBanking(card: CardTransaction, to: Account): Promise<LedgerEntry> {
-  const mine = () =>
-    AppDataSource.getRepository(LedgerEntry).find({
-      where: { companyId: card.companyId, source: "brex_card_reclass" },
-    });
-  const before = new Set((await mine()).map((entry) => entry.id));
-  await reclassifyCardTransaction(await reload(CardTransaction, card.id), to.id, "u1");
-  return (await mine()).find((entry) => !before.has(entry.id))!;
-}
-
-/**
- * What Entry review did before it stopped changing card categories: approve
- * the entry with one line moved, posting an approved `ledger_reclass` against
- * the entry as it was shown. Line for line what `approveLedgerReview` posted.
- */
-async function inEntryReview(entry: LedgerEntry, from: Account, to: Account): Promise<LedgerEntry> {
-  const line = (
-    await AppDataSource.getRepository(LedgerLine).find({ where: { ledgerEntryId: entry.id } })
-  ).find((candidate) => candidate.accountId === from.id)!;
-  const amount = line.debitCents || line.creditCents;
-  const description = `Reclassifies ${entry.id.slice(0, 8)}`;
-  const { entry: reclass } = await postLedgerEntry({
-    companyId: entry.companyId,
-    date: entry.date,
-    memo: `Approved category changes for ${entry.memo || entry.id.slice(0, 8)}`,
-    source: "ledger_reclass",
-    sourceRefId: entry.id,
-    createdById: "u1",
-    reviewStatus: "approved",
-    lines:
-      line.debitCents > 0
-        ? [
-            { accountId: to.id, debitCents: amount, description },
-            { accountId: from.id, creditCents: amount, description },
-          ]
-        : [
-            { accountId: from.id, debitCents: amount, description },
-            { accountId: to.id, creditCents: amount, description },
-          ],
-  });
-  await AppDataSource.getRepository(LedgerEntry).update(
-    { id: entry.id },
-    {
-      reviewStatus: "approved",
-      reviewChangesJson: JSON.stringify([
-        { lineId: line.id, fromAccountId: from.id, toAccountId: to.id },
-      ]),
-      approvedById: "u1",
-      approvedAt: new Date(),
-    },
-  );
-  return reclass;
-}
-
-async function codes(companyId: string): Promise<Map<string, string>> {
-  const accounts = await AppDataSource.getRepository(Account).find({ where: { companyId } });
-  return new Map(accounts.map((account) => [account.id, account.code]));
-}
-
-/** Debits minus credits per account code across the whole ledger, zeros left out. */
-async function balances(companyId = CO): Promise<Record<string, number>> {
-  const [lines, codeOf] = await Promise.all([
-    AppDataSource.getRepository(LedgerLine).find({ where: { companyId } }),
-    codes(companyId),
-  ]);
-  const net = new Map<string, number>();
-  for (const line of lines) {
-    const code = codeOf.get(line.accountId)!;
-    net.set(code, (net.get(code) ?? 0) + line.debitCents - line.creditCents);
-  }
-  return Object.fromEntries([...net].filter(([, cents]) => cents !== 0));
+) {
+  return cardPurchase(feed, { ...options, cents: options.cents ?? AMOUNT });
 }
 
 /** Where the finder says the books hold the purchase, by account code. */
-async function filedByCode(
-  drift: CardCategoryDrift,
-  companyId = CO,
-): Promise<Record<string, number>> {
-  const codeOf = await codes(companyId);
+async function filedByCode(drift: CardCategoryDrift): Promise<Record<string, number>> {
+  const codeOf = await accountCodes(CO);
   return Object.fromEntries(
     drift.filed.map((amount) => [codeOf.get(amount.accountId)!, amount.cents]),
   );
 }
 
-/**
- * Put the repair the finder proposes into effect the way Banking files a
- * purchase: Banking's category on the purchase, a correction as one of the
- * purchase's own reclassifications.
- */
-async function applyRepair(drift: CardCategoryDrift, companyId = CO): Promise<void> {
-  const repair = drift.repair!;
-  if (repair.kind === "show_category") {
-    await AppDataSource.getRepository(CardTransaction).update(
-      { id: drift.transaction.id },
-      { expenseAccountId: repair.accountId },
-    );
-    return;
+/** Put the finder's repair into effect as Genosyn does: at boot, or with Fix on Banking. */
+async function applyRepair(drift: CardCategoryDrift): Promise<void> {
+  if (drift.repair?.kind === "reclassify") {
+    await fixSplitCardCategory({
+      companyId: CO,
+      transactionId: drift.transaction.id,
+      lines: drift.repair.lines,
+      actorUserId: "u1",
+    });
+  } else {
+    await matchCardCategoriesToBooks();
   }
-  await postLedgerEntry({
-    companyId,
-    date: new Date(),
-    memo: "Correct the category of " + drift.transaction.description,
-    source: "brex_card_reclass",
-    sourceRefId: drift.transaction.id + ":" + randomUUID(),
-    createdById: "u1",
-    lines: repair.lines,
-  });
 }
 
 type History = {
   name: string;
   refund?: boolean;
-  steps: Array<(ctx: Setup & { posting: LedgerEntry; card: CardTransaction }) => Promise<void>>;
+  steps: Array<(ctx: CardBooks & { posting: LedgerEntry; card: CardTransaction }) => Promise<void>>;
   kind: CardCategoryDrift["kind"];
   /** Where the books hold the purchase, by code. */
   filed: Record<string, number>;
@@ -215,10 +95,10 @@ function bankingThenReview(to: Category, line: Category, moveTo: Category): Hist
   let reclass: LedgerEntry;
   return [
     async (ctx) => {
-      reclass = await onBanking(ctx.card, ctx[to]);
+      reclass = await moveOnBanking(ctx.card, ctx[to]);
     },
     async (ctx) => {
-      await inEntryReview(reclass, ctx[line], ctx[moveTo]);
+      await legacyEntryReview(reclass, ctx[line], ctx[moveTo]);
     },
   ];
 }
@@ -226,12 +106,12 @@ function bankingThenReview(to: Category, line: Category, moveTo: Category): Hist
 const review =
   (from: Category, to: Category): History["steps"][number] =>
   async (ctx) => {
-    await inEntryReview(ctx.posting, ctx[from], ctx[to]);
+    await legacyEntryReview(ctx.posting, ctx[from], ctx[to]);
   };
 const bank =
   (to: Category): History["steps"][number] =>
   async (ctx) => {
-    await onBanking(ctx.card, ctx[to]);
+    await moveOnBanking(ctx.card, ctx[to]);
   };
 
 const HISTORIES: History[] = [
@@ -333,7 +213,10 @@ describe("a card purchase whose category Entry review changed", () => {
       assert.equal(drift.feedName, "Brex card");
       assert.equal(drift.bookedCents, booked);
       assert.deepEqual(await filedByCode(drift), history.filed);
-      assert.equal((await codes(CO)).get(drift.transaction.expenseAccountId!), history.banking);
+      assert.equal(
+        (await accountCodes(CO)).get(drift.transaction.expenseAccountId!),
+        history.banking,
+      );
       assert.equal(drift.problem, null);
       assert.deepEqual(
         drift.reviewEntryIds.sort(),
@@ -353,7 +236,7 @@ describe("a card purchase whose category Entry review changed", () => {
       assert.deepEqual(await findCardCategoryDrift(CO), []);
       assert.deepEqual(await balances(), { "2300": -booked, [history.settlesOn]: booked });
       const repaired = await reload(CardTransaction, card.id);
-      assert.equal((await codes(CO)).get(repaired.expenseAccountId!), history.settlesOn);
+      assert.equal((await accountCodes(CO)).get(repaired.expenseAccountId!), history.settlesOn);
       // Banking moves it from where it is again.
       await reclassifyCardTransaction(repaired, ctx.office.id, "u1");
       assert.deepEqual(await balances(), { "2300": -booked, "6500": booked });
@@ -361,11 +244,11 @@ describe("a card purchase whose category Entry review changed", () => {
     });
   }
 
-  test("a split repair moves only what is out of place, debits first", async () => {
+  test("a split's correction moves only what is out of place, debits first", async () => {
     const { feed, general, software, travel } = await setup();
     const { card, posting } = await purchase(feed);
-    await inEntryReview(posting, general, software);
-    await onBanking(card, travel);
+    await legacyEntryReview(posting, general, software);
+    await moveOnBanking(card, travel);
 
     const [drift] = await findCardCategoryDrift(CO);
 
@@ -383,8 +266,8 @@ describe("what is not drift", () => {
   test("a purchase changed only on Banking, however often, and approved as it is", async () => {
     const { feed, travel, software } = await setup();
     const { card, posting } = await purchase(feed);
-    const first = await onBanking(card, travel);
-    const second = await onBanking(card, software);
+    const first = await moveOnBanking(card, travel);
+    const second = await moveOnBanking(card, software);
     for (const entry of [posting, first, second]) {
       await approveLedgerReview({ companyId: CO, entryId: entry.id, userId: "u1" });
     }
@@ -404,7 +287,7 @@ describe("what is not drift", () => {
         { accountId: bank.id, creditCents: 5_000 },
       ],
     });
-    await inEntryReview(entry, general, software);
+    await legacyEntryReview(entry, general, software);
 
     assert.deepEqual(await findCardCategoryDrift(CO), []);
   });
@@ -418,11 +301,11 @@ describe("listing drifted purchases", () => {
     const newer = await purchase(ctx.feed, { postedAt: new Date("2026-03-10T12:00:00Z") });
     const untouched = await purchase(ctx.feed, { postedAt: new Date("2026-03-20T12:00:00Z") });
     const elsewhere = await purchase(other.feed);
-    await inEntryReview(older.posting, ctx.general, ctx.software);
-    await inEntryReview(newer.posting, ctx.general, ctx.meals);
-    await onBanking(newer.card, ctx.travel);
-    await onBanking(untouched.card, ctx.travel);
-    await inEntryReview(elsewhere.posting, other.general, other.software);
+    await legacyEntryReview(older.posting, ctx.general, ctx.software);
+    await legacyEntryReview(newer.posting, ctx.general, ctx.meals);
+    await moveOnBanking(newer.card, ctx.travel);
+    await moveOnBanking(untouched.card, ctx.travel);
+    await legacyEntryReview(elsewhere.posting, other.general, other.software);
 
     const found = await findCardCategoryDrift(CO);
 
@@ -475,7 +358,7 @@ describe("a purchase whose entries don't add up", () => {
     const { card, posting } = await purchase(feed);
     // Entry review only moved income and expense lines, so in the wild this
     // takes a custom card account someone retyped as an expense for a while.
-    await inEntryReview(posting, await reload(Account, feed.liabilityAccountId), software);
+    await legacyEntryReview(posting, await reload(Account, feed.liabilityAccountId), software);
 
     const [drift] = await findCardCategoryDrift(CO);
 
@@ -488,7 +371,7 @@ describe("a purchase whose entries don't add up", () => {
   test("is listed with no repair when it is filed under an account that isn't an expense category", async () => {
     const { feed, general, software } = await setup();
     const { card, posting } = await purchase(feed);
-    await inEntryReview(posting, general, software);
+    await legacyEntryReview(posting, general, software);
     // Retyped afterwards, which an account the company added allows. Moving
     // the purchase off it would change the company's income.
     await AppDataSource.getRepository(Account).update({ id: software.id }, { type: "revenue" });
