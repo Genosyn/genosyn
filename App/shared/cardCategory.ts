@@ -23,13 +23,15 @@ export const CARD_CATEGORY_ON_BANKING =
   "A card purchase's category is changed on Banking — approve it here as it is";
 
 /** A card purchase or refund, and every reclassification Banking posted for one. */
-const CARD_CATEGORY_SOURCES: ReadonlySet<string> = new Set([
+export const CARD_CATEGORY_SOURCES = [
   "brex_card_expense",
   "brex_card_refund",
   "brex_card_reclass",
-]);
+] as const;
+
+const CARD_CATEGORY_SOURCE_SET: ReadonlySet<string> = new Set(CARD_CATEGORY_SOURCES);
 
 /** Whether an entry files a card purchase under its category. */
 export function isCardCategoryEntry(entry: { source: string }): boolean {
-  return CARD_CATEGORY_SOURCES.has(entry.source);
+  return CARD_CATEGORY_SOURCE_SET.has(entry.source);
 }
