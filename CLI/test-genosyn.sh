@@ -426,7 +426,7 @@ chmod -R u+w "${test_root}"
 rm -rf "${test_root}"
 trap - EXIT
 
-echo "upgrade safety — optional backup and automatic rollback"
+echo "upgrade safety — backup by default and automatic rollback"
 test_root="$(mktemp -d -t genosyn-cli-upgrade-test.XXXXXX)"
 trap 'rm -rf "${test_root}"' EXIT
 UPGRADE_BACKUP_DIR="${test_root}/backups"
@@ -498,9 +498,11 @@ ensure_auto_update_default() { return 0; }
 image_version_label() { return 0; }
 upgrade_backup_path() { printf '%s\n' "${test_root}/backups/pre-upgrade.tar.gz"; }
 backup_volume_to() {
-  printf 'backup-volume %s\n' "$1" >>"${upgrade_log}"
+  printf 'backup-volume %s %s\n' "$1" "${2:-0}" >>"${upgrade_log}"
   return 0
 }
+volume_backup_size_kb() { printf '%s\n' "${MOCK_VOLUME_KB:-2048}"; }
+free_space_kb() { printf '%s\n' "${MOCK_FREE_KB:-99999999}"; }
 run_container_with_image() {
   printf 'run-container %s\n' "$1" >>"${upgrade_log}"
   return 0
@@ -510,13 +512,66 @@ print_post_install() { return 0; }
 
 : >"${upgrade_log}"
 cmd_upgrade --no-self-upgrade >/dev/null 2>&1
-check "upgrade skips the data backup by default" \
-  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '0'
+check "upgrade takes one verified data backup by default" \
+  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
+check "and leaves the App's own Backup/ archives out of it" \
+  "$(grep -F 'backup-volume ' "${upgrade_log}")" \
+  "backup-volume ${test_root}/backups/pre-upgrade.tar.gz 1"
 
 : >"${upgrade_log}"
 cmd_upgrade --no-self-upgrade --backup >/dev/null 2>&1
-check "--backup creates one verified data backup" \
+check "--backup, now the default, still takes one" \
   "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
+
+for flag in --no-backup --skip-backup; do
+  : >"${upgrade_log}"
+  cmd_upgrade --no-self-upgrade "${flag}" >/dev/null 2>&1
+  check "${flag} skips the data backup" \
+    "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '0'
+  check "${flag} still upgrades" \
+    "$(grep -Fc 'run-container ' "${upgrade_log}" || true)" '1'
+done
+
+: >"${upgrade_log}"
+no_room_rc=0
+# A 5 GiB volume with 3 GiB free: `die` ends only the command substitution.
+no_room_output="$(MOCK_VOLUME_KB=5242880 MOCK_FREE_KB=3145728; cmd_upgrade --no-self-upgrade 2>&1 >/dev/null)" || no_room_rc=$?
+check "an upgrade with no room for its backup stops" "${no_room_rc}" "1"
+check "before pausing, stopping or replacing anything" \
+  "$(grep -Ec 'pauseRoutines|docker stop|backup-volume|run-container' "${upgrade_log}" || true)" '0'
+case "${no_room_output}" in
+  *"Not enough free space"*"--no-backup"*) no_room_said=yes ;;
+  *) no_room_said=no ;;
+esac
+check "and says how to go on" "${no_room_said}" "yes"
+
+echo "upgrade backups — one kept per install"
+NAME="genosyn-test"
+mkdir -p "${UPGRADE_BACKUP_DIR}"
+older="${UPGRADE_BACKUP_DIR}/genosyn-pre-upgrade-genosyn-test-20261020-091500-4242.tar.gz"
+neighbour="${UPGRADE_BACKUP_DIR}/genosyn-pre-upgrade-genosyn-test-2-20261020-091500-4242.tar.gz"
+unrelated="${UPGRADE_BACKUP_DIR}/genosyn-backup-20261020-091500.tar.gz"
+: >"${older}"; : >"${neighbour}"; : >"${unrelated}"
+prune_pre_upgrade_backups >/dev/null 2>&1
+check "the previous upgrade backup for this install is removed" \
+  "$([ -e "${older}" ] && echo kept || echo removed)" 'removed'
+check "another install's upgrade backup is left alone" \
+  "$([ -e "${neighbour}" ] && echo kept || echo removed)" 'kept'
+check "a manual backup in the same directory is left alone" \
+  "$([ -e "${unrelated}" ] && echo kept || echo removed)" 'kept'
+rm -f "${neighbour}" "${unrelated}"
+
+echo "volume archives — the App's Backup/ folder"
+volume_log="${test_root}/volume.log"
+(
+  # The real helper, not the rollback test's stand-in, with only docker faked.
+  # shellcheck source=./genosyn
+  source "${HERE}/genosyn"
+  docker() { printf '%s\n' "$*" >>"${volume_log}"; return 0; }
+  restore_volume_from "${test_root}/backups/pre-upgrade.tar.gz"
+)
+check "a restore keeps the App's Backup/ archives" \
+  "$(grep -Fc '! -name Backup' "${volume_log}" || true)" '1'
 
 echo "upgrade pauses running Routine Runs so they continue afterwards"
 : >"${upgrade_log}"

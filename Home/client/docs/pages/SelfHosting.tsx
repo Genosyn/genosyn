@@ -842,10 +842,12 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         the latest image and retains the previous container until the new version becomes ready.
         Before it restarts, it pauses running Routine Runs — each saves its progress and waits in
         the queue — and the upgraded version continues them where they stopped (
-        <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). A failed start restarts the
-        previous version with the current data volume. Backups are off by default; run{" "}
-        <Code>genosyn upgrade --backup</Code> for a manual upgrade that also writes a verified
-        archive under <Code>~/.genosyn/backups</Code> and restores it on failure. Check or change
+        <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). Every upgrade, scheduled or by
+        hand, first writes a verified archive of the data volume under{" "}
+        <Code>~/.genosyn/backups</Code>, replacing the previous upgrade&apos;s, and restores it if
+        the new version fails to start; one with no room for the archive stops before changing
+        anything (<DocLink to="/docs/cli#upgrade-with-backup">details</DocLink>). Pass{" "}
+        <Code>--no-backup</Code> to upgrade without it. Check or change
         the schedule with <Code>genosyn auto-update status</Code>,{" "}
         <Code>genosyn auto-update off</Code>, or <Code>genosyn auto-update on</Code>. You can also
         upgrade immediately by rerunning the installer:

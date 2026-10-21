@@ -13,7 +13,7 @@
 #                    (default: https://genosyn.com/genosyn)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
-#   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
+#   GENOSYN_BACKUP_DIR   host directory for the backup each upgrade takes
 #                        (default: ~/.genosyn/backups)
 #   GENOSYN_DRAIN_MINUTES  how long an upgrade lets running Routine Runs
 #                          finish before it pauses the rest (default: 0)
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.10.0"
+CLI_VERSION="0.11.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -580,9 +580,12 @@ upgrade_backup_path() {
 }
 
 # Write and validate a complete volume archive. The app must be stopped by the
-# caller when a consistent SQLite snapshot matters.
+# caller when a consistent SQLite snapshot matters. Pass 1 as the second
+# argument to leave out the App's own Backup/ archives: an upgrade backup does
+# not need them, they can dwarf everything else, and a restore keeps them.
 backup_volume_to() {
   local out="$1"
+  local skip_app_backups="${2:-0}"
   local out_dir out_base owner_uid owner_gid
   out_dir="$(cd "$(dirname "${out}")" && pwd)"
   out_base="$(basename "${out}")"
@@ -593,8 +596,8 @@ backup_volume_to() {
     -v "${VOLUME}:/data:ro" \
     -v "${out_dir}:/backup" \
     alpine:3.20 \
-    sh -c 'umask 077; rm -f "/backup/$1"; cd /data && tar -czf "/backup/$1" . && chmod 0600 "/backup/$1" && { chown "$2:$3" "/backup/$1" 2>/dev/null || true; }' \
-    sh "${out_base}" "${owner_uid}" "${owner_gid}" >/dev/null; then
+    sh -c 'umask 077; rm -f "/backup/$1"; cd /data && if [ "$4" = "1" ]; then tar -czf "/backup/$1" --exclude=./Backup .; else tar -czf "/backup/$1" .; fi && chmod 0600 "/backup/$1" && { chown "$2:$3" "/backup/$1" 2>/dev/null || true; }' \
+    sh "${out_base}" "${owner_uid}" "${owner_gid}" "${skip_app_backups}" >/dev/null; then
     return 1
   fi
 
@@ -606,6 +609,9 @@ backup_volume_to() {
     sh -c 'tar -tzf "/backup/$1" >/dev/null' sh "${out_base}"
 }
 
+# Replace the volume's contents with an archive's. The App's own Backup/
+# archives stay: an upgrade backup leaves them out, and wiping them would throw
+# away every in-app backup along with the data being restored.
 restore_volume_from() {
   local file="$1"
   local file_dir file_base
@@ -616,8 +622,69 @@ restore_volume_from() {
     -v "${VOLUME}:/data" \
     -v "${file_dir}:/backup:ro" \
     alpine:3.20 \
-    sh -c 'cd /data && rm -rf ./* ./.[!.]* ./..?* 2>/dev/null; tar -xzf "/backup/$1"' \
+    sh -c 'cd /data && find . -mindepth 1 -maxdepth 1 ! -name Backup -exec rm -rf {} + 2>/dev/null; tar -xzf "/backup/$1"' \
     sh "${file_base}" >/dev/null
+}
+
+# Each upgrade keeps one backup, the one it is about to take: daily automatic
+# upgrades would otherwise fill the disk with archives nobody would restore.
+# Only this install's archives match — another install's name may begin the
+# same way, so the timestamp and pid after it must be exactly what
+# upgrade_backup_path writes.
+prune_pre_upgrade_backups() {
+  local prefix old rest
+  [ -d "${UPGRADE_BACKUP_DIR}" ] || return 0
+  prefix="genosyn-pre-upgrade-$(auto_update_key)-"
+  for old in "${UPGRADE_BACKUP_DIR}/${prefix}"*.tar.gz; do
+    [ -f "${old}" ] || continue
+    rest="$(basename "${old}")"
+    rest="${rest#"${prefix}"}"
+    case "${rest}" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.tar.gz) ;;
+      *) continue ;;
+    esac
+    rest="${rest#????????-??????-}"
+    case "${rest%.tar.gz}" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    rm -f "${old}" && step "Removed the previous upgrade backup $(basename "${old}")"
+  done
+}
+
+# KiB an upgrade backup archives: the data volume without the App's Backup/
+# folder. Uncompressed, so a ceiling on the archive. Empty if it can't be read.
+volume_backup_size_kb() {
+  docker run --rm -v "${VOLUME}:/data:ro" alpine:3.20 \
+    sh -c 'total=$(du -sk /data | cut -f1); kept=0; if [ -d /data/Backup ]; then kept=$(du -sk /data/Backup | cut -f1); fi; echo $((total - kept))' \
+    2>/dev/null || true
+}
+
+# KiB free on the filesystem that holds $1.
+free_space_kb() {
+  df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
+}
+
+# Before anything is paused or stopped: clear the previous upgrade backup and
+# make sure the next one fits, with 1 GiB to spare for everything else on the
+# disk. Writing it until the disk filled would take the host's other services
+# down with it, so an upgrade that has no room stops here and changes nothing.
+prepare_pre_upgrade_backup() {
+  local needed free
+  mkdir -p "${UPGRADE_BACKUP_DIR}" || die "Could not create the backup directory ${UPGRADE_BACKUP_DIR}. Nothing was changed."
+  chmod 0700 "${UPGRADE_BACKUP_DIR}" 2>/dev/null || true
+  prune_pre_upgrade_backups
+  step "Checking there is room for the upgrade backup"
+  needed="$(volume_backup_size_kb)"
+  free="$(free_space_kb "${UPGRADE_BACKUP_DIR}")"
+  case "${needed}:${free}" in
+    *[!0-9:]*|:*|*:)
+      warn "Could not measure the space the upgrade backup needs; trying anyway."
+      return 0
+      ;;
+  esac
+  if [ "${free}" -lt $((needed + 1048576)) ]; then
+    die "Not enough free space for the upgrade backup in ${UPGRADE_BACKUP_DIR}: it can take up to $(human_size $((needed * 1024))) and $(human_size $((free * 1024))) is free. Free some space, set GENOSYN_BACKUP_DIR to a larger disk, or run 'genosyn upgrade --no-backup'. Nothing was changed."
+  fi
 }
 
 rollback_upgrade() {
@@ -813,7 +880,9 @@ cmd_install() {
 cmd_upgrade() {
   local original_args=("$@")
   local skip_self=0
-  local take_backup=0
+  # Every upgrade backs the data up first unless told not to. --backup is the
+  # default now, still accepted so older scripts keep working.
+  local take_backup=1
   local drain_minutes="${DRAIN_MINUTES}"
   local pause_grace="${PAUSE_GRACE_SECONDS}"
   parse_common_flags "$@"
@@ -822,6 +891,7 @@ cmd_upgrade() {
     case "${1:-}" in
       ""               ) shift ;;
       --backup          ) take_backup=1; shift ;;
+      --no-backup|--skip-backup) take_backup=0; shift ;;
       --no-self-upgrade) skip_self=1; shift ;;
       --now            ) drain_minutes=0; pause_grace=0; shift ;;
       --drain-minutes  )
@@ -890,6 +960,10 @@ cmd_upgrade() {
     die "Cannot upgrade while rollback container '${rollback_name}' exists. Remove or recover it first."
   fi
 
+  if [ "${take_backup}" = "1" ]; then
+    prepare_pre_upgrade_backup
+  fi
+
   local was_running=0
   if container_running; then
     was_running=1
@@ -910,7 +984,7 @@ cmd_upgrade() {
     fi
 
     step "Backing up volume '${VOLUME}' → ${backup_path}"
-    if ! backup_volume_to "${backup_path}"; then
+    if ! backup_volume_to "${backup_path}" 1; then
       rm -f "${backup_path}"
       [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
       die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
@@ -2133,11 +2207,12 @@ ${C_BOLD}Usage:${C_RESET}
 ${C_BOLD}Commands:${C_RESET}
   install              Pull the image, start the container, and enable daily
                        automatic updates. Pass --no-auto-update to opt out.
-  upgrade [--backup]   Self-upgrade the CLI, pull the latest image, and
+  upgrade [--no-backup] Self-upgrade the CLI, pull the latest image, and
                        recreate the container. The previous container is kept
-                       until ready. Pass --backup to create a verified data
-                       backup and restore it on failure; backup is off by
-                       default. Pass --no-self-upgrade to skip the script update.
+                       until ready. A verified data backup is taken first and
+                       restored on failure; each upgrade replaces the last one.
+                       Pass --no-backup (or --skip-backup) to skip it. Pass
+                       --no-self-upgrade to skip the script update.
                        Running Routine Runs are paused, saving their
                        progress, and continue where they stopped after the
                        upgrade; new ones wait. --drain-minutes N lets them

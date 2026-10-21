@@ -15,9 +15,9 @@ const COMMANDS: Cmd[] = [
   },
   {
     name: "upgrade",
-    flags: "[--backup] [--no-self-upgrade] [--drain-minutes N | --now]",
+    flags: "[--no-backup] [--no-self-upgrade] [--drain-minutes N | --now]",
     blurb:
-      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. Running Routine Runs are paused — each saves its progress — and continue where they stopped after the upgrade, while new ones wait; --drain-minutes N lets them finish for up to N minutes first and --now pauses at once. Backups are off by default; pass --backup to create a verified data backup and restore it on failure. Pass --no-self-upgrade to skip the script update.",
+      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. A verified data backup is taken first and restored if the upgrade fails; each upgrade replaces the previous one. Pass --no-backup (or --skip-backup) to skip it. Running Routine Runs are paused — each saves its progress — and continue where they stopped after the upgrade, while new ones wait; --drain-minutes N lets them finish for up to N minutes first and --now pauses at once. Pass --no-self-upgrade to skip the script update.",
   },
   {
     name: "self-upgrade",
@@ -216,8 +216,9 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_BACKUP_DIR",
             def: (
               <>
-                Host directory for optional, verified pre-upgrade backups. Default{" "}
-                <Code>~/.genosyn/backups</Code>.
+                Host directory for the verified backup each upgrade takes. Default{" "}
+                <Code>~/.genosyn/backups</Code>. Point it at another disk when the data
+                volume&apos;s own disk has no room for a copy.
               </>
             ),
           },
@@ -275,8 +276,10 @@ genosyn auto-update on`}</Pre>
         the schedule onto its own copy, keeping the port, image, and other settings it had.
       </Callout>
       <P>
-        Automatic updates do not create a data backup. The previous container is retained until the
-        new one becomes ready and is restarted if the upgrade fails, using the current data volume.
+        Automatic updates back up the data first, like any <Code>genosyn upgrade</Code>, and skip
+        the night with a line in the log when there isn&apos;t room for the backup. The previous
+        container is retained until the new one becomes ready, and a failed upgrade restores the
+        backup and restarts it.
       </P>
 
       <H3 id="upgrade-drain">Upgrades pause running Routines and resume them</H3>
@@ -296,18 +299,28 @@ genosyn upgrade --now                  # pause at once, without time to save pro
         A Run that does not pause in time, or one running on an image from before pausing, is
         stopped by the restart instead — and the upgraded version still resumes it from its last
         saved line, because it was marked as it stopped or the queue was held for the upgrade,
-        however long a <Code>--backup</Code> keeps Genosyn down. <Code>genosyn stop</Code> and{" "}
+        however long the backup keeps Genosyn down. <Code>genosyn stop</Code> and{" "}
         <Code>genosyn restart</Code> pause running Runs too, at once, and they continue when
         Genosyn starts again. Pressing Ctrl-C while an
         upgrade pauses cancels it, and the paused Runs continue in the running container.
       </P>
 
-      <H3 id="upgrade-with-backup">Upgrade with a verified backup</H3>
-      <Pre lang="bash">{`genosyn upgrade --backup`}</Pre>
+      <H3 id="upgrade-with-backup">Every upgrade backs up first</H3>
+      <Pre lang="bash">{`genosyn upgrade                 # back up, then upgrade
+genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup works too)`}</Pre>
       <P>
-        This writes an archive under <Code>~/.genosyn/backups</Code> before replacing the container.
-        A failed upgrade restores the archive before restarting the previous version. Successful
-        upgrade backups are kept for manual recovery.
+        Before it replaces the container, an upgrade stops Genosyn and writes a verified archive of
+        the data volume under <Code>~/.genosyn/backups</Code>. It leaves out the{" "}
+        <Code>Backup/</Code> folder of in-app backups, which a restore keeps. A failed upgrade
+        restores the archive before restarting the previous version. Each upgrade removes the
+        previous upgrade&apos;s archive, so the folder holds one per install, the newest.
+      </P>
+      <P>
+        Before pausing or stopping anything, the upgrade checks that the archive fits with 1 GB to
+        spare, counting the volume at its uncompressed size. If it doesn&apos;t, the upgrade stops
+        and changes nothing: free some space, set <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk,
+        or pass <Code>--no-backup</Code>. Genosyn is down while the archive is written, so a large
+        volume makes for a longer upgrade.
       </P>
 
       <H3 id="scheduled-backup">Daily backup to a known path</H3>
