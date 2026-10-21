@@ -5445,9 +5445,12 @@ export type LedgerBulkResult = {
 };
 
 export type TrialBalanceRow = {
-  account: Pick<Account, "id" | "code" | "name" | "type">;
+  account: Pick<Account, "id" | "code" | "name" | "type" | "isSystem">;
+  /** Every debit posted to the account through the date. */
   debitCents: number;
+  /** Every credit posted to the account through the date. */
   creditCents: number;
+  /** Signed by the account's normal side; below zero is an unusual balance. */
   balanceCents: number;
 };
 
@@ -5465,9 +5468,8 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
   expense: "Expense",
 };
 
-/** Display the cent magnitude in the conventional accounting layout —
- *  no minus signs in the trial balance, since the column itself
- *  encodes whether a value is a debit or a credit. */
+/** The cent magnitude without its sign, for a layout that marks a negative
+ *  amount some other way — the balance sheet's parentheses. */
 export function formatBalanceMagnitude(cents: number, currency: string): string {
   return formatMoney(Math.abs(cents), currency);
 }
@@ -5521,15 +5523,18 @@ export type AccountActivityRow = {
   entryId: string;
   date: string;
   source: LedgerEntrySource;
+  sourceRefId: string | null;
   memo: string;
   description: string;
   debitCents: number;
   creditCents: number;
   runningBalanceCents: number;
+  /** The entry's other accounts — the other side of the transaction. */
+  otherAccounts: Array<Pick<Account, "id" | "code" | "name">>;
 };
 
 export type AccountActivityReport = {
-  account: Pick<Account, "id" | "code" | "name" | "type">;
+  account: Pick<Account, "id" | "code" | "name" | "type" | "isSystem">;
   from: string | null;
   to: string | null;
   openingBalance: number;

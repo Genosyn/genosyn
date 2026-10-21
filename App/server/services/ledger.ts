@@ -488,7 +488,7 @@ export async function reverseLedgerEntriesForSources(args: {
 // ────────────────────────── Trial balance ──────────────────────────────
 
 export type TrialBalanceRow = {
-  account: Pick<Account, "id" | "code" | "name" | "type">;
+  account: Pick<Account, "id" | "code" | "name" | "type" | "isSystem">;
   debitCents: number;
   creditCents: number;
   balanceCents: number;
@@ -539,7 +539,7 @@ export async function trialBalance(companyId: string, asOf: Date): Promise<Trial
       const debitNormal = a.type === "asset" || a.type === "expense";
       const balance = debitNormal ? t.d - t.c : t.c - t.d;
       return {
-        account: { id: a.id, code: a.code, name: a.name, type: a.type },
+        account: { id: a.id, code: a.code, name: a.name, type: a.type, isSystem: a.isSystem },
         debitCents: t.d,
         creditCents: t.c,
         balanceCents: balance,
