@@ -11,6 +11,7 @@ import {
   StickyNote,
   Table2,
   TrendingUp,
+  UserCheck,
   Users,
   Workflow,
   type LucideIcon,
@@ -39,6 +40,7 @@ export const PRODUCT_DEPT: Record<string, Dept> = {
   email: "email",
   customers: "revenue",
   finance: "finance",
+  recruiting: "people",
   repositories: "repositories",
 };
 
@@ -56,6 +58,7 @@ export const PRODUCT_ICON: Record<string, LucideIcon> = {
   email: Mail,
   customers: Building2,
   finance: Landmark,
+  recruiting: UserCheck,
   repositories: GitBranch,
 };
 
@@ -73,6 +76,7 @@ export const PRODUCT_HOLDS: Record<string, string> = {
   email: "Your mailbox, with read, draft or send Grants",
   customers: "Accounts, contracts, ACV and aged statements",
   finance: "Invoices, bills, a double-entry ledger, period close",
+  recruiting: "Openings, a careers site, and every applicant scored",
   repositories: "Git repositories and Work sessions on branches",
 };
 

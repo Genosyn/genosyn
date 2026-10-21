@@ -143,6 +143,7 @@ const PRODUCT_CLOCK: Record<string, string> = {
   email: "05:45",
   customers: "07:05",
   finance: "04:05",
+  recruiting: "07:20",
   repositories: "05:10",
 };
 
@@ -157,8 +158,8 @@ const PRODUCT_CLOCK: Record<string, string> = {
  * `PRODUCT_CLOCK` in any case, since both are facts about how a product is
  * *drawn* rather than about what it does.
  *
- * Six of the fourteen name their own department and need no argument. The
- * other eight are placed by whose work they hold, and the test of a placement
+ * Six of the fifteen name their own department and need no argument. The
+ * other nine are placed by whose work they hold, and the test of a placement
  * is the 24-hour board in `Board.tsx`: if the lane that owns the hue would
  * plausibly file a Run under this product, the binding is right.
  *
@@ -178,6 +179,8 @@ const PRODUCT_CLOCK: Record<string, string> = {
  *   customers    → revenue      Contacts, Deals and accounts are one lane
  *   explore      → finance      the dashboards a company closes a month on;
  *                               Explore's own figure is June at $48,220
+ *   recruiting   → people       hiring is the People lane's work, and the
+ *                               AI Recruiter's whole day
  *
  * Nothing on this site may use a hue for a mood, so a product that fitted no
  * department would have to go without one rather than borrow the nearest.
@@ -197,6 +200,7 @@ export const PRODUCT_DEPT: Record<string, Dept> = {
   email: "email",
   customers: "revenue",
   finance: "finance",
+  recruiting: "people",
   repositories: "repositories",
 };
 
@@ -429,6 +433,23 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
       label: "Decision stacked",
       detail: "One £42 charge needs a Member to classify it.",
       state: "decision",
+    },
+  ],
+  recruiting: [
+    {
+      label: "Application received",
+      detail: "A resume came in through the careers site overnight.",
+      state: "run",
+    },
+    {
+      label: "Scored blind",
+      detail: "Noor rated four criteria, quoting the resume for each.",
+      state: "run",
+    },
+    {
+      label: "Owner notified",
+      detail: "Scored 85, a strong match, so the Opening's owner was told.",
+      state: "run",
     },
   ],
   repositories: [

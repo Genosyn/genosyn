@@ -6,7 +6,25 @@ import { Link } from "@/lib/router";
 import { CompanyPreview } from "@/sections/CompanyPreview";
 import { Container, DEPT_DOT, Em, Section, SectionHead } from "@/sections/Kit";
 
-/** Where the work happens: one install, fourteen products, one shared context. */
+/*
+ * The tile grid closes square at both widths, worked out from the count so a
+ * new product never opens a hole. Below `lg` it has two columns: an odd count
+ * would leave the last product alone in its row, so that tile takes the whole
+ * row, and the "All products" tile takes the next one. From `lg` it has four
+ * columns, and the "All products" tile takes whatever the last row has left,
+ * down to a single cell, where its headline steps down a size to fit.
+ */
+const LAST_TILE_SPAN = PRODUCTS.length % 2 === 1 ? "col-span-2 lg:col-span-1" : "";
+const FREE_AT_LG = 4 - (PRODUCTS.length % 4);
+const ALL_TILE_SPAN: Record<number, string> = {
+  1: "lg:col-span-1",
+  2: "lg:col-span-2",
+  3: "lg:col-span-3",
+  4: "lg:col-span-4",
+};
+const ALL_TILE_NARROW = FREE_AT_LG === 1;
+
+/** Where the work happens: one install, every product, one shared context. */
 export function Platform() {
   const frame = useReveal<HTMLDivElement>(60);
   const tiles = useReveal<HTMLUListElement>(0, 35);
@@ -35,10 +53,13 @@ export function Platform() {
         </div>
 
         <ul ref={tiles} className="mt-16 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {PRODUCTS.map((product) => {
+          {PRODUCTS.map((product, index) => {
             const Icon = PRODUCT_ICON[product.slug];
             return (
-              <li key={product.slug} className="min-w-0">
+              <li
+                key={product.slug}
+                className={`min-w-0 ${index === PRODUCTS.length - 1 ? LAST_TILE_SPAN : ""}`}
+              >
                 <Link
                   href={`/products/${product.slug}`}
                   className="lift group flex h-full flex-col rounded-2xl border border-line bg-paper p-4 hover:border-line-strong hover:bg-white hover:shadow-soft sm:p-5"
@@ -60,16 +81,22 @@ export function Platform() {
               </li>
             );
           })}
-          <li className="col-span-2 min-w-0">
+          <li className={`col-span-2 min-w-0 ${ALL_TILE_SPAN[FREE_AT_LG]}`}>
             <Link
               href="/products"
-              className="lift group flex h-full min-h-[10.5rem] flex-col justify-between rounded-2xl bg-ink p-6 text-white hover:shadow-lifted"
+              className={`lift group flex h-full min-h-[10.5rem] flex-col justify-between rounded-2xl bg-ink p-6 text-white hover:shadow-lifted ${
+                ALL_TILE_NARROW ? "lg:p-5" : ""
+              }`}
             >
               <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/50">
                 One install · one permission model
               </span>
-              <span className="flex items-end justify-between gap-6">
-                <span className="max-w-[24ch] font-display text-[1.5rem] leading-[1.15] tracking-[-0.035em]">
+              <span className={`flex items-end justify-between gap-6 ${ALL_TILE_NARROW ? "lg:gap-3" : ""}`}>
+                <span
+                  className={`max-w-[24ch] font-display text-[1.5rem] leading-[1.15] tracking-[-0.035em] ${
+                    ALL_TILE_NARROW ? "lg:text-[1.2rem]" : ""
+                  }`}
+                >
                   Every product, and the AI Employees that work in it.
                 </span>
                 <ArrowUpRight aria-hidden className="nudge-up h-5 w-5 shrink-0" />
