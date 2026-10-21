@@ -8,7 +8,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
-import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
@@ -448,10 +447,12 @@ describe("customer archive and unarchive", () => {
   }
 
   async function archiveActions(): Promise<string[]> {
-    const rows = await AppDataSource.getRepository(AuditEvent).find({
-      where: { companyId: company.id, targetId: customer.id },
-      order: { createdAt: "ASC", id: "ASC" },
-    });
+    // One request writes its rows within a millisecond, and ids are random,
+    // so the order they were written in (rowid) breaks the createdAt tie.
+    const rows: Array<{ action: string }> = await AppDataSource.query(
+      `SELECT "action" FROM "audit_events" WHERE "companyId" = ? AND "targetId" = ? ORDER BY "createdAt" ASC, rowid ASC`,
+      [company.id, customer.id],
+    );
     return rows.map((row) => row.action);
   }
 
