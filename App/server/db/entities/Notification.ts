@@ -39,7 +39,9 @@ export type NotificationKind =
   | "budget_exhausted"
   | "initiative_pending"
   | "standdown_placed"
-  | "board_letter_ready";
+  | "board_letter_ready"
+  | "recruiting_application"
+  | "recruiting_strong_match";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -59,7 +61,8 @@ export type NotificationEntityKind =
   | "budget"
   | "initiative"
   | "standdown"
-  | "board_letter";
+  | "board_letter"
+  | "recruiting_application";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

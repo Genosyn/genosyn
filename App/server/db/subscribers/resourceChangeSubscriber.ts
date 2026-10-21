@@ -277,6 +277,22 @@ const REGISTRY: Record<string, Mapping> = {
   AccountingPeriod: { kind: "period", company: "direct" },
   AdSpendEvent: { kind: "adspend", company: "direct" },
 
+  // ── Recruiting ───────────────────────────────────────────────────────────
+  // An Application, its Scorecards and its timeline are one kind, scoped by
+  // the Opening: the board that shows an Opening's applicants refetches only
+  // for its own, and a Trigger on "recruiting_application" scoped to one
+  // Opening fires a Routine when someone applies there — or is scored or
+  // moved — without waking every other Opening's Routines.
+  RecruitingOpening: { kind: "recruiting_opening", company: "direct", scopeFk: "id" },
+  RecruitingApplication: { kind: "recruiting_application", company: "direct", scopeFk: "openingId" },
+  RecruitingScorecard: { kind: "recruiting_application", company: "direct", scopeFk: "openingId" },
+  RecruitingApplicationEvent: {
+    kind: "recruiting_application",
+    company: "direct",
+    scopeFk: "openingId",
+  },
+  EmployeeRecruitingGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
+
   // ── Phone numbers ────────────────────────────────────────────────────────
   // One kind for a number, its texts and its calls, scoped by the number: the
   // page that shows a number's settings is the page that shows its activity,

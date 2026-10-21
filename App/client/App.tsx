@@ -171,6 +171,15 @@ import { MarketingCampaignsPage } from "./pages/MarketingCampaigns";
 import { MarketingCreativePage } from "./pages/MarketingCreative";
 import { MarketingExperimentsPage } from "./pages/MarketingExperiments";
 import { MarketingOverviewPage } from "./pages/MarketingOverview";
+import RecruitingLayout from "./pages/RecruitingLayout";
+import { RecruitingOverviewPage } from "./pages/RecruitingOverview";
+import { RecruitingOpeningsPage } from "./pages/RecruitingOpenings";
+import { RecruitingOpeningDetailPage } from "./pages/RecruitingOpeningDetail";
+import { RecruitingApplicantsPage } from "./pages/RecruitingApplicants";
+import { RecruitingApplicationDetailPage } from "./pages/RecruitingApplicationDetail";
+import { RecruitingSitePage } from "./pages/RecruitingSite";
+import { RecruitingSettingsPage } from "./pages/RecruitingSettings";
+import { RecruitingAiAccessPage } from "./pages/RecruitingAiAccess";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -685,6 +694,20 @@ function CompanyRoutes({
               notification links to /marketing/budgets. */}
             <Route path="budgets" element={<Budgets company={company} me={me} />} />
             <Route path="ai-access" element={<MarketingAiAccessPage />} />
+          </Route>
+
+          {/* Recruiting — Openings, the people who apply, the AI screener, and
+            the careers site. The public site itself is its own small bundle
+            (client/careers.html), served by the server, not this App. */}
+          <Route path="recruiting" element={<RecruitingLayout company={company} />}>
+            <Route index element={<RecruitingOverviewPage />} />
+            <Route path="openings" element={<RecruitingOpeningsPage />} />
+            <Route path="openings/:openingId" element={<RecruitingOpeningDetailPage />} />
+            <Route path="applicants" element={<RecruitingApplicantsPage />} />
+            <Route path="applicants/:applicationId" element={<RecruitingApplicationDetailPage />} />
+            <Route path="site" element={<RecruitingSitePage />} />
+            <Route path="settings" element={<RecruitingSettingsPage />} />
+            <Route path="ai-access" element={<RecruitingAiAccessPage />} />
           </Route>
 
           {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,

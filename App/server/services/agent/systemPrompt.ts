@@ -54,6 +54,8 @@ export function composeEmployeeSystemPrompt(args: {
   signingContext: string;
   revenueContext: string;
   marketingContext: string;
+  /** The "## Recruiting" block from `services/recruiting/grants.ts`, or "" without a Recruiting Grant. */
+  recruitingContext?: string;
   /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
    * for an employee set to read only; "" otherwise. */
   resourcesContext: string;
@@ -135,6 +137,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (signingContext) parts.push(signingContext);
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
+  if (args.recruitingContext) parts.push(args.recruitingContext);
   if (resourcesContext) parts.push(resourcesContext);
   if (args.phoneContext) parts.push(args.phoneContext);
 

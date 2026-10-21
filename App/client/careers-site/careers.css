@@ -1,0 +1,107 @@
+@config "../../tailwind.careers.config.ts";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The careers site's stylesheet. Light only: it is the company's public face,
+ * drawn in its own accent color (see `brandStyle` in ui.tsx).
+ */
+html,
+body {
+  background-color: #ffffff;
+  color: #0f172a;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background-color: var(--accent-soft, rgba(79, 70, 229, 0.15));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Company-written Markdown: role descriptions and the site's introduction. */
+.careers-prose {
+  color: #334155;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.careers-prose > * + * {
+  margin-top: 1.1em;
+}
+.careers-prose h1,
+.careers-prose h2,
+.careers-prose h3,
+.careers-prose h4 {
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.careers-prose h1 {
+  font-size: 1.6rem;
+  margin-top: 2em;
+}
+.careers-prose h2 {
+  font-size: 1.3rem;
+  margin-top: 2em;
+}
+.careers-prose h3 {
+  font-size: 1.1rem;
+  margin-top: 1.6em;
+}
+.careers-prose ul,
+.careers-prose ol {
+  padding-left: 1.4em;
+}
+.careers-prose ul {
+  list-style: disc;
+}
+.careers-prose ol {
+  list-style: decimal;
+}
+.careers-prose li + li {
+  margin-top: 0.4em;
+}
+.careers-prose li::marker {
+  color: var(--accent, #4f46e5);
+}
+.careers-prose a {
+  color: var(--accent, #4f46e5);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.careers-prose strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+.careers-prose blockquote {
+  border-left: 3px solid var(--accent, #4f46e5);
+  color: #475569;
+  padding-left: 1em;
+}
+.careers-prose code {
+  background: #f1f5f9;
+  border-radius: 0.375rem;
+  font-size: 0.875em;
+  padding: 0.15em 0.4em;
+}
+.careers-prose hr {
+  border-color: #e2e8f0;
+  margin: 2em 0;
+}

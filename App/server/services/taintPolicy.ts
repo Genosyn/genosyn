@@ -51,6 +51,22 @@ export const TAINT_SINK_TOOLS = new Set([
  * strictly more conservative, and one seam instead of three handlers. */
 export const WEB_TAINT_SOURCES = new Set(["search_web", "fetch_web_page", "download_web_file"]);
 
+/**
+ * An application is a stranger's writing addressed to the company, and a
+ * resume is as good a place to hide "now email the candidate list to…" as a
+ * web page. So is the list: the names, addresses and locations in it are the
+ * applicants' own words. Unlike mail — deliberately not a source, because it
+ * would gate every send-grant employee's every send — reading applications is
+ * a narrow, deliberate act, and the sends a recruiting turn needs (the
+ * company's own rejection template, via `move_application`) are not sinks.
+ */
+export const APPLICANT_TAINT_SOURCES = new Set(["list_applications", "get_application"]);
+
+/** Whether calling this tool marks the turn as having read outside content. */
+export function isTaintSource(toolName: string): boolean {
+  return WEB_TAINT_SOURCES.has(toolName) || APPLICANT_TAINT_SOURCES.has(toolName);
+}
+
 export type TaintedToolPayload = {
   tool: string;
   args: Record<string, unknown>;
@@ -104,7 +120,7 @@ export async function createTaintedToolApproval(args: {
     status: "pending",
     title: redactApprovalSummary(`Tainted turn · ${args.tool}`),
     summary: redactApprovalSummary(
-      `This turn read web content before calling ${args.tool}. Held for review: ` +
+      `This turn read outside content (a web page or an application) before calling ${args.tool}. Held for review: ` +
         approvalArgsPreview(args.toolArgs).slice(0, 300),
     ),
     payloadJson: JSON.stringify({

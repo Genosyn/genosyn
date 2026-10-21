@@ -105,6 +105,19 @@ export function meetingRecordingsCompanyDir(companyId: string): string {
 }
 
 /**
+ * Where Recruiting keeps applicants' resumes and the careers site's logo.
+ *
+ * App-private for the meeting recordings' reason: a resume is a stranger's
+ * personal data — a home address, a phone number, a whole working life — and
+ * an AI Employee should reach it only through the Recruiting tools that check
+ * a Grant, never by listing a directory its coding tools can read. Keyed by
+ * company id, so a slug rename strands nothing and deletion needs no lookup.
+ */
+export function recruitingPrivateCompanyDir(companyId: string): string {
+  return path.join(dataRoot(), ".private", "recruiting", companyId);
+}
+
+/**
  * App-private SSH host-key cache for server-owned repository operations.
  *
  * The directory name still says `code-repository-ssh` after the Code →

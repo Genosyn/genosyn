@@ -31,6 +31,7 @@ import { composeSigningContext } from "./signing.js";
 import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeRecruitingContext } from "./recruiting/grants.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
@@ -806,11 +807,18 @@ async function prepareRoutineRun(
         log.line("[repos] automatic repository sync is disabled for this Run");
       }
       const financeContext = await composeFinanceContext(emp.id);
-      const [signingContext, revenueContext, marketingContext, resourcesContext, phoneContext] =
-        await Promise.all([
+      const [
+        signingContext,
+        revenueContext,
+        marketingContext,
+        recruitingContext,
+        resourcesContext,
+        phoneContext,
+      ] = await Promise.all([
           composeSigningContext({ companyId: co.id, employeeId: emp.id }),
           composeRevenueContext(emp.id),
           composeMarketingContext(emp.id),
+          composeRecruitingContext(emp.id),
           composeResourceLibraryContext(emp.id),
           // A Run held to an email delivery ceiling cannot text or call, so
           // it is not briefed that it can.
@@ -835,6 +843,7 @@ async function prepareRoutineRun(
         signingContext,
         revenueContext,
         marketingContext,
+        recruitingContext,
         resourcesContext,
         phoneContext,
         routineAccess,

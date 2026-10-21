@@ -13,6 +13,7 @@ import { Dashboard } from "../db/entities/Dashboard.js";
 import { Deal } from "../db/entities/Deal.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
+import { EmployeeRecruitingGrant } from "../db/entities/EmployeeRecruitingGrant.js";
 import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
 import { EmployeeSigningGrant } from "../db/entities/EmployeeSigningGrant.js";
 import { Estimate } from "../db/entities/Estimate.js";
@@ -27,6 +28,7 @@ import type { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Note } from "../db/entities/Note.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { Project } from "../db/entities/Project.js";
+import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
 import { Repository } from "../db/entities/Repository.js";
 import { Resource } from "../db/entities/Resource.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
@@ -111,6 +113,7 @@ function usageProbes(companyId: string, employeeIds: string[]): Record<UsageSect
       byCompany(LedgerEntry),
       byCompany(EmployeeFinanceGrant),
     ],
+    recruiting: [byCompany(RecruitingOpening), byCompany(EmployeeRecruitingGrant)],
   };
 }
 

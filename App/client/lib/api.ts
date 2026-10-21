@@ -2116,6 +2116,7 @@ export type EmailLogPurpose =
   | "password_reset"
   | "welcome"
   | "signature"
+  | "recruiting"
   | "test"
   | "other";
 
@@ -3591,7 +3592,11 @@ export type NotificationKind =
   /** An employee filed an Initiative — standing work awaiting a human. */
   | "initiative_pending"
   /** The monthly letter to the board is written, traced and audited. */
-  | "board_letter_ready";
+  | "board_letter_ready"
+  /** Someone applied to an Opening the recipient owns, and nobody screens it. */
+  | "recruiting_application"
+  /** The AI screener rated an applicant a strong match for the recipient's Opening. */
+  | "recruiting_strong_match";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -3610,7 +3615,8 @@ export type NotificationEntityKind =
   | "employee"
   | "budget"
   | "initiative"
-  | "board_letter";
+  | "board_letter"
+  | "recruiting_application";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -6083,7 +6089,9 @@ export type SearchResultKind =
   | "pipeline"
   | "customer"
   /** A customer opened as its Revenue account, for a Member without finance access. */
-  | "account";
+  | "account"
+  | "opening"
+  | "applicant";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;

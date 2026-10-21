@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
+  Briefcase,
   Building2,
   CalendarClock,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   Search,
   SearchX,
   Table2,
+  UserRound,
   Users,
   WalletCards,
   Wrench,
@@ -204,6 +206,16 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
     group: "Revenue accounts",
     icon: Building2,
     iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+  },
+  opening: {
+    group: "Openings",
+    icon: Briefcase,
+    iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
+  },
+  applicant: {
+    group: "Applicants",
+    icon: UserRound,
+    iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
   },
 };
 

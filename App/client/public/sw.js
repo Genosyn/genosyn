@@ -13,13 +13,15 @@
  *                     so a cached asset is never stale for its URL)
  *   - /api/*        → never touched; always hits the network (auth-sensitive,
  *                     dynamic, and covers the WebSocket + SSE endpoints)
+ *   - /careers/*    → never touched: the public careers site is a separate
+ *                     page, and caching it as the App shell would break both
  *   - push          → renders Web Push payloads sent by the server (see
  *                     server/services/push.ts); clicking deep-links into
  *                     the SPA.
  *
  * Bump CACHE when the caching logic changes to drop stale caches on activate.
  */
-const CACHE = "genosyn-v1";
+const CACHE = "genosyn-v2";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
@@ -60,6 +62,9 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   // The API (including /api/ws and SSE streams) must always reach the server.
   if (url.pathname.startsWith("/api/")) return;
+  // The public careers site is its own page, not the App: never serve it the
+  // App shell, and never cache it as one.
+  if (url.pathname === "/careers" || url.pathname.startsWith("/careers/")) return;
 
   // App navigations: prefer the network so we always render the latest shell
   // (which references the current content-hashed assets); fall back to the

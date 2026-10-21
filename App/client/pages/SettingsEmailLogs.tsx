@@ -45,6 +45,7 @@ const PURPOSE_LABELS: Record<EmailLogPurpose, string> = {
   password_reset: "Password reset",
   welcome: "Welcome",
   signature: "Document signing",
+  recruiting: "Recruiting",
   test: "Test",
   other: "Other",
 };
@@ -188,6 +189,7 @@ function EmailLogList({ company }: { company: Company }) {
                 <option value="password_reset">Password reset</option>
                 <option value="welcome">Welcome</option>
                 <option value="signature">Document signing</option>
+                <option value="recruiting">Recruiting</option>
                 <option value="test">Test</option>
                 <option value="other">Other</option>
               </Select>

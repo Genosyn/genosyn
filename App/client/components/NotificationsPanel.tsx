@@ -5,6 +5,7 @@ import {
   AtSign,
   Bell,
   BellRing,
+  Briefcase,
   CheckCircle2,
   ClipboardCheck,
   GitBranch,
@@ -17,6 +18,7 @@ import {
   ScrollText,
   ShieldAlert,
   ShieldCheck,
+  Star,
   Target,
 } from "lucide-react";
 import { api, Company, Notification, NotificationKind } from "../lib/api";
@@ -419,6 +421,10 @@ function KindIcon({
       return <Lightbulb size={size} className={className} />;
     case "board_letter_ready":
       return <ScrollText size={size} className={className} />;
+    case "recruiting_application":
+      return <Briefcase size={size} className={className} />;
+    case "recruiting_strong_match":
+      return <Star size={size} className={className} />;
   }
 }
 
@@ -506,6 +512,14 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   board_letter_ready: {
     iconBg: "bg-violet-100 dark:bg-violet-500/15",
     iconFg: "text-violet-600 dark:text-violet-300",
+  },
+  recruiting_application: {
+    iconBg: "bg-cyan-100 dark:bg-cyan-500/15",
+    iconFg: "text-cyan-600 dark:text-cyan-300",
+  },
+  recruiting_strong_match: {
+    iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
+    iconFg: "text-emerald-600 dark:text-emerald-300",
   },
 };
 

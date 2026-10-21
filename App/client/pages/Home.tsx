@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   AtSign,
   BellRing,
+  Briefcase,
   Calendar,
   Check,
   CheckCircle2,
@@ -1818,6 +1819,10 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <Lightbulb size={12} className={className} />;
     case "board_letter_ready":
       return <ScrollText size={12} className={className} />;
+    case "recruiting_application":
+      return <Briefcase size={12} className={className} />;
+    case "recruiting_strong_match":
+      return <Star size={12} className={className} />;
   }
 }
 
@@ -1905,6 +1910,14 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   board_letter_ready: {
     bg: "bg-violet-100 dark:bg-violet-500/15",
     fg: "text-violet-600 dark:text-violet-300",
+  },
+  recruiting_application: {
+    bg: "bg-cyan-100 dark:bg-cyan-500/15",
+    fg: "text-cyan-600 dark:text-cyan-300",
+  },
+  recruiting_strong_match: {
+    bg: "bg-emerald-100 dark:bg-emerald-500/15",
+    fg: "text-emerald-600 dark:text-emerald-300",
   },
 };
 

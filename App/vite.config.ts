@@ -64,5 +64,13 @@ export default defineConfig({
   build: {
     outDir: "../dist/client",
     emptyOutDir: true,
+    rollupOptions: {
+      // Two pages: the App, and the careers site's own small bundle, which
+      // the server fills with each careers page's head and data.
+      input: {
+        main: path.resolve(__dirname, "client/index.html"),
+        careers: path.resolve(__dirname, "client/careers.html"),
+      },
+    },
   },
 });
