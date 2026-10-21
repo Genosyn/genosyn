@@ -824,6 +824,7 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Layers,
       navGroup: "Accounting",
       access: FINANCE_READ,
+      keywords: ["account balances", "debits and credits", "books balance", "check the books"],
     },
     {
       label: "Periods & exports",

@@ -13,19 +13,9 @@ import { FormError } from "../components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { errorMessage } from "../lib/errors";
+import { ACCOUNT_TYPE_MEANING, ACCOUNT_TYPE_ORDER, accountMeaning } from "../lib/ledgerAccounts";
 import { canWriteFinance } from "../lib/subpages";
 import { FinanceOutletCtx } from "./FinanceLayout";
-
-const TYPES: AccountType[] = ["asset", "liability", "equity", "revenue", "expense"];
-
-/** What each kind of account holds, in a line. */
-const TYPE_MEANING: Record<AccountType, string> = {
-  asset: "What the company owns — bank balances, and money customers owe you.",
-  liability: "What the company owes — card balances, unpaid bills, tax collected.",
-  equity: "What the owners put in, and the profit kept in the business.",
-  revenue: "Money the company earns — sales, and income from anything else.",
-  expense: "What the company spends money on. Most bank and card payments are filed here.",
-};
 
 const TYPE_BADGE: Record<AccountType, string> = {
   asset: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -123,7 +113,7 @@ export default function FinanceAccounts() {
   const grouped = React.useMemo(() => {
     if (!accounts) return null;
     const m = new Map<AccountType, Account[]>();
-    for (const t of TYPES) m.set(t, []);
+    for (const t of ACCOUNT_TYPE_ORDER) m.set(t, []);
     for (const a of accounts) m.get(a.type)?.push(a);
     return m;
   }, [accounts]);
@@ -162,7 +152,7 @@ export default function FinanceAccounts() {
         </div>
       ) : (
         <div className="space-y-6">
-          {TYPES.map((type) => {
+          {ACCOUNT_TYPE_ORDER.map((type) => {
             const rows = grouped.get(type) ?? [];
             if (rows.length === 0) return null;
             return (
@@ -176,7 +166,9 @@ export default function FinanceAccounts() {
                       {ACCOUNT_TYPE_LABEL[type]}
                     </span>
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{TYPE_MEANING[type]}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {ACCOUNT_TYPE_MEANING[type]}
+                  </p>
                 </div>
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -201,6 +193,11 @@ export default function FinanceAccounts() {
                             <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                               system
                             </span>
+                          )}
+                          {accountMeaning(a) && (
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              {accountMeaning(a)}
+                            </div>
                           )}
                         </td>
                         {canWrite && (
@@ -372,7 +369,7 @@ function AccountEditor({
           onChange={(e) => setType(e.target.value as AccountType)}
           disabled={isSystem}
         >
-          {TYPES.map((t) => (
+          {ACCOUNT_TYPE_ORDER.map((t) => (
             <option key={t} value={t}>
               {ACCOUNT_TYPE_LABEL[t]}
             </option>

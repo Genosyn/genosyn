@@ -1,8 +1,6 @@
 import React from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { X } from "lucide-react";
 import {
-  AccountActivityReport,
   api,
   BalanceSheetReport,
   CashFlowReport,
@@ -20,6 +18,7 @@ import {
 } from "../lib/api";
 import { parseFinanceReportLink } from "../../shared/financeReportLink";
 import { Breadcrumbs } from "../components/AppShell";
+import { AccountActivityPanel } from "../components/finance/AccountActivityPanel";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import {
@@ -55,9 +54,10 @@ function dateInputValue(d: Date): string {
  * C of the Finance milestone (M19).
  *
  * Single page with three tabs because they share the period picker and
- * compare-to-prior toggle. Click any account row to drill through to a
- * running-balance ledger of that account in the period — same panel
- * across all three reports.
+ * compare-to-prior toggle. Click any account row to drill through to the
+ * entries behind it (`AccountActivityPanel`, the Trial balance's panel too):
+ * the period's entries for a P&L line, everything up to the date for a
+ * balance sheet line.
  */
 export default function FinanceReports() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -68,11 +68,13 @@ export default function FinanceReports() {
   const [tab, setTab] = React.useState<Tab>(linked?.report ?? "income");
   const [preset, setPreset] = React.useState<PeriodPreset>(linked ? "custom" : "this_year");
   const [compare, setCompare] = React.useState(false);
-  // Drill-through state: when set, render the side panel for this
-  // account + period. Cleared when the user closes it.
-  const [drill, setDrill] = React.useState<{ accountId: string; range: PeriodRange | null } | null>(
-    null,
-  );
+  // Drill-through state: when set, render the side panel for this account
+  // over these days (`from` null: its whole history). Cleared on close.
+  const [drill, setDrill] = React.useState<{
+    accountId: string;
+    from: string | null;
+    to: string;
+  } | null>(null);
 
   const range = React.useMemo(() => rangeFromPreset(preset), [preset]);
   const [customFrom, setCustomFrom] = React.useState(
@@ -249,7 +251,13 @@ export default function FinanceReports() {
             homeCurrency={homeCurrency}
             range={effectiveRange}
             priorRange={compare ? priorRange : null}
-            onDrill={(accountId) => setDrill({ accountId, range: effectiveRange })}
+            onDrill={(accountId) =>
+              setDrill({
+                accountId,
+                from: dateInputValue(effectiveRange.from),
+                to: dateInputValue(effectiveRange.to),
+              })
+            }
           />
         )}
         {tab === "balance" && (
@@ -259,9 +267,9 @@ export default function FinanceReports() {
             asOf={effectiveRange.to}
             priorAsOf={compare ? priorRange.to : null}
             onDrill={(accountId) =>
-              // Balance sheet is cumulative — drill-through shows
-              // everything-to-date so accountants see the full history.
-              setDrill({ accountId, range: null })
+              // Balance sheet is cumulative — drill-through shows the
+              // account's whole history up to the sheet's date.
+              setDrill({ accountId, from: null, to: dateInputValue(effectiveRange.to) })
             }
           />
         )}
@@ -276,11 +284,13 @@ export default function FinanceReports() {
       </div>
 
       {drill && (
-        <DrillPanel
+        <AccountActivityPanel
+          key={`${drill.accountId}:${drill.from}:${drill.to}`}
           companyId={company.id}
           homeCurrency={homeCurrency}
           accountId={drill.accountId}
-          range={drill.range}
+          from={drill.from}
+          to={drill.to}
           onClose={() => setDrill(null)}
         />
       )}
@@ -815,158 +825,6 @@ function CFRow({
         >
           {formatMoney(amount, homeCurrency)}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────── Drill panel ───────────────────────────────
-
-function DrillPanel({
-  companyId,
-  homeCurrency,
-  accountId,
-  range,
-  onClose,
-}: {
-  companyId: string;
-  homeCurrency: string;
-  accountId: string;
-  range: PeriodRange | null;
-  onClose: () => void;
-}) {
-  const [data, setData] = React.useState<AccountActivityReport | null | "error">(null);
-
-  React.useEffect(() => {
-    let alive = true;
-    const params = new URLSearchParams({ accountId });
-    if (range) {
-      params.set("from", range.from.toISOString());
-      params.set("to", range.to.toISOString());
-    }
-    api
-      .get<AccountActivityReport>(`/api/companies/${companyId}/reports/account-activity?${params}`)
-      .then((r) => {
-        if (alive) setData(r);
-      })
-      .catch(() => {
-        if (alive) setData("error");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [companyId, accountId, range]);
-
-  return (
-    <div
-      className="fixed inset-0 z-40 flex justify-end bg-slate-900/30 dark:bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3 dark:border-slate-800">
-          <div>
-            <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Account activity
-            </div>
-            <div className="mt-0.5 text-base font-semibold text-slate-900 dark:text-slate-100">
-              {data && data !== "error" ? (
-                <>
-                  <span className="font-mono text-sm text-slate-500 dark:text-slate-400">
-                    {data.account.code}
-                  </span>{" "}
-                  {data.account.name}
-                </>
-              ) : (
-                "…"
-              )}
-            </div>
-            {range && (
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                {dateInputValue(range.from)} → {dateInputValue(range.to)}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {data === null ? (
-          <div className="flex flex-1 items-center justify-center">
-            <Spinner size={20} />
-          </div>
-        ) : data === "error" ? (
-          <div className="p-6 text-sm text-rose-600">Failed to load account activity.</div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs dark:bg-slate-800/40">
-              <span className="text-slate-500 dark:text-slate-400">Opening</span>
-              <span className="tabular-nums text-slate-700 dark:text-slate-200">
-                {formatMoney(data.openingBalance, homeCurrency)}
-              </span>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-                <tr>
-                  <th className="w-24 px-3 py-2 text-left font-medium">Date</th>
-                  <th className="px-3 py-2 text-left font-medium">Description</th>
-                  <th className="w-24 px-3 py-2 text-right font-medium">Debit</th>
-                  <th className="w-24 px-3 py-2 text-right font-medium">Credit</th>
-                  <th className="w-28 px-3 py-2 text-right font-medium">Balance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {data.rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-400">
-                      No activity in this period.
-                    </td>
-                  </tr>
-                ) : (
-                  data.rows.map((r, i) => (
-                    <tr key={`${r.entryId}-${i}`}>
-                      <td className="px-3 py-2 font-mono text-xs text-slate-500 dark:text-slate-400">
-                        {r.date.slice(0, 10)}
-                      </td>
-                      <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                        <div>
-                          {r.memo || r.description || (
-                            <span className="text-slate-400">(no memo)</span>
-                          )}
-                        </div>
-                        {r.description && r.memo && (
-                          <div className="text-xs text-slate-400">{r.description}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {r.debitCents > 0 ? formatMoney(r.debitCents, homeCurrency) : ""}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {r.creditCents > 0 ? formatMoney(r.creditCents, homeCurrency) : ""}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                        {formatMoney(r.runningBalanceCents, homeCurrency)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            <div className="flex items-center justify-between border-t-2 border-slate-300 bg-slate-50 px-4 py-2 text-sm dark:border-slate-600 dark:bg-slate-800/60">
-              <span className="font-semibold text-slate-900 dark:text-slate-100">Closing</span>
-              <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                {formatMoney(data.closingBalance, homeCurrency)}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

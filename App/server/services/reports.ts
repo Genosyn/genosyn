@@ -492,10 +492,15 @@ export async function financialTrends(
 
 // ─────────────────── Account activity (drill-through) ────────────────
 
+/** An account the same entry also posted to: where the money came from or went. */
+export type AccountActivityCounterpart = Pick<Account, "id" | "code" | "name">;
+
 export type AccountActivityRow = {
   entryId: string;
   date: string;
   source: LedgerEntrySource;
+  /** Tells apart the bill, period-close, and proposal entries that post as `manual`. */
+  sourceRefId: string | null;
   memo: string;
   description: string;
   debitCents: number;
@@ -503,16 +508,97 @@ export type AccountActivityRow = {
   /** Running balance after this row, signed by the account's
    *  normal-balance rule (debit-normal positive for asset/expense). */
   runningBalanceCents: number;
+  /** The entry's other accounts — the other side of the transaction. */
+  otherAccounts: AccountActivityCounterpart[];
 };
 
 export type AccountActivityReport = {
-  account: Pick<Account, "id" | "code" | "name" | "type">;
+  account: Pick<Account, "id" | "code" | "name" | "type" | "isSystem">;
   from: string | null;
   to: string | null;
   openingBalance: number;
   rows: AccountActivityRow[];
   closingBalance: number;
 };
+
+/** Ids per `IN (…)` query, well under every driver's bound-parameter limit. */
+const ID_BATCH = 500;
+
+function batches<T>(items: ReadonlyArray<T>): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += ID_BATCH) out.push(items.slice(i, i + ID_BATCH));
+  return out;
+}
+
+/**
+ * Every line this account has, oldest first, with the entry it belongs to.
+ * Reads the account's own lines through the `(companyId, accountId)` index,
+ * then only the entries they belong to, rather than the company's whole
+ * journal. A line whose entry is gone is left out, as the trial balance
+ * leaves it out.
+ */
+async function accountLines(
+  companyId: string,
+  accountId: string,
+): Promise<Array<{ line: LedgerLine; entry: LedgerEntry }>> {
+  const lines = await AppDataSource.getRepository(LedgerLine).find({
+    where: { companyId, accountId },
+    select: ["id", "ledgerEntryId", "debitCents", "creditCents", "description", "sortOrder"],
+  });
+  const entries = new Map<string, LedgerEntry>();
+  for (const ids of batches([...new Set(lines.map((l) => l.ledgerEntryId))])) {
+    const found = await AppDataSource.getRepository(LedgerEntry).find({
+      where: { companyId, id: In(ids) },
+      select: ["id", "date", "createdAt", "source", "sourceRefId", "memo"],
+    });
+    for (const entry of found) entries.set(entry.id, entry);
+  }
+  const out: Array<{ line: LedgerLine; entry: LedgerEntry }> = [];
+  for (const line of lines) {
+    const entry = entries.get(line.ledgerEntryId);
+    if (entry) out.push({ line, entry });
+  }
+  // Keep each entry's lines together, in the order they were posted.
+  return out.sort(
+    (a, b) =>
+      a.entry.date.getTime() - b.entry.date.getTime() ||
+      a.entry.createdAt.getTime() - b.entry.createdAt.getTime() ||
+      a.entry.id.localeCompare(b.entry.id) ||
+      a.line.sortOrder - b.line.sortOrder,
+  );
+}
+
+/** Each entry's accounts other than `accountId`, in the order the entry lists them. */
+async function otherAccountsByEntry(
+  companyId: string,
+  accountId: string,
+  entryIds: ReadonlyArray<string>,
+): Promise<Map<string, AccountActivityCounterpart[]>> {
+  const byEntry = new Map<string, AccountActivityCounterpart[]>();
+  if (entryIds.length === 0) return byEntry;
+  const accounts = await AppDataSource.getRepository(Account).find({
+    where: { companyId },
+    select: ["id", "code", "name"],
+  });
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  for (const ids of batches(entryIds)) {
+    const lines = await AppDataSource.getRepository(LedgerLine).find({
+      where: { companyId, ledgerEntryId: In(ids) },
+      select: ["ledgerEntryId", "accountId", "sortOrder"],
+      order: { sortOrder: "ASC" },
+    });
+    for (const line of lines) {
+      const other = line.accountId === accountId ? undefined : accountById.get(line.accountId);
+      if (!other) continue;
+      const list = byEntry.get(line.ledgerEntryId) ?? [];
+      if (!list.some((a) => a.id === other.id)) {
+        list.push({ id: other.id, code: other.code, name: other.name });
+      }
+      byEntry.set(line.ledgerEntryId, list);
+    }
+  }
+  return byEntry;
+}
 
 export async function accountActivity(
   companyId: string,
@@ -526,59 +612,39 @@ export async function accountActivity(
   });
   if (!account) return null;
 
-  // Opening: everything before `from`.
-  const opening = from
-    ? signedFromTotals(
-        account.type,
-        await aggregateLines(companyId, null, new Date(startOfDay(from).getTime() - 1)),
-        accountId,
-      )
-    : 0;
-
-  // In-period rows for this account, sorted by entry date.
-  const entries = await AppDataSource.getRepository(LedgerEntry).find({
-    where: { companyId },
-  });
   const fromMs = from ? startOfDay(from).getTime() : -Infinity;
   const toMs = to ? endOfDay(to).getTime() : Infinity;
-  const eligible = entries.filter((e) => e.date.getTime() >= fromMs && e.date.getTime() <= toMs);
-  eligible.sort((a, b) => a.date.getTime() - b.date.getTime());
-  const eligibleIds = eligible.map((e) => e.id);
-  const lines = eligibleIds.length
-    ? await AppDataSource.getRepository(LedgerLine).find({
-        where: {
-          companyId,
-          accountId,
-          ledgerEntryId: In(eligibleIds),
-        },
-      })
-    : [];
-  const linesByEntry = new Map<string, LedgerLine[]>();
-  for (const l of lines) {
-    const arr = linesByEntry.get(l.ledgerEntryId) ?? [];
-    arr.push(l);
-    linesByEntry.set(l.ledgerEntryId, arr);
+  // Opening: everything before `from`. Rows: everything from `from` through `to`.
+  let opening = 0;
+  const inRange: Array<{ line: LedgerLine; entry: LedgerEntry }> = [];
+  for (const posted of await accountLines(companyId, accountId)) {
+    const t = posted.entry.date.getTime();
+    if (t < fromMs) {
+      opening += signedBalance(account.type, posted.line.debitCents, posted.line.creditCents);
+    } else if (t <= toMs) {
+      inRange.push(posted);
+    }
   }
+  const others = await otherAccountsByEntry(companyId, accountId, [
+    ...new Set(inRange.map(({ entry }) => entry.id)),
+  ]);
 
   const rows: AccountActivityRow[] = [];
   let running = opening;
-  for (const entry of eligible) {
-    const entryLines = linesByEntry.get(entry.id) ?? [];
-    for (const l of entryLines) {
-      const debitNormal = account.type === "asset" || account.type === "expense";
-      const delta = debitNormal ? l.debitCents - l.creditCents : l.creditCents - l.debitCents;
-      running += delta;
-      rows.push({
-        entryId: entry.id,
-        date: entry.date.toISOString(),
-        source: entry.source,
-        memo: entry.memo,
-        description: l.description,
-        debitCents: l.debitCents,
-        creditCents: l.creditCents,
-        runningBalanceCents: running,
-      });
-    }
+  for (const { line, entry } of inRange) {
+    running += signedBalance(account.type, line.debitCents, line.creditCents);
+    rows.push({
+      entryId: entry.id,
+      date: entry.date.toISOString(),
+      source: entry.source,
+      sourceRefId: entry.sourceRefId,
+      memo: entry.memo,
+      description: line.description,
+      debitCents: line.debitCents,
+      creditCents: line.creditCents,
+      runningBalanceCents: running,
+      otherAccounts: others.get(entry.id) ?? [],
+    });
   }
 
   return {
@@ -587,6 +653,7 @@ export async function accountActivity(
       code: account.code,
       name: account.name,
       type: account.type,
+      isSystem: account.isSystem,
     },
     from: from ? from.toISOString() : null,
     to: to ? to.toISOString() : null,
@@ -594,10 +661,4 @@ export async function accountActivity(
     rows,
     closingBalance: running,
   };
-}
-
-function signedFromTotals(type: AccountType, totals: AccountTotals, accountId: string): number {
-  const t = totals.get(accountId);
-  if (!t) return 0;
-  return signedBalance(type, t.debit, t.credit);
 }
