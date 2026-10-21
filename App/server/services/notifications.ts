@@ -175,7 +175,12 @@ export async function createNotifications(
   return rows;
 }
 
-/** `kind` matching none of `excludeKinds`, or no condition when there are none. */
+/**
+ * `kind` matching none of `excludeKinds`, or no condition when there are none.
+ * The bell lists, counts, marks and clears with the same kinds left out, so a
+ * row the reader may no longer see is neither shown to them nor changed by
+ * them (`notificationKindsHiddenFrom` in `boardLetterReads.ts`).
+ */
 function kindFilter(excludeKinds: readonly NotificationKind[] | undefined) {
   return excludeKinds && excludeKinds.length > 0 ? { kind: Not(In([...excludeKinds])) } : {};
 }
@@ -210,6 +215,7 @@ export async function listForUser(params: {
   userId: string;
   limit: number;
   before?: string;
+  excludeKinds?: readonly NotificationKind[];
 }): Promise<NotificationDTO[]> {
   const qb = repo()
     .createQueryBuilder("n")
@@ -219,6 +225,9 @@ export async function listForUser(params: {
     .take(params.limit);
   if (params.before) {
     qb.andWhere("n.createdAt < :before", { before: params.before });
+  }
+  if (params.excludeKinds && params.excludeKinds.length > 0) {
+    qb.andWhere("n.kind NOT IN (:...excludeKinds)", { excludeKinds: [...params.excludeKinds] });
   }
   const rows = await qb.getMany();
   return hydrate(rows);
@@ -243,11 +252,13 @@ export async function markRead(params: {
   id: string;
   companyId: string;
   userId: string;
+  excludeKinds?: readonly NotificationKind[];
 }): Promise<void> {
   const row = await repo().findOneBy({
     id: params.id,
     companyId: params.companyId,
     userId: params.userId,
+    ...kindFilter(params.excludeKinds),
   });
   if (!row) return;
   if (row.readAt) return;
@@ -260,12 +271,17 @@ export async function markRead(params: {
   });
 }
 
-export async function markAllRead(params: { companyId: string; userId: string }): Promise<void> {
+export async function markAllRead(params: {
+  companyId: string;
+  userId: string;
+  excludeKinds?: readonly NotificationKind[];
+}): Promise<void> {
   const unread = await repo().find({
     where: {
       companyId: params.companyId,
       userId: params.userId,
       readAt: IsNull(),
+      ...kindFilter(params.excludeKinds),
     },
     select: ["id"],
   });
@@ -420,11 +436,13 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
 export async function clearReadForUser(params: {
   companyId: string;
   userId: string;
+  excludeKinds?: readonly NotificationKind[];
 }): Promise<number> {
   const r = await repo().delete({
     companyId: params.companyId,
     userId: params.userId,
     readAt: Not(IsNull()),
+    ...kindFilter(params.excludeKinds),
   });
   return r.affected ?? 0;
 }

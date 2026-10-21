@@ -148,7 +148,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     label: "Finance",
     description:
       "Connect payment and banking services used for reconciliation, card expenses, and finance work.",
-    providers: ["stripe", "brex"],
+    providers: ["stripe", "brex", "wise"],
   },
 };
 

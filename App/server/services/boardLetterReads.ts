@@ -36,6 +36,16 @@ export function canReadBoardLetters(role: Role): boolean {
   return role === "owner" || role === "admin";
 }
 
+/**
+ * The bell rows someone in `role` must not see or change: a letter's, unless
+ * they are on the board. An admin made a Member keeps the rows they were sent,
+ * so the bell and Home leave them out, and they are as they were if that
+ * person is made an admin again.
+ */
+export function notificationKindsHiddenFrom(role: Role): NotificationKind[] {
+  return canReadBoardLetters(role) ? [] : [BOARD_LETTER_NOTIFICATION_KIND];
+}
+
 export type UnreadBoardLetters = {
   /** The newest letter this person has not read, or null when there is none. */
   letter: BoardLetterSummaryDTO | null;

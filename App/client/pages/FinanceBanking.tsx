@@ -28,6 +28,7 @@ import {
   CompanyFinanceSettings,
   formatMoney,
   IntegrationConnection,
+  WiseBalanceChoice,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
@@ -42,7 +43,9 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
+import { type BankingRow, rowKey, unselectableReason } from "../lib/bankingBulk";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { BankingBulkBar, BankingSelectAll, useBankingBulk } from "./FinanceBankingBulk";
 import { CardCategoryFixes } from "./FinanceBankingCardFixes";
 import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransaction";
 
@@ -51,27 +54,32 @@ import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransact
  * them, at `/finance/banking`.
  *
  * The accounts sit across the top; picking one narrows the list to it. The
- * list opens on To review: the bank transactions nothing explains yet, plus
- * any card purchase that couldn't be added to the books. Explaining one is a
- * choice between three plain answers — it paid an invoice, it is already in
- * the books, or it gets a category — and Undo takes any of them back. Bank
- * and card accounts are `BankFeed`s and `CardFeed`s underneath; this page
- * replaced Reconciliation and Card expenses, which showed each kind alone.
+ * list opens on To review: the bank transactions nothing explains yet, the
+ * card purchases waiting for someone to keep their category or pick another,
+ * and any card purchase that couldn't be added to the books. Explaining a
+ * bank transaction is a choice between three plain answers — it paid an
+ * invoice, it is already in the books, or it gets a category — and Undo takes
+ * any of them back. Ticking several opens the bulk bar, which categorizes,
+ * marks reviewed, or sends back to review all of them at once. Bank and card
+ * accounts are `BankFeed`s and `CardFeed`s underneath; this page replaced
+ * Reconciliation and Card expenses, which showed each kind alone.
  *
  * A read-only Member sees every account and transaction, without the
- * controls that add accounts, import, sync, explain, or undo.
+ * controls that add accounts, import, sync, explain, tick, or undo.
  */
 
 type Tab = BankingStatus | "all";
 
-type Row =
-  | { kind: "bank"; id: string; date: string; txn: BankTransaction }
-  | { kind: "card"; id: string; date: string; txn: CardTransaction };
+type Row = BankingRow;
+
+/** One empty list while the transactions load, so the selection isn't recomputed each render. */
+const NO_ROWS: Row[] = [];
 
 /** What kind of account this is, in a few words. */
 function accountKindLabel(account: BankingAccount): string {
   if (account.kind === "card") return "Brex card";
   if (account.feed.kind === "brex_cash") return "Brex business account";
+  if (account.feed.kind === "wise_balance") return "Wise balance";
   if (account.feed.kind === "stripe_payouts") return "Stripe payouts";
   return "Bank account · CSV uploads";
 }
@@ -241,17 +249,21 @@ export default function FinanceBanking() {
     [accounts],
   );
 
-  const rows = React.useMemo<Row[] | null>(() => {
+  const loaded = React.useMemo<Row[] | null>(() => {
     if (bankTxns === null || cardTxns === null) return null;
-    const merged: Row[] = [
+    return [
       ...bankTxns.map((txn) => ({ kind: "bank" as const, id: txn.id, date: txn.date, txn })),
       ...cardTxns.map((txn) => ({ kind: "card" as const, id: txn.id, date: txn.postedAt, txn })),
     ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  }, [bankTxns, cardTxns]);
+
+  const rows = React.useMemo<Row[] | null>(() => {
+    if (loaded === null) return null;
     const needle = search.trim().toLowerCase();
-    if (!needle) return merged;
+    if (!needle) return loaded;
     const accountName = (id: string | null | undefined) =>
       ledger.find((account) => account.id === id)?.name ?? "";
-    return merged.filter((row) => {
+    return loaded.filter((row) => {
       const text =
         row.kind === "bank"
           ? [
@@ -273,7 +285,17 @@ export default function FinanceBanking() {
             ];
       return text.join(" ").toLowerCase().includes(needle);
     });
-  }, [bankTxns, cardTxns, homeCurrency, ledger, nameById, search]);
+  }, [homeCurrency, ledger, loaded, nameById, search]);
+
+  const bulk = useBankingBulk({
+    company,
+    rows: rows ?? NO_ROWS,
+    loaded: loaded ?? NO_ROWS,
+    view: `${selectedId}|${tab}`,
+    onChanged: reloadAll,
+  });
+  const ticking = bulk.enabled;
+  const showBulkBar = ticking && bulk.selected.length > 0;
 
   const scope = selected ? [selected] : (accounts ?? []);
   // On one account only its own purchases; a bank account has none.
@@ -341,7 +363,7 @@ export default function FinanceBanking() {
   }
 
   return (
-    <div className="page-shell p-4 sm:p-8">
+    <div className={clsx("page-shell p-4 sm:p-8", showBulkBar && "pb-28 sm:pb-28")}>
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Banking" }]}
@@ -353,6 +375,7 @@ export default function FinanceBanking() {
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             Your bank accounts and cards, and every transaction on them. Go through the ones waiting
             for review: say which invoices a deposit paid, or what a payment was for.
+            {canWrite && " Tick several to categorize them all at once."}
           </p>
         </div>
         {canWrite && (
@@ -474,36 +497,50 @@ export default function FinanceBanking() {
                 canWrite={canWrite}
               />
             ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rows.map((row) =>
-                  row.kind === "bank" ? (
-                    <BankTransactionRow
-                      key={row.id}
-                      company={company}
-                      txn={row.txn}
-                      accountName={nameById.get(row.txn.feedId) ?? null}
-                      bankLedgerAccountId={bankAccountOf.get(row.txn.feedId)}
-                      homeCurrency={homeCurrency}
-                      accounts={ledger}
-                      open={openId === row.id}
-                      onToggle={() => setOpenId((current) => (current === row.id ? null : row.id))}
-                      onChanged={async () => {
-                        setOpenId(null);
-                        await reloadAll();
-                      }}
-                    />
-                  ) : (
-                    <CardTransactionRow
-                      key={row.id}
-                      company={company}
-                      txn={row.txn}
-                      accountName={nameById.get(row.txn.feedId) ?? null}
-                      accounts={ledger}
-                      onChanged={reloadAll}
-                    />
-                  ),
-                )}
-              </ul>
+              <>
+                {ticking && <BankingSelectAll bulk={bulk} searching={!!search.trim()} />}
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {rows.map((row) => {
+                    const selection = ticking
+                      ? {
+                          checked: bulk.keys.has(rowKey(row)),
+                          disabledReason: unselectableReason(row),
+                          onToggle: (extend: boolean) => bulk.toggle(row, extend),
+                        }
+                      : undefined;
+                    return row.kind === "bank" ? (
+                      <BankTransactionRow
+                        key={row.id}
+                        company={company}
+                        txn={row.txn}
+                        accountName={nameById.get(row.txn.feedId) ?? null}
+                        bankLedgerAccountId={bankAccountOf.get(row.txn.feedId)}
+                        homeCurrency={homeCurrency}
+                        accounts={ledger}
+                        open={openId === row.id}
+                        onToggle={() =>
+                          setOpenId((current) => (current === row.id ? null : row.id))
+                        }
+                        onChanged={async () => {
+                          setOpenId(null);
+                          await reloadAll();
+                        }}
+                        selection={selection}
+                      />
+                    ) : (
+                      <CardTransactionRow
+                        key={row.id}
+                        company={company}
+                        txn={row.txn}
+                        accountName={nameById.get(row.txn.feedId) ?? null}
+                        accounts={ledger}
+                        onChanged={reloadAll}
+                        selection={selection}
+                      />
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
           {rows && rows.length >= 500 && (
@@ -512,6 +549,14 @@ export default function FinanceBanking() {
             </p>
           )}
         </>
+      )}
+
+      {showBulkBar && (
+        <BankingBulkBar
+          bulk={bulk}
+          accounts={ledger}
+          bankLedgerAccountOf={(feedId) => bankAccountOf.get(feedId)}
+        />
       )}
 
       {adding && (
@@ -637,7 +682,7 @@ function AccountToolbar({
   const books =
     account.kind === "bank"
       ? `Posts to ${name(account.feed.accountId)} in your books`
-      : `Purchases are filed under ${name(account.feed.defaultExpenseAccountId)} until you change them · card balance in ${name(account.feed.liabilityAccountId)}`;
+      : `New purchases are filed under ${name(account.feed.defaultExpenseAccountId)} and wait for your review · card balance in ${name(account.feed.liabilityAccountId)}`;
   const csv = account.kind === "bank" && account.feed.kind === "csv";
   return (
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900">
@@ -676,7 +721,7 @@ function NoAccounts({ canWrite, onAdd }: { canWrite: boolean; onAdd: () => void 
       </h2>
       <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
         {canWrite
-          ? "Upload your bank's CSV statements, or connect Brex or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
+          ? "Upload your bank's CSV statements, or connect Brex, Wise, or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
           : "No bank accounts or cards have been added yet. Someone with full Finance access can add them."}
       </p>
       {canWrite && (
@@ -708,7 +753,7 @@ function EmptyList({
     description = "Every transaction is explained. New ones show up here as they come in.";
   } else if (tab === "done") {
     title = "Nothing done yet";
-    description = "Transactions you match or categorize move here.";
+    description = "Transactions you match, categorize or review move here.";
   } else if (canWrite && selected) {
     description =
       selected.kind === "bank" && selected.feed.kind === "csv"
@@ -726,14 +771,22 @@ function EmptyList({
 
 // ───────────────────────────── Add an account ──────────────────────────────
 
-type NewAccountKind = "csv" | "brex_cash" | "brex_card" | "stripe_payouts";
+type NewAccountKind = "csv" | "brex_cash" | "brex_card" | "wise_balance" | "stripe_payouts";
+
+type AccountProvider = "brex" | "wise" | "stripe";
+
+const PROVIDER_NAMES: Record<AccountProvider, string> = {
+  brex: "Brex",
+  wise: "Wise",
+  stripe: "Stripe",
+};
 
 const NEW_ACCOUNT_KINDS: ReadonlyArray<{
   kind: NewAccountKind;
   title: string;
   description: string;
   defaultName: string;
-  provider: "brex" | "stripe" | null;
+  provider: AccountProvider | null;
 }> = [
   {
     kind: "csv",
@@ -755,6 +808,13 @@ const NEW_ACCOUNT_KINDS: ReadonlyArray<{
     description: "Bring in card purchases automatically, each filed under a category you can change.",
     defaultName: "Brex card",
     provider: "brex",
+  },
+  {
+    kind: "wise_balance",
+    title: "Wise balance",
+    description: "Bring in a Wise balance's transactions automatically.",
+    defaultName: "Wise",
+    provider: "wise",
   },
   {
     kind: "stripe_payouts",
@@ -785,6 +845,9 @@ function AddAccountModal({
   const [cashAccounts, setCashAccounts] = React.useState<BrexCashAccount[] | null>([]);
   const [cashAccountId, setCashAccountId] = React.useState("");
   const [cashError, setCashError] = React.useState<string | null>(null);
+  const [wiseBalances, setWiseBalances] = React.useState<WiseBalanceChoice[] | null>([]);
+  const [wiseBalanceId, setWiseBalanceId] = React.useState("");
+  const [wiseError, setWiseError] = React.useState<string | null>(null);
   const [bankAccountId, setBankAccountId] = React.useState(byCode("1100"));
   const [liabilityAccountId, setLiabilityAccountId] = React.useState(byCode("2300"));
   const [defaultExpenseAccountId, setDefaultExpenseAccountId] = React.useState(byCode("6000"));
@@ -851,6 +914,38 @@ function AddAccountModal({
     };
   }, [company.id, connectionId, kind]);
 
+  React.useEffect(() => {
+    if (kind !== "wise_balance" || !connectionId) {
+      setWiseBalances([]);
+      setWiseBalanceId("");
+      setWiseError(null);
+      return;
+    }
+    let alive = true;
+    setWiseBalances(null);
+    setWiseError(null);
+    api
+      .get<WiseBalanceChoice[]>(
+        `/api/companies/${company.id}/bank-feeds/wise-balances?connectionId=${encodeURIComponent(connectionId)}`,
+      )
+      .then((list) => {
+        if (!alive) return;
+        setWiseBalances(list);
+        // The first balance that can be added — usually the only one in the
+        // books' currency, so the common case is no choice.
+        setWiseBalanceId(list.find((item) => !item.unavailableReason)?.id ?? "");
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setWiseBalances([]);
+        setWiseBalanceId("");
+        setWiseError(errorMessage(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id, connectionId, kind]);
+
   function pickKind(next: NewAccountKind) {
     setKind(next);
     setError(null);
@@ -874,6 +969,7 @@ function AddAccountModal({
     !!bankAccountId &&
     (!option.provider || !!connectionId) &&
     (kind !== "brex_cash" || !!cashAccountId) &&
+    (kind !== "wise_balance" || !!wiseBalanceId) &&
     (kind !== "brex_card" || (!!liabilityAccountId && !!defaultExpenseAccountId));
 
   async function submit(event: React.FormEvent) {
@@ -896,7 +992,8 @@ function AddAccountModal({
               kind,
               accountId: bankAccountId,
               connectionId: kind === "csv" ? null : connectionId,
-              externalAccountId: kind === "brex_cash" ? cashAccountId : null,
+              externalAccountId:
+                kind === "brex_cash" ? cashAccountId : kind === "wise_balance" ? wiseBalanceId : null,
             });
       await onAdded(feed, kind);
     } catch (err) {
@@ -959,8 +1056,7 @@ function AddAccountModal({
 
         {option.provider && connections !== null && providerConnections.length === 0 ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-            Connect {option.provider === "brex" ? "Brex" : "Stripe"} first, then come back to add
-            this account.{" "}
+            Connect {PROVIDER_NAMES[option.provider]} first, then come back to add this account.{" "}
             <Link
               to={`/c/${company.slug}/finance/integrations`}
               className="font-medium underline"
@@ -973,7 +1069,7 @@ function AddAccountModal({
           </p>
         ) : option.provider ? (
           <Select
-            label={option.provider === "brex" ? "Brex Connection" : "Stripe Connection"}
+            label={`${PROVIDER_NAMES[option.provider]} Connection`}
             value={connectionId}
             onChange={(event) => setConnectionId(event.target.value)}
             disabled={connections === null}
@@ -1011,6 +1107,35 @@ function AddAccountModal({
               </Select>
             )}
             <FormError message={cashError} />
+          </>
+        )}
+
+        {kind === "wise_balance" && connectionId && (
+          <>
+            {wiseBalances === null ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <Spinner size={14} /> Loading your Wise balances…
+              </div>
+            ) : (
+              <Select
+                label="Wise balance"
+                value={wiseBalanceId}
+                onChange={(event) => setWiseBalanceId(event.target.value)}
+                required
+              >
+                <option value="">Choose a balance</option>
+                {wiseBalances.map((balance) => (
+                  <option key={balance.id} value={balance.id} disabled={!!balance.unavailableReason}>
+                    {balance.profileName} · {balance.currency}
+                    {balance.availableCents === null
+                      ? ""
+                      : ` · ${formatMoney(balance.availableCents, balance.currency)}`}
+                    {balance.unavailableReason ? ` — ${balance.unavailableReason}` : ""}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <FormError message={wiseError} />
           </>
         )}
 

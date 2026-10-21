@@ -247,6 +247,12 @@ export function Finance() {
         invoice and estimate number issued to that customer, so numbers stay unique and
         self-identify across accounts.
       </P>
+      <P>
+        Picking a customer on an invoice, estimate, or recurring invoice shows the billing email the
+        document is sent to and the billing address it prints, with a small warning for whichever is
+        missing — see{" "}
+        <DocLink to="/docs/customers#bill-to">Email and address on documents</DocLink>.
+      </P>
 
       <H2 id="customer-statements">Customer statements</H2>
       <P>
@@ -404,7 +410,8 @@ export function Finance() {
         reversing entry that unwinds the original{" "}
         <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>, keeping both the original
         and the reversal in the journal so the audit trail stays intact. A voided invoice leaves the
-        default <Strong>Active</Strong> list; find it under the <Code>Void</Code> tab.
+        default <Strong>Active</Strong> list and the Finance overview&apos;s{" "}
+        <Strong>Recent invoices</Strong>; find it under the <Code>Void</Code> tab.
       </P>
       <P>
         Two things it deliberately will not do. Voiding an invoice that already has{" "}
@@ -683,9 +690,10 @@ export function Finance() {
         a customer settled with one transfer; Genosyn records a payment on each and matches them
         to the deposit in one step — match a transaction to a payment or entry already in the
         books, or give it a category. Card purchases are filed under their card&apos;s default
-        category as they arrive. Banking is the one place a bank or card transaction&apos;s
-        category changes. Banking replaced the separate Reconciliation and Card expenses pages;
-        their old links open it.{" "}
+        category as they arrive and wait for you to keep it or pick another. Tick several
+        transactions to categorize them, mark them reviewed, or send them back to review all at
+        once. Banking is the one place a bank or card transaction&apos;s category changes. Banking
+        replaced the separate Reconciliation and Card expenses pages; their old links open it.{" "}
         <DocLink to="/docs/banking">Banking</DocLink> covers it step by step.
       </P>
 

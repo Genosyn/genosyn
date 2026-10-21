@@ -5648,7 +5648,7 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
 
 export type BankFeed = {
   id: string;
@@ -5672,6 +5672,18 @@ export type BrexCashAccount = {
   accountNumberLast4: string;
   currentBalance: { amount: number; currency: string | null };
   availableBalance: { amount: number; currency: string | null };
+};
+
+/** One balance a Wise Connection can read, as the Add account picker lists it. */
+export type WiseBalanceChoice = {
+  /** `<profileId>:<balanceId>` — what the feed stores as `externalAccountId`. */
+  id: string;
+  profileName: string;
+  profileType: string;
+  currency: string;
+  availableCents: number | null;
+  /** Why it can't be added to Banking, or null when it can. */
+  unavailableReason: string | null;
 };
 
 export type CardFeed = {
@@ -5708,6 +5720,8 @@ export type CardTransaction = {
   postingError: string;
   raw: string;
   reclassifiedAt: string | null;
+  /** Waiting in To review for someone to keep its category or pick another. */
+  needsReview: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -5835,6 +5849,16 @@ export type BankingStatus = "review" | "done";
 export type BankingAccount =
   | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
   | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+
+/** What Banking's bulk bar does to a selection — `POST …/banking/bulk`. */
+export type BankingBulkAction = "categorize" | "mark_reviewed" | "send_to_review";
+
+export type BankingBulkResult = {
+  action: BankingBulkAction;
+  /** Now in the state the action asked for. */
+  succeeded: { bank: string[]; card: string[] };
+  skipped: Array<{ kind: "bank" | "card"; id: string; reason: string }>;
+};
 
 /** An open invoice a deposit could be the payment of. */
 export type OpenInvoiceCandidate = {

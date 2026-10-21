@@ -29,7 +29,11 @@ const ALLOWED_IMPORTERS = new Set([
   "routes/boardLetters.ts",
   "routes/companies.ts",
   "routes/employees.ts",
+  // The bell leaves letters out for a Member, through `boardLetterReads.ts`.
+  "routes/notifications.ts",
   "services/cron.ts",
+  // Home shows an owner or admin their newest unread letter, through the same reads.
+  "services/home.ts",
 ]);
 
 function sources(dir: string): string[] {
@@ -52,7 +56,7 @@ test("the internal tool API never touches a letter or its settings", () => {
   assert.doesNotMatch(source, /boardLetter|BoardLetter|board_letter/);
 });
 
-test("only the routes, the scheduler and the cleanup paths import the letter services", () => {
+test("only the routes, Home, the scheduler and the cleanup paths import the letter services", () => {
   const importers = sources(serverDir)
     .filter((file) => {
       const relative = path.relative(serverDir, file).split(path.sep).join("/");

@@ -17,6 +17,7 @@ import {
   TaxRate,
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
+import { withCustomerReread } from "../lib/customerBillTo";
 import {
   type DiscountDraft,
   discountDraftFrom,
@@ -36,6 +37,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { CustomerBillTo } from "@/components/finance/CustomerBillTo";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { DiscountField } from "@/components/finance/DiscountField";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -246,6 +248,7 @@ function EstimateForm() {
     [lines, taxRates, discount],
   );
 
+  const selectedCustomer = customers?.find((c) => c.id === customerId) ?? null;
   const canSave =
     !!customerId &&
     lines.some((l) => l.description.trim().length > 0) &&
@@ -496,6 +499,13 @@ function EstimateForm() {
                 </option>
               ))}
             </Select>
+            <CustomerBillTo
+              companyId={company.id}
+              companySlug={company.slug}
+              customer={selectedCustomer}
+              kind="estimate"
+              onCustomerReread={(fresh) => setCustomers((list) => withCustomerReread(list, fresh))}
+            />
             {issued && (
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 The estimate number belongs to this customer. Duplicate it to quote someone else.

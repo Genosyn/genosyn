@@ -15,6 +15,12 @@ export type CardAccountingKind = "expense" | "refund" | "payment";
  * idempotent. The ledger entry id points at the original auto-post; later
  * category changes are append-only reclassification entries so the accounting
  * audit trail remains intact.
+ *
+ * `needsReview` keeps a purchase in Banking's To review after it is in the
+ * books: it arrives filed under its card's default category, and waits until
+ * someone picks a category or keeps that one. Send to review sets it again.
+ * Nothing in the books depends on it. A card bill payment has no category,
+ * so it never waits, and purchases from before it existed start out reviewed.
  */
 @Entity("card_transactions")
 @Index(["feedId"])
@@ -70,6 +76,9 @@ export class CardTransaction {
 
   @Column({ type: dateTimeColumnType, nullable: true })
   reclassifiedAt!: Date | null;
+
+  @Column({ type: "boolean", default: false })
+  needsReview!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;
