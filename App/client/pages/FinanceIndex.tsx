@@ -91,11 +91,12 @@ export default function FinanceIndex() {
     return { open, paidThisMonth };
   }, [invoices]);
 
-  // The feed is a list, so it leaves archived invoices out as the others do.
+  // The feed is a list, so it leaves archived invoices out as the others do,
+  // and voided ones out as the invoice list's Active view does.
   const recent = React.useMemo(
     () =>
       (invoices ?? [])
-        .filter((inv) => !inv.archivedAt)
+        .filter((inv) => !inv.archivedAt && inv.status !== "void")
         .sort(
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

@@ -404,7 +404,8 @@ export function Finance() {
         reversing entry that unwinds the original{" "}
         <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>, keeping both the original
         and the reversal in the journal so the audit trail stays intact. A voided invoice leaves the
-        default <Strong>Active</Strong> list; find it under the <Code>Void</Code> tab.
+        default <Strong>Active</Strong> list and the Finance overview&apos;s{" "}
+        <Strong>Recent invoices</Strong>; find it under the <Code>Void</Code> tab.
       </P>
       <P>
         Two things it deliberately will not do. Voiding an invoice that already has{" "}
