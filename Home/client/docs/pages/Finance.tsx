@@ -247,6 +247,12 @@ export function Finance() {
         invoice and estimate number issued to that customer, so numbers stay unique and
         self-identify across accounts.
       </P>
+      <P>
+        Picking a customer on an invoice, estimate, or recurring invoice shows the billing email the
+        document is sent to and the billing address it prints, with a small warning for whichever is
+        missing — see{" "}
+        <DocLink to="/docs/customers#bill-to">Email and address on documents</DocLink>.
+      </P>
 
       <H2 id="customer-statements">Customer statements</H2>
       <P>

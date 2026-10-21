@@ -125,6 +125,21 @@ export function Customers() {
         billing email finds nothing.
       </P>
 
+      <H3 id="bill-to">Email and address on documents</H3>
+      <P>
+        On an invoice, estimate, or recurring invoice, the customer you pick shows its billing email
+        and billing address under the <Code>Customer</Code> field: the email the document is sent
+        to, and the address its <Strong>Bill to</Strong> prints. When either is missing, a small
+        warning takes its place. Without an email the document can&apos;t be sent, and without a
+        billing address it prints without one.
+      </P>
+      <P>
+        Neither stops you saving. Documents read both from the customer each time they are printed
+        or sent, so an address added later also appears on documents already issued.{" "}
+        <Code>Edit customer</Code> under the warning opens the customer in a new tab, and the form
+        picks up the change when you come back to it.
+      </P>
+
       <H2 id="access">Who can see and change customers</H2>
       <P>
         The customer list, <Code>New customer</Code>, and each customer&apos;s own pages — its
