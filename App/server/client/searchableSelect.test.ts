@@ -7,10 +7,17 @@ import { fileURLToPath } from "node:url";
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const clientRoot = path.join(appRoot, "client");
 const sharedSelect = path.join(clientRoot, "components/ui/Select.tsx");
+/**
+ * The public careers site is its own bundle (`client/careers.html`) for
+ * applicants, not Members: it never loads the App's components, and its few
+ * short dropdowns stay native so phones show their own picker.
+ */
+const careersSite = path.join(clientRoot, "careers-site");
 
 function tsxFiles(directory = clientRoot): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = path.join(directory, entry.name);
+    if (absolutePath === careersSite) return [];
     if (entry.isDirectory()) return tsxFiles(absolutePath);
     return entry.isFile() && entry.name.endsWith(".tsx") ? [absolutePath] : [];
   });

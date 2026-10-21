@@ -7,6 +7,7 @@ import {
   browserRecordingsCompanyDir,
   companyDir,
   meetingRecordingsCompanyDir,
+  recruitingPrivateCompanyDir,
   repositoryPrivateCompanyDir,
   repositoryWorkspaceCompanyDir,
 } from "./paths.js";
@@ -132,6 +133,12 @@ import { ExternalChatIdentity } from "../db/entities/ExternalChatIdentity.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
+import { EmployeeRecruitingGrant } from "../db/entities/EmployeeRecruitingGrant.js";
+import { RecruitingApplication } from "../db/entities/RecruitingApplication.js";
+import { RecruitingApplicationEvent } from "../db/entities/RecruitingApplicationEvent.js";
+import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
+import { RecruitingScorecard } from "../db/entities/RecruitingScorecard.js";
+import { RecruitingSettings } from "../db/entities/RecruitingSettings.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
@@ -594,6 +601,13 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MarketingCreative, { companyId });
     await m.delete(MarketingCampaign, { companyId });
     await m.delete(EmployeeMarketingGrant, { companyId });
+    // Applicants' records before the Openings they applied to.
+    await m.delete(RecruitingApplicationEvent, { companyId });
+    await m.delete(RecruitingScorecard, { companyId });
+    await m.delete(RecruitingApplication, { companyId });
+    await m.delete(RecruitingOpening, { companyId });
+    await m.delete(RecruitingSettings, { companyId });
+    await m.delete(EmployeeRecruitingGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
     // Sessions before the repositories they belong to, so a failure halfway
@@ -687,6 +701,15 @@ export async function deleteCompanyCascade(args: {
   } catch (err) {
     console.warn(
       `[companyDelete] failed to remove meeting recordings for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  // Applicants' resumes and the careers site's logo. A resume is a stranger's
+  // personal data; it must not outlive the company they applied to.
+  try {
+    fs.rmSync(recruitingPrivateCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove Recruiting files for ${companyId}: ${(err as Error).message}`,
     );
   }
 }

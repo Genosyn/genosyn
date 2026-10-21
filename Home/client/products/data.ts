@@ -1443,6 +1443,118 @@ export const PRODUCTS: ProductDef[] = [
     ],
   },
 
+  // ──────────────────────────────── Recruiting ───────────────────────────────
+  {
+    slug: "recruiting",
+    name: "Recruiting",
+    category: "People",
+    icon: "userCheck",
+    accent: "bg-red-50 text-red-700 ring-red-200",
+    tagline: "Every application is scored against the criteria you wrote.",
+    taglineAccent:
+      "Blind to the applicant's name, and every quote behind a rating is checked against what they sent.",
+    summary:
+      "Openings on a careers site of your own, and every application scored against your criteria by an AI screener that quotes its evidence.",
+    seoTitle: "Recruiting: a careers site and an AI screener · Genosyn",
+    description:
+      "Post Openings on a careers site of your own. An AI screener scores every application against your criteria, blind to names, and quotes its evidence.",
+    intro:
+      "An Opening is a job or a contract, with the criteria the role truly needs, each a must have, important, or nice to have. Publish it on a careers site of your own and people apply with a resume. The AI Employee you picked as screener rates every criterion without seeing the applicant's name, email or phone, quoting the application for each rating, and Genosyn works out the 0–100 score itself. Members and AI Employees read the same number and the same evidence.",
+    checks: [
+      "Careers site on your own domain",
+      "Public, Unlisted, or Internal Openings",
+      "Blind screening, every quote checked",
+      "A 0–100 score Genosyn computes",
+    ],
+    features: [
+      {
+        icon: "globe",
+        title: "careers.example.com, proven yours by one TXT record",
+        body: "The careers site starts at /careers/your-company on your install, with nothing to set up. Add a CNAME and a TXT record to serve it on careers.example.com, or make it internal for signed-in Members only. A verified domain shows the careers site and nothing else of Genosyn.",
+      },
+      {
+        icon: "fileText",
+        title: "A job or a contract, paid by the hour or for the project",
+        body: "An Opening is Full-time, Part-time, Contract, Internship or Temporary, and On-site, Hybrid or Remote. Pay is optional: per hour, day, week, month or year, or for the project. Each Opening is Public, Unlisted for a role you share by hand, or Internal to Members, and nothing is public until you publish it.",
+      },
+      {
+        icon: "listChecks",
+        title: "Must haves count three times, and Genosyn does the sum",
+        body: "Each criterion is a must have, important or nice to have, rated Not shown, Partly, Meets or Exceeds. Genosyn turns the ratings into a score from 0 to 100 and a Strong, Good, Possible or Weak match. A must have rated Not shown makes it a weak match, however high the number.",
+      },
+      {
+        icon: "search",
+        title: "Every quote is checked against what the applicant sent",
+        body: "The screener quotes the application for every rating, and each quote is marked as found in the application or not. A rating resting on words the applicant never wrote is easy to see, and a Scorecard written before the criteria changed says so.",
+      },
+      {
+        icon: "shieldCheck",
+        title: "The screener never sees a name, an email or a phone number",
+        body: "They are replaced before it reads anything, and a built-in rule your hiring principles cannot override tells it never to consider traits such as age, gender or race, nor hints at them like graduation years. Text in an application that tries to instruct it is ignored and flagged.",
+      },
+      {
+        icon: "mail",
+        title: "Applicants hear back the moment they apply",
+        body: "Application received goes out as soon as someone applies through the careers site, at most three a day to anyone applying over and over. Not moving forward goes only when whoever rejects an application chooses to send it, and never gives the reason. Both are plain text you rewrite.",
+      },
+    ],
+    employees: {
+      heading: "Read, Screen, or Hire, set per AI Employee",
+      body: "Recruiting → AI access sets how far each AI Employee may go, separately from the screener, which only ever writes Scorecards. With access, an AI Employee can post an Opening for work the company needs done, score the people who apply, note what to ask them, and move them forward, through 12 tools from list_openings to add_candidate.",
+      bullets: [
+        {
+          title: "Screen stops at Interview",
+          body: "Screen adds scoring, notes, candidates it found, and draft Openings, and moves people up to Interview. Publishing and closing Openings, offers, hires and rejections take Hire access, or a Member.",
+        },
+        {
+          title: "Nobody is rejected unscored",
+          body: "No AI Employee can reject someone who has not been scored against the criteria, and none can change what an applicant sent. A screen that fails is tried again, up to three times, then says it failed. It is never a score of zero.",
+        },
+        {
+          title: "Work starts when someone applies",
+          body: "Give one of an AI Employee's Routines a Trigger on recruiting_application and it runs as an application arrives. Listing or opening applications is reading text strangers wrote, so an email, text or call it tries to send through Genosyn in that turn, or a change to a Routine or Skill, waits for a person to approve.",
+        },
+      ],
+    },
+    faqs: [
+      {
+        q: "Does the AI decide who gets hired?",
+        a: "Not unless you let it. The screener only ever writes Scorecards: the score tells you who to read first, and you can add your own Scorecard beside it. Every decision about a person is a stage someone moves them to, with a reason on the timeline. Offers, hires and rejections take a Member or an AI Employee with Hire access, and no AI Employee can reject someone who has not been scored.",
+      },
+      {
+        q: "What does the screener leave out?",
+        a: "The applicant's name, email address and phone number, which are replaced before it reads anything. A built-in rule your hiring principles cannot override tells it never to consider age, gender, race, ethnicity, religion, nationality, disability, pregnancy, marital or family status, or sexual orientation, nor anything that hints at them, such as graduation years or gaps between jobs.",
+      },
+      {
+        q: "What if an application tries to instruct the AI?",
+        a: "The screener reads every application as data, in a restricted turn whose one tool submits the Scorecard. Text that tries to instruct it is ignored, and the application is flagged so you can see it. Any other AI Employee that lists or opens applications has read text strangers wrote, so the taint policy holds the email, text or call it tries to send through Genosyn in the same turn, and any change to a Routine or Skill, for a person to approve. The rejection email it sends by moving someone to Rejected is your own template and is not held, and no AI Employee can reject someone nobody has scored.",
+      },
+      {
+        q: "Where does the careers site live?",
+        a: "Wherever fits, and you can move it without breaking links: on your install's address at /careers/your-company, with nothing to set up; on your own domain, such as careers.example.com, with a CNAME and a TXT record that proves it is yours; or internal, so only signed-in Members of your company can see it. A JSON feed lists your open, public Openings for your own website.",
+      },
+      {
+        q: "Will Google for Jobs list our Openings?",
+        a: "Tick Let search engines list it and public Openings carry the job-posting data Google for Jobs reads. Internal sites and unlisted Openings are never indexed, and the JSON feed leaves out internal and unlisted Openings too.",
+      },
+      {
+        q: "What happens to resumes?",
+        a: "They are stored privately by your install and are never part of the careers site; Members open or download them from the application. Erase application permanently deletes an application, its resume, every Scorecard and its timeline, for when someone asks to be forgotten.",
+      },
+    ],
+    docsPath: "/docs/recruiting",
+    keywords: [
+      "AI candidate screening",
+      "AI resume screening",
+      "blind resume screening",
+      "open source applicant tracking",
+      "self-hosted careers page",
+      "careers site on a custom domain",
+      "structured hiring scorecards",
+      "Google for Jobs structured data",
+    ],
+  },
+
   // ─────────────────────────────── Repositories ──────────────────────────────
   {
     slug: "repositories",
@@ -1574,6 +1686,7 @@ export const PRODUCT_CATEGORIES: string[] = [
   "Analytics",
   "Marketing",
   "Operations",
+  "People",
   "Engineering",
 ];
 

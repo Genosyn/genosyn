@@ -15,6 +15,7 @@ describe("interactive chat prompt authority", () => {
       signing: false,
       revenue: false,
       marketing: false,
+      recruiting: false,
       resources: false,
       extraSystem: false,
       taggedReferences: false,
@@ -37,6 +38,8 @@ describe("interactive chat prompt authority", () => {
     assert.equal(access.signing, true);
     assert.equal(access.revenue, true);
     assert.equal(access.marketing, true);
+    // Recruiting is Member-level on the human route, so its briefing is too.
+    assert.equal(access.recruiting, true);
     // A read-only Resources briefing only narrows what the employee attempts,
     // and the Member can already see the setting on the Resources page.
     assert.equal(access.resources, true);

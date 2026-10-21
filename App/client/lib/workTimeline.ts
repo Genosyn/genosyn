@@ -332,6 +332,10 @@ export const WORK_ACTION_WORDING: ReadonlyMap<string, WorkActionWording> = new M
   ["mail.analysis.automatic", verbTarget("Followed", "email instruction", true)],
   ["mail.analysis.automatic_failed", verbTarget("Could not follow", "email instruction", true)],
   ["mail.analysis.automatic_undo", verbTarget("Undid", "automatic email step", true)],
+  // Recruiting verbs the generic split has no word for: "Close recruiting
+  // opening" and "Score recruiting application" would read as orders.
+  ["recruiting.opening.close", verbTarget("Closed", "recruiting opening")],
+  ["recruiting.application.score", verbTarget("Scored", "applicant")],
   // A question the company's Decision stack instructions kept off the stack
   // (`services/decisionIntake.ts`). "Screen out decision" would hide that
   // nothing was asked, and it does not read as "verb a target" either.

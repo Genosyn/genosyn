@@ -1078,12 +1078,12 @@ export const ROLES: RoleDef[] = [
     headline: "Eleven applicants hear back from Noor by 09:00.",
     headlineMuted: "Declines go out the same morning as the invitations.",
     summary:
-      "Eleven overnight applications are scored against your written scorecard, and every applicant hears back by 09:00.",
+      "Eleven overnight applications are scored against the criteria you wrote, and every applicant hears back by 09:00.",
     seoTitle: "AI Recruiter: every applicant answered by 09:00 · Genosyn",
     description:
-      "Screens overnight applications against your written scorecard, replies to every one by 09:00, books the panel, and chases the feedback nobody ever submits.",
+      "Scores overnight applications against your written criteria, replies to every one by 09:00, books the panel, and chases the feedback nobody ever submits.",
     intro:
-      "Eleven applications land overnight. By 09:00 Noor has scored each one against the criteria you wrote down, recorded the evidence behind every score, and sent the invitations and the declines in the same batch. Nobody waits nine days to hear no.",
+      "Eleven applications land overnight, and Noor scores each one as it arrives against the criteria you wrote down, blind to the applicant's name and quoting the application for every rating. By 09:00 the invitations and the declines have gone out in the same batch. Nobody waits nine days to hear no.",
     reclaims:
       "Six emails to find one slot for a three-person panel and a candidate five timezones out, while the applicant from nine days ago is still waiting on your reply.",
     shipped: "replied to every candidate",
@@ -1091,35 +1091,35 @@ export const ROLES: RoleDef[] = [
       {
         time: "07:20",
         at: 7.33,
-        title: "Screens against the scorecard, not a vibe",
-        body: "Reads the eleven overnight applications against the criteria written down for this role and scores every one on the same rubric. The reasoning is recorded, so a call can be argued with.",
-        where: "Bases",
+        title: "Screens against the criteria, not a vibe",
+        body: "The eleven overnight applications were scored as they came in, blind to every applicant's name, against the criteria written for the Opening. Every rating quotes the application it rests on, so a call can be argued with, and the strongest move to Interview.",
+        where: "Recruiting · Applicants",
       },
       {
         time: "09:00",
         at: 9,
         title: "Replies to everyone, including the no",
-        body: "Invitations and declines go out in the same batch, the same morning. A rejection at 09:00 on day one beats an offer that arrives nine days late.",
+        body: "Invitations go out from the hiring mailbox, and each no is a rejection in Recruiting: the reason stays on the timeline, and the candidate gets your company's rejection email, never the reason. A no at 09:00 on day one beats an offer that arrives nine days late.",
         where: "Email",
       },
       {
         time: "10:40",
         at: 10.67,
         title: "Ends the scheduling ping-pong",
-        body: "Finds the slot that works for a three-person panel and a candidate in another timezone, books it, and sends each interviewer their brief and the questions they own.",
+        body: "Finds the slot that works for a three-person panel and a candidate in another timezone, books it, and sends each interviewer their brief and the questions they own, taken from the Scorecard.",
         where: "Workspace",
       },
       {
         time: "12:30",
         at: 12.5,
         title: "Chases the feedback nobody submits",
-        body: "Two interviewers have not written up yesterday's loop, so they get a nudge with the scorecard attached and the deadline visible. The candidate never hears 'we are still deciding' for a week.",
+        body: "Two interviewers have not added their Scorecard for yesterday's interviews, so each gets a todo linking the application, with the deadline visible. The candidate never hears 'we are still deciding' for a week.",
         where: "Tasks",
       },
       {
         time: "14:45",
         at: 14.75,
-        title: "Keeps the passive pipeline warm",
+        title: "Keeps last round's near-misses warm",
         body: "Follows up with four strong candidates from earlier rounds who were not right at the time. Each note gives a reason to talk now instead of running a template.",
         where: "Email",
       },
@@ -1127,16 +1127,16 @@ export const ROLES: RoleDef[] = [
         time: "16:00",
         at: 16,
         title: "Leaves the judgement to a person",
-        body: "Two finalists, different strengths, one role. Noor compares them against the scorecard, names what it cannot judge, and puts the Decision in front of the hiring manager.",
+        body: "Two finalists, different strengths, one role. Noor compares their Scorecards criterion by criterion, names what it cannot judge, and puts the Decision in front of the hiring manager.",
         where: "Decision stack",
         kind: "decision",
       },
       {
         time: "17:30",
         at: 17.5,
-        title: "Keeps the pipeline honest",
+        title: "Keeps every stage honest",
         body: "Every candidate's stage gets updated. Three have sat in the same one for over a week and are flagged, and the write-up says where the funnel is actually losing people.",
-        where: "Bases",
+        where: "Recruiting · Applicants",
       },
       {
         time: "19:00",
@@ -1156,14 +1156,14 @@ export const ROLES: RoleDef[] = [
       "This candidate is asking above the band. Stretch, or hold the range?",
     ],
     skills: [
-      "screen-against-scorecard",
+      "review-overnight-scorecards",
       "schedule-interview-loop",
       "chase-panel-feedback",
       "write-candidate-reply",
       "warm-passive-candidate",
     ],
     routines: [
-      { name: "Application screen", when: "Every weekday, 07:20" },
+      { name: "Morning applicant review", when: "Every weekday, 07:20" },
       { name: "Candidate replies", when: "Every weekday, 09:00" },
       { name: "Feedback chase", when: "Every weekday, 12:30" },
       { name: "Candidate stage health", when: "Every weekday, 17:30" },
@@ -1171,20 +1171,20 @@ export const ROLES: RoleDef[] = [
     grants: [
       "Gmail Connection for the hiring mailbox",
       "Google Calendar Connection",
-      "The candidate Base and its scorecards",
+      "Recruiting access at Hire, and the AI screener seat",
       "The role briefs and interview guides in Notes",
     ],
-    products: ["bases", "email", "tasks", "workspace", "notes"],
+    products: ["recruiting", "email", "tasks", "workspace", "notes"],
     capabilities: [
       {
-        icon: "table2",
-        title: "A pipeline that is a real table",
-        body: "Candidates, stages, scorecards, and attachments live in a Base with typed fields and saved views. The AI Employee and your hiring managers work the same table, rather than exporting between two tools.",
+        icon: "users",
+        title: "Every applicant in one place",
+        body: "Openings, applications, resumes, and Scorecards live in Recruiting, on your own server. The AI Employee and your hiring managers work the same applicants, stages, and timeline, rather than exporting between two tools.",
       },
       {
         icon: "userCheck",
         title: "Screening you can audit",
-        body: "Every score cites the criterion it was given and the evidence it read. A rejection you disagree with can be opened, read, and reversed. That is the only version of automated screening worth having.",
+        body: "Every rating quotes the application, Genosyn checks each quote against what the applicant actually sent, and the score is Genosyn's arithmetic rather than a number the AI chose. A rejection you disagree with can be opened, read, and reconsidered.",
       },
       {
         icon: "calendarClock",
@@ -1194,21 +1194,21 @@ export const ROLES: RoleDef[] = [
       {
         icon: "history",
         title: "Nobody goes cold",
-        body: "A Routine watches for candidates stuck in a stage and for interviewers who owe feedback, so silence becomes something the system notices rather than something you feel bad about later.",
+        body: "A Routine watches for candidates stuck in a stage and for interviewers who owe a Scorecard, so silence becomes something the system notices rather than something you feel bad about later.",
       },
     ],
     faqs: [
       {
         q: "Is it making hiring decisions?",
-        a: "No. It screens against criteria a human wrote down and shows its reasoning; the shortlist, the loop, and the offer are Decisions a person answers. Anything close to the line becomes a Decision by design, not by luck.",
+        a: "Only the ones you give it. With Hire access it can decline an application, and only one already scored against criteria a person wrote, with the reason on the timeline for the team. With Screen access it cannot reject anyone at all. Noor brings the finalist and the offer to a person as Decisions, and anything close to the line becomes a Decision by design, not by luck.",
       },
       {
         q: "How does it avoid biased screening?",
-        a: "It scores against your written scorecard and records the evidence for each criterion, so screens are reviewable and reversible rather than opaque. It is a diligence tool — the judgement stays with your hiring managers.",
+        a: "It screens blind: the applicant's name, email address, and phone number are replaced before it reads anything, and a built-in rule your hiring principles cannot override tells it never to consider age, gender, race, or anything that hints at them, such as graduation years. Every rating quotes its evidence, so any screen can be read and argued with rather than taken on trust.",
       },
       {
         q: "Do I need an applicant tracking system too?",
-        a: "For small teams, a Base with stages and scorecards is usually enough. If you already run an ATS, the AI Employee can work your mailbox and calendar alongside it.",
+        a: "No. Recruiting is the applicant tracking: Openings on a careers site of your own, applications with resumes, and the Scorecards and stages that Noor and your hiring managers work alike. If you would rather keep the ATS you already run, Noor can work your mailbox and calendar alongside it.",
       },
     ],
     keywords: [

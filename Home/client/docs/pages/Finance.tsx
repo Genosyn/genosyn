@@ -690,9 +690,10 @@ export function Finance() {
         a customer settled with one transfer; Genosyn records a payment on each and matches them
         to the deposit in one step — match a transaction to a payment or entry already in the
         books, or give it a category. Card purchases are filed under their card&apos;s default
-        category as they arrive. Banking is the one place a bank or card transaction&apos;s
-        category changes. Banking replaced the separate Reconciliation and Card expenses pages;
-        their old links open it.{" "}
+        category as they arrive and wait for you to keep it or pick another. Tick several
+        transactions to categorize them, mark them reviewed, or send them back to review all at
+        once. Banking is the one place a bank or card transaction&apos;s category changes. Banking
+        replaced the separate Reconciliation and Card expenses pages; their old links open it.{" "}
         <DocLink to="/docs/banking">Banking</DocLink> covers it step by step.
       </P>
 

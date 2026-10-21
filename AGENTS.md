@@ -213,6 +213,10 @@ code, UI copy, commits, and docs.
 | **Letter** (the monthly letter to the board — `BoardLetter`; owners and admins read it) | Report, Digest, Newsletter, Recap (a TLDR is the recap) |
 | **Auditor** (the AI Employee owners and admins appoint to read each letter — `BoardLetterSettings.auditorEmployeeId`) | Reviewer, Checker (the outcome checker owns that), Verifier; never the audit log |
 | **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
+| **Opening** (a job or a contract the company is hiring for, posted on its careers site — `RecruitingOpening`) | Job posting, Vacancy, Requisition, Position; never "Job" as a record's name |
+| **Application** (one person applying to one Opening — `RecruitingApplication`; the person is the candidate, and where it stands is its **Stage**) | Submission, Lead, Candidate record; never "pipeline" for its stages |
+| **Scorecard** (one judgment of an Application against its Opening's criteria, by a person or an AI Employee — `RecruitingScorecard`) | Evaluation, Assessment, Rating, Review |
+| **Careers site** (where a company's Openings are listed and applications taken — on the install at `/careers/<company-slug>`, on a verified custom domain, or internal to Members) | Job board, Portal, ATS (in product copy) |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
@@ -489,6 +493,26 @@ board in Genosyn today is a company's owners and admins, who write its Goals
 and place its Standdowns; a letter is theirs, and Members never read one. There
 is no AI CEO yet: the writer is chosen, not seated.
 
+**An application is written by a stranger, and Recruiting is built around
+that.** Everything an applicant sends is untrusted: the AI screener
+(`services/recruiting/screening.ts`) reads it only as bounded JSON in the user
+turn of a restricted one-tool turn, with the candidate's name, email address
+and phone number blinded and a fairness rule the company's hiring principles
+cannot override, and the server — not the model — computes every score
+(`computeScore` in `shared/recruiting.ts`) and checks every evidence quote
+against what the applicant actually wrote. A screen that fails is retried and
+then marked failed, never scored low. For AI Employees, `list_applications`
+and `get_application` are taint sources (`services/taintPolicy.ts`),
+Recruiting access is its own Grant (`EmployeeRecruitingGrant`,
+`read < screen < hire`), taking an application back from Offer, Hired,
+Rejected or Withdrawn needs `hire` like moving it there, and no tool rejects an
+Application nobody has scored. The careers site needs no sign-in: its pages
+and `/api/careers` serve public DTOs from `services/recruiting/site.ts` and
+never criteria, instructions or another applicant's data; a verified custom
+domain is answered by `careersHostGuard` with the careers site and nothing
+else; resumes stay App-private under `.private/recruiting/` and reach only
+signed-in Members. Keep those boundaries when extending it.
+
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
 entity, and no UI label anywhere says "pipeline" to mean the sales process. The
@@ -589,7 +613,10 @@ data/
 │   │   ├── <employee-id>.profile/ # the employee's persistent Chrome profile (mode 0700)
 │   │   └── <employee-id>.json     # exported cookie/local-storage snapshot
 │   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
-│   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
+│   ├── code-repository-ssh/<company-id>/<employee-id>.known_hosts
+│   └── recruiting/<company-id>/
+│       ├── resumes/        # applicants' resume files, named by a random key on the Application
+│       └── site/           # the careers site logo
 ├── app.sqlite              # WAL mode: app.sqlite-wal / -shm beside it while running
 └── companies/<company-slug>/employees/<emp-slug>/
     ├── repos/  code-repos/    # git working trees the coding tools operate on

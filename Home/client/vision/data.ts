@@ -664,6 +664,10 @@ export const ROAD: { stage: string; note: string; items: RoadItem[] }[] = [
         label: "The monthly letter to the board, checked by an auditor only the board appoints",
         href: "/docs/board-letters",
       },
+      {
+        label: "Openings on a careers site of its own, every applicant scored against written criteria",
+        href: "/docs/recruiting",
+      },
     ],
   },
   {

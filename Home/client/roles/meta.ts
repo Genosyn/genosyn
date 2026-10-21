@@ -68,6 +68,7 @@ const PRODUCT_NAME_DEPT: Record<string, Dept> = {
   Resources: "workspace",
   Explore: "operations",
   Pipelines: "operations",
+  Recruiting: "people",
   "Decision stack": "operations",
 };
 

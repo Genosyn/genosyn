@@ -2116,6 +2116,7 @@ export type EmailLogPurpose =
   | "password_reset"
   | "welcome"
   | "signature"
+  | "recruiting"
   | "test"
   | "other";
 
@@ -3591,7 +3592,11 @@ export type NotificationKind =
   /** An employee filed an Initiative — standing work awaiting a human. */
   | "initiative_pending"
   /** The monthly letter to the board is written, traced and audited. */
-  | "board_letter_ready";
+  | "board_letter_ready"
+  /** Someone applied to an Opening the recipient owns, and nobody screens it. */
+  | "recruiting_application"
+  /** The AI screener rated an applicant a strong match for the recipient's Opening. */
+  | "recruiting_strong_match";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -3610,7 +3615,8 @@ export type NotificationEntityKind =
   | "employee"
   | "budget"
   | "initiative"
-  | "board_letter";
+  | "board_letter"
+  | "recruiting_application";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -5647,7 +5653,7 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
 
 export type BankFeed = {
   id: string;
@@ -5671,6 +5677,18 @@ export type BrexCashAccount = {
   accountNumberLast4: string;
   currentBalance: { amount: number; currency: string | null };
   availableBalance: { amount: number; currency: string | null };
+};
+
+/** One balance a Wise Connection can read, as the Add account picker lists it. */
+export type WiseBalanceChoice = {
+  /** `<profileId>:<balanceId>` — what the feed stores as `externalAccountId`. */
+  id: string;
+  profileName: string;
+  profileType: string;
+  currency: string;
+  availableCents: number | null;
+  /** Why it can't be added to Banking, or null when it can. */
+  unavailableReason: string | null;
 };
 
 export type CardFeed = {
@@ -5707,6 +5725,8 @@ export type CardTransaction = {
   postingError: string;
   raw: string;
   reclassifiedAt: string | null;
+  /** Waiting in To review for someone to keep its category or pick another. */
+  needsReview: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -5834,6 +5854,16 @@ export type BankingStatus = "review" | "done";
 export type BankingAccount =
   | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
   | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+
+/** What Banking's bulk bar does to a selection — `POST …/banking/bulk`. */
+export type BankingBulkAction = "categorize" | "mark_reviewed" | "send_to_review";
+
+export type BankingBulkResult = {
+  action: BankingBulkAction;
+  /** Now in the state the action asked for. */
+  succeeded: { bank: string[]; card: string[] };
+  skipped: Array<{ kind: "bank" | "card"; id: string; reason: string }>;
+};
 
 /** An open invoice a deposit could be the payment of. */
 export type OpenInvoiceCandidate = {
@@ -6088,7 +6118,9 @@ export type SearchResultKind =
   | "pipeline"
   | "customer"
   /** A customer opened as its Revenue account, for a Member without finance access. */
-  | "account";
+  | "account"
+  | "opening"
+  | "applicant";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;

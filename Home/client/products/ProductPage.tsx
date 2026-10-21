@@ -121,6 +121,12 @@ const PAGES: Record<string, PageCopy> = {
     crop: "panel",
     stop: { kind: "decision", line: "One £42 charge needs a Member to classify it." },
   },
+  recruiting: {
+    does: "Every criterion is rated on the same four steps.",
+    staff: "No AI Employee can reject an unscored applicant.",
+    caption: "An Opening at 07:20, its applicants sorted by AI match.",
+    crop: "screen",
+  },
   repositories: {
     does: "One Work session leaves one branch and one report.",
     staff: "Sam left the branch for a human.",

@@ -22,6 +22,7 @@ const INTEGRATIONS = [
   "WhatsApp",
   "Telegram",
   "Brex",
+  "Wise",
   "Postgres",
   "MySQL",
   "ClickHouse",
@@ -49,7 +50,7 @@ export function Integrations() {
                 <li
                   key={`${name}-${index}`}
                   aria-hidden={index >= INTEGRATIONS.length}
-                  className="flex items-center whitespace-nowrap px-6 text-[1.35rem] font-semibold leading-none tracking-[-0.03em] text-ink-300 motion-reduce:[&:nth-child(n+22)]:hidden"
+                  className="flex items-center whitespace-nowrap px-6 text-[1.35rem] font-semibold leading-none tracking-[-0.03em] text-ink-300 motion-reduce:[&:nth-child(n+23)]:hidden"
                 >
                   {name}
                   <span aria-hidden className="ml-12 h-1 w-1 rounded-full bg-ink-200" />

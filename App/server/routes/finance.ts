@@ -200,6 +200,7 @@ import {
   manualMatch,
   syncBankFeed,
 } from "../services/reconcile.js";
+import { assertWiseBalanceFeed, listWiseBalancesForConnection } from "../services/wiseFeeds.js";
 import {
   hydrateBankTransactions,
   listBankingAccounts,
@@ -209,6 +210,7 @@ import {
   removeBankFeed,
   undoBankTransaction,
 } from "../services/banking.js";
+import { BANKING_BULK_MAX, bulkBanking } from "../services/bankingBulk.js";
 import {
   getFinanceSettings,
   seedCurrencies,
@@ -3182,7 +3184,12 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
 
 // ─────────────────────── Bank feeds (Phase D) ──────────────────────────
 
-const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = ["stripe_payouts", "brex_cash", "csv"];
+const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = [
+  "stripe_payouts",
+  "brex_cash",
+  "wise_balance",
+  "csv",
+];
 
 const csvUpload = multer({
   storage: multer.memoryStorage(),
@@ -3210,6 +3217,25 @@ financeRouter.get("/bank-feeds/brex-accounts", async (req, res) => {
   }
   try {
     res.json(await listBrexCashAccountsForConnection(cid, parsed.data.connectionId));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const wiseBalancesQuerySchema = z.object({
+  connectionId: z.string().uuid(),
+});
+
+// The balances a Wise Connection can read, each saying why it can't be added
+// when it can't — only home-currency balances become Banking accounts.
+financeRouter.get("/bank-feeds/wise-balances", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const parsed = wiseBalancesQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A valid Wise connectionId is required" });
+  }
+  try {
+    res.json(await listWiseBalancesForConnection(cid, parsed.data.connectionId));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -3257,6 +3283,18 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
+  } else if (body.kind === "wise_balance") {
+    if (!body.connectionId) {
+      return res.status(400).json({ error: "Wise feeds need a connectionId" });
+    }
+    if (!body.externalAccountId) {
+      return res.status(400).json({ error: "Wise feeds need a balance" });
+    }
+    try {
+      await assertWiseBalanceFeed(cid, body.connectionId, body.externalAccountId);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
   }
   const repo = AppDataSource.getRepository(BankFeed);
   const f = repo.create({
@@ -3265,7 +3303,10 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     kind: body.kind,
     accountId: body.accountId,
     connectionId: body.kind === "csv" ? null : (body.connectionId ?? null),
-    externalAccountId: body.kind === "brex_cash" ? (body.externalAccountId ?? null) : null,
+    externalAccountId:
+      body.kind === "brex_cash" || body.kind === "wise_balance"
+        ? (body.externalAccountId ?? null)
+        : null,
   });
   await repo.save(f);
   res.json(f);
@@ -3493,6 +3534,75 @@ financeRouter.post(
     }
   },
 );
+
+const bankingBulkSchema = z
+  .object({
+    action: z.enum(["categorize", "mark_reviewed", "send_to_review"]),
+    accountId: z.string().uuid().optional(),
+    bankTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+    cardTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+  })
+  .refine(
+    (body) => {
+      const count = body.bankTransactionIds.length + body.cardTransactionIds.length;
+      return count > 0 && count <= BANKING_BULK_MAX;
+    },
+    { message: `Choose between 1 and ${BANKING_BULK_MAX} transactions` },
+  )
+  .refine((body) => body.action !== "categorize" || !!body.accountId, {
+    message: "Pick a category",
+    path: ["accountId"],
+  });
+
+// Banking's bulk bar: categorize, mark reviewed, or send back to review many
+// bank and card transactions at once, each under its own row's rules. One
+// that can't take the action is skipped with a reason; the rest go through.
+financeRouter.post("/banking/bulk", validateBody(bankingBulkSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof bankingBulkSchema>;
+  let outcome: Awaited<ReturnType<typeof bulkBanking>>;
+  try {
+    outcome = await bulkBanking({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: body.action,
+      accountId: body.accountId,
+      bankTransactionIds: body.bankTransactionIds,
+      cardTransactionIds: body.cardTransactionIds,
+    });
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  // The same row a bank transaction's own Categorize leaves, so its History
+  // reads the same however it was categorized.
+  for (const txn of outcome.categorized) {
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.bank_transaction.categorize",
+      targetType: "bank_transaction",
+      targetId: txn.id,
+      targetLabel: txn.description || txn.reference || txn.id,
+      metadata: { accountId: body.accountId, amountCents: txn.amountCents, bulk: true },
+    });
+  }
+  const succeeded = outcome.succeeded.bank.length + outcome.succeeded.card.length;
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: `finance.banking.bulk_${body.action}`,
+    targetType: "bank_transaction",
+    targetId: null,
+    targetLabel: `${succeeded} transaction${succeeded === 1 ? "" : "s"}`,
+    metadata: {
+      accountId: body.accountId ?? null,
+      bank: outcome.succeeded.bank.length,
+      card: outcome.succeeded.card.length,
+      skipped: outcome.skipped.length,
+    },
+  });
+  res.json({ action: outcome.action, succeeded: outcome.succeeded, skipped: outcome.skipped });
+});
 
 // ─────────────────────── AI access (finance grants) ────────────────────
 //

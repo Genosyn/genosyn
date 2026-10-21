@@ -12,6 +12,8 @@ import { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
+import { RecruitingApplication } from "../db/entities/RecruitingApplication.js";
+import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
 import { Project } from "../db/entities/Project.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -62,7 +64,9 @@ export type SearchResultKind =
   | "pipeline"
   | "customer"
   /** A customer row opened as its Revenue account — see {@link ACCOUNT_SPEC}. */
-  | "account";
+  | "account"
+  | "opening"
+  | "applicant";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;
@@ -216,7 +220,40 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     path: (r) => `/pipelines/${r.slug}`,
     sublabel: (r) => r.description || null,
   },
+  {
+    kind: "opening",
+    entity: RecruitingOpening,
+    nameCol: "title",
+    secondaryCols: ["t.department", "t.location"],
+    hasUpdatedAt: true,
+    path: (r) => `/recruiting/openings/${r.id}`,
+    sublabel: (r) => [r.department, r.location].filter(Boolean).join(" · ") || r.status || null,
+  },
 ];
+
+/**
+ * People who applied, by name or email. Bespoke rather than a simple spec so
+ * the query never loads a resume: it selects the few columns a result needs,
+ * inside the same fetch window every kind uses.
+ */
+async function searchApplicants(ctx: Ctx): Promise<Scored[]> {
+  let qb = AppDataSource.getRepository(RecruitingApplication)
+    .createQueryBuilder("a")
+    .select(["a.id", "a.candidateName", "a.candidateEmail", "a.stage", "a.updatedAt"])
+    .where("a.companyId = :cid", { cid: ctx.companyId });
+  qb = andWhereTokens(qb, ["a.candidateName", "a.candidateEmail"], ctx.tokens);
+  qb = orderByPrefixFirst(qb, "a.candidateName", ctx.q, "a.updatedAt");
+  const rows = await qb.getMany();
+  return rows.map((row) => ({
+    kind: "applicant" as const,
+    id: row.id,
+    label: row.candidateName,
+    sublabel: row.candidateEmail,
+    path: `/recruiting/applicants/${row.id}`,
+    score: scoreLabel(row.candidateName, ctx.q, ctx.tokens),
+    updatedAt: row.updatedAt,
+  }));
+}
 
 /**
  * A customer row is one account seen from two sections, and the viewer's
@@ -475,6 +512,7 @@ export async function searchCompany(opts: {
     searchProjects(ctx, accessibleProjects),
     searchTodos(ctx, accessibleProjects),
     searchChannels(ctx, opts.userId),
+    searchApplicants(ctx),
   ]);
 
   const merged: Scored[] = [];

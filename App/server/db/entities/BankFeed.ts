@@ -18,13 +18,17 @@ import {
  *   - `brex_cash`: pulled from a Brex `IntegrationConnection` via the
  *     Transactions API. `externalAccountId` identifies the selected Cash
  *     account.
+ *   - `wise_balance`: pulled from a Wise `IntegrationConnection` via the
+ *     balance statement. `externalAccountId` is `<profileId>:<balanceId>`,
+ *     and only a balance in the home currency can be one
+ *     (`services/wiseFeeds.ts`).
  *   - `csv`: humans upload a CSV from their bank. We parse on the server
  *     and stash the raw row under `BankTransaction.raw`.
  *
  * Phase E (multi-currency) will add `currency` to `BankFeed`; for Phase
  * D every feed is in the company's home currency (USD).
  */
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
 
 @Entity("bank_feeds")
 @Index(["companyId"])
@@ -48,7 +52,8 @@ export class BankFeed {
   connectionId!: string | null;
 
   /** Provider-side account identifier when one Connection can expose more
-   *  than one account. Set for Brex Cash feeds; null for Stripe and CSV. */
+   *  than one account. Set for Brex Cash and Wise feeds; null for Stripe
+   *  and CSV. */
   @Column({ type: "varchar", nullable: true })
   externalAccountId!: string | null;
 

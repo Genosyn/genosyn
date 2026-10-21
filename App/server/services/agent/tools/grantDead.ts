@@ -29,6 +29,11 @@ import {
   type EmployeeVaultAccessLevel,
 } from "../../../db/entities/EmployeeVaultGrant.js";
 import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
+import {
+  EmployeeRecruitingGrant,
+  RECRUITING_ACCESS_RANK,
+  type RecruitingAccessLevel,
+} from "../../../db/entities/EmployeeRecruitingGrant.js";
 import { EmployeeResourceLibraryGrant } from "../../../db/entities/EmployeeResourceLibraryGrant.js";
 import { EmployeeRoutineGrant } from "../../../db/entities/EmployeeRoutineGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
@@ -326,6 +331,29 @@ const REVENUE_TOOL_ACCESS: Record<string, RevenueAccessLevel> = {
 const REVENUE_GATED_TOOLS = new Set(Object.keys(REVENUE_TOOL_ACCESS));
 
 /**
+ * The Recruiting surface: every tool answers to an `EmployeeRecruitingGrant`,
+ * one row per employee, with no ungated create. `move_application` needs
+ * `hire` for the life-changing stages; it is listed at `screen` here because
+ * the early stages are reachable with that, and the route gate decides per
+ * call — a ranking hint prefers a wasted call to a hidden tool.
+ */
+const RECRUITING_TOOL_ACCESS: Record<string, RecruitingAccessLevel> = {
+  list_openings: "read",
+  get_opening: "read",
+  create_opening: "screen",
+  update_opening: "screen",
+  publish_opening: "hire",
+  close_opening: "hire",
+  list_applications: "read",
+  get_application: "read",
+  score_application: "screen",
+  move_application: "screen",
+  add_application_note: "screen",
+  add_candidate: "screen",
+};
+const RECRUITING_GATED_TOOLS = new Set(Object.keys(RECRUITING_TOOL_ACCESS));
+
+/**
  * The Resources library ceiling (Resources → AI access). The opposite shape to
  * every set above: an employee with no row holds `write`, so these are dead
  * only for one explicitly set to `read`. The read tools never appear — they
@@ -384,6 +412,7 @@ export function assertGrantSetsResolve(): void {
     ...SIGNING_GATED_TOOLS,
     ...VAULT_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
+    ...RECRUITING_GATED_TOOLS,
     ...RESOURCE_WRITE_GATED_TOOLS,
     ...ROUTINE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
@@ -446,6 +475,20 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
       where: { employeeId },
     });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
+    const recruiting = await AppDataSource.getRepository(EmployeeRecruitingGrant).findOne({
+      where: { employeeId },
+    });
+    if (!recruiting) {
+      for (const tool of RECRUITING_GATED_TOOLS) dead.add(tool);
+    } else {
+      const have = RECRUITING_ACCESS_RANK[recruiting.accessLevel];
+      // An unknown level stays live, as for signing: the route gate fails closed.
+      if (typeof have === "number") {
+        for (const [tool, required] of Object.entries(RECRUITING_TOOL_ACCESS)) {
+          if (have < RECRUITING_ACCESS_RANK[required]) dead.add(tool);
+        }
+      }
+    }
     const resourceLibrary = await AppDataSource.getRepository(EmployeeResourceLibraryGrant).findOne(
       { where: { employeeId } },
     );

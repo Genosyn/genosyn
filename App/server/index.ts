@@ -116,6 +116,11 @@ import { revenueRouter } from "./routes/revenue.js";
 import { meetingsRouter } from "./routes/meetings.js";
 import { revenueOperationsRouter } from "./routes/revenueOperations.js";
 import { marketingRouter } from "./routes/marketing.js";
+import { recruitingRouter } from "./routes/recruiting.js";
+import { careersRouter } from "./routes/careers.js";
+import { appShellFallback, careersHostGuard, careersPagesRouter } from "./routes/careersSite.js";
+import { bootCareersHosts } from "./services/recruiting/domains.js";
+import { bootScreeningQueue } from "./services/recruiting/screeningQueue.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
@@ -206,6 +211,10 @@ async function main() {
   // Purchases split across several categories wait for a person on Banking.
   await matchCardCategoriesToBooks();
   await bootProactiveDefaults();
+  // Recruiting: which custom domains serve a careers site, and the queue of
+  // Applications waiting for their AI screen (resumed after a restart).
+  await bootCareersHosts();
+  bootScreeningQueue();
   await bootCron();
   // `genosyn upgrade` asks the running server to pause its Routine Runs before
   // it restarts. Started after boot recovery cleared any stale request.
@@ -288,6 +297,9 @@ async function main() {
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, version: appVersion() });
   });
+  // A careers site's custom domain serves the careers site and nothing else:
+  // before any other route, so no App API, page or sign-in answers there.
+  app.use(careersHostGuard({ isDev: process.env.NODE_ENV !== "production" }));
   // External chat surface webhooks (M59) — Microsoft Teams and WhatsApp POST
   // here. Mounted BEFORE express.json() and before requireTrustedOrigin/session
   // middleware, because the signature is the only credential this endpoint
@@ -389,6 +401,11 @@ async function main() {
   // Public machine endpoints above authenticate with one-shot or bearer
   // tokens. Everything below also rejects cross-origin browser mutations.
   app.use(requireTrustedOrigin);
+
+  // The careers site's public API: anyone may read a public site and apply,
+  // and a signed-in Member also sees internal Openings. Below the origin gate,
+  // so an application can only be posted from the careers page itself.
+  app.use("/api/careers", careersRouter);
 
   // The bridge agent's own surface: redeem a pairing code, download the agent.
   // It is session-less and bearer-shaped like the two internal routers above,
@@ -605,6 +622,10 @@ async function main() {
   // performance snapshots and per-employee access.
   app.use("/api/companies/:cid", marketingRouter);
 
+  // Recruiting — Openings, Applications and their Scorecards, the AI
+  // screener, and the careers site's settings and custom domain.
+  app.use("/api/companies/:cid", recruitingRouter);
+
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.
   // Layout-wise, dev __dirname=App/server → clientDir=App/client;
@@ -612,22 +633,43 @@ async function main() {
   const clientDir = path.resolve(__dirname, "..", "client");
   const isDev = process.env.NODE_ENV !== "production";
 
+  type DevServer = Awaited<ReturnType<typeof import("vite")["createServer"]>>;
+  let vite: DevServer | null = null;
   if (isDev) {
     const { createServer: createViteServer } = await import("vite");
     // configFile must be explicit: Vite's auto-discovery looks in `root`
     // (client/), but our vite.config.ts lives one level up. Without it,
     // @vitejs/plugin-react is never applied and JSX crashes at runtime.
-    const vite = await createViteServer({
+    vite = await createViteServer({
       configFile: path.resolve(__dirname, "..", "vite.config.ts"),
       server: { middlewareMode: true },
       appType: "spa",
     });
+  }
+
+  // The careers site's pages, before the App shell: its own small bundle
+  // (`client/careers.html`), with each page's head and data filled in on the
+  // server so link previews and job search engines read the real page.
+  const careersTemplatePath = path.join(clientDir, "careers.html");
+  let careersTemplate: string | null = null;
+  app.use(
+    careersPagesRouter({
+      isDev,
+      loadTemplate: async (url) => {
+        if (vite) {
+          return vite.transformIndexHtml(url, await fs.promises.readFile(careersTemplatePath, "utf8"));
+        }
+        careersTemplate ??= await fs.promises.readFile(careersTemplatePath, "utf8");
+        return careersTemplate;
+      },
+    }),
+  );
+
+  if (vite) {
     app.use(vite.middlewares);
   } else if (fs.existsSync(clientDir)) {
     app.use(express.static(clientDir));
-    app.get(/^\/(?!api).*/, (_req, res) => {
-      res.sendFile(path.join(clientDir, "index.html"));
-    });
+    app.get(/^\/(?!api).*/, appShellFallback(path.join(clientDir, "index.html")));
   }
 
   app.use(errorHandler);

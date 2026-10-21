@@ -45,6 +45,7 @@ export const USAGE_SECTIONS = [
   "customers",
   "signatures",
   "finance",
+  "recruiting",
 ] as const;
 
 export type CoreSection = (typeof CORE_SECTIONS)[number];

@@ -184,6 +184,17 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "People",
+    pages: [
+      {
+        path: "/docs/recruiting",
+        title: "Recruiting",
+        blurb:
+          "Openings on a careers site of your own, applications with resumes, and every applicant scored against your criteria.",
+      },
+    ],
+  },
+  {
     label: "Operations",
     pages: [
       {

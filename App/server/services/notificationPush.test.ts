@@ -22,6 +22,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   budget_exhausted: "push",
   standdown_placed: "push",
   board_letter_ready: "push",
+  recruiting_strong_match: "push",
   finance_review_ready: "bell",
   run_failed: "bell",
   run_off_goal: "bell",
@@ -32,6 +33,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   revision_stale: "bell",
   autonomy_revoked: "bell",
   initiative_pending: "bell",
+  recruiting_application: "bell",
 };
 
 test("pushes what needs a person now, and the events an owner hears at once", () => {

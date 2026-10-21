@@ -212,6 +212,46 @@ export function Vocabulary() {
         ]}
       />
 
+      <H2 id="recruiting-words">Recruiting words</H2>
+      <KeyList
+        rows={[
+          {
+            term: "Opening",
+            def: (
+              <>
+                A job or a contract the company is hiring for, posted on its careers site. Never a
+                &quot;job posting,&quot; &quot;vacancy,&quot; or &quot;requisition,&quot; and
+                never confused with a Routine. See <DocLink to="/docs/recruiting">Recruiting</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Application",
+            def: "One person applying to one Opening: their details, resume, cover letter, answers, Scorecards and timeline. The person is the candidate.",
+          },
+          {
+            term: "Stage",
+            def: "Where an Application stands: Applied, Screening, Interview, Offer, Hired, Rejected or Withdrawn. Never a pipeline.",
+          },
+          {
+            term: "Criteria",
+            def: "What an Opening is judged on: each criterion a must have, important, or nice to have.",
+          },
+          {
+            term: "Scorecard",
+            def: "One judgment of an Application against its Opening's criteria, by a person or an AI Employee: a rating per criterion with quoted evidence, and a 0–100 score Genosyn computes.",
+          },
+          {
+            term: "AI screener",
+            def: "The AI Employee picked in Recruiting settings to score every new Application, blind to the candidate's name and contact details.",
+          },
+          {
+            term: "Careers site",
+            def: "Where people find the Openings and apply: public on Genosyn's address or the company's own domain, or internal to Members.",
+          },
+        ]}
+      />
+
       <H2 id="control-surfaces">Control surfaces</H2>
       <KeyList
         rows={[

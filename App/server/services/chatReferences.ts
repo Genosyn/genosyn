@@ -190,6 +190,14 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     toolHints: ["get_marketing_overview", "list_marketing_campaigns"],
   },
   {
+    key: "recruiting",
+    label: "Recruiting",
+    path: "/recruiting",
+    description: "Openings, applicants, and their Scorecards",
+    keywords: ["recruiting", "hiring", "job", "jobs", "opening", "applicant", "candidate", "resume", "careers"],
+    toolHints: ["list_openings", "list_applications", "get_application", "score_application"],
+  },
+  {
     key: "finance",
     label: "Finance",
     path: "/finance",

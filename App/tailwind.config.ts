@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 export default {
-  content: ["./client/index.html", "./client/**/*.{ts,tsx}"],
+  content: ["./client/index.html", "./client/careers.html", "./client/**/*.{ts,tsx}"],
   darkMode: "class",
   theme: {
     extend: {
