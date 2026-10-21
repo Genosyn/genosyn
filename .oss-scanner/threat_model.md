@@ -76,6 +76,17 @@ trusted-origin check, is in `App/server/index.ts`.
      tool-less turns in `App/server/services/phone/conversation.ts`, never its
      Soul, Memory or company tools.
    - Unsubscribe links (`App/server/routes/unsubscribe.ts`).
+   - The **careers site**: a company's Openings and the application form
+     (multipart, with a resume file), at `/careers/<company-slug>` and under
+     `/api/careers` (`App/server/routes/careersSite.ts`,
+     `App/server/routes/careers.ts`). Applicants are strangers: what they send
+     reaches AI Employees only as untrusted data (the AI screener's restricted
+     one-tool turn in `App/server/services/recruiting/screening.ts`, and
+     `list_applications` and `get_application`, both taint sources). A company may serve the site on its own
+     verified domain; `careersHostGuard` answers that `Host` with the careers
+     site only. `GET /api/careers/domains/check` (for a proxy's on-demand TLS)
+     says whether a domain is a verified careers domain. An internal careers
+     site needs a signed-in Member of that company.
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
      `App/server/services/hostedOauth.ts`.
@@ -123,7 +134,9 @@ trusted-origin check, is in `App/server/index.ts`.
    session reads the repository's `AGENTS.md` into its context. Allowed
    commands run the repository's own scripts.
 8. **Uploaded and fetched files**: chat, Base, Resource, and mail
-   attachments, avatars, and documents to sign. Their parsing (PDF, DOCX,
+   attachments, avatars, documents to sign, and applicants' resumes (typed by
+   their bytes and stored App-private by
+   `App/server/services/recruiting/files.ts`). Their parsing (PDF, DOCX,
    XLSX, EPUB, images, MIME) and the way they are served back to browsers
    (`App/server/services/files.ts`, `App/server/services/resourceFiles.ts`,
    `App/server/services/uploads.ts`).
@@ -188,6 +201,13 @@ trusted-origin check, is in `App/server/index.ts`.
   admins, and a Member browser's recordings are for its owner alone.
   Sensitive content inside them is not a finding. Reaching them without that
   authorization is.
+- **The careers site is public by choice.** A published Public or Unlisted
+  Opening, the company's site branding, and its JSON feed (served with
+  `Access-Control-Allow-Origin: *`) are meant for anyone. Criteria, screening
+  instructions, Scorecards and applicants are not, and reaching them without
+  signing in as a Member of that company is a finding. Any Member may read
+  and act on applications; owners and admins alone change Recruiting
+  settings, the careers site, its domain, and AI access.
 - **Answering a Decision has no side effect**, so any Member may answer one.
   Decision screening fails open by design (`AGENTS.md` §3). Approvals, which
   replay a held action, are admin-gated.
@@ -294,7 +314,8 @@ Most, roughly in order:
    `App/server/services/browserRequestBoundary.ts` (the App refuses its own
    API to the AI's browser, even with a Member's cookies).
 9. **Public routes**: forms, signing, webhooks, chat surfaces, phone number
-   webhooks, unsubscribe, and OAuth callbacks (listed above).
+   webhooks, unsubscribe, the careers site and its custom-domain host guard,
+   and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are
     served (Content-Type, Content-Disposition, sandboxing), document parsing,
     and archive extraction (`App/server/services/backups.ts`).
