@@ -346,15 +346,23 @@ const createTextSchema = z.object({
   folderId: z.string().uuid().nullable().optional(),
 });
 
+/** The folder a write names; throws `ResourceFolderError` when it is not this company's. */
+async function resolveFolderId(
+  companyId: string,
+  folderId: string | null | undefined,
+): Promise<string | null | undefined> {
+  if (folderId === undefined || folderId === null) return folderId;
+  return (await resolveResourceFolderForCompany(companyId, folderId))?.id ?? null;
+}
+
 /** The folder a write names, refused with a 400 when it is not this company's. */
 async function folderIdFor(
   companyId: string,
   folderId: string | null | undefined,
   res: import("express").Response,
 ): Promise<string | null | undefined> {
-  if (folderId === undefined || folderId === null) return folderId;
   try {
-    return (await resolveResourceFolderForCompany(companyId, folderId))?.id ?? null;
+    return await resolveFolderId(companyId, folderId);
   } catch (err) {
     if (!(err instanceof ResourceFolderError)) throw err;
     res.status(400).json({ error: err.message });
@@ -476,86 +484,102 @@ resourcesRouter.post(
     next();
   },
   resourceUploadMiddleware.single("file"),
-  async (req, res) => {
+  async (req, res, next) => {
     const cid = (req.params as Record<string, string>).cid;
     const co = (req as unknown as { company?: Company }).company;
     const file = (req as unknown as { file?: Express.Multer.File }).file;
     if (!co) return res.status(404).json({ error: "Company not found" });
     if (!file) return res.status(400).json({ error: "No file uploaded" });
-    if (file.size > RESOURCE_MAX_BYTES) {
-      return res.status(400).json({ error: "File exceeds the 25 MB cap" });
-    }
 
-    const folderInput = (req.body as Record<string, string>)?.folderId || null;
-    if (folderInput !== null && !z.string().uuid().safeParse(folderInput).success) {
-      await deleteResourceBytes(path.basename(file.path), co.slug);
-      return res.status(400).json({ error: "Invalid folder id" });
-    }
-    const folderId = await folderIdFor(cid, folderInput, res);
-    if (folderId === undefined) {
-      // The upload is already on disk; a refused folder must not strand it.
-      await deleteResourceBytes(path.basename(file.path), co.slug);
-      return;
-    }
-
-    const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(file.originalname);
-    const titleHint = path
-      .basename(file.originalname, path.extname(file.originalname))
-      .replace(/[-_]+/g, " ")
-      .trim();
-    const title = ((req.body as Record<string, string>)?.title ?? titleHint ?? "Untitled").slice(
-      0,
-      200,
-    );
-
-    const { bodyText, status, errorMessage } = await extractResourceText(
-      file.path,
-      file.originalname,
-      sourceKind,
-    );
-
-    const summary = (req.body as Record<string, string>)?.summary;
+    // The upload is already on disk, so a refusal deletes it before it
+    // answers: whoever hears the 400 must find nothing left behind.
+    const storageKey = path.basename(file.path);
+    const refuse = async (error: string) => {
+      await deleteResourceBytes(storageKey, co.slug);
+      return res.status(400).json({ error });
+    };
     const tags = (req.body as Record<string, string>)?.tags ?? "";
-    const tagIdsInput = (req.body as Record<string, string>)?.tagIds;
     let tagIdsToAssign: string[] | null = null;
-    if (tagIdsInput) {
-      let rawTagIds: unknown;
-      try {
-        rawTagIds = JSON.parse(tagIdsInput);
-      } catch {
-        return res.status(400).json({ error: "Invalid tag ids" });
-      }
-      const parsed = z.array(z.string().uuid()).max(20).safeParse(rawTagIds);
-      if (!parsed.success) return res.status(400).json({ error: "Invalid tag ids" });
-      tagIdsToAssign = parsed.data;
-      try {
-        await validateCompanyTagIds(cid, tagIdsToAssign);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return res.status(400).json({ error: message });
-      }
-    }
-    const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
+    let row: Resource;
+    try {
+      if (file.size > RESOURCE_MAX_BYTES) return refuse("File exceeds the 25 MB cap");
 
-    const row = AppDataSource.getRepository(Resource).create({
-      companyId: cid,
-      title,
-      slug,
-      sourceKind,
-      sourceUrl: null,
-      sourceFilename: file.originalname,
-      storageKey: path.basename(file.path),
-      summary: summarizeBody(sourceKind, bodyText, summary),
-      bodyText,
-      folderId,
-      tags: tags.trim(),
-      bytes: file.size,
-      status,
-      errorMessage,
-      createdById: req.userId ?? null,
-      createdByEmployeeId: null,
-    });
-    await AppDataSource.getRepository(Resource).save(row);
+      const folderInput = (req.body as Record<string, string>)?.folderId || null;
+      if (folderInput !== null && !z.string().uuid().safeParse(folderInput).success) {
+        return refuse("Invalid folder id");
+      }
+      let folderId: string | null;
+      try {
+        folderId = (await resolveFolderId(cid, folderInput)) ?? null;
+      } catch (err) {
+        if (!(err instanceof ResourceFolderError)) throw err;
+        return refuse(err.message);
+      }
+
+      // Checked before the text is extracted, so a bad tag costs nothing.
+      const tagIdsInput = (req.body as Record<string, string>)?.tagIds;
+      if (tagIdsInput) {
+        let rawTagIds: unknown;
+        try {
+          rawTagIds = JSON.parse(tagIdsInput);
+        } catch {
+          return refuse("Invalid tag ids");
+        }
+        const parsed = z.array(z.string().uuid()).max(20).safeParse(rawTagIds);
+        if (!parsed.success) return refuse("Invalid tag ids");
+        tagIdsToAssign = parsed.data;
+        try {
+          await validateCompanyTagIds(cid, tagIdsToAssign);
+        } catch (err) {
+          return refuse(err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(file.originalname);
+      const titleHint = path
+        .basename(file.originalname, path.extname(file.originalname))
+        .replace(/[-_]+/g, " ")
+        .trim();
+      const title = ((req.body as Record<string, string>)?.title ?? titleHint ?? "Untitled").slice(
+        0,
+        200,
+      );
+
+      const { bodyText, status, errorMessage } = await extractResourceText(
+        file.path,
+        file.originalname,
+        sourceKind,
+      );
+
+      const summary = (req.body as Record<string, string>)?.summary;
+      const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
+
+      row = AppDataSource.getRepository(Resource).create({
+        companyId: cid,
+        title,
+        slug,
+        sourceKind,
+        sourceUrl: null,
+        sourceFilename: file.originalname,
+        storageKey,
+        summary: summarizeBody(sourceKind, bodyText, summary),
+        bodyText,
+        folderId,
+        tags: tags.trim(),
+        bytes: file.size,
+        status,
+        errorMessage,
+        createdById: req.userId ?? null,
+        createdByEmployeeId: null,
+      });
+      await AppDataSource.getRepository(Resource).save(row);
+    } catch (error) {
+      // Nothing points at the bytes until the row exists, so an error before
+      // then takes them too — as `create_resource` does for an AI Employee's
+      // file — and is handed on, or Express 4 would leave the request hanging.
+      await deleteResourceBytes(storageKey, co.slug);
+      return next(error);
+    }
     if (tagIdsToAssign) {
       await replaceResourceTags(cid, "resource", row.id, tagIdsToAssign);
     } else if (tags) {

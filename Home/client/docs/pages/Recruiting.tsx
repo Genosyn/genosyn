@@ -281,9 +281,9 @@ export function Recruiting() {
       <P>
         <Strong>Reject</Strong> asks for a reason, which stays on the timeline for the team. Tick{" "}
         <Strong>Send the rejection email</Strong> to tell the candidate: they receive your
-        company&apos;s rejection email, never the reason. <Strong>Erase application</Strong>{" "}
-        permanently deletes the application, its resume, every Scorecard and its timeline, for
-        when someone asks to be forgotten.
+        company&apos;s rejection email, never the reason. Owners and admins can{" "}
+        <Strong>Erase application</Strong>: it permanently deletes the application, its resume,
+        every Scorecard and its timeline, for when someone asks to be forgotten.
       </P>
 
       <H2 id="emails">Emails to applicants</H2>
