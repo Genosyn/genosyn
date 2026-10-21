@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { after, before, beforeEach, describe, test } from "node:test";
 import unzipper from "unzipper";
 import { config } from "../../config.js";
@@ -18,7 +20,10 @@ import {
   backupDir,
   backupFilePath,
   bootBackups,
+  ingestUploadedArchive,
+  restoreFromBackup,
   runBackup,
+  setSnapshotBusyLimitForTests,
   sweepOrphanedStagingArtifacts,
 } from "./backups.js";
 
@@ -478,5 +483,175 @@ describe("staging snapshot lifetime", () => {
     // Releasing early must not cost the archive its database.
     const archive = await unzipper.Open.file(backupFilePath(backup.filename));
     assert.ok(archive.files.some((entry) => entry.path === "app.sqlite"));
+  });
+});
+
+/**
+ * Regression coverage for archives that shipped without their database.
+ *
+ * SQLite won't copy pages from the connection while it is part-way through a
+ * write, and better-sqlite3 reports that refusal on the first step as a
+ * finished copy of nothing and deletes the file. The run then zipped the data
+ * directory without `app.sqlite` and recorded itself as completed — an archive
+ * that restores to an empty install.
+ */
+describe("backups never ship without the database", () => {
+  type Progress = { totalPages: number; remainingPages: number };
+  type Handle = {
+    backup(dest: string, options?: { progress?: (progress: Progress) => unknown }): Promise<Progress>;
+  };
+
+  /**
+   * Replace the shared handle's `backup()` with `fake`, which may call through
+   * to the real one. Returns a restore function.
+   */
+  function fakeBackup(
+    fake: (real: Handle["backup"], dest: string, options?: Parameters<Handle["backup"]>[1]) => Promise<Progress>,
+  ): () => void {
+    const handle = (AppDataSource.driver as unknown as { databaseConnection: Handle })
+      .databaseConnection;
+    const hadOwn = Object.prototype.hasOwnProperty.call(handle, "backup");
+    const original = handle.backup;
+    const real = original.bind(handle);
+    handle.backup = (dest, options) => fake(real, dest, options);
+    return () => {
+      if (hadOwn) handle.backup = original;
+      else delete (handle as Partial<Handle>).backup;
+    };
+  }
+
+  /** What better-sqlite3 resolves when SQLite refuses the first step. */
+  const refused: Progress = { totalPages: 0, remainingPages: 0 };
+
+  async function archivesOnDisk(): Promise<string[]> {
+    return (await listBackupDir()).filter((name) => /\.zip(\.part)?$/.test(name));
+  }
+
+  test("better-sqlite3 reports a copy refused mid-write as finished, with no file", async () => {
+    // The behaviour the snapshot guards against, on a database of its own: a
+    // write open on the source connection makes SQLite refuse the first step.
+    type RawDatabase = {
+      exec(sql: string): void;
+      backup(dest: string): Promise<Progress>;
+      close(): void;
+    };
+    // The better-sqlite3 TypeORM already loaded, so the same native binding.
+    const Database = (AppDataSource.driver as unknown as { sqlite: new (file: string) => RawDatabase })
+      .sqlite;
+    const source = new Database(path.join(tempDir, "busy.sqlite"));
+    try {
+      source.exec("CREATE TABLE notes (body text)");
+      source.exec("BEGIN");
+      source.exec("INSERT INTO notes VALUES ('unfinished')");
+      const dest = path.join(tempDir, "busy-copy.sqlite");
+      const progress = await source.backup(dest);
+      assert.deepEqual(progress, refused);
+      assert.equal(await exists(dest), false);
+      source.exec("ROLLBACK");
+    } finally {
+      source.close();
+    }
+  });
+
+  test("fails rather than archive without the database while SQLite keeps refusing", async () => {
+    getEffectiveInstanceSecrets();
+    setSnapshotBusyLimitForTests(1_500);
+    let attempts = 0;
+    const restore = fakeBackup(async () => {
+      attempts += 1;
+      return refused;
+    });
+    try {
+      await assert.rejects(
+        withSqliteDriver(() => runBackup("manual")),
+        /Could not copy the database/,
+      );
+    } finally {
+      restore();
+      setSnapshotBusyLimitForTests(null);
+    }
+
+    assert.ok(attempts > 1, "a refused copy was never retried");
+    assert.deepEqual(await archivesOnDisk(), [], "a backup without its database was written");
+    const leftovers = (await listBackupDir()).filter((name) => name.startsWith(".staging-"));
+    assert.deepEqual(leftovers, [], `failed run stranded: ${leftovers.join(", ")}`);
+  });
+
+  test("copies the database once SQLite lets it", async () => {
+    getEffectiveInstanceSecrets();
+    let attempts = 0;
+    const restore = fakeBackup((real, dest, options) => {
+      attempts += 1;
+      return attempts === 1 ? Promise.resolve(refused) : real(dest, options);
+    });
+    let backup;
+    try {
+      backup = await withSqliteDriver(() => runBackup("manual"));
+    } finally {
+      restore();
+    }
+
+    assert.equal(attempts, 2);
+    assert.equal(backup.status, "completed");
+    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
+    assert.ok(
+      archive.files.some((entry) => entry.path === "app.sqlite" && entry.uncompressedSize > 0),
+      "the archive lost its database snapshot",
+    );
+  });
+
+  test("abandons a copy that stops moving", async () => {
+    getEffectiveInstanceSecrets();
+    // A copy that SQLite keeps refusing mid-way reports the same count again
+    // and again; with no wait allowed, the second report gives up.
+    const restore = fakeBackup(async (_real, _dest, options) => {
+      const stalled = { totalPages: 10, remainingPages: 4 };
+      options?.progress?.(stalled);
+      options?.progress?.(stalled);
+      return { totalPages: 10, remainingPages: 0 };
+    });
+    setSnapshotBusyLimitForTests(0);
+    try {
+      await assert.rejects(
+        withSqliteDriver(() => runBackup("manual")),
+        /Could not copy the database/,
+      );
+    } finally {
+      setSnapshotBusyLimitForTests(null);
+      restore();
+    }
+    assert.deepEqual(await archivesOnDisk(), []);
+  });
+
+  test("refuses to restore an archive that has no database", async () => {
+    getEffectiveInstanceSecrets();
+    // Written the way a Postgres install writes one: no SQLite snapshot inside.
+    const withoutDatabase = await runBackup("manual");
+    const marker = path.join(tempDir, "companies", "release-lab", "marker.txt");
+    await fs.writeFile(marker, "must survive");
+
+    await withSqliteDriver(() =>
+      assert.rejects(restoreFromBackup(withoutDatabase.id), /does not contain the database/),
+    );
+    assert.equal(await fs.readFile(marker, "utf8"), "must survive", "the restore wiped data/");
+  });
+
+  test("rejects an uploaded archive that has no database", async () => {
+    getEffectiveInstanceSecrets();
+    const withoutDatabase = await runBackup("manual");
+    const bytes = await fs.readFile(backupFilePath(withoutDatabase.filename));
+    const body = Object.assign(new PassThrough(), {
+      headers: { "content-length": String(bytes.length) },
+    });
+    body.end(bytes);
+
+    await withSqliteDriver(() =>
+      assert.rejects(
+        ingestUploadedArchive(body as unknown as IncomingMessage),
+        /does not contain the database/,
+      ),
+    );
+    const uploads = (await listBackupDir()).filter((name) => name.startsWith("uploaded-"));
+    assert.deepEqual(uploads, [], "a rejected upload was kept");
   });
 });

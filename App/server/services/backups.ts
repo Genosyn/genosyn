@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { IncomingMessage } from "node:http";
 import type archiver from "archiver";
 import * as archiverRuntime from "archiver";
@@ -79,6 +80,20 @@ const STAGING_PREFIX = ".staging-";
  * left a `.staging-<id>.sqlite-journal` behind for good.
  */
 const SQLITE_SIDECAR_SUFFIXES = ["-journal", "-wal", "-shm"] as const;
+
+/**
+ * How long a snapshot waits on a change to the database that has not finished.
+ * SQLite will not copy pages from the connection while it is part-way through
+ * a write, and a healthy install finishes one in well under a second.
+ */
+const SNAPSHOT_BUSY_LIMIT_MS = 2 * 60_000;
+const SNAPSHOT_RETRY_MS = 1_000;
+let snapshotBusyLimitMs = SNAPSHOT_BUSY_LIMIT_MS;
+
+/** Shorten the snapshot's wait so a test can reach the give-up path; null restores it. */
+export function setSnapshotBusyLimitForTests(ms: number | null): void {
+  snapshotBusyLimitMs = ms ?? SNAPSHOT_BUSY_LIMIT_MS;
+}
 
 /**
  * Hourly rather than daily so a window that lapses at 14:05 isn't enforced at
@@ -423,20 +438,32 @@ export async function pruneOldBackups(): Promise<number> {
  * `PK\x03\x04` header a partial write leaves behind would satisfy a signature
  * check too. Opening the archive reads its central directory, which only a
  * fully-written zip has. Cheap: a seek to the end, not a decompress.
+ *
+ * Under SQLite it must also hold the database. Restoring wipes `data/` before
+ * it extracts, so an archive without `app.sqlite` — what a backup that could
+ * not copy the database once wrote while recording itself as completed —
+ * would start the install over empty.
  */
 async function isRestorableArchive(filename: string): Promise<boolean> {
-  return canOpenZip(backupFilePath(filename));
+  return (await checkArchive(backupFilePath(filename))) === "restorable";
 }
 
+type ArchiveCheck = "restorable" | "unreadable" | "no-database";
+
 /** {@link isRestorableArchive} for a path that isn't (yet) a backup filename. */
-async function canOpenZip(abs: string): Promise<boolean> {
-  if (!fs.existsSync(abs)) return false;
+async function checkArchive(abs: string): Promise<ArchiveCheck> {
+  if (!fs.existsSync(abs)) return "unreadable";
+  let entries: Array<{ path: string; uncompressedSize: number }>;
   try {
-    await unzipper.Open.file(abs);
-    return true;
+    entries = (await unzipper.Open.file(abs)).files;
   } catch {
-    return false;
+    return "unreadable";
   }
+  const holdsDatabase = entries.some(
+    (entry) => entry.path === "app.sqlite" && entry.uncompressedSize > 0,
+  );
+  if (config.db.driver === "sqlite" && !holdsDatabase) return "no-database";
+  return "restorable";
 }
 
 async function pruneOldBackupsInner(): Promise<number> {
@@ -608,8 +635,8 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   activeStagingPaths.add(stagingDbPath);
 
   try {
-    await snapshotSqlite(stagingDbPath);
-    await writeZip(outPath, stagingDbPath);
+    const snapshot = await snapshotSqlite(stagingDbPath);
+    await writeZip(outPath, snapshot);
     // The archive is written and renamed into place, and nothing below reads
     // the snapshot again — so release it here rather than leaving it to the
     // `finally`. Off-box delivery can stream a 20 GB archive for hours, and
@@ -679,13 +706,34 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   return row;
 }
 
+/** How far better-sqlite3's backup has got: pages in the source, pages still to copy. */
+type SqliteBackupProgress = { totalPages: number; remainingPages: number };
+
 /** The part of the DataSource's better-sqlite3 handle a snapshot uses. */
-type SqliteBackupHandle = { backup(destination: string): Promise<unknown> };
+type SqliteBackupHandle = {
+  backup(
+    destination: string,
+    options?: { progress?: (progress: SqliteBackupProgress) => number | undefined },
+  ): Promise<SqliteBackupProgress>;
+  pragma(source: string, options?: { simple?: boolean }): unknown;
+};
+
+const MISSING_SNAPSHOT_MESSAGE =
+  "The database snapshot is missing. The backup was stopped rather than saved without its database.";
+
+function snapshotBusyMessage(): string {
+  const minutes = Math.max(1, Math.round(snapshotBusyLimitMs / 60_000));
+  return (
+    `Could not copy the database: a change to it has not finished for ${minutes} ` +
+    `minute${minutes === 1 ? "" : "s"}. The backup was stopped rather than saved without its database.`
+  );
+}
 
 /**
  * Snapshot SQLite to a standalone file at `dest` with SQLite's online backup
- * API, on the connection that does all of this process's writing. No-op when
- * the app is configured for Postgres (operators handle that via `pg_dump`).
+ * API, on the connection that does all of this process's writing. Returns the
+ * snapshot's path, or null when the app is configured for Postgres (operators
+ * handle that via `pg_dump`).
  *
  * This used to be `VACUUM INTO`. That is one statement, and better-sqlite3
  * runs every statement synchronously on the event loop, so snapshotting a
@@ -695,15 +743,56 @@ type SqliteBackupHandle = { backup(destination: string): Promise<unknown> };
  * written mid-copy are carried into the snapshot rather than restarting it,
  * and the result is the same consistent point-in-time copy. It is copied page
  * for page, free pages included, so the snapshot is the size of the live file.
+ *
+ * SQLite refuses to copy while that connection is part-way through a write.
+ * better-sqlite3 reports a refusal on the very first step as a finished copy
+ * of no pages and deletes the file, so a backup started at that moment used to
+ * ship without its database and still record itself as completed. A refusal
+ * is retried, a copy that stops moving is abandoned, and either way the run
+ * fails rather than writing an archive that cannot be restored.
  */
-async function snapshotSqlite(dest: string): Promise<void> {
-  if (config.db.driver !== "sqlite") return;
-  // Clear the destination *and* its sidecars: a journal stranded beside a
-  // fresh snapshot would be replayed into it the next time the file is opened.
-  removeStagingArtifact(dest);
+async function snapshotSqlite(dest: string): Promise<string | null> {
+  if (config.db.driver !== "sqlite") return null;
   const handle = (AppDataSource.driver as unknown as { databaseConnection: SqliteBackupHandle })
     .databaseConnection;
-  await handle.backup(dest);
+  const giveUpAt = Date.now() + snapshotBusyLimitMs;
+  for (;;) {
+    // Clear the destination *and* its sidecars: a journal stranded beside a
+    // fresh snapshot would be replayed into it the next time the file is opened.
+    removeStagingArtifact(dest);
+    let remaining = -1;
+    let movedAt = Date.now();
+    const copied = await handle.backup(dest, {
+      // Called after every step. A step SQLite refuses copies nothing, so the
+      // count standing still is a write holding the connection.
+      progress: ({ remainingPages }) => {
+        if (remainingPages !== remaining) {
+          remaining = remainingPages;
+          movedAt = Date.now();
+        } else if (Date.now() - movedAt >= snapshotBusyLimitMs) {
+          throw new Error(snapshotBusyMessage());
+        }
+        return undefined;
+      },
+    });
+    if (copied.totalPages > 0) {
+      assertCompleteSnapshot(dest, copied.totalPages, handle);
+      return dest;
+    }
+    if (Date.now() >= giveUpAt) throw new Error(snapshotBusyMessage());
+    await sleep(SNAPSHOT_RETRY_MS);
+  }
+}
+
+/** A finished copy holds every page the source had: never archive less. */
+function assertCompleteSnapshot(dest: string, pages: number, handle: SqliteBackupHandle): void {
+  const expected = pages * Number(handle.pragma("page_size", { simple: true }));
+  const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+  if (size === 0 || size < expected) {
+    throw new Error(
+      `The database snapshot is incomplete (${size} of ${expected} bytes). The backup was stopped rather than saved without its database.`,
+    );
+  }
 }
 
 /**
@@ -718,8 +807,15 @@ async function snapshotSqlite(dest: string): Promise<void> {
  * truncated zip at the real filename — one with a valid `PK\x03\x04` header
  * but no central directory, which every consumer here would treat as a
  * finished backup. The rename is atomic because it stays in one directory.
+ *
+ * A snapshot that was asked for must land in the archive. Files that vanish
+ * mid-walk are skipped on purpose, but an archive missing `app.sqlite` looks
+ * complete and restores to an empty install, so it fails the run instead.
  */
 function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void> {
+  if (sqliteSnapshot && !fs.existsSync(sqliteSnapshot)) {
+    return Promise.reject(new Error(MISSING_SNAPSHOT_MESSAGE));
+  }
   return new Promise((resolve, reject) => {
     const partPath = `${outPath}${PART_SUFFIX}`;
     const output = createWriteStream(partPath, { mode: 0o600 });
@@ -733,8 +829,17 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
       reject(err);
     };
 
+    let archivedDatabase = false;
+    archive.on("entry", (entry) => {
+      if (entry.name === "app.sqlite") archivedDatabase = true;
+    });
+
     output.on("close", () => {
       if (failed) return;
+      if (sqliteSnapshot && !archivedDatabase) {
+        fail(new Error(MISSING_SNAPSHOT_MESSAGE));
+        return;
+      }
       try {
         fs.renameSync(partPath, outPath);
         fs.chmodSync(outPath, 0o600);
@@ -757,7 +862,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
       if (fs.existsSync(root)) {
         await walkAndAppend(archive, root, "", sqliteSnapshot);
       }
-      if (sqliteSnapshot && fs.existsSync(sqliteSnapshot)) {
+      if (sqliteSnapshot) {
         archive.file(sqliteSnapshot, { name: "app.sqlite" });
       }
       await archive.finalize();
@@ -904,8 +1009,14 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     // operator would only find out at restore time — the worst possible
     // moment. Reading the central directory rejects both a partial upload and
     // something that was never a zip.
-    if (!(await canOpenZip(partPath))) {
+    const check = await checkArchive(partPath);
+    if (check === "unreadable") {
       throw new Error("Uploaded file is not a complete zip archive");
+    }
+    if (check === "no-database") {
+      throw new Error(
+        "Uploaded archive does not contain the database (app.sqlite), so it cannot be restored from",
+      );
     }
 
     fs.renameSync(partPath, outPath);
@@ -972,7 +1083,13 @@ export async function restoreFromBackup(id: string): Promise<{
     // `existsSync` only say a file is there, not that it can be extracted —
     // and this restore is about to delete everything the archive is supposed
     // to replace.
-    if (!(await isRestorableArchive(target.filename))) {
+    const check = await checkArchive(zipPath);
+    if (check === "no-database") {
+      throw new Error(
+        "Backup archive does not contain the database (app.sqlite), so restoring it would leave this install empty",
+      );
+    }
+    if (check !== "restorable") {
       throw new Error("Backup archive is incomplete or corrupt and cannot be restored from");
     }
 

@@ -736,7 +736,11 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <P>
         The SQLite database is copied with SQLite&apos;s online backup API a few pages at a time, so
         the App keeps answering requests while a backup runs and the archive still holds one
-        consistent point-in-time copy as <Code>app.sqlite</Code>.
+        consistent point-in-time copy as <Code>app.sqlite</Code>. SQLite won&apos;t copy while a
+        change to the database is part-way through, so a backup waits for it. If one has not
+        finished after two minutes, the backup fails with that reason in History rather than
+        saving an archive without the database, and Genosyn refuses to restore or upload an
+        archive that has no <Code>app.sqlite</Code>.
       </P>
       <P>
         A backup is written to a temporary <Code>.part</Code> file and moved into place only once it
