@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Briefcase,
   CalendarClock,
   CircleHelp,
   CircleUser,
@@ -75,6 +76,7 @@ export type SectionKey =
   | "customers"
   | "signatures"
   | "finance"
+  | "recruiting"
   | "pipelines"
   | "decisions"
   | "settings"
@@ -494,6 +496,38 @@ export const SECTION_GROUPS: SectionGroup[] = [
     ],
   },
   {
+    label: "People",
+    items: [
+      {
+        key: "recruiting",
+        label: "Recruiting",
+        description: "Openings, applicants, and your careers site.",
+        icon: Briefcase,
+        shortcut: "J",
+        path: "/recruiting",
+        iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
+        // "jobs", "ats" and "hire" are words people type for this section;
+        // the product says Openings, Applicants and Recruiting.
+        keywords: [
+          "hiring",
+          "jobs",
+          "job board",
+          "careers",
+          "careers page",
+          "openings",
+          "applicants",
+          "candidates",
+          "resumes",
+          "ats",
+          "applicant tracking",
+          "talent",
+          "contractors",
+          "recruit",
+        ],
+      },
+    ],
+  },
+  {
     label: "System",
     items: [
       {
@@ -603,6 +637,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/signatures(\/|$)/.test(pathname)) return "signatures";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
+  if (/\/c\/[^/]+\/recruiting(\/|$)/.test(pathname)) return "recruiting";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/decisions(\/|$)/.test(pathname)) return "decisions";
   if (/\/c\/[^/]+\/help(\/|$)/.test(pathname)) return "help";

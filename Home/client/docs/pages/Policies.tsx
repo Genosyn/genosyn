@@ -145,9 +145,11 @@ export function Policies() {
         address the model directly, and what an injected instruction most wants is an outbound email
         or a persistent foothold. So Genosyn tracks <Strong>taint</Strong> per turn, on by default.
         A turn that uses the <DocLink to="/docs/browser#web-tools">web tools</DocLink> —{" "}
-        <Code>search_web</Code>, <Code>fetch_web_page</Code>, <Code>download_web_file</Code> — is
-        marked tainted for the rest of that turn. There is no untainting: the model has already read
-        whatever the page said.
+        <Code>search_web</Code>, <Code>fetch_web_page</Code>, <Code>download_web_file</Code> — or
+        reads what applicants sent in <DocLink to="/docs/recruiting#ai-employees">Recruiting</DocLink>{" "}
+        (<Code>list_applications</Code>, <Code>get_application</Code>) is marked tainted for the
+        rest of that turn. There is no untainting: the model has already read whatever the page or
+        the application said.
       </P>
       <P>
         A tainted turn calling a high-risk sink does not execute it. The sinks are{" "}

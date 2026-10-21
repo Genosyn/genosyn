@@ -292,7 +292,8 @@ export function SelfHosting() {
 │   ├── browser-state/<company-id>/<employee-id>.profile/
 │   ├── browser-state/<company-id>/<employee-id>.json
 │   ├── browser-recordings/<company-id>/<run-id>/
-│   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
+│   ├── code-repository-ssh/<company-id>/<employee-id>.known_hosts
+│   └── recruiting/<company-id>/   # applicants' resumes and the careers site logo
 ├── app.sqlite            # plus app.sqlite-wal / -shm while the App runs
 └── companies/<co-slug>/employees/<emp-slug>/
     ├── repos/
@@ -853,6 +854,39 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         front of it for TLS and a real hostname. Then save that HTTPS origin at{" "}
         <Code>Admin → General</Code> so the app generates absolute links and OAuth callbacks
         correctly.
+      </P>
+
+      <H3 id="careers-domains">Careers site domains</H3>
+      <P>
+        A company can put its <DocLink to="/docs/recruiting#domain">careers site</DocLink> on its
+        own domain, such as <Code>careers.example.com</Code>. Its DNS points a <Code>CNAME</Code> at
+        the hostname of your public URL, and Genosyn serves the careers site, and only the careers
+        site, on that name once the company&apos;s TXT record checks out. Your reverse proxy has to
+        accept the name and hold a certificate for it.
+      </P>
+      <P>
+        With Caddy, on-demand TLS issues a certificate the first time a domain is visited. Point
+        its <Code>ask</Code> at Genosyn: it answers <Code>200</Code> only for careers domains a
+        company has verified, so Caddy never requests a certificate for a name nobody claimed.
+      </P>
+      <Pre lang="caddyfile">{`{
+  on_demand_tls {
+    ask http://localhost:8471/api/careers/domains/check
+  }
+}
+
+https:// {
+  tls {
+    on_demand
+  }
+  reverse_proxy localhost:8471
+}`}</Pre>
+      <P>
+        With nginx, Traefik, or a Kubernetes Ingress, add each domain to the hosts the proxy
+        routes to Genosyn and to its certificate (with cert-manager, to the Ingress&apos;s{" "}
+        <Code>tls.hosts</Code>), then choose <Strong>Verify</Strong> on the careers site page. Keep
+        the original <Code>Host</Code> header when proxying: Genosyn picks the company&apos;s site
+        by it.
       </P>
     </>
   );

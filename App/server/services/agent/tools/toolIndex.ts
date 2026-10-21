@@ -463,6 +463,25 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "record_marketing_performance",
     ],
   },
+  recruiting: {
+    label: "recruiting",
+    blurb:
+      "Openings for jobs and contracts, the people who apply, and Scorecards against each Opening's criteria. Needs a Recruiting grant.",
+    tools: [
+      "list_openings",
+      "get_opening",
+      "create_opening",
+      "update_opening",
+      "publish_opening",
+      "close_opening",
+      "list_applications",
+      "get_application",
+      "score_application",
+      "move_application",
+      "add_application_note",
+      "add_candidate",
+    ],
+  },
   files: {
     label: "files",
     blurb:
@@ -1128,6 +1147,26 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "link gmail document",
     "reject attachment",
   ],
+
+  // Recruiting
+  list_openings: ["jobs", "job postings", "roles we are hiring for", "vacancies", "careers page"],
+  get_opening: ["job description", "hiring criteria", "role details"],
+  create_opening: ["post a job", "job posting", "hire someone", "new role", "contract role", "post a contract"],
+  update_opening: ["edit job posting", "change the salary", "hiring criteria"],
+  publish_opening: ["publish job", "go live on careers site", "post the job publicly"],
+  close_opening: ["stop taking applications", "close job", "position filled"],
+  list_applications: ["applicants", "candidates", "who applied", "resumes", "top candidates"],
+  get_application: ["read resume", "candidate profile", "cover letter", "applicant details"],
+  score_application: ["screen candidate", "rate applicant", "evaluate resume", "candidate scorecard"],
+  move_application: [
+    "reject candidate",
+    "advance candidate",
+    "schedule interview",
+    "make an offer",
+    "mark hired",
+  ],
+  add_application_note: ["interview feedback", "note on candidate"],
+  add_candidate: ["source a candidate", "referral", "add a candidate", "headhunt"],
 
   // Marketing agency
   get_marketing_overview: ["ads dashboard", "paid media", "ad agency", "campaign performance"],

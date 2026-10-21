@@ -42,6 +42,10 @@ export type MarkdownEditorProps = {
   placeholder?: string;
   /** Style the preview as the saved document is styled (e.g. `doc-md`). */
   previewClassName?: string;
+  /** The text box's id, so a `<label htmlFor>` outside the editor names it. */
+  id?: string;
+  /** The text box's accessible name, when no visible label points at it. */
+  "aria-label"?: string;
 };
 
 type Mode = "edit" | "split" | "preview";
@@ -55,6 +59,8 @@ export function MarkdownEditor({
   initialMode = "split",
   placeholder,
   previewClassName = "prose prose-slate max-w-none dark:prose-invert",
+  id,
+  "aria-label": ariaLabel,
 }: MarkdownEditorProps) {
   const [mode, setMode] = React.useState<Mode>(initialMode);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -212,6 +218,8 @@ export function MarkdownEditor({
         {mode !== "preview" && (
           <Textarea
             ref={textareaRef}
+            id={id}
+            aria-label={ariaLabel}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}

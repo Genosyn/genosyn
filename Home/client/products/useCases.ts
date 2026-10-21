@@ -160,6 +160,54 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
     primaryProductSlug: "repositories",
     accent: "bg-orange-100 text-orange-800 ring-orange-200",
   },
+  // The three hiring cases sit last on purpose. Every other product already
+  // fills its three "In practice" cards from the entries above, so these
+  // appear on the Recruiting page and change no other page.
+  {
+    role: "Recruiting Coordinator",
+    team: "People",
+    initials: "RC",
+    objective: "Answer every applicant, and put the strongest in front of the hiring manager first.",
+    steps: [
+      "Read the night's Scorecards and the quotes behind them",
+      "Move the strong matches to Interview with questions to ask",
+      "Stack a Decision on the finalists for the hiring manager",
+    ],
+    outcome: "Every applicant answered, the strongest read first",
+    productSlugs: ["recruiting", "email", "tasks", "workspace", "notes"],
+    primaryProductSlug: "recruiting",
+    accent: "bg-red-100 text-red-700 ring-red-200",
+  },
+  {
+    role: "Engineering Manager",
+    team: "Engineering",
+    initials: "EM",
+    objective: "Hire against a bar the team wrote down, not a feeling after a call.",
+    steps: [
+      "Draft the Opening and its criteria from the team's notes",
+      "Score each application, quoting the resume for every rating",
+      "Note what to ask each strong match in the interview",
+    ],
+    outcome: "A shortlist the team can argue with, criterion by criterion",
+    productSlugs: ["recruiting", "notes", "tasks", "workspace", "repositories"],
+    primaryProductSlug: "recruiting",
+    accent: "bg-violet-100 text-violet-700 ring-violet-200",
+  },
+  {
+    role: "Operations Manager",
+    team: "Operations",
+    initials: "OM",
+    objective: "Find a contractor for work the company needs done this month.",
+    steps: [
+      "Post a contract Opening, paid for the project",
+      "Score everyone who applies against its criteria",
+      "Move the best match forward, with the reason on the timeline",
+    ],
+    outcome: "A contractor shortlisted the week the work came up",
+    productSlugs: ["recruiting", "tasks", "workspace", "ai-employees"],
+    primaryProductSlug: "recruiting",
+    accent: "bg-indigo-100 text-indigo-700 ring-indigo-200",
+  },
 ];
 
 export const SHOWCASE_USE_CASES = PRODUCT_USE_CASES.slice(0, 5);

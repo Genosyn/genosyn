@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,9 +40,35 @@ function readCommit(): string {
   }
 }
 
+/**
+ * Two pages: the App, and the careers site's own small bundle, which the
+ * server fills with each careers page's head and data. Only when building the
+ * App's own root: a browser-test fixture builds this config with a root and
+ * page of its own, and must build that page alone.
+ */
+function appPages(): Plugin {
+  const clientRoot = path.resolve(__dirname, "client");
+  return {
+    name: "genosyn-app-pages",
+    config(config) {
+      if (path.resolve(config.root ?? process.cwd()) !== clientRoot) return;
+      return {
+        build: {
+          rollupOptions: {
+            input: {
+              main: path.join(clientRoot, "index.html"),
+              careers: path.join(clientRoot, "careers.html"),
+            },
+          },
+        },
+      };
+    },
+  };
+}
+
 export default defineConfig({
   root: "client",
-  plugins: [react()],
+  plugins: [react(), appPages()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client"),

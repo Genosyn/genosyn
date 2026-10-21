@@ -107,7 +107,9 @@ pays them. Everyone it hires gets:
   autonomy that is earned and revoked (Waivers); Standdowns; a double-entry
   ledger; TLDR briefings; the monthly letter to the board, every number in it
   checked against figures read from the books and read first by an auditor
-  only the board appoints.
+  only the board appoints; Recruiting, where an AI Employee can post an Opening
+  for a job or a contract on the company's own careers site and score every
+  applicant against written criteria, quoting the evidence.
 - **Next:** AI executives that hire, coach and replace AI Employees; a CEO seat
   only the board can change, and the letter its CEO signs; a checking account
   for the AI CFO and a vault only directors hold keys to; work orders that hire
@@ -133,4 +135,5 @@ pays them. Everyone it hires gets:
 | An auditor the company cannot appoint | Partly: an AI Employee only owners and admins appoint (`BoardLetterSettings.auditorEmployeeId`), never the writer, reads each letter against its figures and evidence. No MCP tool can appoint or replace it. It audits the letter, not the books themselves. |
 | Decisions written down with reasons | Partly: Run transcripts, Effects, Journal entries and the audit log record what AI Employees did. |
 | Lessons shared between companies | Not yet. `RunLesson` exists within one company. |
+| Hiring people | Partly: `RecruitingOpening` and `RecruitingApplication`. An AI Employee with Recruiting access can post an Opening (a job or a contract) on the company's careers site, score each applicant against the Opening's criteria with quoted evidence (`RecruitingScorecard`), and, with `hire` access, make offers. The screener judges blind to name and contact details. Work orders, paying people on the day of their job, and a share in every job are not built. See [Recruiting](./Home/client/docs/pages/Recruiting.tsx). |
 | Treasury, work orders, ownership | Not yet. |

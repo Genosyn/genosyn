@@ -23,6 +23,7 @@ import { composeSigningContext } from "./signing.js";
 import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeRecruitingContext } from "./recruiting/grants.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
@@ -325,6 +326,7 @@ export type InteractiveChatContextAccess = {
   signing: boolean;
   revenue: boolean;
   marketing: boolean;
+  recruiting: boolean;
   resources: boolean;
   extraSystem: boolean;
   taggedReferences: boolean;
@@ -362,6 +364,7 @@ export function resolveInteractiveChatContextAccess(
     signing: companyContext,
     revenue: companyContext,
     marketing: companyContext,
+    recruiting: companyContext,
     resources: companyContext,
     extraSystem: companyContext,
     taggedReferences: companyContext,
@@ -761,8 +764,14 @@ export async function streamChatWithEmployee(
         : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
-    const [signingContext, revenueContext, marketingContext, resourcesContext, phoneContext] =
-      await Promise.all([
+    const [
+      signingContext,
+      revenueContext,
+      marketingContext,
+      recruitingContext,
+      resourcesContext,
+      phoneContext,
+    ] = await Promise.all([
         contextAccess.signing && !repositoryWork
           ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
           : Promise.resolve(""),
@@ -771,6 +780,9 @@ export async function streamChatWithEmployee(
           : Promise.resolve(""),
         contextAccess.marketing && !repositoryWork
           ? composeMarketingContext(emp.id)
+          : Promise.resolve(""),
+        contextAccess.recruiting && !repositoryWork
+          ? composeRecruitingContext(emp.id)
           : Promise.resolve(""),
         contextAccess.resources && !repositoryWork
           ? composeResourceLibraryContext(emp.id)
@@ -811,6 +823,7 @@ export async function streamChatWithEmployee(
             signingContext,
             revenueContext,
             marketingContext,
+            recruitingContext,
             resourcesContext,
             phoneContext,
             routineAccess,

@@ -224,6 +224,12 @@ import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
 import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
 import { BoardLetter } from "./entities/BoardLetter.js";
 import { BoardLetterSettings } from "./entities/BoardLetterSettings.js";
+import { RecruitingSettings } from "./entities/RecruitingSettings.js";
+import { RecruitingOpening } from "./entities/RecruitingOpening.js";
+import { RecruitingApplication } from "./entities/RecruitingApplication.js";
+import { RecruitingScorecard } from "./entities/RecruitingScorecard.js";
+import { RecruitingApplicationEvent } from "./entities/RecruitingApplicationEvent.js";
+import { EmployeeRecruitingGrant } from "./entities/EmployeeRecruitingGrant.js";
 import { CompanySso } from "./entities/CompanySso.js";
 import { PhoneNumber } from "./entities/PhoneNumber.js";
 import { PhoneMessage } from "./entities/PhoneMessage.js";
@@ -462,6 +468,14 @@ const entities = [
   PhoneNumber,
   PhoneMessage,
   PhoneCall,
+  // Recruiting — Openings, the people who apply, their Scorecards, and the
+  // careers site they apply through.
+  RecruitingSettings,
+  RecruitingOpening,
+  RecruitingApplication,
+  RecruitingScorecard,
+  RecruitingApplicationEvent,
+  EmployeeRecruitingGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

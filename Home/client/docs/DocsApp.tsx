@@ -33,6 +33,7 @@ import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
 import { PhoneNumbers } from "@/docs/pages/PhoneNumbers";
 import { Tldrs } from "@/docs/pages/Tldrs";
 import { BoardLetters } from "@/docs/pages/BoardLetters";
+import { Recruiting } from "@/docs/pages/Recruiting";
 import { Vault } from "@/docs/pages/Vault";
 import { VaultSources } from "@/docs/pages/VaultSources";
 import { Connect } from "@/docs/pages/Connect";
@@ -97,6 +98,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/phone-numbers": PhoneNumbers,
   "/docs/tldrs": Tldrs,
   "/docs/board-letters": BoardLetters,
+  "/docs/recruiting": Recruiting,
   "/docs/vault": Vault,
   "/docs/vault-sources": VaultSources,
   "/docs/connect": Connect,

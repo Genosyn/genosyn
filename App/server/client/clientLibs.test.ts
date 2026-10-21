@@ -808,6 +808,7 @@ describe("section routing and command search", () => {
       "revenue",
       "customers",
       "finance",
+      "recruiting",
       "pipelines",
       "decisions",
       "help",

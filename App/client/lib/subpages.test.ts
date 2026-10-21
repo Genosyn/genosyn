@@ -306,6 +306,9 @@ describe("subpage visibility", () => {
       "/decisions/approvals",
       "/employees/new",
       "/pipelines/new",
+      "/recruiting/ai-access",
+      "/recruiting/settings",
+      "/recruiting/site",
       "/routines/new",
       "/settings/audit",
       "/settings/email/logs",
@@ -397,13 +400,14 @@ describe("subpage search", () => {
     assert.equal(sections[0].item.key, "settings");
     assert.equal(pagesFirst, false);
     // Pages named for the word lead; the section's own pages follow as context.
-    assert.deepEqual(paths(pages).slice(0, 4), [
+    assert.deepEqual(paths(pages).slice(0, 5), [
       "/decisions/settings",
       "/tldrs/settings",
       "/mail/settings",
       "/finance/settings",
+      "/recruiting/settings",
     ]);
-    assert.equal(pages[4].page.section, "settings");
+    assert.equal(pages[5].page.section, "settings");
   });
 
   test("finds Decision stack settings by what people want to do there, for every Member", () => {
@@ -571,6 +575,7 @@ describe("subpage search", () => {
       "/revenue/ai-access",
       "/signatures/ai-access",
       "/finance/ai-access",
+      "/recruiting/ai-access",
     ]);
     assert.equal(
       paths(searchSubpages(PALETTE_SUBPAGES, "ai access", { viewer: MEMBER_NONE })).includes(

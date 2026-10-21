@@ -287,6 +287,22 @@ const MEMBER_TOOLS = [
   "create_marketing_experiment",
   "update_marketing_experiment",
   "record_marketing_performance",
+  // Recruiting is Member-level on the human route: any Member may post and
+  // edit Openings and work Applications (routes/recruiting.ts). The admin-only
+  // parts — the careers site, the screener, AI access, erasing an
+  // Application — have no tool at all.
+  "list_openings",
+  "get_opening",
+  "create_opening",
+  "update_opening",
+  "publish_opening",
+  "close_opening",
+  "list_applications",
+  "get_application",
+  "score_application",
+  "move_application",
+  "add_application_note",
+  "add_candidate",
 ] as const;
 
 const ADMIN_TOOLS = [

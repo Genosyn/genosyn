@@ -4,6 +4,7 @@ import { POSTS, type Post } from "@/blog/posts";
 import { DOCS_NAV } from "@/docs/nav";
 import { LEGAL_DOCS, LEGAL_UPDATED, type LegalDoc } from "@/legal/data";
 import { GITHUB_URL } from "@/lib/constants";
+import { spell } from "@/lib/night";
 
 /**
  * Route-level SEO registry. Single source of truth for every indexable route:
@@ -268,7 +269,9 @@ export function allRoutes(): RouteHead[] {
     },
     {
       path: "/products",
-      title: "Products — the fourteen tools the work happens in · Genosyn",
+      // Spelled from the registry for the reason below, so adding a product
+      // can never leave the title a number behind.
+      title: `Products — the ${spell(PRODUCTS.length)} tools the work happens in · Genosyn`,
       // Derived, not hand-listed: the hand-written version had drifted and
       // omitted Paid Marketing while the page itself advertised the full count.
       description: `Every tool an autonomous company runs on, built in: ${PRODUCTS.map((p) => p.name).join(", ")}.`,

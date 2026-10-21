@@ -25,6 +25,7 @@ import {
   Table2,
   Terminal,
   TrendingUp,
+  UserCheck,
   Webhook,
   Workflow,
   Zap,
@@ -50,6 +51,7 @@ const PREVIEWS: Record<string, () => JSX.Element> = {
   email: EmailPreview,
   customers: CustomersPreview,
   finance: FinancePreview,
+  recruiting: RecruitingPreview,
   code: CodePreview,
 };
 
@@ -1267,6 +1269,186 @@ function FinancePreview() {
             ))}
           </div>
         </div>
+      </div>
+    </Window>
+  );
+}
+
+// ──────────────────────────────── Recruiting ────────────────────────────────
+
+/*
+ * The numbers are the product's own arithmetic, so the picture survives anyone
+ * checking it. Must haves count 3, important 2 and nice to have 1, so these
+ * four criteria are worth 27 points. Ada's ratings earn 23 of them (85, a
+ * strong match). Jonas earns 11 (41), but his first must have was Not shown,
+ * which makes him a weak match rather than a possible one.
+ */
+const RECRUITING_APPLICANTS: Array<{
+  name: string;
+  source: string;
+  score: number | null;
+  match: string;
+  stage: string;
+}> = [
+  { name: "Ada Okafor", source: "Careers site · 9h", score: 85, match: "Strong match", stage: "Interview" },
+  { name: "Tomás Ruiz", source: "Careers site · 7h", score: 70, match: "Good match", stage: "Screening" },
+  { name: "Mei Lin", source: "Added by a Member · 1d", score: 52, match: "Possible match", stage: "Applied" },
+  { name: "Jonas Weber", source: "Careers site · 3h", score: 41, match: "Weak match", stage: "Applied" },
+  { name: "Priya Nair", source: "Careers site · 2m", score: null, match: "Scoring now", stage: "Applied" },
+];
+
+const RECRUITING_SCORECARD: Array<{
+  criterion: string;
+  importance: string;
+  rating: number;
+  label: string;
+  quote: string;
+}> = [
+  {
+    criterion: "Go in production",
+    importance: "Must have",
+    rating: 3,
+    label: "Exceeds",
+    quote: "Led the Go rewrite of our payments API",
+  },
+  {
+    criterion: "Postgres at scale",
+    importance: "Must have",
+    rating: 2,
+    label: "Meets",
+    quote: "Partitioned a 2 TB orders table",
+  },
+  {
+    criterion: "Mentoring",
+    importance: "Important",
+    rating: 3,
+    label: "Exceeds",
+    quote: "Coached three engineers to senior",
+  },
+  {
+    criterion: "On-call",
+    importance: "Nice to have",
+    rating: 2,
+    label: "Meets",
+    quote: "Primary on-call for checkout",
+  },
+];
+
+function RecruitingPreview() {
+  return (
+    <Window url="genosyn.com / recruiting / openings / senior-backend-engineer">
+      <div className="flex items-center gap-2 border-b border-slate-50 px-5 py-2.5 text-[11px]">
+        <UserCheck className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        <span className="shrink-0 font-medium text-slate-700">Senior Backend Engineer</span>
+        <Tag tone="bg-slate-50 text-slate-700 ring-slate-200">Open</Tag>
+        <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-slate-500">
+          Full-time · Remote · €85,000 – €100,000 per year
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-5">
+        <div className="border-b border-slate-50 md:col-span-3 md:border-b-0 md:border-r">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                  <th className="px-5 py-2 text-left font-medium">Candidate</th>
+                  <th className="px-3 py-2 text-left font-medium">AI match</th>
+                  <th className="hidden px-5 py-2 text-left font-medium sm:table-cell">Stage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 text-[12px]">
+                {RECRUITING_APPLICANTS.map((applicant) => (
+                  <tr key={applicant.name}>
+                    <td className="px-5 py-2.5">
+                      <div className="font-medium text-slate-900">{applicant.name}</div>
+                      <div className="text-[10px] text-slate-500">{applicant.source}</div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5">
+                      {applicant.score === null ? (
+                        <Tag tone="bg-white text-slate-500 ring-slate-200">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-500" />
+                          {applicant.match}
+                        </Tag>
+                      ) : (
+                        <>
+                          <Tag
+                            tone={
+                              applicant.score >= 80
+                                ? "bg-slate-900 text-slate-50 ring-slate-700"
+                                : "bg-slate-50 text-slate-700 ring-slate-200"
+                            }
+                          >
+                            {`${applicant.score} · ${applicant.match}`}
+                          </Tag>
+                          <div className="mt-1.5 h-1 w-20 bg-slate-100">
+                            <div
+                              className={`h-full ${applicant.score >= 80 ? "bg-slate-900" : "bg-slate-500"}`}
+                              style={{ width: `${applicant.score}%` }}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </td>
+                    <td className="hidden px-5 py-2.5 text-[11px] text-slate-700 sm:table-cell">
+                      {applicant.stage}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="p-5 md:col-span-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[12.5px] font-semibold text-slate-900">Ada Okafor</span>
+            <Tag tone="bg-slate-50 text-slate-700 ring-slate-200">Interview</Tag>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">85</span>
+            <div className="min-w-0">
+              <Tag tone="bg-slate-900 text-slate-50 ring-slate-700">Strong match</Tag>
+              <div className="mt-1 text-[10px] leading-4 text-slate-500">
+                AI screen by Noor · score worked out by Genosyn
+              </div>
+            </div>
+          </div>
+          <ul className="mt-3 divide-y divide-slate-50 border border-slate-100">
+            {RECRUITING_SCORECARD.map((row) => (
+              <li key={row.criterion} className="px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-[11.5px] font-medium text-slate-900">
+                    {row.criterion}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-slate-500">
+                    <span className="flex gap-0.5">
+                      {[1, 2, 3].map((step) => (
+                        <span
+                          key={step}
+                          className={`h-1.5 w-3 ${row.rating >= step ? "bg-slate-900" : "bg-slate-100"}`}
+                        />
+                      ))}
+                    </span>
+                    {row.label}
+                  </span>
+                </div>
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                  {row.importance}
+                </div>
+                <div className="mt-1 flex items-start gap-1 text-[10.5px] leading-4 text-slate-600">
+                  <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-slate-700" />
+                  <span className="italic">{`“${row.quote}”`}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-slate-50 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-slate-700" />
+        <span>
+          <span className="font-medium text-slate-700">Noor (AI)</span> scored 11 applications
+          overnight, blind to names · every quote checked against the application
+        </span>
       </div>
     </Window>
   );
