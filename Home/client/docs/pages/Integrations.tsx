@@ -19,6 +19,7 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Forgejo / Gitea", kind: "engineering (self-hosted)" },
   { name: "Stripe", kind: "finance" },
   { name: "Brex", kind: "finance" },
+  { name: "Wise", kind: "finance" },
   { name: "Gmail / Google", kind: "comms + drive" },
   { name: "Google Analytics", kind: "analytics" },
   { name: "Google Search Console", kind: "SEO / search" },
@@ -412,6 +413,38 @@ export function Integrations() {
         <Code>Advanced</Code> sets the card liability and the bank account that pays the card. Brex
         exposes only settled transactions: pending card activity appears after it settles.
       </P>
+
+      <H3 id="wise">Wise balances</H3>
+      <P>
+        To connect your company&apos;s Wise business account, sign in to Wise, open{" "}
+        <Code>Your Account → Connect and manage apps → API tokens</Code>, click{" "}
+        <Code>Add new token</Code>, and copy the token — Wise shows it only once. Genosyn only
+        reads, so if Wise asks which permissions the token should have, read-only is enough. In
+        Genosyn, open <Code>Finance → Integrations</Code>, choose <Code>Wise</Code>, and paste the
+        token into a new Connection. Genosyn talks to Wise directly, with no aggregator in between,
+        encrypts the token, and never returns it to the browser after creation.
+      </P>
+      <P>
+        To bring a balance&apos;s transactions into the books, open{" "}
+        <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
+        <Code>Add account</Code>, choose <Code>Wise balance</Code>, pick the Connection and the
+        balance, then click <Code>Update now</Code>. Only a balance in your home currency can be
+        added, because bank transactions are in your home currency; balances in other currencies
+        are listed but greyed out.
+      </P>
+      <P>
+        The Connection contributes read-only profile, balance, and balance statement tools to
+        employees who receive a Grant. A statement covers at most 469 days and lists each
+        transaction once, with its fees included and without the payer&apos;s bank account number.
+        No tool sends, converts, or moves money.
+      </P>
+      <Callout kind="info" title="Where Wise releases statements">
+        Wise releases balance statements to a personal API token only for business accounts based
+        in the US, Canada, Australia, New Zealand, Singapore, and Malaysia. Elsewhere — the UK and
+        the EEA included — Wise asks for Strong Customer Authentication first, which a token
+        can&apos;t complete. The Connection still lists profiles and balances, and{" "}
+        <Code>Add account</Code> explains why instead of adding the balance.
+      </Callout>
 
       <H3 id="stripe-reads">Stripe reads and coverage</H3>
       <P>

@@ -28,6 +28,7 @@ import {
   CompanyFinanceSettings,
   formatMoney,
   IntegrationConnection,
+  WiseBalanceChoice,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
@@ -78,6 +79,7 @@ const NO_ROWS: Row[] = [];
 function accountKindLabel(account: BankingAccount): string {
   if (account.kind === "card") return "Brex card";
   if (account.feed.kind === "brex_cash") return "Brex business account";
+  if (account.feed.kind === "wise_balance") return "Wise balance";
   if (account.feed.kind === "stripe_payouts") return "Stripe payouts";
   return "Bank account · CSV uploads";
 }
@@ -719,7 +721,7 @@ function NoAccounts({ canWrite, onAdd }: { canWrite: boolean; onAdd: () => void 
       </h2>
       <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
         {canWrite
-          ? "Upload your bank's CSV statements, or connect Brex or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
+          ? "Upload your bank's CSV statements, or connect Brex, Wise, or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
           : "No bank accounts or cards have been added yet. Someone with full Finance access can add them."}
       </p>
       {canWrite && (
@@ -769,14 +771,22 @@ function EmptyList({
 
 // ───────────────────────────── Add an account ──────────────────────────────
 
-type NewAccountKind = "csv" | "brex_cash" | "brex_card" | "stripe_payouts";
+type NewAccountKind = "csv" | "brex_cash" | "brex_card" | "wise_balance" | "stripe_payouts";
+
+type AccountProvider = "brex" | "wise" | "stripe";
+
+const PROVIDER_NAMES: Record<AccountProvider, string> = {
+  brex: "Brex",
+  wise: "Wise",
+  stripe: "Stripe",
+};
 
 const NEW_ACCOUNT_KINDS: ReadonlyArray<{
   kind: NewAccountKind;
   title: string;
   description: string;
   defaultName: string;
-  provider: "brex" | "stripe" | null;
+  provider: AccountProvider | null;
 }> = [
   {
     kind: "csv",
@@ -798,6 +808,13 @@ const NEW_ACCOUNT_KINDS: ReadonlyArray<{
     description: "Bring in card purchases automatically, each filed under a category you can change.",
     defaultName: "Brex card",
     provider: "brex",
+  },
+  {
+    kind: "wise_balance",
+    title: "Wise balance",
+    description: "Bring in a Wise balance's transactions automatically.",
+    defaultName: "Wise",
+    provider: "wise",
   },
   {
     kind: "stripe_payouts",
@@ -828,6 +845,9 @@ function AddAccountModal({
   const [cashAccounts, setCashAccounts] = React.useState<BrexCashAccount[] | null>([]);
   const [cashAccountId, setCashAccountId] = React.useState("");
   const [cashError, setCashError] = React.useState<string | null>(null);
+  const [wiseBalances, setWiseBalances] = React.useState<WiseBalanceChoice[] | null>([]);
+  const [wiseBalanceId, setWiseBalanceId] = React.useState("");
+  const [wiseError, setWiseError] = React.useState<string | null>(null);
   const [bankAccountId, setBankAccountId] = React.useState(byCode("1100"));
   const [liabilityAccountId, setLiabilityAccountId] = React.useState(byCode("2300"));
   const [defaultExpenseAccountId, setDefaultExpenseAccountId] = React.useState(byCode("6000"));
@@ -894,6 +914,38 @@ function AddAccountModal({
     };
   }, [company.id, connectionId, kind]);
 
+  React.useEffect(() => {
+    if (kind !== "wise_balance" || !connectionId) {
+      setWiseBalances([]);
+      setWiseBalanceId("");
+      setWiseError(null);
+      return;
+    }
+    let alive = true;
+    setWiseBalances(null);
+    setWiseError(null);
+    api
+      .get<WiseBalanceChoice[]>(
+        `/api/companies/${company.id}/bank-feeds/wise-balances?connectionId=${encodeURIComponent(connectionId)}`,
+      )
+      .then((list) => {
+        if (!alive) return;
+        setWiseBalances(list);
+        // The first balance that can be added — usually the only one in the
+        // books' currency, so the common case is no choice.
+        setWiseBalanceId(list.find((item) => !item.unavailableReason)?.id ?? "");
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setWiseBalances([]);
+        setWiseBalanceId("");
+        setWiseError(errorMessage(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id, connectionId, kind]);
+
   function pickKind(next: NewAccountKind) {
     setKind(next);
     setError(null);
@@ -917,6 +969,7 @@ function AddAccountModal({
     !!bankAccountId &&
     (!option.provider || !!connectionId) &&
     (kind !== "brex_cash" || !!cashAccountId) &&
+    (kind !== "wise_balance" || !!wiseBalanceId) &&
     (kind !== "brex_card" || (!!liabilityAccountId && !!defaultExpenseAccountId));
 
   async function submit(event: React.FormEvent) {
@@ -939,7 +992,8 @@ function AddAccountModal({
               kind,
               accountId: bankAccountId,
               connectionId: kind === "csv" ? null : connectionId,
-              externalAccountId: kind === "brex_cash" ? cashAccountId : null,
+              externalAccountId:
+                kind === "brex_cash" ? cashAccountId : kind === "wise_balance" ? wiseBalanceId : null,
             });
       await onAdded(feed, kind);
     } catch (err) {
@@ -1002,8 +1056,7 @@ function AddAccountModal({
 
         {option.provider && connections !== null && providerConnections.length === 0 ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-            Connect {option.provider === "brex" ? "Brex" : "Stripe"} first, then come back to add
-            this account.{" "}
+            Connect {PROVIDER_NAMES[option.provider]} first, then come back to add this account.{" "}
             <Link
               to={`/c/${company.slug}/finance/integrations`}
               className="font-medium underline"
@@ -1016,7 +1069,7 @@ function AddAccountModal({
           </p>
         ) : option.provider ? (
           <Select
-            label={option.provider === "brex" ? "Brex Connection" : "Stripe Connection"}
+            label={`${PROVIDER_NAMES[option.provider]} Connection`}
             value={connectionId}
             onChange={(event) => setConnectionId(event.target.value)}
             disabled={connections === null}
@@ -1054,6 +1107,35 @@ function AddAccountModal({
               </Select>
             )}
             <FormError message={cashError} />
+          </>
+        )}
+
+        {kind === "wise_balance" && connectionId && (
+          <>
+            {wiseBalances === null ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <Spinner size={14} /> Loading your Wise balances…
+              </div>
+            ) : (
+              <Select
+                label="Wise balance"
+                value={wiseBalanceId}
+                onChange={(event) => setWiseBalanceId(event.target.value)}
+                required
+              >
+                <option value="">Choose a balance</option>
+                {wiseBalances.map((balance) => (
+                  <option key={balance.id} value={balance.id} disabled={!!balance.unavailableReason}>
+                    {balance.profileName} · {balance.currency}
+                    {balance.availableCents === null
+                      ? ""
+                      : ` · ${formatMoney(balance.availableCents, balance.currency)}`}
+                    {balance.unavailableReason ? ` — ${balance.unavailableReason}` : ""}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <FormError message={wiseError} />
           </>
         )}
 

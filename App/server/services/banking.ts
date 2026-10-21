@@ -28,14 +28,14 @@ import { unmatch } from "./reconcile.js";
  * Banking: the company's bank accounts and cards, and the transactions on
  * them, as one list a person works through.
  *
- * A bank account here is a `BankFeed` (a CSV upload, Brex Cash, or Stripe
- * payouts) and a card is a `CardFeed` (Brex). A bank transaction waits for
- * review until something explains it — it paid one or more invoices, it
- * matches a payment or entry already in the books, or someone gave it a
- * category — and `reconciledAt` records that it is done. A card purchase is
- * filed under its card's default category the moment it arrives, and waits
- * until someone keeps that category or picks another (`needsReview`), or
- * while that posting failed.
+ * A bank account here is a `BankFeed` (a CSV upload, Brex Cash, a Wise
+ * balance, or Stripe payouts) and a card is a `CardFeed` (Brex). A bank
+ * transaction waits for review until something explains it — it paid one or
+ * more invoices, it matches a payment or entry already in the books, or
+ * someone gave it a category — and `reconciledAt` records that it is done. A
+ * card purchase is filed under its card's default category the moment it
+ * arrives, and waits until someone keeps that category or picks another
+ * (`needsReview`), or while that posting failed.
  */
 
 export type BankingStatus = "review" | "done";
