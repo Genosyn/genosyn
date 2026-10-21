@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type FindOptionsWhere, IsNull, Not } from "typeorm";
+import { type FindOptionsWhere, In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { CardFeed } from "../db/entities/CardFeed.js";
@@ -292,6 +292,9 @@ export async function syncCardFeed(feed: CardFeed): Promise<CardSyncResult> {
           providerType: remote.type ?? "",
           accountingKind,
           expenseAccountId: accountingKind === "payment" ? null : feed.defaultExpenseAccountId,
+          // Filed under the default category, and waiting for someone to keep
+          // it or pick another. A card bill payment has no category to pick.
+          needsReview: accountingKind !== "payment",
           raw: JSON.stringify(remote),
         }),
       );
@@ -342,6 +345,9 @@ export async function retryCardTransaction(transaction: CardTransaction): Promis
  * changes (`shared/cardCategory.ts`). The reclassification moves the amount
  * out of the category the purchase is filed under now, which only the
  * purchase itself knows — not the category its first entry was posted to.
+ *
+ * Picking a category reviews the purchase, the one it already has included,
+ * once it is in the books.
  */
 export async function reclassifyCardTransaction(
   transaction: CardTransaction,
@@ -357,14 +363,20 @@ export async function reclassifyCardTransaction(
     "expense",
     "Expense category",
   );
-  if (transaction.expenseAccountId === expenseAccountId) return transaction;
+  const repo = AppDataSource.getRepository(CardTransaction);
+  if (transaction.expenseAccountId === expenseAccountId) {
+    if (!transaction.ledgerEntryId || !transaction.needsReview) return transaction;
+    transaction.needsReview = false;
+    return repo.save(transaction);
+  }
   const oldExpenseAccountId = transaction.expenseAccountId;
   transaction.expenseAccountId = expenseAccountId;
 
   if (!transaction.ledgerEntryId || !oldExpenseAccountId) {
-    await AppDataSource.getRepository(CardTransaction).save(transaction);
+    await repo.save(transaction);
     await retryCardTransaction(transaction);
-    return transaction;
+    transaction.needsReview = false;
+    return repo.save(transaction);
   }
 
   const settings = await getFinanceSettings(transaction.companyId);
@@ -413,7 +425,57 @@ export async function reclassifyCardTransaction(
   });
   transaction.reclassifiedAt = new Date();
   transaction.postingError = "";
-  return AppDataSource.getRepository(CardTransaction).save(transaction);
+  transaction.needsReview = false;
+  return repo.save(transaction);
+}
+
+export type CardReviewOutcome = {
+  /** Now in the state asked for, whether or not they were already. */
+  done: string[];
+  skipped: Array<{ id: string; reason: string }>;
+};
+
+/**
+ * Mark card purchases reviewed, keeping their categories, or send them back
+ * to review. Only the flag changes: their books stay exactly as they are. A
+ * purchase not yet in the books waits in To review anyway, so it can't be
+ * marked reviewed until it is. An id that is not this company's card
+ * transaction, or is a card bill payment, is skipped with a reason rather
+ * than failing the rest.
+ */
+export async function setCardTransactionsReview(
+  companyId: string,
+  ids: string[],
+  needsReview: boolean,
+): Promise<CardReviewOutcome> {
+  const requested = [...new Set(ids)];
+  if (requested.length === 0) return { done: [], skipped: [] };
+  const repo = AppDataSource.getRepository(CardTransaction);
+  const found = await repo.findBy({ companyId, id: In(requested) });
+  const byId = new Map(found.map((transaction) => [transaction.id, transaction]));
+  const done: string[] = [];
+  const changed: string[] = [];
+  const skipped: CardReviewOutcome["skipped"] = [];
+  for (const id of requested) {
+    const transaction = byId.get(id);
+    if (!transaction) {
+      skipped.push({ id, reason: "Transaction not found" });
+    } else if (transaction.accountingKind === "payment") {
+      skipped.push({ id, reason: "A card bill payment has no category to review" });
+    } else if (!transaction.ledgerEntryId) {
+      if (needsReview) done.push(id);
+      else skipped.push({ id, reason: "It isn't in your books yet, so retry it first" });
+    } else {
+      done.push(id);
+      if (transaction.needsReview !== needsReview) changed.push(id);
+    }
+  }
+  // A partial `save` rather than a bulk UPDATE: the live-sync subscriber
+  // needs each row to tell open pages to refetch.
+  if (changed.length > 0) {
+    await repo.save(changed.map((id) => ({ id, needsReview })));
+  }
+  return { done, skipped };
 }
 
 export async function loadCardFeed(companyId: string, feedId: string): Promise<CardFeed | null> {
@@ -425,18 +487,25 @@ export async function loadCardFeed(companyId: string, feedId: string): Promise<C
 
 /**
  * The newest card transactions, optionally on one card. `review` holds the
- * ones whose posting failed — every other purchase is already filed under its
- * card's default category — and `done` the ones in the books.
+ * ones waiting for someone to look at their category, and the ones whose
+ * posting failed; `done` the reviewed ones in the books.
  */
 export async function listCardTransactions(
   companyId: string,
   feedId?: string,
   status?: "review" | "done",
 ): Promise<CardTransaction[]> {
-  const where: FindOptionsWhere<CardTransaction> = { companyId };
-  if (feedId) where.feedId = feedId;
-  if (status === "review") where.ledgerEntryId = IsNull();
-  if (status === "done") where.ledgerEntryId = Not(IsNull());
+  const base: FindOptionsWhere<CardTransaction> = { companyId };
+  if (feedId) base.feedId = feedId;
+  const where: FindOptionsWhere<CardTransaction>[] =
+    status === "review"
+      ? [
+          { ...base, ledgerEntryId: IsNull() },
+          { ...base, needsReview: true },
+        ]
+      : status === "done"
+        ? [{ ...base, ledgerEntryId: Not(IsNull()), needsReview: false }]
+        : [base];
   return AppDataSource.getRepository(CardTransaction).find({
     where,
     order: { postedAt: "DESC", createdAt: "DESC" },

@@ -42,7 +42,9 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
+import { type BankingRow, rowKey, unselectableReason } from "../lib/bankingBulk";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import { BankingBulkBar, BankingSelectAll, useBankingBulk } from "./FinanceBankingBulk";
 import { CardCategoryFixes } from "./FinanceBankingCardFixes";
 import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransaction";
 
@@ -51,22 +53,26 @@ import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransact
  * them, at `/finance/banking`.
  *
  * The accounts sit across the top; picking one narrows the list to it. The
- * list opens on To review: the bank transactions nothing explains yet, plus
- * any card purchase that couldn't be added to the books. Explaining one is a
- * choice between three plain answers — it paid an invoice, it is already in
- * the books, or it gets a category — and Undo takes any of them back. Bank
- * and card accounts are `BankFeed`s and `CardFeed`s underneath; this page
- * replaced Reconciliation and Card expenses, which showed each kind alone.
+ * list opens on To review: the bank transactions nothing explains yet, the
+ * card purchases waiting for someone to keep their category or pick another,
+ * and any card purchase that couldn't be added to the books. Explaining a
+ * bank transaction is a choice between three plain answers — it paid an
+ * invoice, it is already in the books, or it gets a category — and Undo takes
+ * any of them back. Ticking several opens the bulk bar, which categorizes,
+ * marks reviewed, or sends back to review all of them at once. Bank and card
+ * accounts are `BankFeed`s and `CardFeed`s underneath; this page replaced
+ * Reconciliation and Card expenses, which showed each kind alone.
  *
  * A read-only Member sees every account and transaction, without the
- * controls that add accounts, import, sync, explain, or undo.
+ * controls that add accounts, import, sync, explain, tick, or undo.
  */
 
 type Tab = BankingStatus | "all";
 
-type Row =
-  | { kind: "bank"; id: string; date: string; txn: BankTransaction }
-  | { kind: "card"; id: string; date: string; txn: CardTransaction };
+type Row = BankingRow;
+
+/** One empty list while the transactions load, so the selection isn't recomputed each render. */
+const NO_ROWS: Row[] = [];
 
 /** What kind of account this is, in a few words. */
 function accountKindLabel(account: BankingAccount): string {
@@ -241,17 +247,21 @@ export default function FinanceBanking() {
     [accounts],
   );
 
-  const rows = React.useMemo<Row[] | null>(() => {
+  const loaded = React.useMemo<Row[] | null>(() => {
     if (bankTxns === null || cardTxns === null) return null;
-    const merged: Row[] = [
+    return [
       ...bankTxns.map((txn) => ({ kind: "bank" as const, id: txn.id, date: txn.date, txn })),
       ...cardTxns.map((txn) => ({ kind: "card" as const, id: txn.id, date: txn.postedAt, txn })),
     ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  }, [bankTxns, cardTxns]);
+
+  const rows = React.useMemo<Row[] | null>(() => {
+    if (loaded === null) return null;
     const needle = search.trim().toLowerCase();
-    if (!needle) return merged;
+    if (!needle) return loaded;
     const accountName = (id: string | null | undefined) =>
       ledger.find((account) => account.id === id)?.name ?? "";
-    return merged.filter((row) => {
+    return loaded.filter((row) => {
       const text =
         row.kind === "bank"
           ? [
@@ -273,7 +283,17 @@ export default function FinanceBanking() {
             ];
       return text.join(" ").toLowerCase().includes(needle);
     });
-  }, [bankTxns, cardTxns, homeCurrency, ledger, nameById, search]);
+  }, [homeCurrency, ledger, loaded, nameById, search]);
+
+  const bulk = useBankingBulk({
+    company,
+    rows: rows ?? NO_ROWS,
+    loaded: loaded ?? NO_ROWS,
+    view: `${selectedId}|${tab}`,
+    onChanged: reloadAll,
+  });
+  const ticking = bulk.enabled;
+  const showBulkBar = ticking && bulk.selected.length > 0;
 
   const scope = selected ? [selected] : (accounts ?? []);
   // On one account only its own purchases; a bank account has none.
@@ -341,7 +361,7 @@ export default function FinanceBanking() {
   }
 
   return (
-    <div className="page-shell p-4 sm:p-8">
+    <div className={clsx("page-shell p-4 sm:p-8", showBulkBar && "pb-28 sm:pb-28")}>
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Banking" }]}
@@ -353,6 +373,7 @@ export default function FinanceBanking() {
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             Your bank accounts and cards, and every transaction on them. Go through the ones waiting
             for review: say which invoices a deposit paid, or what a payment was for.
+            {canWrite && " Tick several to categorize them all at once."}
           </p>
         </div>
         {canWrite && (
@@ -474,36 +495,50 @@ export default function FinanceBanking() {
                 canWrite={canWrite}
               />
             ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rows.map((row) =>
-                  row.kind === "bank" ? (
-                    <BankTransactionRow
-                      key={row.id}
-                      company={company}
-                      txn={row.txn}
-                      accountName={nameById.get(row.txn.feedId) ?? null}
-                      bankLedgerAccountId={bankAccountOf.get(row.txn.feedId)}
-                      homeCurrency={homeCurrency}
-                      accounts={ledger}
-                      open={openId === row.id}
-                      onToggle={() => setOpenId((current) => (current === row.id ? null : row.id))}
-                      onChanged={async () => {
-                        setOpenId(null);
-                        await reloadAll();
-                      }}
-                    />
-                  ) : (
-                    <CardTransactionRow
-                      key={row.id}
-                      company={company}
-                      txn={row.txn}
-                      accountName={nameById.get(row.txn.feedId) ?? null}
-                      accounts={ledger}
-                      onChanged={reloadAll}
-                    />
-                  ),
-                )}
-              </ul>
+              <>
+                {ticking && <BankingSelectAll bulk={bulk} searching={!!search.trim()} />}
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {rows.map((row) => {
+                    const selection = ticking
+                      ? {
+                          checked: bulk.keys.has(rowKey(row)),
+                          disabledReason: unselectableReason(row),
+                          onToggle: (extend: boolean) => bulk.toggle(row, extend),
+                        }
+                      : undefined;
+                    return row.kind === "bank" ? (
+                      <BankTransactionRow
+                        key={row.id}
+                        company={company}
+                        txn={row.txn}
+                        accountName={nameById.get(row.txn.feedId) ?? null}
+                        bankLedgerAccountId={bankAccountOf.get(row.txn.feedId)}
+                        homeCurrency={homeCurrency}
+                        accounts={ledger}
+                        open={openId === row.id}
+                        onToggle={() =>
+                          setOpenId((current) => (current === row.id ? null : row.id))
+                        }
+                        onChanged={async () => {
+                          setOpenId(null);
+                          await reloadAll();
+                        }}
+                        selection={selection}
+                      />
+                    ) : (
+                      <CardTransactionRow
+                        key={row.id}
+                        company={company}
+                        txn={row.txn}
+                        accountName={nameById.get(row.txn.feedId) ?? null}
+                        accounts={ledger}
+                        onChanged={reloadAll}
+                        selection={selection}
+                      />
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
           {rows && rows.length >= 500 && (
@@ -512,6 +547,14 @@ export default function FinanceBanking() {
             </p>
           )}
         </>
+      )}
+
+      {showBulkBar && (
+        <BankingBulkBar
+          bulk={bulk}
+          accounts={ledger}
+          bankLedgerAccountOf={(feedId) => bankAccountOf.get(feedId)}
+        />
       )}
 
       {adding && (
@@ -637,7 +680,7 @@ function AccountToolbar({
   const books =
     account.kind === "bank"
       ? `Posts to ${name(account.feed.accountId)} in your books`
-      : `Purchases are filed under ${name(account.feed.defaultExpenseAccountId)} until you change them · card balance in ${name(account.feed.liabilityAccountId)}`;
+      : `New purchases are filed under ${name(account.feed.defaultExpenseAccountId)} and wait for your review · card balance in ${name(account.feed.liabilityAccountId)}`;
   const csv = account.kind === "bank" && account.feed.kind === "csv";
   return (
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900">
@@ -708,7 +751,7 @@ function EmptyList({
     description = "Every transaction is explained. New ones show up here as they come in.";
   } else if (tab === "done") {
     title = "Nothing done yet";
-    description = "Transactions you match or categorize move here.";
+    description = "Transactions you match, categorize or review move here.";
   } else if (canWrite && selected) {
     description =
       selected.kind === "bank" && selected.feed.kind === "csv"

@@ -32,9 +32,10 @@ import { unmatch } from "./reconcile.js";
  * payouts) and a card is a `CardFeed` (Brex). A bank transaction waits for
  * review until something explains it — it paid one or more invoices, it
  * matches a payment or entry already in the books, or someone gave it a
- * category — and `reconciledAt` records that it is done. A card transaction is filed under
- * its card's default category the moment it arrives, so it only waits when
- * that posting failed.
+ * category — and `reconciledAt` records that it is done. A card purchase is
+ * filed under its card's default category the moment it arrives, and waits
+ * until someone keeps that category or picks another (`needsReview`), or
+ * while that posting failed.
  */
 
 export type BankingStatus = "review" | "done";
@@ -45,10 +46,19 @@ export type BankingAccount =
 
 type FeedCount = { feedId: string; count: number | string };
 
+/** What keeps a transaction of each kind in To review, as a condition on `t`. */
+const WAITING = {
+  bank: { where: "t.reconciledAt IS NULL", parameters: {} },
+  card: {
+    where: "(t.ledgerEntryId IS NULL OR t.needsReview = :needsReview)",
+    parameters: { needsReview: true },
+  },
+};
+
 async function countByFeed(
   entity: typeof BankTransaction | typeof CardTransaction,
   companyId: string,
-  open?: "reconciledAt" | "ledgerEntryId",
+  waiting?: (typeof WAITING)[keyof typeof WAITING],
 ): Promise<Map<string, number>> {
   const qb = AppDataSource.getRepository(entity)
     .createQueryBuilder("t")
@@ -56,7 +66,7 @@ async function countByFeed(
     .addSelect("COUNT(*)", "count")
     .where("t.companyId = :companyId", { companyId })
     .groupBy("t.feedId");
-  if (open) qb.andWhere(`t.${open} IS NULL`);
+  if (waiting) qb.andWhere(waiting.where, waiting.parameters);
   const rows = await qb.getRawMany<FeedCount>();
   return new Map(rows.map((row) => [row.feedId, Number(row.count)]));
 }
@@ -73,9 +83,9 @@ export async function listBankingAccounts(companyId: string): Promise<BankingAcc
       order: { createdAt: "ASC" },
     }),
     countByFeed(BankTransaction, companyId),
-    countByFeed(BankTransaction, companyId, "reconciledAt"),
+    countByFeed(BankTransaction, companyId, WAITING.bank),
     countByFeed(CardTransaction, companyId),
-    countByFeed(CardTransaction, companyId, "ledgerEntryId"),
+    countByFeed(CardTransaction, companyId, WAITING.card),
   ]);
   const accounts: BankingAccount[] = [
     ...bankFeeds.map((feed) => ({
@@ -145,7 +155,8 @@ function bankingPaymentNote(feed: BankFeed, txn: BankTransaction): string {
   return `${BANKING_PAYMENT_NOTE} ${feed.name} · ${description}`.slice(0, 2000);
 }
 
-function recordedFromBanking(payment: Pick<InvoicePayment, "notes">): boolean {
+/** Banking recorded this payment from a deposit, so undoing the deposit removes it. */
+export function recordedFromBanking(payment: Pick<InvoicePayment, "notes">): boolean {
   return payment.notes.startsWith(BANKING_PAYMENT_NOTE);
 }
 

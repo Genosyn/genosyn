@@ -5,6 +5,7 @@ import {
   Account,
   AccountType,
   api,
+  BankingBulkResult,
   BankTransaction,
   BankTransactionPayment,
   CardTransaction,
@@ -24,15 +25,50 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
+import { clsx } from "../components/ui/clsx";
 
 /**
  * One transaction on Banking. A bank transaction opens to the three ways it
  * can be explained — it paid one or more invoices, it is something already in
  * the books, or it gets a category — and, once explained, to what explains it
  * and an Undo. A card transaction is already in the books under its card's
- * default category, so its row is just that category, changeable in place.
+ * default category, so its row is just that category, changeable in place;
+ * while it waits for review, a check beside it keeps the category as it is.
+ *
+ * With Full finance access every row has a tick box for the bulk bar
+ * (`FinanceBankingBulk.tsx`).
  */
+
+/** A row's tick box for the bulk bar. */
+export type RowSelection = {
+  checked: boolean;
+  /** Why the row can't be ticked, for its tooltip; null when it can. */
+  disabledReason: string | null;
+  onToggle: (extend: boolean) => void;
+};
+
+function RowCheckbox({ selection, label }: { selection: RowSelection; label: string }) {
+  return (
+    <span className="flex shrink-0 items-center self-stretch pl-4">
+      <Checkbox
+        checked={selection.checked}
+        disabled={selection.disabledReason !== null}
+        title={selection.disabledReason ?? undefined}
+        // A shift-click ticks the run from the last row ticked.
+        onChange={(event) => selection.onToggle((event.nativeEvent as MouseEvent).shiftKey)}
+        label={label}
+      />
+    </span>
+  );
+}
+
+/** A ticked row's wash, and the hover that keeps it. */
+function rowTone(selection: RowSelection | undefined): string {
+  return selection?.checked
+    ? "bg-indigo-50/70 dark:bg-indigo-500/[0.08]"
+    : "hover:bg-slate-50 dark:hover:bg-slate-800/40";
+}
 
 /** "Oct 18", or "Oct 18, 2025" outside this year. Bank dates are UTC midnights. */
 export function transactionDate(iso: string): string {
@@ -209,6 +245,7 @@ export function BankTransactionRow({
   open,
   onToggle,
   onChanged,
+  selection,
 }: {
   company: Company;
   txn: BankTransaction;
@@ -221,45 +258,58 @@ export function BankTransactionRow({
   open: boolean;
   onToggle: () => void;
   onChanged: () => Promise<void>;
+  /** Absent for a Member who can't change finances. */
+  selection?: RowSelection;
 }) {
   const done = !!txn.reconciledAt;
   return (
     <li>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/40"
-      >
-        <span className="text-slate-400">
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
-        <span className="hidden w-24 shrink-0 text-xs text-slate-500 sm:block dark:text-slate-400">
-          {transactionDate(txn.date)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm text-slate-800 dark:text-slate-100">
-            {txn.description || "Bank transaction"}
-          </span>
-          <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
-            <span className="sm:hidden">{transactionDate(txn.date)} · </span>
-            {accountName ?? "Bank account"}
-          </span>
-        </span>
-        {done ? (
-          <span className="hidden max-w-[14rem] items-center gap-1 truncate text-xs text-slate-600 md:inline-flex dark:text-slate-300">
-            <Check size={12} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-            <span className="truncate">{outcomeSummary(txn, accounts)}</span>
-          </span>
-        ) : (
-          <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 md:inline-flex dark:bg-amber-500/15 dark:text-amber-300">
-            {paymentsOf(txn).length > 0 ? "Part paid" : "To review"}
-          </span>
+      <div className={clsx("flex items-stretch", rowTone(selection))}>
+        {selection && (
+          <RowCheckbox
+            selection={selection}
+            label={`Select ${txn.description || "bank transaction"}`}
+          />
         )}
-        <span className="w-28 shrink-0 text-right">
-          <SignedAmount cents={txn.amountCents} currency={homeCurrency} />
-        </span>
-      </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className={clsx(
+            "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 text-left",
+            selection ? "pl-3" : "pl-4",
+          )}
+        >
+          <span className="text-slate-400">
+            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+          <span className="hidden w-24 shrink-0 text-xs text-slate-500 sm:block dark:text-slate-400">
+            {transactionDate(txn.date)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-slate-800 dark:text-slate-100">
+              {txn.description || "Bank transaction"}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+              <span className="sm:hidden">{transactionDate(txn.date)} · </span>
+              {accountName ?? "Bank account"}
+            </span>
+          </span>
+          {done ? (
+            <span className="hidden max-w-[14rem] items-center gap-1 truncate text-xs text-slate-600 md:inline-flex dark:text-slate-300">
+              <Check size={12} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="truncate">{outcomeSummary(txn, accounts)}</span>
+            </span>
+          ) : (
+            <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 md:inline-flex dark:bg-amber-500/15 dark:text-amber-300">
+              {paymentsOf(txn).length > 0 ? "Part paid" : "To review"}
+            </span>
+          )}
+          <span className="w-28 shrink-0 text-right">
+            <SignedAmount cents={txn.amountCents} currency={homeCurrency} />
+          </span>
+        </button>
+      </div>
       {open &&
         (done ? (
           <DonePanel company={company} txn={txn} accounts={accounts} homeCurrency={homeCurrency} onChanged={onChanged} />
@@ -1058,6 +1108,7 @@ export function CardTransactionRow({
   accountName,
   accounts,
   onChanged,
+  selection,
 }: {
   company: Company;
   txn: CardTransaction;
@@ -1065,12 +1116,15 @@ export function CardTransactionRow({
   accountName: string | null;
   accounts: Account[];
   onChanged: () => Promise<void>;
+  /** Absent for a Member who can't change finances. */
+  selection?: RowSelection;
 }) {
   const canWrite = canWriteFinance(company);
   const dialog = useDialog();
   const background = useBackgroundAction();
   const [category, setCategory] = React.useState(txn.expenseAccountId ?? "");
   const [retrying, setRetrying] = React.useState(false);
+  const [keeping, setKeeping] = React.useState(false);
 
   React.useEffect(() => setCategory(txn.expenseAccountId ?? ""), [txn.expenseAccountId]);
 
@@ -1078,7 +1132,11 @@ export function CardTransactionRow({
     .filter((account) => account.type === "expense" && (!account.archivedAt || account.id === category))
     .sort((a, b) => a.code.localeCompare(b.code));
   const failed = !txn.ledgerEntryId;
+  const payment = txn.accountingKind === "payment";
+  // In the books and waiting for someone to keep its category or pick another.
+  const waiting = !payment && !failed && txn.needsReview;
 
+  // Picking a category reviews the purchase, so one waiting leaves To review.
   function changeCategory(next: string) {
     const previous = category;
     setCategory(next);
@@ -1091,9 +1149,28 @@ export function CardTransactionRow({
       {
         title: "Couldn’t change the category",
         error: (err) => `${errorMessage(err)} The previous category has been restored.`,
+        onSuccess: () => {
+          if (waiting || failed) void onChanged();
+        },
         onError: () => setCategory(previous),
       },
     );
+  }
+
+  async function keep() {
+    setKeeping(true);
+    try {
+      const result = await api.post<BankingBulkResult>(
+        `/api/companies/${company.id}/banking/bulk`,
+        { action: "mark_reviewed", cardTransactionIds: [txn.id] },
+      );
+      if (result.skipped.length > 0) throw new Error(`${result.skipped[0].reason}.`);
+      await onChanged();
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t mark it reviewed" });
+    } finally {
+      setKeeping(false);
+    }
   }
 
   async function retry() {
@@ -1108,64 +1185,98 @@ export function CardTransactionRow({
     }
   }
 
+  const label = txn.description || "card transaction";
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex-nowrap">
-      <span className="hidden w-[14px] sm:block" aria-hidden="true" />
-      <span className="hidden w-24 shrink-0 text-xs text-slate-500 sm:block dark:text-slate-400">
-        {transactionDate(txn.postedAt)}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-slate-800 dark:text-slate-100">
-          {txn.description || "Card transaction"}
+    <li className={clsx("flex items-stretch", rowTone(selection))}>
+      {selection && <RowCheckbox selection={selection} label={`Select ${label}`} />}
+      <div
+        className={clsx(
+          "flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 py-3 pr-4 sm:flex-nowrap",
+          selection ? "pl-3" : "pl-4",
+        )}
+      >
+        <span className="hidden w-[14px] sm:block" aria-hidden="true" />
+        <span className="hidden w-24 shrink-0 text-xs text-slate-500 sm:block dark:text-slate-400">
+          {transactionDate(txn.postedAt)}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
-          <span className="sm:hidden">{transactionDate(txn.postedAt)} · </span>
-          {accountName ?? "Card"}
-          {txn.cardId ? ` · card …${txn.cardId.slice(-4)}` : ""}
-          {txn.accountingKind === "refund" ? " · refund" : ""}
-        </span>
-        {failed && (
-          <span className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
-            <AlertCircle size={12} className="mt-0.5 shrink-0" />
-            <span>
-              Couldn&apos;t add this to the books
-              {txn.postingError ? `: ${txn.postingError}` : "."}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-slate-800 dark:text-slate-100">
+            {txn.description || "Card transaction"}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+            <span className="sm:hidden">{transactionDate(txn.postedAt)} · </span>
+            {accountName ?? "Card"}
+            {txn.cardId ? ` · card …${txn.cardId.slice(-4)}` : ""}
+            {txn.accountingKind === "refund" ? " · refund" : ""}
+          </span>
+          {failed && (
+            <span className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <AlertCircle size={12} className="mt-0.5 shrink-0" />
+              <span>
+                Couldn&apos;t add this to the books
+                {txn.postingError ? `: ${txn.postingError}` : "."}
+              </span>
             </span>
+          )}
+        </span>
+        {/* The check sits left of the category, so categories line up whether
+            or not a row is waiting. */}
+        <span className="order-last flex w-full items-center gap-1.5 sm:order-none sm:w-auto sm:shrink-0">
+          {waiting && canWrite && (
+            <button
+              type="button"
+              onClick={() => void keep()}
+              disabled={keeping}
+              aria-label={`Keep ${accountLabel(accounts, category)} for ${label}`}
+              title="Keep this category and mark it reviewed"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-white text-amber-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-progress dark:border-amber-500/30 dark:bg-slate-900 dark:text-amber-400 dark:hover:border-emerald-500/40 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+            >
+              {keeping ? <ButtonSpinner /> : <Check size={14} />}
+            </button>
+          )}
+          <span className="min-w-0 flex-1 sm:w-56 sm:flex-none">
+            {payment ? (
+              <span className="text-xs text-slate-500 dark:text-slate-400">Card bill payment</span>
+            ) : canWrite ? (
+              <Select
+                value={category}
+                onChange={(event) => changeCategory(event.target.value)}
+                aria-label={`Category for ${label}`}
+                searchPlaceholder="Search expense categories"
+                className={clsx(
+                  "!h-8 text-xs",
+                  waiting &&
+                    "!border-amber-300 !bg-amber-50/70 dark:!border-amber-500/40 dark:!bg-amber-500/10",
+                )}
+              >
+                {expenseAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} {account.name}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
+                <span className="truncate">{accountLabel(accounts, category)}</span>
+                {waiting && (
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                    To review
+                  </span>
+                )}
+              </span>
+            )}
           </span>
+        </span>
+        <span className="w-28 shrink-0 text-right">
+          {/* Brex counts a purchase as positive; on Banking money out is negative. */}
+          <SignedAmount cents={-txn.amountCents} currency={txn.currency} />
+        </span>
+        {failed && canWrite && (
+          <Button size="sm" variant="secondary" onClick={retry} loading={retrying}>
+            <RotateCcw size={13} /> Retry
+          </Button>
         )}
-      </span>
-      <span className="order-last w-full sm:order-none sm:w-56 sm:shrink-0">
-        {txn.accountingKind === "payment" ? (
-          <span className="text-xs text-slate-500 dark:text-slate-400">Card bill payment</span>
-        ) : canWrite ? (
-          <Select
-            value={category}
-            onChange={(event) => changeCategory(event.target.value)}
-            aria-label={`Category for ${txn.description || "card transaction"}`}
-            searchPlaceholder="Search expense categories"
-            className="!h-8 text-xs"
-          >
-            {expenseAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.code} {account.name}
-              </option>
-            ))}
-          </Select>
-        ) : (
-          <span className="text-xs text-slate-700 dark:text-slate-200">
-            {accountLabel(accounts, category)}
-          </span>
-        )}
-      </span>
-      <span className="w-28 shrink-0 text-right">
-        {/* Brex counts a purchase as positive; on Banking money out is negative. */}
-        <SignedAmount cents={-txn.amountCents} currency={txn.currency} />
-      </span>
-      {failed && canWrite && (
-        <Button size="sm" variant="secondary" onClick={retry} loading={retrying}>
-          <RotateCcw size={13} /> Retry
-        </Button>
-      )}
+      </div>
     </li>
   );
 }

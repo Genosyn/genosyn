@@ -5702,6 +5702,8 @@ export type CardTransaction = {
   postingError: string;
   raw: string;
   reclassifiedAt: string | null;
+  /** Waiting in To review for someone to keep its category or pick another. */
+  needsReview: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -5829,6 +5831,16 @@ export type BankingStatus = "review" | "done";
 export type BankingAccount =
   | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
   | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+
+/** What Banking's bulk bar does to a selection — `POST …/banking/bulk`. */
+export type BankingBulkAction = "categorize" | "mark_reviewed" | "send_to_review";
+
+export type BankingBulkResult = {
+  action: BankingBulkAction;
+  /** Now in the state the action asked for. */
+  succeeded: { bank: string[]; card: string[] };
+  skipped: Array<{ kind: "bank" | "card"; id: string; reason: string }>;
+};
 
 /** An open invoice a deposit could be the payment of. */
 export type OpenInvoiceCandidate = {

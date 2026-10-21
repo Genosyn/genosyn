@@ -209,6 +209,7 @@ import {
   removeBankFeed,
   undoBankTransaction,
 } from "../services/banking.js";
+import { BANKING_BULK_MAX, bulkBanking } from "../services/bankingBulk.js";
 import {
   getFinanceSettings,
   seedCurrencies,
@@ -3493,6 +3494,75 @@ financeRouter.post(
     }
   },
 );
+
+const bankingBulkSchema = z
+  .object({
+    action: z.enum(["categorize", "mark_reviewed", "send_to_review"]),
+    accountId: z.string().uuid().optional(),
+    bankTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+    cardTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+  })
+  .refine(
+    (body) => {
+      const count = body.bankTransactionIds.length + body.cardTransactionIds.length;
+      return count > 0 && count <= BANKING_BULK_MAX;
+    },
+    { message: `Choose between 1 and ${BANKING_BULK_MAX} transactions` },
+  )
+  .refine((body) => body.action !== "categorize" || !!body.accountId, {
+    message: "Pick a category",
+    path: ["accountId"],
+  });
+
+// Banking's bulk bar: categorize, mark reviewed, or send back to review many
+// bank and card transactions at once, each under its own row's rules. One
+// that can't take the action is skipped with a reason; the rest go through.
+financeRouter.post("/banking/bulk", validateBody(bankingBulkSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof bankingBulkSchema>;
+  let outcome: Awaited<ReturnType<typeof bulkBanking>>;
+  try {
+    outcome = await bulkBanking({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: body.action,
+      accountId: body.accountId,
+      bankTransactionIds: body.bankTransactionIds,
+      cardTransactionIds: body.cardTransactionIds,
+    });
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  // The same row a bank transaction's own Categorize leaves, so its History
+  // reads the same however it was categorized.
+  for (const txn of outcome.categorized) {
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.bank_transaction.categorize",
+      targetType: "bank_transaction",
+      targetId: txn.id,
+      targetLabel: txn.description || txn.reference || txn.id,
+      metadata: { accountId: body.accountId, amountCents: txn.amountCents, bulk: true },
+    });
+  }
+  const succeeded = outcome.succeeded.bank.length + outcome.succeeded.card.length;
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: `finance.banking.bulk_${body.action}`,
+    targetType: "bank_transaction",
+    targetId: null,
+    targetLabel: `${succeeded} transaction${succeeded === 1 ? "" : "s"}`,
+    metadata: {
+      accountId: body.accountId ?? null,
+      bank: outcome.succeeded.bank.length,
+      card: outcome.succeeded.card.length,
+      skipped: outcome.skipped.length,
+    },
+  });
+  res.json({ action: outcome.action, succeeded: outcome.succeeded, skipped: outcome.skipped });
+});
 
 // ─────────────────────── AI access (finance grants) ────────────────────
 //
