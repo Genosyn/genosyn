@@ -321,6 +321,7 @@ describe("rails drawn from the catalogue", () => {
     "client/pages/FinanceLayout.tsx": "finance",
     "client/pages/RevenueLayout.tsx": "revenue",
     "client/pages/MarketingLayout.tsx": "marketing",
+    "client/pages/RecruitingLayout.tsx": "recruiting",
     "client/pages/MeetingsLayout.tsx": "meetings",
     "client/pages/CustomersLayout.tsx": "customers",
     "client/pages/SignatureLayout.tsx": "signatures",

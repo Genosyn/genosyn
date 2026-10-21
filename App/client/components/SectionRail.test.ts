@@ -13,6 +13,7 @@ import CustomersLayout from "../pages/CustomersLayout.js";
 import DecisionsLayout from "../pages/DecisionsLayout.js";
 import FinanceLayout from "../pages/FinanceLayout.js";
 import MarketingLayout from "../pages/MarketingLayout.js";
+import RecruitingLayout from "../pages/RecruitingLayout.js";
 import MeetingsLayout from "../pages/MeetingsLayout.js";
 import ResourcesLayout from "../pages/ResourcesLayout.js";
 import RevenueLayout from "../pages/RevenueLayout.js";
@@ -367,6 +368,7 @@ describe("section layouts draw their rails from the catalogue", () => {
     ["finance", "finance", (c) => h(FinanceLayout, { company: c })],
     ["revenue", "revenue", (c) => h(RevenueLayout, { company: c })],
     ["marketing", "marketing", (c) => h(MarketingLayout, { company: c })],
+    ["recruiting", "recruiting", (c) => h(RecruitingLayout, { company: c })],
     ["meetings", "meetings", (c) => h(MeetingsLayout, { company: c })],
     ["customers", "customers", (c) => h(CustomersLayout, { company: c })],
     ["signatures", "signatures", (c) => h(SignatureLayout, { company: c })],
