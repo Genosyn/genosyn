@@ -29,6 +29,7 @@ import {
   withTime,
 } from "../lib/schedule";
 import { customerOptionLabel } from "../lib/customerLabel";
+import { withCustomerReread } from "../lib/customerBillTo";
 import {
   type DiscountDraft,
   discountDraftFrom,
@@ -67,6 +68,7 @@ import { Select } from "../components/ui/Select";
 import { FormError } from "../components/ui/FormError";
 import { DiscountField } from "@/components/finance/DiscountField";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
+import { CustomerBillTo } from "@/components/finance/CustomerBillTo";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -555,6 +557,13 @@ function RecurringInvoiceForm() {
                 </option>
               ))}
             </Select>
+            <CustomerBillTo
+              companyId={company.id}
+              companySlug={company.slug}
+              customer={selectedCustomer}
+              kind="recurringInvoice"
+              onCustomerReread={(fresh) => setCustomers((list) => withCustomerReread(list, fresh))}
+            />
             {requestedCustomerUnavailable && !customerId && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                 The customer you came from is archived or no longer exists. Choose who to bill.
