@@ -19,7 +19,7 @@ export function Banking() {
       <OL>
         <LI>
           <Strong>Add your accounts</Strong> — a bank account you upload statements for, a Brex
-          business account or card, or Stripe payouts.
+          business account or card, a Wise balance, or Stripe payouts.
         </LI>
         <LI>
           <Strong>Bring transactions in</Strong> — import a CSV, or click <Code>Update now</Code>{" "}
@@ -63,15 +63,27 @@ export function Banking() {
             def: "Brex corporate card purchases, refunds, and card bill payments. Each purchase is filed under the card's default category as it arrives.",
           },
           {
+            term: "Wise balance",
+            def: "One balance on a Wise business account, in your home currency. Pick the Wise Connection and the balance, and its transactions — fees included — come in when you click Update now.",
+          },
+          {
             term: "Stripe payouts",
             def: "The payouts Stripe sends to your bank, from a Stripe Connection.",
           },
         ]}
       />
       <P>
-        Brex and Stripe accounts need a Connection first: add one under{" "}
+        Brex, Wise, and Stripe accounts need a Connection first: add one under{" "}
         <DocLink to="/docs/integrations">Finance → Integrations</DocLink>. A Brex card needs a
         token that can read card transactions (<Code>transactions.card.readonly</Code>).
+      </P>
+      <P>
+        A Wise account lists every balance the token can read, but only balances in your home
+        currency can be added — the others are greyed out — and each balance can be added once.
+        Wise releases statements to its API tokens only for business accounts based in the US,
+        Canada, Australia, New Zealand, Singapore, and Malaysia, so for any other account{" "}
+        <Code>Add account</Code> explains that instead of adding it (see{" "}
+        <DocLink to="/docs/integrations#wise">Wise balances</DocLink>).
       </P>
       <P>
         <Code>Advanced</Code> says where the account&apos;s money shows up in your books. A bank
@@ -90,7 +102,10 @@ export function Banking() {
         <Code>Date</Code>, <Code>Amount</Code>, <Code>Description</Code> and{" "}
         <Code>Reference</Code> work). Rows already imported are skipped, so uploading an
         overlapping statement is safe. A connected account has <Code>Update now</Code>, which
-        brings in everything new; the first update walks the whole history. A deposit for the same
+        brings in everything new; the first update walks the whole history. A Wise balance also
+        looks again at the 30 days before its last update, because Wise dates each transaction by
+        when it was created, which can be days before it reached the balance; nothing comes in
+        twice. A deposit for the same
         amount as a payment already recorded on an invoice, within three days of it, is matched to
         that payment on the way in — when it is the only payment that fits.
       </P>

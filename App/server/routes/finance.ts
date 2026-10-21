@@ -200,6 +200,7 @@ import {
   manualMatch,
   syncBankFeed,
 } from "../services/reconcile.js";
+import { assertWiseBalanceFeed, listWiseBalancesForConnection } from "../services/wiseFeeds.js";
 import {
   hydrateBankTransactions,
   listBankingAccounts,
@@ -3182,7 +3183,12 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
 
 // ─────────────────────── Bank feeds (Phase D) ──────────────────────────
 
-const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = ["stripe_payouts", "brex_cash", "csv"];
+const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = [
+  "stripe_payouts",
+  "brex_cash",
+  "wise_balance",
+  "csv",
+];
 
 const csvUpload = multer({
   storage: multer.memoryStorage(),
@@ -3210,6 +3216,25 @@ financeRouter.get("/bank-feeds/brex-accounts", async (req, res) => {
   }
   try {
     res.json(await listBrexCashAccountsForConnection(cid, parsed.data.connectionId));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const wiseBalancesQuerySchema = z.object({
+  connectionId: z.string().uuid(),
+});
+
+// The balances a Wise Connection can read, each saying why it can't be added
+// when it can't — only home-currency balances become Banking accounts.
+financeRouter.get("/bank-feeds/wise-balances", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const parsed = wiseBalancesQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A valid Wise connectionId is required" });
+  }
+  try {
+    res.json(await listWiseBalancesForConnection(cid, parsed.data.connectionId));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -3257,6 +3282,18 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
+  } else if (body.kind === "wise_balance") {
+    if (!body.connectionId) {
+      return res.status(400).json({ error: "Wise feeds need a connectionId" });
+    }
+    if (!body.externalAccountId) {
+      return res.status(400).json({ error: "Wise feeds need a balance" });
+    }
+    try {
+      await assertWiseBalanceFeed(cid, body.connectionId, body.externalAccountId);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
   }
   const repo = AppDataSource.getRepository(BankFeed);
   const f = repo.create({
@@ -3265,7 +3302,10 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     kind: body.kind,
     accountId: body.accountId,
     connectionId: body.kind === "csv" ? null : (body.connectionId ?? null),
-    externalAccountId: body.kind === "brex_cash" ? (body.externalAccountId ?? null) : null,
+    externalAccountId:
+      body.kind === "brex_cash" || body.kind === "wise_balance"
+        ? (body.externalAccountId ?? null)
+        : null,
   });
   await repo.save(f);
   res.json(f);

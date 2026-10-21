@@ -5642,7 +5642,7 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
 
 export type BankFeed = {
   id: string;
@@ -5666,6 +5666,18 @@ export type BrexCashAccount = {
   accountNumberLast4: string;
   currentBalance: { amount: number; currency: string | null };
   availableBalance: { amount: number; currency: string | null };
+};
+
+/** One balance a Wise Connection can read, as the Add account picker lists it. */
+export type WiseBalanceChoice = {
+  /** `<profileId>:<balanceId>` — what the feed stores as `externalAccountId`. */
+  id: string;
+  profileName: string;
+  profileType: string;
+  currency: string;
+  availableCents: number | null;
+  /** Why it can't be added to Banking, or null when it can. */
+  unavailableReason: string | null;
 };
 
 export type CardFeed = {

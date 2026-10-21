@@ -24,6 +24,7 @@ import {
   unlinkPayments,
 } from "./bankPaymentLinks.js";
 import { bookedLines, findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
+import { syncWiseBalanceFeed } from "./wiseFeeds.js";
 
 /**
  * Reconciliation service. Phase D of the Finance milestone (M19) — see
@@ -268,6 +269,7 @@ export async function syncBrexCashTransactions(feed: BankFeed): Promise<number> 
 export async function syncBankFeed(feed: BankFeed): Promise<number> {
   if (feed.kind === "stripe_payouts") return syncStripePayouts(feed);
   if (feed.kind === "brex_cash") return syncBrexCashTransactions(feed);
+  if (feed.kind === "wise_balance") return syncWiseBalanceFeed(feed);
   throw new Error("This feed type can only be imported via CSV");
 }
 
