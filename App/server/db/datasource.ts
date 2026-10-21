@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { config } from "../../config.js";
+import { installSqliteTransactionGate } from "./sqliteTransactionGate.js";
 import { ResourceChangeSubscriber } from "./subscribers/resourceChangeSubscriber.js";
 import { User } from "./entities/User.js";
 import { UserSession } from "./entities/UserSession.js";
@@ -550,6 +551,10 @@ export function tuneSqliteConnection(db: SqlitePragmaTarget): void {
   }
   db.pragma("cache_size = -65536");
 }
+
+// Every request shares the one SQLite connection; transactions take turns on
+// it rather than nesting into each other (see sqliteTransactionGate.ts).
+installSqliteTransactionGate();
 
 export const AppDataSource = buildDataSource();
 

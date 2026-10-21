@@ -832,6 +832,16 @@ in a Work session instead of leaving them stranded as local commits.
   migrations and every six hours; without them it treats `companyId = ?` as
   selective. `EXPLAIN QUERY PLAN` a new query against a realistically sized
   database before shipping it.
+  Transactions take turns on that one connection. TypeORM shares a single
+  query runner across every request, so `db/sqliteTransactionGate.ts` makes a
+  transaction exclusive from BEGIN to COMMIT: work inside it — nested
+  transactions, global-repository calls from its callback — goes through, and
+  every other request's transaction or write waits. Keep a transaction to
+  database work. One that awaits a model turn, a fetch, or a queue holds every
+  other write in the App until it ends, and one held past a minute is logged.
+  Open transactions through `AppDataSource.transaction()`, a repository save,
+  or the migration runner, which the gate scopes; a runner's own
+  `startTransaction()` runs unscoped and is logged.
   Mail search's full-text index is the one structure built outside
   migrations: `services/mail/searchIndex.ts` keeps an FTS5 table and TEMP
   triggers in the connection's `temp` schema, rebuilt after every boot and
