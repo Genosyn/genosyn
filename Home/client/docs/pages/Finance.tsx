@@ -710,19 +710,49 @@ export function Finance() {
         invoice, a payment, a bill payment, a card expense, a categorized bank transaction — and
         only an entry someone posted by hand can be deleted, until it is approved. The{" "}
         <Code>Chart of accounts</Code> is the list of categories everything is filed under, grouped
-        as assets, liabilities, equity, income, and expenses, each with a line on what it holds. It
-        seeds sensible defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax
-        Payable, 2300 Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), and
-        you can rename or add accounts freely; the system accounts invoices, bills, and banking
-        rely on can be renamed but not removed. From there, the <Code>Trial balance</Code> and{" "}
-        <Code>Reports</Code> pages produce the standard accountant outputs (P&amp;L, balance sheet,
-        cash flow) with optional period comparisons. Each report opens with a monthly graph built
-        from the same ledger calculation as the table beneath it: revenue, expenses, and net income
-        for P&amp;L; assets, liabilities, and equity for the balance sheet; and operating, net, and
-        closing cash for cash flow. Custom periods longer than two years graph the most recent 24
-        months so the axis stays readable. A money figure in a{" "}
-        <DocLink to="/docs/board-letters">letter to the board</DocLink> links here, opening the
-        report and dates it was read from.
+        as assets, liabilities, equity, income, and expenses, each with a line on what it holds —
+        and every system account says what it holds too. It seeds sensible defaults on first visit
+        (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable, 2300 Corporate Card Payable, 4000
+        Sales Revenue, 4910 FX Gain, 6900 FX Loss), and you can rename or add accounts freely; the
+        system accounts invoices, bills, and banking rely on can be renamed but not removed. From
+        there, the <Code>Trial balance</Code> and <Code>Reports</Code> pages produce the standard
+        accountant outputs (P&amp;L, balance sheet, cash flow) with optional period comparisons.
+        Each report opens with a monthly graph built from the same ledger calculation as the table
+        beneath it: revenue, expenses, and net income for P&amp;L; assets, liabilities, and equity
+        for the balance sheet; and operating, net, and closing cash for cash flow. Custom periods
+        longer than two years graph the most recent 24 months so the axis stays readable. Click any
+        line in a report to see the entries behind it: the period&apos;s entries for a P&amp;L
+        line, and the account&apos;s whole history up to the date for a balance sheet line. A money
+        figure in a <DocLink to="/docs/board-letters">letter to the board</DocLink> links here,
+        opening the report and dates it was read from.
+      </P>
+
+      <H3 id="trial-balance">Trial balance</H3>
+      <P>
+        <Code>Finance → Trial balance</Code> is a health check for your books, written for the
+        person running the company as much as for their accountant. Pick a date under{" "}
+        <Code>As of</Code> and the page leads with the verdict: <Strong>Your books add up</Strong>{" "}
+        when every debit has a matching credit, or how far off they are when they don&apos;t. Below
+        it, the same check reads in plain terms: <Code>You own</Code> (assets) equals{" "}
+        <Code>You owe</Code> (liabilities) plus the <Code>Owners&apos; stake</Code> (equity) plus{" "}
+        <Code>Profit so far</Code> — income minus expenses for every period you haven&apos;t closed.
+        A balance below zero is flagged under <Strong>worth a look</Strong>, with what came in,
+        what went out, and what usually causes it (a bank account below zero is usually a deposit
+        that isn&apos;t in the books yet). Equity is never flagged, since a young company&apos;s
+        losses put Retained Earnings below zero, and neither is Sales Returns &amp; Allowances,
+        which sits below zero by design. <Code>How to read a trial balance</Code> explains debits
+        and credits with an example.
+      </P>
+      <P>
+        The table groups accounts by kind, says what each group and system account holds, and
+        notes under <Code>Debits</Code> and <Code>Credits</Code> which one adds to that group and
+        which takes off. Accounts nothing has been posted to stay hidden until you click{" "}
+        <Code>Show … accounts with nothing posted yet</Code>, and <Code>CSV</Code> downloads the
+        trial balance for the date you picked. Click any account to open its entries: its balance,
+        what added to it and what took away from it, and every entry newest first with the change
+        it made, the balance it left, and its <Code>Other side</Code> — the account the money came
+        from or went to. Click a name on the other side to open that account, and{" "}
+        <Code>Back to …</Code> to return.
       </P>
 
       <H2 id="proposals">Proposed entries (maker-checker)</H2>
