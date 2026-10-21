@@ -27,16 +27,18 @@ export function Banking() {
         </LI>
         <LI>
           <Strong>Work through To review</Strong> — open each transaction and choose what it was:
-          the payment of one or more invoices, something already in your books, or a category.
+          the payment of one or more invoices, something already in your books, or a category. To
+          file many the same way, tick them and <DocLink to="#bulk">categorize them at once</DocLink>.
         </LI>
       </OL>
       <P>
         The accounts sit across the top of the page, each with how many of its transactions are
         waiting. Click one to see only its transactions, or <Code>All accounts</Code> to see
         every account together. The list has three tabs: <Code>To review</Code> (nothing explains
-        the transaction yet), <Code>Done</Code>, and <Code>All</Code>. The search box finds a
-        transaction by its description, amount, account, invoice, or category. The Finance{" "}
-        <Code>Overview</Code> shows how many bank transactions are waiting, with a link here.
+        the transaction yet, or a card purchase&apos;s category is waiting for a look),{" "}
+        <Code>Done</Code>, and <Code>All</Code>. The search box finds a transaction by its
+        description, amount, account, invoice, or category. The Finance <Code>Overview</Code>{" "}
+        shows how many transactions are waiting, with a link here.
       </P>
 
       <H2 id="add-account">Add an account</H2>
@@ -60,7 +62,7 @@ export function Banking() {
           },
           {
             term: "Brex card",
-            def: "Brex corporate card purchases, refunds, and card bill payments. Each purchase is filed under the card's default category as it arrives.",
+            def: "Brex corporate card purchases, refunds, and card bill payments. Each purchase is filed under the card's default category as it arrives, and waits in To review for you to keep that category or pick another.",
           },
           {
             term: "Stripe payouts",
@@ -209,13 +211,30 @@ export function Banking() {
       <H2 id="cards">Card purchases</H2>
       <P>
         A card&apos;s purchases are in your books as soon as they arrive, under the card&apos;s
-        default category, so they wait in <Code>To review</Code> only if Genosyn couldn&apos;t add
-        one — the row says why, and <Code>Retry</Code> tries again. To file a purchase somewhere
-        else, change its category right in the list; Genosyn posts a separate reclassification
-        entry, so the original stays in the audit trail. Refunds come back under the same
-        category, and card bill payments move what you owe on the card against the bank account
-        that paid it — match that payment on the bank account&apos;s side rather than categorizing
-        it, or it would count twice.
+        default category, and wait in <Code>To review</Code> for someone to check that category.
+        A waiting purchase shows its category tinted amber, with a check beside it:
+      </P>
+      <UL>
+        <LI>
+          If the category is right, click the check. The purchase moves to <Code>Done</Code> and
+          nothing in your books changes.
+        </LI>
+        <LI>
+          If it isn&apos;t, pick another category right in the list. Genosyn posts a separate
+          reclassification entry, so the original stays in the audit trail, and the purchase
+          moves to <Code>Done</Code>.
+        </LI>
+      </UL>
+      <P>
+        A purchase in <Code>Done</Code> can still move to another category the same way, and{" "}
+        <DocLink to="#bulk">Send to review</DocLink> puts it back in <Code>To review</Code> with
+        its category as it is. Purchases that arrived before card purchases waited for review
+        start in <Code>Done</Code>: to go through them, open the card&apos;s <Code>Done</Code>{" "}
+        tab, tick them, and send them back to review. A purchase Genosyn couldn&apos;t add to the
+        books waits too — the row says why, and <Code>Retry</Code> tries again. Refunds come back
+        under the same category, and card bill payments move what you owe on the card against the
+        bank account that paid it. A bill payment has no category, so it never waits: match it on
+        the bank account&apos;s side rather than categorizing it, or it would count twice.
       </P>
       <P>
         Banking is the only place a card purchase&apos;s category changes. Each change moves the
@@ -251,6 +270,57 @@ export function Banking() {
         <Code>Fix</Code>; correct it with a journal entry.
       </P>
 
+      <H2 id="bulk">Work on many at once</H2>
+      <P>
+        With Full finance access every row has a tick box. Tick one, shift-click another to tick
+        everything between them, or tick the box above the list to take every transaction in
+        view. Search first to narrow it: <Code>Claude</Code>, then the box above the list, ticks
+        every Claude purchase. A bar opens at the bottom of the page with what the ticked
+        transactions can take:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Categorize",
+            def: (
+              <>
+                Pick one category for all of them, then click <Code>Categorize</Code>. A bank
+                transaction in <Code>To review</Code> is categorized as its own{" "}
+                <Code>Categorize</Code> would. A card purchase moves to the category with a
+                reclassification, whether it was waiting or done, and moves to <Code>Done</Code>.
+                A card purchase takes only an expense category, so card purchases alone are
+                offered only expenses. A done bank transaction takes a new category only once it
+                is back in review.
+              </>
+            ),
+          },
+          {
+            term: "Mark reviewed",
+            def: "Card purchases waiting for review keep their categories and move to Done.",
+          },
+          {
+            term: "Send to review",
+            def: (
+              <>
+                Puts done transactions back in <Code>To review</Code>. A card purchase keeps its
+                category. A bank transaction is undone as its own <DocLink to="#undo">Undo</DocLink>{" "}
+                would — a category reversed with an opposite entry, a match unlinked — and Genosyn
+                says what it will undo before it does. A deposit that paid invoices is left out:
+                open it and use <Code>Undo</Code>, which says which payments come off which
+                invoices.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Each transaction is handled on its own, under the same rules as its row. If some
+        can&apos;t take the action — a date in a closed period, say — the rest still go through,
+        and Genosyn lists why the others didn&apos;t; they stay ticked. A card bill payment
+        can&apos;t be ticked, and neither can a deposit that paid invoices. <Code>Esc</Code> clears
+        the selection. Every bulk change is recorded in the audit log.
+      </P>
+
       <Callout kind="tip" title="Entry review">
         Everything Banking puts in your books also appears under{" "}
         <DocLink to="/docs/finance#transaction-review">Finance → Entry review</DocLink>, for a
@@ -263,7 +333,8 @@ export function Banking() {
         Banking follows each Member&apos;s{" "}
         <DocLink to="/docs/finance#finance-access">Finance access</DocLink>. With{" "}
         <Strong>Full</Strong> access a Member adds and removes accounts, imports, updates,
-        explains or undoes transactions, and fixes card categories. With{" "}
+        explains or undoes transactions, ticks them to change many at once, and fixes card
+        categories. With{" "}
         <Strong>Read-only</Strong> access they see every account and transaction, and what
         explains it, without any of those controls.
       </P>
