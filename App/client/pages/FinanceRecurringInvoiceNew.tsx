@@ -29,7 +29,7 @@ import {
   withTime,
 } from "../lib/schedule";
 import { customerOptionLabel } from "../lib/customerLabel";
-import { withCustomerReread } from "../lib/customerBillTo";
+import { withSavedCustomer } from "../lib/customerBillTo";
 import {
   type DiscountDraft,
   discountDraftFrom,
@@ -559,10 +559,9 @@ function RecurringInvoiceForm() {
             </Select>
             <CustomerBillTo
               companyId={company.id}
-              companySlug={company.slug}
               customer={selectedCustomer}
               kind="recurringInvoice"
-              onCustomerReread={(fresh) => setCustomers((list) => withCustomerReread(list, fresh))}
+              onCustomerSaved={(saved) => setCustomers((list) => withSavedCustomer(list, saved))}
             />
             {requestedCustomerUnavailable && !customerId && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">

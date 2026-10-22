@@ -250,7 +250,7 @@ export function Finance() {
       <P>
         Picking a customer on an invoice, estimate, or recurring invoice shows the billing email the
         document is sent to and the billing address it prints, with a small warning for whichever is
-        missing — see{" "}
+        missing and a link to add it to the customer right there — see{" "}
         <DocLink to="/docs/customers#bill-to">Email and address on documents</DocLink>.
       </P>
 

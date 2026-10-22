@@ -17,7 +17,7 @@ import {
   TaxRate,
 } from "../lib/api";
 import { customerOptionLabel } from "../lib/customerLabel";
-import { withCustomerReread } from "../lib/customerBillTo";
+import { withSavedCustomer } from "../lib/customerBillTo";
 import {
   type DiscountDraft,
   discountDraftFrom,
@@ -487,10 +487,9 @@ function InvoiceForm() {
             </Select>
             <CustomerBillTo
               companyId={company.id}
-              companySlug={company.slug}
               customer={selectedCustomer}
               kind="invoice"
-              onCustomerReread={(fresh) => setCustomers((list) => withCustomerReread(list, fresh))}
+              onCustomerSaved={(saved) => setCustomers((list) => withSavedCustomer(list, saved))}
             />
             {issued && (
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">

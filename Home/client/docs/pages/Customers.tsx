@@ -134,10 +134,13 @@ export function Customers() {
         billing address it prints without one.
       </P>
       <P>
-        Neither stops you saving. Documents read both from the customer each time they are printed
-        or sent, so an address added later also appears on documents already issued.{" "}
-        <Code>Edit customer</Code> under the warning opens the customer in a new tab, and the form
-        picks up the change when you come back to it.
+        Neither stops you saving. To fill one in without leaving the form, click{" "}
+        <Code>Add email</Code>, <Code>Add billing address</Code>, or{" "}
+        <Code>Add email and billing address</Code> under the warning, type it in, and click{" "}
+        <Code>Save to customer</Code>. It is saved to the customer, not just this document:
+        documents read both from the customer each time they are printed or sent, so the detail
+        also appears on the customer&apos;s other documents, including ones already issued. Only a
+        missing detail can be added here; to change one already on file, edit the customer.
       </P>
 
       <H2 id="access">Who can see and change customers</H2>
