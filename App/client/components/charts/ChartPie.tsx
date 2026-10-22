@@ -1,6 +1,17 @@
 import React from "react";
 import type { QueryResult, VizConfig } from "./ChartRenderer";
 import { resolveFrame, seriesColor } from "./chartHelpers";
+import { clsx } from "../ui/clsx";
+import { usePlotSize } from "./usePlotSize";
+
+type Slice = {
+  label: string;
+  value: number;
+  start: number;
+  end: number;
+  pct: number;
+  color: string;
+};
 
 /**
  * Donut chart over a single measure. `vizConfig.dimension` is the slice
@@ -9,13 +20,7 @@ import { resolveFrame, seriesColor } from "./chartHelpers";
  * normalized to 100% — negative values are clamped to 0 so a "loss" row
  * doesn't crash the geometry.
  */
-export function ChartPie({
-  config,
-  result,
-}: {
-  config: VizConfig;
-  result: QueryResult;
-}) {
+export function ChartPie({ config, result }: { config: VizConfig; result: QueryResult }) {
   const adapted: VizConfig = {
     ...config,
     measures:
@@ -42,15 +47,8 @@ export function ChartPie({
     );
   }
 
-  const W = 360;
-  const H = 320;
-  const cx = 140;
-  const cy = H / 2;
-  const outerR = 130;
-  const innerR = 70;
-
   let acc = 0;
-  const slices = values.map((v, i) => {
+  const slices: Slice[] = values.map((v, i) => {
     const start = (acc / total) * Math.PI * 2 - Math.PI / 2;
     acc += v;
     const end = (acc / total) * Math.PI * 2 - Math.PI / 2;
@@ -64,67 +62,120 @@ export function ChartPie({
     };
   });
 
+  return <Donut slices={slices} total={total} />;
+}
+
+/**
+ * The donut, drawn at the pixel size of its box with the legend beside it in
+ * page text — or beneath it, in a box too narrow to share — so neither
+ * shrinks to an unreadable size in a small card. Pointing at a slice or its
+ * legend row puts that slice in the middle.
+ */
+function Donut({ slices, total }: { slices: Slice[]; total: number }) {
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const ref = React.useRef<HTMLDivElement>(null);
+  const root = usePlotSize(rootRef);
+  const { width, height } = usePlotSize(ref);
+  const [hovered, setHovered] = React.useState<number | null>(null);
+  const outer = Math.max(0, Math.min(width, height) / 2 - 2);
+  const inner = outer * 0.6;
+  const focus = hovered === null ? null : slices[hovered];
+  const legendBelow = root.width > 0 && root.width < 320;
+
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
-      className="block h-full w-full"
-      role="img"
+    <div
+      ref={rootRef}
+      className={clsx(
+        "flex h-full w-full min-w-0 gap-3",
+        legendBelow ? "flex-col" : "items-center",
+      )}
     >
-      {slices.map((s) => (
-        <path
-          key={s.label}
-          d={donutArc(cx, cy, innerR, outerR, s.start, s.end)}
-          fill={s.color}
-        >
-          <title>
-            {s.label}: {s.value.toLocaleString()} ({(s.pct * 100).toFixed(1)}%)
-          </title>
-        </path>
-      ))}
-      <text
-        x={cx}
-        y={cy - 4}
-        textAnchor="middle"
-        fontSize={11}
-        className="fill-slate-500 dark:fill-slate-400"
+      <div
+        ref={ref}
+        className={clsx(
+          "relative min-h-0 min-w-0 flex-1 [contain-intrinsic-height:12rem] [contain:size]",
+          !legendBelow && "h-full",
+        )}
       >
-        Total
-      </text>
-      <text
-        x={cx}
-        y={cy + 14}
-        textAnchor="middle"
-        fontSize={16}
-        className="fill-slate-900 dark:fill-slate-100"
+        {outer > 0 && (
+          <svg
+            width={width}
+            height={height}
+            role="img"
+            aria-label={`Share of ${formatTotal(total)} across ${slices.length} ${
+              slices.length === 1 ? "slice" : "slices"
+            }.`}
+            className="absolute inset-0 block"
+          >
+            {slices.map((slice, i) => (
+              <path
+                key={i}
+                d={donutArc(width / 2, height / 2, inner, outer, slice.start, slice.end)}
+                fill={slice.color}
+                opacity={hovered === null || hovered === i ? 1 : 0.35}
+                onPointerEnter={() => setHovered(i)}
+                onPointerLeave={() => setHovered(null)}
+              >
+                <title>
+                  {slice.label}: {slice.value.toLocaleString()} ({(slice.pct * 100).toFixed(1)}%)
+                </title>
+              </path>
+            ))}
+          </svg>
+        )}
+        {inner >= 28 && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+            <div
+              className="truncate text-[11px] text-slate-500 dark:text-slate-400"
+              style={{ maxWidth: inner * 1.6 }}
+            >
+              {focus ? focus.label : "Total"}
+            </div>
+            <div className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {formatTotal(focus ? focus.value : total)}
+            </div>
+            {focus && (
+              <div className="text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                {(focus.pct * 100).toFixed(1)}%
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <ul
+        className={clsx(
+          "shrink-0 overflow-y-auto text-xs",
+          legendBelow ? "flex max-h-[40%] flex-wrap gap-x-2" : "max-h-full w-36 py-1",
+        )}
       >
-        {fmt(total)}
-      </text>
-      {/* Legend column to the right of the donut. */}
-      <g transform="translate(280, 16)">
-        {slices.slice(0, 10).map((s, i) => (
-          <g key={s.label} transform={`translate(0, ${i * 22})`}>
-            <rect width={10} height={10} fill={s.color} rx={2} y={-8} />
-            <text
-              x={16}
-              y={1}
-              fontSize={10}
-              className="fill-slate-600 dark:fill-slate-300"
+        {slices.map((slice, i) => (
+          <li
+            key={i}
+            className={clsx(
+              "flex min-w-0 items-center gap-2 rounded px-1.5 py-0.5",
+              legendBelow && "max-w-full",
+              hovered === i && "bg-slate-100 dark:bg-slate-800",
+            )}
+            onPointerEnter={() => setHovered(i)}
+            onPointerLeave={() => setHovered(null)}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ backgroundColor: slice.color }}
+            />
+            <span
+              className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300"
+              title={slice.label}
             >
-              {truncate(s.label, 14)}
-            </text>
-            <text
-              x={16}
-              y={12}
-              fontSize={9}
-              className="fill-slate-400 dark:fill-slate-500"
-            >
-              {(s.pct * 100).toFixed(1)}%
-            </text>
-          </g>
+              {slice.label}
+            </span>
+            <span className="tabular-nums text-slate-400 dark:text-slate-500">
+              {(slice.pct * 100).toFixed(1)}%
+            </span>
+          </li>
         ))}
-      </g>
-    </svg>
+      </ul>
+    </div>
   );
 }
 
@@ -136,7 +187,12 @@ function donutArc(
   start: number,
   end: number,
 ): string {
-  // Single-slice (full circle) — draw as two half-arcs so the SVG path is valid.
+  // A whole ring's arc would start and end on the same point, which SVG draws
+  // as nothing; draw a single slice as two halves instead.
+  if (end - start >= Math.PI * 2 - 1e-9) {
+    const mid = start + Math.PI;
+    return `${donutArc(cx, cy, rInner, rOuter, start, mid)} ${donutArc(cx, cy, rInner, rOuter, mid, end)}`;
+  }
   const sweep = end - start;
   const large = sweep > Math.PI ? 1 : 0;
   const x1 = cx + rOuter * Math.cos(start);
@@ -156,14 +212,11 @@ function donutArc(
   ].join(" ");
 }
 
-function fmt(n: number): string {
-  if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(1) + "B";
-  if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + "K";
-  return n.toLocaleString();
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, Math.max(1, n - 1)) + "…";
+/** In full below a million, so the middle reads "48,213" rather than "48.2K". */
+function formatTotal(n: number): string {
+  if (Math.abs(n) < 1e6) return n.toLocaleString();
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n);
 }

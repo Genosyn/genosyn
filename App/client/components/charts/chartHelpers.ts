@@ -16,9 +16,6 @@ export type Series = {
 export type ChartFrame = {
   labels: string[];
   series: Series[];
-  /** Pre-computed bounds for axis scaling. */
-  min: number;
-  max: number;
 };
 
 const NULL_NUMERIC = 0;
@@ -82,37 +79,7 @@ export function resolveFrame(
     values: result.rows.map((r) => toNumber(r[m])),
   }));
 
-  let min = Infinity;
-  let max = -Infinity;
-  for (const s of series) {
-    for (const v of s.values) {
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-  }
-  if (!Number.isFinite(min)) min = 0;
-  if (!Number.isFinite(max)) max = 0;
-  if (min === max) {
-    // Avoid a divide-by-zero in the axis scaler.
-    max = min + 1;
-  }
-  // Always anchor the y-axis at 0 unless data goes negative — matches the
-  // usual analytics expectation that bars start at zero.
-  if (min > 0) min = 0;
-
-  return { labels, series, min, max };
-}
-
-/** Linear-interpolation scaler for the y-axis. */
-export function yScaler(
-  min: number,
-  max: number,
-  height: number,
-  topPad: number,
-  bottomPad: number,
-): (v: number) => number {
-  const usable = height - topPad - bottomPad;
-  return (v) => topPad + (1 - (v - min) / (max - min)) * usable;
+  return { labels, series };
 }
 
 /**
@@ -135,18 +102,4 @@ export const PALETTE = [
 /** Pick a deterministic color for the n-th series. */
 export function seriesColor(i: number): string {
   return PALETTE[i % PALETTE.length];
-}
-
-/**
- * Pretty-print a number for axis ticks. Compresses to K/M/B for
- * readability — actual values stay in the tooltip.
- */
-export function fmtTick(v: number): string {
-  if (!Number.isFinite(v)) return "";
-  const abs = Math.abs(v);
-  if (abs >= 1e9) return (v / 1e9).toFixed(1) + "B";
-  if (abs >= 1e6) return (v / 1e6).toFixed(1) + "M";
-  if (abs >= 1e3) return (v / 1e3).toFixed(1) + "K";
-  if (abs < 1 && abs > 0) return v.toFixed(2);
-  return Math.round(v).toString();
 }

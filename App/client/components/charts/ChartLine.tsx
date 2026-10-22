@@ -1,24 +1,14 @@
 import React from "react";
 import type { QueryResult, VizConfig } from "./ChartRenderer";
-import {
-  fmtTick,
-  resolveFrame,
-  seriesColor,
-  yScaler,
-} from "./chartHelpers";
+import { CartesianPlot } from "./CartesianPlot";
+import { resolveFrame, seriesColor } from "./chartHelpers";
 
 /**
- * Inline-SVG line chart. Each measure becomes one polyline. Dots are drawn
- * for individual points so a single-row series stays visible. Axis labels
- * are auto-thinned when there are too many dimension values to fit.
+ * Inline-SVG line chart. Each measure becomes one line across the dimension's
+ * values; dots mark the points while there is room for them, so a sparse or
+ * single-row series stays visible. Fills the box its caller gives it.
  */
-export function ChartLine({
-  config,
-  result,
-}: {
-  config: VizConfig;
-  result: QueryResult;
-}) {
+export function ChartLine({ config, result }: { config: VizConfig; result: QueryResult }) {
   return <ChartLineLike config={config} result={result} filled={false} />;
 }
 
@@ -39,143 +29,66 @@ export function ChartLineLike({
       </div>
     );
   }
-  const W = 800;
-  const H = 320;
-  const padTop = 12;
-  const padBottom = 36;
-  const padLeft = 44;
-  const padRight = 16;
-
-  const scaleY = yScaler(frame.min, frame.max, H, padTop, padBottom);
-  const xCount = frame.labels.length;
-  const innerW = W - padLeft - padRight;
-  const stepX = xCount > 1 ? innerW / (xCount - 1) : 0;
-  const xAt = (i: number): number =>
-    xCount === 1 ? padLeft + innerW / 2 : padLeft + i * stepX;
-
-  const ticks = niceTicks(frame.min, frame.max, 4);
-  const labelEvery = Math.max(1, Math.ceil(xCount / 8));
-
+  const count = frame.labels.length;
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      className="block h-full w-full"
-      role="img"
+    <CartesianPlot
+      labels={frame.labels}
+      series={frame.series}
+      domain={frame.series.flatMap((item) => item.values)}
+      layout="point"
+      legendMark={filled ? "area" : "line"}
+      active={({ x, y }, index) =>
+        frame.series.map((item, s) => (
+          <circle
+            key={item.name}
+            cx={x(index)}
+            cy={y(item.values[index])}
+            r={5}
+            fill={seriesColor(s)}
+            strokeWidth={2}
+            className="stroke-white dark:stroke-slate-950"
+          />
+        ))
+      }
     >
-      {ticks.map((t) => {
-        const y = scaleY(t);
-        return (
-          <g key={t}>
-            <line
-              x1={padLeft}
-              x2={W - padRight}
-              y1={y}
-              y2={y}
-              className="stroke-slate-200 dark:stroke-slate-700"
-              strokeWidth={1}
-            />
-            <text
-              x={padLeft - 6}
-              y={y + 3}
-              textAnchor="end"
-              fontSize={10}
-              className="fill-slate-500 dark:fill-slate-400"
-            >
-              {fmtTick(t)}
-            </text>
-          </g>
-        );
-      })}
-
-      {frame.series.map((s, sIdx) => {
-        const color = seriesColor(sIdx);
-        const pts = s.values.map((v, i) => `${xAt(i)},${scaleY(v)}`);
-        const path = `M ${pts.join(" L ")}`;
-        const fillPath =
-          filled && pts.length > 0
-            ? `${path} L ${xAt(pts.length - 1)},${scaleY(0)} L ${xAt(0)},${scaleY(0)} Z`
-            : null;
-        return (
-          <g key={s.name}>
-            {fillPath && (
+      {({ x, y, zero, slot }) =>
+        frame.series.map((item, s) => {
+          const color = seriesColor(s);
+          const line = `M${item.values.map((value, i) => `${x(i)},${y(value)}`).join("L")}`;
+          const showDots = count === 1 || slot >= 28;
+          return (
+            <g key={item.name}>
+              {filled && count > 1 && (
+                <path
+                  d={`${line}L${x(count - 1)},${zero}L${x(0)},${zero}Z`}
+                  fill={color}
+                  fillOpacity={0.12}
+                />
+              )}
               <path
-                d={fillPath}
-                fill={color}
-                fillOpacity={0.18}
-                stroke="none"
+                d={line}
+                fill="none"
+                stroke={color}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
-            )}
-            <path
-              d={path}
-              fill="none"
-              stroke={color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {s.values.map((v, i) => (
-              <circle
-                key={i}
-                cx={xAt(i)}
-                cy={scaleY(v)}
-                r={2.5}
-                fill={color}
-              >
-                <title>
-                  {frame.labels[i]} · {s.name}: {v.toLocaleString()}
-                </title>
-              </circle>
-            ))}
-          </g>
-        );
-      })}
-
-      {frame.labels.map((label, i) =>
-        i % labelEvery !== 0 && i !== xCount - 1 ? null : (
-          <text
-            key={i}
-            x={xAt(i)}
-            y={H - padBottom + 14}
-            textAnchor="middle"
-            fontSize={10}
-            className="fill-slate-500 dark:fill-slate-400"
-          >
-            {truncate(label, 12)}
-          </text>
-        ),
-      )}
-
-      {frame.series.length > 1 && (
-        <g transform="translate(48, 8)">
-          {frame.series.map((s, i) => (
-            <g key={s.name} transform={`translate(${i * 140}, 0)`}>
-              <rect width={10} height={10} y={-8} fill={seriesColor(i)} rx={2} />
-              <text
-                x={14}
-                y={1}
-                fontSize={10}
-                className="fill-slate-600 dark:fill-slate-300"
-              >
-                {truncate(s.name, 18)}
-              </text>
+              {showDots &&
+                item.values.map((value, i) => (
+                  <circle
+                    key={i}
+                    cx={x(i)}
+                    cy={y(value)}
+                    r={4}
+                    fill={color}
+                    strokeWidth={2}
+                    className="stroke-white dark:stroke-slate-950"
+                  />
+                ))}
             </g>
-          ))}
-        </g>
-      )}
-    </svg>
+          );
+        })
+      }
+    </CartesianPlot>
   );
-}
-
-function niceTicks(min: number, max: number, count: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i <= count; i++) {
-    out.push(min + ((max - min) * i) / count);
-  }
-  return out;
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, Math.max(1, n - 1)) + "…";
 }

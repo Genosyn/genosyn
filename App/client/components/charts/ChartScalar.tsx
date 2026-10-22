@@ -20,12 +20,17 @@ export function ChartScalar({ config, result }: { config: VizConfig; result: Que
   const measure = exploreScalarMeasure(row, config);
   const raw = row[measure];
   const value = formatScalar(raw);
+  const text = `${config.prefix ?? ""}${value}${config.suffix ?? ""}`;
+  // Sized by the card it sits in rather than the window: as large as its
+  // width allows at about 0.6em a character, up to 4rem.
+  const fontSize = `clamp(1.25rem, ${(150 / Math.max(text.length, 1)).toFixed(1)}cqw, 4rem)`;
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center px-4">
-      <div className="text-[clamp(1.75rem,8vw,4rem)] font-semibold leading-none text-slate-900 tabular-nums dark:text-slate-100">
-        {config.prefix}
-        {value}
-        {config.suffix}
+    <div className="flex h-full w-full flex-col items-center justify-center px-4 [container-type:inline-size]">
+      <div
+        className="whitespace-nowrap font-semibold leading-none text-slate-900 tabular-nums dark:text-slate-100"
+        style={{ fontSize }}
+      >
+        {text}
       </div>
       <div className="mt-2 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
         {measure}

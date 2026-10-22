@@ -138,7 +138,7 @@ export function Explore() {
           },
           {
             term: "bar",
-            def: "Categories on one axis, measure on the other. Configurable orientation (vertical / horizontal) and stacking when there are multiple measure columns.",
+            def: "Categories along the bottom, measure up the side. With several measure columns the bars stand side by side, or stack into one column per category when stacking is on — positive values above zero, negative ones below.",
           },
           {
             term: "line",
@@ -154,6 +154,12 @@ export function Explore() {
           },
         ]}
       />
+      <P>
+        Bar, line, area, and pie charts redraw to fit the box they are in, from the editor&apos;s
+        preview to the smallest dashboard card, and a chart with more than one measure shows a
+        legend. Point at or tap a category, or focus the chart and use the arrow keys, to read every
+        measure&apos;s value there; a stacked bar adds the column&apos;s total.
+      </P>
 
       <H2 id="dashboards">Building a Dashboard</H2>
       <OL>

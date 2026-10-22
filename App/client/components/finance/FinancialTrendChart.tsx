@@ -2,6 +2,8 @@ import React from "react";
 import { formatMoney, FinancialTrendPoint } from "../../lib/api";
 import { clsx } from "../ui/clsx";
 import { Spinner } from "../ui/Spinner";
+import { columnPath, crisp } from "../charts/axis";
+import { AXIS_FONT_SIZE, textWidth, usePlotSize } from "../charts/usePlotSize";
 import {
   formatAxisMoney,
   monthHeading,
@@ -49,7 +51,6 @@ export const TREND_COLORS = ["#059669", "#ea580c", "#6366f1"] as const;
 /** Plot height in px, month labels included. `h-[16.5rem]` below matches it. */
 const HEIGHT = 264;
 const MARGIN = { top: 12, right: 12, bottom: 30 };
-const AXIS_FONT_SIZE = 11;
 /** Columns stay thin however wide a month is; the rest of the month is air. */
 const BAR_MAX_WIDTH = 24;
 const BAR_GAP = 2;
@@ -172,7 +173,7 @@ function TrendPlot({
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const tooltipRef = React.useRef<HTMLDivElement>(null);
-  const { width, font } = usePlotBox(ref);
+  const { width, font } = usePlotSize(ref);
   const [active, setActive] = React.useState<number | null>(null);
   const [tooltipWidth, setTooltipWidth] = React.useState(0);
   const current = active !== null && active < points.length ? active : null;
@@ -420,52 +421,4 @@ function TrendPlot({
       </table>
     </>
   );
-}
-
-/** The plot's width in px, and the font its axis text is set in. */
-function usePlotBox(ref: React.RefObject<HTMLDivElement>): { width: number; font: string } {
-  const [box, setBox] = React.useState({ width: 0, font: "" });
-  React.useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const font = `${AXIS_FONT_SIZE}px ${getComputedStyle(element).fontFamily}`;
-    const update = () => setBox({ width: Math.floor(element.clientWidth), font });
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref]);
-  return box;
-}
-
-let measuringContext: CanvasRenderingContext2D | null = null;
-const measuredWidths = new Map<string, number>();
-
-/** Rendered width of a label, so the axis makes room for what it says. */
-function textWidth(text: string, font: string): number {
-  measuringContext ??= document.createElement("canvas").getContext("2d");
-  if (!measuringContext || !font) return text.length * 6.5;
-  const key = `${font}|${text}`;
-  let measured = measuredWidths.get(key);
-  if (measured === undefined) {
-    measuringContext.font = font;
-    // Tabular figures run a little wider than the proportional ones measured.
-    measured = measuringContext.measureText(text).width + 2;
-    measuredWidths.set(key, measured);
-  }
-  return measured;
-}
-
-/** Centre a 1px line on a pixel row so it renders sharp instead of as a 2px blur. */
-function crisp(y: number): number {
-  return Math.round(y) + 0.5;
-}
-
-/** A column from the zero line to `end`, rounded only at the value's end. */
-function columnPath(x: number, base: number, end: number, width: number): string {
-  const r = Math.min(4, width / 2, Math.abs(end - base));
-  if (end < base) {
-    return `M${x},${base}V${end + r}A${r},${r} 0 0 1 ${x + r},${end}H${x + width - r}A${r},${r} 0 0 1 ${x + width},${end + r}V${base}Z`;
-  }
-  return `M${x},${base}V${end - r}A${r},${r} 0 0 0 ${x + r},${end}H${x + width - r}A${r},${r} 0 0 0 ${x + width},${end - r}V${base}Z`;
 }

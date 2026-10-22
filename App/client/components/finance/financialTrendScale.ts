@@ -1,4 +1,5 @@
 import type { FinancialTrendPoint } from "../../lib/api";
+import { niceAxis, type Axis } from "../charts/axis";
 
 /**
  * The arithmetic behind `FinancialTrendChart`, kept apart from its SVG so each
@@ -7,54 +8,14 @@ import type { FinancialTrendPoint } from "../../lib/api";
  * instead of colliding, and the figure the chart's header gives each series.
  */
 
-export type TrendScale = {
-  /** Bottom and top of the axis in cents. Both are whole steps. */
-  min: number;
-  max: number;
-  step: number;
-  ticks: number[];
-};
-
-const MULTIPLIERS = [1, 2, 2.5, 5];
-
 /**
- * A y-axis on round steps (1, 2, 2.5 or 5 × a power of ten) that always
- * includes zero, so a month that dips into a loss crosses a labelled baseline.
- * Of the steps that cut the axis into three to six intervals, the one leaving
- * the least empty height wins; on a tie, the one with fewer gridlines.
+ * The money axis, in cents: round steps through zero (see `niceAxis`), at
+ * least one whole unit of currency tall so a flat line or a few cents still
+ * sit on an axis that can be cut into round steps, and never a fraction of a
+ * cent apart.
  */
-export function niceScale(values: number[]): TrendScale {
-  let low = Math.min(0, ...values);
-  let high = Math.max(0, ...values);
-  // At least one whole unit of currency tall, away from zero, so a flat line
-  // or a few cents still sit on an axis that can be cut into round steps.
-  if (high - low < 100) {
-    if (high > 0 || low === 0) high = low + 100;
-    else low = high - 100;
-  }
-  const magnitude = 10 ** Math.floor(Math.log10((high - low) / 4));
-  let best: Omit<TrendScale, "ticks"> | null = null;
-  for (const scale of [magnitude / 10, magnitude, magnitude * 10]) {
-    for (const multiplier of MULTIPLIERS) {
-      const step = Math.max(1, Math.round(multiplier * scale));
-      const min = Math.floor(low / step) * step;
-      const max = Math.ceil(high / step) * step;
-      const intervals = (max - min) / step;
-      if (intervals < 3 || intervals > 6) continue;
-      if (
-        !best ||
-        max - min < best.max - best.min ||
-        (max - min === best.max - best.min && step > best.step)
-      ) {
-        best = { min, max, step };
-      }
-    }
-  }
-  const { min, max, step } = best ?? { min: low, max: high, step: high - low };
-  const ticks: number[] = [];
-  // `|| 0` keeps a negative zero from printing as "-$0".
-  for (let tick = min; tick <= max; tick += step) ticks.push(tick || 0);
-  return { min, max, step, ticks };
+export function niceScale(values: number[]): Axis {
+  return niceAxis(values, { minSpan: 100, integerSteps: true });
 }
 
 /** "$25K", "-$1.25M", "€0": the home currency, compact enough for an axis. */
