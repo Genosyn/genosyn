@@ -319,6 +319,17 @@ export function Finance() {
         each copy appears under <Code>Settings → Email Logs</Code>.
       </P>
 
+      <H3 id="invoices-line-tax">Tax on each line</H3>
+      <P>
+        When a line has a tax rate, its tax shows in a <Code>Tax</Code> column beside its amount,
+        with the rate&apos;s name underneath — on the detail page, the PDF and the email, and the
+        same on estimates and bills. The <Code>Amount</Code> stays quantity × unit price: tax on
+        an ordinary rate is added on top of it, and a line on an inclusive rate is marked{" "}
+        <Code>incl.</Code> because its tax is already inside it. A rate whose name already gives
+        its percentage, such as <Code>VAT 20%</Code>, shows it once. A document with no taxed
+        lines has no Tax column.
+      </P>
+
       <H3 id="invoices-discount">Discounts</H3>
       <P>
         To give a customer a discount on a whole invoice or estimate, click{" "}

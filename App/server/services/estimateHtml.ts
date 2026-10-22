@@ -5,6 +5,7 @@ import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
 import { discountLabel } from "../../shared/documentDiscount.js";
+import { anyLineTaxed, lineAmountCents, lineTaxLabel } from "../../shared/lineTax.js";
 import { getFinanceSettings } from "./fx.js";
 import { htmlToPdf } from "./htmlToPdf.js";
 import { documentIssuerFields } from "./subsidiaries.js";
@@ -215,20 +216,36 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
           }),
         )}</span><span class="num">-${formatMoney(discountCents, cur)}</span></div>`
       : "";
+  // A taxed line shows its tax beside its amount, which stays quantity × unit
+  // price, so the tax can be checked line by line against the totals. An
+  // estimate with no tax keeps the four columns.
+  const taxed = anyLineTaxed(lines);
+  const headCells = taxed
+    ? `<th style="width:43%">Description</th>
+          <th class="right" style="width:9%">Qty</th>
+          <th class="right" style="width:15%">Unit</th>
+          <th class="right" style="width:16%">Tax</th>
+          <th class="right" style="width:17%">Amount</th>`
+    : `<th style="width:55%">Description</th>
+          <th class="right" style="width:10%">Qty</th>
+          <th class="right" style="width:17%">Unit</th>
+          <th class="right" style="width:18%">Amount</th>`;
   const lineRows = lines
     .map((l) => {
       const qty = fmtQty(l.quantity);
       const unit = formatMoney(l.unitPriceCents, cur);
-      const total = formatMoney(l.lineTotalCents, cur);
-      const taxLabel =
-        l.taxPercent > 0
-          ? `${l.taxName || "Tax"} ${l.taxPercent}%${l.taxInclusive ? " incl." : ""}`
-          : "";
+      const amount = formatMoney(lineAmountCents(l), cur);
+      const taxCell = !taxed
+        ? ""
+        : l.taxPercent > 0
+          ? `<td class="right num">${formatMoney(l.lineTaxCents, cur)}<div style="color:#94a3b8;font-size:11px;margin-top:2px">${esc(lineTaxLabel(l))}</div></td>`
+          : `<td class="right" style="color:#94a3b8">—</td>`;
       return `<tr>
-        <td>${esc(l.description)}${taxLabel ? `<div style="color:#94a3b8;font-size:11px;margin-top:2px">${esc(taxLabel)}</div>` : ""}</td>
+        <td>${esc(l.description)}</td>
         <td class="right num">${qty}</td>
         <td class="right num">${unit}</td>
-        <td class="right num">${total}</td>
+        ${taxCell}
+        <td class="right num">${amount}</td>
       </tr>`;
     })
     .join("");
@@ -294,10 +311,7 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
     <table>
       <thead>
         <tr>
-          <th style="width:55%">Description</th>
-          <th class="right" style="width:10%">Qty</th>
-          <th class="right" style="width:17%">Unit</th>
-          <th class="right" style="width:18%">Amount</th>
+          ${headCells}
         </tr>
       </thead>
       <tbody>${lineRows || `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:24px">No line items</td></tr>`}</tbody>

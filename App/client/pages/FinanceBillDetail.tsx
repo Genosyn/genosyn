@@ -22,6 +22,7 @@ import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { DocumentLinesTable } from "@/components/finance/DocumentLinesTable";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -283,50 +284,7 @@ export default function FinanceBillDetail() {
               </div>
             </div>
 
-            <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">Description</th>
-                    <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>
-                    <th className="w-32 px-3 py-2 text-right font-medium">Unit</th>
-                    <th className="w-32 px-3 py-2 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {bill.lines.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-6 text-center text-sm text-slate-400">
-                        No line items
-                      </td>
-                    </tr>
-                  ) : (
-                    bill.lines.map((l) => (
-                      <tr key={l.id}>
-                        <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                          {l.description}
-                          {l.taxPercent > 0 && (
-                            <div className="text-xs text-slate-400">
-                              {l.taxName} {l.taxPercent}%
-                              {l.taxInclusive ? " incl." : ""}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">
-                          {l.quantity}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 dark:text-slate-300">
-                          {formatMoney(l.unitPriceCents, bill.currency)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                          {formatMoney(l.lineTotalCents, bill.currency)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DocumentLinesTable lines={bill.lines} currency={bill.currency} />
 
             <div className="mt-4 ml-auto w-72 space-y-1 text-sm">
               <div className="flex justify-between text-slate-500 dark:text-slate-400">
