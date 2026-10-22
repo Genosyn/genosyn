@@ -737,8 +737,11 @@ export function Finance() {
         there, the <Code>Trial balance</Code> and <Code>Reports</Code> pages produce the standard
         accountant outputs (P&amp;L, balance sheet, cash flow) with optional period comparisons.
         Each report opens with a monthly graph built from the same ledger calculation as the table
-        beneath it: revenue, expenses, and net income for P&amp;L; assets, liabilities, and equity
-        for the balance sheet; and operating, net, and closing cash for cash flow. Custom periods
+        beneath it, with the two flows as columns and what they come to as a line: revenue and
+        expenses with net income for P&amp;L; assets and liabilities with equity for the balance
+        sheet; and operating cash and net change with closing cash for cash flow. Above the graph,
+        each one&apos;s figure for the period matches the table&apos;s total; point at or tap a
+        month, or focus the graph and use the arrow keys, to read that month. Custom periods
         longer than two years graph the most recent 24 months so the axis stays readable. Click any
         line in a report to see the entries behind it: the period&apos;s entries for a P&amp;L
         line, and the account&apos;s whole history up to the date for a balance sheet line. A money

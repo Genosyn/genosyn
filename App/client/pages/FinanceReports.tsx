@@ -23,6 +23,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import {
   FinancialTrendChart,
+  TREND_COLORS,
   type FinancialTrendSeries,
 } from "../components/finance/FinancialTrendChart";
 
@@ -100,6 +101,7 @@ export default function FinanceReports() {
 
   const priorRange = React.useMemo(() => priorRangeOf(effectiveRange), [effectiveRange]);
   const [trends, setTrends] = React.useState<FinancialTrendsReport | null>(null);
+  const [trendsLoading, setTrendsLoading] = React.useState(true);
   const [trendError, setTrendError] = React.useState("");
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
@@ -110,7 +112,8 @@ export default function FinanceReports() {
       return;
     }
     let alive = true;
-    setTrends(null);
+    // The chart keeps the previous period's months up, dimmed, until these land.
+    setTrendsLoading(true);
     setTrendError("");
     const query = new URLSearchParams({
       from: effectiveRange.from.toISOString(),
@@ -123,6 +126,9 @@ export default function FinanceReports() {
       })
       .catch((err: unknown) => {
         if (alive) setTrendError((err as Error).message || "Could not load chart data");
+      })
+      .finally(() => {
+        if (alive) setTrendsLoading(false);
       });
     return () => {
       alive = false;
@@ -228,18 +234,15 @@ export default function FinanceReports() {
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-500/10 dark:text-red-300">
             {trendError}
           </div>
-        ) : trends === null ? (
-          <div className="flex h-72 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-            <Spinner size={20} />
-          </div>
         ) : (
           <FinancialTrendChart
             title={trendConfig.title}
             subtitle={trendConfig.subtitle}
-            points={trends.points}
+            points={trends?.points ?? null}
             series={trendConfig.series}
-            truncated={trends.truncated}
+            truncated={trends?.truncated}
             homeCurrency={homeCurrency}
+            loading={trendsLoading}
           />
         )}
       </div>
@@ -303,25 +306,34 @@ function trendSeriesFor(tab: Tab): {
   subtitle: string;
   series: FinancialTrendSeries[];
 } {
+  // Each report draws its two flows as columns and what they come to as a
+  // line, coloured in that order.
+  const [first, second, line] = TREND_COLORS;
   if (tab === "balance") {
     return {
       title: "Balance sheet trend",
       subtitle: "Month-end assets, liabilities, and equity from the live ledger.",
       series: [
-        { key: "assets", label: "Assets", color: "#6366f1" },
-        { key: "liabilities", label: "Liabilities", color: "#f59e0b" },
-        { key: "equity", label: "Equity", color: "#10b981" },
+        { key: "assets", label: "Assets", color: first, kind: "bar", summary: "last" },
+        { key: "liabilities", label: "Liabilities", color: second, kind: "bar", summary: "last" },
+        { key: "equity", label: "Equity", color: line, kind: "line", summary: "last" },
       ],
     };
   }
   if (tab === "cashflow") {
     return {
       title: "Cash-flow trend",
-      subtitle: "Monthly operating movement and net cash change.",
+      subtitle: "Monthly operating cash and net change, with the closing cash balance.",
       series: [
-        { key: "operatingCash", label: "Operating", color: "#0ea5e9" },
-        { key: "netCash", label: "Net cash", color: "#6366f1" },
-        { key: "closingCash", label: "Closing cash", color: "#10b981", dashed: true },
+        {
+          key: "operatingCash",
+          label: "Operating cash",
+          color: first,
+          kind: "bar",
+          summary: "sum",
+        },
+        { key: "netCash", label: "Net change", color: second, kind: "bar", summary: "sum" },
+        { key: "closingCash", label: "Closing cash", color: line, kind: "line", summary: "last" },
       ],
     };
   }
@@ -329,9 +341,9 @@ function trendSeriesFor(tab: Tab): {
     title: "Profit and loss trend",
     subtitle: "Monthly revenue, expenses, and net income.",
     series: [
-      { key: "revenue", label: "Revenue", color: "#10b981" },
-      { key: "expenses", label: "Expenses", color: "#f59e0b" },
-      { key: "netIncome", label: "Net income", color: "#6366f1" },
+      { key: "revenue", label: "Revenue", color: first, kind: "bar", summary: "sum" },
+      { key: "expenses", label: "Expenses", color: second, kind: "bar", summary: "sum" },
+      { key: "netIncome", label: "Net income", color: line, kind: "line", summary: "sum" },
     ],
   };
 }
