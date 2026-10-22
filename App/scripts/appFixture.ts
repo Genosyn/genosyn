@@ -197,8 +197,6 @@ export async function startApp(title: string) {
       ["GET", "/api/companies", () => [company]],
       ["GET", `${API}/notifications/unread-count`, () => ({ count: 0 })],
       ["GET", `${API}/notifications`, () => ({ notifications: [] })],
-      // The shell lists the sections a company uses; a fixture company uses none.
-      ["GET", `${API}/navigation/sections`, () => ({ used: [] })],
       // The live socket has no server here; a token lets it try and back off quietly.
       ["POST", `${API}/workspace/ws-token`, () => ({ token: "fixture" })],
     ];
