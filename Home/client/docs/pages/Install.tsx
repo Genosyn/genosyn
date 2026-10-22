@@ -142,7 +142,8 @@ export function Install() {
       <P>
         The CLI keeps the previous container until the new version is ready and restarts it
         automatically if the upgrade fails. Every upgrade first writes a verified archive of the
-        data under <Code>~/.genosyn/backups</Code>, replacing the previous upgrade&apos;s, and
+        data under <Code>~/.genosyn/backups</Code> while Genosyn keeps running, replacing the
+        previous upgrade&apos;s, and
         restores it during a failed upgrade. Skip it with <Code>--no-backup</Code>:
       </P>
       <Pre lang="bash">{`genosyn upgrade --no-backup`}</Pre>

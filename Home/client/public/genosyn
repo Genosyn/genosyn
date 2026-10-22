@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.12.0"
+CLI_VERSION="0.13.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -579,10 +579,20 @@ upgrade_backup_path() {
     "${backup_dir}" "$(auto_update_key)" "$(date -u +%Y%m%d-%H%M%S)" "$$"
 }
 
+# Whether an archive holds something and reads end to end.
+archive_valid() {
+  [ -s "$1" ] || return 1
+  docker run --rm \
+    -v "$(cd "$(dirname "$1")" && pwd):/backup:ro" \
+    alpine:3.20 \
+    sh -c 'tar -tzf "/backup/$1" >/dev/null' sh "$(basename "$1")"
+}
+
 # Write and validate a complete volume archive. The app must be stopped by the
-# caller when a consistent SQLite snapshot matters. Pass 1 as the second
-# argument to leave out the App's own Backup/ archives: an upgrade backup does
-# not need them, they can dwarf everything else, and a restore keeps them.
+# caller when a consistent SQLite snapshot matters; backup_running_volume_to
+# takes one from a running app instead. Pass 1 as the second argument to leave
+# out the App's own Backup/ archives: an upgrade backup does not need them,
+# they can dwarf everything else, and a restore keeps them.
 backup_volume_to() {
   local out="$1"
   local skip_app_backups="${2:-0}"
@@ -603,10 +613,77 @@ backup_volume_to() {
 
   [ -s "${out}" ] || return 1
   chmod 0600 "${out}" || return 1
-  docker run --rm \
-    -v "${out_dir}:/backup:ro" \
-    alpine:3.20 \
-    sh -c 'tar -tzf "/backup/$1" >/dev/null' sh "${out_base}"
+  archive_valid "${out}"
+}
+
+# Where a live backup stages its database snapshot: inside the running App
+# container, never the data volume, so no in-app backup can pick it up and a
+# copy a crash leaves behind goes with the container.
+LIVE_SNAPSHOT_DIR="/tmp/genosyn-upgrade-backup"
+
+# Archive the volume of a running Genosyn without stopping it, in the shape
+# backup_volume_to writes, so restore and rollback read it unchanged. SQLite
+# first copies the database with VACUUM INTO -- a reader, which the App's
+# writes never wait on -- into a consistent snapshot inside the container; the
+# App image's GNU tar then streams the volume out with that snapshot standing
+# in for the live database and its WAL. The archive holds the database as it
+# was at the snapshot: what Genosyn writes afterwards is not in it. The second
+# argument leaves out the App's Backup/ archives, as for backup_volume_to.
+backup_running_volume_to() {
+  local out="$1"
+  local skip_app_backups="${2:-0}"
+  local db rc=0
+  local tar_args=(--create --gzip --file=- --directory=/app/data --anchored
+    --ignore-failed-read --warning=no-file-changed --warning=no-file-removed
+    --warning=no-file-ignored)
+
+  docker exec -u 0 "${NAME}" rm -rf "${LIVE_SNAPSHOT_DIR}" >/dev/null 2>&1 || true
+  # Prints the database's path inside the data directory, or nothing when the
+  # volume holds no SQLite database (Postgres, or a path outside it).
+  db="$(docker exec -i -w /app -e "GENOSYN_SNAPSHOT_DIR=${LIVE_SNAPSHOT_DIR}" "${NAME}" node <<'NODE'
+(async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { pathToFileURL } = require("node:url");
+  const { config } = await import(pathToFileURL("/app/dist/config.js").href);
+  if (config.db && config.db.driver === "postgres") return;
+  const dataDir = path.resolve(config.dataDir || "./data");
+  const dbPath = path.resolve((config.db && config.db.sqlitePath) || "./data/app.sqlite");
+  const rel = path.relative(dataDir, dbPath);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel) || !fs.existsSync(dbPath)) return;
+  const target = path.join(process.env.GENOSYN_SNAPSHOT_DIR, rel);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const Database = require("better-sqlite3");
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true, timeout: 60000 });
+  try {
+    db.prepare("VACUUM INTO ?").run(target);
+  } finally {
+    db.close();
+  }
+  process.stdout.write(rel);
+})().catch((e) => {
+  console.error("Could not snapshot the database: " + (e && e.message ? e.message : String(e)));
+  process.exit(1);
+});
+NODE
+)" || rc=$?
+  if [ "${rc}" = "0" ]; then
+    [ "${skip_app_backups}" != "1" ] || tar_args+=(--exclude=./Backup)
+    if [ -n "${db}" ]; then
+      tar_args+=(--exclude="./${db}" --exclude="./${db}-wal" --exclude="./${db}-shm"
+        --exclude="./${db}-journal" . --directory="${LIVE_SNAPSHOT_DIR}" "${db}")
+    else
+      tar_args+=(.)
+    fi
+    # GNU tar exits 1 when a file changed while it was read, which a live
+    # archive expects; only 2 and above mean the archive is unusable.
+    (umask 077 && docker exec -u 0 "${NAME}" tar "${tar_args[@]}" >"${out}") || rc=$?
+    [ "${rc}" -gt 1 ] || rc=0
+  fi
+  docker exec -u 0 "${NAME}" rm -rf "${LIVE_SNAPSHOT_DIR}" >/dev/null 2>&1 || true
+  [ "${rc}" = "0" ] || return 1
+  chmod 0600 "${out}" || return 1
+  archive_valid "${out}"
 }
 
 # Replace the volume's contents with an archive's. The App's own Backup/
@@ -659,6 +736,19 @@ volume_backup_size_kb() {
     2>/dev/null || true
 }
 
+# KiB the database snapshot of a live backup can take: the SQLite file, which
+# the snapshot never outgrows. 0 when the volume holds none.
+sqlite_snapshot_size_kb() {
+  docker run --rm -v "${VOLUME}:/data:ro" alpine:3.20 \
+    sh -c 'if [ -f /data/app.sqlite ]; then du -sk /data/app.sqlite | cut -f1; else echo 0; fi' \
+    2>/dev/null || true
+}
+
+# KiB free where a running container stages that snapshot.
+container_tmp_free_kb() {
+  docker exec "${NAME}" df -Pk /tmp 2>/dev/null | awk 'NR == 2 { print $4 }'
+}
+
 # KiB free on the filesystem that holds $1.
 free_space_kb() {
   df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
@@ -677,23 +767,30 @@ reclaim_docker_space() {
 
 # Before anything is paused or stopped: clear the previous upgrade backup and
 # make sure the next one fits, with 1 GiB to spare for everything else on the
-# disk, reclaiming Docker's spare space first when it doesn't. Writing it until
-# the disk filled would take the host's other services down with it, so an
-# upgrade that still has no room stops here and leaves Genosyn as it was.
+# disk, reclaiming Docker's spare space first when it doesn't. A running
+# Genosyn's backup also holds a database snapshot until the archive is done,
+# counted against the backup's disk (the usual layout puts both on one) and
+# against the container's own. Writing until a disk filled would take the
+# host's other services down with it, so an upgrade that still has no room
+# stops here and leaves Genosyn as it was.
 prepare_pre_upgrade_backup() {
-  local needed free free_before
+  local needed snapshot=0 free free_before tmp_free
   mkdir -p "${UPGRADE_BACKUP_DIR}" || die "Could not create the backup directory ${UPGRADE_BACKUP_DIR}. Nothing was changed."
   chmod 0700 "${UPGRADE_BACKUP_DIR}" 2>/dev/null || true
   prune_pre_upgrade_backups
   step "Checking there is room for the upgrade backup"
   needed="$(volume_backup_size_kb)"
+  if container_running; then
+    snapshot="$(sqlite_snapshot_size_kb)"
+  fi
   free="$(free_space_kb "${UPGRADE_BACKUP_DIR}")"
-  case "${needed}:${free}" in
-    *[!0-9:]*|:*|*:)
+  case "${needed}:${snapshot}:${free}" in
+    *[!0-9:]*|:*|*:|*::*)
       warn "Could not measure the space the upgrade backup needs; trying anyway."
       return 0
       ;;
   esac
+  needed=$((needed + snapshot))
   if [ "${free}" -lt $((needed + 1048576)) ]; then
     step "Clearing Docker's build cache and unused untagged images to make room"
     reclaim_docker_space
@@ -706,6 +803,17 @@ prepare_pre_upgrade_backup() {
   fi
   if [ "${free}" -lt $((needed + 1048576)) ]; then
     die "Not enough free space for the upgrade backup in ${UPGRADE_BACKUP_DIR}: it can take up to $(human_size $((needed * 1024))) and $(human_size $((free * 1024))) is free. Free some space, set GENOSYN_BACKUP_DIR to a larger disk, or run 'genosyn upgrade --no-backup'. Genosyn was not changed."
+  fi
+  if [ "${snapshot}" -gt 0 ]; then
+    tmp_free="$(container_tmp_free_kb)"
+    case "${tmp_free}" in
+      ''|*[!0-9]*) ;;
+      *)
+        if [ "${tmp_free}" -lt $((snapshot + 1048576)) ]; then
+          die "Not enough free space for the database snapshot in '${NAME}': it can take up to $(human_size $((snapshot * 1024))) and $(human_size $((tmp_free * 1024))) is free. Free some space on Docker's disk, or run 'genosyn upgrade --no-backup'. Genosyn was not changed."
+        fi
+        ;;
+    esac
   fi
 }
 
@@ -982,36 +1090,36 @@ cmd_upgrade() {
     die "Cannot upgrade while rollback container '${rollback_name}' exists. Remove or recover it first."
   fi
 
+  # A running Genosyn is backed up while it keeps serving, so the archive --
+  # however long a large volume takes -- costs no downtime, and only the
+  # restart below does. One that is already stopped is archived as it lies.
+  local backup_path=""
   if [ "${take_backup}" = "1" ]; then
     prepare_pre_upgrade_backup
+    backup_path="$(upgrade_backup_path)" \
+      || die "Could not prepare the pre-upgrade backup directory. Nothing was changed."
+    if container_running; then
+      step "Backing up volume '${VOLUME}' while '${NAME}' keeps running → ${backup_path}"
+      if ! backup_running_volume_to "${backup_path}" 1; then
+        rm -f "${backup_path}"
+        die "Could not back up '${NAME}' while it runs. Upgrade aborted; it is still running and nothing was changed. Stop it first ('genosyn stop') to back it up offline, or run 'genosyn upgrade --no-backup'."
+      fi
+    else
+      step "Backing up volume '${VOLUME}' → ${backup_path}"
+      if ! backup_volume_to "${backup_path}" 1; then
+        rm -f "${backup_path}"
+        die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
+      fi
+    fi
+    ok "Pre-upgrade backup verified."
   fi
 
   local was_running=0
   if container_running; then
     was_running=1
     pause_routine_runs "${drain_minutes}" "${pause_grace}"
-    if [ "${take_backup}" = "1" ]; then
-      step "Stopping '${NAME}' for a consistent backup"
-    else
-      step "Stopping '${NAME}' for upgrade"
-    fi
+    step "Stopping '${NAME}' for upgrade"
     docker stop "${NAME}" >/dev/null
-  fi
-
-  local backup_path=""
-  if [ "${take_backup}" = "1" ]; then
-    if ! backup_path="$(upgrade_backup_path)"; then
-      [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
-      die "Could not prepare the pre-upgrade backup directory. Upgrade aborted."
-    fi
-
-    step "Backing up volume '${VOLUME}' → ${backup_path}"
-    if ! backup_volume_to "${backup_path}" 1; then
-      rm -f "${backup_path}"
-      [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
-      die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
-    fi
-    ok "Pre-upgrade backup verified."
   fi
 
   step "Keeping previous container as '${rollback_name}'"
@@ -2238,8 +2346,9 @@ ${C_BOLD}Commands:${C_RESET}
                        automatic updates. Pass --no-auto-update to opt out.
   upgrade [--no-backup] Self-upgrade the CLI, pull the latest image, and
                        recreate the container. The previous container is kept
-                       until ready. A verified data backup is taken first and
-                       restored on failure; each upgrade replaces the last one.
+                       until ready. A verified data backup is taken first,
+                       while Genosyn keeps running, and restored on failure;
+                       each upgrade replaces the last one.
                        If it would not fit, Docker's build cache and unused
                        untagged images are cleared first, never volumes.
                        Pass --no-backup (or --skip-backup) to skip it. Pass
