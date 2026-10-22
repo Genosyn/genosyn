@@ -18,6 +18,7 @@ import {
   serializeSchedule,
   updateBackupSchedule,
 } from "../services/backups.js";
+import { getLastBackupVerification, verifyBackups } from "../services/backupVerification.js";
 import { config } from "../../config.js";
 
 /**
@@ -42,6 +43,20 @@ backupsRouter.use((_req, res, next) => {
 backupsRouter.get("/", async (_req, res) => {
   const rows = await listBackups();
   res.json(rows.map(serializeBackup));
+});
+
+/** The last daily backup verification, or null before the first one has run. */
+backupsRouter.get("/verification", async (_req, res) => {
+  res.json({ verification: await getLastBackupVerification() });
+});
+
+/** Verify the backups now — the same verification the daily task runs, emails included. */
+backupsRouter.post("/verification", async (_req, res, next) => {
+  try {
+    res.json({ verification: await verifyBackups() });
+  } catch (err) {
+    next(err);
+  }
 });
 
 backupsRouter.post("/", async (_req, res, next) => {
@@ -130,11 +145,19 @@ const scheduleSchema = z.object({
   dayOfMonth: z.number().int().min(1).max(28).optional(),
   retentionEnabled: z.boolean().optional(),
   retentionDays: z.number().int().min(MIN_RETENTION_DAYS).max(MAX_RETENTION_DAYS).optional(),
+  offBoxRetentionEnabled: z.boolean().optional(),
+  offBoxRetentionDays: z
+    .number()
+    .int()
+    .min(MIN_RETENTION_DAYS)
+    .max(MAX_RETENTION_DAYS)
+    .optional(),
 });
 
 /**
- * Saving retention enforces it immediately, so the response carries
+ * Saving on-box retention enforces it immediately, so the response carries
  * `prunedNow` — how many archives that save deleted — for the UI to report.
+ * The off-box policy applies at each destination's next delivery.
  */
 backupsRouter.put("/schedule", validateBody(scheduleSchema), async (req, res) => {
   const body = req.body as z.infer<typeof scheduleSchema>;

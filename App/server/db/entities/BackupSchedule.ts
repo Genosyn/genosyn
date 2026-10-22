@@ -5,7 +5,8 @@ export type BackupFrequency = "daily" | "weekly" | "monthly";
 
 /**
  * Singleton row (id='default') holding the recurring-backup configuration
- * and the retention policy. The row always exists — {@link getBackupSchedule}
+ * and the two retention policies — one for archives on this server, one for
+ * copies on off-box destinations. The row always exists — {@link getBackupSchedule}
  * creates it lazily on first read. Modelled as an entity rather than a dotfile
  * so the settings page can round-trip through the same TypeORM repo as
  * everything else.
@@ -49,6 +50,20 @@ export class BackupSchedule {
   /** Age (in days) past which an archive is eligible for deletion. */
   @Column({ type: "integer", default: 30 })
   retentionDays!: number;
+
+  /**
+   * The off-box policy, set apart from the one above because the two stores
+   * have different room: a NAS usually holds far more history than the
+   * server's own disk. When true, archives older than
+   * {@link offBoxRetentionDays} are deleted from a destination each time a
+   * backup is delivered there.
+   */
+  @Column({ type: "boolean", default: false })
+  offBoxRetentionEnabled!: boolean;
+
+  /** Age (in days) past which a delivered archive is deleted from a destination. */
+  @Column({ type: "integer", default: 30 })
+  offBoxRetentionDays!: number;
 
   @UpdateDateColumn()
   updatedAt!: Date;

@@ -1,6 +1,7 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import {
+  AlertTriangle,
   CheckCircle2,
   Download,
   HardDrive,
@@ -23,6 +24,7 @@ import {
   BackupDestinationKind,
   BackupFrequency,
   BackupSchedule,
+  BackupVerification,
   SftpAuthMode,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -65,6 +67,11 @@ export function AdminBackup() {
   const [rows, setRows] = React.useState<Backup[] | null>(null);
   const [schedule, setSchedule] = React.useState<BackupSchedule | null>(null);
   const [destinations, setDestinations] = React.useState<BackupDestination[] | null>(null);
+  /** undefined while loading; null before the first verification has run. */
+  const [verification, setVerification] = React.useState<BackupVerification | null | undefined>(
+    undefined,
+  );
+  const [verifying, setVerifying] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [savingSchedule, setSavingSchedule] = React.useState(false);
   const [savingRetention, setSavingRetention] = React.useState(false);
@@ -80,21 +87,38 @@ export function AdminBackup() {
 
   const reload = React.useCallback(async () => {
     try {
-      const [list, sched, dests] = await Promise.all([
+      const [list, sched, dests, last] = await Promise.all([
         api.get<Backup[]>("/api/backups"),
         api.get<BackupSchedule>("/api/backups/schedule"),
         api.get<BackupDestination[]>("/api/backup-destinations"),
+        api.get<{ verification: BackupVerification | null }>("/api/backups/verification"),
       ]);
       setRows(list);
       setSchedule(sched);
       setDestinations(dests);
+      setVerification(last.verification);
       setLoadError(null);
     } catch (err) {
       setLoadError(errorMessage(err, "Could not load the backups"));
       setRows([]);
       setDestinations([]);
+      setVerification(null);
     }
   }, []);
+
+  const verifyNow = async () => {
+    setVerifying(true);
+    try {
+      const result = await api.post<{ verification: BackupVerification }>(
+        "/api/backups/verification",
+      );
+      setVerification(result.verification);
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t verify the backups" });
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   /**
    * Shared by both schedule cards — they PUT the same row. Saving enforces
@@ -207,6 +231,12 @@ export function AdminBackup() {
       <TopBar title="Backups" />
       <div className="flex flex-col gap-4">
         <FormError message={loadError} />
+        <OffBoxFailures destinations={destinations} />
+        <VerificationCard
+          verification={verification}
+          verifying={verifying}
+          onVerify={verifyNow}
+        />
 
         <Card>
           <CardHeader>
@@ -590,12 +620,161 @@ function DestinationsCard({
   );
 }
 
+/** A destination backups aren't reaching: deliveries are failing, or its last connection test failed. */
+function isFailing(d: BackupDestination): boolean {
+  return d.enabled && (d.failingSince !== null || d.lastStatus === "error");
+}
+
+/**
+ * Destinations backups aren't reaching, at the top of the page. A failing one
+ * used to show only as a red line inside its own row, which is how an install
+ * went weeks without a backup leaving the machine.
+ */
+function OffBoxFailures({ destinations }: { destinations: BackupDestination[] | null }) {
+  const failing = (destinations ?? []).filter(isFailing);
+  if (failing.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
+    >
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-medium">
+            {failing.length === 1
+              ? `Backups aren’t reaching “${failing[0].name}”`
+              : `Backups aren’t reaching ${failing.length} off-box destinations`}
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {failing.map((d) => (
+              <li key={d.id} className="break-words">
+                <span className="font-medium">{d.name}</span>
+                {d.failingSince ? ` · failing since ${formatTimestamp(d.failingSince)}` : ""}
+                {` · last copy ${d.lastSyncedAt ? formatTimestamp(d.lastSyncedAt) : "never"}`}
+                {d.lastError ? ` · ${d.lastError}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-xs text-rose-700 dark:text-rose-300">
+            Backups are still being taken on this server. This clears once a copy gets through —
+            after fixing the destination, use <span className="font-medium">Send</span> on the
+            newest backup in History. Master admins are emailed about it, at most once a day,
+            through Admin → Email transport.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Daily backup verification: whether every backup the schedule and retention
+ * policies promise is really there, on this server and on each destination.
+ * Near the top because it answers the question the rest of the page can't —
+ * could this install be restored today?
+ */
+function VerificationCard({
+  verification,
+  verifying,
+  onVerify,
+}: {
+  verification: BackupVerification | null | undefined;
+  verifying: boolean;
+  onVerify: () => void;
+}) {
+  const problems = verification ? verification.areas.flatMap((area) => area.problems) : [];
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Daily verification</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Each day, a few hours after the scheduled backup, Genosyn verifies that every
+              scheduled backup ran, that the archives here open, and that the backups each
+              retention policy keeps are still here and on every destination. Master admins are
+              emailed about anything missing.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onVerify}
+            loading={verifying}
+            className="shrink-0"
+          >
+            {verifying ? "Verifying…" : "Verify now"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {verification === undefined ? (
+          <Spinner />
+        ) : verification === null ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Not run yet. The first verification runs within the hour, or use Verify now.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p
+              className={
+                problems.length === 0
+                  ? "inline-flex flex-wrap items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400"
+                  : "inline-flex flex-wrap items-center gap-1.5 text-sm font-medium text-rose-700 dark:text-rose-300"
+              }
+            >
+              {problems.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+              {problems.length === 0
+                ? "Every backup is in place"
+                : problems.length === 1
+                  ? "1 problem found"
+                  : `${problems.length} problems found`}
+              <span className="font-normal text-slate-400 dark:text-slate-500">
+                · verified {formatTimestamp(verification.verifiedAt)}
+              </span>
+            </p>
+            <ul className="flex flex-col gap-2">
+              {verification.areas.map((area) => (
+                <li key={area.id} className="text-xs">
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {area.title}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400"> · {area.summary}</span>
+                  {area.problems.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 border-l-2 border-rose-200 pl-2.5 dark:border-rose-500/30">
+                      {area.problems.map((problem) => (
+                        <li
+                          key={problem.key}
+                          className={
+                            problem.severity === "error"
+                              ? "break-words text-rose-700 dark:text-rose-300"
+                              : "break-words text-amber-700 dark:text-amber-300"
+                          }
+                        >
+                          {problem.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 function DestinationHealth({ d }: { d: BackupDestination }) {
-  const when = d.lastSyncedAt ?? d.lastCheckedAt;
-  const label = d.lastSyncedAt ? "Last synced" : "Last checked";
   return (
     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-      {d.lastStatus === "ok" ? (
+      {d.failingSince ? (
+        <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+          <XCircle size={12} /> Failing since {formatTimestamp(d.failingSince)}
+        </span>
+      ) : d.lastStatus === "ok" ? (
         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 size={12} /> Healthy
         </span>
@@ -606,9 +785,18 @@ function DestinationHealth({ d }: { d: BackupDestination }) {
       ) : (
         <span className="text-slate-400 dark:text-slate-500">Not tested yet</span>
       )}
-      {when && (
+      {d.lastSyncedAt ? (
         <span className="text-slate-400 dark:text-slate-500">
-          · {label} {formatTimestamp(when)}
+          · Last copy {formatTimestamp(d.lastSyncedAt)}
+        </span>
+      ) : d.lastCheckedAt ? (
+        <span className="text-slate-400 dark:text-slate-500">
+          · Last checked {formatTimestamp(d.lastCheckedAt)}
+        </span>
+      ) : null}
+      {d.failingSince && d.lastAttemptAt && (
+        <span className="text-slate-400 dark:text-slate-500">
+          · Last attempt {formatTimestamp(d.lastAttemptAt)}
         </span>
       )}
       {d.configError && (
@@ -1183,11 +1371,13 @@ function ScheduleCard({
 }
 
 /**
- * Retention policy. Deliberately its own card rather than a row inside
- * {@link ScheduleCard}: archives pile up whether or not the recurring backup is
- * on, so the two toggles are independent — the copy has to say so, because
- * "delete old backups" sitting under "recurring backup" reads like it only
- * covers scheduled ones.
+ * Retention: one policy for archives on this server and one for copies on
+ * off-box destinations, because the two stores have different room — a NAS
+ * usually keeps far more history than the server's disk. Deliberately its own
+ * card rather than a row inside {@link ScheduleCard}: archives pile up whether
+ * or not the recurring backup is on, so the toggles are independent — the copy
+ * has to say so, because "delete old backups" sitting under "recurring backup"
+ * reads like it only covers scheduled ones.
  */
 function RetentionCard({
   schedule,
@@ -1218,88 +1408,128 @@ function RetentionCard({
 
   const dirty =
     draft.retentionEnabled !== schedule.retentionEnabled ||
-    draft.retentionDays !== schedule.retentionDays;
+    draft.retentionDays !== schedule.retentionDays ||
+    draft.offBoxRetentionEnabled !== schedule.offBoxRetentionEnabled ||
+    draft.offBoxRetentionDays !== schedule.offBoxRetentionDays;
 
   return (
     <Card>
       <CardHeader>
         <h2 className="text-sm font-semibold">Retention</h2>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Delete archives once they pass a certain age so the backup folder doesn&apos;t grow
-          forever. Checked hourly, and again after every backup.
+          Delete archives once they pass a certain age, separately on this server and on off-box
+          destinations, so neither fills up.
         </p>
       </CardHeader>
       <CardBody>
         <form
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-4"
           onSubmit={async (e) => {
             e.preventDefault();
             if (!dirty) return;
             await onSave({
               retentionEnabled: draft.retentionEnabled,
               retentionDays: draft.retentionDays,
+              offBoxRetentionEnabled: draft.offBoxRetentionEnabled,
+              offBoxRetentionDays: draft.offBoxRetentionDays,
             });
           }}
         >
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
-              checked={draft.retentionEnabled}
-              onChange={(e) => setDraft({ ...draft, retentionEnabled: e.target.checked })}
-            />
-            <span className="font-medium">Automatically delete old backups</span>
-          </label>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                Delete after
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={3650}
-                  className={FIELD_CLASS}
-                  value={draft.retentionDays}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      retentionDays: parseInt(e.target.value, 10) || 30,
-                    })
-                  }
-                  disabled={!draft.retentionEnabled}
-                />
-                <span className="text-sm text-slate-500 dark:text-slate-400">days</span>
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Covers every archive in the backup folder — including ones you made by hand — even when
-            the recurring backup above is off. The newest completed archive is always kept, however
-            old it is. Archives you uploaded here are never deleted, and copies already delivered to
-            off-box destinations stay on the remote.
-          </p>
+          <RetentionPolicy
+            title="On this server"
+            enabled={draft.retentionEnabled}
+            days={draft.retentionDays}
+            onChange={(enabled, days) =>
+              setDraft({ ...draft, retentionEnabled: enabled, retentionDays: days })
+            }
+            note="Covers every archive in the backup folder — including ones you made by hand — even when the recurring backup above is off. Applied hourly, and again after every backup. The newest completed archive is always kept, however old it is, and archives you uploaded here are never deleted."
+          />
+          <RetentionPolicy
+            title="On off-box destinations"
+            enabled={draft.offBoxRetentionEnabled}
+            days={draft.offBoxRetentionDays}
+            onChange={(enabled, days) =>
+              setDraft({ ...draft, offBoxRetentionEnabled: enabled, offBoxRetentionDays: days })
+            }
+            note="Applied to each destination every time a backup is copied there, and the copy just made is always kept. Only archives Genosyn delivered (backup-….zip) and partial copies of them are deleted; anything else in the folder is left alone."
+          />
 
           <FormError message={error} />
 
-          <div className="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
             <span>
-              {schedule.retentionEnabled
-                ? `Deleting archives older than ${schedule.retentionDays} day${
-                    schedule.retentionDays === 1 ? "" : "s"
-                  }.`
-                : "Archives are kept until you delete them."}
+              {`This server: ${retentionSummary(schedule.retentionEnabled, schedule.retentionDays)}. Off-box: ${retentionSummary(schedule.offBoxRetentionEnabled, schedule.offBoxRetentionDays)}.`}
             </span>
-            <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
+            <Button type="submit" size="sm" loading={saving} disabled={!dirty} className="shrink-0">
               {saving ? "Saving…" : "Save retention"}
             </Button>
           </div>
         </form>
       </CardBody>
     </Card>
+  );
+}
+
+function retentionSummary(enabled: boolean, days: number): string {
+  return enabled
+    ? `archives older than ${days} day${days === 1 ? "" : "s"} are deleted`
+    : "archives are kept until you delete them";
+}
+
+/** One retention policy: a toggle and the age past which archives go. */
+function RetentionPolicy({
+  title,
+  enabled,
+  days,
+  onChange,
+  note,
+}: {
+  title: string;
+  enabled: boolean;
+  days: number;
+  onChange: (enabled: boolean, days: number) => void;
+  note: string;
+}) {
+  const daysId = React.useId();
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {title}
+      </legend>
+      <label className="inline-flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
+          checked={enabled}
+          onChange={(e) => onChange(e.target.checked, days)}
+        />
+        <span className="font-medium">Automatically delete old backups</span>
+      </label>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label
+            htmlFor={daysId}
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300"
+          >
+            Delete after
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id={daysId}
+              type="number"
+              min={1}
+              max={3650}
+              className={FIELD_CLASS}
+              value={days}
+              onChange={(e) => onChange(enabled, parseInt(e.target.value, 10) || 30)}
+              disabled={!enabled}
+            />
+            <span className="text-sm text-slate-500 dark:text-slate-400">days</span>
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-slate-400 dark:text-slate-500">{note}</p>
+    </fieldset>
   );
 }
 

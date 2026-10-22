@@ -2117,6 +2117,7 @@ export type EmailLogPurpose =
   | "welcome"
   | "signature"
   | "recruiting"
+  | "backup_alert"
   | "test"
   | "other";
 
@@ -2158,10 +2159,13 @@ export type Backup = {
 };
 
 export type BackupFrequency = "daily" | "weekly" | "monthly";
-/** `retentionEnabled` / `retentionDays` are the auto-delete policy and are
- *  independent of `enabled` — archives pile up whether or not the recurring
- *  backup is on. `prunedNow` is response-only: PUT /api/backups/schedule
- *  enforces retention as it saves and reports what that deleted. */
+/** `retentionEnabled` / `retentionDays` are the auto-delete policy for
+ *  archives on this server and are independent of `enabled` — archives pile up
+ *  whether or not the recurring backup is on. `offBoxRetentionEnabled` /
+ *  `offBoxRetentionDays` are the separate policy for copies on off-box
+ *  destinations, applied each time a backup is delivered there. `prunedNow` is
+ *  response-only: PUT /api/backups/schedule enforces on-box retention as it
+ *  saves and reports what that deleted. */
 export type BackupSchedule = {
   enabled: boolean;
   frequency: BackupFrequency;
@@ -2172,6 +2176,8 @@ export type BackupSchedule = {
   lastRunAt: string | null;
   retentionEnabled: boolean;
   retentionDays: number;
+  offBoxRetentionEnabled: boolean;
+  offBoxRetentionDays: number;
   updatedAt: string;
   prunedNow?: number;
 };
@@ -2206,6 +2212,12 @@ export type BackupDestination = {
   lastError: string;
   lastSyncedAt: string | null;
   lastCheckedAt: string | null;
+  /** When a delivery was last attempted, whatever its outcome. */
+  lastAttemptAt: string | null;
+  /** When the current run of failed deliveries began; null once one succeeds. */
+  failingSince: string | null;
+  /** When master admins were last emailed about the current failures. */
+  lastAlertedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -2215,6 +2227,27 @@ export type BackupDeliveryResult = {
   destinationName: string;
   ok: boolean;
   error?: string;
+};
+
+/** One thing daily backup verification found wrong. `key` stays the same from
+ *  one verification to the next for the same problem. */
+export type BackupVerificationProblem = {
+  key: string;
+  severity: "error" | "warn";
+  message: string;
+};
+/** One place verification looked: the schedule, this server, or a destination. */
+export type BackupVerificationArea = {
+  id: string;
+  title: string;
+  summary: string;
+  problems: BackupVerificationProblem[];
+};
+/** Daily backup verification: whether every backup the schedule and retention
+ *  policies promise is really there. GET/POST /api/backups/verification. */
+export type BackupVerification = {
+  verifiedAt: string;
+  areas: BackupVerificationArea[];
 };
 
 export type TodoStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";

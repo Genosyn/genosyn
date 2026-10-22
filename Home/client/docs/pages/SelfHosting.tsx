@@ -796,19 +796,58 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         Use <Code>Test</Code> on a destination to confirm it is reachable and writable, toggle{" "}
         <Code>Enabled</Code> to pause mirroring without deleting it, and use <Code>Send</Code> next
         to any archive in History to push an existing backup on demand. Delivery is best-effort: a
-        mirror that fails is flagged on the destination with the error, but never fails the backup
-        itself, which is already safe in <Code>data/Backup/</Code>.
+        mirror that fails never fails the backup itself, which is already safe in{" "}
+        <Code>data/Backup/</Code>.
+      </P>
+      <P>
+        Every copy is written under a <Code>.partial</Code> name and renamed once the whole archive
+        has arrived, so a copy cut short — by a timeout, a dropped link, or an upgrade restarting the
+        server — never sits on the destination looking like a finished backup. An SMB copy gets as
+        long as the archive needs: half an hour, plus the time the archive takes at 2 MB/s — about
+        seven and a half hours in all for a 50 GB archive. Only a copy slower than that is stopped as
+        stuck, so a large backup over a VPN to a home NAS still gets through.
+      </P>
+
+      <H3 id="off-box-failures">When a destination fails</H3>
+      <P>
+        A destination counts as <Strong>failing</Strong> from its first failed delivery until a
+        backup gets through again, and Genosyn makes sure someone hears about it:
+      </P>
+      <UL>
+        <LI>
+          A red banner at the top of <Code>Admin → Backups</Code> names each failing destination,
+          when the failures began, when a copy last arrived, and the error.
+        </LI>
+        <LI>
+          The <Code>Off-box backups</Code> row on <Code>Admin → Overview</Code> and{" "}
+          <Code>Admin → Instance Health</Code> turns red.
+        </LI>
+        <LI>
+          Every master admin is emailed when the failures begin, at most once a day while they
+          last, and once more when a copy arrives again. The emails go out through{" "}
+          <Code>Admin → Email transport</Code>; without one they are only printed to the server log,
+          so set one up if you want to hear about it.
+        </LI>
+      </UL>
+      <P>
+        A passing <Code>Test</Code> does not clear a failing destination. The test writes a tiny
+        file, and a share can take that and still time out on a full archive, so the destination
+        stays failing until a real backup reaches it. After fixing it, use <Code>Send</Code> on the
+        newest backup in History to confirm.
       </P>
 
       <H3 id="retention">Retention (deleting old backups)</H3>
       <P>
-        Left alone, <Code>data/Backup/</Code> grows forever. Tick{" "}
-        <Code>Automatically delete old backups</Code> under <Code>Admin → Backups → Retention</Code>{" "}
-        and set a number of days: anything older is deleted. Genosyn checks hourly and again
-        straight after every backup, so a window that lapses at midday is honoured at midday.
+        Left alone, backups pile up forever. <Code>Admin → Backups → Retention</Code> has two
+        policies, each a tick-box and a number of days past which archives are deleted: one for
+        archives on this server, one for copies on off-box destinations. They are separate because
+        the two have different room — a NAS can usually keep far more history than the
+        server&apos;s own disk.
       </P>
       <P>
-        Retention is <em>independent of the recurring schedule</em> — it covers every archive in{" "}
+        <Strong>On this server.</Strong> Genosyn checks hourly and again straight after every
+        backup, so a window that lapses at midday is honoured at midday. The policy is{" "}
+        <em>independent of the recurring schedule</em> — it covers every archive in{" "}
         <Code>data/Backup/</Code>, including ones you made by hand with <Code>Back up now</Code>,
         and it runs even when the schedule is off. Two things are always spared, on the principle
         that a retention setting must never leave you with nothing to restore from:
@@ -827,10 +866,48 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         </LI>
       </UL>
       <P>
-        Retention is <Strong>local only</Strong>. Copies already delivered to an{" "}
-        <DocLink to="/docs/self-hosting#off-box-destinations">off-box destination</DocLink> stay on
-        the remote — Genosyn never reaches onto your NAS to delete things. Prune those with whatever
-        your NAS or a cron job on that host already offers.
+        <Strong>On off-box destinations.</Strong> Off by default, so nothing on a NAS is deleted
+        until you ask. Once on, it runs each time a backup is copied to a{" "}
+        <DocLink to="/docs/self-hosting#off-box-destinations">destination</DocLink>: archives there
+        older than the window are deleted, except the copy just made, so a destination always holds
+        at least one complete backup. Only archives Genosyn delivered (
+        <Code>backup-YYYY-MM-DD-HHMMSS.zip</Code>) and partial copies of them are touched —
+        anything else in that folder is left alone. If several installs deliver to one folder,
+        give each its own: each prunes every Genosyn archive it finds there. A destination that cannot be reached is not pruned; its old archives go at its
+        next successful delivery. Saving the policy does not prune on the spot: it applies at each
+        destination&apos;s next delivery, the moment a fresh copy is known to be there.
+      </P>
+
+      <H3 id="backup-verification">Daily backup verification</H3>
+      <P>
+        Taking a backup and still having it are different things. Every day, a few hours after the
+        scheduled backup, Genosyn holds each place backups are kept to the schedule and to that
+        place&apos;s retention policy, and shows what it found in the{" "}
+        <Code>Daily verification</Code> card at the top of <Code>Admin → Backups</Code>:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Every scheduled run produced a backup</Strong>, over the on-box retention window —
+          or the last seven days without one. A run that never happened, because the server was
+          down, or that failed is reported with its time and error.
+        </LI>
+        <LI>
+          <Strong>Every archive on this server is there and opens.</Strong> One listed in History
+          whose file is gone, that won&apos;t open, or that holds no database is reported by name.
+        </LI>
+        <LI>
+          <Strong>Every destination holds a copy of each backup</Strong>, over the off-box retention
+          window — or the last seven days — since the destination was added. A copy smaller than the
+          archive it copies never finished arriving, and is reported as such. A copy is only expected
+          12 hours after its backup, so a large one still on its way isn&apos;t counted as missing.
+        </LI>
+      </UL>
+      <P>
+        Master admins are emailed when verification finds something it hasn&apos;t reported
+        before, and once more when everything is back in place: a missing archive is reported once,
+        while backups that keep failing bring a new email each day another one is missed. Use{" "}
+        <Code>Verify now</Code> on the card to run it on demand. The result also shows under
+        Backups on <Code>Admin → Overview</Code> and <Code>Admin → Instance Health</Code>.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>
