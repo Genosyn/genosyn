@@ -926,7 +926,8 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         the queue — and the upgraded version continues them where they stopped (
         <DocLink to="/docs/cli#upgrade-drain">details</DocLink>). Every upgrade, scheduled or by
         hand, first writes a verified archive of the data volume under{" "}
-        <Code>~/.genosyn/backups</Code>, replacing the previous upgrade&apos;s, and restores it if
+        <Code>~/.genosyn/backups</Code> while Genosyn keeps running, replacing the previous
+        upgrade&apos;s, and restores it if
         the new version fails to start. When the archive would not fit, the upgrade first clears
         Docker&apos;s build cache and unused untagged images, never volumes, and one that still has
         no room stops without changing Genosyn (

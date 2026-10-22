@@ -17,7 +17,7 @@ const COMMANDS: Cmd[] = [
     name: "upgrade",
     flags: "[--no-backup] [--no-self-upgrade] [--drain-minutes N | --now]",
     blurb:
-      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. A verified data backup is taken first and restored if the upgrade fails; each upgrade replaces the previous one. Pass --no-backup (or --skip-backup) to skip it. Running Routine Runs are paused — each saves its progress — and continue where they stopped after the upgrade, while new ones wait; --drain-minutes N lets them finish for up to N minutes first and --now pauses at once. Pass --no-self-upgrade to skip the script update.",
+      "Self-upgrade the CLI, pull the latest image, and recreate the container while retaining the previous container until the new one is ready. A verified data backup is taken first, while Genosyn keeps running, and restored if the upgrade fails; each upgrade replaces the previous one. Pass --no-backup (or --skip-backup) to skip it. Running Routine Runs are paused — each saves its progress — and continue where they stopped after the upgrade, while new ones wait; --drain-minutes N lets them finish for up to N minutes first and --now pauses at once. Pass --no-self-upgrade to skip the script update.",
   },
   {
     name: "self-upgrade",
@@ -298,8 +298,8 @@ genosyn upgrade --now                  # pause at once, without time to save pro
       <P>
         A Run that does not pause in time, or one running on an image from before pausing, is
         stopped by the restart instead — and the upgraded version still resumes it from its last
-        saved line, because it was marked as it stopped or the queue was held for the upgrade,
-        however long the backup keeps Genosyn down. <Code>genosyn stop</Code> and{" "}
+        saved line, because it was marked as it stopped or the queue was held for the upgrade.{" "}
+        <Code>genosyn stop</Code> and{" "}
         <Code>genosyn restart</Code> pause running Runs too, at once, and they continue when
         Genosyn starts again. Pressing Ctrl-C while an
         upgrade pauses cancels it, and the paused Runs continue in the running container.
@@ -309,15 +309,24 @@ genosyn upgrade --now                  # pause at once, without time to save pro
       <Pre lang="bash">{`genosyn upgrade                 # back up, then upgrade
 genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup works too)`}</Pre>
       <P>
-        Before it replaces the container, an upgrade stops Genosyn and writes a verified archive of
-        the data volume under <Code>~/.genosyn/backups</Code>. It leaves out the{" "}
-        <Code>Backup/</Code> folder of in-app backups, which a restore keeps. A failed upgrade
-        restores the archive before restarting the previous version. Each upgrade removes the
-        previous upgrade&apos;s archive, so the folder holds one per install, the newest.
+        Before it replaces the container, an upgrade writes a verified archive of the data volume
+        under <Code>~/.genosyn/backups</Code> while Genosyn keeps running. SQLite first copies the
+        database into a consistent snapshot without holding up the App&apos;s writes, and the archive
+        takes that snapshot in place of the live file. Only then does the upgrade pause Routine
+        Runs and restart Genosyn, so a large volume makes the upgrade longer but not the downtime.
+        An install that is already stopped is archived as it lies.
+      </P>
+      <P>
+        The archive holds the data as it was when the backup began. A failed upgrade restores it
+        before restarting the previous version, so work Genosyn did while the archive was being
+        written is not kept. It leaves out the <Code>Backup/</Code> folder of in-app backups, which
+        a restore keeps. Each upgrade removes the previous upgrade&apos;s archive, so the folder
+        holds one per install, the newest.
       </P>
       <P>
         Before pausing or stopping anything, the upgrade checks that the archive fits with 1 GB to
-        spare, counting the volume at its uncompressed size. If it doesn&apos;t, the upgrade first
+        spare, counting the volume at its uncompressed size and, for a running Genosyn, the database
+        snapshot it keeps until the archive is written. If it doesn&apos;t, the upgrade first
         clears what Docker can rebuild or download again — its build cache, and untagged images no
         container uses, such as a Genosyn image an earlier upgrade pulled but never started — and
         checks again. It never removes a tagged image, a container, or a volume: those may belong
@@ -325,8 +334,7 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
         upgrade stops without changing Genosyn: free some space, set{" "}
         <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk, or pass <Code>--no-backup</Code>.
         In-app backups share the data volume&apos;s disk and pile up unless{" "}
-        <DocLink to="/docs/self-hosting#retention">retention</DocLink> is on. Genosyn is down while
-        the archive is written, so a large volume makes for a longer upgrade.
+        <DocLink to="/docs/self-hosting#retention">retention</DocLink> is on.
       </P>
       <P>
         Once the new version is ready, the upgrade removes the previous image, along with any

@@ -501,7 +501,13 @@ backup_volume_to() {
   printf 'backup-volume %s %s\n' "$1" "${2:-0}" >>"${upgrade_log}"
   return 0
 }
+backup_running_volume_to() {
+  printf 'backup-running %s %s\n' "$1" "${2:-0}" >>"${upgrade_log}"
+  return "${MOCK_LIVE_BACKUP_RC:-0}"
+}
 volume_backup_size_kb() { printf '%s\n' "${MOCK_VOLUME_KB:-2048}"; }
+sqlite_snapshot_size_kb() { printf '%s\n' "${MOCK_SNAPSHOT_KB:-0}"; }
+container_tmp_free_kb() { printf '%s\n' "${MOCK_TMP_FREE_KB:-99999999}"; }
 free_space_kb() {
   # Clearing Docker's build cache leaves MOCK_FREE_AFTER_RECLAIM_KB free, when set.
   if [ -n "${MOCK_FREE_AFTER_RECLAIM_KB:-}" ] && grep -Fq 'docker builder prune' "${upgrade_log}"; then
@@ -520,10 +526,14 @@ print_post_install() { return 0; }
 : >"${upgrade_log}"
 cmd_upgrade --no-self-upgrade >/dev/null 2>&1
 check "upgrade takes one verified data backup by default" \
-  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
-check "and leaves the App's own Backup/ archives out of it" \
-  "$(grep -F 'backup-volume ' "${upgrade_log}")" \
-  "backup-volume ${test_root}/backups/pre-upgrade.tar.gz 1"
+  "$(grep -Ec 'backup-(volume|running) ' "${upgrade_log}" || true)" '1'
+check "a running Genosyn is backed up while it keeps running" \
+  "$(grep -E 'backup-(volume|running) ' "${upgrade_log}")" \
+  "backup-running ${test_root}/backups/pre-upgrade.tar.gz 1"
+check "before its Routine Runs pause or it stops, so the backup costs no downtime" \
+  "$(grep -E 'backup-running|pauseRoutines.js --|docker stop' "${upgrade_log}" | cut -d' ' -f1-3)" \
+  "$(printf '%s\n' "backup-running ${test_root}/backups/pre-upgrade.tar.gz 1" \
+    'docker exec -w' 'docker stop genosyn-test')"
 check "with room to spare, it leaves Docker's build cache and untagged images alone" \
   "$(grep -Ec 'docker builder prune|docker image prune --force$' "${upgrade_log}" || true)" '0'
 check "once upgraded, it removes only Genosyn's images that earlier upgrades left behind" \
@@ -533,13 +543,13 @@ check "once upgraded, it removes only Genosyn's images that earlier upgrades lef
 : >"${upgrade_log}"
 cmd_upgrade --no-self-upgrade --backup >/dev/null 2>&1
 check "--backup, now the default, still takes one" \
-  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
+  "$(grep -Ec 'backup-(volume|running) ' "${upgrade_log}" || true)" '1'
 
 for flag in --no-backup --skip-backup; do
   : >"${upgrade_log}"
   cmd_upgrade --no-self-upgrade "${flag}" >/dev/null 2>&1
   check "${flag} skips the data backup" \
-    "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '0'
+    "$(grep -Ec 'backup-(volume|running) ' "${upgrade_log}" || true)" '0'
   check "${flag} still upgrades" \
     "$(grep -Fc 'run-container ' "${upgrade_log}" || true)" '1'
 done
@@ -550,7 +560,7 @@ no_room_rc=0
 no_room_output="$(MOCK_VOLUME_KB=5242880 MOCK_FREE_KB=3145728; cmd_upgrade --no-self-upgrade 2>&1 >/dev/null)" || no_room_rc=$?
 check "an upgrade with no room for its backup stops" "${no_room_rc}" "1"
 check "before pausing, stopping or replacing anything" \
-  "$(grep -Ec 'pauseRoutines|docker stop|backup-volume|run-container' "${upgrade_log}" || true)" '0'
+  "$(grep -Ec 'pauseRoutines|docker stop|backup-(volume|running)|run-container' "${upgrade_log}" || true)" '0'
 case "${no_room_output}" in
   *"Not enough free space"*"--no-backup"*) no_room_said=yes ;;
   *) no_room_said=no ;;
@@ -566,12 +576,58 @@ check "and never a tagged image, a container, or a volume" \
 # The same 3 GiB free, and 9 GiB once Docker's build cache is cleared.
 reclaim_output="$(MOCK_VOLUME_KB=5242880 MOCK_FREE_KB=3145728 MOCK_FREE_AFTER_RECLAIM_KB=9437184; cmd_upgrade --no-self-upgrade 2>/dev/null)" || true
 check "when that makes room, the upgrade goes on with its backup" \
-  "$(grep -Ec 'backup-volume |run-container ' "${upgrade_log}" || true)" '2'
+  "$(grep -Ec 'backup-running |run-container ' "${upgrade_log}" || true)" '2'
 case "${reclaim_output}" in
   *"Freed 6.0GB"*) reclaim_said=yes ;;
   *) reclaim_said=no ;;
 esac
 check "and says how much it freed" "${reclaim_said}" "yes"
+
+: >"${upgrade_log}"
+snapshot_rc=0
+# A 2 GiB volume whose 2 GiB database is snapshotted too: 5 GiB with the spare
+# gigabyte, and only 4.5 GiB free.
+snapshot_output="$(MOCK_VOLUME_KB=2097152 MOCK_SNAPSHOT_KB=2097152 MOCK_FREE_KB=4718592; cmd_upgrade --no-self-upgrade 2>&1 >/dev/null)" || snapshot_rc=$?
+check "a running Genosyn's database snapshot counts toward the room the backup needs" \
+  "${snapshot_rc}:$(grep -Ec 'backup-running|docker stop' "${upgrade_log}" || true)" '1:0'
+case "${snapshot_output}" in
+  *"Not enough free space for the upgrade backup"*"up to 4.0GB and 4.5GB is free"*) snapshot_said=yes ;;
+  *) snapshot_said=no ;;
+esac
+check "and the shortfall says so" "${snapshot_said}" "yes"
+
+: >"${upgrade_log}"
+tmp_rc=0
+tmp_output="$(MOCK_SNAPSHOT_KB=2097152 MOCK_TMP_FREE_KB=2097152; cmd_upgrade --no-self-upgrade 2>&1 >/dev/null)" || tmp_rc=$?
+check "the container needs room for the snapshot as well" \
+  "${tmp_rc}:$(grep -Ec 'backup-running|docker stop' "${upgrade_log}" || true)" '1:0'
+case "${tmp_output}" in
+  *"Not enough free space for the database snapshot"*) tmp_said=yes ;;
+  *) tmp_said=no ;;
+esac
+check "and says it is the snapshot that does not fit" "${tmp_said}" "yes"
+
+: >"${upgrade_log}"
+live_failed_rc=0
+live_failed_output="$(MOCK_LIVE_BACKUP_RC=1; cmd_upgrade --no-self-upgrade 2>&1 >/dev/null)" || live_failed_rc=$?
+check "a live backup that fails stops the upgrade" "${live_failed_rc}" "1"
+check "with Genosyn left running: nothing paused, stopped or replaced" \
+  "$(grep -Ec 'pauseRoutines.js --|docker stop|run-container' "${upgrade_log}" || true)" '0'
+case "${live_failed_output}" in
+  *"still running"*"genosyn stop"*"--no-backup"*) live_failed_said=yes ;;
+  *) live_failed_said=no ;;
+esac
+check "and says how to go on" "${live_failed_said}" "yes"
+
+: >"${upgrade_log}"
+container_running() { return 1; }
+cmd_upgrade --no-self-upgrade >/dev/null 2>&1
+check "a stopped Genosyn is archived as it lies" \
+  "$(grep -E 'backup-(volume|running) ' "${upgrade_log}")" \
+  "backup-volume ${test_root}/backups/pre-upgrade.tar.gz 1"
+check "and nothing is stopped for it" \
+  "$(grep -Ec 'docker stop|pauseRoutines.js --' "${upgrade_log}" || true)" '0'
+container_running() { return 0; }
 
 echo "upgrade backups — one kept per install"
 NAME="genosyn-test"
@@ -588,6 +644,62 @@ check "another install's upgrade backup is left alone" \
 check "a manual backup in the same directory is left alone" \
   "$([ -e "${unrelated}" ] && echo kept || echo removed)" 'kept'
 rm -f "${neighbour}" "${unrelated}"
+
+echo "live backups — snapshot, stream, clean up"
+live_log="${test_root}/live.log"
+live_backup() {
+  # $1 = what the snapshot step prints (the database's path, or nothing),
+  # $2 = its exit status, $3 = tar's exit status.
+  : >"${live_log}"
+  rm -f "${test_root}/live.tar.gz"
+  (
+    # shellcheck source=./genosyn
+    source "${HERE}/genosyn"
+    NAME="genosyn-test"
+    docker() {
+      printf '%s\n' "$*" >>"${live_log}"
+      case "$*" in
+        *" node") cat >/dev/null; printf '%s' "${MOCK_DB}"; return "${MOCK_SNAPSHOT_RC}" ;;
+        *" tar --create "*) printf 'archive-bytes'; return "${MOCK_TAR_RC}" ;;
+      esac
+      return 0
+    }
+    archive_valid() { [ -s "$1" ]; }
+    rc=0
+    MOCK_DB="$1" MOCK_SNAPSHOT_RC="$2" MOCK_TAR_RC="$3" \
+      backup_running_volume_to "${test_root}/live.tar.gz" 1 2>/dev/null || rc=$?
+    echo "rc=${rc}" >>"${live_log}"
+  )
+}
+stage_cleanups() { grep -Fc 'exec -u 0 genosyn-test rm -rf /tmp/genosyn-upgrade-backup' "${live_log}" || true; }
+
+live_backup app.sqlite 0 0
+check "the database is snapshotted inside the running container" \
+  "$(grep -F ' node' "${live_log}")" \
+  'exec -i -w /app -e GENOSYN_SNAPSHOT_DIR=/tmp/genosyn-upgrade-backup genosyn-test node'
+check "and the archive streams the volume with the snapshot in place of the live database" \
+  "$(grep -F 'tar --create' "${live_log}")" \
+  'exec -u 0 genosyn-test tar --create --gzip --file=- --directory=/app/data --anchored --ignore-failed-read --warning=no-file-changed --warning=no-file-removed --warning=no-file-ignored --exclude=./Backup --exclude=./app.sqlite --exclude=./app.sqlite-wal --exclude=./app.sqlite-shm --exclude=./app.sqlite-journal . --directory=/tmp/genosyn-upgrade-backup app.sqlite'
+check "into a private file on the host" \
+  "$(cat "${test_root}/live.tar.gz"):$(stat -c '%a' "${test_root}/live.tar.gz" 2>/dev/null || stat -f '%Lp' "${test_root}/live.tar.gz")" \
+  'archive-bytes:600'
+check "and the snapshot is cleared before and after" "$(stage_cleanups):$(tail -1 "${live_log}")" '2:rc=0'
+
+live_backup app.sqlite 0 1
+check "a file that changed while it was read still makes a backup" "$(tail -1 "${live_log}")" 'rc=0'
+
+live_backup app.sqlite 0 2
+check "a tar error does not, and the snapshot is still cleared" \
+  "$(stage_cleanups):$(tail -1 "${live_log}")" '2:rc=1'
+
+live_backup "" 1 0
+check "a snapshot that fails stops before the archive, and is cleared" \
+  "$(grep -Fc 'tar --create' "${live_log}" || true):$(stage_cleanups):$(tail -1 "${live_log}")" '0:2:rc=1'
+
+live_backup "" 0 0
+check "a volume with no SQLite database (Postgres) is archived as it is" \
+  "$(grep -F 'tar --create' "${live_log}" | sed 's/.* --exclude=/--exclude=/')" \
+  '--exclude=./Backup .'
 
 echo "volume archives — the App's Backup/ folder"
 volume_log="${test_root}/volume.log"
