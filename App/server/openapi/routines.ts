@@ -151,7 +151,12 @@ const Run = z
 const BrowserRecording = z
   .object({
     id: z.string().uuid().describe("BrowserSession id."),
-    status: z.enum(["recording", "finalizing", "ready", "failed"]),
+    status: z
+      .enum(["recording", "finalizing", "ready", "failed", "expired"])
+      .describe(
+        "`expired`: the video was deleted on schedule once it was older than the recording " +
+          "window set at Admin → Runtime → Browser.",
+      ),
     startedAt: z.string().datetime().nullable(),
     finishedAt: z.string().datetime().nullable(),
     mimeType: z.literal("video/mp4"),

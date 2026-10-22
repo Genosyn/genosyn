@@ -1186,7 +1186,8 @@ export type RunFollowUp = Pick<
  * credit as a graded one.
  */
 export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal" | "unverified";
-export type RunBrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
+/** `expired`: deleted on schedule once older than the window at Admin → Runtime → Browser. */
+export type RunBrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed" | "expired";
 export type RunBrowserRecording = {
   /** BrowserSession id; one Run may have several when it delegates browser work. */
   id: string;
@@ -4081,6 +4082,8 @@ export type RuntimeBrowserSettings = {
   locale: string;
   timezone: string;
   humanize: boolean;
+  /** Days a Routine browser recording is kept once it finishes. 0 keeps them forever. */
+  recordingRetentionDays: number;
 };
 
 /** Agent knobs that are not part of the boot security posture. */

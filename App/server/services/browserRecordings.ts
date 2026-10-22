@@ -9,9 +9,15 @@ import {
   browserRecordingFile,
   browserRecordingRunDir,
   browserRecordingsCompanyDir,
+  browserRecordingsRoot,
 } from "./paths.js";
 
-export type BrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
+/**
+ * `expired` is a recording that retention deleted on schedule (Admin → Runtime
+ * → Browser): its video is gone, and its metadata stays so the Run log and
+ * recovery can tell it apart from one that `failed`.
+ */
+export type BrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed" | "expired";
 
 export type BrowserRecordingInfo = {
   id: string;
@@ -196,8 +202,10 @@ async function probeFragmentedMp4(partPath: string): Promise<boolean> {
 
 let partialValidator: BrowserRecordingPartialValidator = probeFragmentedMp4;
 
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+
 function assertSafeId(value: string): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("Invalid browser recording id");
+  if (!SAFE_ID.test(value)) throw new Error("Invalid browser recording id");
 }
 
 function recordingPaths(session: Pick<BrowserSession, "id" | "companyId" | "runId">): {
@@ -248,23 +256,39 @@ async function ensurePrivateDirectory(directory: string): Promise<void> {
   await fs.chmod(directory, 0o700).catch(() => undefined);
 }
 
-async function writeMetadata(session: BrowserSession, info: BrowserRecordingInfo): Promise<void> {
+type RecordingIds = Pick<BrowserSession, "id" | "companyId" | "runId">;
+
+/**
+ * Pass `createDirectory: false` to write only into a Run folder that still
+ * exists, so a writer racing a deletion cannot recreate the folder it removed.
+ */
+async function writeMetadata(
+  session: RecordingIds,
+  info: BrowserRecordingInfo,
+  options: { createDirectory?: boolean } = {},
+): Promise<void> {
   const paths = recordingPaths(session);
-  await ensurePrivateDirectory(paths.directory);
+  if (options.createDirectory !== false) await ensurePrivateDirectory(paths.directory);
   const temporary = `${paths.metadataPath}.tmp-${process.pid}-${Date.now()}`;
   await fs.writeFile(temporary, `${JSON.stringify(info)}\n`, { mode: 0o600 });
   await fs.chmod(temporary, 0o600).catch(() => undefined);
   await fs.rename(temporary, paths.metadataPath);
 }
 
-async function readMetadata(session: BrowserSession): Promise<PersistedRecording | null> {
+async function readMetadata(session: RecordingIds): Promise<PersistedRecording | null> {
   try {
     // `status` is read as a plain string: a file on disk may have been written
     // by a build whose union differs from this one's.
     const value = JSON.parse(
       await fs.readFile(recordingPaths(session).metadataPath, "utf8"),
     ) as Partial<Omit<PersistedRecording, "status">> & { status?: string };
-    const statuses: BrowserRecordingStatus[] = ["recording", "finalizing", "ready", "failed"];
+    const statuses: BrowserRecordingStatus[] = [
+      "recording",
+      "finalizing",
+      "ready",
+      "failed",
+      "expired",
+    ];
     // Builds that withheld recordings deleted the bytes before writing this
     // status, so there is nothing left to publish — report the honest terminal
     // state instead of a status this build no longer has.
@@ -851,6 +875,12 @@ async function recoverOneUnsafe(session: BrowserSession): Promise<BrowserRecordi
   await fs.rm(paths.legacyRestrictedMarkerPath, { force: true }).catch(() => undefined);
   const active = activeRecordings.get(session.id);
   if (active) return (await finishActive(active)).recording;
+  // Retention deleted this video on schedule. Finish the job if a crash left
+  // bytes behind, rather than publishing them as ready again.
+  if (existing?.status === "expired") {
+    await removeFiles(paths).catch(() => undefined);
+    return existing;
+  }
   // Every frame that reached ffmpeg was already cleared for playback, so an
   // interrupted capture is a question of file integrity, not of whether the
   // bytes may be shown. Publish whatever survived and is playable.
@@ -1118,4 +1148,87 @@ export async function deleteBrowserRecordingsForCompany(companyId: string): Prom
   await repo.delete({ companyId });
   for (const session of [...sessions, ...lateSessions]) abandonedSessionIds.delete(session.id);
   for (const session of [...sessions, ...lateSessions]) frozenSessionIds.delete(session.id);
+}
+
+async function listDirectory(directory: string): Promise<string[]> {
+  try {
+    return await fs.readdir(directory);
+  } catch {
+    return [];
+  }
+}
+
+/** Whether this process is capturing, finishing, or throwing away the session. */
+function recordingInFlight(session: RecordingIds): boolean {
+  return (
+    activeRecordings.has(session.id) ||
+    beginPromises.has(session.id) ||
+    abandonPromises.has(session.id) ||
+    abandonedSessionIds.has(session.id) ||
+    frozenSessionIds.has(session.id) ||
+    deletionBlocked(session)
+  );
+}
+
+/** When a saved recording finished, from its metadata or else the video's last write. */
+async function finishedAtMs(info: BrowserRecordingInfo, videoPath: string): Promise<number | null> {
+  const recorded = info.finishedAt ? Date.parse(info.finishedAt) : Number.NaN;
+  if (Number.isFinite(recorded)) return recorded;
+  try {
+    return (await fs.stat(videoPath)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Retention: delete the video of every saved recording that finished before
+ * `cutoff`, in every company, and report how many went and the bytes they
+ * held. A `ready` recording is marked `expired` before its video goes, so a
+ * crash in between leaves a record that recovery and the next pass finish
+ * rather than republish. Video left beside a `failed` or `expired` record goes
+ * too: past the window, no video is kept. Anything without terminal metadata
+ * is left to recovery, and so is anything this process is still capturing,
+ * finishing, or deleting: a recording that finished before the window cannot
+ * still be running on another replica.
+ */
+export async function expireBrowserRecordingsFinishedBefore(
+  cutoff: Date,
+  assertHeld: () => void = () => undefined,
+): Promise<{ deleted: number; bytes: number }> {
+  const result = { deleted: 0, bytes: 0 };
+  for (const companyId of await listDirectory(browserRecordingsRoot())) {
+    if (!SAFE_ID.test(companyId)) continue;
+    for (const runId of await listDirectory(browserRecordingsCompanyDir(companyId))) {
+      if (!SAFE_ID.test(runId)) continue;
+      for (const entry of await listDirectory(browserRecordingRunDir(companyId, runId))) {
+        if (!entry.endsWith(".mp4")) continue;
+        const session = { id: entry.slice(0, -".mp4".length), companyId, runId };
+        if (!SAFE_ID.test(session.id) || recordingInFlight(session)) continue;
+        assertHeld();
+        const persisted = await readMetadata(session);
+        if (!persisted || persisted.status === "recording" || persisted.status === "finalizing") {
+          continue;
+        }
+        const paths = recordingPaths(session);
+        const finished = await finishedAtMs(persisted, paths.finalPath);
+        if (finished === null || finished >= cutoff.getTime() || recordingInFlight(session)) {
+          continue;
+        }
+        if (persisted.status === "ready") {
+          const expired = baseInfo(session, "expired", persisted.startedAt, persisted.finishedAt);
+          const marked = await writeMetadata(session, expired, { createDirectory: false }).then(
+            () => true,
+            () => false,
+          );
+          if (!marked) continue;
+        }
+        const bytes = await statSize(paths.finalPath);
+        if (!(await removeFiles(paths).then(() => true, () => false))) continue;
+        result.deleted += 1;
+        result.bytes += bytes;
+      }
+    }
+  }
+  return result;
 }

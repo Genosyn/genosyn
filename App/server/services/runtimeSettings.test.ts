@@ -27,6 +27,7 @@ import {
   normalizeOauthSettingNames,
   normalizeSignInUrl,
   parseAgentSettings,
+  parseBrowserSettings,
   parseNetworkSettings,
   parseOauthSettings,
   reloadRuntimeSettings,
@@ -127,6 +128,7 @@ describe("defaults", () => {
       locale: "",
       timezone: "",
       humanize: true,
+      recordingRetentionDays: 7,
     });
     assert.deepEqual(getAgentSettings(), {
       maxConcurrentTurnsPerCompany: 8,
@@ -250,6 +252,15 @@ describe("tolerant parse", () => {
     await writeRow(RUNTIME_SETTING_KEYS.browser, JSON.stringify({ headless: "sometimes" }));
     await reloadRuntimeSettings();
     assert.equal(getBrowserSettings().headless, "auto");
+  });
+
+  test("browser recordings keep 7 days unless set, 0 keeps them, and a bad value keeps 7", () => {
+    assert.equal(parseBrowserSettings({}).recordingRetentionDays, 7);
+    assert.equal(parseBrowserSettings({ recordingRetentionDays: 0 }).recordingRetentionDays, 0);
+    assert.equal(parseBrowserSettings({ recordingRetentionDays: 30 }).recordingRetentionDays, 30);
+    for (const bad of [-1, 2.5, 3651, "14", null]) {
+      assert.equal(parseBrowserSettings({ recordingRetentionDays: bad }).recordingRetentionDays, 7);
+    }
   });
 
   test("a corrupt nested toolDiscovery does not take the agent group with it", async () => {
@@ -612,6 +623,7 @@ describe("writing a group", () => {
       locale: "en-GB",
       timezone: "Europe/London",
       humanize: false,
+      recordingRetentionDays: 30,
     });
 
     await reloadRuntimeSettings();

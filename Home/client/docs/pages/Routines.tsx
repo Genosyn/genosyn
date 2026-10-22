@@ -854,9 +854,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <P>
-        Recordings stay with the Run history. Deleting the Routine deletes its Run logs and browser
-        recordings; deleting the company removes them too. They live in the App-private data
-        directory and are included in whole-instance backups.
+        Recordings are kept for 7 days after they finish, then deleted; the Run and its log stay.
+        Change how long under <Strong>Keep browser recordings</Strong> at{" "}
+        <Code>Admin → Runtime → Browser</Code>, where <Code>0</Code> keeps them forever. Deleting
+        the Routine deletes its Run logs and browser recordings sooner, and deleting the company
+        removes them too. They live in the App-private data directory and are included in
+        whole-instance backups.
       </P>
       <P>
         A Run that ends <Strong>Failed</Strong> or <Strong>Error</Strong> with no retry still

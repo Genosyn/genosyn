@@ -353,6 +353,9 @@ const runtimeGroupSchemas = {
     locale: z.string().max(64),
     timezone: z.string().max(64),
     humanize: z.boolean(),
+    // Required rather than defaulted: a tab loaded before this field existed
+    // would otherwise reset the window on save, and resetting it deletes video.
+    recordingRetentionDays: z.number().int().min(0).max(3650),
   }),
   agent: z.object({
     maxConcurrentTurnsPerCompany: z.number().int().min(1).max(100).default(8),

@@ -58,8 +58,12 @@ export function browserPrivateCompanyDir(companyId: string): string {
  * Employee's model-visible working directory. IDs are used instead of slugs
  * so renames cannot strand data and deletion can be scoped without a lookup.
  */
+export function browserRecordingsRoot(): string {
+  return path.join(dataRoot(), ".private", "browser-recordings");
+}
+
 export function browserRecordingsCompanyDir(companyId: string): string {
-  return path.join(dataRoot(), ".private", "browser-recordings", companyId);
+  return path.join(browserRecordingsRoot(), companyId);
 }
 
 export function browserRecordingRunDir(companyId: string, runId: string): string {

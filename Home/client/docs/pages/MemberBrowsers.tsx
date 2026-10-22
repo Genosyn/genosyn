@@ -264,8 +264,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <P>
         That owner-only boundary also covers saved Routine recordings. Company owners and admins
         cannot play a colleague&apos;s Member-browser recording unless they are the browser&apos;s
-        exact owner. Recordings contain the visible viewport but no audio, stay with the Run logs,
-        and are deleted with the owning Routine or company.
+        exact owner. Recordings contain the visible viewport but no audio. Like every Routine
+        recording, they are deleted once older than the window at{" "}
+        <Code>Admin → Runtime → Browser</Code> (7 days unless changed), or with the owning Routine
+        or company.
       </P>
       <P>
         The address bar that take-over unlocks is bounded by both allow lists, this browser&apos;s

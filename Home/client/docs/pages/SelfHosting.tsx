@@ -138,7 +138,8 @@ export function SelfHosting() {
                 status),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
-                humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
+                humanized input, how long Routine recordings are kept),{" "}
+                <Strong>Agent</Strong> (taint policy, member browsers, tool
                 discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}
                 <Strong>Outbound network</Strong> (the private-host allowlist). Each section starts
                 as one collapsed line that reads <Strong>Defaults</Strong> or, say,{" "}
@@ -318,8 +319,12 @@ export function SelfHosting() {
         files are capped at 2 GiB each; that includes ample headroom for the longest supported
         six-hour Run at the recording bitrate. If an encoder stops before the browser session ends,
         Genosyn marks the recording unavailable rather than publishing a truncated video. These
-        files never enter an AI Employee&apos;s working tree. Genosyn keeps them with the Run
-        history and removes them when the owning Routine or company is deleted.
+        files never enter an AI Employee&apos;s working tree. Genosyn deletes each one 7 days after
+        it finishes, keeping the Run and its log, and checks hourly. To keep them longer, set{" "}
+        <Strong>Keep browser recordings</Strong> at <Code>Admin → Runtime → Browser</Code>;{" "}
+        <Code>0</Code> keeps them until the owning Routine or company is deleted. The first check
+        runs as Genosyn starts, so upgrading to a release with this setting removes recordings
+        already past the window right away.
       </P>
       <Callout kind="info" title="Source installs need ffmpeg and ffprobe">
         The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and{" "}

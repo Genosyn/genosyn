@@ -110,7 +110,11 @@ export type RuntimeMeetingsSettings = {
   maxRecordingBytes: number;
 };
 
-/** The browser an AI Employee drives inside Genosyn's own container. */
+/**
+ * The browser an AI Employee drives inside Genosyn's own container, and how
+ * long the Routine browser recordings it — or a Member browser — leaves behind
+ * are kept.
+ */
 export type RuntimeBrowserSettings = {
   /** Absolute path to the Chrome/Chromium binary. Empty means autodetect. */
   executablePath: string;
@@ -121,6 +125,9 @@ export type RuntimeBrowserSettings = {
   timezone: string;
   /** Type and click the way a person does. Leave on for anti-bot defenses. */
   humanize: boolean;
+  /** Days a Routine browser recording is kept once it finishes, enforced by
+   *  `services/browserRecordingRetention.ts`. 0 keeps them forever. */
+  recordingRetentionDays: number;
 };
 
 /** Agent runtime knobs that are not part of the boot security posture. */
@@ -223,6 +230,7 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     locale: "",
     timezone: "",
     humanize: true,
+    recordingRetentionDays: 7,
   },
   agent: {
     maxConcurrentTurnsPerCompany: 8,
@@ -537,6 +545,14 @@ export function parseBrowserSettings(raw: unknown): RuntimeBrowserSettings {
     locale: stringField(o, "browser", "locale", d.locale, 64),
     timezone: stringField(o, "browser", "timezone", d.timezone, 64),
     humanize: boolField(o, "browser", "humanize", d.humanize),
+    recordingRetentionDays: intField(
+      o,
+      "browser",
+      "recordingRetentionDays",
+      d.recordingRetentionDays,
+      0,
+      3650,
+    ),
   };
 }
 

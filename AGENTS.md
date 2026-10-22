@@ -646,7 +646,12 @@ Never pass it back into a working profile: a stale export would overwrite the
 jar Chrome already loaded. Silent visual recordings live under
 `.private/browser-recordings/<company-id>/<run-id>/`, one MP4 per
 `BrowserSession`, and are linked from the Run log rather than exposed in an AI
-Employee's working tree. A recording from Genosyn's browser is admin-only; a
+Employee's working tree. Their video is deleted once older than the window at
+Admin → Runtime → Browser (`runtime.browser.recordingRetentionDays`: 7 days by
+default, 0 keeps them; `services/browserRecordingRetention.ts`). The Run and
+its `BrowserSession` row stay, and the recording reads as `expired`, which
+neither the Run log nor recovery may treat as a failure. A recording from
+Genosyn's browser is admin-only; a
 recording from a Member browser is visible only to that browser's exact owner.
 Recordings contain the unfiltered viewport; their authorization boundary, not
 pixel redaction, controls who can see them. Repository tokens and SSH private

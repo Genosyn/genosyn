@@ -305,7 +305,7 @@ const GROUPS: GroupSpec[] = [
     title: "Browser",
     icon: <Chrome size={16} className="text-indigo-500" />,
     blurb:
-      "The Chrome an AI Employee drives inside Genosyn's own container. A Member browser runs on that person's computer and is not affected.",
+      "The Chrome an AI Employee drives inside Genosyn's own container, and how long Routine browser recordings are kept. A Member browser runs on that person's computer; only the recording window applies to it.",
     fields: [
       {
         kind: "text",
@@ -346,6 +346,15 @@ const GROUPS: GroupSpec[] = [
         path: "humanize",
         label: "Humanize input",
         help: "Type and click the way a person does. Leave on for sites with anti-bot defenses.",
+      },
+      {
+        kind: "int",
+        path: "recordingRetentionDays",
+        label: "Keep browser recordings",
+        min: 0,
+        max: 3650,
+        unit: "days",
+        help: "Routine browser recordings, from Genosyn's browser and Member browsers alike, are deleted this many days after they finish. The Run and its log stay. 0 keeps them forever.",
       },
     ],
   },

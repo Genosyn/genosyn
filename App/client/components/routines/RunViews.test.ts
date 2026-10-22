@@ -9,12 +9,13 @@ import {
   RunStatusChip,
   runLogNeedsPolling,
   mergeRunContinuationState,
+  visibleBrowserRecordings,
 } from "@/components/routines/RunViews";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { DialogProvider } from "@/components/ui/Dialog";
 import { isRunPaused, runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
 import type { RunStatus } from "@/lib/api";
-import type { Company, Run, RunFollowUp, RunLog } from "@/lib/api";
+import type { Company, Run, RunBrowserRecording, RunFollowUp, RunLog } from "@/lib/api";
 
 const followUp = {
   id: "child",
@@ -369,4 +370,25 @@ describe("a Run paused for a restart", () => {
     // A paused Run never needs attention: it is not a failure.
     assert.equal(runNeedsAttention("queued"), false);
   });
+});
+
+test("a Run's recordings pane leaves out recordings with no video to show", () => {
+  const recording = (id: string, status: RunBrowserRecording["status"]): RunBrowserRecording => ({
+    id,
+    status,
+    startedAt: "2026-10-01T08:00:00Z",
+    finishedAt: status === "recording" ? null : "2026-10-01T08:05:00Z",
+    mimeType: "video/mp4",
+    sizeBytes: status === "ready" ? 1024 : 0,
+    filename: `${id}.mp4`,
+  });
+  assert.deepEqual(
+    visibleBrowserRecordings([
+      recording("ready", "ready"),
+      recording("failed", "failed"),
+      recording("expired", "expired"),
+      recording("live", "recording"),
+    ]).map((shown) => shown.id),
+    ["ready", "live"],
+  );
 });

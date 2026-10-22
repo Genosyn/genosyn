@@ -424,6 +424,31 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
       400,
     );
   });
+
+  test("the browser group needs a recording window, so a stale form cannot reset it", async () => {
+    const { recordingRetentionDays: _omitted, ...withoutWindow } = RUNTIME_SETTINGS_DEFAULTS.browser;
+    assert.equal((await call("PUT", "/runtime-settings/browser", withoutWindow)).status, 400);
+    for (const bad of [-1, 1.5, 3651]) {
+      assert.equal(
+        (
+          await call("PUT", "/runtime-settings/browser", {
+            ...RUNTIME_SETTINGS_DEFAULTS.browser,
+            recordingRetentionDays: bad,
+          })
+        ).status,
+        400,
+      );
+    }
+    assert.equal(
+      (
+        await call<Snapshot>("PUT", "/runtime-settings/browser", {
+          ...RUNTIME_SETTINGS_DEFAULTS.browser,
+          recordingRetentionDays: 0,
+        })
+      ).body.browser.recordingRetentionDays,
+      0,
+    );
+  });
 });
 
 describe("DELETE /api/admin/runtime-settings/:group", () => {

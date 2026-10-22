@@ -426,9 +426,11 @@ export function Browser() {
       <P>
         Saved Routine recordings are separate from browser state. They live under{" "}
         <Code>.private/browser-recordings/&lt;company-id&gt;/&lt;run-id&gt;/</Code> in the data
-        directory, outside the AI Employee&apos;s working tree. They remain with Run history, are
-        included in whole-instance backups, and are removed when the owning Routine or company is
-        deleted. Chat sessions are not recorded.
+        directory, outside the AI Employee&apos;s working tree. Each is deleted 7 days after it
+        finishes, unless <Strong>Keep browser recordings</Strong> at{" "}
+        <Code>Admin → Runtime → Browser</Code> says otherwise (<Code>0</Code> keeps them), and
+        sooner when the owning Routine or company is deleted. They are included in whole-instance
+        backups. Chat sessions are not recorded.
       </P>
       <P>
         That per-employee profile is also what a sign-in driven from the{" "}

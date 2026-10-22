@@ -42,6 +42,7 @@ export const RUNTIME_DEFAULTS: Readonly<RuntimeSettings> = {
     locale: "",
     timezone: "",
     humanize: true,
+    recordingRetentionDays: 7,
   },
   agent: {
     maxConcurrentTurnsPerCompany: 8,

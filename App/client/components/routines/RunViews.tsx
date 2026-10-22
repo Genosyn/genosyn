@@ -512,18 +512,22 @@ function recordingStatusLabel(recording: RunBrowserRecording): string {
   if (recording.status === "recording") return "Live";
   if (recording.status === "finalizing") return "Finalizing";
   if (recording.status === "failed") return "Failed";
+  if (recording.status === "expired") return "Expired";
   return "Ready";
 }
 
 /**
  * The recordings worth giving screen space to. A `failed` session saved no
- * video at all, and a panel whose only content is "there is no video here"
- * adds nothing beside a Run log that already says what happened.
+ * video at all, an `expired` one's video was deleted on schedule, and a panel
+ * whose only content is "there is no video here" adds nothing beside a Run log
+ * that already says what happened.
  */
 export function visibleBrowserRecordings(
   recordings: RunBrowserRecording[] | null | undefined,
 ): RunBrowserRecording[] {
-  return (recordings ?? []).filter((recording) => recording.status !== "failed");
+  return (recordings ?? []).filter(
+    (recording) => recording.status !== "failed" && recording.status !== "expired",
+  );
 }
 
 /**
