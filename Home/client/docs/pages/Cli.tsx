@@ -317,10 +317,20 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
       </P>
       <P>
         Before pausing or stopping anything, the upgrade checks that the archive fits with 1 GB to
-        spare, counting the volume at its uncompressed size. If it doesn&apos;t, the upgrade stops
-        and changes nothing: free some space, set <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk,
-        or pass <Code>--no-backup</Code>. Genosyn is down while the archive is written, so a large
-        volume makes for a longer upgrade.
+        spare, counting the volume at its uncompressed size. If it doesn&apos;t, the upgrade first
+        clears what Docker can rebuild or download again — its build cache, and untagged images no
+        container uses, such as a Genosyn image an earlier upgrade pulled but never started — and
+        checks again. It never removes a tagged image, a container, or a volume: those may belong
+        to other software on the host, and volumes hold data. If there still isn&apos;t room, the
+        upgrade stops without changing Genosyn: free some space, set{" "}
+        <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk, or pass <Code>--no-backup</Code>.
+        In-app backups share the data volume&apos;s disk and pile up unless{" "}
+        <DocLink to="/docs/self-hosting#retention">retention</DocLink> is on. Genosyn is down while
+        the archive is written, so a large volume makes for a longer upgrade.
+      </P>
+      <P>
+        Once the new version is ready, the upgrade removes the previous image, along with any
+        untagged Genosyn image an earlier upgrade that stopped or rolled back left behind.
       </P>
 
       <H3 id="scheduled-backup">Daily backup to a known path</H3>

@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.11.0"
+CLI_VERSION="0.12.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -664,12 +664,24 @@ free_space_kb() {
   df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
 }
 
+# Give back the space Docker can rebuild or download again: its build cache,
+# and images with no tag that no container uses -- among them Genosyn images an
+# upgrade pulled but never started. Tagged images, containers, and volumes
+# stay: they may belong to other software on the host, and volumes are where
+# data lives. Genosyn leaves no unused volume behind (its one VOLUME is always
+# the named data volume), so pruning them could only delete someone else's.
+reclaim_docker_space() {
+  docker image prune --force >/dev/null 2>&1 || true
+  docker builder prune --all --force >/dev/null 2>&1 || true
+}
+
 # Before anything is paused or stopped: clear the previous upgrade backup and
 # make sure the next one fits, with 1 GiB to spare for everything else on the
-# disk. Writing it until the disk filled would take the host's other services
-# down with it, so an upgrade that has no room stops here and changes nothing.
+# disk, reclaiming Docker's spare space first when it doesn't. Writing it until
+# the disk filled would take the host's other services down with it, so an
+# upgrade that still has no room stops here and leaves Genosyn as it was.
 prepare_pre_upgrade_backup() {
-  local needed free
+  local needed free free_before
   mkdir -p "${UPGRADE_BACKUP_DIR}" || die "Could not create the backup directory ${UPGRADE_BACKUP_DIR}. Nothing was changed."
   chmod 0700 "${UPGRADE_BACKUP_DIR}" 2>/dev/null || true
   prune_pre_upgrade_backups
@@ -683,7 +695,17 @@ prepare_pre_upgrade_backup() {
       ;;
   esac
   if [ "${free}" -lt $((needed + 1048576)) ]; then
-    die "Not enough free space for the upgrade backup in ${UPGRADE_BACKUP_DIR}: it can take up to $(human_size $((needed * 1024))) and $(human_size $((free * 1024))) is free. Free some space, set GENOSYN_BACKUP_DIR to a larger disk, or run 'genosyn upgrade --no-backup'. Nothing was changed."
+    step "Clearing Docker's build cache and unused untagged images to make room"
+    reclaim_docker_space
+    free_before="${free}"
+    free="$(free_space_kb "${UPGRADE_BACKUP_DIR}")"
+    case "${free}" in ''|*[!0-9]*) free="${free_before}" ;; esac
+    if [ "${free}" -gt "${free_before}" ]; then
+      ok "Freed $(human_size $(((free - free_before) * 1024)))."
+    fi
+  fi
+  if [ "${free}" -lt $((needed + 1048576)) ]; then
+    die "Not enough free space for the upgrade backup in ${UPGRADE_BACKUP_DIR}: it can take up to $(human_size $((needed * 1024))) and $(human_size $((free * 1024))) is free. Free some space, set GENOSYN_BACKUP_DIR to a larger disk, or run 'genosyn upgrade --no-backup'. Genosyn was not changed."
   fi
 }
 
@@ -1035,8 +1057,15 @@ cmd_upgrade() {
   fi
 
   if [ "${previous_container_removed}" = "1" ] && [ -n "${before}" ] && [ "${before}" != "${after}" ]; then
-    step "Removing previous image"
+    step "Removing previous images"
     docker image rm "${before}" >/dev/null 2>&1 || true
+    # An upgrade that stopped before the restart, or rolled back, leaves the
+    # image it pulled. Once a newer pull takes its tag it has no name and no
+    # container, so nothing else would ever remove it. The label every release
+    # image carries keeps this to Genosyn's own.
+    docker image prune --force \
+      --filter "label=org.opencontainers.image.source=https://github.com/Genosyn/genosyn" \
+      >/dev/null 2>&1 || true
   fi
 
   ok "Genosyn upgraded${ver_msg}."
@@ -2211,6 +2240,8 @@ ${C_BOLD}Commands:${C_RESET}
                        recreate the container. The previous container is kept
                        until ready. A verified data backup is taken first and
                        restored on failure; each upgrade replaces the last one.
+                       If it would not fit, Docker's build cache and unused
+                       untagged images are cleared first, never volumes.
                        Pass --no-backup (or --skip-backup) to skip it. Pass
                        --no-self-upgrade to skip the script update.
                        Running Routine Runs are paused, saving their

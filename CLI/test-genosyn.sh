@@ -502,7 +502,14 @@ backup_volume_to() {
   return 0
 }
 volume_backup_size_kb() { printf '%s\n' "${MOCK_VOLUME_KB:-2048}"; }
-free_space_kb() { printf '%s\n' "${MOCK_FREE_KB:-99999999}"; }
+free_space_kb() {
+  # Clearing Docker's build cache leaves MOCK_FREE_AFTER_RECLAIM_KB free, when set.
+  if [ -n "${MOCK_FREE_AFTER_RECLAIM_KB:-}" ] && grep -Fq 'docker builder prune' "${upgrade_log}"; then
+    printf '%s\n' "${MOCK_FREE_AFTER_RECLAIM_KB}"
+  else
+    printf '%s\n' "${MOCK_FREE_KB:-99999999}"
+  fi
+}
 run_container_with_image() {
   printf 'run-container %s\n' "$1" >>"${upgrade_log}"
   return 0
@@ -517,6 +524,11 @@ check "upgrade takes one verified data backup by default" \
 check "and leaves the App's own Backup/ archives out of it" \
   "$(grep -F 'backup-volume ' "${upgrade_log}")" \
   "backup-volume ${test_root}/backups/pre-upgrade.tar.gz 1"
+check "with room to spare, it leaves Docker's build cache and untagged images alone" \
+  "$(grep -Ec 'docker builder prune|docker image prune --force$' "${upgrade_log}" || true)" '0'
+check "once upgraded, it removes only Genosyn's images that earlier upgrades left behind" \
+  "$(grep -F 'docker image prune' "${upgrade_log}")" \
+  'docker image prune --force --filter label=org.opencontainers.image.source=https://github.com/Genosyn/genosyn'
 
 : >"${upgrade_log}"
 cmd_upgrade --no-self-upgrade --backup >/dev/null 2>&1
@@ -544,6 +556,22 @@ case "${no_room_output}" in
   *) no_room_said=no ;;
 esac
 check "and says how to go on" "${no_room_said}" "yes"
+check "it first clears Docker's build cache and untagged images no container uses" \
+  "$(grep -E 'docker (image|builder) prune' "${upgrade_log}")" \
+  "$(printf '%s\n' 'docker image prune --force' 'docker builder prune --all --force')"
+check "and never a tagged image, a container, or a volume" \
+  "$(grep -Ec 'docker (volume|container|system|network|rm|rmi) |docker image (rm|prune .*(-a|--all))' "${upgrade_log}" || true)" '0'
+
+: >"${upgrade_log}"
+# The same 3 GiB free, and 9 GiB once Docker's build cache is cleared.
+reclaim_output="$(MOCK_VOLUME_KB=5242880 MOCK_FREE_KB=3145728 MOCK_FREE_AFTER_RECLAIM_KB=9437184; cmd_upgrade --no-self-upgrade 2>/dev/null)" || true
+check "when that makes room, the upgrade goes on with its backup" \
+  "$(grep -Ec 'backup-volume |run-container ' "${upgrade_log}" || true)" '2'
+case "${reclaim_output}" in
+  *"Freed 6.0GB"*) reclaim_said=yes ;;
+  *) reclaim_said=no ;;
+esac
+check "and says how much it freed" "${reclaim_said}" "yes"
 
 echo "upgrade backups — one kept per install"
 NAME="genosyn-test"
