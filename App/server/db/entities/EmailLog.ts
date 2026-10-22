@@ -36,6 +36,7 @@ export type EmailLogPurpose =
   | "welcome"
   | "signature"
   | "recruiting"
+  | "backup_alert"
   | "test"
   | "other";
 

@@ -11,6 +11,7 @@ import {
   BackupDestinationStatus,
 } from "../db/entities/BackupDestination.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
+import { alertDeliveryFailed, alertDeliveryRecovered, alertDue } from "./backupAlerts.js";
 
 /**
  * Off-box delivery of backup archives to NAS / remote volumes.
@@ -61,8 +62,69 @@ type DestConfig = LocalConfig | SftpConfig | SmbConfig;
 const PROBE_NAME = ".genosyn-write-test";
 const SFTP_READY_TIMEOUT_MS = 15_000;
 const SMB_PROBE_TIMEOUT_MS = 30_000;
-const SMB_DELIVER_TIMEOUT_MS = 30 * 60_000;
+/** Listing a destination, deleting archives there, or renaming a finished copy. */
+const SMB_HOUSEKEEPING_TIMEOUT_MS = 5 * 60_000;
+/** Archives deleted per smbclient run, keeping its command line well short of the kernel's limit. */
+const SMB_DELETE_BATCH = 200;
+const SMB_DELIVER_BASE_TIMEOUT_MS = 30 * 60_000;
+/** The slowest an SMB copy may run before it is treated as stuck. */
+const SMB_MIN_BYTES_PER_SECOND = 2 * 1024 * 1024;
 const SMB_DEFAULT_PORT = 445;
+
+/**
+ * How long one archive may take to reach an SMB share. This used to be a flat
+ * half hour, which a 50 GB archive only meets at 28 MB/s — more than a NAS
+ * across a VPN usually sustains — so every delivery was killed part-way while
+ * the backup itself was fine. The limit now grows with the archive, at a floor
+ * of 2 MB/s on top of the old half hour, so only a copy that has effectively
+ * stopped runs out of time.
+ */
+export function smbDeliverTimeoutMs(sizeBytes: number): number {
+  const transferMs = (Math.max(0, sizeBytes) / SMB_MIN_BYTES_PER_SECOND) * 1000;
+  return SMB_DELIVER_BASE_TIMEOUT_MS + Math.ceil(transferMs);
+}
+
+/** The off-box retention policy a delivery applies, from the backup schedule. */
+export type OffBoxRetention = { days: number };
+
+/**
+ * Every kind copies an archive under this suffix and renames it into place
+ * once the whole of it is there. A copy cut short — a timeout, a dropped link,
+ * an upgrade restarting the server — then leaves a file that says it is
+ * incomplete, never one named like a backup that will not open.
+ */
+export const PARTIAL_SUFFIX = ".partial";
+
+/**
+ * Archives the backup service writes, `backup-YYYY-MM-DD-HHMMSS.zip` in the
+ * server's local time, and the `.partial` a copy of one is written under.
+ * Off-box retention only ever deletes names of this exact shape, so uploads
+ * and anything else in a destination folder are left alone.
+ */
+const ARCHIVE_NAME = /^backup-(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})\.zip(?:\.partial)?$/;
+
+/** When the archive `name` (or a partial copy of it) was taken, read from its name; null for any other file. */
+export function archiveTakenAt(name: string): Date | null {
+  const match = ARCHIVE_NAME.exec(name);
+  if (!match) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const at = new Date(year, month - 1, day, hour, minute, second);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * The archives on a destination that the off-box policy deletes: ones taken
+ * before `cutoff` and partial copies of them, except `keep` — the archive just
+ * delivered, so a destination always holds at least one complete copy however
+ * old it is.
+ */
+export function expiredArchives(names: string[], cutoff: Date, keep: string): string[] {
+  return names.filter((name) => {
+    if (name === keep) return false;
+    const takenAt = archiveTakenAt(name);
+    return takenAt !== null && takenAt.getTime() < cutoff.getTime();
+  });
+}
 
 export type DestinationInput = {
   name: string;
@@ -221,7 +283,9 @@ export async function deleteDestination(id: string): Promise<boolean> {
 /**
  * Probe a destination without shipping a real archive: ensure the target
  * directory exists and is writable by creating and deleting a tiny marker
- * file. Records the outcome on the row so History reflects the last check.
+ * file. Records the outcome on the row so History reflects the last
+ * connection test, except that a passing probe leaves a run of failed
+ * deliveries standing.
  */
 export async function testDestination(id: string): Promise<{ ok: boolean; message: string }> {
   const repo = AppDataSource.getRepository(BackupDestination);
@@ -246,8 +310,15 @@ export async function testDestination(id: string): Promise<{ ok: boolean; messag
     message = (err as Error).message ?? String(err);
   }
   row.lastCheckedAt = new Date();
-  row.lastStatus = ok ? "ok" : "error";
-  row.lastError = ok ? "" : message;
+  // The probe proves a small file gets through, not a whole archive: a share
+  // can take it and still time out on a 50 GB copy. While deliveries are
+  // failing, their error stays the destination's status until one succeeds.
+  if (ok && row.failingSince) {
+    message = `${message} Backups copied here are still failing, though — send one to confirm it's fixed.`;
+  } else {
+    row.lastStatus = ok ? "ok" : "error";
+    row.lastError = ok ? "" : message;
+  }
   await repo.save(row);
   return { ok, message };
 }
@@ -277,17 +348,20 @@ async function probeSftp(cfg: SftpConfig): Promise<void> {
 /**
  * Copy a completed archive to every enabled destination. Best-effort: a
  * failure to reach one destination is recorded on that row and returned in the
- * result list, but never throws — the local backup already succeeded.
+ * result list, but never throws — the local backup already succeeded. With an
+ * off-box `retention` policy, each destination the copy reaches then drops
+ * the archives the policy has expired there.
  */
 export async function deliverBackupToDestinations(
   filename: string,
   absPath: string,
+  retention: OffBoxRetention | null = null,
 ): Promise<DeliveryResult[]> {
   const repo = AppDataSource.getRepository(BackupDestination);
   const rows = await repo.find({ where: { enabled: true } });
   const results: DeliveryResult[] = [];
   for (const row of rows) {
-    results.push(await deliverOne(row, filename, absPath));
+    results.push(await deliverOne(row, filename, absPath, retention));
   }
   return results;
 }
@@ -297,20 +371,33 @@ export async function deliverBackupToDestinations(
  * "Send to destinations" action in History). Throws if the source file is
  * gone; per-destination failures come back inside the result list.
  */
-export async function deliverArchive(filename: string, absPath: string): Promise<DeliveryResult[]> {
+export async function deliverArchive(
+  filename: string,
+  absPath: string,
+  retention: OffBoxRetention | null = null,
+): Promise<DeliveryResult[]> {
   if (!fs.existsSync(absPath)) {
     throw new Error("Backup archive is missing on disk");
   }
-  return deliverBackupToDestinations(filename, absPath);
+  return deliverBackupToDestinations(filename, absPath, retention);
 }
 
+/**
+ * One delivery, recorded on the row whatever happens. Every attempt is
+ * stamped, so a destination that keeps failing the same way still shows when
+ * it last tried; the first failure of a run starts {@link
+ * BackupDestination.failingSince}, and master admins are emailed when one
+ * begins, daily while it lasts, and once more when a copy gets through again.
+ */
 async function deliverOne(
   row: BackupDestination,
   filename: string,
   absPath: string,
+  retention: OffBoxRetention | null,
 ): Promise<DeliveryResult> {
   const repo = AppDataSource.getRepository(BackupDestination);
   const cfg = decodeConfig(row);
+  const attemptedAt = new Date();
   try {
     if (!cfg) throw new Error("Stored configuration could not be decrypted");
     if (!fs.existsSync(absPath)) throw new Error("Source archive missing");
@@ -321,18 +408,30 @@ async function deliverOne(
     } else {
       await copySftp(cfg as SftpConfig, filename, absPath);
     }
+    const failedFor = row.failingSince;
+    const adminsWereTold = row.lastAlertedAt !== null;
     row.lastStatus = "ok";
     row.lastError = "";
     row.lastSyncedAt = new Date();
+    row.lastAttemptAt = attemptedAt;
+    row.failingSince = null;
+    row.lastAlertedAt = null;
     await repo.save(row);
+    if (failedFor && adminsWereTold) await alertDeliveryRecovered(row, failedFor);
+    if (retention) await applyOffBoxRetention(row, cfg, filename, retention);
     return { destinationId: row.id, destinationName: row.name, ok: true };
   } catch (err) {
     const message = (err as Error).message ?? String(err);
     row.lastStatus = "error";
     row.lastError = message;
+    row.lastAttemptAt = attemptedAt;
+    row.failingSince = row.failingSince ?? attemptedAt;
+    const alert = alertDue(row.lastAlertedAt, attemptedAt);
+    if (alert) row.lastAlertedAt = attemptedAt;
     await repo.save(row);
     // eslint-disable-next-line no-console
     console.error(`[backups] delivery to "${row.name}" failed:`, message);
+    if (alert) await alertDeliveryFailed(row, filename);
     return {
       destinationId: row.id,
       destinationName: row.name,
@@ -342,21 +441,159 @@ async function deliverOne(
   }
 }
 
+/**
+ * Delete what the off-box policy has expired on a destination that just took a
+ * copy. Best-effort and logged: the archive is safely delivered, and a folder
+ * left a little fuller is retried at the next delivery.
+ */
+async function applyOffBoxRetention(
+  row: BackupDestination,
+  cfg: DestConfig | null,
+  keep: string,
+  retention: OffBoxRetention,
+): Promise<void> {
+  if (!cfg) return;
+  try {
+    const cutoff = new Date(Date.now() - retention.days * 24 * 60 * 60 * 1000);
+    const names = (await listArchives(row.kind, cfg)).map((entry) => entry.name);
+    const expired = expiredArchives(names, cutoff, keep);
+    if (expired.length === 0) return;
+    await deleteArchives(row.kind, cfg, expired);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[backups] retention removed ${expired.length} archive(s) older than ${retention.days} day(s) from "${row.name}"`,
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[backups] retention on "${row.name}" failed:`,
+      (err as Error).message ?? String(err),
+    );
+  }
+}
+
+/** An archive on a destination, and its size in bytes. */
+export type DestinationArchive = { name: string; size: number };
+
+/** The archives Genosyn wrote to a destination, partial copies included, for daily verification. */
+export async function listDestinationArchives(
+  row: BackupDestination,
+): Promise<DestinationArchive[]> {
+  const cfg = decodeConfig(row);
+  if (!cfg) throw new Error("Stored configuration could not be decrypted");
+  return listArchives(row.kind, cfg);
+}
+
+/**
+ * The archives Genosyn wrote to a destination. A folder that doesn't exist
+ * yet holds none: it is created by the first delivery.
+ */
+async function listArchives(
+  kind: BackupDestinationKind,
+  cfg: DestConfig,
+): Promise<DestinationArchive[]> {
+  if (kind === "local") {
+    const dir = (cfg as LocalConfig).path?.trim();
+    if (!dir) throw new Error("No path configured");
+    let names: string[];
+    try {
+      names = await fs.promises.readdir(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw err;
+    }
+    const archives: DestinationArchive[] = [];
+    for (const name of names.filter((n) => ARCHIVE_NAME.test(n))) {
+      archives.push({ name, size: (await fs.promises.stat(path.join(dir, name))).size });
+    }
+    return archives;
+  }
+  if (kind === "smb") return listSmbArchives(cfg as SmbConfig);
+  const sftp = cfg as SftpConfig;
+  const client = new SftpClient();
+  try {
+    await client.connect(sftpConnectOptions(sftp));
+    if (!(await client.exists(sftp.remoteDir))) return [];
+    const entries = await client.list(sftp.remoteDir);
+    return entries
+      .filter((entry) => ARCHIVE_NAME.test(entry.name))
+      .map((entry) => ({ name: entry.name, size: entry.size }));
+  } finally {
+    await safeEnd(client);
+  }
+}
+
+/** Delete archives by name; each was matched against {@link ARCHIVE_NAME}. */
+async function deleteArchives(
+  kind: BackupDestinationKind,
+  cfg: DestConfig,
+  names: string[],
+): Promise<void> {
+  const archives = names.filter((name) => ARCHIVE_NAME.test(name));
+  if (archives.length === 0) return;
+  if (kind === "local") {
+    const dir = (cfg as LocalConfig).path.trim();
+    for (const name of archives) await fs.promises.rm(path.join(dir, name), { force: true });
+    return;
+  }
+  if (kind === "smb") {
+    const smb = cfg as SmbConfig;
+    const segments = smbDirSegments(smb.remoteDir);
+    for (let i = 0; i < archives.length; i += SMB_DELETE_BATCH) {
+      await runSmbClient(
+        smb,
+        archives
+          .slice(i, i + SMB_DELETE_BATCH)
+          .map((name) => `del "${smbRemotePath(segments, name)}"`),
+        SMB_HOUSEKEEPING_TIMEOUT_MS,
+        // Only the batch's last `del` sets the exit status; one already gone is no failure.
+        { tolerate: ["NT_STATUS_NO_SUCH_FILE"] },
+      );
+    }
+    return;
+  }
+  const sftp = cfg as SftpConfig;
+  const client = new SftpClient();
+  try {
+    await client.connect(sftpConnectOptions(sftp));
+    for (const name of archives) await client.delete(joinRemote(sftp.remoteDir, name), true);
+  } finally {
+    await safeEnd(client);
+  }
+}
+
 async function copyLocal(cfg: LocalConfig, filename: string, absPath: string): Promise<void> {
   const dir = cfg.path?.trim();
   if (!dir) throw new Error("No path configured");
   await fs.promises.mkdir(dir, { recursive: true });
   const destination = path.join(dir, filename);
-  await fs.promises.copyFile(absPath, destination);
-  await fs.promises.chmod(destination, 0o600);
+  const partial = destination + PARTIAL_SUFFIX;
+  try {
+    await fs.promises.copyFile(absPath, partial);
+    await fs.promises.chmod(partial, 0o600);
+    await fs.promises.rename(partial, destination);
+  } catch (err) {
+    await fs.promises.rm(partial, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 async function copySftp(cfg: SftpConfig, filename: string, absPath: string): Promise<void> {
+  const destination = joinRemote(cfg.remoteDir, filename);
+  const partial = destination + PARTIAL_SUFFIX;
   const client = new SftpClient();
   try {
     await client.connect(sftpConnectOptions(cfg));
     await client.mkdir(cfg.remoteDir, true);
-    await client.fastPut(absPath, joinRemote(cfg.remoteDir, filename));
+    try {
+      await client.fastPut(absPath, partial);
+      // SFTP's rename refuses to replace, which a re-sent archive would need.
+      if (await client.exists(destination)) await client.delete(destination);
+      await client.rename(partial, destination);
+    } catch (err) {
+      await client.delete(partial, true).catch(() => undefined);
+      throw err;
+    }
   } finally {
     await safeEnd(client);
   }
@@ -484,12 +721,22 @@ async function withSmbAuthFile<T>(
  * one we've proven inert. `--directory` *is* parsed as a literal path (safe),
  * but it can't create anything, which is why the mkdir chain goes through
  * `--command` at all.
+ *
+ * Resolves with smbclient's stdout. `tolerate` names NT statuses that are an
+ * answer rather than a failure — `ls` on a pattern that matches nothing exits
+ * non-zero with NT_STATUS_NO_SUCH_FILE — and `timeoutMessage` says what a
+ * kill at `timeout` means for this particular command.
  */
-async function runSmbClient(cfg: SmbConfig, commands: string[], timeout: number): Promise<void> {
+async function runSmbClient(
+  cfg: SmbConfig,
+  commands: string[],
+  timeout: number,
+  options: { tolerate?: string[]; timeoutMessage?: string } = {},
+): Promise<string> {
   if (!cfg.host.trim()) throw new Error("No host configured");
   assertSafeSmbSegment(cfg.share, "Share");
 
-  await withSmbAuthFile(cfg, async (authFile) => {
+  return withSmbAuthFile(cfg, async (authFile) => {
     const args = [
       `//${cfg.host}/${cfg.share}`,
       "--authentication-file",
@@ -508,9 +755,19 @@ async function runSmbClient(cfg: SmbConfig, commands: string[], timeout: number)
       args.push("--port", String(cfg.port));
     }
     try {
-      await execFileAsync("smbclient", args, { timeout, windowsHide: true });
+      const { stdout } = await execFileAsync("smbclient", args, {
+        timeout,
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      return stdout;
     } catch (err) {
-      throw new Error(smbErrorMessage(err, cfg));
+      const e = err as { stdout?: string; stderr?: string; killed?: boolean };
+      if (options.tolerate && !e.killed) {
+        const output = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+        if (options.tolerate.some((status) => output.includes(status))) return e.stdout ?? "";
+      }
+      throw new Error(smbErrorMessage(err, cfg, options.timeoutMessage));
     }
   });
 }
@@ -520,12 +777,16 @@ async function runSmbClient(cfg: SmbConfig, commands: string[], timeout: number)
  * reports protocol errors on *stdout* and exits 1, so the useful text isn't
  * where you'd expect it.
  */
-function smbErrorMessage(err: unknown, cfg: SmbConfig): string {
+export function smbErrorMessage(
+  err: unknown,
+  cfg: Pick<SmbConfig, "host" | "share" | "encrypt">,
+  timeoutMessage?: string,
+): string {
   const e = err as NodeJS.ErrnoException & { stdout?: string; stderr?: string; killed?: boolean };
   if (e?.code === "ENOENT") {
     return "smbclient is not installed in this image — SMB destinations need the samba-client package";
   }
-  if (e?.killed) return "Timed out talking to the SMB server";
+  if (e?.killed) return timeoutMessage ?? "Timed out talking to the SMB server";
 
   const output = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`;
   // The mkdir chain re-creates existing directories on every delivery, so a
@@ -545,8 +806,16 @@ function smbErrorMessage(err: unknown, cfg: SmbConfig): string {
     case "NT_STATUS_OBJECT_PATH_NOT_FOUND":
     case "NT_STATUS_OBJECT_NAME_NOT_FOUND":
       return "The remote directory could not be created or reached";
+    case "NT_STATUS_DISK_FULL":
+    case "NT_STATUS_QUOTA_EXCEEDED":
+      return `The share on ${cfg.host} is full — free some space there, or turn on off-box retention`;
     default:
       break;
+  }
+  // A copy already under way when the link went: the session itself was fine,
+  // so this is no reason to suspect encryption, as the next branch would.
+  if (/cli_push returned|closing remote file/.test(output)) {
+    return `The connection to ${cfg.host} dropped part-way through the copy`;
   }
   if (/protocol negotiation failed|NT_STATUS_CONNECTION/i.test(output)) {
     return cfg.encrypt
@@ -593,14 +862,70 @@ async function probeSmb(cfg: SmbConfig): Promise<void> {
   }
 }
 
+/**
+ * Two smbclient runs, because smbclient carries on past a failed command and
+ * reports only the last one's status: renaming in the same run as the `put`
+ * would promote a copy that broke off half-way. `rename -f` replaces an
+ * archive that is already there, for one sent a second time.
+ */
 async function copySmb(cfg: SmbConfig, filename: string, absPath: string): Promise<void> {
   assertSafeSmbSegment(filename, "Backup filename");
   const segments = smbDirSegments(cfg.remoteDir);
+  const destination = smbRemotePath(segments, filename);
+  const partial = destination + PARTIAL_SUFFIX;
+  const timeout = smbDeliverTimeoutMs(fs.statSync(absPath).size);
+  const hours = Math.round((timeout / 3_600_000) * 10) / 10;
+  try {
+    await runSmbClient(
+      cfg,
+      [...smbMkdirChain(segments), `put "${absPath}" "${partial}"`],
+      timeout,
+      {
+        timeoutMessage: `The copy to ${cfg.host} didn't finish within ${hours} hours — the link moved under 2 MB/s`,
+      },
+    );
+  } catch (err) {
+    // Don't leave gigabytes of a copy that will never finish on the share.
+    await runSmbClient(cfg, [`del "${partial}"`], SMB_PROBE_TIMEOUT_MS).catch(() => undefined);
+    throw err;
+  }
   await runSmbClient(
     cfg,
-    [...smbMkdirChain(segments), `put "${absPath}" "${smbRemotePath(segments, filename)}"`],
-    SMB_DELIVER_TIMEOUT_MS,
+    [`rename "${partial}" "${destination}" -f`],
+    SMB_HOUSEKEEPING_TIMEOUT_MS,
   );
+}
+
+/**
+ * One entry of an smbclient `ls` listing: the name, its attribute letters, its
+ * size, then its date. Archive names hold no spaces; anchoring on the size
+ * keeps a name that does — `backup-….zip copy.zip` — from passing for the
+ * archive it starts with.
+ */
+const SMB_LISTING_ENTRY = /^\s*(\S+)\s+[A-Za-z]*\s+(\d+)\s/;
+
+/** The archives, and their sizes, in an smbclient `ls` listing. */
+export function parseSmbListing(stdout: string): DestinationArchive[] {
+  const archives: DestinationArchive[] = [];
+  for (const line of stdout.split("\n")) {
+    const match = SMB_LISTING_ENTRY.exec(line);
+    if (match && ARCHIVE_NAME.test(match[1])) {
+      archives.push({ name: match[1], size: Number(match[2]) });
+    }
+  }
+  return archives;
+}
+
+async function listSmbArchives(cfg: SmbConfig): Promise<DestinationArchive[]> {
+  const segments = smbDirSegments(cfg.remoteDir);
+  const stdout = await runSmbClient(
+    cfg,
+    [`ls "${smbRemotePath(segments, "backup-*.zip*")}"`],
+    SMB_HOUSEKEEPING_TIMEOUT_MS,
+    // Nothing matching, or a folder no delivery has created yet: no archives.
+    { tolerate: ["NT_STATUS_NO_SUCH_FILE", "NT_STATUS_OBJECT_PATH_NOT_FOUND", "NT_STATUS_OBJECT_NAME_NOT_FOUND"] },
+  );
+  return parseSmbListing(stdout);
 }
 
 export function serializeDestination(row: BackupDestination) {
@@ -631,6 +956,9 @@ export function serializeDestination(row: BackupDestination) {
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
     lastCheckedAt: row.lastCheckedAt,
+    lastAttemptAt: row.lastAttemptAt,
+    failingSince: row.failingSince,
+    lastAlertedAt: row.lastAlertedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

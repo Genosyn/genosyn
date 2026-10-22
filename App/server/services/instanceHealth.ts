@@ -4,10 +4,12 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { Backup } from "../db/entities/Backup.js";
+import { BackupDestination } from "../db/entities/BackupDestination.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
+import { getLastBackupVerification } from "./backupVerification.js";
 import { getBackupSchedule } from "./backups.js";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 import { getPublicUrl } from "./publicUrl.js";
@@ -239,10 +241,12 @@ function checkDataDirectory(): InstanceProbe {
  */
 async function checkBackups(now: number): Promise<InstanceProbe> {
   const repo = AppDataSource.getRepository(Backup);
-  const [schedule, recent] = await Promise.all([
+  const [schedule, recent, verification] = await Promise.all([
     getBackupSchedule(),
     repo.find({ order: { createdAt: "DESC" }, take: 50 }),
+    getLastBackupVerification(),
   ]);
+  const problems = verification?.areas.flatMap((area) => area.problems) ?? [];
 
   const total = recent.length;
   const lastCompleted = recent.find((b) => b.status === "completed") ?? null;
@@ -265,6 +269,16 @@ async function checkBackups(now: number): Promise<InstanceProbe> {
   } else {
     facts.push({ label: "Last successful", value: "Never" });
   }
+  facts.push({
+    label: "Daily verification",
+    value: verification
+      ? `${relativeAge(new Date(verification.verifiedAt), now)} · ${
+          problems.length === 0
+            ? "every backup in place"
+            : `${problems.length} problem${problems.length === 1 ? "" : "s"}`
+        }`
+      : "Not run yet",
+  });
 
   let severity: InstanceSeverity = "ok";
   let summary = "Backups are healthy.";
@@ -294,12 +308,70 @@ async function checkBackups(now: number): Promise<InstanceProbe> {
   } else {
     summary = "A schedule is enabled and the last backup succeeded.";
   }
+  // Daily verification looks further than the last run: missed days,
+  // archives gone from disk or from a destination, ones that don't open.
+  if (problems.length > 0) {
+    severity = worstSeverity([
+      severity,
+      problems.some((problem) => problem.severity === "error") ? "error" : "warn",
+    ]);
+    summary =
+      problems.length === 1
+        ? `Daily verification found a problem: ${problems[0].message}`
+        : `Daily verification found ${problems.length} problems — the first: ${problems[0].message}`;
+  }
 
   return {
     id: "backups",
     title: "Backups",
     description:
-      "Install-wide archives of the entire data directory, plus the recurring schedule.",
+      "Install-wide archives of the entire data directory, the recurring schedule, and the daily verification that each backup is still there.",
+    severity,
+    summary,
+    facts,
+  };
+}
+
+/**
+ * Whether backups are leaving the machine. A destination that fails only said
+ * so on Admin → Backups, so one went quiet for weeks; this puts it on the
+ * Overview with the rest of the instance's health. A destination counts as
+ * failing from its first failed delivery until one succeeds, and also when its
+ * last connection test or delivery failed before failures were dated.
+ */
+async function checkOffBoxBackups(now: number): Promise<InstanceProbe> {
+  const destinations = await AppDataSource.getRepository(BackupDestination).find({
+    where: { enabled: true },
+    order: { createdAt: "ASC" },
+  });
+  const failing = destinations.filter(
+    (d) => d.failingSince !== null || d.lastStatus === "error",
+  );
+  const facts: InstanceFact[] = destinations.map((d) => {
+    const lastCopy = d.lastSyncedAt ? relativeAge(new Date(d.lastSyncedAt), now) : "never";
+    const state = failing.includes(d)
+      ? `Failing${d.failingSince ? ` since ${relativeAge(new Date(d.failingSince), now)}` : ""} · ${d.lastError || "Unknown error"}`
+      : "Healthy";
+    return { label: d.name, value: `${state} · last copy ${lastCopy}` };
+  });
+
+  let severity: InstanceSeverity = "ok";
+  let summary = "Every backup is copied to the enabled destinations.";
+  if (destinations.length === 0) {
+    summary = "No off-box destination is enabled — backups stay on this server's disk.";
+  } else if (failing.length > 0) {
+    severity = "error";
+    summary =
+      failing.length === 1
+        ? `Backups are not reaching "${failing[0].name}" — see Admin → Backups.`
+        : `Backups are not reaching ${failing.length} destinations — see Admin → Backups.`;
+  }
+
+  return {
+    id: "offbox_backups",
+    title: "Off-box backups",
+    description:
+      "Copies of every backup in another folder, on an SFTP host, or on an SMB share such as a NAS, so a lost disk doesn't take the backups with it.",
     severity,
     summary,
     facts,
@@ -389,11 +461,12 @@ export async function getInstanceHealthReport(): Promise<InstanceHealthReport> {
   // Database first and on its own — every other check assumes a live
   // connection, so if it's down we still want the rest to run and report
   // their own state rather than throw.
-  const [database, migrations, backups, emailTransport, webPush, instance] =
+  const [database, migrations, backups, offBoxBackups, emailTransport, webPush, instance] =
     await Promise.all([
       checkDatabase(),
       checkMigrations(),
       checkBackups(now),
+      checkOffBoxBackups(now),
       checkEmailTransport(),
       checkWebPush(),
       gatherInstanceInfo(),
@@ -404,6 +477,7 @@ export async function getInstanceHealthReport(): Promise<InstanceHealthReport> {
     migrations,
     checkDataDirectory(),
     backups,
+    offBoxBackups,
     emailTransport,
     webPush,
   ];

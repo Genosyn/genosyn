@@ -19,6 +19,7 @@ import {
   deliverArchive,
   deliverBackupToDestinations,
   DeliveryResult,
+  OffBoxRetention,
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
@@ -136,6 +137,11 @@ const activeStagingPaths = new Set<string>();
  * wipes `dataDir` around it, so nothing may delete archives underneath it.
  */
 let restoreInProgress = false;
+
+/** Whether a restore is replacing the data directory right now. */
+export function isRestoreInProgress(): boolean {
+  return restoreInProgress;
+}
 
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
@@ -279,17 +285,27 @@ export async function getBackupSchedule(): Promise<BackupSchedule> {
       lastRunAt: null,
       retentionEnabled: false,
       retentionDays: 30,
+      offBoxRetentionEnabled: false,
+      offBoxRetentionDays: 30,
     });
     await repo.save(row);
   }
   return row;
 }
 
+/** The off-box policy deliveries apply, or null when it is off. */
+async function offBoxRetention(): Promise<OffBoxRetention | null> {
+  const sched = await getBackupSchedule();
+  return sched.offBoxRetentionEnabled ? { days: sched.offBoxRetentionDays } : null;
+}
+
 /**
  * Persist a schedule/retention change and re-register both crons against it.
- * Retention is enforced immediately rather than at the next hourly tick, so
- * saving the form has a visible effect — the returned count is what the UI
- * reports back to the operator.
+ * On-box retention is enforced immediately rather than at the next hourly
+ * tick, so saving the form has a visible effect — the returned count is what
+ * the UI reports back to the operator. The off-box policy waits for the next
+ * delivery to each destination: that is the one moment a fresh, complete copy
+ * is known to be there, so pruning can never leave a destination empty.
  */
 export async function updateBackupSchedule(patch: {
   enabled?: boolean;
@@ -299,6 +315,8 @@ export async function updateBackupSchedule(patch: {
   dayOfMonth?: number;
   retentionEnabled?: boolean;
   retentionDays?: number;
+  offBoxRetentionEnabled?: boolean;
+  offBoxRetentionDays?: number;
 }): Promise<{ schedule: BackupSchedule; pruned: number }> {
   const repo = AppDataSource.getRepository(BackupSchedule);
   const current = await getBackupSchedule();
@@ -311,6 +329,14 @@ export async function updateBackupSchedule(patch: {
     current.retentionEnabled = patch.retentionEnabled;
   if (typeof patch.retentionDays === "number")
     current.retentionDays = clamp(patch.retentionDays, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
+  if (typeof patch.offBoxRetentionEnabled === "boolean")
+    current.offBoxRetentionEnabled = patch.offBoxRetentionEnabled;
+  if (typeof patch.offBoxRetentionDays === "number")
+    current.offBoxRetentionDays = clamp(
+      patch.offBoxRetentionDays,
+      MIN_RETENTION_DAYS,
+      MAX_RETENTION_DAYS,
+    );
   await repo.save(current);
   applyBackupSchedule(current);
   applyRetentionSchedule(current);
@@ -448,10 +474,10 @@ async function isRestorableArchive(filename: string): Promise<boolean> {
   return (await checkArchive(backupFilePath(filename))) === "restorable";
 }
 
-type ArchiveCheck = "restorable" | "unreadable" | "no-database";
+export type ArchiveCheck = "restorable" | "unreadable" | "no-database";
 
 /** {@link isRestorableArchive} for a path that isn't (yet) a backup filename. */
-async function checkArchive(abs: string): Promise<ArchiveCheck> {
+export async function checkArchive(abs: string): Promise<ArchiveCheck> {
   if (!fs.existsSync(abs)) return "unreadable";
   let entries: Array<{ path: string; uncompressedSize: number }>;
   try {
@@ -564,7 +590,7 @@ async function maybeRunMissedBackup(sched: BackupSchedule): Promise<void> {
  * Mirrors the cron expression from {@link cronExprForSchedule} but in JS
  * Date arithmetic so we don't need a cron-parser dependency.
  */
-function previousScheduledFireTime(sched: BackupSchedule, now: Date): Date {
+export function previousScheduledFireTime(sched: BackupSchedule, now: Date): Date {
   const hour = clamp(sched.hour, 0, 23);
   const candidate = new Date(now);
   candidate.setHours(hour, 0, 0, 0);
@@ -662,7 +688,7 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     // delivery failure is recorded on the destination row rather than failing
     // the run.
     try {
-      await deliverBackupToDestinations(filename, outPath);
+      await deliverBackupToDestinations(filename, outPath, await offBoxRetention());
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[backups] off-box delivery failed:", err);
@@ -933,7 +959,7 @@ export async function deliverBackup(id: string): Promise<DeliveryResult[]> {
   if (row.status !== "completed") {
     throw new Error("Can only deliver a completed backup");
   }
-  return deliverArchive(row.filename, backupFilePath(row.filename));
+  return deliverArchive(row.filename, backupFilePath(row.filename), await offBoxRetention());
 }
 
 export async function deleteBackup(id: string): Promise<boolean> {
@@ -1335,6 +1361,8 @@ export function serializeSchedule(s: BackupSchedule) {
     lastRunAt: s.lastRunAt,
     retentionEnabled: s.retentionEnabled,
     retentionDays: s.retentionDays,
+    offBoxRetentionEnabled: s.offBoxRetentionEnabled,
+    offBoxRetentionDays: s.offBoxRetentionDays,
     updatedAt: s.updatedAt,
   };
 }

@@ -46,6 +46,7 @@ const PURPOSE_LABELS: Record<EmailLogPurpose, string> = {
   welcome: "Welcome",
   signature: "Document signing",
   recruiting: "Recruiting",
+  backup_alert: "Backup alert",
   test: "Test",
   other: "Other",
 };

@@ -83,6 +83,18 @@ export class BackupDestination {
   @Column({ type: dateTimeColumnType, nullable: true })
   lastCheckedAt!: Date | null;
 
+  /** When a delivery was last attempted here, whatever its outcome. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  lastAttemptAt!: Date | null;
+
+  /** When the current run of failed deliveries began; null once one succeeds. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  failingSince!: Date | null;
+
+  /** When master admins were last emailed about the current run of failures. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  lastAlertedAt!: Date | null;
+
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
 

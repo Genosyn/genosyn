@@ -12,6 +12,7 @@ import { bootCron } from "./services/cron.js";
 import { startRunPauseWatcher } from "./services/runPause.js";
 import { bootStanddowns } from "./services/standdowns.js";
 import { bootBackups } from "./services/backups.js";
+import { bootBackupVerification } from "./services/backupVerification.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
 import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
@@ -226,6 +227,8 @@ async function main() {
   await bootDurableChatTurnRecovery();
   await bootSignatureExpirySweeper();
   await bootBackups();
+  // Daily verification that every backup the schedule promised is really there.
+  bootBackupVerification();
   await bootPipelineCron();
   await bootRecurringInvoices();
   // A provider's context window moves when an operator re-launches their server
