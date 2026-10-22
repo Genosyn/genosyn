@@ -265,21 +265,21 @@ describe("Finance for a Member with read-only access", () => {
   });
 });
 
-const ADMIN_ONLY_NOTE = "Only owners and admins can change AI employees' finance access";
+const ADMIN_ONLY_NOTE = "Only owners and admins can change AI Employees' finance access";
 
 describe("Finance AI access for a Member who is not an owner or admin", () => {
   test("shows the grants with a note in place of the way to add one", () => {
     for (const [who, company] of ADMINS) {
       const html = renderFinance("ai-access", company);
-      assert.ok(buttons(html).includes("Add"), who);
-      assert.ok(text(html).includes("Grant access to"), who);
+      assert.ok(buttons(html).includes("Grant access"), who);
+      assert.ok(/<form\b/.test(html), `${who} is drawn the grant form`);
       assert.equal(text(html).includes(ADMIN_ONLY_NOTE), false, who);
     }
     for (const [who, company] of MEMBERS) {
       const html = renderFinance("ai-access", company);
       assert.equal(heading(html), "AI access", `${who} can still open AI access`);
-      assert.equal(buttons(html).includes("Add"), false, who);
-      assert.equal(text(html).includes("Grant access to"), false, who);
+      assert.equal(buttons(html).includes("Grant access"), false, who);
+      assert.equal(/<form\b/.test(html), false, `${who} is drawn no grant form`);
       assert.ok(text(html).includes(ADMIN_ONLY_NOTE), who);
       // More Finance access would not let them change it, so the read-only
       // note's pointer to Settings → Members would send them the wrong way.

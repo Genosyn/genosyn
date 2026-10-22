@@ -411,6 +411,11 @@ export function Revenue() {
         </LI>
       </UL>
       <P>
+        On that page, choose an AI Employee and a level and click <Code>Grant access</Code>; the
+        level picker on the employee&apos;s row changes it, and the trash icon beside it revokes it.
+        Every other Member sees who holds which level, read-only.
+      </P>
+      <P>
         An account&apos;s <a href="#billing-details">billing details</a> also need finance access:
         revenue tools return accounts, and their change history, without them unless the employee
         holds a <DocLink to="/docs/finance#ai-access">Finance → AI access</DocLink> grant. Setting
