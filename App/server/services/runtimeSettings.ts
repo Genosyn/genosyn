@@ -52,6 +52,7 @@ export const RUNTIME_SETTING_KEYS = {
   agent: "runtime.agent",
   containment: "runtime.containment",
   network: "runtime.network",
+  banking: "runtime.banking",
 } as const;
 
 export type RuntimeSettingsGroup = keyof typeof RUNTIME_SETTING_KEYS;
@@ -174,6 +175,18 @@ export type RuntimeNetworkSettings = {
   privateHostAllowlist: string[];
 };
 
+/**
+ * The background sync behind Finance → Banking: how often each bank account
+ * and card connected to Brex, Wise or Stripe asks its provider for new
+ * transactions (`services/bankingSync.ts`). A CSV account has nothing to ask.
+ */
+export type RuntimeBankingSettings = {
+  /** false stops the background sync; each account's Sync now still works. */
+  syncEnabled: boolean;
+  /** How often a healthy account syncs, in minutes. A failed one backs off on its own. */
+  syncIntervalMinutes: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -183,6 +196,7 @@ export type RuntimeSettings = {
   agent: RuntimeAgentSettings;
   containment: RuntimeContainmentSettings;
   network: RuntimeNetworkSettings;
+  banking: RuntimeBankingSettings;
 };
 
 /** Whether each group is currently backed by a stored row (vs. the default). */
@@ -244,6 +258,10 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
   },
   network: {
     privateHostAllowlist: [],
+  },
+  banking: {
+    syncEnabled: true,
+    syncIntervalMinutes: 30,
   },
 } satisfies RuntimeSettings);
 
@@ -644,6 +662,24 @@ export function parseNetworkSettings(raw: unknown): RuntimeNetworkSettings {
   };
 }
 
+export function parseBankingSettings(raw: unknown): RuntimeBankingSettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.banking;
+  return {
+    syncEnabled: boolField(o, "banking", "syncEnabled", d.syncEnabled),
+    // Five minutes at the least: every pass asks each provider for a page or
+    // more per account, and a typo must not turn that into a request a second.
+    syncIntervalMinutes: intField(
+      o,
+      "banking",
+      "syncIntervalMinutes",
+      d.syncIntervalMinutes,
+      5,
+      1_440,
+    ),
+  };
+}
+
 /** One parser per group, so refresh, write, and legacy import share a code path. */
 const PARSERS: {
   [G in RuntimeSettingsGroup]: (raw: unknown) => RuntimeSettings[G];
@@ -656,6 +692,7 @@ const PARSERS: {
   agent: parseAgentSettings,
   containment: parseContainmentSettings,
   network: parseNetworkSettings,
+  banking: parseBankingSettings,
 };
 
 // ────────────────────────────── the cache ──────────────────────────────────
@@ -670,6 +707,7 @@ let overridden: RuntimeSettingsOverridden = {
   agent: false,
   containment: false,
   network: false,
+  banking: false,
 };
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -736,6 +774,11 @@ export function getNetworkSettings(): RuntimeNetworkSettings {
   return effective("network");
 }
 
+/** Banking's background sync. Read on every scheduler tick and by the Banking page. */
+export function getBankingSettings(): RuntimeBankingSettings {
+  return effective("banking");
+}
+
 function parseRow(group: RuntimeSettingsGroup, value: string): unknown {
   try {
     return JSON.parse(value);
@@ -760,6 +803,7 @@ async function refreshRuntimeSettings(): Promise<void> {
     agent: false,
     containment: false,
     network: false,
+    banking: false,
   };
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const raw = byKey.get(RUNTIME_SETTING_KEYS[group]);
@@ -805,6 +849,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
     agent: effective("agent"),
     containment: effective("containment"),
     network: effective("network"),
+    banking: effective("banking"),
     overridden: { ...overridden },
   };
 }
@@ -882,6 +927,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
     agent: false,
     containment: false,
     network: false,
+    banking: false,
   };
   testOverrides = {};
   warned.clear();
@@ -951,8 +997,8 @@ export async function importLegacyConfigOverrides(): Promise<void> {
   const legacy = config as unknown as LegacyRuntimeConfig;
 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
-    // Hosted sign-in never lived in boot config.
-    if (group === "oauth") continue;
+    // Hosted sign-in and bank sync never lived in boot config.
+    if (group === "oauth" || group === "banking") continue;
     const raw =
       group === "agent"
         ? legacyAgentBlock(legacy)

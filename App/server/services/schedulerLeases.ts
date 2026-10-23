@@ -73,6 +73,18 @@ async function release(name: string, holderId: string): Promise<void> {
     .execute();
 }
 
+/**
+ * Whether some process holds `name` right now — for telling work that is
+ * still running elsewhere from a marker a stopped process left behind.
+ * SQLite keeps no lease rows (see {@link withSchedulerLease}), so there the
+ * answer is always false and the caller's in-process guard is the truth.
+ */
+export async function schedulerLeaseHeld(name: string, now = new Date()): Promise<boolean> {
+  if (config.db.driver !== "postgres") return false;
+  const row = await AppDataSource.getRepository(SchedulerLease).findOneBy({ name });
+  return !!row?.holderId && !!row.expiresAt && row.expiresAt.getTime() > now.getTime();
+}
+
 export async function withSchedulerLease<T>(
   name: string,
   ttlMs: number,

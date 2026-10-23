@@ -70,6 +70,7 @@
     "test:clicks-finance": "tsx scripts/test-clicks-finance.ts",
     "test:advanced-disclosures": "tsx scripts/test-advanced-disclosures.ts",
     "test:backups-page": "tsx scripts/test-backups-page.ts",
+    "test:banking-sync": "tsx scripts/test-banking-sync.ts",
     "test:api-keys": "tsx scripts/test-api-keys.ts",
     "test:api-docs": "tsx scripts/test-api-docs.ts",
     "test:mcp-setup": "tsx scripts/test-mcp-setup.ts",

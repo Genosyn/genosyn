@@ -39,6 +39,7 @@ import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootBrowserRecordingRetention } from "./services/browserRecordingRetention.js";
 import { bootExchangeRateFeed } from "./services/exchangeRateFeed.js";
 import { bootVaultSourceSync } from "./services/vaultSourceSync.js";
+import { bootBankingSync } from "./services/bankingSync.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
 import {
   resolveCodingExecutionMode,
@@ -144,6 +145,10 @@ async function main() {
   // rates on: a pass shortly after boot, then every three hours.
   bootExchangeRateFeed();
   bootVaultSourceSync();
+  // Banking: every connected bank account and card syncs on its own, at the
+  // interval set at Admin → Runtime → Bank sync. The first pass is within a
+  // minute, so accounts catch up on whatever posted while the server was down.
+  bootBankingSync();
   // External chat surfaces (M59) — the transports that dial out and hold a
   // connection open: one long poll per Telegram Connection, one Socket Mode
   // WebSocket per Slack Connection, each owned by a scheduler lease so two

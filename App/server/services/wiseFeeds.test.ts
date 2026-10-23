@@ -15,6 +15,7 @@ import {
 } from "../integrations/providers/wise.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { openInvoicesForBankTransaction } from "./banking.js";
+import { setProviderRetrySleepForTests } from "./feedSyncErrors.js";
 import { createInvoiceDraft, issueInvoice } from "./finance.js";
 import { setHomeCurrency } from "./fx.js";
 import { encryptConnectionConfig } from "./integrations.js";
@@ -459,7 +460,7 @@ describe("syncWiseBalanceFeed", () => {
     assert.equal((await reloadFeed(feed.id)).lastSyncAt?.toISOString(), later.toISOString());
   });
 
-  test("a failed update keeps what it brought in and starts over from the same place", async () => {
+  test("a failed update keeps what it brought in and starts over from the same place", async (t) => {
     const { bank, connection } = await setup();
     let failing = true;
     const lines = [
@@ -467,16 +468,27 @@ describe("syncWiseBalanceFeed", () => {
       line("TRANSFER-2", "2025-06-01T09:00:00.000Z", 200),
       line("TRANSFER-3", "2026-06-01T09:00:00.000Z", 300),
     ];
+    // A 503 is asked again a couple of times before it ends the update, so
+    // this one stays down for every request after the first window — and
+    // the waits between those tries are skipped.
+    const waits: number[] = [];
+    setProviderRetrySleepForTests(async (ms) => {
+      waits.push(ms);
+    });
+    t.after(() => setProviderRetrySleepForTests(null));
     const { statements } = installWise(
       world({
         lines,
         statement: (index) =>
-          failing && index === 1 ? respond({ message: "temporarily unavailable" }, 503) : null,
+          failing && index >= 1 ? respond({ message: "temporarily unavailable" }, 503) : null,
       }),
     );
     const feed = await wiseFeed(connection.id, bank.id);
 
     await assert.rejects(syncWiseBalanceFeed(feed, NOW), /Wise 503: temporarily unavailable/);
+    // The second window was asked for three times, a second and then two apart.
+    assert.equal(statements.length, 4);
+    assert.deepEqual(waits, [1_000, 2_000]);
     assert.deepEqual(
       (await linesOn(feed.id)).map((row) => row.reference),
       ["TRANSFER-1"],

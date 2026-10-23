@@ -1,7 +1,21 @@
 import { maskSecret } from "../../lib/secret.js";
+import { ProviderRequestError, parseRetryAfter } from "../providerErrors.js";
 import type { IntegrationProvider } from "../types.js";
 
 const BREX_API = "https://api.brex.com";
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Brex refused a request, or never answered it (`status` 0). The message is
+ * Brex's own words, as it always was; the status and `Retry-After` let
+ * Banking's sync tell a rejected token from a busy API.
+ */
+export class BrexApiError extends ProviderRequestError {
+  constructor(message: string, status: number, retryAfterMs: number | null = null, request = "") {
+    super(message, "Brex", status, retryAfterMs, request);
+    this.name = "BrexApiError";
+  }
+}
 
 export type BrexConfig = {
   userToken: string;
@@ -68,12 +82,27 @@ async function brexGet<T>(
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }
-  const res = await fetch(url, {
-    headers: {
-      accept: "application/json",
-      Authorization: `Bearer ${userToken}`,
-    },
-  });
+  const request = `GET ${url.pathname}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        accept: "application/json",
+        Authorization: `Bearer ${userToken}`,
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new BrexApiError(
+        `Brex didn't answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again.`,
+        0,
+        null,
+        request,
+      );
+    }
+    throw err;
+  }
   const text = await res.text();
   let parsed: unknown = null;
   try {
@@ -89,9 +118,16 @@ async function brexGet<T>(
       (parsed && typeof parsed === "object" && "error" in parsed
         ? String((parsed as { error: unknown }).error)
         : null) ??
-      (typeof parsed === "string" && parsed.trim() ? parsed.trim() : null) ??
-      `Brex ${res.status} ${res.statusText}`;
-    throw new Error(detail);
+      (typeof parsed === "string" && parsed.trim() && !parsed.trim().startsWith("<")
+        ? parsed.trim().slice(0, 300)
+        : null) ??
+      `Brex ${res.status} ${res.statusText}`.trim();
+    throw new BrexApiError(
+      detail,
+      res.status,
+      parseRetryAfter(res.headers.get("retry-after")),
+      request,
+    );
   }
   return parsed as T;
 }
@@ -152,6 +188,7 @@ export async function getBrexCardTransactionsPage(
   options: {
     cursor?: string;
     limit?: number;
+    postedAtStart?: string;
   } = {},
 ): Promise<BrexPage<BrexCardTransaction>> {
   return brexGet<BrexPage<BrexCardTransaction>>(
@@ -160,6 +197,7 @@ export async function getBrexCardTransactionsPage(
     {
       cursor: options.cursor,
       limit: options.limit ?? 100,
+      posted_at_start: options.postedAtStart,
     },
   );
 }

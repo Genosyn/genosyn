@@ -283,8 +283,9 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // The operational knobs that used to live in `config.ts`: the web tools, mail
 // sync tuning, meetings, the container's browser, the agent's taint policy /
 // member browsers / tool discovery, containment, and the outbound network
-// allowlist. One JSON `AppSetting` row per group, read through a 30s cache —
-// see `services/runtimeSettings.ts`.
+// allowlist — plus Banking's background sync, which never lived there. One
+// JSON `AppSetting` row per group, read through a 30s cache — see
+// `services/runtimeSettings.ts`.
 //
 // PUT replaces a whole group rather than patching fields: the form always
 // submits every value it showed, and a partial write from a stale form would
@@ -294,7 +295,17 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // every value.
 
 const runtimeGroupParams = z.object({
-  group: z.enum(["web", "mail", "oauth", "meetings", "browser", "agent", "containment", "network"]),
+  group: z.enum([
+    "web",
+    "mail",
+    "oauth",
+    "meetings",
+    "browser",
+    "agent",
+    "containment",
+    "network",
+    "banking",
+  ]),
 });
 
 const runtimeGroupSchemas = {
@@ -379,6 +390,10 @@ const runtimeGroupSchemas = {
     // The service normalizes and dedupes on the way in; this is only the outer
     // bound, and an empty list is the shipped default.
     privateHostAllowlist: z.array(z.string().trim().min(1).max(253)).max(100),
+  }),
+  banking: z.object({
+    syncEnabled: z.boolean(),
+    syncIntervalMinutes: z.number().int().min(5).max(1_440),
   }),
 } as const;
 

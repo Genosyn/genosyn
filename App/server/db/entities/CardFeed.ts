@@ -44,8 +44,43 @@ export class CardFeed {
   @Column({ type: "varchar" })
   paymentAccountId!: string;
 
+  /**
+   * When the last sync that succeeded finished, and the next sync's cursor:
+   * it asks Brex for what was posted since a little before it
+   * (`services/cardExpenses.ts`).
+   */
   @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;
+
+  // ── Sync status (`services/bankingSync.ts`), as on `BankFeed` ────────────
+
+  /** When the sync running now started; null while none is. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  syncStartedAt!: Date | null;
+
+  /** When the last sync attempt finished, whether or not it succeeded. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  lastSyncAttemptAt!: Date | null;
+
+  /** Why the last attempt failed, in plain words; "" when it succeeded. */
+  @Column({ type: "varchar", default: "" })
+  lastSyncError!: string;
+
+  /** What the provider said, with the HTTP status — the error's details. */
+  @Column({ type: "text", default: "" })
+  lastSyncErrorDetail!: string;
+
+  /** What kind of failure it was (`FeedSyncErrorKind`), which says what fixes it. */
+  @Column({ type: "varchar", default: "" })
+  lastSyncErrorKind!: string;
+
+  /** Attempts that have failed in a row; the background sync backs off on it. */
+  @Column({ type: "int", default: 0 })
+  syncFailureCount!: number;
+
+  /** The earliest the background sync tries again after a failure. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  nextSyncAt!: Date | null;
 
   @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
