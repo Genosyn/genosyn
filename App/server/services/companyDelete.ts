@@ -166,6 +166,7 @@ import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Membership } from "../db/entities/Membership.js";
 import { MessageReaction } from "../db/entities/MessageReaction.js";
+import { GroupDiscussion } from "../db/entities/GroupDiscussion.js";
 import { MarketingCampaign } from "../db/entities/MarketingCampaign.js";
 import { MarketingCreative } from "../db/entities/MarketingCreative.js";
 import { MarketingExperiment } from "../db/entities/MarketingExperiment.js";
@@ -649,6 +650,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Standdown, { companyId });
     await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });
+    await m.delete(GroupDiscussion, { companyId });
     await m.delete(Channel, { companyId });
     await m.delete(Base, { companyId });
     await m.delete(AIEmployee, { companyId });

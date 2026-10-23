@@ -38,6 +38,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { Membership } from "../db/entities/Membership.js";
 import { MessageReaction } from "../db/entities/MessageReaction.js";
+import { GroupDiscussion } from "../db/entities/GroupDiscussion.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { Notification } from "../db/entities/Notification.js";
@@ -166,6 +167,19 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(BaseRecordComment, { authorUserId: userId }, { authorUserId: null });
     await m.update(Channel, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(ChannelMessage, { authorUserId: userId }, { authorUserId: null });
+    // A group discussion the Member started keeps its transcript and outcome;
+    // one still running stops at its next turn because its authority is gone.
+    await m.update(GroupDiscussion, { startedByUserId: userId }, { startedByUserId: null });
+    await m.update(
+      GroupDiscussion,
+      { stopRequestedByUserId: userId },
+      { stopRequestedByUserId: null },
+    );
+    await m.update(
+      GroupDiscussion,
+      { followThroughByUserId: userId },
+      { followThroughByUserId: null },
+    );
     await m.update(EmailLog, { triggeredByUserId: userId }, { triggeredByUserId: null });
     // Notifications *to* this user are deleted above (account-scoped); here we
     // only unlink rows where the user was the actor of a notification sent to

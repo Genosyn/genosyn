@@ -21,8 +21,30 @@ import {
  */
 export type ChannelMessageAuthorKind = "user" | "ai" | "system";
 
+/**
+ * What a message is to the group discussion it belongs to:
+ *
+ *  - `question`       — the Member message the discussion answers;
+ *  - `input`          — a Member writing into a discussion already running;
+ *  - `turn`           — one AI Employee's turn;
+ *  - `outcome`        — the hand-back: summary, recommendation, open
+ *                       questions and who does what;
+ *  - `note`           — a system line: someone was brought in, sat out, or
+ *                       the discussion stopped;
+ *  - `follow_through` — an AI Employee reporting on the work the outcome gave
+ *                       it, after a Member pressed "Start the work".
+ */
+export type ChannelMessageDiscussionRole =
+  | "question"
+  | "input"
+  | "turn"
+  | "outcome"
+  | "note"
+  | "follow_through";
+
 @Entity("channel_messages")
 @Index(["channelId", "createdAt"])
+@Index(["discussionId", "createdAt"])
 export class ChannelMessage {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -52,6 +74,22 @@ export class ChannelMessage {
 
   @Column({ type: "varchar", nullable: true })
   parentMessageId!: string | null;
+
+  /** The {@link GroupDiscussion} this message belongs to, if any. */
+  @Column({ type: "varchar", nullable: true })
+  discussionId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  discussionRole!: ChannelMessageDiscussionRole | null;
+
+  /**
+   * Written by an AI turn that had read outside content (a web page, an
+   * application). An AI turn that replays this message starts tainted, so a
+   * page cannot launder instructions through a colleague's reply into a turn
+   * that never read it (`services/taintPolicy.ts`).
+   */
+  @Column({ type: "boolean", default: false })
+  tainted!: boolean;
 
   /** Set when a human edits their own message. Null means "original". */
   @Column({ type: dateTimeColumnType, nullable: true })

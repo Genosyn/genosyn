@@ -90,6 +90,7 @@ import { vaultRouter } from "../routes/vault.js";
 import { vaultSourcesRouter } from "../routes/vaultSources.js";
 import { webhooksRouter } from "../routes/webhooks.js";
 import { workspaceRouter } from "../routes/workspace.js";
+import { workspaceDiscussionsRouter } from "../routes/workspaceDiscussions.js";
 import { workTimelineRouter } from "../routes/workTimeline.js";
 
 /**
@@ -310,6 +311,7 @@ function areaRules(): AreaRule[] {
     { router: boardLettersRouter, area: "Letters to the board" },
     { router: askAiRouter, area: "Ask AI" },
     { router: workspaceRouter, area: "Workspace chat" },
+    { router: workspaceDiscussionsRouter, area: "Workspace chat" },
     { router: chatSurfacesRouter, area: "Chat surfaces" },
     { router: chatSurfaceBindRouter, area: "Chat surfaces" },
     { router: projectsRouter, area: "Tasks" },

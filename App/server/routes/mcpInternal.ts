@@ -12,6 +12,10 @@ import {
 import { proactivePreparationError } from "../services/proactive/preparationScope.js";
 import { proactiveReviewToolError } from "../services/proactive/workReviewPolicy.js";
 import {
+  collaborationToolError,
+  type CollaborationTurn,
+} from "../services/collaborationScope.js";
+import {
   createProactiveWorkApproval,
   listProactiveWorkReviews,
 } from "../services/proactive/approvals.js";
@@ -145,8 +149,10 @@ import {
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { currentAuditContext, recordAudit, withAuditContext } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
+import { CONSULT_LIMITS, askColleague } from "../services/colleagueConsult.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
+  isTokenTainted,
   markTokenTainted,
   noteAttachmentForToken,
   resolveMcpToken,
@@ -878,6 +884,8 @@ type McpRequest = Request & {
   mcpMailDeliveryMode?: MailDeliveryMode | null;
   mcpSelfReviewOnly?: boolean;
   mcpProactiveReview?: boolean;
+  /** Set on a talking turn: a group discussion turn, or a colleague consult. */
+  mcpCollaboration?: CollaborationTurn | null;
   mcpMailHandoverId?: string | null;
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
@@ -927,6 +935,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpMailDeliveryMode = info.mailDeliveryMode;
   req.mcpSelfReviewOnly = info.selfReviewOnly;
   req.mcpProactiveReview = info.proactiveReview;
+  req.mcpCollaboration = info.collaboration;
   req.mcpMailHandoverId = info.mailHandoverId;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
@@ -1105,6 +1114,19 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
     }))
   )
     return res.status(403).json({ error: "This review is no longer running." });
+  return next();
+});
+
+// A talking turn — a group discussion turn, or an answer to `ask_colleague` —
+// reads and does nothing else. The tool list already leaves the rest out; this
+// is the refusal for a `call_tool` or a crafted path that names it anyway. An
+// allowlist, so it names the tool the way the router dispatches it and refuses
+// whatever it cannot name (external Connections included).
+mcpInternalRouter.use((req: McpRequest, res, next) => {
+  if (!req.mcpCollaboration || req.path === "/manifest") return next();
+  if (req.path === "/integrations/_list") return res.json({ tools: [] });
+  const error = collaborationToolError(req.mcpCollaboration, dispatchedToolName(req.path));
+  if (error) return res.status(403).json({ error });
   return next();
 });
 
@@ -12571,6 +12593,11 @@ mcpInternalRouter.post(
     const ch = await findChannelBySlugOrId(co.id, body.channel);
     if (!ch) return res.status(404).json({ error: "Channel not found" });
     if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
+    if (ch.kind === "group") {
+      return res.status(400).json({
+        error: "A group chat belongs to the Members in it; only they can rename it.",
+      });
+    }
     if (body.name === undefined && body.topic === undefined) {
       return res.status(400).json({ error: "Pass at least one of `name` or `topic`." });
     }
@@ -12630,6 +12657,11 @@ mcpInternalRouter.post(
     if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
     if (ch.kind === "dm") {
       return res.status(400).json({ error: "DMs cannot be archived via MCP." });
+    }
+    if (ch.kind === "group") {
+      return res.status(400).json({
+        error: "A group chat belongs to the Members in it; only they can archive it.",
+      });
     }
     await archiveChannel(ch.id);
     await recordAudit({
@@ -12695,8 +12727,8 @@ mcpInternalRouter.post(
         });
       }
       // Auto-join public channels (mirrors the @mention auto-join in chat).
-      // Private channels require an explicit grant — refuse to broadcast
-      // into a room the AI was never invited to.
+      // Private channels and group chats require an explicit grant — refuse
+      // to broadcast into a room the AI was never invited to.
       const memberRepo = AppDataSource.getRepository(ChannelMember);
       const existing = await memberRepo.findOneBy({
         channelId: ch.id,
@@ -12704,9 +12736,12 @@ mcpInternalRouter.post(
         employeeId: self.id,
       });
       if (!existing) {
-        if (ch.kind === "private") {
+        if (ch.kind === "private" || ch.kind === "group") {
           return res.status(403).json({
-            error: "Not a member of this private channel.",
+            error:
+              ch.kind === "group"
+                ? "Not a member of this group chat."
+                : "Not a member of this private channel.",
           });
         }
         await memberRepo.save(
@@ -12791,6 +12826,9 @@ mcpInternalRouter.post(
         author: { kind: "ai", employeeId: self.id },
         content: body.content,
         parentMessageId: body.parentMessageId ?? null,
+        // A turn that read a web page posts tainted words; whoever replays
+        // them next starts tainted too.
+        tainted: isTokenTainted(req.mcpToken!),
       });
     } catch (err) {
       return res.status(400).json({
@@ -13083,6 +13121,47 @@ mcpInternalRouter.post(
   validateBody(transitionHandoffSchema),
   async (req: McpRequest, res) => {
     await applyMcpTransition(req, res, "cancelled", "from");
+  },
+);
+
+// ─────────────────── Asking a colleague (AI → AI consult) ────────────────
+
+const askColleagueSchema = z
+  .object({
+    colleague: z.string().min(1).max(120),
+    question: z.string().trim().min(1).max(CONSULT_LIMITS.questionChars),
+    context: z.string().max(CONSULT_LIMITS.contextChars).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/ask_colleague",
+  validateBody(askColleagueSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof askColleagueSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const target = await findEmployeeBySlugOrId(co.id, body.colleague);
+    if (!target) return res.status(404).json({ error: "Employee not found" });
+    const result = await askColleague({
+      companyId: co.id,
+      asker: self,
+      colleague: target,
+      askerToken: req.mcpToken!,
+      askerIsCollaborating: Boolean(req.mcpCollaboration),
+      authority:
+        req.mcpAuthority === "member" && req.mcpRequesterUserId
+          ? {
+              kind: "member",
+              requesterUserId: req.mcpRequesterUserId,
+              requesterSessionVersion: req.mcpRequesterSessionVersion!,
+            }
+          : { kind: "employee" },
+      question: body.question,
+      context: body.context,
+    });
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ colleague: result.colleague, answer: result.answer });
   },
 );
 

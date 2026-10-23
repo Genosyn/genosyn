@@ -259,8 +259,9 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   handoffs: {
     label: "handoffs",
-    blurb: "Hand work to a teammate, and resolve handoffs sent to you.",
+    blurb: "Ask a teammate, hand them work, and resolve handoffs sent to you.",
     tools: [
+      "ask_colleague",
       "list_handoffs",
       "create_handoff",
       "complete_handoff",
@@ -1499,6 +1500,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   list_journal: ["log", "diary", "history"],
   get_journal_entry: ["journal", "diary", "full entry", "audit note", "older evidence"],
   send_workspace_message: ["slack", "chat", "post", "channel", "message the team"],
+  ask_colleague: [
+    "ask",
+    "colleague",
+    "teammate",
+    "consult",
+    "second opinion",
+    "check with",
+    "expert",
+    "review my draft",
+  ],
   list_workspace_channels: ["slack", "chat", "channel"],
   create_workspace_channel: ["slack", "chat", "channel"],
   rename_workspace_channel: ["slack", "channel"],

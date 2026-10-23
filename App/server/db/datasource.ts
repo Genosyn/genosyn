@@ -72,6 +72,7 @@ import { Channel } from "./entities/Channel.js";
 import { ChannelMember } from "./entities/ChannelMember.js";
 import { ChannelMessage } from "./entities/ChannelMessage.js";
 import { MessageReaction } from "./entities/MessageReaction.js";
+import { GroupDiscussion } from "./entities/GroupDiscussion.js";
 import { Attachment } from "./entities/Attachment.js";
 import { Pipeline } from "./entities/Pipeline.js";
 import { PipelineRun } from "./entities/PipelineRun.js";
@@ -317,6 +318,7 @@ const entities = [
   ChannelMember,
   ChannelMessage,
   MessageReaction,
+  GroupDiscussion,
   Attachment,
   Pipeline,
   PipelineRun,

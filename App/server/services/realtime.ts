@@ -66,6 +66,12 @@ export type WsEvent =
   | { type: "channel.update"; channelId: string; channel: unknown }
   | { type: "channel.archive"; channelId: string }
   | {
+      /** A group discussion in this channel changed: a turn, a round, its end. */
+      type: "discussion.update";
+      channelId: string;
+      discussion: unknown;
+    }
+  | {
       type: "typing";
       channelId: string;
       by: { kind: "user" | "ai"; id: string; name: string };

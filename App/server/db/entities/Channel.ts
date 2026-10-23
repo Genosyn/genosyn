@@ -16,12 +16,20 @@ import {
  *  - `dm`      — 1:1 conversation between two members (human or AI). Name is
  *                rendered from the members, not `name`/`slug`, so those fields
  *                stay blank.
+ *  - `group`   — a group chat: a private conversation between a Member, the
+ *                AI Employees they brought in, and any other Members. Visible
+ *                only to its {@link ChannelMember} rows, like `private`. Every
+ *                Member message in it is worked out by the AI Employees as a
+ *                group discussion (`services/groupDiscussions.ts`). `name` is
+ *                optional — the sidebar falls back to the members — and
+ *                `slug` stays null, so a group chat never collides with a
+ *                channel's name.
  *
  * `slug` is unique within (companyId, kind='public'|'private') and null for
- * DMs. We keep the soft-delete pattern from conversations: `archivedAt` hides
- * the channel from default listings without losing history.
+ * DMs and group chats. We keep the soft-delete pattern from conversations:
+ * `archivedAt` hides the channel from default listings without losing history.
  */
-export type ChannelKind = "public" | "private" | "dm";
+export type ChannelKind = "public" | "private" | "dm" | "group";
 
 @Entity("channels")
 @Index(["companyId", "slug"], { unique: true, where: '"slug" IS NOT NULL' })

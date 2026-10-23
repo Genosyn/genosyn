@@ -20,6 +20,7 @@ import { resolveMcpToken } from "../../mcpTokens.js";
 import { canReportRunFailure } from "../../runFailureReport.js";
 import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
 import { proactiveReviewToolScope } from "../../proactive/workReviewPolicy.js";
+import { collaborationToolScope } from "../../collaborationScope.js";
 
 /**
  * Assemble the tools an employee's agent can reach this turn, and split them
@@ -159,7 +160,8 @@ export async function gatherEmployeeTools(params: {
   const tokenInfo = resolveMcpToken(params.genosynToken);
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview);
+    proactiveReviewToolScope(tokenInfo?.proactiveReview) ??
+    collaborationToolScope(tokenInfo?.collaboration);
   const scope = reviewScope ?? params.toolScope ?? null;
   const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
   const [genosynAll, browser, userServers] = await Promise.all([

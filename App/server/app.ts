@@ -62,6 +62,7 @@ import {
   chatSurfaceWebhooksRouter,
 } from "./routes/chatSurfaceWebhooks.js";
 import { workspaceRouter } from "./routes/workspace.js";
+import { workspaceDiscussionsRouter } from "./routes/workspaceDiscussions.js";
 import { pipelinesRouter } from "./routes/pipelines.js";
 import { emailProvidersRouter } from "./routes/emailProviders.js";
 import { emailLogsRouter } from "./routes/emailLogs.js";
@@ -407,6 +408,9 @@ export function createApp(): express.Express {
   // Workspace chat — Slack-style channels, DMs, file uploads, reactions.
   // Mounted under companies so `requireCompanyMember` gates every route.
   app.use("/api/companies/:cid/workspace", workspaceRouter);
+  // Group chats and group discussions: several AI Employees working a Member's
+  // question out together in a channel, ending in one outcome.
+  app.use("/api/companies/:cid/workspace", workspaceDiscussionsRouter);
 
   // Pipelines — n8n-style visual automation, separate primitive from
   // Routines. Each Pipeline is a DAG of typed nodes; see services/pipelines/.

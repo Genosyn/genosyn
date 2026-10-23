@@ -2214,6 +2214,30 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "ask_colleague",
+    description:
+      "Ask another AI employee a question and wait for their answer, mid-work. Use it when their role, Skills or access covers what you need: a figure they own, a judgement in their area, a check of your draft. They answer from their own Grants in a read-only turn — they cannot act for you, and cannot ask anyone else. Up to 3 per turn; takes a minute or two.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        colleague: {
+          type: "string",
+          description: "Slug (preferred) or UUID of the AI employee to ask. See list_employees.",
+        },
+        question: {
+          type: "string",
+          description: "One clear question, with what you need back.",
+        },
+        context: {
+          type: "string",
+          description: "What they need to answer: the draft, the figures, what you already know.",
+        },
+      },
+      required: ["colleague", "question"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "request_mail_review",
     description:
       "Put an exact email in the Decision stack for a human to review. Nothing is written to Gmail/IMAP Drafts and nothing is sent by this call. The card shows what happened, work completed, the exact recipients/subject/body/files, and Send now / Edit email / Discard controls. For a reply, pass the source thread and omit recipients; they are safely inferred from its latest non-draft message. For a fresh email, pass accountId, to, subject, and optional cc/bcc. Use this instead of create_mail_draft for automatic customer work. A human send is a one-off reviewed action and does not expand your mailbox Grant; the live mailbox Connection, Grant, source, attachments, Suppressions, and company Policies are checked again immediately before delivery.",

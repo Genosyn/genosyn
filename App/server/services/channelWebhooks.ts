@@ -19,10 +19,15 @@ async function loadConfigurableChannel(companyId: string, channelId: string): Pr
     id: channelId,
     companyId,
   });
-  if (!channel || channel.kind === "dm" || channel.archivedAt) {
+  if (!channel || !webhookableKind(channel) || channel.archivedAt) {
     throw new Error("Channel not found");
   }
   return channel;
+}
+
+/** DMs and group chats are conversations between people, never webhook targets. */
+function webhookableKind(channel: Channel): boolean {
+  return channel.kind === "public" || channel.kind === "private";
 }
 
 export async function getChannelWebhookSettings(
@@ -57,7 +62,8 @@ export async function updateChannelWebhookSettings(params: {
 
 /**
  * Resolve the URL credential without disclosing whether the channel id or the
- * token was wrong. Archived channels and DMs are intentionally unreachable.
+ * token was wrong. Archived channels, DMs and group chats are intentionally
+ * unreachable.
  */
 export async function findChannelByWebhookCredential(
   channelId: string,
@@ -68,7 +74,7 @@ export async function findChannelByWebhookCredential(
   });
   if (
     !channel ||
-    channel.kind === "dm" ||
+    !webhookableKind(channel) ||
     channel.archivedAt ||
     !channel.webhookToken ||
     !constantTimeEqual(token, channel.webhookToken)

@@ -42,6 +42,7 @@ import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyA
 import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
 import { proactiveReviewBrief, proactiveReviewToolScope } from "../proactive/workReviewPolicy.js";
+import { collaborationToolScope } from "../collaborationScope.js";
 import { decisionStackStateOf, getDecisionStackState } from "../decisionStackSettings.js";
 
 /**
@@ -217,9 +218,12 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
 async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
   // Token authority also narrows callers that omit or override the visible scope.
   const tokenInfo = resolveMcpToken(params.genosynToken);
+  // A talking turn (group discussion, colleague consult) is narrowed the same
+  // way a review is: the token decides, whatever scope the caller passed.
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview);
+    proactiveReviewToolScope(tokenInfo?.proactiveReview) ??
+    collaborationToolScope(tokenInfo?.collaboration);
   if (tokenInfo?.proactiveReview) {
     // The brief follows the company's live Decision stack settings, so a
     // review never promises `request_decision` while the stack is off.
