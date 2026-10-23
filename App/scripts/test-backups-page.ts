@@ -191,6 +191,26 @@ function fact(page: Page, term: string): Locator {
   return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
 }
 
+/**
+ * Checks one summary fact once it reads `expected`. Each section loads, and
+ * each save lands, in a render of its own, so a one-shot read can catch the
+ * value before it changes; waiting first keeps the check about the words.
+ */
+async function expectFact(page: Page, term: string, expected: string | RegExp): Promise<void> {
+  const value = fact(page, term);
+  const pattern =
+    typeof expected === "string"
+      ? new RegExp("^" + expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$")
+      : expected;
+  await value
+    .filter({ hasText: pattern })
+    .waitFor({ timeout: 5_000 })
+    .catch(() => undefined);
+  const text = (await value.textContent()) ?? "";
+  if (typeof expected === "string") assert.equal(text, expected, term);
+  else assert.match(text, expected, term);
+}
+
 function destinationRow(page: Page, name: string): Locator {
   return page.getByRole("listitem", { name, exact: true });
 }
@@ -223,16 +243,10 @@ await app.check('The status summary answers "are we backed up?" at a glance', as
   const { page } = view;
 
   await page.getByRole("heading", { level: 2, name: "Your data is backed up" }).waitFor();
-  assert.match(
-    (await fact(page, "Last good backup").textContent()) ?? "",
-    /^Today at .+ \(6 hours ago\) · 1\.2 GB$/,
-  );
-  assert.equal(await fact(page, "Where it is").textContent(), "On this server and Synology.");
-  assert.match(
-    (await fact(page, "Automatic backups").textContent()) ?? "",
-    /^Every day at .+ \(UTC\) · Next: Tomorrow at /,
-  );
-  assert.match((await fact(page, "Last verified").textContent()) ?? "", /: every backup in place$/);
+  await expectFact(page, "Last good backup", /^Today at .+ \(6 hours ago\) · 1\.2 GB$/);
+  await expectFact(page, "Where it is", "On this server and Synology.");
+  await expectFact(page, "Automatic backups", /^Every day at .+ \(UTC\) · Next: Tomorrow at /);
+  await expectFact(page, "Last verified", /: every backup in place$/);
   assert.equal(
     await page.getByRole("heading", { name: "Needs attention" }).count(),
     0,
@@ -293,11 +307,8 @@ await app.check("Problems lead the summary, each with its reason", async () => {
     )
     .waitFor();
   await issues.getByText(/^Automatic backups are off\./).waitFor();
-  assert.equal(
-    await fact(page, "Where it is").textContent(),
-    "Only on this server: the copy to Synology failed.",
-  );
-  assert.equal(await fact(page, "Automatic backups").textContent(), "Off");
+  await expectFact(page, "Where it is", "Only on this server: the copy to Synology failed.");
+  await expectFact(page, "Automatic backups", "Off");
   const row = destinationRow(page, "Synology");
   await row.getByText(/^Copies failing since /).waitFor();
   await row.getByText(/The last copy arrived 11 days ago\.$/).waitFor();
@@ -759,104 +770,112 @@ await app.check("History says where every backup lives", async () => {
   await page.close();
 });
 
-await app.check("The owner's History, as it reads now: plain reasons, nothing left 'running'", async () => {
-  // The rows from the owner's screenshot, after boot recovery settled the five
-  // weeks-old "running" ones — which used to sit there at 0 B for good.
-  const INTERRUPTED =
-    "Genosyn stopped while writing this backup (a restart, an upgrade or a crash), so it didn't finish.";
-  const world = healthyWorld();
-  world.history = [
-    backup({ id: "oct22", createdAt: hoursAgo(17), sizeBytes: 41.3 * 1024 ** 3, copies: [] }),
-    backup({
-      id: "enospc",
-      createdAt: hoursAgo(23),
-      status: "failed",
-      errorMessage: "ENOSPC: no space left on device, write",
-      sizeBytes: 0,
-      onServer: false,
-      copies: [],
-    }),
-    backup({
-      id: "oct21",
-      kind: "manual",
-      createdAt: hoursAgo(39),
-      sizeBytes: 47.2 * 1024 ** 3,
-      copies: [copy({ status: "failed", error: "connect ECONNREFUSED 10.0.0.5:445" })],
-    }),
-    ...[24, 48, 51, 51.1, 51.2].map((days, i) =>
+await app.check(
+  "The owner's History, as it reads now: plain reasons, nothing left 'running'",
+  async () => {
+    // The rows from the owner's screenshot, after boot recovery settled the five
+    // weeks-old "running" ones — which used to sit there at 0 B for good.
+    const INTERRUPTED =
+      "Genosyn stopped while writing this backup (a restart, an upgrade or a crash), so it didn't finish.";
+    const world = healthyWorld();
+    world.history = [
+      backup({ id: "oct22", createdAt: hoursAgo(17), sizeBytes: 41.3 * 1024 ** 3, copies: [] }),
       backup({
-        id: `zombie-${i}`,
-        createdAt: hoursAgo(days * DAY),
+        id: "enospc",
+        createdAt: hoursAgo(23),
         status: "failed",
-        errorMessage: INTERRUPTED,
+        errorMessage: "ENOSPC: no space left on device, write",
         sizeBytes: 0,
         onServer: false,
         copies: [],
       }),
-    ),
-  ];
-  const view = await openBackups(world, [
-    [
-      "POST",
-      "/api/backups/oct22/deliver",
-      ({ body }) => {
-        assert.deepEqual(body, {}, "every enabled destination");
-        const queued = copy({ status: "pending", copiedAt: null });
-        world.history[0] = { ...world.history[0], copies: [queued] };
-        return { ok: true, alreadyRunning: false, copies: [queued] };
-      },
-    ],
-  ]);
-  const { page } = view;
+      backup({
+        id: "oct21",
+        kind: "manual",
+        createdAt: hoursAgo(39),
+        sizeBytes: 47.2 * 1024 ** 3,
+        copies: [copy({ status: "failed", error: "connect ECONNREFUSED 10.0.0.5:445" })],
+      }),
+      ...[24, 48, 51, 51.1, 51.2].map((days, i) =>
+        backup({
+          id: `zombie-${i}`,
+          createdAt: hoursAgo(days * DAY),
+          status: "failed",
+          errorMessage: INTERRUPTED,
+          sizeBytes: 0,
+          onServer: false,
+          copies: [],
+        }),
+      ),
+    ];
+    const view = await openBackups(world, [
+      [
+        "POST",
+        "/api/backups/oct22/deliver",
+        ({ body }) => {
+          assert.deepEqual(body, {}, "every enabled destination");
+          const queued = copy({ status: "pending", copiedAt: null });
+          world.history[0] = { ...world.history[0], copies: [queued] };
+          return { ok: true, alreadyRunning: false, copies: [queued] };
+        },
+      ],
+    ]);
+    const { page } = view;
 
-  // Nothing reads as running, and no row is a bare filename.
-  await historyRow(page, /^/).first().waitFor();
-  assert.equal(await page.getByText("running", { exact: true }).count(), 0);
-  assert.equal(await page.getByText(/backup-2026-.*\.zip/).count(), 0, "no filenames as labels");
-  assert.equal(
-    await historyRow(page, `Not saved: ${INTERRUPTED}`).count(),
-    5,
-    "each stopped backup says why, plainly",
-  );
+    // Nothing reads as running, and no row is a bare filename.
+    await historyRow(page, /^/).first().waitFor();
+    assert.equal(await page.getByText("running", { exact: true }).count(), 0);
+    assert.equal(await page.getByText(/backup-2026-.*\.zip/).count(), 0, "no filenames as labels");
+    assert.equal(
+      await historyRow(page, `Not saved: ${INTERRUPTED}`).count(),
+      5,
+      "each stopped backup says why, plainly",
+    );
 
-  // ENOSPC is "the server ran out of disk space", with the raw error one click away.
-  const full = historyRow(
-    page,
-    "Not saved: The server ran out of disk space. Free some space, or keep fewer backups here under Advanced.",
-  );
-  assert.deepEqual(await chips(full), ["Failed"]);
-  const raw = full.getByText("ENOSPC: no space left on device, write", { exact: true });
-  assert.equal(await raw.isVisible(), false, "the technical detail starts closed");
-  await view.click(full.getByText("Technical detail", { exact: true }));
-  await raw.waitFor();
+    // ENOSPC is "the server ran out of disk space", with the raw error one click away.
+    const full = historyRow(
+      page,
+      "Not saved: The server ran out of disk space. Free some space, or keep fewer backups here under Advanced.",
+    );
+    assert.deepEqual(await chips(full), ["Failed"]);
+    const raw = full.getByText("ENOSPC: no space left on device, write", { exact: true });
+    assert.equal(await raw.isVisible(), false, "the technical detail starts closed");
+    await view.click(full.getByText("Technical detail", { exact: true }));
+    await raw.waitFor();
 
-  // A destination's raw error reads the same way.
-  const refused = historyRow(page, "The destination refused the connection. Check its host and port.");
-  await refused.getByText("connect ECONNREFUSED 10.0.0.5:445", { exact: false }).waitFor({ state: "attached" });
+    // A destination's raw error reads the same way.
+    const refused = historyRow(
+      page,
+      "The destination refused the connection. Check its host and port.",
+    );
+    await refused
+      .getByText("connect ECONNREFUSED 10.0.0.5:445", { exact: false })
+      .waitFor({ state: "attached" });
 
-  // Automatic and Manual say what they mean.
-  const automatic = historyRow(page, "Only on this server.").first();
-  assert.equal(
-    await automatic.getByText("Automatic", { exact: true }).getAttribute("title"),
-    "Taken on the schedule set under Automatic backups.",
-  );
-  assert.equal(
-    await refused.getByText("Manual", { exact: true }).getAttribute("title"),
-    "Taken when someone pressed Back up now.",
-  );
+    // Automatic and Manual say what they mean.
+    const automatic = historyRow(page, "Only on this server.").first();
+    assert.equal(
+      await automatic.getByText("Automatic", { exact: true }).getAttribute("title"),
+      "Taken on the schedule set under Automatic backups.",
+    );
+    assert.equal(
+      await refused.getByText("Manual", { exact: true }).getAttribute("title"),
+      "Taken when someone pressed Back up now.",
+    );
 
-  // Only on this server: the way to copy it off-box is right under that line.
-  await view.click(automatic.getByRole("button", { name: "Copy off-box now" }));
-  await view.waitForWrite((write) => write.path === "/api/backups/oct22/deliver");
-  await page.getByText("Waiting to copy to Synology", { exact: true }).waitFor();
-  assert.equal(
-    await page.getByRole("button", { name: "Copy off-box now" }).count(),
-    0,
-    "once it is on its way, the button goes",
-  );
-  await app.shot(page, "backups-page-owner-history");
-  await page.close();
-});
+    // Only on this server: the way to copy it off-box is right under that line.
+    await view.click(automatic.getByRole("button", { name: "Copy off-box now" }));
+    await view.waitForWrite((write) => write.path === "/api/backups/oct22/deliver");
+    await page.getByText("Waiting to copy to Synology", { exact: true }).waitFor();
+    assert.equal(
+      await page.getByRole("button", { name: "Copy off-box now" }).count(),
+      0,
+      "once it is on its way, the button goes",
+    );
+    await app.shot(page, "backups-page-owner-history");
+    await page.close();
+  },
+);
 
 await app.check("Restore, download, copy and delete stay one or two presses away", async () => {
   const world = healthyWorld();
@@ -990,7 +1009,7 @@ await app.check("Automatic backups read and save in plain words", async () => {
   await view.waitForWrite(
     (write) => write.path === "/api/backups/schedule" && write.body.enabled === false,
   );
-  assert.equal(await fact(page, "Automatic backups").textContent(), "Off");
+  await expectFact(page, "Automatic backups", "Off");
   await page.getByText(/^Automatic backups are off\./).waitFor();
   await page.close();
 });
@@ -1103,9 +1122,9 @@ await app.check("A fresh install: every section says what to do first", async ()
   const view = await openBackups(world);
   const { page } = view;
   await page.getByRole("heading", { level: 2, name: "Not backed up yet" }).waitFor();
-  assert.equal(await fact(page, "Last good backup").textContent(), "None yet");
-  assert.equal(await fact(page, "Where it is").textContent(), "Nowhere yet");
-  assert.equal(await fact(page, "Last verified").textContent(), "Not run yet");
+  await expectFact(page, "Last good backup", "None yet");
+  await expectFact(page, "Where it is", "Nowhere yet");
+  await expectFact(page, "Last verified", "Not run yet");
   const issues = page.getByRole("region", { name: "Needs attention" });
   await issues.getByText(/^Backups are only on this server\./).waitFor();
   await issues.getByText(/^Automatic backups are off\./).waitFor();

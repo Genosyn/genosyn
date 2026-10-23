@@ -786,7 +786,10 @@ describe("reasons in plain words", () => {
       technical: "ENOSPC: no space left on device, write",
     });
     for (const [raw, start] of [
-      ["EACCES: permission denied, open '/data/Backup/x.zip.part'", "Genosyn isn't allowed to write"],
+      [
+        "EACCES: permission denied, open '/data/Backup/x.zip.part'",
+        "Genosyn isn't allowed to write",
+      ],
       ["EROFS: read-only file system, open '/data/Backup/x'", "The backup folder is on a disk"],
       ["EIO: i/o error, write", "The disk reported an error"],
       ["EMFILE: too many open files, open '/data/x'", "Too many files were open"],
@@ -801,19 +804,40 @@ describe("reasons in plain words", () => {
 
   test("a raw error from a destination reads as what happened there", () => {
     const cases: Array<[string, string]> = [
-      ["connect ECONNREFUSED 10.0.0.5:22", "The destination refused the connection. Check its host and port."],
+      [
+        "connect ECONNREFUSED 10.0.0.5:22",
+        "The destination refused the connection. Check its host and port.",
+      ],
       ["getaddrinfo ENOTFOUND nas.local", "The destination's host name couldn't be found."],
       ["connect EHOSTUNREACH 10.0.0.5:445", "The destination couldn't be reached on the network."],
       ["Timed out while waiting for handshake", "The destination stopped answering."],
       ["Keepalive timeout", "The destination stopped answering."],
       ["read ECONNRESET", "The connection to the destination dropped."],
       ["connect: Connection lost before handshake", "The connection to the destination dropped."],
-      ["All configured authentication methods failed", "The destination refused the username, password or key."],
-      ["put: Permission denied (publickey) /backups", "The destination refused the username, password or key."],
-      ["EACCES: permission denied, mkdir '/mnt/nas/genosyn'", "Genosyn isn't allowed to write to the destination's folder."],
-      ["EEXIST: file already exists, mkdir '/mnt/nas'", "The destination's folder is a file, not a folder."],
-      ["ENOTDIR: not a directory, open '/mnt/nas/x'", "The destination's folder is a file, not a folder."],
-      ["ENOSPC: no space left on device, copyfile", "The destination ran out of space. Free some there, or turn on off-box retention under Advanced."],
+      [
+        "All configured authentication methods failed",
+        "The destination refused the username, password or key.",
+      ],
+      [
+        "put: Permission denied (publickey) /backups",
+        "The destination refused the username, password or key.",
+      ],
+      [
+        "EACCES: permission denied, mkdir '/mnt/nas/genosyn'",
+        "Genosyn isn't allowed to write to the destination's folder.",
+      ],
+      [
+        "EEXIST: file already exists, mkdir '/mnt/nas'",
+        "The destination's folder is a file, not a folder.",
+      ],
+      [
+        "ENOTDIR: not a directory, open '/mnt/nas/x'",
+        "The destination's folder is a file, not a folder.",
+      ],
+      [
+        "ENOSPC: no space left on device, copyfile",
+        "The destination ran out of space. Free some there, or turn on off-box retention under Advanced.",
+      ],
       ["NT_STATUS_IO_TIMEOUT", "The SMB share refused the request."],
     ];
     for (const [raw, text] of cases) {
@@ -849,7 +873,13 @@ describe("reasons in plain words", () => {
       "Not saved: The server ran out of disk space. Free some space, or keep fewer backups here under Advanced.",
     );
     const summary = summarizeBackups(
-      { backups: [enospc, backup()], destinations: [destination()], schedule: schedule(), verification: verification(), now: NOW },
+      {
+        backups: [enospc, backup()],
+        destinations: [destination()],
+        schedule: schedule(),
+        verification: verification(),
+        now: NOW,
+      },
       GB,
     );
     assert.equal(
@@ -876,12 +906,17 @@ describe("reasons in plain words", () => {
       NOW,
       GB,
     );
-    assert.equal(health.detail, "The destination's host name couldn't be found. No copy has arrived yet.");
+    assert.equal(
+      health.detail,
+      "The destination's host name couldn't be found. No copy has arrived yet.",
+    );
     assert.equal(health.technical, "getaddrinfo ENOTFOUND nas.local");
     const failing = summarizeBackups(
       {
         backups: [backup()],
-        destinations: [destination({ lastStatus: "error", lastError: "connect ECONNREFUSED 10.0.0.5:22" })],
+        destinations: [
+          destination({ lastStatus: "error", lastError: "connect ECONNREFUSED 10.0.0.5:22" }),
+        ],
         schedule: schedule(),
         verification: verification(),
         now: NOW,

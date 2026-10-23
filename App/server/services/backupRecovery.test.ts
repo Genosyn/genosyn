@@ -219,7 +219,11 @@ describe("boot settles every backup a stopped process left running", () => {
 describe("a write that stops moving is stopped", () => {
   test("calls back once nothing has moved for the limit, and only once", async () => {
     let stalls = 0;
-    const stop = watchForStall(() => 42, 40, () => (stalls += 1));
+    const stop = watchForStall(
+      () => 42,
+      40,
+      () => (stalls += 1),
+    );
     await new Promise((resolve) => setTimeout(resolve, 150));
     stop();
     assert.equal(stalls, 1);
@@ -229,7 +233,11 @@ describe("a write that stops moving is stopped", () => {
     let count = 0;
     let stalls = 0;
     const ticker = setInterval(() => (count += 1), 5);
-    const stop = watchForStall(() => count, 60, () => (stalls += 1));
+    const stop = watchForStall(
+      () => count,
+      60,
+      () => (stalls += 1),
+    );
     await new Promise((resolve) => setTimeout(resolve, 250));
     stop();
     clearInterval(ticker);
@@ -240,7 +248,11 @@ describe("a write that stops moving is stopped", () => {
     let count = 0;
     let stalls = 0;
     const ticker = setInterval(() => (count += 1), 5);
-    const stop = watchForStall(() => count, 50, () => (stalls += 1));
+    const stop = watchForStall(
+      () => count,
+      50,
+      () => (stalls += 1),
+    );
     await new Promise((resolve) => setTimeout(resolve, 100));
     clearInterval(ticker);
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -250,14 +262,21 @@ describe("a write that stops moving is stopped", () => {
 
   test("stopping it first means it never calls back", async () => {
     let stalls = 0;
-    const stop = watchForStall(() => 0, 30, () => (stalls += 1));
+    const stop = watchForStall(
+      () => 0,
+      30,
+      () => (stalls += 1),
+    );
     stop();
     await new Promise((resolve) => setTimeout(resolve, 120));
     assert.equal(stalls, 0);
   });
 
   test("an ordinary backup is not mistaken for a stuck one", async () => {
-    await fs.writeFile(path.join(tempDir, "data", "companies", "acme", "notes.txt"), "x".repeat(2048));
+    await fs.writeFile(
+      path.join(tempDir, "data", "companies", "acme", "notes.txt"),
+      "x".repeat(2048),
+    );
     const backup = await runBackup("manual");
     assert.equal(backup.status, "completed");
     assert.equal(backup.errorMessage, "");

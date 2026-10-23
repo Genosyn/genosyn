@@ -383,7 +383,9 @@ function DestinationRow({
           </div>
         ) : (
           <div className="mt-3 flex flex-col gap-1">
-            <FormError message={plainReason(result.message, "destination")?.text ?? result.message} />
+            <FormError
+              message={plainReason(result.message, "destination")?.text ?? result.message}
+            />
             <TechnicalDetail detail={plainReason(result.message, "destination")?.technical} />
           </div>
         ))}
