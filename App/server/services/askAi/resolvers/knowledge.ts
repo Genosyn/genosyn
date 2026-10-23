@@ -1621,7 +1621,8 @@ export const resolveChannel: AskAiResolver = async ({ companyId, member, ref }) 
     (m) => people.either(m.employeeId, m.userId) ?? "Unknown",
   );
 
-  // A DM has no name of its own; it is rendered from its two participants.
+  // A DM has no name of its own; it is rendered from its two participants. A
+  // group chat may have one, and falls back to its members.
   const name =
     channel.kind === "dm"
       ? `DM ${
@@ -1630,7 +1631,17 @@ export const resolveChannel: AskAiResolver = async ({ companyId, member, ref }) 
             .filter(Boolean)
             .join(" & ") || "conversation"
         }`
-      : `#${oneLine(channel.name ?? channel.slug ?? "channel", 80)}`;
+      : channel.kind === "group"
+        ? `group chat “${oneLine(
+            channel.name ||
+              memberRows
+                .map((m) => people.name(m.employeeId, m.userId))
+                .filter(Boolean)
+                .join(", ") ||
+              "untitled",
+            80,
+          )}”`
+        : `#${oneLine(channel.name ?? channel.slug ?? "channel", 80)}`;
 
   const transcript: string[] = [];
   let budget = CHANNEL_TRANSCRIPT_BUDGET;
@@ -1662,7 +1673,9 @@ export const resolveChannel: AskAiResolver = async ({ companyId, member, ref }) 
           ? "public — every Member can read it"
           : channel.kind === "private"
             ? "private — members only"
-            : "direct message",
+            : channel.kind === "group"
+              ? "group chat — members only"
+              : "direct message",
       ],
       ["State", channel.archivedAt ? `archived ${day(channel.archivedAt)}` : null],
       ["Last activity", channel.lastMessageAt ? stamp(channel.lastMessageAt) : "no messages yet"],

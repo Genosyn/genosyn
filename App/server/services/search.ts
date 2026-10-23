@@ -438,9 +438,11 @@ async function searchNotes(ctx: Ctx): Promise<Scored[]> {
 }
 
 /**
- * Channels a member may see: public ones, plus private ones they belong
- * to — the same rule `listChannelsForUser` applies, folded into SQL. DMs
- * are skipped (their `name` is null; they're people, not destinations).
+ * Channels a member may see: public ones, plus private ones and group chats
+ * they belong to — the same rule `listChannelsForUser` applies, folded into
+ * SQL. DMs are skipped (their `name` is null; they're people, not
+ * destinations), and so is a group chat with no name, which has nothing to
+ * match.
  */
 async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
   let qb = AppDataSource.getRepository(Channel)
@@ -454,18 +456,20 @@ async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
     .where("c.companyId = :cid", { cid: ctx.companyId })
     .andWhere("c.archivedAt IS NULL")
     .andWhere("c.kind != 'dm'")
+    .andWhere("c.name IS NOT NULL")
     .andWhere("(c.kind = 'public' OR cm.id IS NOT NULL)");
   qb = andWhereTokens(qb, ["c.name", "c.topic"], ctx.tokens);
   qb = orderByPrefixFirst(qb, "c.name", ctx.q, "c.lastMessageAt")
     .select("c.id", "id")
     .addSelect("c.name", "label")
+    .addSelect("c.kind", "kind")
     .addSelect("c.topic", "topic")
     .addSelect("c.lastMessageAt", "lastMessageAt");
   const rows = await qb.getRawMany();
   return rows.map((r) => ({
     kind: "channel" as const,
     id: r.id,
-    label: `#${r.label}`,
+    label: r.kind === "group" ? r.label : `#${r.label}`,
     sublabel: r.topic || null,
     path: `/workspace/${r.id}`,
     // Score against the bare name — the query won't carry our # prefix.
