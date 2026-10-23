@@ -56,7 +56,9 @@ export type QueueStage = "resuming" | "continuing" | "new";
 
 const STAGE_RANK: Record<QueueStage, number> = { resuming: 0, continuing: 1, new: 2 };
 
-export function queueStage(run: Pick<QueuedRunOrderFields, "pauseCount" | "continuationCount">): QueueStage {
+export function queueStage(
+  run: Pick<QueuedRunOrderFields, "pauseCount" | "continuationCount">,
+): QueueStage {
   if ((run.pauseCount ?? 0) > 0) return "resuming";
   if ((run.continuationCount ?? 0) > 0) return "continuing";
   return "new";

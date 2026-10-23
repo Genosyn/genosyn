@@ -108,7 +108,9 @@ test("an ordinary Member sees concurrent active Runs and pending work without in
   assert.equal(body.runningCount, 2);
   assert.deepEqual(body.running.map((row) => [row.runId, row.position]), [[active.id, null], [concurrent.id, null]]);
   assert.equal(body.pendingCount, 2);
-  assert.deepEqual(body.pending.map((row) => [row.runId, row.position]), [[first.id, null], [second.id, null]]);
+  // Waiting Runs carry their place in the company queue; running ones have none.
+  assert.deepEqual(body.pending.map((row) => [row.runId, row.position]), [[first.id, 1], [second.id, 2]]);
+  assert.deepEqual(body.pending.map((row) => row.priority), ["normal", "normal"]);
   assert.deepEqual(body.pending[0].routine, { id: routine.id, name: routine.name, slug: routine.slug });
   assert.doesNotMatch(JSON.stringify(body), /private-|queueOptionsJson|queueActiveEmployeeId|checkpointJson|logContent/);
 });
@@ -188,7 +190,11 @@ test("bounds the preview while preserving the full pending count", async () => {
   const { body } = await call();
   assert.equal(body.pending.length, 100);
   assert.equal(body.pendingCount, 103);
-  assert.equal(body.pending[99].position, null);
+  assert.deepEqual(
+    body.pending.map((row) => row.position),
+    Array.from({ length: 100 }, (_, i) => i + 1),
+    "the preview lists the first 100 places in line",
+  );
 });
 
 test("bounds concurrent running previews without undercounting active work", async () => {

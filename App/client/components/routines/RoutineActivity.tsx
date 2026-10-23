@@ -1,8 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, CalendarCheck, Clock3, Hourglass, OctagonX, Radio } from "lucide-react";
-import { api, type Company, type RoutineWithMeta, type Run } from "@/lib/api";
+import { api, type Company, type RoutinePriority, type RoutineWithMeta, type Run } from "@/lib/api";
 import { isRunPaused } from "@/lib/runStatus";
+import { movedUpNote, QUEUE_ORDER_NOTE, queuePlace } from "@/lib/routinePriority";
+import { QueuePlaceBadge, RoutinePriorityChip } from "@/components/routines/RoutinePriorityChip";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -38,11 +40,19 @@ export type RoutineActivityRun = Pick<
 
 /** A Run waiting to start, or one paused for a restart that resumes when it can. */
 export type RoutineActivityQueuedRun = RoutineActivityRun &
-  Required<Pick<Run, "queuedAt" | "pauseCount" | "pausedAt">>;
+  Required<Pick<Run, "queuedAt" | "pauseCount" | "pausedAt">> & {
+    /** Its Routine's priority when the server listed it. */
+    priority?: RoutinePriority;
+    /**
+     * Its place among the company's Runs waiting to start, 1 being next up.
+     * Null for work a Standdown holds; missing from an older server.
+     */
+    position?: number | null;
+  };
 
 export type RoutineActivityData = {
   running: RoutineActivityRun[];
-  /** The oldest waiting Runs; `queuedCount` counts every one. */
+  /** The first waiting Runs, in the order they will start; `queuedCount` counts every one. */
   queued: RoutineActivityQueuedRun[];
   queuedCount: number;
   today: { routineId: string; runCount: number; latestRun: RoutineActivityRun }[];
@@ -139,7 +149,7 @@ export function RoutineActivity({
     : null;
   const running = data?.running.filter((run) => byId.has(run.routineId)) ?? [];
   const queued = data?.queued.filter((run) => byId.has(run.routineId)) ?? [];
-  // The reply lists the oldest waiting Runs; a longer queue still says how long.
+  // The reply lists the first waiting Runs; a longer queue still says how long.
   const queuedBeyondList = data ? Math.max(0, data.queuedCount - data.queued.length) : 0;
   const today = data?.today.filter((item) => byId.has(item.routineId)) ?? [];
   const runCount = today.reduce((count, item) => count + item.runCount, 0);
@@ -223,7 +233,7 @@ export function RoutineActivity({
             </span>
           )}
           <span className="text-xs text-slate-400 sm:ml-auto dark:text-slate-500">
-            Waiting to start · oldest first
+            {QUEUE_ORDER_NOTE}
           </span>
         </div>
         {queued.length === 0 && queuedBeyondList === 0 ? (
@@ -242,8 +252,7 @@ export function RoutineActivity({
             </ul>
             {queuedBeyondList > 0 && (
               <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                Showing the oldest {queued.length} of {queued.length + queuedBeyondList} queued
-                Runs.
+                Showing the first {queued.length} of {queued.length + queuedBeyondList} queued Runs.
               </p>
             )}
           </>
@@ -337,11 +346,17 @@ function ActivityRow({
     waiting && routine.standdown
       ? `${routine.standdown.scope === "company" ? "Company" : routine.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${routine.standdown.reason}`
       : null;
+  // The queue reads the Routine's priority when it orders, so the Routine's is
+  // the one to show; a waiting Run's own copy only covers a list newer than it.
+  const priority = routine.priority ?? waiting?.priority;
+  const place = waiting ? queuePlace(waiting.position) : null;
+  const movedUp =
+    waiting && !paused ? movedUpNote({ priority, queuedAt: waiting.queuedAt }, Date.now()) : null;
   return (
     <li className="min-w-0">
       <Link
         to={hrefForRun(run.id)}
-        aria-label={`${routine.name}: ${running ? "view live Run" : waiting ? "view queued Run" : "view latest Run"}`}
+        aria-label={`${routine.name}: ${running ? "view live Run" : waiting ? "view queued Run" : "view latest Run"}${place ? `, ${place.next ? "next up" : `${place.label} in the queue`}` : ""}`}
         className="group flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-indigo-500/50"
       >
         <div className="min-w-0 flex-1 basis-48">
@@ -364,12 +379,15 @@ function ActivityRow({
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <QueuePlaceBadge place={place} />
           <RunStatusChip
             status={run.status}
             errorKind={run.errorKind}
             pauseCount={waiting?.pauseCount}
             size="xs"
           />
+          {(waiting || running) && <RoutinePriorityChip priority={priority} />}
+          {movedUp && <span className="text-xs text-slate-500 dark:text-slate-400">{movedUp}</span>}
           {standdownTitle && (
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300"

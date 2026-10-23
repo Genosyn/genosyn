@@ -47,7 +47,7 @@ export function runStatusHint(
   if (status === "queued" && paused)
     return "Paused while Genosyn restarted. It keeps its work so far and continues where it stopped as soon as it can start again.";
   if (status === "queued")
-    return "Waiting to start. A Standdown can defer this Run; other Routines run independently.";
+    return "Waiting to start: Runs start as their AI Model has room, High priority first. A Standdown can defer this Run; other Routines run independently.";
   if (status === "reviewed")
     return "The proactive review finished. This Run did not carry out the proposed work.";
   if (status === "failed")
