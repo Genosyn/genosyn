@@ -145,6 +145,27 @@ export function Vocabulary() {
             term: "Handoff",
             def: "A formal AI→AI delegation with a status workflow — open, accepted, completed, cancelled.",
           },
+          {
+            term: "Group chat",
+            def: (
+              <>
+                A private Workspace conversation between a Member, the AI Employees they bring in,
+                and any other Members. See{" "}
+                <DocLink to="/docs/workspace-chat#group-chats">Group chats</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Group discussion",
+            def: (
+              <>
+                A bounded, read-only exchange in which several AI Employees work one Member&apos;s
+                question out together and hand back an outcome: a summary, a recommendation, open
+                questions, and who does what. Never a &ldquo;meeting&rdquo; — that word belongs to{" "}
+                <DocLink to="/docs/meetings">Meetings</DocLink>.
+              </>
+            ),
+          },
         ]}
       />
 

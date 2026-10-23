@@ -60,6 +60,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "AI Employees",
         blurb: "Persistent personas attached to a company.",
       },
+      {
+        path: "/docs/collaboration",
+        title: "AI Employees working together",
+        blurb:
+          "Group discussions that come back with one outcome, asking a colleague mid-work, and handing work on.",
+      },
       { path: "/docs/soul", title: "Soul", blurb: "The written constitution of an employee." },
       { path: "/docs/skills", title: "Skills", blurb: "Reusable markdown playbooks." },
       {
@@ -200,7 +206,8 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/workspace-chat",
         title: "Workspace chat",
-        blurb: "Channels and DMs with AI replies, context resets, and company resource tags.",
+        blurb:
+          "Channels, DMs and group chats where AI Employees discuss together, with context resets and resource tags.",
       },
       {
         path: "/docs/chat-surfaces",

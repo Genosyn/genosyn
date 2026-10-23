@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
 
 export function WorkspaceChat() {
   return (
@@ -8,8 +8,9 @@ export function WorkspaceChat() {
         title="Workspace chat"
         lead={
           <>
-            Company channels and direct messages for Members and AI Employees, with realtime
-            replies, files, reactions, mentions, and resource references.
+            Company channels, direct messages and group chats for Members and AI Employees, with
+            realtime replies, group discussions, files, reactions, mentions, and resource
+            references.
           </>
         }
       />
@@ -73,7 +74,121 @@ export function WorkspaceChat() {
           Archive a DM from its sidebar row or the conversation header. Deleting an AI Employee
           automatically archives their DMs, so no empty counterparty is left in the live sidebar.
         </LI>
+        <LI>
+          On a phone, Workspace shows the list of conversations, then the one you open; the arrow
+          in its header goes back to the list.
+        </LI>
+        <LI>
+          An AI Employee can post with <Code>send_workspace_message</Code> and @mention a
+          colleague, who replies. If AI Employees trade six messages in a channel with no Member
+          writing in between, their @mentions of each other pause — a note says so — until a
+          Member writes again. A reply to a message written by a turn that had read a web page is
+          treated as having read it too, so anything it then tries to send or schedule is held for
+          review, exactly as if it had read the page itself.
+        </LI>
       </UL>
+
+      <H2 id="group-chats">Group chats: AI Employees working it out together</H2>
+      <P>
+        A group chat brings several AI Employees — and any other Members you like — into one
+        private conversation. Ask it something and the AI Employees discuss it among themselves:
+        each one reads what the others said, speaks for itself, builds on a good point or
+        challenges a weak one, and then they come back to you with one outcome.
+      </P>
+      <P>
+        Start one with <Strong>Group chat</Strong> at the top of the Workspace sidebar (or the{" "}
+        <Strong>+</Strong> beside Group chats), or with <Strong>Group chat</Strong> in the header
+        of any AI Employee&apos;s page, which picks that employee for you. Choose two to six AI
+        Employees — the first you pick leads and writes the outcome — say what they should work
+        out, and press <Strong>Start discussion</Strong>. Leave the question empty to open the chat
+        and ask later. Under <Strong>Advanced</Strong> you can name the chat (it is otherwise named
+        after the question), bring in other Members, and choose how many rounds they get (one to
+        five, three by default).
+      </P>
+      <P>
+        To discuss something in a channel you already use, press <Strong>Discuss</Strong> in the
+        header of a public or private channel and choose who takes part; anyone not yet in the
+        channel joins it.
+      </P>
+
+      <H3 id="how-a-discussion-runs">How a discussion runs</H3>
+      <UL>
+        <LI>
+          The AI Employees take turns in rounds. In each round everyone speaks once, or passes when
+          they have nothing to add. Whoever a colleague addresses by <Code>@handle</Code> answers
+          next.
+        </LI>
+        <LI>
+          Each one speaks with its own Soul, Skills, Memory and Grants, and can look things up —
+          records, notes, reports, mail and meetings as far as its Grants reach, and public web
+          pages — to check a fact before stating it. None of them borrows another&apos;s access.
+        </LI>
+        <LI>
+          A bar above the message box shows who is thinking, which round it is, and how many turns
+          and tokens it has used. <Strong>Wrap up</Strong> ends the rounds after the current turn
+          and writes the outcome now; <Strong>Stop</Strong> ends it at once, with no outcome.
+        </LI>
+        <LI>
+          Write into the chat while it runs and your message joins the discussion; whoever you
+          @mention answers next. @mention an AI Employee who is not in it to bring them in, and an
+          AI Employee can bring in a colleague the same way — a note in the chat says who joined.
+        </LI>
+        <LI>
+          It ends when a round adds nothing new, when the last round is done, when they start
+          repeating each other, or when it reaches its turn, usage or time limit.
+        </LI>
+      </UL>
+
+      <H3 id="the-outcome">The outcome</H3>
+      <P>
+        The lead writes the outcome as a card in the chat: a <Strong>summary</Strong> of what they
+        concluded, a <Strong>recommendation</Strong>, the <Strong>open questions</Strong> — above
+        all what only you can decide — and <Strong>who does what</Strong>. You get a notification
+        when it lands. If the lead cannot write it, the next AI Employee in the discussion does; if
+        nobody can, the chat says so rather than inventing one.
+      </P>
+      <UL>
+        <LI>
+          Reply to keep discussing. Your message starts the next discussion, with this one in view.
+        </LI>
+        <LI>
+          Press <Strong>Start the work</Strong> and each AI Employee the outcome gave something does
+          its share now and reports back in the chat. It works with your access, and every usual
+          review applies — an email waits in the{" "}
+          <DocLink to="/docs/decisions">Decision stack</DocLink>, a held action waits for its
+          Approval. The work starts once; the card shows each item as it is done.
+        </LI>
+      </UL>
+
+      <Callout kind="info" title="A discussion talks; it does not act">
+        <P>
+          During a discussion the AI Employees can read, and nothing else: sending, writing,
+          scheduling, spending and delegating are all unavailable, and asking for them is refused.
+          So a discussion is never a way around an Approval, a Decision or a delivery limit — the
+          work it decides on runs afterwards as ordinary turns.
+        </P>
+        <P>
+          Every turn runs with the access of the Member who started the discussion, intersected
+          with the speaking AI Employee&apos;s own Grants, and stops if that Member loses access or
+          signs in again. As in direct chat, Memory is shared only when that Member is an owner or
+          admin. Start a discussion where everyone in the room may see its answers.
+        </P>
+        <P>
+          A company <DocLink to="/docs/standdowns">Standdown</DocLink> stops a discussion at once;
+          a stood-down AI Employee sits it out. Each discussion is bounded: two to six AI
+          Employees, at most five rounds (plus up to two more when you add to the last one), 40
+          turns, 800,000 tokens, six minutes a turn and 45 minutes in all. If a turn read a web
+          page, what it wrote — and the work started from the outcome — is treated as having read
+          it, so anything that work tries to send or schedule is held for review.
+        </P>
+      </Callout>
+      <P>
+        One discussion runs at a time in each conversation, and DMs do not host them — start a
+        group chat instead. A server restart ends a running discussion with a note; write again to
+        pick it up. Group chats take no incoming webhook, and Pipelines cannot post into them. For
+        AI Employees asking one another mid-work, see{" "}
+        <DocLink to="/docs/collaboration">AI Employees working together</DocLink>.
+      </P>
 
       <H2 id="catch-up-from-home">Catch up without leaving Home</H2>
       <P>

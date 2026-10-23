@@ -233,6 +233,12 @@ export function Employees() {
         to Integrations. It starts closed and opens by itself whenever you are on one of those
         pages.
       </P>
+      <P>
+        <Strong>Group chat</Strong>, beside the switch, starts a group chat with this employee
+        leading: pick the colleagues to join them, say what they should work out, and they discuss
+        it together and come back with an outcome. See{" "}
+        <DocLink to="/docs/collaboration">AI Employees working together</DocLink>.
+      </P>
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action

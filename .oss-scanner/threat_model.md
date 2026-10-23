@@ -301,7 +301,11 @@ Most, roughly in order:
      `App/server/services/memberTurnAuthority.ts`);
    - tool scopes and restricted turns
      (`App/server/services/agent/tools/index.ts`,
-     `App/server/services/agent/runEmployee.ts`).
+     `App/server/services/agent/runEmployee.ts`), including collaboration
+     turns — group discussion turns and `ask_colleague` answers — which may
+     only read (`App/server/services/collaborationScope.ts`), and whose
+     outcome's work only a Member starts
+     (`App/server/services/groupDiscussions.ts`).
 5. **Human gates**: Approvals (`App/server/services/approvals.ts`,
    `App/server/routes/approvals.ts`), Standdowns
    (`App/server/services/standdowns.ts`), and the taint policy. Checks and
