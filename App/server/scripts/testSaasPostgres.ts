@@ -206,13 +206,14 @@ async function childMain(mode: string): Promise<void> {
           employeeId,
           name,
         });
-        const active = (
-          await AppDataSource.getRepository(Run).findBy({
-            employeeId,
-            routineId: routine.id,
-            status: "running",
-          })
-        ).filter((run) => selected.size === 0 || selected.has(run.id));
+        // Registering a Run offers the whole queue, in order, so this process
+        // may start a Run the other one registered. A Routine runs one Run at a
+        // time, so its one running Run is the Run this turn belongs to.
+        const active = await AppDataSource.getRepository(Run).findBy({
+          employeeId,
+          routineId: routine.id,
+          status: "running",
+        });
         assert.equal(active.length, 1, "Each child must identify its exact Run");
         const finish = parentMessage(`finish-run:${active[0].id}`);
         process.send!({ kind: "routine-started", runId: active[0].id });
