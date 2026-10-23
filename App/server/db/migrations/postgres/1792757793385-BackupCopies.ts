@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class BackupCopies1792746395464 implements MigrationInterface {
-    name = 'BackupCopies1792746395464'
+export class BackupCopies1792757793385 implements MigrationInterface {
+    name = 'BackupCopies1792757793385'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TABLE "backup_copies" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "backupId" character varying NOT NULL, "destinationId" character varying NOT NULL, "status" character varying NOT NULL DEFAULT 'pending', "error" text NOT NULL DEFAULT '', "startedAt" TIMESTAMP WITH TIME ZONE, "copiedAt" TIMESTAMP WITH TIME ZONE, "checkedAt" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_ac331b82a019d4d2eb4325ce0ce" PRIMARY KEY ("id"))`);
