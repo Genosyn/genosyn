@@ -2656,7 +2656,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         body: {
           type: "string",
-          description: "Markdown body. Optional — empty pages are allowed.",
+          description:
+            "Markdown body. Optional — empty pages are allowed. Members edit notes as blocks: headings, lists, `- [ ]` to-dos, quotes, code fences, tables and links read as usual, `> [!NOTE]` (or TIP, IMPORTANT, WARNING, CAUTION) shows as a callout, and `<details><summary>Title</summary>…</details>` as a toggle.",
         },
         icon: {
           type: "string",
@@ -2679,7 +2680,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_note",
     description:
-      "Update an existing Note's title, body, icon, parent, or archived state. Use this to revise a page after learning something new — prefer editing over creating duplicates. Pass `archived: true` to move it to the trash, `archived: false` to restore. Set `parentSlug: null` to move the page back to the top level.",
+      "Update an existing Note's title, body, icon, parent, or archived state. Use this to revise a page after learning something new — prefer editing over creating duplicates. Pass `archived: true` to move it (and its sub-pages) to the trash, `archived: false` to restore it with the sub-pages trashed alongside it. Set `parentSlug: null` to move the page back to the top level; a new parent must be in the same notebook and one you can write.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2693,7 +2694,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         archived: {
           type: "boolean",
-          description: "true → move to trash; false → restore.",
+          description: "true → move to trash with its sub-pages; false → restore.",
         },
       },
       required: ["noteSlug"],

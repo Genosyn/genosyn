@@ -237,7 +237,7 @@ const RoutineColumns = z.object({
     .int()
     .describe(
       "Per-run hard timeout. The runner SIGKILLs the CLI after this long and marks the " +
-        "run `timeout`. Defaults to 3600.",
+        "run `timeout`. Defaults to 21600 (6 hours), which is also the maximum.",
     ),
   requiresApproval: z
     .boolean()

@@ -342,9 +342,10 @@ export function Routines() {
               <>
                 Hard timeout in seconds. The runner aborts the active runtime after this long and
                 marks the Run <Strong>Error</Strong>, with a timeout reason. Defaults to{" "}
-                <Strong>60 minutes</Strong> and is editable per routine (10s – 6h) under{" "}
-                <Strong>Settings → Advanced</Strong> — raise it for long jobs, lower it to fail
-                fast. Time spent waiting in the queue does not count. Near the end, tool results
+                <Strong>6 hours</Strong>, the longest allowed, and is editable per routine (10s –
+                6h) under <Strong>Settings → Advanced</Strong> — lower it to fail fast. A Run and
+                its automatic continuations share this one window. Time spent waiting in the queue
+                does not count. Near the end, tool results
                 tell the employee how many minutes remain so it can save progress and report before
                 it is stopped.
               </>

@@ -17,6 +17,7 @@ import { config } from "../../../../config.js";
 import { getAgentSettings } from "../../runtimeSettings.js";
 import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js";
 import { resolveMcpToken } from "../../mcpTokens.js";
+import { canReportRunFailure } from "../../runFailureReport.js";
 import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
 import { proactiveReviewToolScope } from "../../proactive/workReviewPolicy.js";
 
@@ -298,6 +299,10 @@ export async function gatherEmployeeTools(params: {
     ...(tokenInfo?.mailDeliveryMode === "review"
       ? ["request_mail_review", "revise_mail_review"]
       : []),
+    // The Run's brief and deadline notes ask for a checkpoint after every
+    // batch, so it is hot for the top-level Routine Run. Deferred, a slow model
+    // racing the deadline spent its last turn in `find_tools` looking for it.
+    ...(canReportRunFailure(tokenInfo) ? ["save_run_checkpoint"] : []),
     // Coding tools stay resident because of *argument shape*, not frequency:
     // `write_file.content` and `edit_file.old_string` are large free-form
     // strings, and re-escaping a 20k-char file body inside `call_tool`'s

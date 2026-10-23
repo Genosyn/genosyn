@@ -379,7 +379,14 @@ import {
 } from "../db/entities/EmployeeSigningGrant.js";
 import { Repository } from "../db/entities/Repository.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
-import { hasNoteAccess, listAccessibleNoteIds, upsertNoteGrant } from "../services/notes.js";
+import {
+  archiveNoteTree,
+  hasNoteAccess,
+  isNoteDescendant as isNoteTreeDescendant,
+  listAccessibleNoteIds,
+  restoreNoteTree,
+  upsertNoteGrant,
+} from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
@@ -14347,7 +14354,16 @@ mcpInternalRouter.post(
         if (parent.id === note.id) {
           return res.status(400).json({ error: "A note cannot be its own parent" });
         }
-        if (await isNoteDescendant(co.id, parent.id, note.id)) {
+        if (parent.notebookId !== note.notebookId) {
+          return res.status(400).json({ error: "A note's parent must live in the same notebook" });
+        }
+        // Moving a page under another changes who inherits access to it, so
+        // the new parent needs the same write access creating a sub-page does.
+        if (!(await hasNoteAccess(self.id, parent.id, "write"))) {
+          return res.status(403).json({ error: "Need write access on the new parent note" });
+        }
+        // The cycle to refuse is the new parent sitting under this page.
+        if (await isNoteTreeDescendant(co.id, note.id, parent.id)) {
           return res
             .status(400)
             .json({ error: "Cannot move a note under one of its own descendants" });
@@ -14360,12 +14376,13 @@ mcpInternalRouter.post(
     if (body.title !== undefined) note.title = body.title;
     if (body.body !== undefined) note.body = body.body;
     if (body.icon !== undefined) note.icon = body.icon;
-    if (body.archived !== undefined) {
-      note.archivedAt = body.archived ? new Date() : null;
-    }
     note.lastEditedById = null;
     note.lastEditedByEmployeeId = self.id;
     await repo.save(note);
+    // Trashing takes the page's sub-pages along (the employee's write access
+    // cascades to them), and restoring brings back the ones that went with it.
+    if (body.archived === true && !wasArchived) await archiveNoteTree(co.id, note);
+    if (body.archived === false && wasArchived) await restoreNoteTree(co.id, note);
 
     // Archiving and restoring read as their own History sentences; any other
     // change is an edit listing the fields (never the body's text).
@@ -14443,31 +14460,6 @@ mcpInternalRouter.post(
     res.json({ ok: true });
   },
 );
-
-/**
- * Walk children breadth-first to detect parent-cycles before re-parenting.
- */
-async function isNoteDescendant(
-  companyId: string,
-  rootId: string,
-  descendantId: string,
-): Promise<boolean> {
-  const repo = AppDataSource.getRepository(Note);
-  const queue: string[] = [rootId];
-  const seen = new Set<string>();
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (id === descendantId) return true;
-    const children = await repo.find({
-      where: { companyId, parentId: id },
-      select: ["id"],
-    });
-    for (const c of children) queue.push(c.id);
-  }
-  return false;
-}
 
 function serializeResource(
   r: Resource,

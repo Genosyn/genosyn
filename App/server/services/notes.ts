@@ -1,6 +1,7 @@
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Note } from "../db/entities/Note.js";
+import { notePreview } from "../../shared/notePreview.js";
 import {
   EmployeeNoteGrant,
   NoteAccessLevel,
@@ -348,4 +349,227 @@ export async function deleteGrantsForNotebook(notebookId: string): Promise<void>
  */
 export async function deleteGrantsForNote(noteId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeNoteGrant).delete({ noteId });
+}
+
+// ----- The page tree -----
+
+/**
+ * Every page under `rootId`, at any depth (not the root itself). One query
+ * for the company's tree instead of one per level.
+ */
+export async function collectDescendantIds(companyId: string, rootId: string): Promise<string[]> {
+  const all = await AppDataSource.getRepository(Note).find({
+    where: { companyId },
+    select: ["id", "parentId"],
+  });
+  const children = new Map<string, string[]>();
+  for (const n of all) {
+    if (!n.parentId) continue;
+    const list = children.get(n.parentId);
+    if (list) list.push(n.id);
+    else children.set(n.parentId, [n.id]);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>([rootId]);
+  const queue = [...(children.get(rootId) ?? [])];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    queue.push(...(children.get(id) ?? []));
+  }
+  return out;
+}
+
+/** True when `candidateId` sits somewhere under `rootId` (or is it). Guards re-parenting cycles. */
+export async function isNoteDescendant(
+  companyId: string,
+  rootId: string,
+  candidateId: string,
+): Promise<boolean> {
+  if (rootId === candidateId) return true;
+  return (await collectDescendantIds(companyId, rootId)).includes(candidateId);
+}
+
+/**
+ * Move a page to the trash with every live page under it, as Notion does —
+ * a trashed parent used to leave its sub-pages floating at the notebook's top
+ * level. They share one timestamp, which is how a restore knows which pages
+ * went together. Returns how many sub-pages went along.
+ */
+export async function archiveNoteTree(companyId: string, note: Note): Promise<number> {
+  const repo = AppDataSource.getRepository(Note);
+  const at = new Date();
+  const descendants = await collectDescendantIds(companyId, note.id);
+  const live = descendants.length
+    ? await repo.find({ where: { id: In(descendants), companyId, archivedAt: IsNull() }, select: ["id"] })
+    : [];
+  note.archivedAt = at;
+  await repo.save(note);
+  if (live.length) {
+    await repo.update(
+      { id: In(live.map((n) => n.id)), companyId },
+      { archivedAt: at, updatedAt: () => '"updatedAt"' },
+    );
+  }
+  return live.length;
+}
+
+/**
+ * Bring a page back from the trash with the sub-pages that were trashed with
+ * it (a sub-page trashed on its own earlier stays put). A page whose parent is
+ * still in the trash comes back at its notebook's top level, so it is visible.
+ */
+export async function restoreNoteTree(companyId: string, note: Note): Promise<number> {
+  const repo = AppDataSource.getRepository(Note);
+  const trashedAt = note.archivedAt?.getTime() ?? null;
+  if (note.parentId) {
+    const parent = await repo.findOne({ where: { id: note.parentId, companyId }, select: ["id", "archivedAt"] });
+    if (!parent || parent.archivedAt) note.parentId = null;
+  }
+  note.archivedAt = null;
+  await repo.save(note);
+  if (trashedAt === null) return 0;
+  const descendants = await collectDescendantIds(companyId, note.id);
+  if (!descendants.length) return 0;
+  const rows = await repo.find({ where: { id: In(descendants), companyId }, select: ["id", "archivedAt"] });
+  const together = rows.filter((r) => r.archivedAt && r.archivedAt.getTime() === trashedAt).map((r) => r.id);
+  if (together.length) {
+    await repo.update({ id: In(together), companyId }, { archivedAt: null, updatedAt: () => '"updatedAt"' });
+  }
+  return together.length;
+}
+
+export class NoteTreeError extends Error {}
+
+export type NoteMoveTarget = {
+  notebookId: string;
+  /** The new parent page, or null for the notebook's top level. */
+  parentId: string | null;
+  /** Position among the new siblings; past the end means last. */
+  index?: number;
+};
+
+/**
+ * Put a page at a position in the tree: under a parent (or a notebook's top
+ * level) at `index` among its siblings, carrying its sub-pages along when it
+ * changes notebook. Siblings are renumbered in steps of 1000 so positions
+ * never collide. Positions aren't edits: nothing's "last edited" moves.
+ * Returns whether the page changed parent or notebook.
+ */
+export async function moveNote(companyId: string, note: Note, target: NoteMoveTarget): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Note);
+  if (target.parentId) {
+    if (target.parentId === note.id) throw new NoteTreeError("A page cannot be inside itself");
+    const parent = await repo.findOne({ where: { id: target.parentId, companyId } });
+    if (!parent) throw new NoteTreeError("Unknown parent page");
+    if (parent.notebookId !== target.notebookId) {
+      throw new NoteTreeError("A page's parent must live in the same notebook");
+    }
+    if (parent.archivedAt) throw new NoteTreeError("That page is in the trash");
+    if (await isNoteDescendant(companyId, note.id, parent.id)) {
+      throw new NoteTreeError("Cannot move a page under one of its own sub-pages");
+    }
+  }
+  const relocated = note.notebookId !== target.notebookId || (note.parentId ?? null) !== target.parentId;
+  const siblings = await repo.find({
+    where: {
+      companyId,
+      notebookId: target.notebookId,
+      parentId: target.parentId ?? IsNull(),
+      archivedAt: IsNull(),
+    },
+    order: { sortOrder: "ASC", updatedAt: "DESC" },
+    select: ["id", "sortOrder"],
+  });
+  const others = siblings.filter((s) => s.id !== note.id);
+  const index = Math.max(0, Math.min(target.index ?? others.length, others.length));
+  const ordered = [...others.slice(0, index).map((s) => s.id), note.id, ...others.slice(index).map((s) => s.id)];
+  const current = new Map(siblings.map((s) => [s.id, s.sortOrder]));
+
+  if (note.notebookId !== target.notebookId) {
+    const descendants = await collectDescendantIds(companyId, note.id);
+    if (descendants.length) {
+      await repo.update(
+        { id: In(descendants), companyId },
+        { notebookId: target.notebookId, updatedAt: () => '"updatedAt"' },
+      );
+    }
+  }
+  for (let i = 0; i < ordered.length; i++) {
+    const id = ordered[i];
+    const sortOrder = (i + 1) * 1000;
+    if (id === note.id) continue;
+    if (current.get(id) === sortOrder) continue;
+    await repo.update({ id, companyId }, { sortOrder, updatedAt: () => '"updatedAt"' });
+  }
+  await repo.update(
+    { id: note.id, companyId },
+    {
+      notebookId: target.notebookId,
+      parentId: target.parentId,
+      sortOrder: (ordered.indexOf(note.id) + 1) * 1000,
+      updatedAt: () => '"updatedAt"',
+    },
+  );
+  note.notebookId = target.notebookId;
+  note.parentId = target.parentId;
+  note.sortOrder = (ordered.indexOf(note.id) + 1) * 1000;
+  return relocated;
+}
+
+/** A page's place right after `afterId` among its siblings, renumbering them. */
+async function placeAfter(companyId: string, note: Note, afterId: string): Promise<void> {
+  const repo = AppDataSource.getRepository(Note);
+  const siblings = await repo.find({
+    where: { companyId, notebookId: note.notebookId, parentId: note.parentId ?? IsNull(), archivedAt: IsNull() },
+    order: { sortOrder: "ASC", updatedAt: "DESC" },
+    select: ["id"],
+  });
+  const index = siblings.findIndex((s) => s.id === afterId);
+  await moveNote(companyId, note, {
+    notebookId: note.notebookId,
+    parentId: note.parentId,
+    index: index < 0 ? undefined : index + 1,
+  });
+}
+
+/**
+ * A copy of a page (title, body, icon) placed right after it. Sub-pages,
+ * Grants and tags stay with the original: a duplicate is a new page, and who
+ * may read it is decided the usual way — by its parent and notebook.
+ */
+export async function duplicateNote(
+  companyId: string,
+  source: Note,
+  createdById: string | null,
+  uniqueSlug: (base: string) => Promise<string>,
+): Promise<Note> {
+  const repo = AppDataSource.getRepository(Note);
+  const title = `${source.title} (copy)`.slice(0, 200);
+  const copy = repo.create({
+    companyId,
+    notebookId: source.notebookId,
+    title,
+    slug: await uniqueSlug(source.slug),
+    body: source.body,
+    icon: source.icon,
+    parentId: source.parentId,
+    sortOrder: source.sortOrder + 1,
+    createdById,
+    createdByEmployeeId: null,
+    lastEditedById: createdById,
+    lastEditedByEmployeeId: null,
+    archivedAt: null,
+  });
+  await repo.save(copy);
+  await placeAfter(companyId, copy, source.id);
+  return copy;
+}
+
+/** A page without its body, plus a one-line preview: what lists and the sidebar need. */
+export function outlineOf<N extends Note>(note: N): Omit<N, "body"> & { preview: string } {
+  const { body, ...rest } = note;
+  return { ...rest, preview: notePreview(body) };
 }

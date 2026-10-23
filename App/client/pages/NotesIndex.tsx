@@ -1,53 +1,44 @@
 import React from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
-import {
-  Book,
-  BookPlus,
-  Clock,
-  FileText,
-  Plus,
-  Search,
-  Sparkles,
-} from "lucide-react";
-import { api, Company, Note, Notebook } from "../lib/api";
+import { Link, useOutletContext } from "react-router-dom";
+import { BookPlus, FilePlus, Search, Sparkles, X } from "lucide-react";
+import { api, Company, NoteSearchHit } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { Breadcrumbs } from "../components/AppShell";
-import { useDialog } from "../components/ui/Dialog";
+import { recentNotes } from "../lib/noteTree";
+import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
-import { ButtonSpinner } from "../components/ui/Spinner";
-import { NotesContext } from "./NotesLayout";
-import { clsx } from "../components/ui/clsx";
+import { Spinner } from "../components/ui/Spinner";
+import { NoteIcon, formatRelative } from "../components/notes/NoteIcon";
+import type { NotesContext } from "./NotesLayout";
 
 /**
- * Notes welcome screen. Shown when the URL is /c/<slug>/notes with no
- * notebook or note selected. Lists every notebook with its activity, plus
- * a global search bar that hits the LIKE-search endpoint across all
- * notebooks.
+ * Notes home (`/c/<co>/notes`): search every page, jump back into what was
+ * edited last, browse notebooks — and, before there's anything, learn how
+ * notes work and make the first page.
  */
 export default function NotesIndex({ company }: { company: Company }) {
-  const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
-  const navigate = useNavigate();
-  const dialog = useDialog();
+  const ctx = useOutletContext<NotesContext>();
+  const { notebooks, notes, loading } = ctx;
   const [query, setQuery] = React.useState("");
-  const [results, setResults] = React.useState<Note[] | null>(null);
+  const [results, setResults] = React.useState<NoteSearchHit[] | null>(null);
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState<string | null>(null);
-  const [creatingNb, setCreatingNb] = React.useState(false);
 
   React.useEffect(() => {
     const q = query.trim();
     setSearchError(null);
     if (!q) {
       setResults(null);
+      setSearching(false);
       return;
     }
     setSearching(true);
     const handle = window.setTimeout(async () => {
       try {
-        const rows = await api.get<Note[]>(
-          `/api/companies/${company.id}/notes/search?q=${encodeURIComponent(q)}`,
+        setResults(
+          await api.get<NoteSearchHit[]>(
+            `/api/companies/${company.id}/notes/search?view=outline&q=${encodeURIComponent(q)}`,
+          ),
         );
-        setResults(rows);
       } catch (err) {
         setSearchError(errorMessage(err, "Could not search these notes"));
       } finally {
@@ -57,117 +48,142 @@ export default function NotesIndex({ company }: { company: Company }) {
     return () => window.clearTimeout(handle);
   }, [query, company.id]);
 
-  const notebookById = React.useMemo(() => {
-    const m = new Map<string, Notebook>();
-    for (const nb of notebooks) m.set(nb.id, nb);
-    return m;
-  }, [notebooks]);
-
-  async function createNotebook() {
-    try {
-      const title = await dialog.prompt({
-        title: "New notebook",
-        message: "Notebooks group related pages — runbooks, briefs, post-mortems, etc.",
-        placeholder: "Notebook name",
-        confirmLabel: "Create",
-      });
-      if (!title) return;
-      setCreatingNb(true);
-      const created = await api.post<Notebook>(
-        `/api/companies/${company.id}/notebooks`,
-        { title },
-      );
-      await refresh();
-      navigate(`/c/${company.slug}/notes/${created.slug}`);
-    } catch (err) {
-      void dialog.error(err, { title: "Couldn’t create the notebook" });
-    } finally {
-      setCreatingNb(false);
-    }
-  }
-
-  const live = notes.filter((n) => n.archivedAt === null);
-  const recents = React.useMemo(
-    () =>
-      [...live]
-        .sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )
-        .slice(0, 8),
-    [live],
-  );
+  const recents = React.useMemo(() => recentNotes(notes, 6), [notes]);
+  const notebookById = React.useMemo(() => new Map(notebooks.map((nb) => [nb.id, nb])), [notebooks]);
+  const pageCount = (notebookId: string) => notes.filter((n) => n.notebookId === notebookId).length;
+  const empty = !loading && notes.length === 0;
 
   return (
     <div className="flex h-full flex-col">
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <Breadcrumbs
-          items={[
-            { label: company.name, to: `/c/${company.slug}` },
-            { label: "Notes" },
-          ]}
-        />
-      </div>
-
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-10 pt-12">
-          <div className="mb-8">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Notes
+        <div className="mx-auto w-full max-w-4xl px-5 pb-20 pt-10 sm:px-10 sm:pt-14">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Notes</h1>
+              <p className="mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
+                Pages your team and your AI Employees write together — runbooks, briefs, plans, meeting notes.
+              </p>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              {company.name}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Shared knowledge for humans and AI employees. Group related pages
-              into notebooks — runbooks, briefs, post-mortems — and nest pages
-              underneath when they belong together.
-            </p>
+            <Button
+              onClick={() => void ctx.createPage({ key: "home" })}
+              loading={ctx.creating === "home"}
+              disabled={ctx.creating !== null && ctx.creating !== "home"}
+            >
+              <FilePlus size={15} /> New page
+            </Button>
           </div>
 
-          <div className="relative mb-8">
-            <Search
-              size={18}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search pages across every notebook…"
-              className="w-full rounded-lg border border-slate-200 bg-white py-3 pl-11 pr-4 text-base text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:ring-indigo-500/25"
-            />
-          </div>
+          {!empty && (
+            <div className="relative mb-8">
+              <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search every page…"
+                aria-label="Search every page"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-9 text-[15px] text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          )}
 
           {searchError ? (
             <FormError message={searchError} />
-          ) : results !== null ? (
+          ) : results !== null || searching ? (
             <SearchResults
-              company={company}
-              query={query}
-              results={results}
+              results={results ?? []}
+              query={query.trim()}
               searching={searching}
-              notebookById={notebookById}
+              hrefFor={ctx.hrefFor}
+              notebookTitle={(id) => notebookById.get(id)?.title ?? ""}
             />
-          ) : notebooks.length === 0 ? (
-            <EmptyHero onCreate={createNotebook} creating={creatingNb} />
+          ) : loading ? (
+            <div className="flex justify-center py-16">
+              <Spinner />
+            </div>
+          ) : empty ? (
+            <EmptyHero onCreate={() => void ctx.createPage({ key: "hero" })} creating={ctx.creating === "hero"} />
           ) : (
             <>
-              <NotebookGrid
-                company={company}
-                notebooks={notebooks}
-                notes={live}
-                onCreate={createNotebook}
-                creating={creatingNb}
-              />
               {recents.length > 0 && (
-                <div className="mt-10">
-                  <RecentList
-                    company={company}
-                    notes={recents}
-                    notebookById={notebookById}
-                  />
-                </div>
+                <section aria-label="Recently edited" className="mb-10">
+                  <h2 className="mb-3 text-xs font-medium text-slate-500 dark:text-slate-400">Recently edited</h2>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {recents.map((note) => {
+                      const who = note.lastEditedBy ?? note.createdBy;
+                      return (
+                        <Link
+                          key={note.id}
+                          to={ctx.hrefFor(note)}
+                          className="group flex min-h-[7.5rem] flex-col rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+                        >
+                          <span className="mb-2 flex h-6 items-center">
+                            <NoteIcon icon={note.icon} size={18} />
+                          </span>
+                          <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {note.title || "Untitled"}
+                          </span>
+                          {note.preview && (
+                            <span className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{note.preview}</span>
+                          )}
+                          <span className="mt-auto pt-2 text-[11px] text-slate-400 dark:text-slate-500">
+                            {formatRelative(note.updatedAt)}
+                            {who ? ` · ${who.name}` : ""}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
               )}
+
+              <section aria-label="Notebooks">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400">Notebooks</h2>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void ctx.createNotebook()}
+                    loading={ctx.creating === "notebook"}
+                    disabled={ctx.creating !== null && ctx.creating !== "notebook"}
+                  >
+                    <BookPlus size={14} /> New notebook
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {notebooks.map((nb) => {
+                    const count = pageCount(nb.id);
+                    return (
+                      <Link
+                        key={nb.id}
+                        to={`/c/${company.slug}/notes/${nb.slug}`}
+                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+                      >
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800">
+                          <NoteIcon icon={nb.icon} kind="notebook" size={18} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {nb.title || "Untitled notebook"}
+                          </span>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400">
+                            {count === 0 ? "No pages yet" : `${count} page${count === 1 ? "" : "s"}`}
+                          </span>
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
             </>
           )}
         </div>
@@ -176,338 +192,86 @@ export default function NotesIndex({ company }: { company: Company }) {
   );
 }
 
-function EmptyHero({
-  onCreate,
-  creating,
-}: {
-  onCreate: () => void;
-  creating: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-8 py-12 text-center dark:border-slate-700 dark:bg-slate-900">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
-        <Sparkles size={22} />
-      </div>
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        Start your first notebook
-      </h3>
-      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Notebooks hold related pages. Create one for your company handbook,
-        another for product briefs — anything you want everyone to be able to
-        read and edit.
-      </p>
-      <button
-        onClick={onCreate}
-        disabled={creating}
-        aria-busy={creating || undefined}
-        className="mx-auto mt-5 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-      >
-        {creating ? <ButtonSpinner size={14} /> : <BookPlus size={14} />}{" "}
-        {creating ? "Creating…" : "Create your first notebook"}
-      </button>
-    </div>
-  );
-}
-
-function NotebookGrid({
-  company,
-  notebooks,
-  notes,
-  onCreate,
-  creating,
-}: {
-  company: Company;
-  notebooks: Notebook[];
-  notes: Note[];
-  onCreate: () => void;
-  creating: boolean;
-}) {
-  // Most recent updatedAt across the notebook's live notes — the same
-  // signal that drives the "Recently edited" feed.
-  const lastTouchByNotebook = React.useMemo(() => {
-    const m = new Map<string, number>();
-    for (const n of notes) {
-      const t = new Date(n.updatedAt).getTime();
-      const cur = m.get(n.notebookId) ?? 0;
-      if (t > cur) m.set(n.notebookId, t);
-    }
-    return m;
-  }, [notes]);
-  return (
-    <div>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Notebooks
-        </div>
-        <button
-          onClick={onCreate}
-          disabled={creating}
-          aria-busy={creating || undefined}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
-        >
-          {creating ? <ButtonSpinner size={12} /> : <BookPlus size={12} />}{" "}
-          {creating ? "Creating…" : "New notebook"}
-        </button>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {notebooks.map((nb) => (
-          <NotebookCard
-            key={nb.id}
-            company={company}
-            notebook={nb}
-            lastTouch={lastTouchByNotebook.get(nb.id) ?? 0}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function NotebookCard({
-  company,
-  notebook,
-  lastTouch,
-}: {
-  company: Company;
-  notebook: Notebook;
-  lastTouch: number;
-}) {
-  const navigate = useNavigate();
-  return (
-    <button
-      onClick={() => navigate(`/c/${company.slug}/notes/${notebook.slug}`)}
-      className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700"
-    >
-      <div className="flex items-center gap-2">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg dark:bg-slate-800">
-          {notebook.icon ? (
-            <span aria-hidden>{notebook.icon}</span>
-          ) : (
-            <Book size={16} className="text-slate-500 dark:text-slate-400" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {notebook.title || "Untitled notebook"}
-          </div>
-          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {notebook.noteCount === 0
-              ? "No pages yet"
-              : `${notebook.noteCount} page${notebook.noteCount === 1 ? "" : "s"}`}
-            {lastTouch > 0
-              ? ` · updated ${formatRelative(new Date(lastTouch).toISOString())}`
-              : ""}
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function RecentList({
-  company,
-  notes,
-  notebookById,
-}: {
-  company: Company;
-  notes: Note[];
-  notebookById: Map<string, Notebook>;
-}) {
-  return (
-    <div>
-      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <Clock size={12} />
-        Recently edited
-      </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        {notes.map((n, i) => (
-          <NoteListRow
-            key={n.id}
-            company={company}
-            note={n}
-            notebook={notebookById.get(n.notebookId) ?? null}
-            isLast={i === notes.length - 1}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function NoteListRow({
-  company,
-  note,
-  notebook,
-  isLast,
-}: {
-  company: Company;
-  note: Note;
-  notebook: Notebook | null;
-  isLast: boolean;
-}) {
-  const navigate = useNavigate();
-  const editor = note.lastEditedBy?.name ?? note.createdBy?.name ?? "Unknown";
-  const editorKind = note.lastEditedBy?.kind ?? note.createdBy?.kind ?? null;
-  return (
-    <button
-      onClick={() =>
-        navigate(
-          `/c/${company.slug}/notes/${notebook?.slug ?? ""}/${note.slug}`,
-        )
-      }
-      className={clsx(
-        "flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60",
-        !isLast && "border-b border-slate-100 dark:border-slate-800",
-      )}
-    >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-base dark:bg-slate-800">
-        {note.icon ? (
-          <span aria-hidden>{note.icon}</span>
-        ) : (
-          <FileText size={14} className="text-slate-500 dark:text-slate-400" />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-          {note.title || "Untitled"}
-        </div>
-        <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-          {notebook ? (
-            <span className="mr-2 inline-flex items-center gap-1 text-slate-400 dark:text-slate-500">
-              <Book size={10} /> {notebook.title}
-            </span>
-          ) : null}
-          {note.body && previewBody(note.body)}
-        </div>
-      </div>
-      <div className="hidden shrink-0 text-right text-xs text-slate-400 dark:text-slate-500 sm:block">
-        <div>{formatRelative(note.updatedAt)}</div>
-        <div className="truncate text-[11px]">
-          {editorKind === "ai" ? "AI · " : ""}
-          {editor}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function previewBody(body: string): string {
-  return body
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^[-*]\s+\[[ xX]\]\s+/gm, "")
-    .replace(/^[-*]\s+/gm, "")
-    .replace(/^>\s+/gm, "")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
-}
-
-function formatRelative(ts: string): string {
-  const then = new Date(ts).getTime();
-  const diff = Date.now() - then;
-  const min = 60_000;
-  const hour = 60 * min;
-  const day = 24 * hour;
-  if (diff < min) return "just now";
-  if (diff < hour) return `${Math.floor(diff / min)}m ago`;
-  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
-  return new Date(ts).toLocaleDateString();
-}
-
 function SearchResults({
-  company,
-  query,
   results,
+  query,
   searching,
-  notebookById,
+  hrefFor,
+  notebookTitle,
 }: {
-  company: Company;
+  results: NoteSearchHit[];
   query: string;
-  results: Note[];
   searching: boolean;
-  notebookById: Map<string, Notebook>;
+  hrefFor: (note: { slug: string; notebookId: string }) => string;
+  notebookTitle: (id: string) => string;
 }) {
-  const navigate = useNavigate();
   if (searching && results.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-        Searching for &quot;{query}&quot;…
+      <div className="flex items-center gap-2 py-6 text-sm text-slate-500 dark:text-slate-400">
+        <Spinner size={14} /> Searching for &ldquo;{query}&rdquo;…
       </div>
     );
   }
   if (results.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-900">
-        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-          No matches
-        </div>
-        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Nothing found for &quot;{query}&quot;. Try a different keyword.
-        </div>
+      <div className="rounded-xl border border-dashed border-slate-200 px-6 py-10 text-center dark:border-slate-700">
+        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">No pages match &ldquo;{query}&rdquo;</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Search looks at titles and page text. Try fewer or different words.
+        </p>
       </div>
     );
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-      {results.map((n, i) => {
-        const nb = notebookById.get(n.notebookId);
-        return (
-          <button
-            key={n.id}
-            onClick={() =>
-              navigate(`/c/${company.slug}/notes/${nb?.slug ?? ""}/${n.slug}`)
-            }
-            className={
-              "flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
-              (i > 0 ? "border-t border-slate-100 dark:border-slate-800" : "")
-            }
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-base dark:bg-slate-800">
-              {n.icon ? (
-                <span aria-hidden>{n.icon}</span>
-              ) : (
-                <FileText size={14} className="text-slate-500 dark:text-slate-400" />
+    <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+      {results.map((hit) => (
+        <li key={hit.id}>
+          <Link to={hrefFor(hit)} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
+              <NoteIcon icon={hit.icon} size={15} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">{hit.title || "Untitled"}</span>
+              {hit.snippet && (
+                <span className="mt-0.5 line-clamp-2 block text-xs text-slate-500 dark:text-slate-400">{hit.snippet}</span>
               )}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                {n.title || "Untitled"}
-              </div>
-              {nb && (
-                <div className="mb-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
-                  <Book size={10} /> {nb.title}
-                </div>
-              )}
-              {n.body && (
-                <div className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
-                  {snippetAround(n.body, query)}
-                </div>
-              )}
-            </div>
-            <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
-              {new Date(n.updatedAt).toLocaleDateString()}
+            <span className="hidden shrink-0 text-right text-[11px] text-slate-400 sm:block dark:text-slate-500">
+              {notebookTitle(hit.notebookId)}
+              <br />
+              {formatRelative(hit.updatedAt)}
             </span>
-          </button>
-        );
-      })}
-    </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function snippetAround(body: string, query: string): string {
-  const idx = body.toLowerCase().indexOf(query.toLowerCase());
-  if (idx < 0) return body.slice(0, 160);
-  const start = Math.max(0, idx - 40);
-  const end = Math.min(body.length, idx + query.length + 80);
-  const prefix = start === 0 ? "" : "…";
-  const suffix = end === body.length ? "" : "…";
-  return prefix + body.slice(start, end) + suffix;
+function EmptyHero({ onCreate, creating }: { onCreate: () => void; creating: boolean }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center sm:px-10 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+        <Sparkles size={22} />
+      </div>
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Write it down once, for everyone</h2>
+      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
+        A note is a page anyone in the company can read and edit — and AI Employees too, once you share it with them.
+      </p>
+      <ul className="mx-auto mt-6 grid max-w-2xl gap-3 text-left sm:grid-cols-3">
+        {[
+          ["Type /", "for headings, to-dos, toggles, callouts, code and more."],
+          ["Use Markdown", "as you type: # for a heading, - for a list, [] for a to-do."],
+          ["Nest pages", "inside pages and drag them around in the sidebar."],
+        ].map(([lead, rest]) => (
+          <li key={lead} className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{lead}</span> {rest}
+          </li>
+        ))}
+      </ul>
+      <Button className="mt-6" onClick={onCreate} loading={creating}>
+        <FilePlus size={15} /> Create your first page
+      </Button>
+    </div>
+  );
 }
-
-// Re-export Plus so other modules importing from this file keep working.
-export { Plus };
