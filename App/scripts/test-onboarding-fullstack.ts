@@ -913,8 +913,16 @@ try {
   assert.equal(await customerTable.locator("tbody tr").count(), 1);
   await waitForCustomerRange("1–1 of 1 customer");
 
+  // Ada Browser is Needle Holdings' contact, so this search finds the same one
+  // customer: the link left from the last search proves nothing, and the table
+  // drops those rows while it asks again. Count once this search has answered.
+  const contactSearch = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === customersApi && url.searchParams.get("q") === "Ada Browser";
+  });
   await customerSearch.fill("Ada Browser");
   await page.waitForURL((url) => url.searchParams.get("q") === "Ada Browser");
+  await contactSearch;
   await page.getByRole("link", { name: "Needle Holdings", exact: true }).waitFor();
   assert.equal(await customerTable.locator("tbody tr").count(), 1);
 
