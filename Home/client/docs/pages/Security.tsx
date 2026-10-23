@@ -255,10 +255,14 @@ export function Security() {
       <H2 id="api-keys">Personal API keys</H2>
       <P>
         A personal API key is bound to exactly one company and is accepted only under that
-        company&apos;s <Code>/api/companies/:cid</Code> REST surface. It cannot act as a browser
-        session to change account identity or MFA, accept invitations, create companies, mint
-        another key, or use instance administration. Password recovery and a confirmed email change
-        revoke all of the account&apos;s personal API keys.
+        company&apos;s <Code>/api/companies/:cid</Code> REST surface, with its Member&apos;s
+        current role and Finance access. It cannot act as a browser session to change account
+        identity or MFA, accept invitations, create companies, mint another key, or use instance
+        administration, and the operations that pass a human gate, hold credentials, or hand a
+        Member&apos;s authority to an AI Employee need a signed-in browser too. Password recovery
+        and a confirmed email change revoke all of the account&apos;s personal API keys. The{" "}
+        <DocLink to="/docs/api">REST API</DocLink> page covers minting a key, making requests, and
+        the full list of browser-only operations.
       </P>
 
       <H2 id="ai-employee-delegation">AI Employee delegation</H2>
