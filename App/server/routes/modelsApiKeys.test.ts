@@ -190,7 +190,7 @@ async function call<T = PublicModel>(
 
 const addKey = (modelId: string, apiKey: string) => {
   SENT.add(apiKey);
-  return call("POST", `/${modelId}/api-keys`, { apiKey });
+  return call("POST", `/${modelId}/keys`, { apiKey });
 };
 
 /** An Anthropic model connected with `keys`, the first as the primary. */
@@ -391,14 +391,11 @@ describe("adding backup keys", () => {
       { apiKey: 42 },
       { apiKey: backupKey(6), primary: true },
     ]) {
-      const response = await call("POST", `/${model.id}/api-keys`, body);
+      const response = await call("POST", `/${model.id}/keys`, body);
       assert.equal(response.status, 400, JSON.stringify(body));
       assert.equal((response.body as unknown as { error: string }).error, "ValidationError");
     }
-    assert.equal(
-      (await call("POST", `/not-a-uuid/api-keys`, { apiKey: backupKey(6) })).status,
-      400,
-    );
+    assert.equal((await call("POST", `/not-a-uuid/keys`, { apiKey: backupKey(6) })).status, 400);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY]);
   });
 
@@ -414,7 +411,7 @@ describe("reordering keys", () => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
     const ids = readApiKeys(model.configJson).map((key) => key.id);
-    const response = await call("POST", `/${model.id}/api-keys/reorder`, {
+    const response = await call("POST", `/${model.id}/keys/reorder`, {
       orderedIds: [ids[2], ids[0], ids[1]],
     });
     assert.equal(response.status, 200);
@@ -445,7 +442,7 @@ describe("reordering keys", () => {
       [ids[0], ids[1], randomUUID()],
       [...ids, randomUUID()],
     ]) {
-      const response = await call("POST", `/${model.id}/api-keys/reorder`, { orderedIds });
+      const response = await call("POST", `/${model.id}/keys/reorder`, { orderedIds });
       assert.equal(response.status, 409, JSON.stringify(orderedIds));
     }
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1), backupKey(2)]);
@@ -462,7 +459,7 @@ describe("reordering keys", () => {
       { orderedIds: ["not-an-id", ids[1]] },
       { orderedIds: ids, extra: 1 },
     ]) {
-      const response = await call("POST", `/${model.id}/api-keys/reorder`, body);
+      const response = await call("POST", `/${model.id}/keys/reorder`, body);
       assert.equal(response.status, 400, JSON.stringify(body));
     }
   });
@@ -488,7 +485,7 @@ describe("reordering keys", () => {
     });
     const [primary, backup] = readApiKeys(model.configJson);
     assert.equal(primary.id, LEGACY_PRIMARY_KEY_ID);
-    const response = await call("POST", `/${model.id}/api-keys/reorder`, {
+    const response = await call("POST", `/${model.id}/keys/reorder`, {
       orderedIds: [backup.id, LEGACY_PRIMARY_KEY_ID],
     });
     assert.equal(response.status, 200);
@@ -503,7 +500,7 @@ describe("removing keys", () => {
     const ids = readApiKeys(model.configJson).map((key) => key.id);
     await insert(AIModelKeyHealth, { modelId: model.id, keyId: ids[1], lastUsedAt: new Date() });
     await insert(AIModelKeyHealth, { modelId: model.id, keyId: ids[2], lastUsedAt: new Date() });
-    const response = await call("DELETE", `/${model.id}/api-keys/${ids[1]}`);
+    const response = await call("DELETE", `/${model.id}/keys/${ids[1]}`);
     assert.equal(response.status, 200);
     assert.deepEqual(
       response.body.apiKeys.map((key) => key.id),
@@ -527,7 +524,7 @@ describe("removing keys", () => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const [primary, backup] = readApiKeys(model.configJson);
-    const response = await call("DELETE", `/${model.id}/api-keys/${primary.id}`);
+    const response = await call("DELETE", `/${model.id}/keys/${primary.id}`);
     assert.equal(response.status, 200);
     assert.deepEqual(
       response.body.apiKeys.map((key) => key.id),
@@ -544,7 +541,7 @@ describe("removing keys", () => {
     stubVerification(t);
     const model = await claudeModel();
     const [only] = readApiKeys(model.configJson);
-    const response = await call("DELETE", `/${model.id}/api-keys/${only.id}`);
+    const response = await call("DELETE", `/${model.id}/keys/${only.id}`);
     assert.equal(response.status, 400);
     assert.match((response.body as unknown as { error: string }).error, /only API key/);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY]);
@@ -553,8 +550,8 @@ describe("removing keys", () => {
   test("an unknown key is not found, and a malformed id is refused", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1)]);
-    assert.equal((await call("DELETE", `/${model.id}/api-keys/${randomUUID()}`)).status, 404);
-    assert.equal((await call("DELETE", `/${model.id}/api-keys/not-a-key`)).status, 400);
+    assert.equal((await call("DELETE", `/${model.id}/keys/${randomUUID()}`)).status, 404);
+    assert.equal((await call("DELETE", `/${model.id}/keys/not-a-key`)).status, 400);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
 });
@@ -650,11 +647,10 @@ describe("who can see and change keys", () => {
     assert.equal(listed.body[0].apiKeys.length, 2);
     assert.equal((await addKey(model.id, backupKey(2))).status, 403);
     assert.equal(
-      (await call("POST", `/${model.id}/api-keys/reorder`, { orderedIds: [ids[1], ids[0]] }))
-        .status,
+      (await call("POST", `/${model.id}/keys/reorder`, { orderedIds: [ids[1], ids[0]] })).status,
       403,
     );
-    assert.equal((await call("DELETE", `/${model.id}/api-keys/${ids[1]}`)).status, 403);
+    assert.equal((await call("DELETE", `/${model.id}/keys/${ids[1]}`)).status, 403);
     assert.equal(calls.length, 0);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
@@ -673,7 +669,7 @@ describe("who can see and change keys", () => {
     assert.equal((await call("GET", "")).status, 403);
     assert.equal((await addKey(model.id, backupKey(2))).status, 403);
     const [, backup] = readApiKeys(model.configJson);
-    assert.equal((await call("DELETE", `/${model.id}/api-keys/${backup.id}`)).status, 403);
+    assert.equal((await call("DELETE", `/${model.id}/keys/${backup.id}`)).status, 403);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
 
@@ -689,12 +685,12 @@ describe("who can see and change keys", () => {
     const [, backup] = readApiKeys(theirs.configJson);
     // Their model id under our employee, and their employee under our company.
     assert.equal((await addKey(theirs.id, backupKey(2))).status, 404);
-    assert.equal((await call("DELETE", `/${theirs.id}/api-keys/${backup.id}`)).status, 404);
+    assert.equal((await call("DELETE", `/${theirs.id}/keys/${backup.id}`)).status, 404);
     assert.equal(
       (
         await call(
           "POST",
-          `/${theirs.id}/api-keys/reorder`,
+          `/${theirs.id}/keys/reorder`,
           { orderedIds: [backup.id] },
           { employee: mallory },
         )

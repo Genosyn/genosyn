@@ -34,7 +34,7 @@ export function ApiKeysPanel({
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
   const keys = model.apiKeys ?? [];
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/api-keys`;
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/keys`;
   const [newKey, setNewKey] = React.useState("");
   const [adding, setAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<unknown>(null);

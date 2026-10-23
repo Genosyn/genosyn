@@ -68,7 +68,7 @@ import {
  * `POST /:id/activate` flips the default model used by the runner and chat.
  * `GET /reusable` and `POST /reuse` let a new employee use an AI Model another
  * employee in the company already runs on, copied on the server (see
- * `services/modelReuse.ts`). `/:id/api-keys` adds, removes and reorders an
+ * `services/modelReuse.ts`). `/:id/keys` adds, removes and reorders an
  * API-key model's backup keys — as many as the owner wants — each shown only
  * as a preview with its health (see `services/modelApiKeySetup.ts`).
  */
@@ -623,9 +623,9 @@ const reorderApiKeysSchema = z
   })
   .strict();
 
-// POST /api/companies/:cid/employees/:eid/models/:id/api-keys — test a key, add it as a backup.
+// POST /api/companies/:cid/employees/:eid/models/:id/keys — test a key, add it as a backup.
 modelsRouter.post(
-  "/:id/api-keys",
+  "/:id/keys",
   validateParams(modelItemParamsSchema),
   validateBody(addApiKeySchema),
   async (req, res) => {
@@ -662,9 +662,9 @@ modelsRouter.post(
   },
 );
 
-// POST /api/companies/:cid/employees/:eid/models/:id/api-keys/reorder — the first is the primary.
+// POST /api/companies/:cid/employees/:eid/models/:id/keys/reorder — the first is the primary.
 modelsRouter.post(
-  "/:id/api-keys/reorder",
+  "/:id/keys/reorder",
   validateParams(modelItemParamsSchema),
   validateBody(reorderApiKeysSchema),
   async (req, res) => {
@@ -700,9 +700,9 @@ modelsRouter.post(
   },
 );
 
-// DELETE /api/companies/:cid/employees/:eid/models/:id/api-keys/:keyId — the next key moves up.
+// DELETE /api/companies/:cid/employees/:eid/models/:id/keys/:keyId — the next key moves up.
 modelsRouter.delete(
-  "/:id/api-keys/:keyId",
+  "/:id/keys/:keyId",
   validateParams(apiKeyItemParamsSchema),
   async (req, res) => {
     const p = req.params as Record<string, string>;
