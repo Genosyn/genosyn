@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   Between,
   IsNull,
   LessThanOrEqual,
   Like,
+  MoreThan,
   MoreThanOrEqual,
   Not,
   type Repository,
@@ -25,6 +27,7 @@ import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
 import { activeRunPause, resumeBudgetMs } from "./runPause.js";
 import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
 import { routineQueueHeldUntil } from "./routineQueueHold.js";
+import { claimedRuns, queuedRunsInStartOrder } from "./routineQueueOrder.js";
 import { isModelServiceUnavailable } from "./agent/modelError.js";
 import {
   modelRunCapacity,
@@ -43,9 +46,13 @@ const waiters = new Map<
 const workers = new Map<string, Promise<void>>();
 const activeClaims = new Map<string, string>();
 const admittingRoutines = new Set<string>();
+/** Runs a pass offered while their worker was still finishing an earlier attempt. */
 const requested = new Set<string>();
 let dispatchEnabled = true;
 let dispatchGeneration = 0;
+/** The dispatch pass under way, and whether another was asked for since it began. */
+let passing: Promise<void> | null = null;
+let passWanted = false;
 
 function canDispatch(): boolean {
   return dispatchEnabled && AppDataSource.isInitialized;
@@ -56,6 +63,7 @@ export function stopRoutineQueue(): void {
   dispatchEnabled = false;
   dispatchGeneration++;
   requested.clear();
+  passWanted = false;
 }
 
 /** Resume only after startup/restore has finished reconciling the initialized database. */
@@ -71,72 +79,52 @@ export function registerQueuedRun(run: Run): Promise<Run> {
   });
   // A caller may only need the accepted Run id. The durable result remains readable.
   void completion.catch(() => undefined);
-  requestRunDispatch(run.id);
+  // Offered in queue order with everything already waiting, so a new Run never
+  // takes an AI Model's slot from a Run ahead of it in the queue.
+  void dispatchQueuedRoutineRuns().catch((error) => {
+    // The next heartbeat offers it again.
+    // eslint-disable-next-line no-console
+    console.error(`[routine-dispatch] Run ${run.id} dispatch failed:`, error);
+  });
   return completion;
 }
 
-function requestRunDispatch(runId: string): void {
-  if (!canDispatch()) return;
-  requested.add(runId);
-  if (workers.has(runId)) return;
+/**
+ * What one pass through the queue has learned so far. A pass offers waiting
+ * Runs one at a time, in start order; once a Run finds its AI Model with no
+ * free slot, the Runs behind it on that model wait too, even if a slot frees
+ * before the pass reaches them. That slot belongs to the Run ahead, and the
+ * pass the freed slot asks for offers it to that Run first.
+ */
+type DispatchPass = { full: Set<string> };
+
+/**
+ * How long a pass waits for one Run's start to be decided before offering the
+ * next. A decision normally takes a few queries; this only keeps one Run stuck
+ * on a lock from holding every other Run, and the heartbeat, behind it.
+ */
+const ADMISSION_WAIT_MS = 15_000;
+
+/**
+ * Offer one waiting Run its start. Resolves once that is decided — the Run
+ * claimed its slot and is running, or it keeps waiting — not when it finishes.
+ */
+function requestRunDispatch(runId: string, pass: DispatchPass): Promise<void> {
+  if (!canDispatch()) return Promise.resolve();
+  if (workers.has(runId)) {
+    // Its worker is finishing an earlier attempt; that worker asks for
+    // another pass once it has, and the pass offers this Run in its turn.
+    requested.add(runId);
+    return Promise.resolve();
+  }
   const generation = dispatchGeneration;
   const canClaim = (): boolean => canDispatch() && generation === dispatchGeneration;
+  let decide!: () => void;
+  const decided = new Promise<void>((resolve) => {
+    decide = resolve;
+  });
   const work = Promise.resolve()
-    .then(async () => {
-      do {
-        if (!canClaim()) return;
-        requested.delete(runId);
-        await withSchedulerLease(`routine-run:${runId}`, 90_000, async (lease) => {
-          if (!canClaim()) return;
-          lease.assertHeld();
-          // An upgrade is about to restart Genosyn. This Run starts in the
-          // upgraded process instead of being cut off by the restart.
-          if (await routineQueueHeldUntil()) {
-            await noteHeldForUpgrade(runId);
-            return;
-          }
-          // Nothing starts while this process is pausing its Runs: one that
-          // did would only be paused again on the spot.
-          if (activeRunPause()) return;
-          // A saturated model admits no more Runs. This one stays queued, and
-          // because its deadline starts at the claim, waiting costs it nothing.
-          const target = await queuedRunModel(runId);
-          if (!canClaim()) return;
-          if (target && !(await modelAnswersForQueue(target.capacity.key, target.model))) {
-            await noteModelNotAnswering(runId, target);
-            return;
-          }
-          if (target && !target.continuation && (await slotHeldForContinuation(target))) {
-            await noteWaitingForContinuation(runId, target);
-            return;
-          }
-          let started = false;
-          const slot = await withModelRunSlot(target?.capacity ?? null, async () => {
-            const next = await claimRun(runId, lease.assertHeld, canClaim);
-            if (!next) return;
-            started = true;
-            // Each Run owns its lifecycle independently, including assessment and cleanup.
-            const claim = next.run.queueActiveEmployeeId!;
-            activeClaims.set(runId, claim);
-            try {
-              await processRun(next.run, next.routine);
-            } finally {
-              if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
-            }
-            if (target) await suspectOutageAfterModelFailure(runId, target);
-          });
-          if (!slot.admitted && target) await noteWaitingForModel(runId, target);
-          // Offer the slot this Run used to the next waiting Run now, not at
-          // the next heartbeat — and before this worker ends, so anyone
-          // awaiting an idle queue sees the next Run. A Run whose claim was
-          // refused for another reason (an earlier Run still cleaning up, a
-          // Standdown) used nothing: re-dispatching would only offer it the
-          // same slot again, forever. A failure here waits for the heartbeat.
-          if (started && target?.capacity.limit != null)
-            await dispatchQueuedRoutineRuns().catch(() => undefined);
-        });
-      } while (canClaim() && requested.has(runId));
-    })
+    .then(() => attemptRunStart(runId, pass, canClaim, decide))
     .catch((error) => {
       // The next heartbeat resumes durable pending work after transient database failures.
       // eslint-disable-next-line no-console
@@ -159,9 +147,90 @@ function requestRunDispatch(runId: string): void {
           });
       }
       workers.delete(runId);
-      if (canDispatch() && requested.has(runId)) requestRunDispatch(runId);
+      decide();
+      // A pass reached this Run while its worker was still busy. Offer it
+      // again, in queue order, rather than outside it.
+      if (canDispatch() && requested.delete(runId))
+        void dispatchQueuedRoutineRuns().catch(() => undefined);
     });
   workers.set(runId, work);
+  const timeout = new AbortController();
+  return Promise.race([
+    decided.finally(() => timeout.abort()),
+    sleep(ADMISSION_WAIT_MS, undefined, { ref: false, signal: timeout.signal }).catch(
+      () => undefined,
+    ),
+  ]);
+}
+
+async function attemptRunStart(
+  runId: string,
+  pass: DispatchPass,
+  canClaim: () => boolean,
+  admitted: () => void,
+): Promise<void> {
+  if (!canClaim()) return;
+  await withSchedulerLease(`routine-run:${runId}`, 90_000, async (lease) => {
+    if (!canClaim()) return;
+    lease.assertHeld();
+    // An upgrade is about to restart Genosyn. This Run starts in the
+    // upgraded process instead of being cut off by the restart.
+    if (await routineQueueHeldUntil()) {
+      await noteHeldForUpgrade(runId);
+      return;
+    }
+    // Nothing starts while this process is pausing its Runs: one that
+    // did would only be paused again on the spot.
+    if (activeRunPause()) return;
+    // A saturated model admits no more Runs. This one stays queued, and
+    // because its deadline starts at the claim, waiting costs it nothing.
+    const target = await queuedRunModel(runId);
+    if (!canClaim()) return;
+    if (target && !(await modelAnswersForQueue(target.capacity.key, target.model))) {
+      await noteModelNotAnswering(runId, target);
+      return;
+    }
+    const limited = target?.capacity.limit != null;
+    // A Run ahead of this one in the queue already found this model full.
+    if (target && limited && pass.full.has(target.capacity.key)) {
+      await noteWaitingForModel(runId, target);
+      return;
+    }
+    if (target && !target.continuation && (await slotHeldForContinuation(target))) {
+      // Every new Run behind this one on the model meets the same hold.
+      pass.full.add(target.capacity.key);
+      await noteWaitingForContinuation(runId, target);
+      return;
+    }
+    let started = false;
+    const slot = await withModelRunSlot(target?.capacity ?? null, async () => {
+      const next = await claimRun(runId, lease.assertHeld, canClaim);
+      if (!next) return;
+      started = true;
+      // The pass offers the next Run while this one works.
+      admitted();
+      // Each Run owns its lifecycle independently, including assessment and cleanup.
+      const claim = next.run.queueActiveEmployeeId!;
+      activeClaims.set(runId, claim);
+      try {
+        await processRun(next.run, next.routine);
+      } finally {
+        if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
+      }
+      if (target) await suspectOutageAfterModelFailure(runId, target);
+    });
+    if (!slot.admitted && target) {
+      pass.full.add(target.capacity.key);
+      await noteWaitingForModel(runId, target);
+    }
+    // Offer the slot this Run used to the next waiting Run now, not at
+    // the next heartbeat — and before this worker ends, so anyone
+    // awaiting an idle queue sees the next Run. A Run whose claim was
+    // refused for another reason (an earlier Run still cleaning up, a
+    // Standdown) used nothing: re-dispatching would only offer it the
+    // same slot again, forever. A failure here waits for the heartbeat.
+    if (started && limited) await dispatchQueuedRoutineRuns().catch(() => undefined);
+  });
 }
 
 async function claimRun(
@@ -205,14 +274,7 @@ async function claimRun(
   return withRoutineAdmission(routine.id, async (claims) => {
     // A terminal verdict can precede runtime/assessment cleanup. Every origin,
     // including a fresh manual Run, must wait for that exact ownership to end.
-    if (
-      await claims.existsBy({
-        routineId: routine.id,
-        id: Not(run.id),
-        queueActiveEmployeeId: Not(IsNull()),
-      })
-    )
-      return null;
+    if (await routineHasOtherClaim(claims, routine.id, run.id)) return null;
     if (!canClaim()) return null;
     assertHeld();
     // The legacy column now identifies this Run's claim, never an employee slot.
@@ -281,6 +343,16 @@ async function claimRun(
     run.queueActiveEmployeeId = claimId;
     return { run, routine };
   });
+}
+
+async function routineHasOtherClaim(
+  repo: Repository<Run>,
+  routineId: string,
+  runId: string,
+): Promise<boolean> {
+  return (await claimedRuns(repo)).some(
+    (other) => other.routineId === routineId && other.id !== runId,
+  );
 }
 
 /** Keep the sibling-claim check and write indivisible across dispatchers. */
@@ -456,26 +528,48 @@ async function settleWaiter(runId: string): Promise<void> {
   else waiter.reject(new Error("The queued Run was removed."));
 }
 
-/** Called after crash reconciliation on every heartbeat, including the first after restart. */
-export async function dispatchQueuedRoutineRuns(): Promise<void> {
-  if (!canDispatch()) return;
+/**
+ * Offer every waiting Run its start, in queue order. Called by the heartbeat
+ * after crash reconciliation (including the first after a restart), when a Run
+ * is queued, and when a Run on a limited AI Model frees its slot.
+ *
+ * One pass at a time: a call during a pass asks for one more after it, and
+ * resolves when that one is done. Within a pass Runs are offered one by one —
+ * each start decided before the next Run is asked — so the order is the one
+ * the queue promises, not whichever Run's database reads happened to finish
+ * first. The order (`routineQueueOrder.ts`): Runs paused for a restart, then
+ * continuations, then new work; within each, High priority before Normal,
+ * and otherwise the order they were queued in.
+ */
+export function dispatchQueuedRoutineRuns(): Promise<void> {
+  if (!canDispatch()) return Promise.resolve();
+  passWanted = true;
+  if (!passing) {
+    passing = (async () => {
+      try {
+        while (passWanted && canDispatch()) {
+          passWanted = false;
+          await dispatchPass();
+        }
+      } finally {
+        passing = null;
+      }
+    })();
+  }
+  return passing;
+}
+
+async function dispatchPass(): Promise<void> {
   for (const runId of waiters.keys()) {
     if (!canDispatch()) return;
     await settleWaiter(runId);
   }
   if (!canDispatch()) return;
-  // Oldest first, so a Run waiting for a busy AI Model is offered a freed slot
-  // before Runs queued after it. Runs paused for a restart go first, then
-  // continuations, then fresh work: each finishes an occurrence already begun.
-  const rows = await AppDataSource.getRepository(Run).find({
-    where: { status: "queued", employeeId: Not(IsNull()) },
-    select: { id: true, continuationCount: true, pauseCount: true },
-    order: { createdAt: "ASC" },
-  });
-  const resuming = rows.filter((run) => run.pauseCount > 0);
-  const continuing = rows.filter((run) => run.pauseCount <= 0 && run.continuationCount > 0);
-  const fresh = rows.filter((run) => run.pauseCount <= 0 && run.continuationCount <= 0);
-  for (const run of [...resuming, ...continuing, ...fresh]) requestRunDispatch(run.id);
+  const pass: DispatchPass = { full: new Set() };
+  for (const run of await queuedRunsInStartOrder()) {
+    if (!canDispatch()) return;
+    await requestRunDispatch(run.id, pass);
+  }
 }
 
 type QueuedRunModel = {
@@ -635,7 +729,13 @@ async function noteWaitingForModel(runId: string, target: QueuedRunModel): Promi
 
 /** Test/restore seam: await work already owned by this process, without creating new work. */
 export async function waitForRoutineQueueIdle(): Promise<void> {
-  while (workers.size) await Promise.all(workers.values());
+  while (workers.size || passing) {
+    await Promise.all(
+      [...workers.values(), passing ?? Promise.resolve()].map((work) =>
+        work.catch(() => undefined),
+      ),
+    );
+  }
 }
 
 /** Release a crashed worker's claim only after its bounded assessment work can finish. */
@@ -644,7 +744,20 @@ export async function releaseOrphanedQueueSlots(
   now: Date,
 ): Promise<void> {
   const repo = AppDataSource.getRepository(Run);
-  const rows = await repo.find({ where: { queueActiveEmployeeId: Not(IsNull()) } });
+  // Every heartbeat runs this. Through the claim index it reads the few Runs
+  // holding a claim; `IS NOT NULL` read every Run's transcript to find them.
+  const rows = await repo.find({
+    where: { queueActiveEmployeeId: MoreThan("") },
+    select: {
+      id: true,
+      routineId: true,
+      status: true,
+      startedAt: true,
+      finishedAt: true,
+      continuationDeadlineAt: true,
+      queueActiveEmployeeId: true,
+    },
+  });
   for (const run of rows) {
     if (run.status === "running") continue;
     if (workers.has(run.id)) continue;

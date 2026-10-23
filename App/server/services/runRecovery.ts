@@ -1,4 +1,12 @@
-import { Between, In, IsNull, LessThanOrEqual, Not } from "typeorm";
+import {
+  Between,
+  In,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Not,
+  type FindOperator,
+} from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -102,6 +110,15 @@ export const RETRY_DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
 const RETRY_DISPATCH_CLAIM_STORAGE_MS = Date.UTC(1900, 0, 1);
 const RETRY_DISPATCH_CLAIM_CLOCK_MS = Date.UTC(2020, 0, 1);
 const RETRY_DISPATCH_CLAIM_END_MS = Date.UTC(2000, 0, 1);
+
+/**
+ * Matches every Run with a `retryAt`: a due time or a dispatch claim stamp,
+ * which is never earlier than 1900. A range the `retryAt` index answers, where
+ * `IS NOT NULL` would read every Run in the table.
+ */
+export function anyRetryAt(): FindOperator<Date> {
+  return MoreThanOrEqual(new Date(RETRY_DISPATCH_CLAIM_STORAGE_MS));
+}
 
 export function isRetryDispatchClaimed(retryAt: Date | null): boolean {
   const value = retryAt?.getTime();
