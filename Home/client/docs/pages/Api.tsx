@@ -93,6 +93,15 @@ genosyn-api whoami
 genosyn-api revenue list-deals --limit 20
 genosyn-api call createRevenueContact name="Ada Lovelace" email=ada@example.com`}</Pre>
 
+      <H2 id="mcp">From an AI agent</H2>
+      <P>
+        The same keys open the <DocLink to="/docs/mcp-server">MCP server</DocLink>. Point Claude
+        Desktop, Claude Code, Cursor or any MCP client at <Code>/api/companies/&lt;id&gt;/mcp</Code>{" "}
+        and it can search, describe and call every operation in the reference below that a key can
+        call, by the same <Code>operationId</Code>s and under the same rules.{" "}
+        <Strong>Settings → API keys</Strong> shows the endpoint and each client&apos;s setup.
+      </P>
+
       <H2 id="reference">The API reference</H2>
       <KeyList
         rows={[
@@ -218,8 +227,11 @@ genosyn-api call createRevenueContact name="Ada Lovelace" email=ada@example.com`
         starting a <DocLink to="/docs/pipelines">Pipeline</DocLink> from its Webhook trigger, and
         posting to a <DocLink to="/docs/workspace-chat">workspace channel</DocLink> in Slack&apos;s
         format. Copy each URL from the app; the reference lists them under{" "}
-        <Strong>Inbound webhooks</Strong>. To drive an AI Employee&apos;s tools from another agent,
-        use its <DocLink to="/docs/integrations">MCP endpoint</DocLink> with the same API key.
+        <Strong>Inbound webhooks</Strong>. To give another agent everything a key can do, connect it
+        to the <DocLink to="/docs/mcp-server">MCP server</DocLink>; to have it act as one AI
+        Employee with that employee&apos;s tools, use the employee&apos;s{" "}
+        <DocLink to="/docs/integrations#external-mcp">MCP endpoint</DocLink>. Both take the same API
+        key.
       </P>
 
       <Callout kind="warn" title="Treat a key like your password for this company.">

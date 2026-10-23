@@ -117,7 +117,13 @@ trusted-origin check, is in `App/server/index.ts`.
    (`Authorization: Bearer gen_...`, `App/server/routes/apiKeys.ts`) are bound
    to one Company and act with their user's current role there. They cannot
    manage the account, MFA, invitations, other keys, or instance
-   administration.
+   administration. The Genosyn MCP server (`/api/companies/:cid/mcp`,
+   `App/server/routes/companyMcp.ts`) accepts only such a key — it never
+   reads the session cookie — refuses any browser `Origin` but the install's
+   public URL, and replays each tool call through the App's own router with
+   that same key (`App/server/services/companyMcp/dispatch.ts`). Reaching an
+   operation through it that the key could not reach over REST, or another
+   Company's data, is a vulnerability.
 3. **Other Companies on the same install.** Every `:cid` route must scope
    rows to that Company, including IDs that arrive in bodies and queries
    (another Company's Connection, Vault item, Repository, Base, employee,

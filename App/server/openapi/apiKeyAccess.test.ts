@@ -144,7 +144,7 @@ const REPRESENTATIVES: Record<string, string> = {
 const SKIPPED: Record<string, string> = {
   Autonomy: "Its reads are per AI Employee; covered by the journal test's employee instead.",
   Forms: "Every form lives inside a Base table.",
-  MCP: "JSON-RPC to an AI Employee; covered by its own route tests.",
+  MCP: "JSON-RPC to the Genosyn MCP server or an AI Employee; covered by their own route tests (routes/companyMcp*.test.ts).",
   "Chat surfaces": "Its key-friendly operations act on an existing identity.",
 };
 
