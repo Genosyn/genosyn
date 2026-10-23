@@ -61,6 +61,7 @@
     "test:clicks-mail": "tsx scripts/test-clicks-mail.ts",
     "test:clicks-tasks": "tsx scripts/test-clicks-tasks.ts",
     "test:clicks-routines": "tsx scripts/test-clicks-routines.ts",
+    "test:new-routine": "tsx scripts/test-new-routine.ts",
     "test:clicks-employees": "tsx scripts/test-clicks-employees.ts",
     "test:clicks-revenue": "tsx scripts/test-clicks-revenue.ts",
     "test:clicks-home": "tsx scripts/test-clicks-home.ts",

@@ -15,6 +15,7 @@ import { DEFAULT_CRON, cronIsReadable } from "../lib/cron";
 import { errorMessage } from "../lib/errors";
 import { MAX_INITIATIVE_REQUEST_LENGTH } from "../lib/initiativePrompt";
 import { submitFormOnModEnter } from "../lib/keyboard";
+import { type NewRoutineMode, newRoutineMode, withNewRoutineMode } from "../lib/newRoutineMode";
 import { ROUTINE_EXAMPLES, examplesStayOnOffer } from "../lib/routineExamples";
 import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { useInitiativeRequest } from "../lib/useInitiativeRequest";
@@ -26,11 +27,13 @@ import { TagPicker } from "../components/TagPicker";
 /**
  * Create a routine from the company-level section.
  *
- * Telling comes first: say what should happen and how often, and the AI
- * Employee you ask drafts the Routine as an Initiative for an owner or admin
- * to accept. Setting it up yourself is the way round that, with every field on
- * one form. The employee-scoped modal this replaces could assume its target;
- * here the employee is a field, since a routine is always *somebody's* work.
+ * The form comes first, with every field on it: whoever presses New routine
+ * fills it in and the Routine starts on its schedule. Describing the work is
+ * the other way in, one link under the form: say what should happen and how
+ * often, and the AI Employee you ask drafts the Routine as an Initiative for
+ * an owner or admin to accept. The employee-scoped modal this replaces could
+ * assume its target; here the employee is a field, since a routine is always
+ * *somebody's* work.
  */
 export default function RoutineNew({ company }: { company: Company }) {
   const { employees } = useOutletContext<RoutinesContext>();
@@ -87,7 +90,7 @@ const linkButton =
 
 function NewRoutine({ company }: { company: Company }) {
   const { employees, folders, refresh } = useOutletContext<RoutinesContext>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // Coming from an employee filter, pre-select that employee.
@@ -96,8 +99,7 @@ function NewRoutine({ company }: { company: Company }) {
   const presetFolder = searchParams.get("folder");
 
   // Only an employee whose AI Model can answer a Chat can be told, so only
-  // those are offered. With nobody to tell, setting it up yourself is the only
-  // way, and the page opens on it.
+  // those are offered. With nobody to tell, the form is the only way.
   const askable = React.useMemo(
     () => employees.filter((employee) => employee.chatReady === true),
     [employees],
@@ -109,9 +111,15 @@ function NewRoutine({ company }: { company: Company }) {
     preferredEmployeeId: employees.find((employee) => employee.slug === preset)?.id ?? null,
   });
   const form = useManualRoutine({ company, employees, folders, refresh, preset, presetFolder });
-  const [setUpYourself, setSetUpYourself] = React.useState(false);
 
   const canDescribe = askable.length > 0;
+  // The address holds the view (`?describe=1` while describing), so a New
+  // routine button pressed from the box — the sidebar's +, ⌘K — still lands on
+  // the form. Both ways keep their state here, above the switch, so nothing
+  // typed is lost going back and forth.
+  const mode = newRoutineMode(searchParams, canDescribe);
+  const switchTo = (next: NewRoutineMode) =>
+    setSearchParams((current) => withNewRoutineMode(current, next), { replace: true });
   const cancel = () => navigate(`/c/${company.slug}/routines`);
   // Whose AI Model settings to open when nobody can be asked yet: the employee
   // this list was narrowed to, else the first.
@@ -119,32 +127,17 @@ function NewRoutine({ company }: { company: Company }) {
 
   return (
     <NewRoutinePage company={company}>
-      {canDescribe && !setUpYourself ? (
+      {mode === "describe" ? (
         <>
           <DescribeRoutine company={company} askable={askable} ask={ask} onCancel={cancel} />
           <p className="mt-4">
-            <button type="button" className={linkButton} onClick={() => setSetUpYourself(true)}>
-              Set it up yourself
+            <button type="button" className={linkButton} onClick={() => switchTo("form")}>
+              Back to the form
             </button>
           </p>
         </>
       ) : (
         <>
-          {!canDescribe && (
-            <div
-              role="status"
-              className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-            >
-              Describing a Routine needs an AI Employee with a connected AI Model, and none has one
-              yet.{" "}
-              <Link
-                className="font-medium underline"
-                to={`/c/${company.slug}/employees/${modelOwner.slug}/settings/model`}
-              >
-                Connect an AI Model
-              </Link>
-            </div>
-          )}
           <SetUpRoutine
             companyId={company.id}
             employees={employees}
@@ -152,11 +145,22 @@ function NewRoutine({ company }: { company: Company }) {
             form={form}
             onCancel={cancel}
           />
-          {canDescribe && (
+          {canDescribe ? (
             <p className="mt-4">
-              <button type="button" className={linkButton} onClick={() => setSetUpYourself(false)}>
+              <button type="button" className={linkButton} onClick={() => switchTo("describe")}>
                 Describe it instead
               </button>
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+              Describing a Routine needs an AI Employee with a connected AI Model, and none has one
+              yet.{" "}
+              <Link
+                className="whitespace-nowrap font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                to={`/c/${company.slug}/employees/${modelOwner.slug}/settings/model`}
+              >
+                Connect an AI Model
+              </Link>
             </p>
           )}
         </>
@@ -166,7 +170,7 @@ function NewRoutine({ company }: { company: Company }) {
 }
 
 /**
- * The default way in: one box for what should happen and how often, handed to
+ * The other way in: one box for what should happen and how often, handed to
  * an AI Employee as a draft in Chat. The Member reads it there and sends it, or
  * does not; nothing is sent from this page.
  */
