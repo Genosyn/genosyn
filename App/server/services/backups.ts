@@ -566,7 +566,7 @@ export async function checkArchive(abs: string): Promise<ArchiveCheck> {
   if (!fs.existsSync(abs)) return "unreadable";
   let entries: Array<{ path: string; uncompressedSize: number }>;
   try {
-    entries = (await unzipper.Open.file(abs)).files;
+    entries = await readArchiveDirectory(abs);
   } catch {
     return "unreadable";
   }
@@ -575,6 +575,55 @@ export async function checkArchive(abs: string): Promise<ArchiveCheck> {
   );
   if (config.db.driver === "sqlite" && !holdsDatabase) return "no-database";
   return "restorable";
+}
+
+/**
+ * The entries an archive's central directory lists, read without leaving
+ * anything open on the file.
+ *
+ * `unzipper.Open.file` reads through two streams that it neither listens to
+ * for errors nor closes, and it can answer before the second has opened: an
+ * archive that lists no files needs nothing from it. A caller that removed the
+ * file next — {@link ingestUploadedArchive} turning an upload away — left that
+ * open to fail by itself, and a stream error nobody listens for is an uncaught
+ * exception, which stops the App. So every stream here has a listener, an
+ * error fails the read instead, and each one is closed, its open settled,
+ * before this returns.
+ */
+async function readArchiveDirectory(
+  abs: string,
+): Promise<Array<{ path: string; uncompressedSize: number }>> {
+  const streams: fs.ReadStream[] = [];
+  let failRead!: (err: unknown) => void;
+  const streamFailed = new Promise<never>((_resolve, reject) => {
+    failRead = reject;
+  });
+  // A stream that errors after the directory has been read changes nothing.
+  streamFailed.catch(() => undefined);
+  const source = {
+    size: async () => (await fs.promises.stat(abs)).size,
+    // The same byte range `Open.file` asks for.
+    stream: (start: number, length?: number) => {
+      const stream = fs.createReadStream(abs, { start, end: length ? start + length : undefined });
+      stream.on("error", failRead);
+      streams.push(stream);
+      return stream;
+    },
+  };
+  try {
+    return (await Promise.race([unzipper.Open.custom(source), streamFailed])).files;
+  } finally {
+    await Promise.all(streams.map(closeStream));
+  }
+}
+
+/** Close a stream and wait until it has — once an open still under way has finished. */
+function closeStream(stream: fs.ReadStream): Promise<void> {
+  if (stream.closed) return Promise.resolve();
+  return new Promise((resolve) => {
+    stream.once("close", () => resolve());
+    stream.destroy();
+  });
 }
 
 async function pruneOldBackupsInner(): Promise<number> {

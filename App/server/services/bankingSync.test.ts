@@ -68,6 +68,7 @@ beforeEach(async () => {
   setSyncRequestWaitForTests(null);
 });
 afterEach(() => {
+  for (const open of [...shutGates]) open();
   globalThis.fetch = originalFetch;
   setProviderRetrySleepForTests(null);
   setSyncRequestWaitForTests(null);
@@ -103,12 +104,29 @@ function respond(body: unknown, status = 200, headers: Record<string, string> = 
   });
 }
 
-/** A promise the test opens when it is ready for the work behind it to go on. */
+/** Gates a test left shut, opened after it so nothing waits on one for good. */
+const shutGates = new Set<() => void>();
+
+/**
+ * A promise the test opens when it is ready for the work behind it to go on.
+ *
+ * While it is shut it keeps the event loop running, as the provider request
+ * it stands in for would with its socket. Work waiting on a bare promise holds
+ * nothing, so a test whose only other timer is Sync now's wait — unref'd, so
+ * it never keeps a server up by itself — left Node an idle process, and
+ * node:test cancelled the waiting test and every test after it.
+ */
 function gate() {
   let open!: () => void;
   const opened = new Promise<void>((resolve) => {
-    open = resolve;
+    const running = setInterval(() => undefined, MINUTE);
+    open = () => {
+      clearInterval(running);
+      shutGates.delete(open);
+      resolve();
+    };
   });
+  shutGates.add(open);
   return { opened, open };
 }
 

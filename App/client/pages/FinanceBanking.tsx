@@ -432,7 +432,9 @@ export default function FinanceBanking() {
             Your bank accounts and cards, and every transaction on them.
           </p>
         </div>
-        {canWrite && accounts !== null && accounts.length > 0 && (
+        {/* Up front for anyone who can write, as on every Finance page — but
+            not beside the empty state, which offers it itself. */}
+        {canWrite && accounts?.length !== 0 && (
           <Button onClick={() => setAdding("csv")}>
             <Plus size={14} /> Add account
           </Button>
