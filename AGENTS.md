@@ -772,6 +772,19 @@ in a Work session instead of leaving them stranded as local commits.
 - **No business logic in route handlers** beyond request parsing + response
   shaping.
 - **Every new route** gets a zod schema for body/query/params.
+- **Every route is in the API reference.** `GET /api/openapi.json` (rendered
+  at `/api/docs`) is generated from the router stack by `server/openapi/`, so
+  anything a Member can do in the UI an API key can script. Mount routers in
+  `server/app.ts`, validate with `validateBody` / `validateQuery` /
+  `validateParams` so the schema is what gets documented, give a new router
+  its product area in `server/openapi/areas.ts`, describe an upload's form in
+  `uploads.ts`, and list a route no API client may call (loopback, provider
+  callbacks, redirects) in `exclusions.ts` with its reason —
+  `openapi/coverage.test.ts` fails until each is done. A guard that refuses
+  API keys is `requireBrowserSession`, or is marked with
+  `describeBrowserSessionOnly` / `describeBrowserSessionCondition`
+  (`middleware/routeMetadata.ts`); `openapi/apiKeySweep.test.ts` sends a real
+  key to every operation and fails when the reference and the server disagree.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

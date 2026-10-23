@@ -420,7 +420,7 @@ const resumeUpload = multer({
   limits: { fileSize: RESUME_MAX_BYTES, files: 1, fields: 30, fieldSize: 64 * 1024 },
 }).single("resume");
 
-const manualApplicationSchema = z
+export const manualApplicationSchema = z
   .object({
     name: z.string().max(400),
     email: z.string().max(400),

@@ -401,6 +401,12 @@ export const DOCS_NAV: DocsSection[] = [
     label: "Reference",
     pages: [
       {
+        path: "/docs/api",
+        title: "REST API",
+        blurb:
+          "Script everything a Member can do with a personal API key — the base URL, the auth header, /api/docs and /api/openapi.json.",
+      },
+      {
         path: "/docs/vocabulary",
         title: "Vocabulary",
         blurb: "Words we use, and the words we don't.",

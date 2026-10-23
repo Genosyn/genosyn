@@ -274,8 +274,10 @@ export function Integrations() {
       </P>
       <Pre lang="http">{`Authorization: Bearer gen_xxxxxxxx…`}</Pre>
       <P>
-        A key is scoped to a single company and authenticates as the member who minted it. Browse
-        the full REST surface at <ExtLink href="/api/docs">API reference</ExtLink>.
+        A key is scoped to a single company and authenticates as the member who minted it; this
+        endpoint needs an owner or admin. The same key drives the whole{" "}
+        <DocLink to="/docs/api">REST API</DocLink>, browsable on your install at{" "}
+        <ExtLink href="/api/docs">/api/docs</ExtLink>.
       </P>
 
       <H3 id="external-mcp-config">Transport &amp; client config</H3>
@@ -325,8 +327,8 @@ export function Integrations() {
       </P>
 
       <Callout kind="warn" title="An API key is a company-wide credential.">
-        Any valid key for a company can drive <em>any</em> employee in it — there is no per-employee
-        scope beyond company membership — and every write runs as that employee, landing in its
+        Any valid key an owner or admin minted for a company can drive <em>any</em> employee in it —
+        there is no per-employee scope beyond that — and every write runs as that employee, landing in its
         audit log and journal. Serve Genosyn over HTTPS, keep keys out of committed config, and
         revoke a leaked one at <Code>Settings → API keys</Code>.
       </Callout>

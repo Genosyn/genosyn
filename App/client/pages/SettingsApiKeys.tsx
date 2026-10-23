@@ -3,6 +3,7 @@ import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import { BookOpen, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
+import { apiKeyCurlExample, apiReferenceUrl, companyApiBaseUrl } from "../lib/apiAccess";
 import { copyToClipboard } from "../lib/clipboard";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -72,7 +73,7 @@ function ApiKeysCard({ company }: { company: Company }) {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <a
-                href="/api/docs"
+                href={apiReferenceUrl(window.location.origin)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -86,6 +87,7 @@ function ApiKeysCard({ company }: { company: Company }) {
           </div>
         </CardHeader>
         <CardBody>
+          <ApiBaseUrl companyId={company.id} />
           {loadError ? (
             <FormError message={loadError} />
           ) : rows === null ? (
@@ -145,8 +147,49 @@ function ApiKeysCard({ company }: { company: Company }) {
         }}
       />
 
-      <NewKeyTokenModal created={justCreated} onClose={() => setJustCreated(null)} />
+      <NewKeyTokenModal
+        created={justCreated}
+        companyId={company.id}
+        onClose={() => setJustCreated(null)}
+      />
     </>
+  );
+}
+
+/**
+ * Where this company's endpoints live. A key only works below this prefix, so
+ * it is the one thing a script needs besides the key itself.
+ */
+function ApiBaseUrl({ companyId }: { companyId: string }) {
+  const baseUrl = companyApiBaseUrl(window.location.origin, companyId);
+  const [copied, setCopied] = React.useState(false);
+  const [copyError, setCopyError] = React.useState<string | null>(null);
+  return (
+    <div className="mb-3 border-b border-slate-100 pb-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="font-medium text-slate-600 dark:text-slate-300">Base URL</span>
+        <code className="min-w-0 break-all rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          {baseUrl}
+        </code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label="Copy the base URL"
+          onClick={async () => {
+            setCopyError(null);
+            if (await copyToClipboard(baseUrl)) setCopied(true);
+            else setCopyError("Could not access the clipboard — copy the URL manually.");
+          }}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        Every request a key for this company makes starts here.
+      </p>
+      <FormError message={copyError} className="mt-2" />
+    </div>
   );
 }
 
@@ -294,9 +337,11 @@ function CreateApiKeyModal({
 
 function NewKeyTokenModal({
   created,
+  companyId,
   onClose,
 }: {
   created: ApiKeyCreated | null;
+  companyId: string;
   onClose: () => void;
 }) {
   const [copied, setCopied] = React.useState(false);
@@ -350,9 +395,11 @@ function NewKeyTokenModal({
             Try it
           </label>
           <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-            {`curl -H "Authorization: Bearer ${created.token}" \\
-  ${window.location.origin}/api/companies/<id>/employees`}
+            {apiKeyCurlExample(window.location.origin, companyId, created.token)}
           </pre>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            It answers with the Member the key acts as, their role, and the key.
+          </p>
         </div>
         <div className="flex justify-end pt-2">
           <Button onClick={onClose}>Done</Button>

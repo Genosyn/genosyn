@@ -103,7 +103,7 @@ contractsRouter.get("/contracts", async (req, res) => {
 // Text fields that ride alongside the multipart file. Parsed AFTER multer
 // runs (multipart bodies aren't available until then), so this validates
 // `req.body` by hand rather than via the `validateBody` middleware.
-const contractFieldsSchema = z.object({
+export const contractFieldsSchema = z.object({
   title: z.string().max(200).optional(),
   customerId: z.string().uuid().or(z.literal("")).optional(),
   signedAt: z.string().max(40).optional(),

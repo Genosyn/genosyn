@@ -54,7 +54,7 @@ import {
  * operator can remove from the suppression list in the UI. We chose the
  * recoverable failure.
  *
- * Mounting notes for `server/index.ts` (not touched by this file): the router
+ * Mounting notes for `server/app.ts` (not touched by this file): the router
  * must go **before** `requireTrustedOrigin`, because a one-click POST carries no
  * Origin at all, and it needs no body parser — the one-click body
  * (`List-Unsubscribe=One-Click`) is confirmation of intent we already have from

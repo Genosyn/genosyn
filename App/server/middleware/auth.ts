@@ -11,6 +11,7 @@ import {
 } from "../services/browserRequestBoundary.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
 import { config } from "../../config.js";
+import { withRouteMetadata } from "./routeMetadata.js";
 import {
   createUserSession,
   resolveUserSession,
@@ -214,24 +215,31 @@ export function roleAtLeast(role: Role, candidate: Role): boolean {
 }
 
 export function requireCompanyRole(minimum: Role) {
-  return (req: Request, res: Response, next: NextFunction): void | Response => {
-    if (!req.companyRole || !roleAtLeast(minimum, req.companyRole)) {
-      return res.status(403).json({ error: `${minimum} company role required` });
-    }
-    next();
-  };
+  return withRouteMetadata(
+    (req: Request, res: Response, next: NextFunction): void | Response => {
+      if (!req.companyRole || !roleAtLeast(minimum, req.companyRole)) {
+        return res.status(403).json({ error: `${minimum} company role required` });
+      }
+      next();
+    },
+    // Read back by the OpenAPI document to say which role an operation needs.
+    { kind: "companyRole", minimum, mutationsOnly: false },
+  );
 }
 
 /** Keep reads collaborative while reserving configuration changes for admins. */
 export function requireCompanyRoleForMutations(minimum: Role) {
   const gate = requireCompanyRole(minimum);
-  return (req: Request, res: Response, next: NextFunction): void | Response => {
-    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-      next();
-      return;
-    }
-    return gate(req, res, next);
-  };
+  return withRouteMetadata(
+    (req: Request, res: Response, next: NextFunction): void | Response => {
+      if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      return gate(req, res, next);
+    },
+    { kind: "companyRole", minimum, mutationsOnly: true },
+  );
 }
 
 export type RoutePathMatcher = string | RegExp;
@@ -280,13 +288,18 @@ export function onRoutePaths(
   matchers: readonly RoutePathMatcher[],
   middleware: RequestHandler,
 ): RequestHandler {
-  return (req, res, next) => {
-    if (!matchesRoutePath(req.path, matchers)) {
-      next();
-      return;
-    }
-    return middleware(req, res, next);
-  };
+  return withRouteMetadata<RequestHandler>(
+    (req, res, next) => {
+      if (!matchesRoutePath(req.path, matchers)) {
+        next();
+        return;
+      }
+      return middleware(req, res, next);
+    },
+    // The OpenAPI document evaluates the same matchers against each route's
+    // path to know which operations the scoped guard covers.
+    { kind: "pathScoped", matchers, middleware },
+  );
 }
 
 /**

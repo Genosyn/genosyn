@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { Router, type Request, type Response } from "express";
+import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { EMPLOYEE_TEMPLATES, TEMPLATE_CATEGORIES } from "../services/templates.js";
 
 /**
@@ -10,7 +10,7 @@ import { EMPLOYEE_TEMPLATES, TEMPLATE_CATEGORIES } from "../services/templates.j
 export const templatesRouter = Router();
 templatesRouter.use(requireAuth);
 
-templatesRouter.get("/employee-templates", (_req, res) => {
+function listEmployeeTemplates(_req: Request, res: Response) {
   // Return templates grouped by the canonical category order so the hire
   // screen can render labeled sections without owning the ordering itself.
   res.json(
@@ -26,4 +26,14 @@ templatesRouter.get("/employee-templates", (_req, res) => {
       })),
     ),
   );
-});
+}
+
+templatesRouter.get("/employee-templates", listEmployeeTemplates);
+
+// The same catalogue below a company, where an API key — which only works for
+// its own company's paths — can read it to hire from a template.
+templatesRouter.get(
+  "/companies/:cid/employee-templates",
+  requireCompanyMember,
+  listEmployeeTemplates,
+);

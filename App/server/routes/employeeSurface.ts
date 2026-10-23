@@ -625,7 +625,9 @@ employeeSurfaceRouter.post("/:eid/journal", validateBody(journalNoteSchema), asy
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
   const body = req.body as z.infer<typeof journalNoteSchema>;
-  const userId = req.session?.userId ?? null;
+  // `req.userId` is set for a session and an API key alike; the cookie's own
+  // field left a note written through the API without an author.
+  const userId = req.userId ?? null;
   const repo = AppDataSource.getRepository(JournalEntry);
   const entry = repo.create({
     employeeId: loaded.emp.id,
