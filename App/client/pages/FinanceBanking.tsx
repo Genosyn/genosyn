@@ -3,18 +3,18 @@ import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   CreditCard,
+  Inbox,
   Landmark,
-  Layers,
   Plus,
   RefreshCw,
   Search,
-  Trash2,
   Upload,
   Wallet,
 } from "lucide-react";
 import {
   Account,
   api,
+  ApiError,
   BankFeed,
   BankingAccount,
   BankingStatus,
@@ -22,16 +22,18 @@ import {
   BrexCashAccount,
   CardCategoryDrift,
   CardFeed,
-  CardSyncResult,
   CardTransaction,
   Company,
   CompanyFinanceSettings,
+  FeedSyncResponse,
   formatMoney,
   IntegrationConnection,
   WiseBalanceChoice,
 } from "../lib/api";
+import { describeSync, isCsvAccount, syncNotice, type SyncViewer } from "../lib/bankingSync";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
+import { useNow } from "../lib/useNow";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -45,6 +47,15 @@ import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { type BankingRow, rowKey, unselectableReason } from "../lib/bankingBulk";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import {
+  ACCOUNT_GRID,
+  AccountCard,
+  accountKey,
+  AccountPanelHeader,
+  AccountStripSkeleton,
+  AllAccountsCard,
+  ChangeConnectionModal,
+} from "./FinanceBankingAccounts";
 import { BankingBulkBar, BankingSelectAll, useBankingBulk } from "./FinanceBankingBulk";
 import { CardCategoryFixes } from "./FinanceBankingCardFixes";
 import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransaction";
@@ -53,19 +64,27 @@ import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransact
  * Banking — the company's bank accounts and cards, and every transaction on
  * them, at `/finance/banking`.
  *
- * The accounts sit across the top; picking one narrows the list to it. The
- * list opens on To review: the bank transactions nothing explains yet, the
- * card purchases waiting for someone to keep their category or pick another,
- * and any card purchase that couldn't be added to the books. Explaining a
- * bank transaction is a choice between three plain answers — it paid an
- * invoice, it is already in the books, or it gets a category — and Undo takes
- * any of them back. Ticking several opens the bulk bar, which categorizes,
- * marks reviewed, or sends back to review all of them at once. Bank and card
- * accounts are `BankFeed`s and `CardFeed`s underneath; this page replaced
- * Reconciliation and Card expenses, which showed each kind alone.
+ * The accounts sit across the top as cards: what each is and where it comes
+ * from, its balance when the provider reports one, what waits for review, and
+ * how its sync is doing — "Synced 4 min ago", "Syncing…", or "Sync failed"
+ * with the reason and what fixes it. Connected accounts sync on their own in
+ * the background (`server/services/bankingSync.ts`); Sync now on a card syncs
+ * it at once. The All accounts card sums up what waits and whether every
+ * account is keeping up.
  *
- * A read-only Member sees every account and transaction, without the
- * controls that add accounts, import, sync, explain, tick, or undo.
+ * Picking an account narrows the list below to it. The list opens on To
+ * review: the bank transactions nothing explains yet, the card purchases
+ * waiting for someone to keep their category or pick another, and any card
+ * purchase that couldn't be added to the books. Explaining a bank transaction
+ * is a choice between three plain answers — it paid an invoice, it is already
+ * in the books, or it gets a category — and Undo takes any of them back.
+ * Ticking several opens the bulk bar, which categorizes, marks reviewed, or
+ * sends back to review all of them at once. Bank and card accounts are
+ * `BankFeed`s and `CardFeed`s underneath.
+ *
+ * A read-only Member sees every account, its sync status and every
+ * transaction, without the controls that add accounts, sync, import, explain,
+ * tick, or undo.
  */
 
 type Tab = BankingStatus | "all";
@@ -75,36 +94,23 @@ type Row = BankingRow;
 /** One empty list while the transactions load, so the selection isn't recomputed each render. */
 const NO_ROWS: Row[] = [];
 
-/** What kind of account this is, in a few words. */
-function accountKindLabel(account: BankingAccount): string {
-  if (account.kind === "card") return "Brex card";
-  if (account.feed.kind === "brex_cash") return "Brex business account";
-  if (account.feed.kind === "wise_balance") return "Wise balance";
-  if (account.feed.kind === "stripe_payouts") return "Stripe payouts";
-  return "Bank account · CSV uploads";
+/** How often the page looks again while an account it shows is syncing. */
+const SYNC_POLL_MS = 4_000;
+
+/** What `Sync now` needs to know about an account. */
+type SyncTarget = { kind: "bank" | "card"; id: string; name: string };
+
+function targetOf(account: BankingAccount): SyncTarget {
+  return { kind: account.kind, id: account.feed.id, name: account.feed.name };
 }
 
-function AccountIcon({ account, size = 16 }: { account: BankingAccount | null; size?: number }) {
-  if (!account) return <Layers size={size} />;
-  if (account.kind === "card") return <CreditCard size={size} />;
-  if (account.feed.kind === "stripe_payouts") return <Wallet size={size} />;
-  return <Landmark size={size} />;
-}
-
-function lastUpdated(iso: string | null): string {
-  if (!iso) return "Not updated yet";
-  return `Updated ${new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })}`;
-}
+const keyOfTarget = (target: SyncTarget) => `${target.kind}:${target.id}`;
 
 export default function FinanceBanking() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const canWrite = canWriteFinance(company);
   const dialog = useDialog();
+  const now = useNow(30_000);
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("account") ?? "";
   const rawTab = searchParams.get("status");
@@ -114,18 +120,25 @@ export default function FinanceBanking() {
   const [ledger, setLedger] = React.useState<Account[]>([]);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
   const [bankTxns, setBankTxns] = React.useState<BankTransaction[] | null>(null);
   const [cardTxns, setCardTxns] = React.useState<CardTransaction[] | null>(null);
   const [listError, setListError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [openId, setOpenId] = React.useState<string | null>(null);
-  const [adding, setAdding] = React.useState(false);
+  /** The Add account form, open on this kind of account. */
+  const [adding, setAdding] = React.useState<NewAccountKind | null>(null);
   const [importing, setImporting] = React.useState<BankFeed | null>(null);
-  const [syncing, setSyncing] = React.useState(false);
+  const [changingConnection, setChangingConnection] = React.useState<BankingAccount | null>(null);
+  /** Accounts whose Sync now hasn't answered yet, by `accountKey`. */
+  const [pending, setPending] = React.useState<ReadonlySet<string>>(() => new Set());
+  /** A Sync now that couldn't be asked at all — not a sync that ran and failed. */
+  const [requestErrors, setRequestErrors] = React.useState<Readonly<Record<string, string>>>({});
   const [removing, setRemoving] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [cardFixes, setCardFixes] = React.useState<CardCategoryDrift[]>([]);
 
+  const loadedOnce = accounts !== null;
   const reloadAccounts = React.useCallback(async () => {
     try {
       const [list, chart, settings] = await Promise.all([
@@ -138,8 +151,12 @@ export default function FinanceBanking() {
       setHomeCurrency(settings.homeCurrency);
       setLoadError(null);
     } catch (err) {
-      setAccounts([]);
-      setLoadError(errorMessage(err, "Couldn't load your accounts"));
+      // Once the accounts are on screen a reload that fails — a poll while one
+      // syncs, a live refresh — keeps them there; the next one tries again.
+      setAccounts((current) => {
+        if (current === null) setLoadError(errorMessage(err, "Couldn't load your accounts"));
+        return current;
+      });
     }
   }, [company.id]);
 
@@ -148,14 +165,13 @@ export default function FinanceBanking() {
   }, [reloadAccounts]);
 
   const selected = accounts?.find((account) => account.feed.id === selectedId) ?? null;
-  const accountsLoaded = accounts !== null;
   // Which lists to load: the selected account's kind, or every kind there is.
   const wantBank = selected ? selected.kind === "bank" : !!accounts?.some((a) => a.kind === "bank");
   const wantCard = selected ? selected.kind === "card" : !!accounts?.some((a) => a.kind === "card");
   const feedId = selected?.feed.id ?? "";
 
   const reloadTransactions = React.useCallback(async () => {
-    if (!accountsLoaded) return;
+    if (!loadedOnce) return;
     const query = new URLSearchParams();
     if (feedId) query.set("feedId", feedId);
     if (tab !== "all") query.set("status", tab);
@@ -177,7 +193,7 @@ export default function FinanceBanking() {
       setCardTxns([]);
       setListError(errorMessage(err, "Couldn't load the transactions"));
     }
-  }, [accountsLoaded, company.id, feedId, tab, wantBank, wantCard]);
+  }, [loadedOnce, company.id, feedId, tab, wantBank, wantCard]);
 
   React.useEffect(() => {
     setBankTxns(null);
@@ -218,12 +234,28 @@ export default function FinanceBanking() {
   useLiveRefetch("cardexpense", () => void reloadCardFixes());
   useLiveRefetch("financeaccount", () => void reloadAccounts());
 
+  // While an account syncs — the background sync's or a Sync now's — look
+  // again every few seconds: the live refresh says when it is done, and this
+  // still does where the live connection can't reach. When the last one
+  // finishes, the list may have new transactions.
+  const anySyncing = pending.size > 0 || !!accounts?.some((account) => account.sync.syncing);
+  React.useEffect(() => {
+    if (!anySyncing) return;
+    const timer = window.setInterval(() => void reloadAccounts(), SYNC_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [anySyncing, reloadAccounts]);
+  const wasSyncing = React.useRef(false);
+  React.useEffect(() => {
+    if (wasSyncing.current && !anySyncing) void reloadTransactions();
+    wasSyncing.current = anySyncing;
+  }, [anySyncing, reloadTransactions]);
+
   // A sync or import summary is about one account — drop it when the view moves.
   React.useEffect(() => setNotice(null), [selectedId]);
 
-  function select(feedId: string) {
+  function select(id: string) {
     const next = new URLSearchParams(searchParams);
-    if (feedId) next.set("account", feedId);
+    if (id) next.set("account", id);
     else next.delete("account");
     setSearchParams(next);
   }
@@ -234,6 +266,20 @@ export default function FinanceBanking() {
     else params.set("status", next);
     setSearchParams(params);
   }
+
+  const viewer: SyncViewer = { companySlug: company.slug, role: company.role, canWrite };
+  // A Sync now this page is waiting on shows as syncing at once — on its card
+  // and in the All accounts summary — before the server's own mark arrives.
+  const shown = React.useMemo(
+    () =>
+      accounts?.map((account) =>
+        pending.has(accountKey(account)) && !account.sync.syncing
+          ? { ...account, sync: { ...account.sync, syncing: true } }
+          : account,
+      ) ?? null,
+    [accounts, pending],
+  );
+  const lineOf = (account: BankingAccount) => describeSync(account, now, viewer);
 
   const nameById = React.useMemo(
     () => new Map((accounts ?? []).map((account) => [account.feed.id, account.feed.name])),
@@ -306,32 +352,33 @@ export default function FinanceBanking() {
   const total = scope.reduce((sum, account) => sum + account.total, 0);
   const counts: Record<Tab, number> = { review: toReview, done: total - toReview, all: total };
 
-  async function sync(account: BankingAccount) {
-    setSyncing(true);
+  async function syncNow(target: SyncTarget) {
+    const key = keyOfTarget(target);
+    setPending((current) => new Set(current).add(key));
+    setRequestErrors(({ [key]: _previous, ...rest }) => rest);
     setNotice(null);
     try {
-      if (account.kind === "bank") {
-        const result = await api.post<{ inserted: number; matched: number }>(
-          `/api/companies/${company.id}/bank-feeds/${account.feed.id}/sync`,
-        );
-        setNotice(
-          `${plural(result.inserted, "new transaction")}` +
-            (result.matched ? ` · ${result.matched} matched to payments already recorded` : ""),
-        );
-      } else {
-        const result = await api.post<CardSyncResult>(
-          `/api/companies/${company.id}/card-feeds/${account.feed.id}/sync`,
-        );
-        setNotice(
-          `${plural(result.inserted, "new transaction")}` +
-            (result.failed ? ` · ${result.failed} couldn't be added to the books` : ""),
-        );
-      }
-      await reloadAll();
+      const response = await api.post<FeedSyncResponse>(
+        target.kind === "bank"
+          ? `/api/companies/${company.id}/bank-feeds/${target.id}/sync`
+          : `/api/companies/${company.id}/card-feeds/${target.id}/sync`,
+      );
+      const said = syncNotice(response);
+      if (said) setNotice(`${target.name}: ${said}`);
     } catch (err) {
-      void dialog.error(err, { title: `Couldn’t update ${account.feed.name}` });
+      // A sync that ran and failed is on the account now, and its card says
+      // why. Only a request that never reached the sync is said here.
+      const recorded = err instanceof ApiError && [400, 404, 409].includes(err.status);
+      if (!recorded) {
+        setRequestErrors((current) => ({ ...current, [key]: errorMessage(err) }));
+      }
     } finally {
-      setSyncing(false);
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+      await reloadAll();
     }
   }
 
@@ -341,7 +388,7 @@ export default function FinanceBanking() {
       message:
         account.kind === "bank"
           ? "Its transactions leave Banking. What they already put in your books — invoice payments and categories — stays."
-          : "A card can be removed only before its first update: once its purchases are in your books, they stay.",
+          : "A card can be removed only before its first sync: once its purchases are in your books, they stay.",
       variant: "danger",
       confirmLabel: "Remove",
     });
@@ -362,73 +409,77 @@ export default function FinanceBanking() {
     }
   }
 
+  async function retryLoad() {
+    setRetrying(true);
+    await reloadAccounts();
+    setRetrying(false);
+  }
+
+  const shownSelected = shown?.find((account) => account.feed.id === selectedId) ?? null;
+  const selectedLine = shownSelected ? lineOf(shownSelected) : null;
+
   return (
     <div className={clsx("page-shell p-4 sm:p-8", showBulkBar && "pb-28 sm:pb-28")}>
-      <div className="mb-6">
+      <div className="mb-5">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Banking" }]}
         />
       </div>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Banking</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Your bank accounts and cards, and every transaction on them. Go through the ones waiting
-            for review: say which invoices a deposit paid, or what a payment was for.
-            {canWrite && " Tick several to categorize them all at once."}
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Your bank accounts and cards, and every transaction on them.
           </p>
         </div>
-        {canWrite && (
-          <Button onClick={() => setAdding(true)}>
+        {canWrite && accounts !== null && accounts.length > 0 && (
+          <Button onClick={() => setAdding("csv")}>
             <Plus size={14} /> Add account
           </Button>
         )}
-      </div>
+      </header>
 
       {loadError ? (
-        <FormError message={loadError} />
-      ) : accounts === null ? (
-        <div className="flex justify-center p-16">
-          <Spinner size={20} />
+        <div className="space-y-3">
+          <FormError message={loadError} />
+          <Button variant="secondary" onClick={() => void retryLoad()} loading={retrying}>
+            <RefreshCw size={14} /> Try again
+          </Button>
         </div>
-      ) : accounts.length === 0 ? (
-        <NoAccounts canWrite={canWrite} onAdd={() => setAdding(true)} />
+      ) : accounts === null ? (
+        <>
+          <AccountStripSkeleton />
+          <ListSkeleton className="mt-6" />
+        </>
+      ) : shown === null || shown.length === 0 ? (
+        <NoAccounts canWrite={canWrite} onAdd={(kind) => setAdding(kind)} />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <AccountCard
-              title="All accounts"
-              subtitle={plural(accounts.length, "account")}
-              account={null}
-              toReview={accounts.reduce((sum, account) => sum + account.toReview, 0)}
+          <section aria-label="Accounts" className={ACCOUNT_GRID}>
+            <AllAccountsCard
+              accounts={shown}
+              now={now}
               active={!selected}
-              onClick={() => select("")}
+              onSelect={() => select("")}
             />
-            {accounts.map((account) => (
+            {shown.map((account) => (
               <AccountCard
-                key={account.feed.id}
-                title={account.feed.name}
-                subtitle={accountKindLabel(account)}
+                key={accountKey(account)}
                 account={account}
-                toReview={account.toReview}
+                line={lineOf(account)}
+                now={now}
                 active={selected?.feed.id === account.feed.id}
-                onClick={() => select(account.feed.id)}
+                canWrite={canWrite}
+                busy={pending.has(accountKey(account))}
+                requestError={requestErrors[accountKey(account)] ?? null}
+                onSelect={() => select(account.feed.id)}
+                onSync={() => void syncNow(targetOf(account))}
+                onImport={() => setImporting(account.feed as BankFeed)}
+                onChooseConnection={() => setChangingConnection(account)}
               />
             ))}
-          </div>
+          </section>
 
-          {selected && (
-            <AccountToolbar
-              account={selected}
-              ledger={ledger}
-              canWrite={canWrite}
-              syncing={syncing}
-              removing={removing}
-              onSync={() => void sync(selected)}
-              onImport={() => setImporting(selected.feed as BankFeed)}
-              onRemove={() => void remove(selected)}
-            />
-          )}
           <FormSuccess message={notice} className="mt-3" />
           <CardCategoryFixes
             company={company}
@@ -440,9 +491,23 @@ export default function FinanceBanking() {
             }}
           />
 
-          <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <section
+            aria-label="Transactions"
+            className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
+          >
+            <AccountPanelHeader
+              account={shownSelected}
+              accounts={shown}
+              ledger={ledger}
+              line={selectedLine}
+              canWrite={canWrite}
+              removing={removing}
+              onImport={() => selected && setImporting(selected.feed as BankFeed)}
+              onChooseConnection={() => selected && setChangingConnection(selected)}
+              onRemove={() => selected && void remove(selected)}
+            />
             <div className="flex flex-col gap-3 border-b border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
-              <div className="flex gap-1" role="tablist" aria-label="Transactions">
+              <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="tablist" aria-label="Transactions">
                 {(
                   [
                     ["review", "To review"],
@@ -457,14 +522,16 @@ export default function FinanceBanking() {
                     aria-selected={tab === value}
                     onClick={() => pickTab(value)}
                     className={clsx(
-                      "rounded-md px-3 py-1.5 text-sm font-medium transition",
+                      "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition",
                       tab === value
                         ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
                         : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
                     )}
                   >
                     {label}
-                    <span className="ml-1.5 text-xs tabular-nums text-slate-400">{counts[value]}</span>
+                    <span className="ml-1.5 text-xs tabular-nums text-slate-400">
+                      {counts[value].toLocaleString()}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -484,16 +551,20 @@ export default function FinanceBanking() {
             </div>
 
             {listError ? (
-              <FormError message={listError} className="m-4" />
-            ) : rows === null ? (
-              <div className="flex justify-center p-16">
-                <Spinner size={20} />
+              <div className="space-y-3 p-4">
+                <FormError message={listError} />
+                <Button size="sm" variant="secondary" onClick={() => void reloadTransactions()}>
+                  <RefreshCw size={14} /> Try again
+                </Button>
               </div>
+            ) : rows === null ? (
+              <ListSkeleton />
             ) : rows.length === 0 ? (
               <EmptyList
                 tab={tab}
                 searching={!!search.trim()}
                 selected={selected}
+                syncing={!!selected && (selected.sync.syncing || pending.has(accountKey(selected)))}
                 canWrite={canWrite}
               />
             ) : (
@@ -542,7 +613,7 @@ export default function FinanceBanking() {
                 </ul>
               </>
             )}
-          </div>
+          </section>
           {rows && rows.length >= 500 && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Showing the newest 500 of each kind. Pick an account or search to narrow the list.
@@ -555,7 +626,7 @@ export default function FinanceBanking() {
         <BankingBulkBar
           bulk={bulk}
           accounts={ledger}
-          bankLedgerAccountOf={(feedId) => bankAccountOf.get(feedId)}
+          bankLedgerAccountOf={(id) => bankAccountOf.get(id)}
         />
       )}
 
@@ -563,12 +634,21 @@ export default function FinanceBanking() {
         <AddAccountModal
           company={company}
           ledger={ledger}
-          onClose={() => setAdding(false)}
+          initialKind={adding}
+          onClose={() => setAdding(null)}
           onAdded={async (feed, kind) => {
-            setAdding(false);
+            setAdding(null);
             await reloadAccounts();
             select(feed.id);
             if (kind === "csv") setImporting(feed as BankFeed);
+            // Its first sync starts now rather than at the next background pass.
+            else {
+              void syncNow({
+                kind: kind === "brex_card" ? "card" : "bank",
+                id: feed.id,
+                name: feed.name,
+              });
+            }
           }}
         />
       )}
@@ -588,6 +668,20 @@ export default function FinanceBanking() {
           }}
         />
       )}
+      {changingConnection && (
+        <ChangeConnectionModal
+          company={company}
+          account={changingConnection}
+          onClose={() => setChangingConnection(null)}
+          onChanged={async () => {
+            const target = targetOf(changingConnection);
+            setChangingConnection(null);
+            await reloadAccounts();
+            // Try the new Connection straight away.
+            void syncNow(target);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -596,138 +690,108 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function AccountCard({
-  title,
-  subtitle,
-  account,
-  toReview,
-  active,
-  onClick,
-}: {
-  title: string;
-  subtitle: string;
-  account: BankingAccount | null;
-  toReview: number;
-  active: boolean;
-  onClick: () => void;
-}) {
+/** Quiet rows while the transactions load. */
+function ListSkeleton({ className }: { className?: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
+    <div
       className={clsx(
-        "rounded-xl border p-4 text-left shadow-sm transition",
-        active
-          ? "border-indigo-300 bg-indigo-50 ring-1 ring-indigo-200 dark:border-indigo-700 dark:bg-indigo-500/10 dark:ring-indigo-900"
-          : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600",
+        "divide-y divide-slate-100 dark:divide-slate-800",
+        className &&
+          "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900",
+        className,
       )}
+      aria-busy
+      aria-label="Loading transactions"
     >
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-slate-400 dark:text-slate-500">
-          <AccountIcon account={account} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {title}
-          </span>
-          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
-            {subtitle}
-          </span>
-        </span>
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-        {toReview > 0 ? (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
-            {toReview} to review
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 size={12} /> All reviewed
-          </span>
-        )}
-        {account && (
-          <span className="truncate text-slate-400 dark:text-slate-500">
-            {lastUpdated(account.feed.lastSyncAt)}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-}
-
-function AccountToolbar({
-  account,
-  ledger,
-  canWrite,
-  syncing,
-  removing,
-  onSync,
-  onImport,
-  onRemove,
-}: {
-  account: BankingAccount;
-  ledger: Account[];
-  canWrite: boolean;
-  syncing: boolean;
-  removing: boolean;
-  onSync: () => void;
-  onImport: () => void;
-  onRemove: () => void;
-}) {
-  const name = (id: string) => {
-    const found = ledger.find((item) => item.id === id);
-    return found ? `${found.code} ${found.name}` : "a missing account";
-  };
-  const books =
-    account.kind === "bank"
-      ? `Posts to ${name(account.feed.accountId)} in your books`
-      : `New purchases are filed under ${name(account.feed.defaultExpenseAccountId)} and wait for your review · card balance in ${name(account.feed.liabilityAccountId)}`;
-  const csv = account.kind === "bank" && account.feed.kind === "csv";
-  return (
-    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="min-w-0">
-        <div className="font-medium text-slate-900 dark:text-slate-100">{account.feed.name}</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">
-          {books} · {lastUpdated(account.feed.lastSyncAt)}
+      {[0, 1, 2, 3, 4].map((index) => (
+        <div key={index} className="flex animate-pulse items-center gap-4 px-4 py-3.5">
+          <div className="h-3 w-14 rounded bg-slate-100 dark:bg-slate-800" />
+          <div className="h-3 flex-1 rounded bg-slate-100 dark:bg-slate-800" />
+          <div className="h-3 w-20 rounded bg-slate-100 dark:bg-slate-800" />
         </div>
-      </div>
-      {canWrite && (
-        <div className="flex flex-wrap gap-2">
-          {csv ? (
-            <Button size="sm" onClick={onImport} disabled={removing}>
-              <Upload size={14} /> Import CSV
-            </Button>
-          ) : (
-            <Button size="sm" onClick={onSync} loading={syncing} disabled={removing}>
-              <RefreshCw size={14} /> Update now
-            </Button>
-          )}
-          <Button size="sm" variant="secondary" onClick={onRemove} loading={removing} disabled={syncing}>
-            <Trash2 size={14} /> Remove
-          </Button>
-        </div>
-      )}
+      ))}
     </div>
   );
 }
 
-function NoAccounts({ canWrite, onAdd }: { canWrite: boolean; onAdd: () => void }) {
+/** Where a company usually starts, each opening Add account on that kind. */
+const STARTING_POINTS: ReadonlyArray<{
+  kind: NewAccountKind;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}> = [
+  {
+    kind: "csv",
+    icon: <Upload size={16} />,
+    title: "Any bank",
+    description: "Upload the CSV statements it lets you download.",
+  },
+  {
+    kind: "brex_cash",
+    icon: <Landmark size={16} />,
+    title: "Brex or Wise",
+    description: "Connect once; transactions sync on their own.",
+  },
+  {
+    kind: "brex_card",
+    icon: <CreditCard size={16} />,
+    title: "Brex card",
+    description: "Purchases arrive filed under a category you can change.",
+  },
+  {
+    kind: "stripe_payouts",
+    icon: <Wallet size={16} />,
+    title: "Stripe payouts",
+    description: "The payouts Stripe sends to your bank.",
+  },
+];
+
+function NoAccounts({
+  canWrite,
+  onAdd,
+}: {
+  canWrite: boolean;
+  onAdd: (kind: NewAccountKind) => void;
+}) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-200 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
-      <Landmark size={28} className="mx-auto text-slate-400 dark:text-slate-500" />
+    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-900">
+      <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+        <Landmark size={20} />
+      </span>
       <h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">
         Add your bank accounts and cards
       </h2>
       <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
         {canWrite
-          ? "Upload your bank's CSV statements, or connect Brex, Wise, or Stripe to bring transactions in automatically. Then mark which invoices each deposit paid, and give everything else a category."
+          ? "Bring every transaction into one list, then mark which invoices each deposit paid and give everything else a category."
           : "No bank accounts or cards have been added yet. Someone with full Finance access can add them."}
       </p>
       {canWrite && (
-        <Button className="mt-4" onClick={onAdd}>
-          <Plus size={14} /> Add account
-        </Button>
+        <>
+          <ul className="mx-auto mt-6 grid max-w-3xl gap-2 text-left sm:grid-cols-2 lg:grid-cols-4">
+            {STARTING_POINTS.map((point) => (
+              <li key={point.title}>
+                <button
+                  type="button"
+                  onClick={() => onAdd(point.kind)}
+                  className="h-full w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5"
+                >
+                  <span className="text-slate-400 dark:text-slate-500">{point.icon}</span>
+                  <span className="mt-2 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {point.title}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                    {point.description}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <Button className="mt-6" onClick={() => onAdd("csv")}>
+            <Plus size={14} /> Add account
+          </Button>
+        </>
       )}
     </div>
   );
@@ -737,34 +801,50 @@ function EmptyList({
   tab,
   searching,
   selected,
+  syncing,
   canWrite,
 }: {
   tab: Tab;
   searching: boolean;
   selected: BankingAccount | null;
+  syncing: boolean;
   canWrite: boolean;
 }) {
+  let icon = <CheckCircle2 size={26} className="mx-auto text-slate-300 dark:text-slate-600" />;
   let title = "No transactions yet";
   let description = "";
   if (searching) {
+    icon = <Search size={24} className="mx-auto text-slate-300 dark:text-slate-600" />;
     title = "No transactions match your search";
+  } else if (syncing && selected && selected.total === 0) {
+    icon = <Spinner size={22} />;
+    title = `Bringing in ${selected.feed.name}'s transactions`;
+    description = "The first sync walks its whole history, so it can take a minute.";
   } else if (tab === "review") {
     title = "You're all caught up";
-    description = "Every transaction is explained. New ones show up here as they come in.";
+    description = "Every transaction is explained. New ones show up here as they sync.";
   } else if (tab === "done") {
+    icon = <Inbox size={24} className="mx-auto text-slate-300 dark:text-slate-600" />;
     title = "Nothing done yet";
     description = "Transactions you match, categorize or review move here.";
-  } else if (canWrite && selected) {
+  } else if (selected) {
+    icon = <Inbox size={24} className="mx-auto text-slate-300 dark:text-slate-600" />;
     description =
-      selected.kind === "bank" && selected.feed.kind === "csv"
-        ? "Import a CSV from your bank to bring its transactions in."
-        : "Click Update now to bring its transactions in.";
+      isCsvAccount(selected)
+        ? canWrite
+          ? "Import a CSV from your bank to bring its transactions in."
+          : "Someone with full Finance access can import its transactions."
+        : "They show up here after its first sync.";
   }
   return (
-    <div className="p-12 text-center">
-      <CheckCircle2 size={26} className="mx-auto text-slate-300 dark:text-slate-600" />
+    <div className="px-6 py-14 text-center">
+      <div className="flex justify-center">{icon}</div>
       <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
-      {description && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+      {description && (
+        <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+          {description}
+        </p>
+      )}
     </div>
   );
 }
@@ -828,17 +908,22 @@ const NEW_ACCOUNT_KINDS: ReadonlyArray<{
 function AddAccountModal({
   company,
   ledger,
+  initialKind,
   onClose,
   onAdded,
 }: {
   company: Company;
   ledger: Account[];
+  /** The kind the form opens on — the starting point someone picked. */
+  initialKind: NewAccountKind;
   onClose: () => void;
   onAdded: (feed: BankFeed | CardFeed, kind: NewAccountKind) => Promise<void>;
 }) {
   const byCode = (code: string) => ledger.find((account) => account.code === code)?.id ?? "";
-  const [kind, setKind] = React.useState<NewAccountKind>("csv");
-  const [name, setName] = React.useState(NEW_ACCOUNT_KINDS[0].defaultName);
+  const [kind, setKind] = React.useState<NewAccountKind>(initialKind);
+  const [name, setName] = React.useState(
+    () => NEW_ACCOUNT_KINDS.find((item) => item.kind === initialKind)!.defaultName,
+  );
   const [nameTouched, setNameTouched] = React.useState(false);
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
   const [connectionId, setConnectionId] = React.useState("");

@@ -42,6 +42,7 @@ import {
   bootContextWindowRefresh,
   stopContextWindowRefresh,
 } from "./agent/contextWindowRefresh.js";
+import { bootBankingSync, stopBankingSync } from "./bankingSync.js";
 import {
   INSTANCE_SECRETS_FILENAME,
   INSTANCE_SECRETS_SENTINEL_FILENAME,
@@ -1456,6 +1457,10 @@ export async function restoreFromBackup(id: string): Promise<{
     // but a tick that did would query the destroyed DataSource for the whole
     // extract window. Cheap to take down; re-registered below.
     stopContextWindowRefresh();
+    // Banking's background sync ticks every minute, so it would land in the
+    // extract window and query — or write synced transactions into — a
+    // database that is being replaced. Re-registered below.
+    stopBankingSync();
     // The search index lives on this connection; it goes with it.
     stopMailSearchIndex();
     await AppDataSource.destroy();
@@ -1467,6 +1472,7 @@ export async function restoreFromBackup(id: string): Promise<{
     if (!(await isRestorableArchive(target.filename))) {
       await AppDataSource.initialize();
       bootMailSearchIndex();
+      bootBankingSync();
       throw new BackupError(
         "This backup went missing or became unreadable before the restore started. Nothing was changed.",
       );
@@ -1514,6 +1520,9 @@ export async function restoreFromBackup(id: string): Promise<{
     // Same for TLDR question cards captured mid-answer.
     await finalizeInterruptedTldrQuestionTurns();
     bootContextWindowRefresh();
+    // A restored account that was mid-sync when the archive was taken still
+    // says Syncing…; the first tick clears that and syncs what is due.
+    bootBankingSync();
     await bootBackups();
 
     return { safety, restored: target };

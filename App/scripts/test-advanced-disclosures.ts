@@ -505,6 +505,7 @@ function runtimeSnapshot(): RuntimeSettingsSnapshot {
     agent: true,
     containment: false,
     network: false,
+    banking: false,
   };
   return snapshot;
 }
@@ -544,6 +545,7 @@ const SECTIONS: Array<[title: string, summary: string]> = [
   ["Hosted sign-in", "Defaults"],
   ["Mail sync", "Defaults"],
   ["Meetings", "Defaults"],
+  ["Bank sync", "Defaults"],
   ["Browser", "Defaults"],
   ["Agent", "2 customized"],
   ["Containment", "Defaults"],

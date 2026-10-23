@@ -6,7 +6,14 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  type ValueTransformer,
 } from "typeorm";
+
+/** Postgres hands a bigint back as a string; a balance in cents fits a number exactly. */
+const minorUnits: ValueTransformer = {
+  to: (value: number | null | undefined) => value,
+  from: (value: string | number | null) => (value === null ? null : Number(value)),
+};
 
 /**
  * Source a `BankTransaction` came from. Phase D of the Finance milestone
@@ -63,8 +70,54 @@ export class BankFeed {
   @Column({ type: "varchar" })
   accountId!: string;
 
+  /**
+   * When the last sync that succeeded finished — the last CSV import, for a
+   * CSV feed. Also each provider sync's cursor: the next one asks for what
+   * was posted since a little before it (`services/reconcile.ts`), so a feed
+   * that missed months catches up on all of them.
+   */
   @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;
+
+  // ── Sync status (`services/bankingSync.ts`) ──────────────────────────────
+
+  /** When the sync running now started; null while none is. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  syncStartedAt!: Date | null;
+
+  /** When the last sync attempt finished, whether or not it succeeded. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  lastSyncAttemptAt!: Date | null;
+
+  /** Why the last attempt failed, in plain words; "" when it succeeded. */
+  @Column({ type: "varchar", default: "" })
+  lastSyncError!: string;
+
+  /** What the provider said, with the HTTP status — the error's details. */
+  @Column({ type: "text", default: "" })
+  lastSyncErrorDetail!: string;
+
+  /** What kind of failure it was (`FeedSyncErrorKind`), which says what fixes it. */
+  @Column({ type: "varchar", default: "" })
+  lastSyncErrorKind!: string;
+
+  /** Attempts that have failed in a row; the background sync backs off on it. */
+  @Column({ type: "int", default: 0 })
+  syncFailureCount!: number;
+
+  /** The earliest the background sync tries again after a failure. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  nextSyncAt!: Date | null;
+
+  /** The provider's balance at the last sync, for a feed whose provider reports one. */
+  @Column({ type: "bigint", nullable: true, transformer: minorUnits })
+  balanceCents!: number | null;
+
+  @Column({ type: "varchar", nullable: true })
+  balanceCurrency!: string | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  balanceAt!: Date | null;
 
   @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;

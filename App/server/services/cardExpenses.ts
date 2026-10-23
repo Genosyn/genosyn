@@ -11,9 +11,19 @@ import {
   type BrexCardTransaction,
   getBrexCardTransactionsPage,
 } from "../integrations/providers/brex.js";
+import { FeedSyncError, withProviderRetry } from "./feedSyncErrors.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import { decryptConnectionConfig } from "./integrations.js";
 import { postLedgerEntry } from "./ledger.js";
+
+/**
+ * How far before the last successful sync the next one asks Brex again, as
+ * for a Brex cash account (`BANK_SYNC_OVERLAP_MS`): a purchase that settles
+ * late still comes in, and Brex's ids keep the second look free of
+ * duplicates. The window starts at the last *successful* sync, however long
+ * ago, so a card that missed months catches up on all of them.
+ */
+const CARD_SYNC_OVERLAP_MS = 7 * 24 * 60 * 60 * 1000;
 
 type CreateCardFeedInput = {
   companyId: string;
@@ -36,10 +46,15 @@ async function getBrexConfig(companyId: string, connectionId: string): Promise<B
     companyId,
     provider: "brex",
   });
-  if (!connection) throw new Error("Brex Connection not found");
-  const config = decryptConnectionConfig(connection) as Partial<BrexConfig>;
+  if (!connection) throw new FeedSyncError("connection_missing", "Brex Connection not found");
+  let config: Partial<BrexConfig>;
+  try {
+    config = decryptConnectionConfig(connection) as Partial<BrexConfig>;
+  } catch (err) {
+    throw new FeedSyncError("credentials", (err as Error).message);
+  }
   if (!config.userToken || typeof config.userToken !== "string") {
-    throw new Error("Brex Connection is missing its user token");
+    throw new FeedSyncError("credentials", "Brex Connection is missing its user token");
   }
   return { userToken: config.userToken };
 }
@@ -115,7 +130,10 @@ function classifyCardTransaction(
 function parsePostedDate(value: string, transactionId: string): Date {
   const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? value + "T12:00:00.000Z" : value);
   if (Number.isNaN(date.getTime())) {
-    throw new Error("Brex card transaction " + transactionId + " has an invalid posted date");
+    throw new FeedSyncError(
+      "bad_data",
+      "Brex card transaction " + transactionId + " has an invalid posted date",
+    );
   }
   return date;
 }
@@ -251,32 +269,53 @@ async function recordPostingResult(feed: CardFeed, transaction: CardTransaction)
   }
 }
 
-export async function syncCardFeed(feed: CardFeed): Promise<CardSyncResult> {
+/**
+ * Bring in a Brex card's settled transactions and put each in the books under
+ * the card's default category, waiting for review. The first sync walks the
+ * whole history; later ones ask for what was posted since a week before the
+ * last successful sync. A purchase whose posting failed before is posted
+ * again on every sync, so one that waited on a closed period goes in once the
+ * period reopens.
+ */
+export async function syncCardFeed(feed: CardFeed, now = new Date()): Promise<CardSyncResult> {
   if (feed.kind !== "brex_card") {
     throw new Error("Feed is not a Brex Card feed");
   }
   const config = await getBrexConfig(feed.companyId, feed.connectionId);
   const transactionRepo = AppDataSource.getRepository(CardTransaction);
-  const existing = await transactionRepo.find({
-    where: { feedId: feed.id },
-  });
-  const byExternalId = new Map(
-    existing.map((transaction) => [transaction.externalId, transaction]),
+  // Ids only, for dedupe: a card's history only grows, and every row carries
+  // Brex's whole payload. The ones still to post are read in full.
+  const known = new Set(
+    (await transactionRepo.find({ where: { feedId: feed.id }, select: ["id", "externalId"] })).map(
+      (transaction) => transaction.externalId,
+    ),
   );
+  const pendingPosts = await transactionRepo.find({
+    where: { feedId: feed.id, ledgerEntryId: IsNull() },
+    order: { postedAt: "ASC", createdAt: "ASC" },
+  });
+  const postedAtStart = feed.lastSyncAt
+    ? new Date(feed.lastSyncAt.getTime() - CARD_SYNC_OVERLAP_MS).toISOString()
+    : undefined;
   const seenCursors = new Set<string>();
-  const pendingPosts = existing.filter((transaction) => !transaction.ledgerEntryId);
   let cursor: string | undefined;
   let inserted = 0;
 
   for (;;) {
-    const page = await getBrexCardTransactionsPage(config.userToken, {
-      cursor,
-      limit: 100,
-    });
+    const page = await withProviderRetry(() =>
+      getBrexCardTransactionsPage(config.userToken, {
+        cursor,
+        limit: 100,
+        postedAtStart,
+      }),
+    );
     for (const remote of page.items ?? []) {
-      if (byExternalId.has(remote.id)) continue;
+      if (known.has(remote.id)) continue;
       if (!remote.amount || !Number.isSafeInteger(remote.amount.amount)) {
-        throw new Error("Brex card transaction " + remote.id + " has no safe integer amount");
+        throw new FeedSyncError(
+          "bad_data",
+          "Brex card transaction " + remote.id + " has no safe integer amount",
+        );
       }
       const accountingKind = classifyCardTransaction(remote);
       const row = await transactionRepo.save(
@@ -298,14 +337,14 @@ export async function syncCardFeed(feed: CardFeed): Promise<CardSyncResult> {
           raw: JSON.stringify(remote),
         }),
       );
-      byExternalId.set(remote.id, row);
+      known.add(remote.id);
       pendingPosts.push(row);
       inserted += 1;
     }
     const next = page.next_cursor ?? undefined;
     if (!next) break;
     if (seenCursors.has(next)) {
-      throw new Error("Brex returned a repeated card transaction cursor");
+      throw new FeedSyncError("bad_data", "Brex returned a repeated card transaction cursor");
     }
     seenCursors.add(next);
     cursor = next;
@@ -315,8 +354,13 @@ export async function syncCardFeed(feed: CardFeed): Promise<CardSyncResult> {
   for (const transaction of pendingPosts) {
     if (await recordPostingResult(feed, transaction)) posted += 1;
   }
-  feed.lastSyncAt = new Date();
-  await AppDataSource.getRepository(CardFeed).save(feed);
+  // Only the cursor: a `save` of this copy would write every column it loaded
+  // back over the sync status kept on the same row.
+  await AppDataSource.getRepository(CardFeed).update(
+    { id: feed.id, companyId: feed.companyId },
+    { lastSyncAt: now },
+  );
+  feed.lastSyncAt = now;
   return {
     inserted,
     posted,
@@ -513,14 +557,20 @@ export async function listCardTransactions(
   });
 }
 
+/** A card with purchases in the books stays: they are part of the audit trail. */
+export class CardFeedInUseError extends Error {
+  constructor() {
+    super(
+      "A synced card feed cannot be deleted because its ledger entries are part of the accounting audit trail",
+    );
+    this.name = "CardFeedInUseError";
+  }
+}
+
 export async function deleteEmptyCardFeed(feed: CardFeed): Promise<void> {
   const count = await AppDataSource.getRepository(CardTransaction).count({
     where: { feedId: feed.id },
   });
-  if (count > 0) {
-    throw new Error(
-      "A synced card feed cannot be deleted because its ledger entries are part of the accounting audit trail",
-    );
-  }
+  if (count > 0) throw new CardFeedInUseError();
   await AppDataSource.getRepository(CardFeed).delete({ id: feed.id });
 }

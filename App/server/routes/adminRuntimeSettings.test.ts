@@ -13,6 +13,7 @@ import { errorHandler } from "../middleware/error.js";
 import {
   RUNTIME_SETTINGS_DEFAULTS,
   RUNTIME_SETTING_KEYS,
+  getBankingSettings,
   getMailSettings,
   getRuntimeOauthSettings,
   getWebSettings,
@@ -97,6 +98,7 @@ type Snapshot = {
   browser: typeof RUNTIME_SETTINGS_DEFAULTS.browser;
   agent: typeof RUNTIME_SETTINGS_DEFAULTS.agent;
   network: typeof RUNTIME_SETTINGS_DEFAULTS.network;
+  banking: typeof RUNTIME_SETTINGS_DEFAULTS.banking;
   overridden: Record<string, boolean>;
 };
 
@@ -120,7 +122,9 @@ describe("GET /api/admin/runtime-settings", () => {
       agent: false,
       containment: false,
       network: false,
+      banking: false,
     });
+    assert.deepEqual(body.banking, RUNTIME_SETTINGS_DEFAULTS.banking);
   });
 
   test("only a signed-in master admin can read it", async () => {
@@ -448,6 +452,59 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
       ).body.browser.recordingRetentionDays,
       0,
     );
+  });
+});
+
+describe("the bank sync group", () => {
+  test("saves the switch and the interval, and the background sync reads them at once", async () => {
+    const { status, body } = await call<Snapshot>("PUT", "/runtime-settings/banking", {
+      syncEnabled: false,
+      syncIntervalMinutes: 60,
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(body.banking, { syncEnabled: false, syncIntervalMinutes: 60 });
+    assert.equal(body.overridden.banking, true);
+    assert.deepEqual(getBankingSettings(), { syncEnabled: false, syncIntervalMinutes: 60 });
+
+    const reset = await call<Snapshot>("DELETE", "/runtime-settings/banking");
+    assert.equal(reset.status, 200);
+    assert.deepEqual(reset.body.banking, RUNTIME_SETTINGS_DEFAULTS.banking);
+    assert.deepEqual(getBankingSettings(), RUNTIME_SETTINGS_DEFAULTS.banking);
+  });
+
+  test("refuses an interval under five minutes or over a day, and a partial body", async () => {
+    for (const body of [
+      { syncEnabled: true, syncIntervalMinutes: 4 },
+      { syncEnabled: true, syncIntervalMinutes: 1_441 },
+      { syncEnabled: true, syncIntervalMinutes: 7.5 },
+      { syncEnabled: "yes", syncIntervalMinutes: 30 },
+      { syncIntervalMinutes: 30 },
+      { syncEnabled: true },
+    ]) {
+      const { status } = await call("PUT", "/runtime-settings/banking", body);
+      assert.equal(status, 400, JSON.stringify(body));
+    }
+    assert.equal(
+      await AppDataSource.getRepository(AppSetting).findOneBy({ key: RUNTIME_SETTING_KEYS.banking }),
+      null,
+    );
+  });
+
+  test("only a master admin can change it", async () => {
+    actingUserId = (
+      await insert(User, {
+        email: "plain@example.com",
+        name: "Plain",
+        passwordHash: "x",
+        sessionVersion: 0,
+      })
+    ).id;
+    const { status } = await call("PUT", "/runtime-settings/banking", {
+      syncEnabled: false,
+      syncIntervalMinutes: 60,
+    });
+    assert.equal(status, 403);
+    assert.deepEqual(getBankingSettings(), RUNTIME_SETTINGS_DEFAULTS.banking);
   });
 });
 

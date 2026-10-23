@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { activeRun, isBusy, summarizeBackups } from "@/lib/backupStatus";
 import { errorMessage } from "@/lib/errors";
+import { useNow } from "@/lib/useNow";
 import { TopBar } from "@/components/AppShell";
 import type { AdminOutletCtx } from "./AdminLayout";
 import { AdvancedSection } from "./backups/AdvancedSection";
@@ -41,16 +42,6 @@ import { StatusCard } from "./backups/StatusCard";
 
 /** How often the page looks again while a backup or a copy is under way. */
 const POLL_MS = 3_000;
-
-/** The time, kept current so "2 minutes ago" stays true while the page is open. */
-function useNow(intervalMs: number): Date {
-  const [now, setNow] = React.useState(() => new Date());
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), intervalMs);
-    return () => window.clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
 
 function upsertBackup(rows: BackupHistoryItem[] | null, item: BackupHistoryItem) {
   const list = rows ?? [];

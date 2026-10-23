@@ -4,6 +4,10 @@ import { BankFeed } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { CardFeed } from "../db/entities/CardFeed.js";
 import { CardTransaction } from "../db/entities/CardTransaction.js";
+import {
+  IntegrationConnection,
+  type IntegrationConnectionStatus,
+} from "../db/entities/IntegrationConnection.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
@@ -22,7 +26,10 @@ import {
   removeInvoicePayment,
 } from "./invoicePayments.js";
 import { bookedLines } from "./ledger.js";
-import { unmatch } from "./reconcile.js";
+import { feedSyncStatus, type FeedSyncStatus } from "./bankingSync.js";
+import { assertBrexCardConnection } from "./cardExpenses.js";
+import { assertBrexCashAccountConnection, unmatch } from "./reconcile.js";
+import { assertWiseBalanceFeed } from "./wiseFeeds.js";
 
 /**
  * Banking: the company's bank accounts and cards, and the transactions on
@@ -40,9 +47,41 @@ import { unmatch } from "./reconcile.js";
 
 export type BankingStatus = "review" | "done";
 
+/** Who an account's transactions come from; null for a CSV account. */
+export type BankingProvider = "brex" | "wise" | "stripe";
+
+/** The Connection an account syncs through, as much as Banking shows of it. */
+export type BankingConnection = {
+  id: string;
+  label: string;
+  provider: string;
+  status: IntegrationConnectionStatus;
+  statusMessage: string;
+};
+
+/** The balance the provider reported at the last sync, when it reports one. */
+export type BankingBalance = { cents: number; currency: string; at: string };
+
+type AccountExtras = {
+  toReview: number;
+  total: number;
+  provider: BankingProvider | null;
+  sync: FeedSyncStatus;
+  /** Null for a CSV account, and for one whose Connection was removed. */
+  connection: BankingConnection | null;
+  balance: BankingBalance | null;
+};
+
 export type BankingAccount =
-  | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
-  | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+  | ({ kind: "bank"; feed: BankFeed } & AccountExtras)
+  | ({ kind: "card"; feed: CardFeed } & AccountExtras);
+
+export function bankFeedProvider(kind: BankFeed["kind"]): BankingProvider | null {
+  if (kind === "brex_cash") return "brex";
+  if (kind === "wise_balance") return "wise";
+  if (kind === "stripe_payouts") return "stripe";
+  return null;
+}
 
 type FeedCount = { feedId: string; count: number | string };
 
@@ -71,8 +110,15 @@ async function countByFeed(
   return new Map(rows.map((row) => [row.feedId, Number(row.count)]));
 }
 
-/** Every bank account and card, oldest first, with how many transactions wait on each. */
-export async function listBankingAccounts(companyId: string): Promise<BankingAccount[]> {
+/**
+ * Every bank account and card, oldest first, with how many transactions wait
+ * on each, how its sync is doing, the Connection it syncs through, and the
+ * balance its provider last reported.
+ */
+export async function listBankingAccounts(
+  companyId: string,
+  now = new Date(),
+): Promise<BankingAccount[]> {
   const [bankFeeds, cardFeeds, bankTotals, bankOpen, cardTotals, cardOpen] = await Promise.all([
     AppDataSource.getRepository(BankFeed).find({
       where: { companyId },
@@ -87,21 +133,132 @@ export async function listBankingAccounts(companyId: string): Promise<BankingAcc
     countByFeed(CardTransaction, companyId),
     countByFeed(CardTransaction, companyId, WAITING.card),
   ]);
+  const connectionIds = [
+    ...new Set(
+      [...bankFeeds, ...cardFeeds]
+        .map((feed) => feed.connectionId)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const connections = new Map(
+    (connectionIds.length
+      ? await AppDataSource.getRepository(IntegrationConnection).find({
+          where: { companyId, id: In(connectionIds) },
+          select: { id: true, label: true, provider: true, status: true, statusMessage: true },
+        })
+      : []
+    ).map((c): [string, BankingConnection] => [
+      c.id,
+      {
+        id: c.id,
+        label: c.label,
+        provider: c.provider,
+        status: c.status,
+        statusMessage: c.statusMessage,
+      },
+    ]),
+  );
+  const connectionOf = (id: string | null) => (id ? (connections.get(id) ?? null) : null);
   const accounts: BankingAccount[] = [
     ...bankFeeds.map((feed) => ({
       kind: "bank" as const,
       feed,
       toReview: bankOpen.get(feed.id) ?? 0,
       total: bankTotals.get(feed.id) ?? 0,
+      provider: bankFeedProvider(feed.kind),
+      sync: feedSyncStatus("bank", feed, now),
+      connection: connectionOf(feed.connectionId),
+      balance:
+        feed.balanceCents !== null && feed.balanceCurrency && feed.balanceAt
+          ? {
+              cents: feed.balanceCents,
+              currency: feed.balanceCurrency,
+              at: feed.balanceAt.toISOString(),
+            }
+          : null,
     })),
     ...cardFeeds.map((feed) => ({
       kind: "card" as const,
       feed,
       toReview: cardOpen.get(feed.id) ?? 0,
       total: cardTotals.get(feed.id) ?? 0,
+      provider: "brex" as const,
+      sync: feedSyncStatus("card", feed, now),
+      connection: connectionOf(feed.connectionId),
+      balance: null,
     })),
   ];
   return accounts.sort((a, b) => a.feed.createdAt.getTime() - b.feed.createdAt.getTime());
+}
+
+/** A change to an account that its own request got wrong, answered as a 400. */
+export class BankingAccountError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BankingAccountError";
+  }
+}
+
+const PROVIDER_NAMES: Record<BankingProvider, string> = {
+  brex: "Brex",
+  wise: "Wise",
+  stripe: "Stripe",
+};
+
+/**
+ * Point a bank account or card at another Connection of the same provider:
+ * the way back for an account whose Connection was removed, or that should
+ * read through another token. The new Connection has to reach the same
+ * account — the same Brex cash account, the same Wise balance, card
+ * transactions for a card — so the books keep following one account. The
+ * failed sync behind the change is forgotten, so the next sync runs at once.
+ * Run it under `whileFeedIdle`, so no sync is writing to the account meanwhile.
+ */
+export async function changeFeedConnection(
+  kind: "bank" | "card",
+  feed: BankFeed | CardFeed,
+  connectionId: string,
+): Promise<BankFeed | CardFeed> {
+  const provider = kind === "card" ? "brex" : bankFeedProvider((feed as BankFeed).kind);
+  if (!provider) throw new BankingAccountError("A CSV account doesn't sync through a Connection.");
+  const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: connectionId,
+    companyId: feed.companyId,
+  });
+  if (!connection) throw new BankingAccountError("Connection not found");
+  if (connection.provider !== provider) {
+    throw new BankingAccountError(`That Connection isn't ${PROVIDER_NAMES[provider]}.`);
+  }
+  const externalAccountId = kind === "bank" ? (feed as BankFeed).externalAccountId : null;
+  try {
+    // The same checks as adding the account, against the new Connection —
+    // whatever they refuse is the request's to fix, as it is there.
+    if (kind === "card") {
+      await assertBrexCardConnection(feed.companyId, connectionId);
+    } else if ((feed as BankFeed).kind === "brex_cash") {
+      if (!externalAccountId) throw new Error("This account has no Brex cash account.");
+      await assertBrexCashAccountConnection(feed.companyId, connectionId, externalAccountId);
+    } else if ((feed as BankFeed).kind === "wise_balance") {
+      if (!externalAccountId) throw new Error("This account has no Wise balance.");
+      await assertWiseBalanceFeed(feed.companyId, connectionId, externalAccountId, new Date(), {
+        exceptFeedId: feed.id,
+      });
+    }
+  } catch (err) {
+    throw new BankingAccountError(err instanceof Error ? err.message : String(err));
+  }
+  const values = {
+    connectionId,
+    lastSyncError: "",
+    lastSyncErrorDetail: "",
+    lastSyncErrorKind: "",
+    syncFailureCount: 0,
+    nextSyncAt: null,
+  };
+  const where = { id: feed.id, companyId: feed.companyId };
+  if (kind === "bank") await AppDataSource.getRepository(BankFeed).update(where, values);
+  else await AppDataSource.getRepository(CardFeed).update(where, values);
+  return Object.assign(feed, values);
 }
 
 /** The newest bank transactions, optionally on one account and in one state. */

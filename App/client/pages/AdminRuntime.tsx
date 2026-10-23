@@ -3,6 +3,7 @@ import {
   Bot,
   Chrome,
   Globe2,
+  Landmark,
   Mailbox,
   Network,
   RefreshCw,
@@ -39,7 +40,8 @@ import {
  * `config.ts` and restarting the container: the open-web tools, mail sync
  * pacing, meetings, the browser Genosyn drives itself, the agent's taint
  * policy / member browsers / tool discovery, the re-grade sweep, and the
- * outbound network allowlist.
+ * outbound network allowlist — plus how often Banking syncs connected bank
+ * accounts and cards.
  *
  * Each section is one group, stored as a single JSON row in `app_settings` and
  * read through a 30s cache on the server, so a save reaches every replica
@@ -297,6 +299,30 @@ const GROUPS: GroupSpec[] = [
         max: 100 * 1024 * 1024,
         bytes: true,
         help: "Uploads above this are refused. The hard ceiling is 100 MB.",
+      },
+    ],
+  },
+  {
+    group: "banking",
+    title: "Bank sync",
+    icon: <Landmark size={16} className="text-indigo-500" />,
+    blurb:
+      "How often Finance → Banking brings in new transactions from the Brex, Wise and Stripe accounts each company connected. CSV accounts are imported by hand.",
+    fields: [
+      {
+        kind: "boolean",
+        path: "syncEnabled",
+        label: "Sync bank accounts and cards automatically",
+        help: "Off stops the background sync on this server. Each account's Sync now still works. Takes effect on the next tick — no restart.",
+      },
+      {
+        kind: "int",
+        path: "syncIntervalMinutes",
+        label: "Sync every",
+        min: 5,
+        max: 1_440,
+        unit: "minutes",
+        help: "How often an account that synced fine asks its provider for new transactions. One that failed tries again sooner when the provider was only busy, and backs off when the token or Connection needs a person.",
       },
     ],
   },
