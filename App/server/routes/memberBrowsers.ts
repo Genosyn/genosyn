@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -6,6 +6,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import type { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { describeBrowserSessionOnly } from "../middleware/routeMetadata.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { memberBrowserPresence } from "../services/memberBrowserHub.js";
@@ -44,15 +45,17 @@ type ScopedReq = Request<{
 export const memberBrowsersRouter = Router({ mergeParams: true });
 memberBrowsersRouter.use(requireAuth);
 memberBrowsersRouter.use(requireCompanyMember);
-memberBrowsersRouter.use((req, res, next) => {
-  if (req.apiKey) {
-    return res.status(403).json({ error: "A logged-in Member is required" });
-  }
-  if (!memberBrowsersEnabled()) {
-    return res.status(404).json({ error: "Member browsers are disabled on this instance" });
-  }
-  next();
-});
+memberBrowsersRouter.use(
+  describeBrowserSessionOnly<RequestHandler>((req, res, next) => {
+    if (req.apiKey) {
+      return res.status(403).json({ error: "A logged-in Member is required" });
+    }
+    if (!memberBrowsersEnabled()) {
+      return res.status(404).json({ error: "Member browsers are disabled on this instance" });
+    }
+    next();
+  }),
+);
 
 function serialize(row: MemberBrowser) {
   const presence = memberBrowserPresence(row.id);

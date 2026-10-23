@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodSchema, ZodType, ZodTypeDef } from "zod";
+import { withRouteMetadata } from "./routeMetadata.js";
 
 /**
  * Validate a request body against a zod schema at the API boundary.
@@ -13,28 +14,39 @@ import { ZodSchema, ZodType, ZodTypeDef } from "zod";
  * as well not be there. This used to hand the parsed value back on a separate
  * `req.validated` property, which meant every handler that read `req.body` —
  * all but seven of them — quietly got the unparsed input instead.
+ *
+ * All three validators record their schema on the middleware they return
+ * (`routeMetadata.ts`), which is how the OpenAPI document knows each route's
+ * request body, query string and path parameters without a second copy of the
+ * schema that could drift from the one enforced here.
  */
 export function validateBody<T>(schema: ZodSchema<T>) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
-    }
-    req.body = parsed.data;
-    next();
-  };
+  return withRouteMetadata(
+    (req: Request, res: Response, next: NextFunction) => {
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+      }
+      req.body = parsed.data;
+      next();
+    },
+    { kind: "requestSchema", location: "body", schema },
+  );
 }
 
 /** Validate and replace route params using the same boundary semantics as bodies. */
 export function validateParams<T>(schema: ZodSchema<T>) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse(req.params);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
-    }
-    req.params = parsed.data as Request["params"];
-    next();
-  };
+  return withRouteMetadata(
+    (req: Request, res: Response, next: NextFunction) => {
+      const parsed = schema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+      }
+      req.params = parsed.data as Request["params"];
+      next();
+    },
+    { kind: "requestSchema", location: "params", schema },
+  );
 }
 
 /**
@@ -51,12 +63,15 @@ export function validateParams<T>(schema: ZodSchema<T>) {
  * `"true"` into `true`.
  */
 export function validateQuery<Out, In = unknown>(schema: ZodType<Out, ZodTypeDef, In>) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
-    }
-    req.query = parsed.data as Request["query"];
-    next();
-  };
+  return withRouteMetadata(
+    (req: Request, res: Response, next: NextFunction) => {
+      const parsed = schema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+      }
+      req.query = parsed.data as Request["query"];
+      next();
+    },
+    { kind: "requestSchema", location: "query", schema },
+  );
 }

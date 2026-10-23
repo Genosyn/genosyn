@@ -17,6 +17,7 @@ import { User } from "../db/entities/User.js";
 import { Role } from "../db/entities/Membership.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import { describeBrowserSessionCondition } from "../middleware/routeMetadata.js";
 import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
@@ -724,6 +725,7 @@ function requireBrowserForAiAssignment(
   }
   return requireBrowserSession(req, res, next);
 }
+describeBrowserSessionCondition(requireBrowserForAiAssignment, "to assign an AI Employee");
 
 projectsRouter.post(
   "/projects/:pSlug/todos",
@@ -1308,6 +1310,7 @@ function requireBrowserForEmployeeMention(
   }
   requireBrowserSession(req, res, next);
 }
+describeBrowserSessionCondition(requireBrowserForEmployeeMention, "to mention an AI Employee");
 
 projectsRouter.post(
   "/todos/:tid/comments",
