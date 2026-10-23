@@ -7,6 +7,7 @@ import { BackupDestination } from "../db/entities/BackupDestination.js";
 import type { BackupSchedule } from "../db/entities/BackupSchedule.js";
 import { config } from "../../config.js";
 import { alertVerificationFailed, alertVerificationPassed } from "./backupAlerts.js";
+import { formatBytes, recordCopiesFound } from "./backupCopies.js";
 import {
   archiveTakenAt,
   type DestinationArchive,
@@ -342,6 +343,34 @@ async function verifyDestination(
   // mid-way used to leave under the archive's own name — is no backup.
   const taken = rows.filter((row) => row.kind !== "uploaded");
   const sizes = localArchiveSizes(taken);
+
+  // What is really there, recorded against each backup for History — the only
+  // way a backup taken before copies were recorded learns where it is.
+  const whole = new Map<string, number>();
+  const partial = new Set<string>();
+  for (const archive of archives) {
+    if (archive.name.endsWith(PARTIAL_SUFFIX)) {
+      partial.add(archive.name.slice(0, -PARTIAL_SUFFIX.length));
+    } else {
+      whole.set(archive.name, archive.size);
+    }
+  }
+  try {
+    await recordCopiesFound({
+      destinationId: dest.id,
+      backups: rows,
+      whole,
+      partial,
+      localSizes: sizes,
+      now,
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[backups] could not record the copies found on "${dest.name}":`,
+      (err as Error)?.message ?? err,
+    );
+  }
   const copies: Date[] = [];
   const cutShort: Date[] = [];
   const partials: Date[] = [];
@@ -486,18 +515,6 @@ function describeSchedule(sched: BackupSchedule): string {
   }
   if (sched.frequency === "monthly") return `Backs up on day ${sched.dayOfMonth} of each month at ${at}`;
   return `Backs up every day at ${at}`;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = n / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
 function capitalize(text: string): string {

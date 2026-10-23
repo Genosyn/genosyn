@@ -60,6 +60,7 @@ import { Signatures } from "@/docs/pages/Signatures";
 import { Finance } from "@/docs/pages/Finance";
 import { Banking } from "@/docs/pages/Banking";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
+import { Backups } from "@/docs/pages/Backups";
 import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
 import { Api } from "@/docs/pages/Api";
@@ -127,6 +128,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/finance": Finance,
   "/docs/banking": Banking,
   "/docs/self-hosting": SelfHosting,
+  "/docs/backups": Backups,
   "/docs/cli": Cli,
   "/docs/kubernetes": Kubernetes,
   "/docs/api": Api,

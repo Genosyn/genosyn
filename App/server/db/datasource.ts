@@ -58,6 +58,7 @@ import { BaseFormSubmission } from "./entities/BaseFormSubmission.js";
 import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { BackupDestination } from "./entities/BackupDestination.js";
+import { BackupCopy } from "./entities/BackupCopy.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
 import { IntegrationContinuation } from "./entities/IntegrationContinuation.js";
 import { AskAiConversation } from "./entities/AskAiConversation.js";
@@ -300,6 +301,7 @@ const entities = [
   Backup,
   BackupSchedule,
   BackupDestination,
+  BackupCopy,
   IntegrationConnection,
   IntegrationContinuation,
   AskAiConversation,
