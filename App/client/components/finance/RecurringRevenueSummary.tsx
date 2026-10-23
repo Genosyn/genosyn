@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Building2, CalendarClock, CirclePause, Hourglass, TriangleAlert } from "lucide-react";
 import {
+  formatExchangeRate,
   formatMoney,
   RecurringInvoiceFrequency,
   RecurringRevenueMetrics,
@@ -74,11 +75,6 @@ function shortDate(iso: string): string {
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
   });
-}
-
-/** A rate to at most four decimals: 1.1, 0.0068, 157.25. */
-function formatRate(rate: number): string {
-  return String(Number(rate.toFixed(4)));
 }
 
 /**
@@ -201,7 +197,9 @@ export function RecurringRevenueSummary({
             <>
               {" "}
               {listOf(
-                metrics.converted.map((rate) => `${rate.currency} at ${formatRate(rate.rate)}`),
+                metrics.converted.map(
+                  (rate) => `${rate.currency} at ${formatExchangeRate(rate.rate)}`,
+                ),
               )}{" "}
               to {currency}, the latest {metrics.converted.length === 1 ? "rate" : "rates"} on
               file.

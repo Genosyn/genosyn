@@ -38,6 +38,14 @@ export class InvoicePayment {
   @Column({ type: dateTimeColumnType })
   paidAt!: Date;
 
+  /** The rate into the home currency on the day it was paid, locked when the
+   *  payment posts: the cash it brought in is booked at this rate, and the
+   *  difference from the invoice's own rate posts as FX gain or loss. 1 in
+   *  the home currency; null on a payment recorded before rates were locked,
+   *  whose rate is on its ledger entry. */
+  @Column({ type: "real", nullable: true })
+  exchangeRate!: number | null;
+
   @Column({ type: "varchar", default: "other" })
   method!: InvoicePaymentMethod;
 

@@ -1,0 +1,124 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class AutomaticExchangeRates1792733843372 implements MigrationInterface {
+    name = 'AutomaticExchangeRates1792733843372'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`DROP INDEX "IDX_4896213d201354fd588d2e1104"`);
+        await queryRunner.query(`DROP INDEX "IDX_1a8aa00285e3a99a1a1d751369"`);
+        await queryRunner.query(`DROP INDEX "IDX_f73f492a1b636e2bfa2fea3cd6"`);
+        await queryRunner.query(`DROP INDEX "IDX_f3ffc04f81b4de8bda218c8982"`);
+        await queryRunner.query(`DROP INDEX "IDX_0afa115f708972afe8a7ec2d26"`);
+        await queryRunner.query(`DROP INDEX "IDX_d250996aa223a63af6daf456a7"`);
+        await queryRunner.query(`CREATE TABLE "temporary_invoices" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "customerId" varchar NOT NULL, "slug" varchar NOT NULL, "numberSeq" integer NOT NULL DEFAULT (0), "number" varchar NOT NULL DEFAULT (''), "status" varchar NOT NULL DEFAULT ('draft'), "issueDate" datetime NOT NULL, "dueDate" datetime NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "subtotalCents" integer NOT NULL DEFAULT (0), "taxCents" integer NOT NULL DEFAULT (0), "totalCents" integer NOT NULL DEFAULT (0), "paidCents" integer NOT NULL DEFAULT (0), "balanceCents" integer NOT NULL DEFAULT (0), "notes" text NOT NULL DEFAULT (''), "footer" text NOT NULL DEFAULT (''), "sentAt" datetime, "paidAt" datetime, "voidedAt" datetime, "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "creditedCents" integer NOT NULL DEFAULT (0), "writtenOffCents" integer NOT NULL DEFAULT (0), "subsidiaryId" varchar, "issuerSnapshot" text, "discountPercent" real NOT NULL DEFAULT (0), "discountAmountCents" integer NOT NULL DEFAULT (0), "discountCents" integer NOT NULL DEFAULT (0), "archivedAt" datetime, "recurringInvoiceId" varchar, "exchangeRate" real)`);
+        await queryRunner.query(`INSERT INTO "temporary_invoices"("id", "companyId", "customerId", "slug", "numberSeq", "number", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "footer", "sentAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents", "writtenOffCents", "subsidiaryId", "issuerSnapshot", "discountPercent", "discountAmountCents", "discountCents", "archivedAt", "recurringInvoiceId") SELECT "id", "companyId", "customerId", "slug", "numberSeq", "number", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "footer", "sentAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents", "writtenOffCents", "subsidiaryId", "issuerSnapshot", "discountPercent", "discountAmountCents", "discountCents", "archivedAt", "recurringInvoiceId" FROM "invoices"`);
+        await queryRunner.query(`DROP TABLE "invoices"`);
+        await queryRunner.query(`ALTER TABLE "temporary_invoices" RENAME TO "invoices"`);
+        await queryRunner.query(`CREATE INDEX "IDX_4896213d201354fd588d2e1104" ON "invoices" ("companyId", "recurringInvoiceId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_1a8aa00285e3a99a1a1d751369" ON "invoices" ("companyId", "numberSeq") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f73f492a1b636e2bfa2fea3cd6" ON "invoices" ("companyId", "customerId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f3ffc04f81b4de8bda218c8982" ON "invoices" ("companyId", "status") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_0afa115f708972afe8a7ec2d26" ON "invoices" ("companyId", "slug") `);
+        await queryRunner.query(`CREATE INDEX "IDX_d250996aa223a63af6daf456a7" ON "invoices" ("companyId", "archivedAt") `);
+        await queryRunner.query(`DROP INDEX "IDX_c6ee814b32732f6ad7244cd8d1"`);
+        await queryRunner.query(`DROP INDEX "IDX_3b2a25d4269ebe9d7ca0c1001d"`);
+        await queryRunner.query(`CREATE TABLE "temporary_invoice_payments" ("id" varchar PRIMARY KEY NOT NULL, "invoiceId" varchar NOT NULL, "amountCents" integer NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "paidAt" datetime NOT NULL, "method" varchar NOT NULL DEFAULT ('other'), "reference" varchar NOT NULL DEFAULT (''), "notes" text NOT NULL DEFAULT (''), "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "bankTransactionId" varchar, "exchangeRate" real)`);
+        await queryRunner.query(`INSERT INTO "temporary_invoice_payments"("id", "invoiceId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt", "bankTransactionId") SELECT "id", "invoiceId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt", "bankTransactionId" FROM "invoice_payments"`);
+        await queryRunner.query(`DROP TABLE "invoice_payments"`);
+        await queryRunner.query(`ALTER TABLE "temporary_invoice_payments" RENAME TO "invoice_payments"`);
+        await queryRunner.query(`CREATE INDEX "IDX_c6ee814b32732f6ad7244cd8d1" ON "invoice_payments" ("bankTransactionId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_3b2a25d4269ebe9d7ca0c1001d" ON "invoice_payments" ("invoiceId") `);
+        await queryRunner.query(`DROP INDEX "IDX_617c19e3a1794ed3934ebf18b1"`);
+        await queryRunner.query(`DROP INDEX "IDX_ae3bef7a3194ffed2cf62fe56f"`);
+        await queryRunner.query(`CREATE TABLE "temporary_exchange_rates" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "fromCurrency" varchar NOT NULL, "toCurrency" varchar NOT NULL, "date" datetime NOT NULL, "rate" real NOT NULL, "source" varchar NOT NULL DEFAULT ('manual'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "automatic" boolean NOT NULL DEFAULT (0))`);
+        await queryRunner.query(`INSERT INTO "temporary_exchange_rates"("id", "companyId", "fromCurrency", "toCurrency", "date", "rate", "source", "createdAt") SELECT "id", "companyId", "fromCurrency", "toCurrency", "date", "rate", "source", "createdAt" FROM "exchange_rates"`);
+        await queryRunner.query(`DROP TABLE "exchange_rates"`);
+        await queryRunner.query(`ALTER TABLE "temporary_exchange_rates" RENAME TO "exchange_rates"`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_617c19e3a1794ed3934ebf18b1" ON "exchange_rates" ("companyId", "fromCurrency", "toCurrency", "date") `);
+        await queryRunner.query(`CREATE INDEX "IDX_ae3bef7a3194ffed2cf62fe56f" ON "exchange_rates" ("companyId", "fromCurrency", "toCurrency") `);
+        await queryRunner.query(`DROP INDEX "IDX_7e4ecd4cb868e453e5cf8d7136"`);
+        await queryRunner.query(`CREATE TABLE "temporary_company_finance_settings" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "homeCurrency" varchar NOT NULL DEFAULT ('USD'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "defaultFromBlock" text NOT NULL DEFAULT (''), "defaultFooter" text NOT NULL DEFAULT (''), "invoiceCcEmails" text NOT NULL DEFAULT ('[]'), "automaticExchangeRates" boolean NOT NULL DEFAULT (1))`);
+        await queryRunner.query(`INSERT INTO "temporary_company_finance_settings"("id", "companyId", "homeCurrency", "createdAt", "updatedAt", "defaultFromBlock", "defaultFooter", "invoiceCcEmails") SELECT "id", "companyId", "homeCurrency", "createdAt", "updatedAt", "defaultFromBlock", "defaultFooter", "invoiceCcEmails" FROM "company_finance_settings"`);
+        await queryRunner.query(`DROP TABLE "company_finance_settings"`);
+        await queryRunner.query(`ALTER TABLE "temporary_company_finance_settings" RENAME TO "company_finance_settings"`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_7e4ecd4cb868e453e5cf8d7136" ON "company_finance_settings" ("companyId") `);
+        await queryRunner.query(`DROP INDEX "IDX_dd82cfc70a3e30db99e7ceaceb"`);
+        await queryRunner.query(`DROP INDEX "IDX_fb5343824c5f833ea767f625f6"`);
+        await queryRunner.query(`DROP INDEX "IDX_87ea4aee01917a409a39006444"`);
+        await queryRunner.query(`DROP INDEX "IDX_ba12d2ba81b128da79832c3536"`);
+        await queryRunner.query(`CREATE TABLE "temporary_bills" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "vendorId" varchar NOT NULL, "slug" varchar NOT NULL, "numberSeq" integer NOT NULL DEFAULT (0), "number" varchar NOT NULL DEFAULT (''), "vendorRef" varchar NOT NULL DEFAULT (''), "status" varchar NOT NULL DEFAULT ('draft'), "issueDate" datetime NOT NULL, "dueDate" datetime NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "subtotalCents" integer NOT NULL DEFAULT (0), "taxCents" integer NOT NULL DEFAULT (0), "totalCents" integer NOT NULL DEFAULT (0), "paidCents" integer NOT NULL DEFAULT (0), "balanceCents" integer NOT NULL DEFAULT (0), "notes" text NOT NULL DEFAULT (''), "receivedAt" datetime, "paidAt" datetime, "voidedAt" datetime, "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "creditedCents" integer NOT NULL DEFAULT (0), "exchangeRate" real)`);
+        await queryRunner.query(`INSERT INTO "temporary_bills"("id", "companyId", "vendorId", "slug", "numberSeq", "number", "vendorRef", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "receivedAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents") SELECT "id", "companyId", "vendorId", "slug", "numberSeq", "number", "vendorRef", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "receivedAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents" FROM "bills"`);
+        await queryRunner.query(`DROP TABLE "bills"`);
+        await queryRunner.query(`ALTER TABLE "temporary_bills" RENAME TO "bills"`);
+        await queryRunner.query(`CREATE INDEX "IDX_dd82cfc70a3e30db99e7ceaceb" ON "bills" ("companyId", "numberSeq") `);
+        await queryRunner.query(`CREATE INDEX "IDX_fb5343824c5f833ea767f625f6" ON "bills" ("companyId", "vendorId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_87ea4aee01917a409a39006444" ON "bills" ("companyId", "status") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_ba12d2ba81b128da79832c3536" ON "bills" ("companyId", "slug") `);
+        await queryRunner.query(`DROP INDEX "IDX_a65275724feec10c30bed44704"`);
+        await queryRunner.query(`CREATE TABLE "temporary_bill_payments" ("id" varchar PRIMARY KEY NOT NULL, "billId" varchar NOT NULL, "amountCents" integer NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "paidAt" datetime NOT NULL, "method" varchar NOT NULL DEFAULT ('other'), "reference" varchar NOT NULL DEFAULT (''), "notes" text NOT NULL DEFAULT (''), "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "exchangeRate" real)`);
+        await queryRunner.query(`INSERT INTO "temporary_bill_payments"("id", "billId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt") SELECT "id", "billId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt" FROM "bill_payments"`);
+        await queryRunner.query(`DROP TABLE "bill_payments"`);
+        await queryRunner.query(`ALTER TABLE "temporary_bill_payments" RENAME TO "bill_payments"`);
+        await queryRunner.query(`CREATE INDEX "IDX_a65275724feec10c30bed44704" ON "bill_payments" ("billId") `);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`DROP INDEX "IDX_a65275724feec10c30bed44704"`);
+        await queryRunner.query(`ALTER TABLE "bill_payments" RENAME TO "temporary_bill_payments"`);
+        await queryRunner.query(`CREATE TABLE "bill_payments" ("id" varchar PRIMARY KEY NOT NULL, "billId" varchar NOT NULL, "amountCents" integer NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "paidAt" datetime NOT NULL, "method" varchar NOT NULL DEFAULT ('other'), "reference" varchar NOT NULL DEFAULT (''), "notes" text NOT NULL DEFAULT (''), "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')))`);
+        await queryRunner.query(`INSERT INTO "bill_payments"("id", "billId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt") SELECT "id", "billId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt" FROM "temporary_bill_payments"`);
+        await queryRunner.query(`DROP TABLE "temporary_bill_payments"`);
+        await queryRunner.query(`CREATE INDEX "IDX_a65275724feec10c30bed44704" ON "bill_payments" ("billId") `);
+        await queryRunner.query(`DROP INDEX "IDX_ba12d2ba81b128da79832c3536"`);
+        await queryRunner.query(`DROP INDEX "IDX_87ea4aee01917a409a39006444"`);
+        await queryRunner.query(`DROP INDEX "IDX_fb5343824c5f833ea767f625f6"`);
+        await queryRunner.query(`DROP INDEX "IDX_dd82cfc70a3e30db99e7ceaceb"`);
+        await queryRunner.query(`ALTER TABLE "bills" RENAME TO "temporary_bills"`);
+        await queryRunner.query(`CREATE TABLE "bills" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "vendorId" varchar NOT NULL, "slug" varchar NOT NULL, "numberSeq" integer NOT NULL DEFAULT (0), "number" varchar NOT NULL DEFAULT (''), "vendorRef" varchar NOT NULL DEFAULT (''), "status" varchar NOT NULL DEFAULT ('draft'), "issueDate" datetime NOT NULL, "dueDate" datetime NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "subtotalCents" integer NOT NULL DEFAULT (0), "taxCents" integer NOT NULL DEFAULT (0), "totalCents" integer NOT NULL DEFAULT (0), "paidCents" integer NOT NULL DEFAULT (0), "balanceCents" integer NOT NULL DEFAULT (0), "notes" text NOT NULL DEFAULT (''), "receivedAt" datetime, "paidAt" datetime, "voidedAt" datetime, "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "creditedCents" integer NOT NULL DEFAULT (0))`);
+        await queryRunner.query(`INSERT INTO "bills"("id", "companyId", "vendorId", "slug", "numberSeq", "number", "vendorRef", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "receivedAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents") SELECT "id", "companyId", "vendorId", "slug", "numberSeq", "number", "vendorRef", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "receivedAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents" FROM "temporary_bills"`);
+        await queryRunner.query(`DROP TABLE "temporary_bills"`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_ba12d2ba81b128da79832c3536" ON "bills" ("companyId", "slug") `);
+        await queryRunner.query(`CREATE INDEX "IDX_87ea4aee01917a409a39006444" ON "bills" ("companyId", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_fb5343824c5f833ea767f625f6" ON "bills" ("companyId", "vendorId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_dd82cfc70a3e30db99e7ceaceb" ON "bills" ("companyId", "numberSeq") `);
+        await queryRunner.query(`DROP INDEX "IDX_7e4ecd4cb868e453e5cf8d7136"`);
+        await queryRunner.query(`ALTER TABLE "company_finance_settings" RENAME TO "temporary_company_finance_settings"`);
+        await queryRunner.query(`CREATE TABLE "company_finance_settings" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "homeCurrency" varchar NOT NULL DEFAULT ('USD'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "defaultFromBlock" text NOT NULL DEFAULT (''), "defaultFooter" text NOT NULL DEFAULT (''), "invoiceCcEmails" text NOT NULL DEFAULT ('[]'))`);
+        await queryRunner.query(`INSERT INTO "company_finance_settings"("id", "companyId", "homeCurrency", "createdAt", "updatedAt", "defaultFromBlock", "defaultFooter", "invoiceCcEmails") SELECT "id", "companyId", "homeCurrency", "createdAt", "updatedAt", "defaultFromBlock", "defaultFooter", "invoiceCcEmails" FROM "temporary_company_finance_settings"`);
+        await queryRunner.query(`DROP TABLE "temporary_company_finance_settings"`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_7e4ecd4cb868e453e5cf8d7136" ON "company_finance_settings" ("companyId") `);
+        await queryRunner.query(`DROP INDEX "IDX_ae3bef7a3194ffed2cf62fe56f"`);
+        await queryRunner.query(`DROP INDEX "IDX_617c19e3a1794ed3934ebf18b1"`);
+        await queryRunner.query(`ALTER TABLE "exchange_rates" RENAME TO "temporary_exchange_rates"`);
+        await queryRunner.query(`CREATE TABLE "exchange_rates" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "fromCurrency" varchar NOT NULL, "toCurrency" varchar NOT NULL, "date" datetime NOT NULL, "rate" real NOT NULL, "source" varchar NOT NULL DEFAULT ('manual'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')))`);
+        await queryRunner.query(`INSERT INTO "exchange_rates"("id", "companyId", "fromCurrency", "toCurrency", "date", "rate", "source", "createdAt") SELECT "id", "companyId", "fromCurrency", "toCurrency", "date", "rate", "source", "createdAt" FROM "temporary_exchange_rates"`);
+        await queryRunner.query(`DROP TABLE "temporary_exchange_rates"`);
+        await queryRunner.query(`CREATE INDEX "IDX_ae3bef7a3194ffed2cf62fe56f" ON "exchange_rates" ("companyId", "fromCurrency", "toCurrency") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_617c19e3a1794ed3934ebf18b1" ON "exchange_rates" ("companyId", "fromCurrency", "toCurrency", "date") `);
+        await queryRunner.query(`DROP INDEX "IDX_3b2a25d4269ebe9d7ca0c1001d"`);
+        await queryRunner.query(`DROP INDEX "IDX_c6ee814b32732f6ad7244cd8d1"`);
+        await queryRunner.query(`ALTER TABLE "invoice_payments" RENAME TO "temporary_invoice_payments"`);
+        await queryRunner.query(`CREATE TABLE "invoice_payments" ("id" varchar PRIMARY KEY NOT NULL, "invoiceId" varchar NOT NULL, "amountCents" integer NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "paidAt" datetime NOT NULL, "method" varchar NOT NULL DEFAULT ('other'), "reference" varchar NOT NULL DEFAULT (''), "notes" text NOT NULL DEFAULT (''), "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "bankTransactionId" varchar)`);
+        await queryRunner.query(`INSERT INTO "invoice_payments"("id", "invoiceId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt", "bankTransactionId") SELECT "id", "invoiceId", "amountCents", "currency", "paidAt", "method", "reference", "notes", "createdById", "createdAt", "bankTransactionId" FROM "temporary_invoice_payments"`);
+        await queryRunner.query(`DROP TABLE "temporary_invoice_payments"`);
+        await queryRunner.query(`CREATE INDEX "IDX_3b2a25d4269ebe9d7ca0c1001d" ON "invoice_payments" ("invoiceId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_c6ee814b32732f6ad7244cd8d1" ON "invoice_payments" ("bankTransactionId") `);
+        await queryRunner.query(`DROP INDEX "IDX_d250996aa223a63af6daf456a7"`);
+        await queryRunner.query(`DROP INDEX "IDX_0afa115f708972afe8a7ec2d26"`);
+        await queryRunner.query(`DROP INDEX "IDX_f3ffc04f81b4de8bda218c8982"`);
+        await queryRunner.query(`DROP INDEX "IDX_f73f492a1b636e2bfa2fea3cd6"`);
+        await queryRunner.query(`DROP INDEX "IDX_1a8aa00285e3a99a1a1d751369"`);
+        await queryRunner.query(`DROP INDEX "IDX_4896213d201354fd588d2e1104"`);
+        await queryRunner.query(`ALTER TABLE "invoices" RENAME TO "temporary_invoices"`);
+        await queryRunner.query(`CREATE TABLE "invoices" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "customerId" varchar NOT NULL, "slug" varchar NOT NULL, "numberSeq" integer NOT NULL DEFAULT (0), "number" varchar NOT NULL DEFAULT (''), "status" varchar NOT NULL DEFAULT ('draft'), "issueDate" datetime NOT NULL, "dueDate" datetime NOT NULL, "currency" varchar NOT NULL DEFAULT ('USD'), "subtotalCents" integer NOT NULL DEFAULT (0), "taxCents" integer NOT NULL DEFAULT (0), "totalCents" integer NOT NULL DEFAULT (0), "paidCents" integer NOT NULL DEFAULT (0), "balanceCents" integer NOT NULL DEFAULT (0), "notes" text NOT NULL DEFAULT (''), "footer" text NOT NULL DEFAULT (''), "sentAt" datetime, "paidAt" datetime, "voidedAt" datetime, "createdById" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "creditedCents" integer NOT NULL DEFAULT (0), "writtenOffCents" integer NOT NULL DEFAULT (0), "subsidiaryId" varchar, "issuerSnapshot" text, "discountPercent" real NOT NULL DEFAULT (0), "discountAmountCents" integer NOT NULL DEFAULT (0), "discountCents" integer NOT NULL DEFAULT (0), "archivedAt" datetime, "recurringInvoiceId" varchar)`);
+        await queryRunner.query(`INSERT INTO "invoices"("id", "companyId", "customerId", "slug", "numberSeq", "number", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "footer", "sentAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents", "writtenOffCents", "subsidiaryId", "issuerSnapshot", "discountPercent", "discountAmountCents", "discountCents", "archivedAt", "recurringInvoiceId") SELECT "id", "companyId", "customerId", "slug", "numberSeq", "number", "status", "issueDate", "dueDate", "currency", "subtotalCents", "taxCents", "totalCents", "paidCents", "balanceCents", "notes", "footer", "sentAt", "paidAt", "voidedAt", "createdById", "createdAt", "updatedAt", "creditedCents", "writtenOffCents", "subsidiaryId", "issuerSnapshot", "discountPercent", "discountAmountCents", "discountCents", "archivedAt", "recurringInvoiceId" FROM "temporary_invoices"`);
+        await queryRunner.query(`DROP TABLE "temporary_invoices"`);
+        await queryRunner.query(`CREATE INDEX "IDX_d250996aa223a63af6daf456a7" ON "invoices" ("companyId", "archivedAt") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_0afa115f708972afe8a7ec2d26" ON "invoices" ("companyId", "slug") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f3ffc04f81b4de8bda218c8982" ON "invoices" ("companyId", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f73f492a1b636e2bfa2fea3cd6" ON "invoices" ("companyId", "customerId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_1a8aa00285e3a99a1a1d751369" ON "invoices" ("companyId", "numberSeq") `);
+        await queryRunner.query(`CREATE INDEX "IDX_4896213d201354fd588d2e1104" ON "invoices" ("companyId", "recurringInvoiceId") `);
+    }
+
+}

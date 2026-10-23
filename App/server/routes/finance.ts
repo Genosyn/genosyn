@@ -145,6 +145,7 @@ import {
   setRecurringInvoicesArchived,
 } from "../services/recurringInvoices.js";
 import { recurringRevenueMetrics } from "../services/recurringInvoiceMetrics.js";
+import { getReportingCurrency } from "../services/revenue/revenueData.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
@@ -215,11 +216,18 @@ import { BANKING_BULK_MAX, bulkBanking } from "../services/bankingBulk.js";
 import {
   getFinanceSettings,
   seedCurrencies,
+  setAutomaticExchangeRates,
   setFinanceTemplates,
   setHomeCurrency,
   setInvoiceCcEmails,
   setRate,
 } from "../services/fx.js";
+import {
+  ExchangeRateFeedError,
+  exchangeRateOverview,
+  refreshCompanyExchangeRates,
+  refreshCompanyExchangeRatesSoon,
+} from "../services/exchangeRateFeed.js";
 import { Currency } from "../db/entities/Currency.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
@@ -1144,7 +1152,7 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [hydratedRows, emailDetails, resendActivities, writeOffs, apps, revision] =
+  const [hydratedRows, emailDetails, resendActivities, writeOffs, apps, revision, homeCurrency] =
     await Promise.all([
       hydrateInvoices(cid, [inv]),
       getInvoiceEmailDetails(cid, inv),
@@ -1152,6 +1160,7 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
       listInvoiceWriteOffs(cid, inv.id),
       listApplicationsForInvoice(inv.id),
       documentRevisionState(cid, "invoice", inv.id),
+      getReportingCurrency(cid),
     ]);
   const creditIds = [...new Set(apps.map((a) => a.creditId))];
   const credits = creditIds.length
@@ -1173,6 +1182,8 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
     writeOffs,
     creditApplications,
     revision,
+    // What its locked rates convert into.
+    homeCurrency,
   });
 });
 
@@ -3727,14 +3738,19 @@ const settingsPatchSchema = z.object({
     )
     .max(25)
     .optional(),
+  automaticExchangeRates: z.boolean().optional(),
 });
 
 financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof settingsPatchSchema>;
   try {
+    const before = await getFinanceSettings(cid);
     if (body.homeCurrency !== undefined) {
       await setHomeCurrency(cid, body.homeCurrency);
+    }
+    if (body.automaticExchangeRates !== undefined) {
+      await setAutomaticExchangeRates(cid, body.automaticExchangeRates);
     }
     if (body.defaultFromBlock !== undefined || body.defaultFooter !== undefined) {
       await setFinanceTemplates(cid, {
@@ -3745,7 +3761,16 @@ financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), asyn
     if (body.invoiceCcEmails !== undefined) {
       await setInvoiceCcEmails(cid, body.invoiceCcEmails);
     }
-    res.json(await getFinanceSettings(cid));
+    const after = await getFinanceSettings(cid);
+    // Automatic rates just turned on, or now convert into another home
+    // currency: fetch them now rather than on the next pass.
+    if (
+      after.automaticExchangeRates &&
+      (!before.automaticExchangeRates || after.homeCurrency !== before.homeCurrency)
+    ) {
+      refreshCompanyExchangeRatesSoon(cid);
+    }
+    res.json(after);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -3795,15 +3820,20 @@ financeRouter.delete("/currencies/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-financeRouter.get("/exchange-rates", async (req, res) => {
+const rateListQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  /** `false` lists only the rates a person set; `true` only fetched ones. */
+  automatic: z.enum(["true", "false"]).optional(),
+});
+
+financeRouter.get("/exchange-rates", validateQuery(rateListQuerySchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
+  const query = req.query as z.infer<typeof rateListQuerySchema>;
   const where: Record<string, unknown> = { companyId: cid };
-  if (typeof req.query.from === "string" && req.query.from) {
-    where.fromCurrency = (req.query.from as string).toUpperCase();
-  }
-  if (typeof req.query.to === "string" && req.query.to) {
-    where.toCurrency = (req.query.to as string).toUpperCase();
-  }
+  if (query.from) where.fromCurrency = query.from.toUpperCase();
+  if (query.to) where.toCurrency = query.to.toUpperCase();
+  if (query.automatic) where.automatic = query.automatic === "true";
   const rates = await AppDataSource.getRepository(ExchangeRate).find({
     where,
     order: { date: "DESC" },
@@ -3811,6 +3841,38 @@ financeRouter.get("/exchange-rates", async (req, res) => {
   });
   res.json(rates);
 });
+
+// What Finance → Currencies shows above the rates: whether automatic rates
+// are on, and the rate each currency in use converts at today.
+financeRouter.get(
+  "/exchange-rates/overview",
+  validateQuery(z.object({}).strict()),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    res.json(await exchangeRateOverview(cid));
+  },
+);
+
+// Update now: fetch the ECB's rates for this company immediately.
+financeRouter.post(
+  "/exchange-rates/refresh",
+  validateBody(z.object({}).strict()),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const settings = await getFinanceSettings(cid);
+    if (!settings.automaticExchangeRates) {
+      return res.status(409).json({ error: "Turn on automatic rates to fetch them." });
+    }
+    try {
+      res.json(await refreshCompanyExchangeRates(cid));
+    } catch (err) {
+      if (err instanceof ExchangeRateFeedError) {
+        return res.status(502).json({ error: err.message });
+      }
+      throw err;
+    }
+  },
+);
 
 const rateUpsertSchema = z.object({
   fromCurrency: z.string().regex(/^[A-Za-z]{3}$/),
@@ -4189,9 +4251,10 @@ financeRouter.get("/bills/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  const [[hydrated], apps] = await Promise.all([
+  const [[hydrated], apps, homeCurrency] = await Promise.all([
     hydrateBills(cid, [b]),
     listVendorApplicationsForBill(b.id),
+    getReportingCurrency(cid),
   ]);
   const creditIds = [...new Set(apps.map((a) => a.creditId))];
   const credits = creditIds.length
@@ -4206,7 +4269,8 @@ financeRouter.get("/bills/:slug", async (req, res) => {
     creditNumber: creditById.get(a.creditId)?.number ?? null,
     creditSlug: creditById.get(a.creditId)?.slug ?? null,
   }));
-  res.json({ ...hydrated, vendorCreditApplications });
+  // `homeCurrency`: what its locked rates convert into.
+  res.json({ ...hydrated, vendorCreditApplications, homeCurrency });
 });
 
 const billPatchSchema = z.object({

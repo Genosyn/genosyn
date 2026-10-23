@@ -231,6 +231,12 @@ trusted-origin check, is in `App/server/index.ts`.
   admin chose them: a self-hosted install talking to its own LAN is ordinary
   (`App/server/services/mail/hostPolicy.ts` applies only in multi-tenant
   mode).
+- **The European Central Bank's reference rates** are fetched every three
+  hours, for companies with automatic exchange rates on, from one URL fixed in
+  `App/server/services/exchangeRateFeed.ts`, never from a request. The feed is
+  read strictly as dates, currency codes and positive rates; a failed or
+  malformed fetch changes nothing, and a fetched rate never replaces one a
+  Member set.
 - **Operator-controlled configuration** is the operator's responsibility:
   `App/config.ts` (for example `trustedProxyHops` not matching the real
   proxy chain), environment proxies, Helm values, and how the port is

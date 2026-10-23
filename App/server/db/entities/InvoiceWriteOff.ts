@@ -24,7 +24,7 @@ import {
  * Money: `amountCents` is in the invoice's document currency (it caps against
  * the invoice's open balance, which is document-currency). `homeCents` is the
  * converted amount posted on BOTH ledger legs — the two legs use the same rate
- * (the invoice's issue-date rate), so a write-off is always two balanced lines
+ * (the rate the invoice was booked at), so a write-off is always two balanced lines
  * and can never produce an FX gain/loss leg. Both carrying amounts are stored
  * so the reversal can rebuild the exact entry.
  */

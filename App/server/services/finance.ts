@@ -32,7 +32,13 @@ import {
   requireAccountsByCode,
   reverseLedgerEntriesForSources,
 } from "./ledger.js";
-import { convertCents, getFinanceSettings } from "./fx.js";
+import {
+  convertAtRate,
+  getFinanceSettings,
+  invoiceBookedRate,
+  lookupRate,
+  paymentRate,
+} from "./fx.js";
 import {
   discountProblem,
   type DocumentDiscount,
@@ -489,6 +495,7 @@ export async function issueInvoice(
     slug: invoice.slug,
     status: invoice.status,
     sentAt: invoice.sentAt,
+    exchangeRate: invoice.exchangeRate,
   };
   const seq = await mintNextInvoiceSeq(invoice.companyId, invoice.customerId);
   invoice.numberSeq = seq;
@@ -565,17 +572,38 @@ async function postInvoiceIssue(
     source: "invoice_issue",
     sourceRefId: invoice.id,
     createdById: actorUserId,
-    lines: await invoiceIssueLines(invoice),
+    lines: await invoiceIssueLines(invoice, await lockInvoiceRate(invoice, { fresh: true })),
   });
+}
+
+/**
+ * Lock the rate an invoice is booked at onto it (`Invoice.exchangeRate`), so
+ * the payments, credits and write-offs that clear its receivable later
+ * convert at the rate it was booked at, whatever rates arrive afterwards.
+ * Issuing, or an edit that moved the issue date or currency (`fresh`), takes
+ * the rate on file for the issue date; otherwise the rate it was booked at
+ * stands, read back from the ledger for an invoice issued before rates were
+ * locked.
+ */
+async function lockInvoiceRate(invoice: Invoice, { fresh = false } = {}): Promise<number> {
+  const { homeCurrency } = await getFinanceSettings(invoice.companyId);
+  const rate = fresh
+    ? (await lookupRate(invoice.companyId, invoice.currency, homeCurrency, invoice.issueDate)).rate
+    : await invoiceBookedRate(invoice, homeCurrency);
+  if (invoice.exchangeRate !== rate) {
+    invoice.exchangeRate = rate;
+    await AppDataSource.getRepository(Invoice).update({ id: invoice.id }, { exchangeRate: rate });
+  }
+  return rate;
 }
 
 /**
  * The journal lines that record this invoice as issued, as it stands now:
  * DR Accounts Receivable / CR Sales Revenue + Tax Payable, converted to the
- * home currency at the issue date. Empty for an invoice with no value, which
- * books nothing.
+ * home currency at the rate the invoice is booked at. Empty for an invoice
+ * with no value, which books nothing.
  */
-async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
+async function invoiceIssueLines(invoice: Invoice, rate: number): Promise<LedgerLineDraft[]> {
   if (invoice.totalCents <= 0) return [];
   const accounts = await requireAccountsByCode(invoice.companyId, [
     "1200",
@@ -591,29 +619,9 @@ async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
   // single reporting currency. The audit columns (origCurrency,
   // origAmountCents, rate) carry the pre-conversion picture so reports
   // can drill back to "what the invoice actually said".
-  const settings = await getFinanceSettings(invoice.companyId);
-  const home = settings.homeCurrency;
-  const total = await convertCents(
-    invoice.companyId,
-    invoice.totalCents,
-    invoice.currency,
-    home,
-    invoice.issueDate,
-  );
-  const subtotal = await convertCents(
-    invoice.companyId,
-    invoice.subtotalCents,
-    invoice.currency,
-    home,
-    invoice.issueDate,
-  );
-  const taxConverted = await convertCents(
-    invoice.companyId,
-    invoice.taxCents,
-    invoice.currency,
-    home,
-    invoice.issueDate,
-  );
+  const total = convertAtRate(invoice.totalCents, rate);
+  const subtotal = convertAtRate(invoice.subtotalCents, rate);
+  const taxConverted = convertAtRate(invoice.taxCents, rate);
 
   // Anchor the entry on the converted total (what the customer owes and
   // what a later payment will clear), then reconcile the credit legs onto
@@ -623,16 +631,16 @@ async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
   // residual lands on the revenue leg, leaving Tax Payable exact.
   const [revenueCredit, taxCredit] =
     invoice.taxCents > 0
-      ? reconcilePartsToTotal(total.converted, [subtotal.converted, taxConverted.converted])
-      : [total.converted, 0];
+      ? reconcilePartsToTotal(total, [subtotal, taxConverted])
+      : [total, 0];
   const lines: LedgerLineDraft[] = [
     {
       accountId: ar.id,
-      debitCents: total.converted,
+      debitCents: total,
       description: `${invoice.number} — receivable`,
       origCurrency: invoice.currency,
       origAmountCents: invoice.totalCents,
-      rate: total.rate,
+      rate,
     },
     {
       accountId: revenue.id,
@@ -640,7 +648,7 @@ async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
       description: `${invoice.number} — revenue`,
       origCurrency: invoice.currency,
       origAmountCents: invoice.subtotalCents,
-      rate: subtotal.rate,
+      rate,
     },
   ];
   if (invoice.taxCents > 0) {
@@ -650,7 +658,7 @@ async function invoiceIssueLines(invoice: Invoice): Promise<LedgerLineDraft[]> {
       description: `${invoice.number} — tax payable`,
       origCurrency: invoice.currency,
       origAmountCents: invoice.taxCents,
-      rate: taxConverted.rate,
+      rate,
     });
   }
   return lines;
@@ -717,16 +725,22 @@ async function currentIssuePosting(invoice: Invoice): Promise<Map<string, number
  * invoice now says it was issued. Payments, credits and write-offs are left
  * alone — `updateInvoice` refuses an edit that would strand them.
  *
+ * The revised lines convert at the rate the invoice is booked at, so a change
+ * to its amounts moves only what changed. An edit that moved the issue date
+ * or currency (`relock`) books it at the rate for its new date instead.
+ *
  * Returns the number of entries posted (0 when nothing on the books moved).
  */
 async function postInvoiceRevision(
   invoice: Invoice,
   previousIssueDate: Date,
   actorUserId: string | null,
+  { relock = false }: { relock?: boolean } = {},
 ): Promise<number> {
+  const rate = await lockInvoiceRate(invoice, { fresh: relock });
   const [current, targetLines] = await Promise.all([
     currentIssuePosting(invoice),
-    invoiceIssueLines(invoice),
+    invoiceIssueLines(invoice, rate),
   ]);
   const label = invoice.number || "invoice";
   const base = {
@@ -886,10 +900,10 @@ export async function postInvoicePayment(
   }
   // Phase E: when the invoice currency differs from home, the rate at
   // payment time will usually differ from the rate at issue. The Bank
-  // gets debited at the payment-time rate; AR is cleared at the
-  // issue-time rate; the difference lands in 4910 FX Gain or 6900 FX
-  // Loss. Same-currency payments fall through with delta = 0 and no
-  // FX line.
+  // gets debited at the rate of the day it was paid, locked on the
+  // payment; AR is cleared at the rate the invoice was booked at; the
+  // difference lands in 4910 FX Gain or 6900 FX Loss. Same-currency
+  // payments fall through with delta = 0 and no FX line.
   const settings = await getFinanceSettings(invoice.companyId);
   const home = settings.homeCurrency;
   const accounts = await requireAccountsByCode(invoice.companyId, [
@@ -905,21 +919,18 @@ export async function postInvoicePayment(
   const fxGain = accounts.get("4910")!;
   const fxLoss = accounts.get("6900")!;
 
-  const atPayment = await convertCents(
-    invoice.companyId,
-    payment.amountCents,
-    invoice.currency,
-    home,
-    payment.paidAt,
-  );
-  const atIssue = await convertCents(
-    invoice.companyId,
-    payment.amountCents,
-    invoice.currency,
-    home,
-    invoice.issueDate,
-  );
-  const fxDelta = atPayment.converted - atIssue.converted;
+  const paidRate = await paymentRate(invoice.companyId, payment, invoice.currency, home);
+  const bookedRate = await invoiceBookedRate(invoice, home);
+  if (payment.exchangeRate !== paidRate) {
+    payment.exchangeRate = paidRate;
+    await AppDataSource.getRepository(InvoicePayment).update(
+      { id: payment.id },
+      { exchangeRate: paidRate },
+    );
+  }
+  const atPayment = convertAtRate(payment.amountCents, paidRate);
+  const atIssue = convertAtRate(payment.amountCents, bookedRate);
+  const fxDelta = atPayment - atIssue;
 
   const lines: Array<{
     accountId: string;
@@ -932,19 +943,19 @@ export async function postInvoicePayment(
   }> = [
     {
       accountId: bank.id,
-      debitCents: atPayment.converted,
+      debitCents: atPayment,
       description: payment.reference || invoice.number,
       origCurrency: invoice.currency,
       origAmountCents: payment.amountCents,
-      rate: atPayment.rate,
+      rate: paidRate,
     },
     {
       accountId: ar.id,
-      creditCents: atIssue.converted,
+      creditCents: atIssue,
       description: invoice.number,
       origCurrency: invoice.currency,
       origAmountCents: payment.amountCents,
-      rate: atIssue.rate,
+      rate: bookedRate,
     },
   ];
   if (fxDelta > 0) {
@@ -1158,6 +1169,7 @@ export async function updateInvoice(
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     currency: invoice.currency,
+    exchangeRate: invoice.exchangeRate,
     notes: invoice.notes,
     footer: invoice.footer,
     ...previousDiscount,
@@ -1301,7 +1313,9 @@ export async function updateInvoice(
   let revisionEntries = 0;
   if (ledgerMoves) {
     try {
-      revisionEntries = await postInvoiceRevision(recomputed, previous.issueDate, actorUserId);
+      revisionEntries = await postInvoiceRevision(recomputed, previous.issueDate, actorUserId, {
+        relock: currencyChanged || issueDateChanged,
+      });
     } catch (err) {
       // The books refused the change (a missing exchange rate, an archived
       // account). Put the invoice back so the document never says something

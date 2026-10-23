@@ -26,6 +26,12 @@ export class BillPayment {
   @Column({ type: dateTimeColumnType })
   paidAt!: Date;
 
+  /** The rate into the home currency on the day it was paid, locked when the
+   *  payment posts, as on `InvoicePayment`. Null on a payment recorded before
+   *  rates were locked. */
+  @Column({ type: "real", nullable: true })
+  exchangeRate!: number | null;
+
   @Column({ type: "varchar", default: "other" })
   method!: BillPaymentMethod;
 

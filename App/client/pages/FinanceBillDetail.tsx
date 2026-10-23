@@ -6,6 +6,7 @@ import {
   Bill,
   BillPaymentMethod,
   displayBillStatus,
+  formatExchangeRate,
   formatMoney,
   parseMoneyToCents,
   VendorCreditDetail,
@@ -47,6 +48,8 @@ export default function FinanceBillDetail() {
   const navigate = useNavigate();
   const dialog = useDialog();
   const [bill, setBill] = React.useState<Bill | null>(null);
+  /** What the bill's and its payments' locked rates convert into. */
+  const [homeCurrency, setHomeCurrency] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<null | "issue" | "void">(null);
   const [deleting, setDeleting] = React.useState(false);
@@ -65,8 +68,11 @@ export default function FinanceBillDetail() {
   const reload = React.useCallback(async () => {
     if (!billSlug) return;
     try {
-      const b = await api.get<Bill>(`/api/companies/${company.id}/bills/${billSlug}`);
+      const b = await api.get<Bill & { homeCurrency: string }>(
+        `/api/companies/${company.id}/bills/${billSlug}`,
+      );
       setBill(b);
+      setHomeCurrency(b.homeCurrency ?? null);
       shown.current = true;
       setLoadError(null);
     } catch (err) {
@@ -176,6 +182,9 @@ export default function FinanceBillDetail() {
   }
   const ds = displayBillStatus(bill);
   const number = bill.number || "DRAFT";
+  // Locked rates are shown only on a bill in a currency other than home.
+  const home = homeCurrency ?? bill.currency;
+  const foreign = bill.currency.toUpperCase() !== home.toUpperCase();
 
   return (
     <div className="page-shell p-8">
@@ -305,6 +314,19 @@ export default function FinanceBillDetail() {
                   {formatMoney(bill.totalCents, bill.currency)}
                 </span>
               </div>
+              {foreign && bill.exchangeRate !== null && (
+                <div
+                  className="flex justify-between text-xs text-slate-400 dark:text-slate-500"
+                  title="Locked when the bill was issued: its payments and vendor credits clear the payable at this rate."
+                >
+                  <span>
+                    Booked in {home} at {formatExchangeRate(bill.exchangeRate)}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatMoney(Math.round(bill.totalCents * bill.exchangeRate), home)}
+                  </span>
+                </div>
+              )}
               {bill.paidCents > 0 && (
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
                   <span>Paid</span>
@@ -374,6 +396,15 @@ export default function FinanceBillDetail() {
                         {p.method}
                         {p.reference ? ` · ${p.reference}` : ""}
                       </div>
+                      {foreign && p.exchangeRate !== null && (
+                        <div
+                          className="text-xs tabular-nums text-slate-500 dark:text-slate-400"
+                          title="The rate of the day it was paid, locked when the payment was recorded."
+                        >
+                          {formatMoney(Math.round(p.amountCents * p.exchangeRate), home)} at{" "}
+                          {formatExchangeRate(p.exchangeRate)}
+                        </div>
+                      )}
                     </div>
                     {canWrite && (
                       <button
