@@ -406,8 +406,10 @@ export function Integrations() {
         The Connection contributes read-only cash-account, Cash transaction, and card transaction
         tools to employees who receive a Grant. To bring Cash transactions into the books, open{" "}
         <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
-        <Code>Add account</Code>, choose <Code>Brex business account</Code>, pick the Connection
-        and Cash account, then click <Code>Update now</Code>.
+        <Code>Add account</Code>, choose <Code>Brex business account</Code>, and pick the
+        Connection and Cash account. Its transactions start coming in at once and{" "}
+        <DocLink to="/docs/banking#sync">keep syncing on their own</DocLink>; if the token is
+        later rejected, the account&apos;s card says so and links back here to reconnect it.
       </P>
       <P>
         For corporate card accounting, add a <Code>Brex card</Code> the same way. Its purchases are
@@ -429,10 +431,10 @@ export function Integrations() {
       <P>
         To bring a balance&apos;s transactions into the books, open{" "}
         <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
-        <Code>Add account</Code>, choose <Code>Wise balance</Code>, pick the Connection and the
-        balance, then click <Code>Update now</Code>. Only a balance in your home currency can be
-        added, because bank transactions are in your home currency; balances in other currencies
-        are listed but greyed out.
+        <Code>Add account</Code>, choose <Code>Wise balance</Code>, and pick the Connection and the
+        balance; it <DocLink to="/docs/banking#sync">syncs on its own</DocLink> from then on. Only
+        a balance in your home currency can be added, because bank transactions are in your home
+        currency; balances in other currencies are listed but greyed out.
       </P>
       <P>
         The Connection contributes read-only profile, balance, and balance statement tools to
