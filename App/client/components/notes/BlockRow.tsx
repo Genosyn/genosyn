@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { clsx } from "../ui/clsx";
 import { useCloseOnEscape, useCloseOnPressOutside } from "../ui/Menu";
+import { Select } from "../ui/Select";
 import type { Run } from "../../lib/noteInline";
 import { CALLOUT_KINDS, type Block, type CalloutKind, parseTableSource } from "../../lib/noteMarkdown";
 import { ordinalLabel } from "../../lib/noteBlocks";
@@ -377,12 +378,15 @@ function CodeBlock({ block, ctrl }: { block: Block; ctrl: EditorController }) {
         contentEditable={false}
         className="flex items-center justify-between gap-2 px-3 pt-2 text-xs text-slate-500 dark:text-slate-400"
       >
-        <select
+        <Select
           value={lang}
           disabled={ctrl.readOnly}
           onChange={(event) => ctrl.setCodeLang(block.id, event.target.value)}
           aria-label="Code language"
-          className="-ml-1 rounded border-0 bg-transparent py-0.5 pl-1 pr-6 text-xs text-slate-500 hover:bg-slate-200/60 focus:ring-1 focus:ring-indigo-400 dark:text-slate-400 dark:hover:bg-slate-800"
+          searchPlaceholder="Search languages…"
+          emptyMessage="No matching language"
+          containerClassName="-ml-1 w-36"
+          className="!rounded !border-0 !bg-transparent py-0.5 !pl-1 !pr-7 !text-xs !text-slate-500 !shadow-none hover:!bg-slate-200/60 focus:!ring-1 focus:!ring-indigo-400 dark:!bg-transparent dark:!text-slate-400 dark:hover:!bg-slate-800"
         >
           {!known && <option value={lang}>{lang}</option>}
           {CODE_LANGUAGES.map((l) => (
@@ -390,7 +394,7 @@ function CodeBlock({ block, ctrl }: { block: Block; ctrl: EditorController }) {
               {l.label}
             </option>
           ))}
-        </select>
+        </Select>
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}
