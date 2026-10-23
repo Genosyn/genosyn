@@ -164,8 +164,9 @@ export function Finance() {
         and the estimate keeps its number. Its customer and issuer are fixed once it is issued,
         because the number belongs to that customer — duplicate it to quote someone else. Saving
         never emails the customer: <Code>Save changes</Code> only saves, while{" "}
-        <Code>Save &amp; resend</Code> saves and emails the updated estimate to the customer
-        straight away, like <Code>Resend email</Code>.
+        <Code>Save &amp; resend</Code> saves and opens the email with a note telling the customer
+        this copy replaces the earlier one — you still confirm the recipients and the message before
+        anything goes out, as on an invoice.
       </P>
       <P>
         The customer accepted the version they saw, so any change to an <Strong>accepted</Strong>{" "}
@@ -233,6 +234,15 @@ export function Finance() {
         <DocLink to="/docs/integrations">EmailProvider</DocLink> the company has configured.
       </P>
       <P>
+        <Code>Issue &amp; send</Code> emails a draft to the customer&apos;s billing email.{" "}
+        <Code>Resend email</Code> on a sent or accepted estimate opens the same email dialog as an
+        invoice: choose To and Cc with the customer&apos;s people one click away, add a note, and
+        choose whether to attach the PDF — see{" "}
+        <DocLink to="/docs/finance#invoices-recipients">Choosing who an invoice goes to</DocLink>.
+        Finance → Settings → Always Cc is for invoices, so an estimate goes only to the people you
+        choose.
+      </P>
+      <P>
         <Code>Issue &amp; send</Code> checks that there is somewhere to send before it issues
         anything. If the customer has no email address on file, the estimate stays a draft with its
         <Code>edraft-xxxxxx</Code> slug and no number is minted — add the address and click again.
@@ -284,11 +294,10 @@ export function Finance() {
         mailbox on every delivery, open <Code>Finance → Settings</Code> and add one or more
         addresses under <Strong>Always Cc on invoices</Strong>. The saved addresses are added to
         manual sends, recurring auto-sends, and resends automatically. Before a resend, Genosyn
-        shows the exact From and Reply-to addresses in a confirmation modal. Edit the{" "}
-        <Code>To</Code> field to add or remove recipients, see the company&apos;s always-Cc
-        recipients, add optional additional <Code>Cc</Code> recipients, include a one-off message,
-        and choose whether to attach the invoice PDF. Separate multiple addresses with commas. Every
-        resend attempt then appears in the invoice&apos;s{" "}
+        shows the email in a dialog where you choose who it goes to, with the customer&apos;s
+        people one click away — see{" "}
+        <DocLink to="/docs/finance#invoices-recipients">Choosing who an invoice goes to</DocLink>.
+        Every resend attempt then appears in the invoice&apos;s{" "}
         <DocLink to="/docs/security#record-history">History</DocLink> with who sent it, its delivery
         status, To and Cc recipients, and attachment result.
       </P>
@@ -432,6 +441,61 @@ export function Finance() {
         Every edit appears in the invoice&apos;s{" "}
         <DocLink to="/docs/security#record-history">History</DocLink> as an edit made after it was
         sent, with the fields that changed and the old and new totals.
+      </P>
+
+      <H3 id="invoices-recipients">Choosing who an invoice goes to</H3>
+      <P>
+        <Code>Resend email</Code> on a sent or paid invoice — or <Code>Resend</Code> after an edit —
+        opens the email before anything goes out. It shows the From and Reply-to addresses and the
+        company&apos;s <Strong>Always Cc</Strong>, starts <Code>To</Code> with the customer&apos;s
+        billing email, and leaves <Code>Cc</Code> empty. Add a note for the customer and choose
+        whether to attach the PDF, then click <Code>Resend email</Code>.
+      </P>
+      <P>
+        Below To and Cc, <Strong>Suggested from</Strong> lists the customer&apos;s people: its
+        billing email, its <DocLink to="/docs/customers#contacts">contacts</DocLink>, the{" "}
+        <DocLink to="/docs/revenue">Revenue contacts</DocLink> linked to the account or on its
+        deals, and Revenue contacts at its domain, subdomains included. Each shows the person&apos;s
+        name, email address, and role or title. Click a person to copy them on the email (Cc), or
+        click their <Code>+ To</Code> to put them on the To line. Whoever is already on the email,
+        Always Cc included, is left out of the list — and comes back if you take them off. The first
+        four show, with <Code>Show more</Code> for the rest, and they are ordered:
+      </P>
+      <OL>
+        <LI>
+          Billing and finance people first: the billing email, the primary contact, and anyone
+          whose role, title, or mailbox reads as billing or finance — Accounts payable, Finance
+          Director, Controller, CFO, <Code>ap@</Code>, <Code>billing@</Code>.
+        </LI>
+        <LI>
+          Then whoever you emailed most recently — on one of this customer&apos;s invoices or
+          estimates, or in email Revenue recorded with them as a contact.
+        </LI>
+        <LI>Then everyone else, the customer&apos;s own contacts before people found by domain.</LI>
+      </OL>
+      <P>
+        A free-mail domain such as <Code>gmail.com</Code>, or a domain your own company uses, is
+        never matched as a whole, just as on the customer&apos;s{" "}
+        <DocLink to="/docs/customers#emails">Emails</DocLink> tab — only people tied to the
+        account are suggested. Archived contacts, anyone marked Do not contact, and addresses on the
+        suppression list are never suggested.
+      </P>
+      <P>
+        To and Cc hold one chip per recipient. Type an address and finish it with a comma, a space,
+        Enter, or Tab, or paste a whole list — separated by commas, semicolons, or new lines, with
+        names written the way mail clients copy them, such as{" "}
+        <Code>Jane Doe &lt;jane@acme.com&gt;</Code> — and each address becomes a chip, each person
+        once. While you type, the customer&apos;s people who match drop down: the arrow keys move
+        through them and Enter adds one. Anything that isn&apos;t an email address turns red, and
+        the email won&apos;t send until you fix or remove it; click a chip to edit it. Remove a chip
+        with its <Code>×</Code>, or with Backspace in the empty box; the left arrow walks back
+        through the chips from the keyboard.
+      </P>
+      <P>
+        An address you type that is none of the customer&apos;s people yet can be kept: click{" "}
+        <Code>Save as contact</Code> under Cc to add it to the customer&apos;s contacts, so it is
+        suggested next time. Suggesting someone never adds them — the invoice goes to exactly the To
+        and Cc you see, plus Always Cc — and every address is checked again when you send.
       </P>
 
       <H3 id="invoices-payments">One payment, one invoice</H3>
