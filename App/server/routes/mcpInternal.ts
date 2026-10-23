@@ -1367,6 +1367,13 @@ function serializeRoutine(
      * brief and still not know which objective the work was meant to move.
      */
     goalId: r.goalId,
+    /**
+     * Where the Routine's Runs wait while their AI Model is busy. Read-only to
+     * AI Employees: the queue is shared by every Routine on the model, so who
+     * goes first is the owners' call, and no tool lets an employee move its
+     * own work ahead of everyone else's.
+     */
+    priority: r.priority,
     checks: summarizeChecks(checks),
     tags,
     /** Slash-joined folder path this routine is filed under; null = unfiled. */
@@ -1404,6 +1411,7 @@ function serializeRoutineSummary(
     briefChars: brief.length,
     briefTruncated: truncated,
     goalId: r.goalId,
+    priority: r.priority,
     // Names only, and only three fields of each — a listing says what the bar
     // is, `get_routine` says nothing more about it, and no tool moves it.
     checks: summarizeChecks(checks),

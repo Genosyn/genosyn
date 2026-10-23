@@ -388,7 +388,9 @@ export function Models() {
       <P>
         <Strong>Concurrent Routine Runs</Strong>, under <Strong>Advanced</Strong> on the model
         card, sets how many Routine Runs may use the model at once. Runs beyond the limit wait in
-        the queue and start when one finishes; their time limit starts then. A <Code>Custom</Code>{" "}
+        the queue and start when one finishes, in queue order —{" "}
+        <DocLink to="/docs/routines#priority">High priority</DocLink> Routines first; their time
+        limit starts then. A <Code>Custom</Code>{" "}
         endpoint on this machine or a private network defaults to one at a time, and everything
         else to no limit. Employees that point at the same endpoint share its limit. See{" "}
         <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.

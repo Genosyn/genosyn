@@ -37,7 +37,13 @@ type RunBody = Omit<RoutineActivityRun, "startedAt" | "finishedAt" | "retryAt"> 
   finishedAt: string | null;
   retryAt: string | null;
 };
-type QueuedBody = RunBody & { queuedAt: string; pauseCount: number; pausedAt: string | null };
+type QueuedBody = RunBody & {
+  queuedAt: string;
+  pauseCount: number;
+  pausedAt: string | null;
+  priority: "normal" | "high";
+  position: number | null;
+};
 type ActivityBody = {
   running: RunBody[];
   queued: QueuedBody[];
@@ -199,9 +205,14 @@ test("all active Runs appear, including overnight work and concurrent Runs of on
   assert.equal(finished.today[0].runCount, 2);
 });
 
-test("Runs waiting to start are listed oldest first, apart from running and finished work", async () => {
+test("Runs waiting to start are listed in start order, apart from running and finished work", async () => {
   const digest = await seedRoutine(employee.id, "Weekly digest");
-  const waiting = { status: "queued" as const, finishedAt: null, exitCode: null };
+  const waiting = {
+    status: "queued" as const,
+    finishedAt: null,
+    exitCode: null,
+    employeeId: employee.id,
+  };
   const newest = await seedRun({ ...waiting, startedAt: at(11), createdAt: at(11) });
   const retry = await seedRun({
     ...waiting,
@@ -212,6 +223,7 @@ test("Runs waiting to start are listed oldest first, apart from running and fini
     attempt: 2,
   });
   // Paused for a restart: it started before it waited, and keeps its transcript.
+  // It was already working, so it resumes before anything new starts.
   const paused = await seedRun({
     ...waiting,
     startedAt: at(8),
@@ -219,11 +231,24 @@ test("Runs waiting to start are listed oldest first, apart from running and fini
     pauseCount: 1,
     pausedAt: at(10.5),
   });
-  const running = await seedRun({ status: "running", finishedAt: null, exitCode: null });
+  const running = await seedRun({
+    status: "running",
+    finishedAt: null,
+    exitCode: null,
+    employeeId: employee.id,
+  });
   const { body } = await call();
   assert.deepEqual(
     body.queued.map((run) => run.id),
-    [retry.id, paused.id, newest.id],
+    [paused.id, retry.id, newest.id],
+  );
+  assert.deepEqual(
+    body.queued.map((run) => run.position),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    body.queued.map((run) => run.priority),
+    ["normal", "normal", "normal"],
   );
   assert.equal(body.queuedCount, 3);
   assert.deepEqual(
@@ -231,21 +256,35 @@ test("Runs waiting to start are listed oldest first, apart from running and fini
     [running.id],
   );
   assert.deepEqual(body.today, []);
-  assert.equal(body.queued[0].routineId, digest.id);
-  assert.equal(body.queued[0].status, "queued");
-  assert.equal(body.queued[0].attempt, 2);
-  assert.equal(body.queued[0].queuedAt, at(9).toISOString());
-  assert.equal(body.queued[0].pauseCount, 0);
-  assert.equal(body.queued[0].pausedAt, null);
-  assert.equal(body.queued[1].pauseCount, 1);
-  assert.equal(body.queued[1].pausedAt, at(10.5).toISOString());
-  assert.equal(body.queued[1].queuedAt, at(10).toISOString());
+  assert.equal(body.queued[1].routineId, digest.id);
+  assert.equal(body.queued[1].status, "queued");
+  assert.equal(body.queued[1].attempt, 2);
+  assert.equal(body.queued[1].queuedAt, at(9).toISOString());
+  assert.equal(body.queued[1].pauseCount, 0);
+  assert.equal(body.queued[1].pausedAt, null);
+  assert.equal(body.queued[0].pauseCount, 1);
+  assert.equal(body.queued[0].pausedAt, at(10.5).toISOString());
+  assert.equal(body.queued[0].queuedAt, at(10).toISOString());
+
+  // Marking the newest Routine High moves its waiting Run ahead of the older
+  // fresh one — never ahead of the Run resuming after the restart.
+  await AppDataSource.getRepository(Routine).update(routine.id, { priority: "high" });
+  const prioritized = (await call()).body;
+  assert.deepEqual(
+    prioritized.queued.map((run) => [run.id, run.position, run.priority]),
+    [
+      [paused.id, 1, "high"],
+      [newest.id, 2, "high"],
+      [retry.id, 3, "normal"],
+    ],
+  );
+  await AppDataSource.getRepository(Routine).update(routine.id, { priority: "normal" });
 
   await AppDataSource.getRepository(Run).update(newest.id, { status: "running" });
   const started = (await call()).body;
   assert.deepEqual(
     started.queued.map((run) => run.id),
-    [retry.id, paused.id],
+    [paused.id, retry.id],
   );
   assert.deepEqual(new Set(started.running.map((run) => run.id)), new Set([running.id, newest.id]));
 });
@@ -364,7 +403,7 @@ test("summaries contain only safe metadata and preserve independent outcome and 
   assert.deepEqual(Object.keys(body.today[0].latestRun).sort(), fields);
   assert.deepEqual(
     Object.keys(body.queued[0]).sort(),
-    [...fields, "queuedAt", "pauseCount", "pausedAt"].sort(),
+    [...fields, "queuedAt", "pauseCount", "pausedAt", "priority", "position"].sort(),
   );
   assert.equal(body.running[0].hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.hasUnfinishedWork, false);

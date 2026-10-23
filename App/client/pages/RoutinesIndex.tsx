@@ -38,6 +38,7 @@ import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders"
 import { filterRoutinesBySearch } from "../lib/routineSearch";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
+import { RoutinePriorityChip } from "../components/routines/RoutinePriorityChip";
 
 /**
  * Every routine in the company — the list, apart from the work: what runs now,
@@ -709,6 +710,7 @@ function RoutineRow({
                 approval
               </span>
             )}
+            <RoutinePriorityChip priority={r.priority} />
           </div>
           {showFolder && folder && (
             <Link

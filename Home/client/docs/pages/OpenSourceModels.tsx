@@ -450,6 +450,13 @@ llama-server \\
           time limit starts when it does, and its log says what it is waiting for.
         </LI>
         <LI>
+          <Strong>Important work first.</Strong> Waiting Runs start in queue order, which{" "}
+          <Strong>Running</Strong> shows with <Strong>Next up</Strong> and each Run&apos;s place.
+          Mark the Routines that cannot wait <DocLink to="/docs/routines#priority">High
+          priority</DocLink> and their Runs go ahead of Normal ones; a Normal Run that has waited a
+          day moves up with them, so nothing waits forever.
+        </LI>
+        <LI>
           <Strong>Shared across employees.</Strong> Every AI Employee pointed at the same base URL
           and model id shares the limit, because they share the hardware.
         </LI>
@@ -513,7 +520,10 @@ llama-server \\
       <P>
         If Routines still run out of time, the model is doing more work than one hour of its
         throughput allows: raise the Routine&apos;s time limit, split it into smaller Routines, or
-        give the server more GPU.
+        give the server more GPU. If Runs instead wait for hours before they start, the Routines
+        scheduled each day need more of the model than the day has: mark the ones that matter{" "}
+        <DocLink to="/docs/routines#priority">High priority</DocLink>, run the rest less often,
+        or raise <Strong>Concurrent Routine Runs</Strong> if the server batches well.
       </P>
 
       <H2 id="docker-networking">Docker networking</H2>

@@ -1,4 +1,4 @@
-import { IsNull, LessThanOrEqual, MoreThan, Not } from "typeorm";
+import { In, IsNull, LessThanOrEqual, MoreThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -10,6 +10,7 @@ import { notifyApprovalPending } from "./notifications.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { dispatchQueuedRoutineRuns, resumeRoutineQueue, stopRoutineQueue } from "./routineQueue.js";
 import {
+  anyRetryAt,
   claimRetryDispatch,
   findDueRetries,
   reconcileOrphanedRuns,
@@ -250,17 +251,30 @@ async function foldIntoWaitingRun(
   assertLeaseHeld: () => void,
 ): Promise<boolean> {
   const repo = AppDataSource.getRepository(Run);
-  const waiting = await repo
-    .createQueryBuilder("run")
-    .addSelect("run.queueOptionsJson")
-    .where("run.routineId = :routineId", { routineId: routine.id })
-    // A Run left behind by a reassigned Routine is skipped, not started.
-    .andWhere("run.employeeId = :employeeId", { employeeId: routine.employeeId })
-    .andWhere("run.status = :status", { status: "queued" })
-    .andWhere("run.triggerKind = :triggerKind", { triggerKind: "schedule" })
-    .andWhere("run.queueActiveEmployeeId IS NULL")
-    .orderBy("run.createdAt", "ASC")
-    .getOne();
+  // The employee's waiting Runs, through `(employeeId, status)`. Asking by
+  // `routineId` reads the Routine's whole Run history, transcripts and all, to
+  // find the one or two still waiting (AGENTS.md §7).
+  const waiting = (
+    await repo.find({
+      // A Run left behind by a reassigned Routine is skipped, not started.
+      where: { employeeId: routine.employeeId, status: "queued" },
+      select: {
+        id: true,
+        routineId: true,
+        triggerKind: true,
+        missedSlots: true,
+        createdAt: true,
+        queueActiveEmployeeId: true,
+        queueOptionsJson: true,
+      },
+      order: { createdAt: "ASC", id: "ASC" },
+    })
+  ).find(
+    (run) =>
+      run.routineId === routine.id &&
+      run.triggerKind === "schedule" &&
+      run.queueActiveEmployeeId === null,
+  );
   if (!waiting) return false;
   let options: StartRunOptions;
   try {
@@ -359,14 +373,28 @@ function isContinuationRequest(run: Run): boolean {
 }
 
 async function hasPendingContinuation(routineId: string): Promise<boolean> {
-  const queued = await AppDataSource.getRepository(Run).find({
-    where: [
-      { routineId, retryAt: Not(IsNull()) },
-      { routineId, status: "queued", triggerKind: "continuation" },
-      { routineId, status: "running", triggerKind: "continuation" },
-    ],
-  });
-  return queued.some(isContinuationRequest);
+  // Runs owed a follow-up, through the `retryAt` index, and continuations
+  // waiting or working, through `status`: both small sets. Filtering this
+  // Routine's Runs instead would read its whole history on every due slot.
+  const repo = AppDataSource.getRepository(Run);
+  const select = {
+    id: true,
+    routineId: true,
+    triggerKind: true,
+    checkpointJson: true,
+    continuationCount: true,
+    continuationStopReason: true,
+  } as const;
+  const [owed, continuing] = await Promise.all([
+    repo.find({ where: { retryAt: anyRetryAt() }, select }),
+    repo.find({
+      where: { status: In(["queued", "running"]), triggerKind: "continuation" },
+      select,
+    }),
+  ]);
+  return [...owed, ...continuing].some(
+    (run) => run.routineId === routineId && isContinuationRequest(run),
+  );
 }
 
 function isRetryDispatchEligible(parent: Run, routine: Routine, now: Date): boolean {

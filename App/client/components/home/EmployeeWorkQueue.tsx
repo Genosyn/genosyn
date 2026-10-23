@@ -14,7 +14,9 @@ import type {
   EmployeeWorkQueue as WorkQueue,
 } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { movedUpNote, queuePlace } from "@/lib/routinePriority";
 import { workRelativeTime } from "@/lib/workTimeline";
+import { QueuePlaceBadge, RoutinePriorityChip } from "@/components/routines/RoutinePriorityChip";
 
 /** Active and pending Routine Runs stay independent of the calendar date. */
 export function EmployeeWorkQueue({
@@ -101,7 +103,9 @@ export function EmployeeWorkQueue({
         )}
       </div>
       <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-        Routines run independently. Current work stays visible while you browse the calendar.
+        Routines run side by side; a Run waits only while its AI Model is busy. Waiting Runs start
+        in this order, High priority first. Current work stays visible while you browse the
+        calendar.
       </p>
       {error ? (
         <div className="mt-3">
@@ -134,69 +138,85 @@ export function EmployeeWorkQueue({
               </p>
               <ul aria-label="Running Routines" className="space-y-2">
                 {currentData.running.map((item) => (
-                  <li key={item.id}>
+                  <li key={item.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <QueueRoutine item={item} routineBase={routineBase} onClose={onClose} active />
+                    <RoutinePriorityChip priority={item.priority} />
                   </li>
                 ))}
               </ul>
               {currentData.runningCount > currentData.running.length && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Showing {currentData.running.length} of {currentData.runningCount} running Routines.
+                  Showing {currentData.running.length} of {currentData.runningCount} running
+                  Routines.
                 </p>
               )}
             </div>
           )}
           {currentData.pending.length > 0 ? (
-            <ul
+            <ol
               aria-label="Pending Routines"
               className="divide-y divide-slate-100 dark:divide-slate-800"
             >
-              {visiblePending.map((item) => (
-                <li key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0 flex-1">
-                    <QueueRoutine item={item} routineBase={routineBase} onClose={onClose} />
-                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                      {item.triggerKind === "retry"
-                        ? "Retry"
-                        : item.triggerKind === "continuation"
-                          ? "Continuation"
-                          : "Pending"}
-                      {" · "}
-                      <time
-                        dateTime={item.queuedAt}
-                        title={new Date(item.queuedAt).toLocaleString()}
-                      >
-                        {workRelativeTime(item.queuedAt, nowIso)}
-                      </time>
-                    </p>
-                    {item.availableAt && Date.parse(item.availableAt) > Date.parse(nowIso) && (
-                      <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                        <Clock3 size={12} className="mt-1 shrink-0" aria-hidden="true" />
-                        <span>
-                          Waiting until{" "}
-                          <time dateTime={item.availableAt}>
-                            {new Date(item.availableAt).toLocaleString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </time>
-                        </span>
+              {visiblePending.map((item) => {
+                const movedUp = item.runId ? movedUpNote(item, nowIso) : null;
+                return (
+                  <li key={item.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <QueuePlaceBadge place={queuePlace(item.position)} />
+                        <QueueRoutine item={item} routineBase={routineBase} onClose={onClose} />
+                        <RoutinePriorityChip priority={item.priority} />
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {item.triggerKind === "retry"
+                          ? "Retry"
+                          : item.triggerKind === "continuation"
+                            ? "Continuation"
+                            : "Pending"}
+                        {" · "}
+                        <time
+                          dateTime={item.queuedAt}
+                          title={new Date(item.queuedAt).toLocaleString()}
+                        >
+                          {workRelativeTime(item.queuedAt, nowIso)}
+                        </time>
                       </p>
-                    )}
-                    {item.blockedReason && (
-                      <p className="mt-1 break-words text-xs leading-5 text-amber-700 dark:text-amber-400">
-                        {item.blockedReason}
-                      </p>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                      {item.availableAt && Date.parse(item.availableAt) > Date.parse(nowIso) && (
+                        <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                          <Clock3 size={12} className="mt-1 shrink-0" aria-hidden="true" />
+                          <span>
+                            Waiting until{" "}
+                            <time dateTime={item.availableAt}>
+                              {new Date(item.availableAt).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </time>
+                          </span>
+                        </p>
+                      )}
+                      {movedUp && (
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                          {movedUp}
+                        </p>
+                      )}
+                      {item.blockedReason && (
+                        <p className="mt-1 break-words text-xs leading-5 text-amber-700 dark:text-amber-400">
+                          {item.blockedReason}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
           ) : (
             <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-              {currentData.runningCount > 0 ? "No Routines waiting." : "No active or pending Routines."}
+              {currentData.runningCount > 0
+                ? "No Routines waiting."
+                : "No active or pending Routines."}
             </p>
           )}
           {currentData.pending.length > 5 && (

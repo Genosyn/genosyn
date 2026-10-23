@@ -28,6 +28,8 @@ export type RoutineAdvancedValues = {
   outcomeCheck?: boolean;
   /** How many Checks it has. `null` while they load. */
   checks?: number | null;
+  /** Where its Runs wait while their AI Model is busy; Normal is the default. */
+  priority?: "normal" | "high";
   /** Pinned to one of the employee's models rather than inheriting the active one. */
   modelPinned?: boolean;
   /** `null` inherits the employee's setting; a boolean forces it for this Routine. */
@@ -79,6 +81,7 @@ export function summarizeRoutineAdvanced(values: RoutineAdvancedValues): Routine
     items.push(count(values.checks, "Check"));
   }
 
+  if (values.priority === "high") items.push("High priority");
   if (values.modelPinned) items.push("Pinned model");
   if (values.browserEnabledOverride === true) items.push("Browser forced on");
   if (values.browserEnabledOverride === false) items.push("Browser forced off");

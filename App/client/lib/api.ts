@@ -1,5 +1,6 @@
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
+import type { RoutinePriority } from "../../shared/routinePriority";
 export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
 
@@ -472,10 +473,17 @@ export type Routine = {
    * is graded against them by a restricted checker (`Run.outcomeVerdict`).
    */
   acceptanceCriteria?: string;
+  /**
+   * Where this Routine's Runs wait while their AI Model is busy: a High
+   * Routine's waiting Runs start before Normal ones. Missing on responses from
+   * a server that predates it, which reads as Normal.
+   */
+  priority?: RoutinePriority;
   tags: CompanyTag[];
   createdAt?: string;
 };
 export type CatchUpPolicy = "once" | "skip";
+export type { RoutinePriority };
 
 /**
  * A folder in the Routines filing tree, as `GET /routine-folders` returns it.
@@ -3940,10 +3948,16 @@ export type EmployeeQueueItem = {
   id: string;
   runId: string | null;
   routine: { id: string; name: string; slug: string };
+  /** The Routine's priority; missing from a server that predates it. */
+  priority?: RoutinePriority;
   triggerKind: RunTrigger;
   queuedAt: string;
   availableAt: string | null;
-  /** Legacy field, always null: Runs no longer wait in employee order. */
+  /**
+   * Its place in the company's queue of Runs waiting to start, 1 being next
+   * up. Null for a running Run, a follow-up scheduled for later, and work a
+   * Standdown holds.
+   */
   position: number | null;
   blockedReason: string | null;
 };

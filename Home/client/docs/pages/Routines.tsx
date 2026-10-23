@@ -72,12 +72,13 @@ export function Routines() {
         <Strong>Overview</Strong> keeps what you check most up front: who the routine is assigned
         to and the model it runs on, its schedule in words, the next run, and the last run.{" "}
         <Strong>More details</Strong> holds the rest — where it is filed, its timeout, approval,
-        outcome check, browser, catch-up, retries, and webhook — and its summary line names
-        anything that is not at its default. <Strong>Settings</Strong> shows the basics:{" "}
+        outcome check, priority, browser, catch-up, retries, and webhook — and its summary line
+        names anything that is not at its default. <Strong>Settings</Strong> shows the basics:{" "}
         <Strong>Name</Strong>, <Strong>Schedule</Strong>, <Strong>Goal</Strong>, and{" "}
         <Strong>What counts as done</Strong>, saved with one <Strong>Save changes</Strong>.
         Everything else is under <Strong>Advanced</Strong>, closed until you open it: the folder,
-        timeout and approval; <Strong>Checks</Strong>; the model and browser; downtime and
+        timeout and approval; <Strong>Checks</Strong>; the{" "}
+        <DocLink to="/docs/routines#priority">priority</DocLink>, model and browser; downtime and
         retries; <Strong>Triggers</Strong>; and the <Strong>Webhook</Strong>. Its summary line
         names what is set there, such as{" "}
         <Code>Approval required · 2 Checks · 1 Trigger · Webhook on</Code>, or reads{" "}
@@ -167,14 +168,18 @@ export function Routines() {
         and start time. Open a card to follow that Run in the Routine&apos;s detail page.
       </P>
       <P>
-        <Strong>Queued</Strong> shows each Run waiting to start, oldest first, and how long it has
-        waited. A Run waits while its AI Model already serves as many Runs as it allows (see{" "}
-        <DocLink to="/docs/routines#concurrent-runs">Concurrent Routine Runs</DocLink>), while a{" "}
-        <DocLink to="/docs/standdowns">Standdown</DocLink> covers it — its row then says{" "}
-        <Strong>Stood down</Strong> — or while Genosyn restarts for an upgrade. A Run paused for a
-        restart reads <Strong>Resuming</Strong> and continues where it stopped. Open a row for its
-        Run log: a Run waiting for its AI Model or for an upgrade says so there. A long queue lists
-        its oldest 100 Runs and says how many wait in all.
+        <Strong>Queued</Strong> shows each Run waiting to start, in the order the queue will start
+        them, and how long it has waited. The first reads <Strong>Next up</Strong> and the rest
+        their place — <Strong>#2</Strong>, <Strong>#3</Strong> — and a{" "}
+        <DocLink to="/docs/routines#priority">High priority</DocLink> Routine&apos;s Runs carry a{" "}
+        <Strong>High</Strong> mark. A Run waits while its AI Model already serves as many Runs as it
+        allows (see <DocLink to="/docs/routines#concurrent-runs">Concurrent Routine Runs</DocLink>),
+        while a <DocLink to="/docs/standdowns">Standdown</DocLink> covers it — its row then says{" "}
+        <Strong>Stood down</Strong> and takes no place in line — or while Genosyn restarts for an
+        upgrade. A Run paused for a restart reads <Strong>Resuming</Strong>, is first in line, and
+        continues where it stopped. Open a row for its Run log: a Run waiting for its AI Model or
+        for an upgrade says so there. A long queue lists its first 100 Runs and says how many wait
+        in all.
       </P>
       <P>
         <Strong>Ran today</Strong> shows each Routine&apos;s latest finished Run and how many times
@@ -345,6 +350,17 @@ export function Routines() {
                 <DocLink to="/docs/models">AI Models</DocLink> this routine runs on. Defaults to{" "}
                 <Strong>Inherit</Strong> — whichever model is active for the employee. See{" "}
                 <DocLink to="/docs/routines#model">Picking a model</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "priority",
+            def: (
+              <>
+                <Strong>Normal</Strong> (every Routine&apos;s default) or <Strong>High</Strong>.
+                While its AI Model is busy, a High Routine&apos;s Runs start before Normal ones.
+                Set under <Strong>Settings → Advanced → Execution</Strong>. See{" "}
+                <DocLink to="/docs/routines#priority">Putting a Routine first</DocLink>.
               </>
             ),
           },
@@ -571,9 +587,11 @@ Post it to the #morning channel.`}</Pre>
         server on this machine or a private network serves one Routine at a time by default, and
         you can set a limit on any model. Runs beyond it wait in the queue — Routines →{" "}
         <Strong>Running</Strong> lists them under <Strong>Queued</Strong>, and the Run log says
-        which model they are waiting for — and start when a Run on that model finishes, oldest first,
-        with their whole time limit. Continuations of unfinished work start ahead of new work, and
-        their wait does not count against the time their earlier Run left. See{" "}
+        which model they are waiting for — and start when a Run on that model finishes, in queue
+        order, with their whole time limit. Runs paused for a restart resume first, continuations
+        of unfinished work start ahead of new work, and their wait does not count against the time
+        their earlier Run left; among the rest, <DocLink to="/docs/routines#priority">High
+        priority</DocLink> Routines go first and otherwise the oldest Run does. See{" "}
         <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
       </P>
       <P>
@@ -581,8 +599,10 @@ Post it to the #morning channel.`}</Pre>
         <Strong>Routine Runs</Strong> above their daily calendar: concurrent Routines and any
         pending work, including delayed retries, continuations, and Standdown reasons. Both update
         automatically. Changing the calendar date does not change the current work. Pending Runs
-        have no employee queue position; they wait only for their AI Model&apos;s concurrent-Run
-        limit, never for the employee&apos;s other Routines.
+        are listed in the order they will start, each with its place in the company&apos;s queue —{" "}
+        <Strong>Next up</Strong>, <Strong>#2</Strong>, … — counted across every AI Employee, since
+        employees on one model server share it. They wait only for their AI Model&apos;s
+        concurrent-Run limit, never for the employee&apos;s other Routines.
       </P>
       <P>
         Starting a Routine does not make its AI Employee unavailable for Chat. Conversations are
@@ -594,6 +614,63 @@ Post it to the #morning channel.`}</Pre>
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations
         or edits to the same file. Browser sessions also share the employee&apos;s persisted browser
         state.
+      </Callout>
+
+      <H2 id="priority">Putting a Routine first</H2>
+      <P>
+        When Routines wait for a busy AI Model, mark the ones that matter most{" "}
+        <Strong>High priority</Strong>: open the Routine, then <Strong>Settings → Advanced</Strong>,
+        and under <Strong>Execution</Strong> choose <Strong>Priority: High</Strong> and{" "}
+        <Strong>Save changes</Strong>. Every Routine starts <Strong>Normal</Strong>. A High
+        Routine carries a <Strong>High</Strong> mark in the Routines list, in its header, on{" "}
+        <Strong>Running</Strong>, and in an AI Employee&apos;s day, and the closed{" "}
+        <Strong>Advanced</Strong> line says <Strong>High priority</Strong>.
+      </P>
+      <P>Waiting Runs start in this order, the same order Running and an employee&apos;s day show:</P>
+      <UL>
+        <LI>
+          <Strong>Runs paused for a restart</Strong>, which were already working and resume first.
+        </LI>
+        <LI>
+          <Strong>Continuations</Strong> of unfinished work, which finish what a Run began.
+        </LI>
+        <LI>
+          <Strong>Everything else</Strong>: High priority before Normal, and within each the Run
+          queued first.
+        </LI>
+      </UL>
+      <P>
+        The queue reads each Routine&apos;s priority when it decides the order, so marking a
+        Routine High moves the Runs it already has waiting straight away, and setting it back to
+        Normal moves them back. Nothing waits forever: a Normal Run that has waited a day counts as
+        High from then on, behind the High work that was already waiting, so High Routines that
+        keep the model busy all day can hold Normal work back by a day at most.
+      </P>
+      <P>
+        Priority only orders Runs that are waiting. It never stops a Run that is already working,
+        lets a Run past a <DocLink to="/docs/standdowns">Standdown</DocLink>, an approval, an
+        upgrade or the one-Run-at-a-time rule for each Routine, or makes a model serve more Runs at
+        once. A High Run held back by one of those does not hold up the queue: the Runs behind it
+        start meanwhile. On a model with no limit every Run starts at once, so priority changes
+        nothing there.
+      </P>
+      <P>
+        Owners and admins set priority, like every other Routine setting; Members see it. AI
+        Employees can read it with <Code>get_routine</Code> and <Code>list_routines</Code> but no
+        tool changes it: the queue is shared by every Routine on the model, and who goes first is
+        the owners&apos; call. Through the API it is <Code>priority</Code> (<Code>normal</Code> or{" "}
+        <Code>high</Code>) on <Code>PATCH /api/companies/{"{cid}"}/routines/{"{rid}"}</Code> and
+        when creating a Routine; from a terminal,{" "}
+        <Code>genosyn-api routines update &lt;routine-id&gt; --priority high</Code>.
+      </P>
+      <Callout kind="info" title="A queue that keeps growing">
+        A self-hosted model serves one Run at a time by default, shared by every AI Employee that
+        uses it. When the Runs scheduled each day need more of the model&apos;s time than the day
+        has — a dozen Routines of an hour or more each, say — the queue grows and Runs wait for
+        hours. That is the limit working, not a fault. Mark the Routines that matter most High,
+        schedule the rest less often or make them shorter, or raise{" "}
+        <DocLink to="/docs/models#concurrent-runs">Concurrent Routine Runs</DocLink> if the server
+        batches well.
       </Callout>
 
       <H2 id="parallel-delegation">Parallel delegation</H2>

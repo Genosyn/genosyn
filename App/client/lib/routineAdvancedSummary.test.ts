@@ -15,6 +15,7 @@ const defaults: RoutineAdvancedValues = {
   requiresApproval: false,
   outcomeCheck: false,
   checks: 0,
+  priority: "normal",
   modelPinned: false,
   browserEnabledOverride: null,
   memberBrowser: false,
@@ -78,6 +79,16 @@ describe("describeRoutineAdvanced", () => {
     assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 21600 }), "All defaults");
     assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 3600 }), "Timeout 1h");
     assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 600 }), "Timeout 10m");
+  });
+
+  test("names a High priority, and never the Normal default", () => {
+    assert.equal(describeRoutineAdvanced({ ...defaults, priority: "normal" }), "All defaults");
+    assert.equal(describeRoutineAdvanced({ ...defaults, priority: "high" }), "High priority");
+    // Where the page shows it: after the Checks, first in Execution.
+    assert.equal(
+      describeRoutineAdvanced({ ...defaults, checks: 2, priority: "high", modelPinned: true }),
+      "2 Checks · High priority · Pinned model",
+    );
   });
 
   test("reads the execution settings", () => {

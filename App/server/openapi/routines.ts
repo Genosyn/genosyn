@@ -1,6 +1,17 @@
 import { z } from "zod";
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
+import { ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
 import { defaultSecurity, registry } from "./registry.js";
+
+/** A Routine's priority, as every response carries it. */
+const RoutinePriority = z
+  .enum(ROUTINE_PRIORITIES)
+  .describe(
+    "Where this Routine's Runs wait while their AI Model is busy. `high` Runs start before " +
+      "`normal` ones; Runs paused for a restart and continuations still go first, and a " +
+      "`normal` Run that has waited a day counts as `high` from then on. Every Routine is " +
+      "`normal` until an owner or admin changes it.",
+  );
 
 /**
  * A company tag attached to a routine. Tags are not a Routine column — they
@@ -57,6 +68,7 @@ const Routine = z
         "The employee model this routine runs on. Null inherits whichever model is " +
           "active for the employee.",
       ),
+    priority: RoutinePriority,
     lastRunAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -300,6 +312,7 @@ const RoutineColumns = z.object({
       "Whether a `timeout` is retryable. Off by default — retrying one re-burns the " +
         "routine's whole time budget.",
     ),
+  priority: RoutinePriority,
   tags: z.array(Tag).describe("Company tags attached to this routine."),
   createdAt: z.string().datetime(),
 });
@@ -413,6 +426,17 @@ const RoutineActivityQueuedRun = RoutineActivityRun.extend({
     .datetime()
     .nullable()
     .describe("When Genosyn last paused this Run to restart; null when it never was."),
+  priority: RoutinePriority,
+  position: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .describe(
+      "Its place among the company's Runs waiting to start, 1 being next up: the order the " +
+        "queue offers them to their AI Models. Null for work a Standdown holds and for a Run " +
+        "its reassigned Routine left behind.",
+    ),
 }).openapi("RoutineActivityQueuedRun");
 
 registry.registerPath({
@@ -422,7 +446,9 @@ registry.registerPath({
   description:
     "Available to every company Member. Running includes all active Runs, even when " +
     "they started before the requested day. Queued lists Runs waiting to start, including " +
-    "Runs paused for a restart, oldest first and at most 100; queuedCount counts them all. " +
+    "Runs paused for a restart, in the order the queue starts them and at most 100: Runs " +
+    "paused for a restart, then continuations, then the rest, each group High priority " +
+    "first and otherwise oldest first. queuedCount counts them all. " +
     "Today groups terminal Runs by Routine, " +
     "excluding skipped ticks, whose start or finish falls in [from, to). Each group " +
     "contains its Run count and latest Run by finish time (or start time when absent), " +
@@ -609,6 +635,10 @@ registry.registerPath({
               .max(20)
               .optional()
               .describe("Company tags to attach."),
+            priority: RoutinePriority.optional().describe(
+              "Where the Routine's Runs wait while their AI Model is busy. Omitted means " +
+                "`normal`; `high` Runs start before `normal` ones.",
+            ),
           }),
         },
       },

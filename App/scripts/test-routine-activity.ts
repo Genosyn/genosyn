@@ -1400,7 +1400,7 @@ try {
         "Routine Standdown: Hold sends while the list is cleaned",
       );
       await queued(page).getByText("2", { exact: true }).waitFor();
-      assert.equal(await queued(page).getByText(/^Showing the oldest/).count(), 0);
+      assert.equal(await queued(page).getByText(/^Showing the first/).count(), 0);
       // Running work never carries the queue's Standdown note.
       assert.equal(await running(page).getByText("Stood down", { exact: true }).count(), 0);
       await fits(page);
@@ -1409,7 +1409,7 @@ try {
       fixture.setActivity({ ...fixture.activity(), queuedCount: 7 });
       fixture.event();
       await queued(page)
-        .getByText("Showing the oldest 2 of 7 queued Runs.", { exact: true })
+        .getByText("Showing the first 2 of 7 queued Runs.", { exact: true })
         .waitFor();
       await queued(page).getByText("7", { exact: true }).waitFor();
 

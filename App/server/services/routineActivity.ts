@@ -3,6 +3,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import type { RoutinePriority } from "../../shared/routinePriority.js";
+import { companyRunQueue } from "./routineQueueOrder.js";
 import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runContinuationView.js";
 
 export const ROUTINE_ACTIVITY_MAX_WINDOW_MS = 26 * 60 * 60 * 1000;
@@ -38,7 +40,17 @@ export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & 
  * its pause so it reads as resuming rather than as new work.
  */
 export type RoutineActivityQueuedRun = RoutineActivityRun &
-  Pick<Run, "pauseCount" | "pausedAt"> & { queuedAt: Date };
+  Pick<Run, "pauseCount" | "pausedAt"> & {
+    queuedAt: Date;
+    /** Its Routine's priority, which the queue reads when it orders. */
+    priority: RoutinePriority;
+    /**
+     * Its place among the company's Runs the queue will offer, 1 being next
+     * up. Null for work a Standdown holds, and for a Run the queue ends
+     * rather than starts (one its reassigned Routine left behind).
+     */
+    position: number | null;
+  };
 
 export type RoutineActivity = {
   running: RoutineActivityRun[];
@@ -89,14 +101,46 @@ function summary(run: Run, followUpRun: RunFollowUp | null): RoutineActivityRun 
   };
 }
 
-function queuedSummary(run: Run): RoutineActivityQueuedRun {
+function queuedSummary(
+  run: Run,
+  line: { priority: RoutinePriority; position: number | null },
+): RoutineActivityQueuedRun {
   return {
     // Nothing follows a Run that has not started yet.
     ...summary(run, null),
     queuedAt: run.createdAt,
     pauseCount: run.pauseCount,
     pausedAt: run.pausedAt,
+    priority: line.priority,
+    position: line.position,
   };
+}
+
+/**
+ * The company's Runs that are working right now, newest start first.
+ *
+ * Read through `status` alone — the running set is a handful of Runs across
+ * the install — and only then scoped to the company through each Run's
+ * Routine. Joining from the company's Routines left the choice to the
+ * planner's statistics, and without fresh ones it walked every Run those
+ * Routines ever had to find the few running: over a second on a company with
+ * 200,000 Runs, on every refresh of the page (AGENTS.md §7).
+ */
+async function companyRunningRuns(companyId: string, fields: string[]): Promise<Run[]> {
+  const ids = (
+    await AppDataSource.getRepository(Run).find({
+      where: { status: "running" },
+      select: { id: true },
+    })
+  ).map((run) => run.id);
+  if (ids.length === 0) return [];
+  return companyRuns(companyId)
+    .select(fields)
+    .andWhere("run.id IN (:...ids)", { ids })
+    .andWhere("run.status = :running", { running: "running" })
+    .orderBy("run.startedAt", "DESC")
+    .addOrderBy("run.id", "DESC")
+    .getMany();
 }
 
 /**
@@ -117,22 +161,11 @@ export async function getRoutineActivity({
 }): Promise<RoutineActivity> {
   const selectedFields = [...runSummaryFields, "checkpointJson"].map((field) => `run.${field}`);
   const dayParameters = { from, to, excludedStatuses: ["queued", "running", "skipped"] };
-  const [running, [queued, queuedCount], daily] = await Promise.all([
-    companyRuns(companyId)
-      .select(selectedFields)
-      .andWhere("run.status = :running", { running: "running" })
-      .orderBy("run.startedAt", "DESC")
-      .addOrderBy("run.id", "DESC")
-      .getMany(),
-    // Oldest first, for display only: each AI Model admits its own waiting
-    // Runs, so this is not the order every one of them will start in.
-    companyRuns(companyId)
-      .select([...selectedFields, "run.createdAt", "run.pauseCount", "run.pausedAt"])
-      .andWhere("run.status = :queued", { queued: "queued" })
-      .orderBy("run.createdAt", "ASC")
-      .addOrderBy("run.id", "ASC")
-      .take(ROUTINE_ACTIVITY_QUEUED_LIMIT)
-      .getManyAndCount(),
+  const [running, line, daily] = await Promise.all([
+    companyRunningRuns(companyId, selectedFields),
+    // In the order the queue starts them (`routineQueueOrder.ts`): what the
+    // company sees as next up is what its AI Models are offered first.
+    companyRunQueue(companyId),
     companyRuns(companyId)
       .select("run.routineId", "routineId")
       .addSelect("COUNT(*)", "runCount")
@@ -164,6 +197,23 @@ export async function getRoutineActivity({
         .getMany()
     : [];
   const byId = new Map(latestRuns.map((run) => [run.id, run]));
+  // Only the Runs shown are read in full, and only by id.
+  const waiting = line.filter((run) => run.routineEmployeeId !== null);
+  const shown = waiting.slice(0, ROUTINE_ACTIVITY_QUEUED_LIMIT);
+  const queuedRows = new Map(
+    (shown.length
+      ? await companyRuns(companyId)
+          .select([...selectedFields, "run.createdAt", "run.pauseCount", "run.pausedAt"])
+          .andWhere("run.id IN (:...queuedIds)", { queuedIds: shown.map((run) => run.id) })
+          .andWhere("run.status = :queued", { queued: "queued" })
+          .getMany()
+      : []
+    ).map((run) => [run.id, run]),
+  );
+  const queued = shown.flatMap((entry) => {
+    const row = queuedRows.get(entry.id);
+    return row ? [queuedSummary(row, entry)] : [];
+  });
   const followUps = await loadRunFollowUps(companyId, [...running, ...latestRuns]);
   const today: RoutineActivity["today"] = [];
   for (const row of daily) {
@@ -184,8 +234,8 @@ export async function getRoutineActivity({
   });
   return {
     running: running.map((run) => summary(run, followUps.get(run.id) ?? null)),
-    queued: queued.map(queuedSummary),
-    queuedCount,
+    queued,
+    queuedCount: waiting.length,
     today,
   };
 }

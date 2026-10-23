@@ -1,5 +1,6 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
+import { DEFAULT_ROUTINE_PRIORITY, type RoutinePriority } from "../../../shared/routinePriority.js";
 
 /**
  * See {@link Routine.catchUpPolicy}. A string union rather than a boolean so a
@@ -247,6 +248,17 @@ export class Routine {
    */
   @Column({ type: "integer", default: 0 })
   consecutiveFailures!: number;
+
+  /**
+   * Where this Routine's Runs wait while their AI Model is busy. A High
+   * Routine's waiting Runs start before Normal ones; Runs paused for a restart
+   * and continuations of work under way still go first. Read from this row when
+   * the queue decides its order, so changing it moves Runs already waiting —
+   * no Run carries a copy. See `shared/routinePriority.ts` for the order and
+   * its starvation bound. Owners and admins set it; no AI Employee tool does.
+   */
+  @Column({ type: "varchar", default: DEFAULT_ROUTINE_PRIORITY })
+  priority!: RoutinePriority;
 
   @CreateDateColumn()
   createdAt!: Date;

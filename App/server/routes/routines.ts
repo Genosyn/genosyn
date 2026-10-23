@@ -34,6 +34,7 @@ import {
   writeRoutineBrief,
 } from "../services/routineBrief.js";
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
+import { DEFAULT_ROUTINE_PRIORITY, ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import {
@@ -362,6 +363,19 @@ const cronExprSchema = z
   .refine((v) => cron.validate(v), "Invalid cron expression")
   .refine((v) => nextRunFor(v) !== null, "That cron expression cannot be scheduled");
 
+// Where the Routine's Runs wait while their AI Model is busy: a High Routine's
+// waiting Runs start before Normal ones (`shared/routinePriority.ts`). Like
+// every Routine setting it is written by owners and admins; no AI Employee
+// tool can raise its own work ahead of everyone else's.
+const routinePrioritySchema = z
+  .enum(ROUTINE_PRIORITIES)
+  .describe(
+    "Where this Routine's Runs wait while their AI Model is busy. `high` Runs start before " +
+      "`normal` ones; Runs paused for a restart and continuations of unfinished work still go " +
+      "first, and a `normal` Run that has waited a day counts as `high` from then on. " +
+      "Changing it reorders Runs already waiting.",
+  );
+
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: cronExprSchema,
@@ -372,6 +386,7 @@ const createSchema = z.object({
   // Which folder to file the new routine in. Omitted or null leaves it
   // unfiled, which is where every routine created before folders shipped sits.
   folderId: z.string().uuid().nullable().optional(),
+  priority: routinePrioritySchema.optional(),
 });
 
 routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), async (req, res) => {
@@ -411,6 +426,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     lastRunAt: null,
     folderId: body.folderId ?? null,
     body: start.body,
+    priority: body.priority ?? DEFAULT_ROUTINE_PRIORITY,
   });
   registerRoutine(r, co.timezone);
   await repo.save(r);
@@ -422,7 +438,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     targetType: "routine",
     targetId: r.id,
     targetLabel: r.name,
-    metadata: { employeeId: emp.id, cronExpr: r.cronExpr },
+    metadata: { employeeId: emp.id, cronExpr: r.cronExpr, priority: r.priority },
   });
   res.json({ ...r, tags });
 });
@@ -493,6 +509,8 @@ const patchSchema = z
     // The Goal this routine's work serves (M51). Null clears the link; a uuid
     // must name a goal in the same company as the owning employee.
     goalId: z.string().uuid().nullable().optional(),
+    // The queue reads it when it orders, so Runs already waiting move at once.
+    priority: routinePrioritySchema.optional(),
   })
   .strict();
 
@@ -571,6 +589,7 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (body.retryBackoffSec !== undefined) r.retryBackoffSec = body.retryBackoffSec;
   if (body.retryOnTimeout !== undefined) r.retryOnTimeout = body.retryOnTimeout;
   if (body.acceptanceCriteria !== undefined) r.acceptanceCriteria = body.acceptanceCriteria;
+  if (body.priority !== undefined) r.priority = body.priority;
   // Only re-derive the pending fire time when the schedule itself changed —
   // renaming a routine or nudging its timeout shouldn't throw away the slot it
   // was already waiting on.

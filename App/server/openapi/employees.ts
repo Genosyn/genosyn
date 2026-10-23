@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 const Employee = z
@@ -25,10 +26,21 @@ const EmployeeQueueItem = z.object({
   id: z.string(),
   runId: z.string().uuid().nullable(),
   routine: z.object({ id: z.string().uuid(), name: z.string(), slug: z.string() }),
+  priority: z
+    .enum(ROUTINE_PRIORITIES)
+    .describe("The Routine's priority: `high` Runs start before `normal` ones."),
   triggerKind: z.enum(["schedule", "manual", "webhook", "approval", "retry", "event", "continuation"]),
   queuedAt: z.string().datetime(),
   availableAt: z.string().datetime().nullable(),
-  position: z.null().describe("Legacy field; concurrent Runs have no queue position."),
+  position: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .describe(
+      "Its place in the company's queue of Runs waiting to start, 1 being next up. Null for a " +
+        "running Run, a follow-up scheduled for later, and work a Standdown holds.",
+    ),
   blockedReason: z.string().nullable(),
 });
 
@@ -38,7 +50,12 @@ registry.registerPath({
   summary: "Read an AI Employee's active and pending Routine Runs",
   description:
     "Returns up to 100 concurrent running Runs and 100 pending Runs, including delayed retries " +
-    "and continuations, with full counts. Pending work does not wait for another Routine to finish. " +
+    "and continuations, with full counts. Pending lists the Runs waiting to start in the order " +
+    "the queue starts them — Runs paused for a restart, then continuations, then the rest, each " +
+    "group High priority first and otherwise oldest first — with each one's place in the " +
+    "company's queue, then the follow-ups scheduled for later. Routines run side by side; a Run " +
+    "waits only while its AI Model is serving all the Runs it allows at once, or while a " +
+    "Standdown or an upgrade holds it. " +
     "The list is independent of the work calendar and is visible to every company Member.",
   tags: ["Employees"],
   security: defaultSecurity,

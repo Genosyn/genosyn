@@ -8,6 +8,7 @@ import {
   ArrowUp,
   Ban,
   BrainCircuit,
+  ChevronsUp,
   ClipboardCheck,
   Clock,
   Copy,
@@ -34,6 +35,7 @@ import {
   MemberBrowser,
   Routine,
   RoutineFolder,
+  RoutinePriority,
   CommandChecksAvailability,
   RoutineCheck,
   RoutineCheckList,
@@ -102,6 +104,12 @@ import {
   describeCheck,
   type CheckSpecDraft,
 } from "../lib/routineChecks";
+import {
+  ROUTINE_PRIORITY_OPTIONS,
+  routinePriorityHelp,
+  routinePriorityOf,
+} from "../lib/routinePriority";
+import { RoutinePriorityChip } from "../components/routines/RoutinePriorityChip";
 import { RoutinesContext } from "./RoutinesLayout";
 import { useAskAi } from "../components/askAi/AskAiProvider";
 import { ResourceTagPicker } from "../components/TagPicker";
@@ -291,6 +299,8 @@ export default function RoutineDetail({ company }: { company: Company }) {
                   <Pause size={10} /> paused
                 </span>
               )}
+              <RoutinePriorityChip priority={routine.priority} />
+
               {routine.lastRun && (
                 <RunStatusChip
                   status={routine.lastRun.status}
@@ -497,6 +507,7 @@ function OverviewTab({
     timeoutSec: routine.timeoutSec,
     requiresApproval: routine.requiresApproval,
     outcomeCheck: !!routine.acceptanceCriteria?.trim(),
+    priority: routinePriorityOf(routine.priority),
     browserEnabledOverride: routine.browserEnabledOverride ?? null,
     memberBrowser: !!routine.memberBrowserId,
     catchUpPolicy: routine.catchUpPolicy ?? "once",
@@ -625,6 +636,11 @@ function OverviewTab({
             {routine.acceptanceCriteria?.trim()
               ? "Completed runs are graded against acceptance criteria"
               : "Off — no acceptance criteria set"}
+          </Row>
+          <Row icon={<ChevronsUp size={14} />} label="Priority">
+            {routinePriorityOf(routine.priority) === "high"
+              ? "High — its Runs start before Normal ones waiting for the same AI Model"
+              : "Normal — its Runs wait in the order they were queued"}
           </Row>
           <Row icon={<Globe size={14} />} label="Browser">
             {routine.browserEnabledOverride === true
@@ -1584,6 +1600,14 @@ function SettingsTab({
   }, [routine.id, routine.goalId]);
   const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? DEFAULT_TIMEOUT_SEC);
   const [requiresApproval, setRequiresApproval] = React.useState(routine.requiresApproval ?? false);
+  const [priority, setPriority] = React.useState<RoutinePriority>(
+    routinePriorityOf(routine.priority),
+  );
+  // Same re-seed discipline as the schedule: another owner moving this Routine
+  // up or down the queue must not be undone by a save of an unrelated setting.
+  React.useEffect(() => {
+    setPriority(routinePriorityOf(routine.priority));
+  }, [routine.id, routine.priority]);
   // "" is the inherit choice — the routine follows the employee's active model.
   const [modelId, setModelId] = React.useState(routine.modelId ?? "");
   const [models, setModels] = React.useState<AIModel[] | null>(null);
@@ -1684,6 +1708,7 @@ function SettingsTab({
         cronExpr,
         timeoutSec,
         requiresApproval,
+        priority,
         folderId: folderId || null,
         goalId: goalId || null,
         modelId: modelId || null,
@@ -1720,6 +1745,7 @@ function SettingsTab({
     timeoutSec,
     requiresApproval,
     checks: checkCount,
+    priority,
     modelPinned: modelId !== "",
     browserEnabledOverride:
       browserOverride === "on" ? true : browserOverride === "off" ? false : null,
@@ -1854,6 +1880,45 @@ function SettingsTab({
           <Card>
             <CardBody className="flex flex-col gap-4">
               <SectionLabel>Execution</SectionLabel>
+              <div className="flex flex-col gap-1.5">
+                <span
+                  id={`${criteriaId}-priority`}
+                  className="text-sm font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Priority
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby={`${criteriaId}-priority`}
+                  aria-describedby={`${criteriaId}-priority-hint`}
+                  className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700"
+                >
+                  {ROUTINE_PRIORITY_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={priority === value}
+                      onClick={() => setPriority(value)}
+                      className={
+                        "flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 transition " +
+                        (priority === value
+                          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                      }
+                    >
+                      {value === "high" && <ChevronsUp size={12} aria-hidden="true" />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  id={`${criteriaId}-priority-hint`}
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                >
+                  {routinePriorityHelp(priority)}
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <Select
                   label="Model"

@@ -206,16 +206,18 @@ test("a slot that folds while the queue is claiming the Run still reaches its br
     return { finalText: "Followed the conversations.", steps: 2, stopReason: "end_turn" };
   });
   // Land the fold after the queue read the Run's options but before it claimed
-  // the Run: the sibling check is the last step between the two.
+  // the Run: the sibling check — reading which Runs hold a claim — is the last
+  // step between the two.
   const repo = AppDataSource.getRepository(Run);
-  const existsBy = repo.existsBy.bind(repo);
+  const find = repo.find.bind(repo);
   let folded = false;
-  t.mock.method(repo, "existsBy", async (...args: Parameters<typeof repo.existsBy>) => {
-    if (!folded) {
+  t.mock.method(repo, "find", async (...args: Parameters<typeof repo.find>) => {
+    const where = args[0]?.where;
+    if (!folded && where && !Array.isArray(where) && "queueActiveEmployeeId" in where) {
       folded = true;
       await tickRoutine(following.id, { missedSlots: 0 }, held);
     }
-    return existsBy(...args);
+    return find(...args);
   });
 
   const started = await startRoutineRun(following, { triggerKind: "schedule" });
