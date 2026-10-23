@@ -1,4 +1,5 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
+import { holdsApiKeys, readApiKeys } from "../modelApiKeys.js";
 import { PROVIDERS } from "../providers.js";
 
 /**
@@ -211,6 +212,7 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
     return [
       "• Replace the saved API key and confirm it is still active.",
       "• Confirm the key can access the configured model.",
+      ...backupKeyGuidance(model),
     ];
   }
   if (category === "rate_limit") {
@@ -223,6 +225,7 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
     return [
       "• Check the model account’s quota, billing status, and rate limits.",
       "• Wait for the limit to reset or switch the employee to another AI Model.",
+      ...backupKeyGuidance(model),
     ];
   }
   if (category === "not_found") {
@@ -269,6 +272,21 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
     "• Read the provider detail above for the rejected field or unsupported feature.",
     "• Confirm the model id and connection settings, then retry.",
   ];
+}
+
+/**
+ * A key refusal reaches the Run only once every key was refused, so say so —
+ * or, with a single key, that a backup key would have carried on.
+ */
+function backupKeyGuidance(model: AIModel): string[] {
+  if (!holdsApiKeys(model)) return [];
+  return readApiKeys(model.configJson).length > 1
+    ? [
+        "• Every API key on this AI Model was tried. Its API keys, under Advanced in Settings → Model, show which ones the provider refused and why.",
+      ]
+    : [
+        "• Add a backup API key under Advanced in Settings → Model, so work moves to another key when the provider refuses this one.",
+      ];
 }
 
 /** Host-only endpoint preview. Never decrypt or render the stored full URL. */
