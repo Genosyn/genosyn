@@ -57,6 +57,10 @@ export const RUNTIME_DEFAULTS: Readonly<RuntimeSettings> = {
   network: {
     privateHostAllowlist: [],
   },
+  banking: {
+    syncEnabled: true,
+    syncIntervalMinutes: 30,
+  },
 };
 
 /** Read a dotted path (`toolDiscovery.enabled`) out of a settings group. */

@@ -14,6 +14,7 @@ import {
   RUNTIME_SETTINGS_DEFAULTS,
   RUNTIME_SETTING_KEYS,
   getAgentSettings,
+  getBankingSettings,
   getBrowserSettings,
   getContainmentSettings,
   getMailSettings,
@@ -27,6 +28,7 @@ import {
   normalizeOauthSettingNames,
   normalizeSignInUrl,
   parseAgentSettings,
+  parseBankingSettings,
   parseBrowserSettings,
   parseNetworkSettings,
   parseOauthSettings,
@@ -149,6 +151,7 @@ describe("defaults", () => {
       agent: false,
       containment: false,
       network: false,
+      banking: false,
     });
   });
 
@@ -298,6 +301,63 @@ describe("tolerant parse", () => {
 
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /web\.maxSearchResults/);
+  });
+});
+
+/**
+ * Banking's background sync: on by default, every half hour, never more often
+ * than every five minutes however the row was written.
+ */
+describe("the banking group", () => {
+  test("a fresh install syncs connected accounts every 30 minutes", async () => {
+    await reloadRuntimeSettings();
+    assert.deepEqual(getBankingSettings(), { syncEnabled: true, syncIntervalMinutes: 30 });
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.banking, false);
+  });
+
+  test("a saved row is read back, and reaches this replica at once", async () => {
+    const saved = await saveRuntimeSettingsGroup("banking", {
+      syncEnabled: false,
+      syncIntervalMinutes: 120,
+    });
+    assert.deepEqual(saved, { syncEnabled: false, syncIntervalMinutes: 120 });
+    assert.deepEqual(getBankingSettings(), saved);
+    assert.deepEqual(JSON.parse((await readRow(RUNTIME_SETTING_KEYS.banking))!), saved);
+    resetRuntimeSettingsCacheForTests();
+    await reloadRuntimeSettings();
+    assert.deepEqual(getBankingSettings(), saved);
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.banking, true);
+    await resetRuntimeSettingsGroup("banking");
+    assert.deepEqual(getBankingSettings(), RUNTIME_SETTINGS_DEFAULTS.banking);
+  });
+
+  test("an interval outside five minutes to a day, or a switch that isn't one, falls back on its own", () => {
+    assert.deepEqual(parseBankingSettings({ syncEnabled: false, syncIntervalMinutes: 1 }), {
+      syncEnabled: false,
+      syncIntervalMinutes: 30,
+    });
+    assert.deepEqual(parseBankingSettings({ syncEnabled: "yes", syncIntervalMinutes: 1_441 }), {
+      syncEnabled: true,
+      syncIntervalMinutes: 30,
+    });
+    assert.deepEqual(parseBankingSettings({ syncIntervalMinutes: 5 }), {
+      syncEnabled: true,
+      syncIntervalMinutes: 5,
+    });
+    assert.deepEqual(parseBankingSettings({ syncIntervalMinutes: 12.5 }).syncIntervalMinutes, 30);
+    assert.deepEqual(parseBankingSettings("not an object"), RUNTIME_SETTINGS_DEFAULTS.banking);
+  });
+
+  test("never lived in config.ts, so nothing is imported for it", async () => {
+    const restore = withLegacyConfig({
+      banking: { syncEnabled: false },
+    } as unknown as LegacyRuntimeConfig);
+    try {
+      await importLegacyConfigOverrides();
+    } finally {
+      restore();
+    }
+    assert.equal(await readRow(RUNTIME_SETTING_KEYS.banking), null);
   });
 });
 

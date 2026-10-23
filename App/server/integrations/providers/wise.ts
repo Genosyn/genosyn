@@ -1,5 +1,6 @@
 import { roundHalfAway } from "../../lib/money.js";
 import { maskSecret } from "../../lib/secret.js";
+import { ProviderRequestError, parseRetryAfter } from "../providerErrors.js";
 import { ConnectionAuthError, type IntegrationProvider } from "../types.js";
 
 /**
@@ -87,12 +88,10 @@ export type WiseStatement = {
   endOfStatementBalance?: WiseMoney | null;
 };
 
-export class WiseApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
+/** Wise refused a request, or never answered it (`status` 0). */
+export class WiseApiError extends ProviderRequestError {
+  constructor(message: string, status: number, retryAfterMs: number | null = null, request = "") {
+    super(message, "Wise", status, retryAfterMs, request);
     this.name = "WiseApiError";
   }
 }
@@ -145,6 +144,8 @@ function wiseError(res: Response, path: string, parsed: unknown, text: string): 
     return new WiseApiError(
       `Wise won't let this token read that profile${detail ? ` (${detail})` : ""}. Check the profile id.`,
       401,
+      null,
+      `GET ${path}`,
     );
   }
   if (
@@ -158,12 +159,16 @@ function wiseError(res: Response, path: string, parsed: unknown, text: string): 
     return new WiseApiError(
       `Wise refused the request${detail ? `: ${detail}` : ""}. Check that the token belongs to this profile and can read its balances.`,
       403,
+      null,
+      `GET ${path}`,
     );
   }
   if (res.status === 404) {
     return new WiseApiError(
       "Wise couldn't find that profile or balance. It may have been closed, or this token can't see it.",
       404,
+      null,
+      `GET ${path}`,
     );
   }
   if (res.status === 429) {
@@ -173,11 +178,15 @@ function wiseError(res: Response, path: string, parsed: unknown, text: string): 
         ? `Wise is limiting how fast it answers. Try again in ${Math.ceil(seconds)} seconds.`
         : "Wise is limiting how fast it answers. Try again in a minute.",
       429,
+      parseRetryAfter(res.headers.get("retry-after")),
+      `GET ${path}`,
     );
   }
   return new WiseApiError(
     detail ? `Wise ${res.status}: ${detail}` : `Wise ${res.status} ${res.statusText}`.trim(),
     res.status,
+    parseRetryAfter(res.headers.get("retry-after")),
+    `GET ${path}`,
   );
 }
 
@@ -198,7 +207,12 @@ async function wiseGet(
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error(`Wise didn't answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again.`);
+      throw new WiseApiError(
+        `Wise didn't answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again.`,
+        0,
+        null,
+        `GET ${path}`,
+      );
     }
     throw err;
   }

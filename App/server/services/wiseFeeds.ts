@@ -15,6 +15,7 @@ import {
   wiseProfileName,
   wiseTransactionKey,
 } from "../integrations/providers/wise.js";
+import { FeedSyncError, withProviderRetry } from "./feedSyncErrors.js";
 import { getFinanceSettings } from "./fx.js";
 import { decryptConnectionConfig } from "./integrations.js";
 
@@ -74,10 +75,15 @@ async function getWiseConfig(companyId: string, connectionId: string): Promise<W
     companyId,
     provider: "wise",
   });
-  if (!connection) throw new Error("Wise Connection not found");
-  const config = decryptConnectionConfig(connection) as Partial<WiseConfig>;
+  if (!connection) throw new FeedSyncError("connection_missing", "Wise Connection not found");
+  let config: Partial<WiseConfig>;
+  try {
+    config = decryptConnectionConfig(connection) as Partial<WiseConfig>;
+  } catch (err) {
+    throw new FeedSyncError("credentials", (err as Error).message);
+  }
   if (!config.apiToken || typeof config.apiToken !== "string") {
-    throw new Error("Wise Connection is missing its API token");
+    throw new FeedSyncError("credentials", "Wise Connection is missing its API token");
   }
   return { apiToken: config.apiToken };
 }
@@ -131,7 +137,7 @@ async function findWiseBalance(
   config: WiseConfig,
   ref: { profileId: string; balanceId: string },
 ): Promise<WiseBalance | null> {
-  const balances = await listWiseBalances(config.apiToken, ref.profileId);
+  const balances = await withProviderRetry(() => listWiseBalances(config.apiToken, ref.profileId));
   return balances.find((balance) => String(balance.id) === ref.balanceId) ?? null;
 }
 
@@ -147,6 +153,10 @@ export async function assertWiseBalanceFeed(
   connectionId: string,
   externalAccountId: string,
   now = new Date(),
+  options: {
+    /** The feed being pointed at another Connection, which is on Banking already. */
+    exceptFeedId?: string;
+  } = {},
 ): Promise<void> {
   const ref = parseWiseBalanceRef(externalAccountId);
   if (!ref) throw new Error("Choose a Wise balance");
@@ -160,7 +170,9 @@ export async function assertWiseBalanceFeed(
     kind: "wise_balance",
     externalAccountId,
   });
-  if (existing) throw new Error(`This Wise balance is already on Banking as “${existing.name}”.`);
+  if (existing && existing.id !== options.exceptFeedId) {
+    throw new Error(`This Wise balance is already on Banking as “${existing.name}”.`);
+  }
   await getWiseBalanceStatement(config.apiToken, ref.profileId, ref.balanceId, {
     currency: balance.currency,
     intervalStart: new Date(now.getTime() - DAY_MS),
@@ -180,13 +192,20 @@ type WiseBankLine = {
 function bankLine(transaction: WiseStatementTransaction, currency: string): WiseBankLine | null {
   const label = transaction.referenceNumber?.trim() || "without a reference number";
   const amountCents = wiseAmountCents(transaction.amount?.value);
-  if (amountCents === null) throw new Error(`Wise transaction ${label} has no usable amount`);
+  if (amountCents === null) {
+    throw new FeedSyncError("bad_data", `Wise transaction ${label} has no usable amount`);
+  }
   const lineCurrency = (transaction.amount.currency ?? "").toUpperCase();
   if (lineCurrency !== currency) {
-    throw new Error(`Wise transaction ${label} is in ${lineCurrency || "no currency"}, not ${currency}`);
+    throw new FeedSyncError(
+      "bad_data",
+      `Wise transaction ${label} is in ${lineCurrency || "no currency"}, not ${currency}`,
+    );
   }
   const date = new Date(transaction.date);
-  if (Number.isNaN(date.getTime())) throw new Error(`Wise transaction ${label} has an invalid date`);
+  if (Number.isNaN(date.getTime())) {
+    throw new FeedSyncError("bad_data", `Wise transaction ${label} has an invalid date`);
+  }
   if (amountCents === 0) return null;
   return {
     externalId: wiseTransactionKey(transaction, date, amountCents),
@@ -207,16 +226,23 @@ function bankLine(transaction: WiseStatementTransaction, currency: string): Wise
  */
 export async function syncWiseBalanceFeed(feed: BankFeed, now = new Date()): Promise<number> {
   if (feed.kind !== "wise_balance") throw new Error("Feed is not a Wise balance feed");
-  if (!feed.connectionId) throw new Error("Wise feed has no Connection — pick one first");
+  if (!feed.connectionId) {
+    throw new FeedSyncError("connection_missing", "Wise feed has no Connection — pick one first");
+  }
   const ref = parseWiseBalanceRef(feed.externalAccountId);
-  if (!ref) throw new Error("Wise feed has no balance — pick one first");
+  if (!ref) throw new FeedSyncError("account_missing", "Wise feed has no balance — pick one first");
   const config = await getWiseConfig(feed.companyId, feed.connectionId);
   const balance = await findWiseBalance(config, ref);
   if (!balance) {
-    throw new Error("This Wise balance is no longer on the Connection — it may have been closed.");
+    throw new FeedSyncError(
+      "account_missing",
+      "This Wise balance is no longer on the Connection — it may have been closed.",
+    );
   }
   const { homeCurrency } = await getFinanceSettings(feed.companyId);
-  if (balance.currency !== homeCurrency) throw new Error(otherCurrency(balance.currency, homeCurrency));
+  if (balance.currency !== homeCurrency) {
+    throw new FeedSyncError("unsupported", otherCurrency(balance.currency, homeCurrency));
+  }
 
   const transactionRepo = AppDataSource.getRepository(BankTransaction);
   const existing = await transactionRepo.find({ where: { feedId: feed.id }, select: ["externalId"] });
@@ -231,11 +257,13 @@ export async function syncWiseBalanceFeed(feed: BankFeed, now = new Date()): Pro
   let inserted = 0;
   for (let start = from; start.getTime() < now.getTime(); ) {
     const end = new Date(Math.min(start.getTime() + STATEMENT_WINDOW_MS, now.getTime()));
-    const statement = await getWiseBalanceStatement(config.apiToken, ref.profileId, ref.balanceId, {
-      currency: balance.currency,
-      intervalStart: start,
-      intervalEnd: end,
-    });
+    const statement = await withProviderRetry(() =>
+      getWiseBalanceStatement(config.apiToken, ref.profileId, ref.balanceId, {
+        currency: balance.currency,
+        intervalStart: start,
+        intervalEnd: end,
+      }),
+    );
     const fresh: BankTransaction[] = [];
     for (const transaction of statement.transactions) {
       const line = bankLine(transaction, balance.currency);
@@ -261,7 +289,19 @@ export async function syncWiseBalanceFeed(feed: BankFeed, now = new Date()): Pro
     start = end;
   }
 
-  feed.lastSyncAt = now;
-  await AppDataSource.getRepository(BankFeed).save(feed);
+  // Only the cursor and the balance: a `save` of this copy would write every
+  // column it loaded back over the sync status kept on the same row.
+  const values: Partial<BankFeed> = { lastSyncAt: now };
+  const availableCents = wiseAmountCents(balance.amount?.value);
+  if (availableCents !== null) {
+    values.balanceCents = availableCents;
+    values.balanceCurrency = balance.currency;
+    values.balanceAt = now;
+  }
+  await AppDataSource.getRepository(BankFeed).update(
+    { id: feed.id, companyId: feed.companyId },
+    values,
+  );
+  Object.assign(feed, values);
   return inserted;
 }

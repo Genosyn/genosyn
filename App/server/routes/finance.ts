@@ -200,10 +200,11 @@ import {
   importBankCsv,
   listBrexCashAccountsForConnection,
   manualMatch,
-  syncBankFeed,
 } from "../services/reconcile.js";
 import { assertWiseBalanceFeed, listWiseBalancesForConnection } from "../services/wiseFeeds.js";
 import {
+  BankingAccountError,
+  changeFeedConnection,
   hydrateBankTransactions,
   listBankingAccounts,
   listBankTransactions,
@@ -212,6 +213,14 @@ import {
   removeBankFeed,
   undoBankTransaction,
 } from "../services/banking.js";
+import {
+  FeedBusyError,
+  FeedNotFoundError,
+  syncFeedForRequest,
+  syncResponse,
+  whileFeedIdle,
+} from "../services/bankingSync.js";
+import { FeedSyncError } from "../services/feedSyncErrors.js";
 import { BANKING_BULK_MAX, bulkBanking } from "../services/bankingBulk.js";
 import {
   getFinanceSettings,
@@ -3324,30 +3333,80 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
   res.json(f);
 });
 
-financeRouter.delete("/bank-feeds/:id", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const f = await AppDataSource.getRepository(BankFeed).findOneBy({
-    id: req.params.id,
-    companyId: cid,
-  });
-  if (!f) return res.status(404).json({ error: "Feed not found" });
-  await removeBankFeed(f);
-  res.json({ ok: true });
+const bankFeedParamsSchema = z.object({
+  cid: z.string().min(1),
+  id: z.string().uuid(),
 });
 
-financeRouter.post("/bank-feeds/:id/sync", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const repo = AppDataSource.getRepository(BankFeed);
-  const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
-  if (!f) return res.status(404).json({ error: "Feed not found" });
-  try {
-    const inserted = await syncBankFeed(f);
-    const matched = await autoMatchFeed(f);
-    res.json({ inserted, matched });
-  } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
-  }
+const feedConnectionSchema = z.object({
+  connectionId: z.string().uuid(),
 });
+
+financeRouter.delete(
+  "/bank-feeds/:id",
+  validateParams(bankFeedParamsSchema),
+  async (req, res, next) => {
+    const { cid, id } = req.params as z.infer<typeof bankFeedParamsSchema>;
+    try {
+      const f = await AppDataSource.getRepository(BankFeed).findOneBy({ id, companyId: cid });
+      if (!f) return res.status(404).json({ error: "Feed not found" });
+      // Never under a sync that is still writing its transactions.
+      await whileFeedIdle({ kind: "bank", companyId: cid, id }, () => removeBankFeed(f));
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof FeedBusyError) return res.status(409).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+// Point a connected account at another Connection of the same provider — the
+// way back for one whose Connection was removed. The next sync runs at once.
+financeRouter.patch(
+  "/bank-feeds/:id",
+  validateParams(bankFeedParamsSchema),
+  validateBody(feedConnectionSchema),
+  async (req, res, next) => {
+    const { cid, id } = req.params as z.infer<typeof bankFeedParamsSchema>;
+    const body = req.body as z.infer<typeof feedConnectionSchema>;
+    try {
+      const f = await AppDataSource.getRepository(BankFeed).findOneBy({ id, companyId: cid });
+      if (!f) return res.status(404).json({ error: "Feed not found" });
+      res.json(
+        await whileFeedIdle({ kind: "bank", companyId: cid, id }, () =>
+          changeFeedConnection("bank", f, body.connectionId),
+        ),
+      );
+    } catch (err) {
+      if (err instanceof FeedBusyError) return res.status(409).json({ error: err.message });
+      // The new Connection can't reach this account, or isn't the right one.
+      if (err instanceof BankingAccountError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+// Sync one connected account now, exactly as the background sync does. A sync
+// that fails is answered 400 with why — and the account keeps saying so on
+// Banking — while one still running after twenty seconds is answered 202 and
+// carries on.
+financeRouter.post(
+  "/bank-feeds/:id/sync",
+  validateParams(bankFeedParamsSchema),
+  async (req, res, next) => {
+    const { cid, id } = req.params as z.infer<typeof bankFeedParamsSchema>;
+    try {
+      const { status, body } = syncResponse(
+        await syncFeedForRequest({ kind: "bank", companyId: cid, id }),
+      );
+      res.status(status).json(body);
+    } catch (err) {
+      if (err instanceof FeedNotFoundError) return res.status(404).json({ error: "Feed not found" });
+      if (err instanceof FeedSyncError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 financeRouter.post("/bank-feeds/:id/import", csvUpload.single("file"), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;

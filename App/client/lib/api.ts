@@ -4082,7 +4082,8 @@ export type RuntimeSettingsGroup =
   | "browser"
   | "agent"
   | "containment"
-  | "network";
+  | "network"
+  | "banking";
 
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
@@ -4165,6 +4166,14 @@ export type RuntimeNetworkSettings = {
   privateHostAllowlist: string[];
 };
 
+/** Banking's background sync of connected bank accounts and cards. */
+export type RuntimeBankingSettings = {
+  /** false stops the background sync; Sync now still works. */
+  syncEnabled: boolean;
+  /** How often a healthy account syncs, in minutes. */
+  syncIntervalMinutes: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -4174,6 +4183,7 @@ export type RuntimeSettings = {
   agent: RuntimeAgentSettings;
   containment: RuntimeContainmentSettings;
   network: RuntimeNetworkSettings;
+  banking: RuntimeBankingSettings;
 };
 
 export type RuntimeSettingsSnapshot = RuntimeSettings & {
@@ -5791,6 +5801,7 @@ export type BankFeed = {
   connectionId: string | null;
   externalAccountId: string | null;
   accountId: string;
+  /** The last successful sync — the last import, for a CSV account. */
   lastSyncAt: string | null;
   archivedAt: string | null;
   createdAt: string;
@@ -5978,10 +5989,75 @@ export type MatchCandidate =
 /** Whether a transaction still waits for someone, or is explained. */
 export type BankingStatus = "review" | "done";
 
-/** A bank account or card on Banking, with how many of its transactions wait. */
+/**
+ * Why an account's last sync failed (`server/services/feedSyncErrors.ts`),
+ * which decides what its card offers: Reconnect for a credential, Choose a
+ * Connection for one that was removed, nothing but the next try otherwise.
+ */
+export type FeedSyncErrorKind =
+  | "auth"
+  | "permission"
+  | "connection_missing"
+  | "credentials"
+  | "account_missing"
+  | "rate_limited"
+  | "provider_unavailable"
+  | "provider_error"
+  | "bad_data"
+  | "unsupported"
+  | "internal";
+
+/** How an account's sync is doing (`feedSyncStatus` on the server). */
+export type FeedSyncStatus = {
+  /** `automatic`: synced on a schedule. `manual`: connected, but the background sync is off. `import`: a CSV account. */
+  mode: "automatic" | "manual" | "import";
+  intervalMinutes: number;
+  syncing: boolean;
+  startedAt: string | null;
+  lastAttemptAt: string | null;
+  /** The last successful sync — the last import, for a CSV account. */
+  lastSuccessAt: string | null;
+  failureCount: number;
+  /** Why the last attempt failed: one line for the card, and the provider's details. */
+  error: { kind: FeedSyncErrorKind; message: string; detail: string } | null;
+  /** When the background sync next tries on its own; null when it won't. */
+  nextAttemptAt: string | null;
+};
+
+export type BankingProvider = "brex" | "wise" | "stripe";
+
+/** The Connection an account syncs through. */
+export type BankingConnection = {
+  id: string;
+  label: string;
+  provider: string;
+  status: IntegrationConnection["status"];
+  statusMessage: string;
+};
+
+type BankingAccountExtras = {
+  toReview: number;
+  total: number;
+  /** Null for a CSV account. */
+  provider: BankingProvider | null;
+  sync: FeedSyncStatus;
+  /** Null for a CSV account, and for one whose Connection was removed. */
+  connection: BankingConnection | null;
+  /** What the provider reported at the last sync — a Brex cash account or a Wise balance. */
+  balance: { cents: number; currency: string; at: string } | null;
+};
+
+/** A bank account or card on Banking, with how many of its transactions wait and how its sync is doing. */
 export type BankingAccount =
-  | { kind: "bank"; feed: BankFeed; toReview: number; total: number }
-  | { kind: "card"; feed: CardFeed; toReview: number; total: number };
+  | ({ kind: "bank"; feed: BankFeed } & BankingAccountExtras)
+  | ({ kind: "card"; feed: CardFeed } & BankingAccountExtras);
+
+/** What Sync now answered with. */
+export type FeedSyncResponse =
+  | { inserted: number; matched: number }
+  | CardSyncResult
+  /** Still running after twenty seconds; the account shows Syncing… until it is done. */
+  | { syncing: true };
 
 /** What Banking's bulk bar does to a selection — `POST …/banking/bulk`. */
 export type BankingBulkAction = "categorize" | "mark_reviewed" | "send_to_review";
