@@ -16,7 +16,12 @@ import { RecurringInvoiceLineItem } from "../../db/entities/RecurringInvoiceLine
 import { DEFAULT_CURRENCY, roundHalfAway } from "../../lib/money.js";
 import { discountCentsFor } from "../../../shared/documentDiscount.js";
 import type { FunnelDeal, StageLike } from "./funnel.js";
-import { monthRange, normalizeToMonthlyCents, type BillingInterval } from "./mrr.js";
+import {
+  monthRange,
+  normalizeToAnnualCents,
+  normalizeToMonthlyCents,
+  type BillingInterval,
+} from "./mrr.js";
 
 /**
  * The database half of the revenue metrics.
@@ -153,10 +158,29 @@ function monthlyCentsForSchedule(
   const interval = FREQUENCY_TO_INTERVAL[schedule.frequency];
   if (interval === undefined) return null;
   if (!Number.isFinite(templateCents)) return null;
+  return normalizeToMonthlyCents(templateCents, interval, scheduleIntervalCount(schedule));
+}
 
+/**
+ * The annual-equivalent value of one schedule — what it adds to ARR — read
+ * exactly as {@link monthlyCentsForSchedule} reads it: from `frequency` and
+ * `intervalCount`, never the cron, and `null` for a cadence it cannot read.
+ * Finance → Recurring invoices leads with this figure.
+ */
+export function annualCentsForSchedule(
+  schedule: Pick<RecurringInvoice, "frequency" | "intervalCount">,
+  perRunCents: number,
+): number | null {
+  const interval = FREQUENCY_TO_INTERVAL[schedule.frequency];
+  if (interval === undefined) return null;
+  if (!Number.isFinite(perRunCents)) return null;
+  return normalizeToAnnualCents(perRunCents, interval, scheduleIntervalCount(schedule));
+}
+
+/** A schedule's "every N", clamped to a whole number `>= 1` as described above. */
+function scheduleIntervalCount(schedule: Pick<RecurringInvoice, "intervalCount">): number {
   const raw = schedule.intervalCount;
-  const intervalCount = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
-  return normalizeToMonthlyCents(templateCents, interval, intervalCount);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
 }
 
 /**

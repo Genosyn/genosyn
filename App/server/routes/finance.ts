@@ -144,6 +144,7 @@ import {
   replaceRecurringInvoiceLines,
   setRecurringInvoicesArchived,
 } from "../services/recurringInvoices.js";
+import { recurringRevenueMetrics } from "../services/recurringInvoiceMetrics.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
@@ -4478,6 +4479,18 @@ financeRouter.get("/recurring-invoices", async (req, res) => {
     })),
   );
 });
+
+// The recurring revenue the list leads with: ARR, what bills next, and what
+// is paused or ending. Registered before `/:slug`, which would otherwise
+// take "metrics" for a schedule's slug.
+financeRouter.get(
+  "/recurring-invoices/metrics",
+  validateQuery(z.object({}).strict()),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    res.json(await recurringRevenueMetrics(cid));
+  },
+);
 
 financeRouter.post(
   "/recurring-invoices",

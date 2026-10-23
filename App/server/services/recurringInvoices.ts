@@ -261,6 +261,9 @@ export type HydratedRecurringInvoice = RecurringInvoice & {
   lines: RecurringInvoiceLineItem[];
   /** What one run bills, tax included: the generated invoice's total. */
   totalCents: number;
+  /** What one run charges before tax, its discount taken: the generated
+   *  invoice's subtotal, and the revenue it books. */
+  subtotalCents: number;
   /** What the schedule's discount takes off one run, pre-tax. 0 without one. */
   discountCents: number;
   /** The most recent scheduled run, so a retrying or failed one is visible. */
@@ -333,6 +336,7 @@ export async function hydrateRecurringInvoices(
       customer: customerById.get(r.customerId) ?? null,
       lines: riLines,
       totalCents: totals.totalCents,
+      subtotalCents: totals.subtotalCents,
       discountCents: totals.discountCents,
       latestRun: run
         ? {

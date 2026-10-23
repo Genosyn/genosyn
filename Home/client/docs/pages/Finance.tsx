@@ -36,7 +36,8 @@ export function Finance() {
         <LI>
           <Strong>Recurring invoices</Strong> — invoice templates that fire on a repeating schedule
           (monthly retainers, annual licences). Each run materializes a fresh invoice into the
-          regular invoice list, and the schedule lists every invoice it has created.
+          regular invoice list, and the schedule lists every invoice it has created. The list opens
+          with the annual recurring revenue the schedules bring in.
         </LI>
         <LI>
           <Strong>Bills</Strong> — the AP mirror of invoices, for what your company owes vendors.
@@ -544,6 +545,36 @@ export function Finance() {
         currency, and
         whether each run creates a draft or issues and emails the invoice. The same schedules appear
         on the customer&apos;s <DocLink to="/docs/customers#overview">overview</DocLink>.
+      </P>
+
+      <H3 id="recurring-revenue">Recurring revenue</H3>
+      <P>
+        While any schedule is active or paused, the list opens with its recurring revenue.{" "}
+        <Strong>Annual recurring revenue</Strong> (ARR) is what the active schedules bring in over a
+        year: each one&apos;s amount per invoice, before tax and after its discount, times the
+        invoices it creates in a year — twelve for monthly, four for quarterly, one for yearly, and
+        fewer for a schedule that bills every 2 or more. Weekly and daily schedules count a 365-day
+        year. Under ARR are the monthly figure and how many active schedules and customers it comes
+        from, and beside it a bar splits it by billing cadence.
+      </P>
+      <P>
+        Four figures follow. <Strong>Next 30 days</Strong> is what the active schedules will invoice
+        over the next 30 days, tax included: every run due, up to each schedule&apos;s end date or
+        run limit. <Strong>Paused</Strong> is the ARR of paused schedules that aren&apos;t archived,
+        which resuming them would bring back. <Strong>Ending in 90 days</Strong> is the ARR of active
+        schedules whose end date or last allowed run falls within 90 days, with the date the first
+        one stops. <Strong>Largest customer</Strong> is the share of ARR from the customer that
+        brings in the most; click the name to open the customer.
+      </P>
+      <P>
+        Every figure is in the home currency set under <Code>Finance → Currencies</Code>. A schedule
+        in another currency is converted at the latest exchange rate on file there, and the note
+        under the figures names the rates used. A currency with no rate into the home currency is
+        left out of every figure rather than added at face value; the note says how many schedules
+        that leaves out, with an <Code>Add a rate</Code> link. The figures update as schedules
+        change. <DocLink to="/docs/revenue#insights">Revenue → Insights</DocLink> reports ARR across
+        every customer, adding the contract value of customers with no schedule, so its figure can
+        differ from this one.
       </P>
 
       <H3 id="recurring-invoices-created">The invoices a schedule created</H3>

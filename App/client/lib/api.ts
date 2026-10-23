@@ -5210,10 +5210,37 @@ export type RecurringInvoice = {
   lines: RecurringInvoiceLineItem[];
   /** What one run bills, tax included: the generated invoice's total. */
   totalCents: number;
+  /** What one run charges before tax, its discount taken: the revenue it books. */
+  subtotalCents: number;
   /** What the discount takes off one run, pre-tax. 0 without one. */
   discountCents: number;
   /** The most recent scheduled run, so one that is retrying or failed shows. */
   latestRun: RecurringInvoiceRunSummary | null;
+};
+
+/**
+ * The recurring revenue `GET …/recurring-invoices/metrics` reports, as
+ * `services/recurringInvoiceMetrics.ts` computes it. Every amount is in
+ * `currency`, the company's home currency.
+ */
+export type RecurringRevenueMetrics = {
+  currency: string;
+  /** Active schedules' amount per invoice, before tax and after discounts, over a year. */
+  arrCents: number;
+  mrrCents: number;
+  activeSchedules: number;
+  activeCustomers: number;
+  /** Shortest period first; cadences with no active schedule are left out. */
+  cadences: Array<{ frequency: RecurringInvoiceFrequency; schedules: number; arrCents: number }>;
+  largestCustomer: { id: string; name: string; slug: string; arrCents: number } | null;
+  /** What the active schedules will invoice over the next `days`, tax included. */
+  upcoming: { days: number; invoices: number; totalCents: number };
+  paused: { schedules: number; arrCents: number };
+  /** Active schedules that stop billing within `days`; `firstEndsAt` is the soonest. */
+  ending: { days: number; schedules: number; arrCents: number; firstEndsAt: string | null };
+  converted: Array<{ currency: string; rate: number; rateDate: string | null }>;
+  /** Currencies with no rate into `currency`, left out of every figure. */
+  unconverted: Array<{ currency: string; schedules: number; arrCents: number }>;
 };
 
 export type RecurringInvoiceRunStatus = "pending" | "succeeded" | "failed" | "cancelled";

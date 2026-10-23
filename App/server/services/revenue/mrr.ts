@@ -74,6 +74,50 @@ export function normalizeToMonthlyCents(
   return roundHalfAway(amountCents / monthsPerPeriod);
 }
 
+/**
+ * Convert a recurring charge to its annual-equivalent value: the annual
+ * counterpart of {@link normalizeToMonthlyCents}, on the same 365-day year.
+ *
+ * Annualized directly rather than as `arrCents(normalizeToMonthlyCents(…))`,
+ * which rounds each month to a whole cent first: a $1,000 yearly plan is
+ * $1,000 a year here, not twelve months of $83.33, which come to $999.96.
+ */
+export function normalizeToAnnualCents(
+  amountCents: number,
+  interval: BillingInterval,
+  intervalCount = 1,
+): number {
+  if (!Number.isFinite(amountCents)) {
+    throw new Error("normalizeToAnnualCents: amountCents must be finite");
+  }
+  if (!Number.isFinite(intervalCount) || intervalCount <= 0) {
+    throw new Error("normalizeToAnnualCents: intervalCount must be > 0");
+  }
+
+  // Billing periods in a year when `intervalCount` is 1.
+  let periodsPerYear: number;
+  switch (interval) {
+    case "day":
+      periodsPerYear = DAYS_PER_YEAR;
+      break;
+    case "week":
+      periodsPerYear = DAYS_PER_YEAR / 7;
+      break;
+    case "month":
+      periodsPerYear = MONTHS_PER_YEAR;
+      break;
+    case "quarter":
+      periodsPerYear = MONTHS_PER_YEAR / 3;
+      break;
+    case "year":
+      periodsPerYear = 1;
+      break;
+    default:
+      throw new Error(`normalizeToAnnualCents: unknown interval ${String(interval)}`);
+  }
+  return roundHalfAway((amountCents * periodsPerYear) / intervalCount);
+}
+
 /** Annual run rate. Trivial, but named so nobody writes `* 12` inline twice. */
 export function arrCents(mrrCents: number): number {
   return mrrCents * MONTHS_PER_YEAR;

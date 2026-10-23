@@ -7,6 +7,7 @@ import {
   computeRetention,
   monthKey,
   monthRange,
+  normalizeToAnnualCents,
   normalizeToMonthlyCents,
   sumSnapshot,
   type RevenueSnapshot,
@@ -71,6 +72,44 @@ describe("normalizeToMonthlyCents", () => {
     assert.throws(() => normalizeToMonthlyCents(100, "month", 0));
     assert.throws(() => normalizeToMonthlyCents(100, "month", -1));
     assert.throws(() => normalizeToMonthlyCents(100, "fortnight" as "month"));
+  });
+});
+
+describe("normalizeToAnnualCents", () => {
+  test("a yearly plan is already annual — exactly, not twelve rounded months", () => {
+    assert.equal(normalizeToAnnualCents(100_000, "year"), 100_000);
+    // Through the monthly figure it would be 8_333 * 12 = 99_996.
+    assert.equal(arrCents(normalizeToMonthlyCents(100_000, "year")), 99_996);
+  });
+
+  test("monthly and quarterly plans multiply by their periods in a year", () => {
+    assert.equal(normalizeToAnnualCents(10_000, "month"), 120_000);
+    assert.equal(normalizeToAnnualCents(30_000, "quarter"), 120_000);
+    assert.equal(normalizeToAnnualCents(30_000, "month", 3), 120_000);
+  });
+
+  test("intervalCount divides the periods", () => {
+    assert.equal(normalizeToAnnualCents(240_000, "year", 2), 120_000); // biennial
+    assert.equal(normalizeToAnnualCents(20_000, "month", 2), 120_000);
+    assert.equal(normalizeToAnnualCents(2_000, "week", 2), normalizeToAnnualCents(1_000, "week"));
+  });
+
+  test("weekly and daily use the same 365-day year as the monthly figure", () => {
+    // 365 / 7 = 52.142857… weeks a year.
+    assert.equal(normalizeToAnnualCents(1_000, "week"), 52_143);
+    assert.equal(normalizeToAnnualCents(100, "day"), 36_500);
+  });
+
+  test("rounds half away from zero, credits included", () => {
+    assert.equal(normalizeToAnnualCents(1, "week"), 52);
+    assert.equal(normalizeToAnnualCents(-1_000, "week"), -52_143);
+    assert.equal(normalizeToAnnualCents(-120_000, "year"), -120_000);
+  });
+
+  test("throws loudly on nonsense rather than returning a wrong ARR", () => {
+    assert.throws(() => normalizeToAnnualCents(Number.NaN, "month"));
+    assert.throws(() => normalizeToAnnualCents(100, "month", 0));
+    assert.throws(() => normalizeToAnnualCents(100, "fortnight" as "month"));
   });
 });
 

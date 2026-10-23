@@ -9,6 +9,7 @@ import {
   RecurringInvoiceBulkAction,
   RecurringInvoiceListItem,
   RecurringInvoiceStatus,
+  RecurringRevenueMetrics,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
@@ -20,6 +21,7 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { ArchiveBulkBar, ArchivedTabLabel, FilterTab } from "../components/finance/ArchiveControls";
+import { RecurringRevenueSummary } from "../components/finance/RecurringRevenueSummary";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
 import { recurringInvoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -60,6 +62,9 @@ const STILL_ACTIVE_HINT = "Still billing — pause or end the schedule to archiv
  * the list without New schedule or the row checkboxes. Archived schedules
  * leave the status tabs for their own view; only a paused or ended one can be
  * archived, since an active one would go on billing from out of sight.
+ *
+ * While any schedule is active or paused, the list leads with their recurring
+ * revenue: ARR and what bills next (`RecurringRevenueSummary`).
  */
 export default function FinanceRecurringInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -69,6 +74,32 @@ export default function FinanceRecurringInvoices() {
   const [subsidiaries, setSubsidiaries] = React.useState<Subsidiary[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
+  const [metrics, setMetrics] = React.useState<RecurringRevenueMetrics | null>(null);
+  const [metricsFailed, setMetricsFailed] = React.useState(false);
+  const [retryingMetrics, setRetryingMetrics] = React.useState(false);
+
+  // The figures above the list stand apart from it: if they fail, the list
+  // still loads, and they say so in their own place.
+  const loadMetrics = React.useCallback(
+    () =>
+      api
+        .get<RecurringRevenueMetrics>(`/api/companies/${company.id}/recurring-invoices/metrics`)
+        .then((next) => {
+          setMetrics(next);
+          setMetricsFailed(false);
+        })
+        .catch(() => setMetricsFailed(true)),
+    [company.id],
+  );
+
+  async function retryMetrics() {
+    setRetryingMetrics(true);
+    try {
+      await loadMetrics();
+    } finally {
+      setRetryingMetrics(false);
+    }
+  }
 
   const reload = React.useCallback(() => {
     Promise.all([
@@ -77,6 +108,9 @@ export default function FinanceRecurringInvoices() {
         `/api/companies/${company.id}/recurring-invoices?archived=true`,
       ),
       financeSubsidiaries.list(company.id),
+      // Settles either way, so the figures land with the list rather than
+      // pushing it down a moment later.
+      loadMetrics(),
     ])
       .then(([list, issuers]) => {
         setRows(list);
@@ -87,13 +121,15 @@ export default function FinanceRecurringInvoices() {
         setLoadError(errorMessage(err, "Could not load the recurring invoices"));
         setRows([]);
       });
-  }, [company.id]);
+  }, [company.id, loadMetrics]);
 
   React.useEffect(() => {
     reload();
   }, [reload]);
 
   useLiveRefetch("recurringinvoice", reload);
+  // A renamed customer or a new exchange rate changes the figures, not the list.
+  useLiveRefetch(["customer", "currency"], loadMetrics);
 
   const filtered = React.useMemo(() => {
     if (!rows) return null;
@@ -121,6 +157,8 @@ export default function FinanceRecurringInvoices() {
     }
     return c;
   }, [rows]);
+  // With nothing billing or paused, the figures would be a row of zeros.
+  const showRevenue = counts.active + counts.paused > 0;
 
   const shown = React.useMemo(() => filtered ?? [], [filtered]);
   const selection = useArchiveSelection({
@@ -171,31 +209,57 @@ export default function FinanceRecurringInvoices() {
         )}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
-        {FILTERS.map((f) => (
-          <FilterTab
-            key={f.key}
-            active={filter === f.key}
-            label={f.label}
-            count={rows ? counts[f.key] : null}
-            onClick={() => setFilter(f.key)}
-          />
-        ))}
-        {/* Kept together so the divider never ends a wrapped line; on a phone,
-            where the tabs wrap anyway, it is dropped. */}
-        <span className="flex items-center">
-          <span
-            aria-hidden
-            className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
-          />
-          <FilterTab
-            active={filter === "archived"}
-            label={<ArchivedTabLabel />}
-            count={rows ? counts.archived : null}
-            onClick={() => setFilter("archived")}
-          />
-        </span>
-      </div>
+      {showRevenue && (metrics || metricsFailed) && (
+        <div className="mb-6">
+          {metrics ? (
+            <RecurringRevenueSummary metrics={metrics} companySlug={company.slug} />
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Couldn&apos;t load the recurring revenue figures.
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={retryingMetrics}
+                onClick={() => void retryMetrics()}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Held back until the first load, so the figures above can't arrive
+          and push the tabs down. */}
+      {rows && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          {FILTERS.map((f) => (
+            <FilterTab
+              key={f.key}
+              active={filter === f.key}
+              label={f.label}
+              count={counts[f.key]}
+              onClick={() => setFilter(f.key)}
+            />
+          ))}
+          {/* Kept together so the divider never ends a wrapped line; on a phone,
+              where the tabs wrap anyway, it is dropped. */}
+          <span className="flex items-center">
+            <span
+              aria-hidden
+              className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
+            />
+            <FilterTab
+              active={filter === "archived"}
+              label={<ArchivedTabLabel />}
+              count={counts.archived}
+              onClick={() => setFilter("archived")}
+            />
+          </span>
+        </div>
+      )}
 
       {loadError ? (
         <FormError message={loadError} />
