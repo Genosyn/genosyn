@@ -26,9 +26,9 @@ import {
   Estimate,
   EstimateBulkAction,
   EstimateBulkResult,
-  type EstimateResentState,
   formatMoney,
   Invoice,
+  wantsRevisedResend,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
@@ -36,13 +36,13 @@ import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { FormSuccess } from "../components/ui/FormError";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
 import { DocumentLinesTable } from "@/components/finance/DocumentLinesTable";
+import { SendDocumentModal } from "@/components/finance/SendDocumentModal";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
@@ -57,12 +57,18 @@ const STATUS_BADGE: Record<string, string> = {
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
+/** Pre-filled in the resend dialog after an edit; the Member can change it. */
+const REVISED_MESSAGE = "We've updated this estimate — this copy replaces the one we sent earlier.";
+
 /**
  * Estimate detail. Renders the line items and exposes the lifecycle
  * actions (Issue / Send / Accept / Decline / Convert / Void / Delete)
  * appropriate to the current status, plus Archive / Restore, which files the
  * estimate in or out of the lists without touching any of that. The printable HTML lives at a
  * separate route so File → Print gives a clean PDF without app chrome.
+ * Issue & send emails a draft to the customer's billing email; a sent or
+ * accepted estimate is resent from the send dialog, which confirms who it
+ * goes to — the same dialog an invoice is resent from.
  * A read-only Member gets the estimate and its PDF, and none of the actions
  * the server would refuse them.
  */
@@ -88,7 +94,8 @@ export default function FinanceEstimateDetail() {
     | "delete"
     | EstimateBulkAction
   >(null);
-  const [sendNotice, setSendNotice] = React.useState<string | null>(null);
+  const [showResend, setShowResend] = React.useState(false);
+  const [resendMessage, setResendMessage] = React.useState("");
 
   // True once this slug has loaded. Issuing a draft re-slugs the estimate from
   // `edraft-…` to `est-nnnn`, and the socket refetch that write triggers can
@@ -120,29 +127,19 @@ export default function FinanceEstimateDetail() {
 
   useLiveRefetch("estimate", reload);
 
-  // Save & resend on the edit page saved the estimate and emailed it; say how
-  // the email went. The state is cleared first, so a reload never repeats it,
-  // and the handled entry is remembered, so StrictMode's replay doesn't either.
-  const handledResend = React.useRef<string | null>(null);
+  // Save & resend on the edit page lands here to confirm the email. The state
+  // is cleared first, so a reload never reopens the dialog.
   React.useEffect(() => {
-    const resent = (location.state as EstimateResentState | null)?.resent;
-    if (!resent || handledResend.current === location.key) return;
-    handledResend.current = location.key;
+    if (!wantsRevisedResend(location.state)) return;
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-    if (resent.status === "sent") {
-      setSendNotice(
-        `Changes saved and emailed to ${resent.to || "the customer"} at ${new Date().toLocaleTimeString()}.`,
-      );
-    } else if (resent.status === "skipped") {
-      void dialog.error("Your changes are saved. Set one in Settings → Email, then resend.", {
-        title: "No email transport configured",
-      });
-    } else {
-      void dialog.error(resent.errorMessage || "Unknown error", {
-        title: "Changes saved, but the estimate wasn’t emailed",
-      });
-    }
-  }, [location, navigate, dialog]);
+    setResendMessage(REVISED_MESSAGE);
+    setShowResend(true);
+  }, [location, navigate]);
+
+  function openResend(message = "") {
+    setResendMessage(message);
+    setShowResend(true);
+  }
 
   async function issue() {
     if (!estimate) return;
@@ -162,12 +159,11 @@ export default function FinanceEstimateDetail() {
     }
   }
 
+  // Issue & send: a draft goes to the customer's billing email. Issuing it
+  // repaints the badge, the action row and the History feed, which is all the
+  // confirmation it needs.
   async function send() {
     if (!estimate) return;
-    // Issuing a draft repaints the badge, the action row and the History feed;
-    // a resend leaves the page byte-identical, so only that path earns a notice.
-    const wasDraft = estimate.status === "draft";
-    setSendNotice(null);
     setBusy("send");
     try {
       const result = await api.post<{
@@ -186,9 +182,6 @@ export default function FinanceEstimateDetail() {
         void dialog.error(result.send.errorMessage || "Unknown error", {
           title: "Couldn’t email the estimate",
         });
-      } else if (!wasDraft) {
-        const to = result.estimate.customer?.email || "the customer";
-        setSendNotice(`Estimate emailed to ${to} at ${new Date().toLocaleTimeString()}.`);
       }
       // The customer now holds this version; refresh what the page says about it.
       if (result.send.status === "sent") void reload();
@@ -201,7 +194,6 @@ export default function FinanceEstimateDetail() {
 
   async function accept() {
     if (!estimate) return;
-    setSendNotice(null);
     setBusy("accept");
     try {
       const fresh = await api.post<Estimate>(
@@ -223,7 +215,6 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Mark declined",
     });
     if (!ok) return;
-    setSendNotice(null);
     setBusy("decline");
     try {
       const fresh = await api.post<Estimate>(
@@ -246,7 +237,6 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Convert",
     });
     if (!ok) return;
-    setSendNotice(null);
     setBusy("convert");
     try {
       const result = await api.post<{ estimate: Estimate; invoice: Invoice }>(
@@ -271,7 +261,6 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Void",
     });
     if (!ok) return;
-    setSendNotice(null);
     setBusy("void");
     try {
       const fresh = await api.post<Estimate>(
@@ -302,7 +291,6 @@ export default function FinanceEstimateDetail() {
   // Archiving is undone by restoring, so neither direction asks to confirm.
   async function setArchived(action: EstimateBulkAction) {
     if (!estimate) return;
-    setSendNotice(null);
     setBusy(action);
     try {
       await api.post<EstimateBulkResult>(`/api/companies/${company.id}/estimates/bulk`, {
@@ -486,7 +474,7 @@ export default function FinanceEstimateDetail() {
                         label="Resend email"
                         onSelect={() => {
                           close();
-                          send();
+                          openResend();
                         }}
                       />
                     )}
@@ -576,8 +564,6 @@ export default function FinanceEstimateDetail() {
         )}
       </div>
 
-      <FormSuccess message={sendNotice} className="mb-4" />
-
       {revisable && emailedOn && changedSinceEmailed(revision) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
           <div className="flex min-w-[16rem] flex-1 items-start gap-2 text-amber-900 dark:text-amber-200">
@@ -587,12 +573,11 @@ export default function FinanceEstimateDetail() {
               copy.
             </span>
           </div>
-          {canWrite && (
+          {canWrite && estimate.emailDetails && (
             <Button
               variant="secondary"
               size="sm"
-              onClick={send}
-              loading={busy === "send"}
+              onClick={() => openResend(REVISED_MESSAGE)}
               disabled={busy !== null}
             >
               <Mail size={14} /> Resend
@@ -760,6 +745,25 @@ export default function FinanceEstimateDetail() {
           ]}
         />
       </div>
+
+      {showResend && estimate.emailDetails && (
+        <SendDocumentModal
+          companyId={company.id}
+          kind="estimate"
+          title={`Resend ${estimate.number || "estimate"}`}
+          number={estimate.number}
+          customer={estimate.customer}
+          details={estimate.emailDetails}
+          sendPath={`/api/companies/${company.id}/estimates/${estimate.slug}/send`}
+          initialMessage={resendMessage}
+          submitLabel="Resend email"
+          onClose={() => setShowResend(false)}
+          onFinished={() => {
+            setShowResend(false);
+            void reload();
+          }}
+        />
+      )}
     </div>
   );
 }

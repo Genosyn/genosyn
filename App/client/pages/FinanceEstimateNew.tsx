@@ -10,8 +10,8 @@ import {
   Customer,
   Estimate,
   EstimateLineDraft,
-  type EstimateResentState,
   formatMoney,
+  type ResendRevisedState,
   parseMoneyToCents,
   Product,
   TaxRate,
@@ -107,8 +107,9 @@ export default function FinanceEstimateNew() {
  *
  * A sent or accepted estimate edits in place under the same number, with its
  * customer and issuer fixed; an accepted one goes back to Sent. Saving never
- * emails the customer; Save & resend saves, then emails the updated estimate
- * to the customer's address, as Resend email on the detail page does.
+ * emails the customer; Save & resend saves, then opens the detail page's send
+ * dialog with a note that this copy replaces the earlier one, where the
+ * recipients are confirmed before anything is emailed — as on an invoice.
  */
 function EstimateForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -289,26 +290,10 @@ function EstimateForm() {
               body,
             )
           : await api.post<Estimate>(`/api/companies/${company.id}/estimates`, body);
-      // The edit is saved either way; how the email went is reported on the
-      // detail page, which is where the estimate now lives.
-      let state: EstimateResentState | undefined;
-      if (then === "resend") {
-        try {
-          const result = await api.post<{
-            estimate: Estimate;
-            send: { status: string; errorMessage: string };
-          }>(`/api/companies/${company.id}/estimates/${est.slug}/send`);
-          state = {
-            resent: {
-              status: result.send.status,
-              errorMessage: result.send.errorMessage,
-              to: result.estimate.customer?.email ?? "",
-            },
-          };
-        } catch (err) {
-          state = { resent: { status: "failed", errorMessage: errorMessage(err), to: "" } };
-        }
-      }
+      // The detail page opens its send dialog, where the recipients and a
+      // note are confirmed before anything is emailed.
+      const state: ResendRevisedState | undefined =
+        then === "resend" ? { resendRevised: true } : undefined;
       navigate(`/c/${company.slug}/finance/estimates/${est.slug}`, state ? { state } : undefined);
     } catch (err) {
       setSaveError(errorMessage(err));
