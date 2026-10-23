@@ -379,6 +379,21 @@ export function Revenue() {
         explicitly. Acquisition: <Strong>CAC by channel</Strong>, <Strong>LTV:CAC</Strong>, and{" "}
         <Strong>payback months</Strong>. A brand-new company sees zeros, never errors.
       </P>
+      <P>
+        MRR comes from each customer&apos;s{" "}
+        <DocLink to="/docs/finance#recurring-invoices">recurring invoices</DocLink>, priced as the
+        invoices they create: before tax, so a price that includes VAT counts without it, and after
+        any discount. A customer with no schedule counts a twelfth of their annual contract value
+        instead. Every figure is in the home currency set under{" "}
+        <Code>Finance → Currencies</Code>. Recurring revenue in other currencies converts at the
+        latest exchange rate on file, one rate for every month of the period, so a currency&apos;s
+        own moves never show as expansion or contraction; a note under the figures names the
+        currencies converted. A currency with no rate is left out of every figure rather than added
+        at face value, and the note says how many customers that leaves out, with a link to add a
+        rate (<DocLink to="/docs/finance#currencies-automatic">automatic exchange rates</DocLink>{" "}
+        usually make that unnecessary). Cash collected converts at the rate each payment was booked
+        at.
+      </P>
       <Callout kind="warn" title="CAC currently reads authorized budget, not settled spend.">
         The acquisition cost figures are computed from the{" "}
         <DocLink to="/docs/marketing">Paid Marketing</DocLink> ledger of{" "}

@@ -3259,6 +3259,11 @@ registry.registerPath({
     "The movement figures are guaranteed to balance — `ending - starting === net`, and " +
     "the five components sum to `net`. A brand-new company returns zeros rather than " +
     "nulls or an error.\n\n" +
+    "Every amount is in `currency`, the company's home currency. Recurring revenue in " +
+    "other currencies converts at the rate on file at the end of the period, one rate " +
+    "for every month; a currency with no rate is left out and listed in " +
+    "`mrr.conversion.unconverted`. Cash collected converts at the rate each payment " +
+    "was booked at.\n\n" +
     "**On CAC:** where the reports expose acquisition cost, ad spend is read from " +
     "`AdSpendEvent`, which records *authorized budget changes* rather than settled " +
     "platform spend. Treat it as a proxy.",

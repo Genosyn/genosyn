@@ -6124,7 +6124,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_revenue_report",
     description:
-      "Read a live revenue report: `overview` (MRR movement, ARR, retention, funnel, pipeline coverage, CAC and cash collected in one call), `mrr` (the monthly series — the current month is included and still moving), `funnel` (stage conversion, win rate, cycle length, coverage), or `cac` (spend, wins and unit economics per channel). `from`/`to` default to the trailing twelve months; `mrr` uses `months` instead. CAC spend is authorized budget rather than realized spend — the payload says so via `spendIsProxy`, and you should say so too when you quote it. Needs `read` revenue access.",
+      "Read a live revenue report: `overview` (MRR movement, ARR, retention, funnel, pipeline coverage, CAC and cash collected in one call), `mrr` (the monthly series — the current month is included and still moving), `funnel` (stage conversion, win rate, cycle length, coverage), or `cac` (spend, wins and unit economics per channel). `from`/`to` default to the trailing twelve months; `mrr` uses `months` instead. Money is in the payload's `currency`, the home currency: recurring revenue in other currencies converts at the latest rate on file, and a currency with no rate is left out and named in `mrr.conversion.unconverted` — mention it when you quote MRR or ARR. CAC spend is authorized budget rather than realized spend — the payload says so via `spendIsProxy`, and you should say so too when you quote it. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {

@@ -17,7 +17,7 @@ import {
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { computeLineTotals } from "../lib/money.js";
-import { documentTotals } from "../../shared/documentDiscount.js";
+import { documentTotals, type DocumentTotals } from "../../shared/documentDiscount.js";
 import { recurringInvoiceArchiveBlocker } from "../../shared/invoiceArchive.js";
 import { resolveRecurringInvoiceName } from "../../shared/recurringInvoiceName.js";
 import { recordAudit } from "./audit.js";
@@ -327,10 +327,7 @@ export async function hydrateRecurringInvoices(
   return rows.map((r) => {
     const riLines = linesByRi.get(r.id) ?? [];
     const run = runByRi.get(r.id);
-    const totals = documentTotals(
-      riLines.map((line) => priceTemplateLine(line, rates)),
-      discountOf(r),
-    );
+    const totals = scheduleTotalsOf(r, riLines, rates);
     return {
       ...r,
       customer: customerById.get(r.customerId) ?? null,
@@ -509,6 +506,54 @@ async function loadTaxRates(
     where: { id: In(ids), companyId },
   });
   return new Map(rates.map((rate) => [rate.id, rate]));
+}
+
+/**
+ * What one run of a schedule bills, priced as the invoice it creates will be:
+ * each line at its tax rate, then the schedule's discount, taken before tax.
+ */
+function scheduleTotalsOf(
+  schedule: RecurringInvoice,
+  lines: RecurringInvoiceLineItem[],
+  rates: Map<string, TaxRate>,
+): DocumentTotals {
+  return documentTotals(
+    lines.map((line) => priceTemplateLine(line, rates)),
+    discountOf(schedule),
+  );
+}
+
+/**
+ * What one run of each schedule bills, by schedule id, priced exactly as
+ * `hydrateRecurringInvoices` prices it for the list. Revenue's MRR reads its
+ * `subtotalCents` — before tax, after the discount — so the two pages agree
+ * on what a schedule is worth. A schedule with no lines bills zero.
+ */
+export async function scheduleTotals(
+  companyId: string,
+  schedules: RecurringInvoice[],
+): Promise<Map<string, DocumentTotals>> {
+  const totals = new Map<string, DocumentTotals>();
+  // `In([])` renders as `IN ()`, which is a syntax error on Postgres.
+  if (schedules.length === 0) return totals;
+  const lines = await AppDataSource.getRepository(RecurringInvoiceLineItem).find({
+    where: { recurringInvoiceId: In(schedules.map((schedule) => schedule.id)) },
+    order: { sortOrder: "ASC" },
+  });
+  const rates = await loadTaxRates(companyId, lines);
+  const linesBySchedule = new Map<string, RecurringInvoiceLineItem[]>();
+  for (const line of lines) {
+    const own = linesBySchedule.get(line.recurringInvoiceId) ?? [];
+    own.push(line);
+    linesBySchedule.set(line.recurringInvoiceId, own);
+  }
+  for (const schedule of schedules) {
+    totals.set(
+      schedule.id,
+      scheduleTotalsOf(schedule, linesBySchedule.get(schedule.id) ?? [], rates),
+    );
+  }
+  return totals;
 }
 
 /**
