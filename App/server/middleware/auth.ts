@@ -141,6 +141,54 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   return res.status(401).json({ error: "Unauthorized" });
 }
 
+/**
+ * Authenticate with a company API key and nothing else.
+ *
+ * For surfaces that are programmatic by nature — the Genosyn MCP server — a
+ * browser session must never be the credential: a page the Member has open
+ * elsewhere cannot ride their cookie into it. So, unlike {@link requireAuth},
+ * this never reads the session cookie, even when one is sent alongside a key.
+ * The key itself is checked exactly as `requireAuth` checks it — live, minted
+ * for the company the path names — and `requireCompanyMember` still has to
+ * find its Member in that company.
+ *
+ * A refusal says `WWW-Authenticate: Bearer`, the way HTTP asks for a bearer
+ * token, so a client knows what to send.
+ */
+export async function requireApiKeyAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void | Response> {
+  if (req.get(AI_BROWSER_REQUEST_HEADER) === AI_BROWSER_REQUEST_VALUE) {
+    return res.status(403).json({
+      error:
+        "Authenticated Genosyn APIs are unavailable inside an AI Browser. Use AI Employee Grants and governed tools.",
+    });
+  }
+  let bearer: Awaited<ReturnType<typeof tryBearerAuth>>;
+  try {
+    bearer = await tryBearerAuth(req);
+  } catch (error) {
+    // Express 4 drops a rejected promise; hand the failure to the error handler
+    // so the client gets an answer instead of a socket left open.
+    return next(error);
+  }
+  if (!bearer) {
+    res.setHeader("WWW-Authenticate", 'Bearer realm="Genosyn"');
+    return res.status(401).json({
+      error: req.headers.authorization
+        ? "The API key was not accepted: it is unknown, revoked or expired, or was minted for another company."
+        : "An API key is required: send it as `Authorization: Bearer gen_…`. Mint one at Settings → API keys.",
+    });
+  }
+  req.userId = bearer.user.id;
+  req.user = bearer.user;
+  req.apiKey = bearer.key;
+  req.apiKeyCompanyId = bearer.key.companyId;
+  next();
+}
+
 export async function establishUserSession(
   req: Request,
   user: User,

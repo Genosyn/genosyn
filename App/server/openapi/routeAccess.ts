@@ -1,6 +1,7 @@
 import type { Role } from "../db/entities/Membership.js";
 import {
   matchesRoutePath,
+  requireApiKeyAuth,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
@@ -18,7 +19,7 @@ import type { DiscoveredRoute } from "./routeDiscovery.js";
  * where being wrong costs the most: a reference that promises an API key works
  * where it is refused wastes an afternoon, and one that hides a guard misleads.
  * So nothing here is declared per route. It recognizes the App's own guards —
- * `requireAuth`, `requireBrowserSession`, `requireMasterAdmin`,
+ * `requireAuth`, `requireApiKeyAuth`, `requireBrowserSession`, `requireMasterAdmin`,
  * `requireCompanyMember`, the company-role and Finance gates, and
  * `onRoutePaths(...)` scoping evaluated against the route's own path — in the
  * chain `routeDiscovery.ts` replays, and `apiKeyAccess.test.ts` sends a real
@@ -43,6 +44,11 @@ export type RouteAccess = {
   authenticated: boolean;
   /** A Bearer API key for the company in the path can call it. */
   apiKey: boolean;
+  /**
+   * `requireApiKeyAuth` runs: an API key is the only way in, and a browser
+   * session is never read. Set only when true.
+   */
+  apiKeyOnly?: true;
   /** Why a browser session is the only way in, when it is. */
   sessionOnly?: SessionOnlyReason;
   /** `requireCompanyMember` runs: the caller must belong to the company in the path. */
@@ -84,6 +90,7 @@ export function accessOf(
     ...route.handlers.map((handle) => ({ handle, path: route.routePath })),
   ];
   let authenticated = false;
+  let apiKeyOnly = false;
   let browserSession = false;
   let masterAdmin = false;
   let companyMember = false;
@@ -95,7 +102,10 @@ export function accessOf(
     const guard = effectiveGuard(link.handle, link.path);
     if (!guard) continue;
     if (guard === requireAuth) authenticated = true;
-    else if (guard === requireBrowserSession) browserSession = true;
+    else if (guard === requireApiKeyAuth) {
+      authenticated = true;
+      apiKeyOnly = true;
+    } else if (guard === requireBrowserSession) browserSession = true;
     else if (guard === requireMasterAdmin) masterAdmin = true;
     else if (guard === requireCompanyMember) companyMember = true;
     else if (guard === requireFinanceWrite) financeAccess = "full";
@@ -122,6 +132,7 @@ export function accessOf(
   return {
     authenticated,
     apiKey: authenticated && !sessionOnly,
+    ...(apiKeyOnly && !sessionOnly ? { apiKeyOnly: true as const } : {}),
     ...(sessionOnly ? { sessionOnly } : {}),
     companyMember,
     ...(minimumRole && minimumRole !== "member" ? { minimumRole } : {}),
@@ -133,6 +144,7 @@ export function accessOf(
 /** The OpenAPI `security` requirement for an access classification. */
 export function securityFor(access: RouteAccess): Record<string, string[]>[] {
   if (!access.authenticated) return [];
+  if (access.apiKeyOnly) return [{ bearerAuth: [] }];
   return access.apiKey ? [{ bearerAuth: [] }, { cookieAuth: [] }] : [{ cookieAuth: [] }];
 }
 
@@ -155,6 +167,10 @@ export function accessDescription(access: RouteAccess, path: string): string {
     );
   } else if (access.sessionOnly === "browserSession") {
     sentences.push("Needs a signed-in browser session. API keys are refused with 403.");
+  } else if (access.apiKeyOnly) {
+    sentences.push(
+      "Needs an API key for this company (`Authorization: Bearer gen_…`). A browser session is never read, so a cookie alone is refused with 401.",
+    );
   } else {
     sentences.push(
       "Accepts an API key for this company (`Authorization: Bearer gen_…`) or a signed-in browser session.",
@@ -183,7 +199,7 @@ export function accessDescription(access: RouteAccess, path: string): string {
 export function accessExtension(access: RouteAccess): Record<string, unknown> {
   return {
     apiKey: access.apiKey,
-    browserSession: access.authenticated,
+    browserSession: access.authenticated && !access.apiKeyOnly,
     ...(access.sessionOnly ? { sessionOnly: access.sessionOnly } : {}),
     ...(access.minimumRole ? { minimumRole: access.minimumRole } : {}),
     ...(access.financeAccess ? { financeAccess: access.financeAccess } : {}),

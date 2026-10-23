@@ -418,6 +418,12 @@ export const DOCS_NAV: DocsSection[] = [
           "genosyn-api: every API operation from a terminal, a script or an AI agent — login, discovery, calls, output and exit codes.",
       },
       {
+        path: "/docs/mcp-server",
+        title: "MCP server",
+        blurb:
+          "Connect Claude Desktop, Claude Code, Cursor or any MCP client to Genosyn with an API key — everything the REST API does, one search away.",
+      },
+      {
         path: "/docs/vocabulary",
         title: "Vocabulary",
         blurb: "Words we use, and the words we don't.",

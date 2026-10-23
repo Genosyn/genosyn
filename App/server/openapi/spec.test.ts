@@ -539,6 +539,7 @@ test("browser-only actions are cookieAuth only, and everyday ones take a key", (
   const document = buildOpenApiDocument(app);
   const cookieOnly: Array<Record<string, string[]>> = [{ cookieAuth: [] }];
   const both: Array<Record<string, string[]>> = [{ bearerAuth: [] }, { cookieAuth: [] }];
+  const keyOnly: Array<Record<string, string[]>> = [{ bearerAuth: [] }];
   const cases: Array<[string, string, Array<Record<string, string[]>>]> = [
     // Minting and revoking keys, account security, roles and invitations.
     ["post", "/api/companies/{cid}/api-keys", cookieOnly],
@@ -566,6 +567,10 @@ test("browser-only actions are cookieAuth only, and everyday ones take a key", (
     ["post", "/api/companies/{cid}/invoices", both],
     ["post", "/api/companies/{cid}/routines/{rid}/run", both],
     ["post", "/api/companies/{cid}/employees/{eid}/mcp/connect", both],
+    // The Genosyn MCP server takes an API key and never reads the session.
+    ["post", "/api/companies/{cid}/mcp", keyOnly],
+    ["get", "/api/companies/{cid}/mcp", keyOnly],
+    ["delete", "/api/companies/{cid}/mcp", keyOnly],
   ];
   for (const [method, route, security] of cases) {
     assert.deepEqual(
@@ -573,6 +578,26 @@ test("browser-only actions are cookieAuth only, and everyday ones take a key", (
       security,
       `${method.toUpperCase()} ${route}`,
     );
+  }
+});
+
+test("the Genosyn MCP server is documented as an API-key-only JSON-RPC endpoint", () => {
+  const document = buildOpenApiDocument(app);
+  const post = operationAt(document, "/api/companies/{cid}/mcp") as AnyOperation;
+  assert.equal(post.operationId, "sendCompanyMcpMessage");
+  assert.deepEqual(post.tags, ["MCP"]);
+  assert.deepEqual(post["x-genosyn-access"], { apiKey: true, browserSession: false });
+  assert.match(post.description ?? "", /search_operations/);
+  assert.match(post.description ?? "", /call_read_operation/);
+  assert.match(post.description ?? "", /Needs an API key for this company/);
+  assert.match(post.description ?? "", /a cookie alone is refused with 401/);
+  for (const status of ["200", "202", "401", "403", "413"]) {
+    assert.ok(post.responses?.[status], `POST /mcp documents ${status}`);
+  }
+  for (const method of ["get", "delete"]) {
+    const refused = operationAt(document, "/api/companies/{cid}/mcp", method) as AnyOperation;
+    assert.ok(refused.responses?.["405"], `${method} /mcp documents 405`);
+    assert.deepEqual(refused["x-genosyn-access"], { apiKey: true, browserSession: false });
   }
 });
 
