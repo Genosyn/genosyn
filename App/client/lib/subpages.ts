@@ -49,6 +49,7 @@ import {
   Plug,
   Plus,
   Radar,
+  Radio,
   Repeat,
   Scale,
   ScanSearch,
@@ -382,6 +383,24 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Plus,
       rail: false,
       keywords: ["create routine", "add routine", "schedule work", "new cron job"],
+    },
+    // Drawn by the rail itself, above All routines and the folders it filters.
+    {
+      label: "Running routines",
+      navLabel: "Running",
+      path: "/routines/running",
+      icon: Radio,
+      rail: false,
+      keywords: [
+        "running now",
+        "in progress",
+        "queued",
+        "queue",
+        "waiting to start",
+        "pending runs",
+        "ran today",
+        "active runs",
+      ],
     },
     // The rail draws its folders and employees itself; this is the one fixed
     // page it pins beneath them. Ungated like the sibling AI access pages:

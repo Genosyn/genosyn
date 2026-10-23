@@ -33,6 +33,7 @@ import {
 import RoutinesLayout from "./pages/RoutinesLayout";
 import Proactive from "./pages/Proactive";
 import RoutinesIndex from "./pages/RoutinesIndex";
+import RoutinesRunning from "./pages/RoutinesRunning";
 import RoutineNew from "./pages/RoutineNew";
 import RoutineDetail from "./pages/RoutineDetail";
 import RoutinesAiAccess from "./pages/RoutinesAiAccess";
@@ -532,7 +533,8 @@ function CompanyRoutes({
           <Route path="routines" element={<RoutinesLayout company={company} />}>
             <Route index element={<RoutinesIndex company={company} />} />
             <Route path="new" element={<RoutineNew company={company} />} />
-            {/* One segment, so it can never collide with `:empSlug/:routineSlug`. */}
+            {/* One segment each, so neither can collide with `:empSlug/:routineSlug`. */}
+            <Route path="running" element={<RoutinesRunning company={company} />} />
             <Route path="ai-access" element={<RoutinesAiAccess company={company} />} />
             {/* Two segments, not one: a routine slug is unique only within its
               employee, so `:routineSlug` alone would be ambiguous. */}

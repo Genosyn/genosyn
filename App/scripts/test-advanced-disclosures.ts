@@ -142,7 +142,7 @@ function routineRoutes(
       `${API}/routine-folders`,
       () => ({ folders: [OPERATIONS], unfiledCount: 0, maxDepth: 5 }),
     ],
-    ["GET", `${API}/routines/activity`, () => ({ running: [], today: [] })],
+    ["GET", `${API}/routines/activity`, () => ({ running: [], queued: [], queuedCount: 0, today: [] })],
     ["GET", /\/standdowns\/active$/, () => ({ standdown: null })],
     ["GET", /\/standdowns$/, () => ({ standdowns: [] })],
     ["GET", /\/tags$/, () => []],

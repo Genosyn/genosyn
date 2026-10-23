@@ -11,7 +11,10 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run, type RunStatus } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
-import type { RoutineActivityRun } from "../services/routineActivity.js";
+import {
+  ROUTINE_ACTIVITY_QUEUED_LIMIT,
+  type RoutineActivityRun,
+} from "../services/routineActivity.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
 import { routinesRouter } from "./routines.js";
@@ -34,8 +37,11 @@ type RunBody = Omit<RoutineActivityRun, "startedAt" | "finishedAt" | "retryAt"> 
   finishedAt: string | null;
   retryAt: string | null;
 };
+type QueuedBody = RunBody & { queuedAt: string; pauseCount: number; pausedAt: string | null };
 type ActivityBody = {
   running: RunBody[];
+  queued: QueuedBody[];
+  queuedCount: number;
   today: { routineId: string; runCount: number; latestRun: RunBody }[];
 };
 
@@ -131,13 +137,14 @@ test("ordinary Members can read the overview; strangers and anonymous callers ca
 });
 
 test("a company with no Runs returns empty sections", async () => {
-  assert.deepEqual((await call()).body, { running: [], today: [] });
+  const empty = { running: [], queued: [], queuedCount: 0, today: [] };
+  assert.deepEqual((await call()).body, empty);
   await AppDataSource.getRepository(Routine).delete(routine.id);
   await AppDataSource.getRepository(AIEmployee).delete(employee.id);
-  assert.deepEqual((await call()).body, { running: [], today: [] });
+  assert.deepEqual((await call()).body, empty);
 });
 
-test("both sections follow Routine ownership and exclude another company's work", async () => {
+test("every section follows Routine ownership and excludes another company's work", async () => {
   const otherCompany = await insert(Company, {
     name: "Other",
     slug: "other",
@@ -153,13 +160,20 @@ test("both sections follow Routine ownership and exclude another company's work"
   const otherRoutine = await seedRoutine(otherEmployee.id);
   await seedRun({ routineId: otherRoutine.id });
   await seedRun({ routineId: otherRoutine.id, status: "running", finishedAt: null });
+  await seedRun({ routineId: otherRoutine.id, status: "queued", finishedAt: null });
   const ours = await seedRun();
   const running = await seedRun({ status: "running", finishedAt: null });
+  const queued = await seedRun({ status: "queued", finishedAt: null });
   const { body } = await call();
   assert.deepEqual(
     body.running.map((run) => run.id),
     [running.id],
   );
+  assert.deepEqual(
+    body.queued.map((run) => run.id),
+    [queued.id],
+  );
+  assert.equal(body.queuedCount, 1);
   assert.deepEqual(
     body.today.map((row) => row.latestRun.id),
     [ours.id],
@@ -183,6 +197,78 @@ test("all active Runs appear, including overnight work and concurrent Runs of on
   const finished = (await call()).body;
   assert.deepEqual(finished.running, []);
   assert.equal(finished.today[0].runCount, 2);
+});
+
+test("Runs waiting to start are listed oldest first, apart from running and finished work", async () => {
+  const digest = await seedRoutine(employee.id, "Weekly digest");
+  const waiting = { status: "queued" as const, finishedAt: null, exitCode: null };
+  const newest = await seedRun({ ...waiting, startedAt: at(11), createdAt: at(11) });
+  const retry = await seedRun({
+    ...waiting,
+    routineId: digest.id,
+    startedAt: at(9),
+    createdAt: at(9),
+    triggerKind: "retry",
+    attempt: 2,
+  });
+  // Paused for a restart: it started before it waited, and keeps its transcript.
+  const paused = await seedRun({
+    ...waiting,
+    startedAt: at(8),
+    createdAt: at(10),
+    pauseCount: 1,
+    pausedAt: at(10.5),
+  });
+  const running = await seedRun({ status: "running", finishedAt: null, exitCode: null });
+  const { body } = await call();
+  assert.deepEqual(
+    body.queued.map((run) => run.id),
+    [retry.id, paused.id, newest.id],
+  );
+  assert.equal(body.queuedCount, 3);
+  assert.deepEqual(
+    body.running.map((run) => run.id),
+    [running.id],
+  );
+  assert.deepEqual(body.today, []);
+  assert.equal(body.queued[0].routineId, digest.id);
+  assert.equal(body.queued[0].status, "queued");
+  assert.equal(body.queued[0].attempt, 2);
+  assert.equal(body.queued[0].queuedAt, at(9).toISOString());
+  assert.equal(body.queued[0].pauseCount, 0);
+  assert.equal(body.queued[0].pausedAt, null);
+  assert.equal(body.queued[1].pauseCount, 1);
+  assert.equal(body.queued[1].pausedAt, at(10.5).toISOString());
+  assert.equal(body.queued[1].queuedAt, at(10).toISOString());
+
+  await AppDataSource.getRepository(Run).update(newest.id, { status: "running" });
+  const started = (await call()).body;
+  assert.deepEqual(
+    started.queued.map((run) => run.id),
+    [retry.id, paused.id],
+  );
+  assert.deepEqual(new Set(started.running.map((run) => run.id)), new Set([running.id, newest.id]));
+});
+
+test("a long queue lists its oldest Runs and counts every one", async () => {
+  const runs: Run[] = [];
+  for (let n = 0; n <= ROUTINE_ACTIVITY_QUEUED_LIMIT; n++) {
+    runs.push(
+      await seedRun({
+        status: "queued",
+        finishedAt: null,
+        exitCode: null,
+        createdAt: new Date(at(1).getTime() + n * 1000),
+      }),
+    );
+  }
+  const { body } = await call();
+  assert.equal(body.queued.length, ROUTINE_ACTIVITY_QUEUED_LIMIT);
+  assert.equal(body.queuedCount, ROUTINE_ACTIVITY_QUEUED_LIMIT + 1);
+  assert.deepEqual(
+    body.queued.map((run) => run.id),
+    runs.slice(0, ROUTINE_ACTIVITY_QUEUED_LIMIT).map((run) => run.id),
+  );
 });
 
 test("local midnight is inclusive, the next midnight is exclusive, and overnight completion counts", async () => {
@@ -247,6 +333,13 @@ test("latest Run ties are deterministic and older full history does not affect t
 test("summaries contain only safe metadata and preserve independent outcome and Check verdicts", async () => {
   await seedRun({ outcomeVerdict: "unverified", checksVerdict: "failed" });
   await seedRun({ status: "running", finishedAt: null });
+  await seedRun({
+    status: "queued",
+    finishedAt: null,
+    pauseCount: 1,
+    pausedAt: at(10),
+    checkpointJson: "private checkpoint",
+  });
   const { body } = await call();
   const fields = [
     "id",
@@ -269,6 +362,10 @@ test("summaries contain only safe metadata and preserve independent outcome and 
   ].sort();
   assert.deepEqual(Object.keys(body.running[0]).sort(), fields);
   assert.deepEqual(Object.keys(body.today[0].latestRun).sort(), fields);
+  assert.deepEqual(
+    Object.keys(body.queued[0]).sort(),
+    [...fields, "queuedAt", "pauseCount", "pausedAt"].sort(),
+  );
   assert.equal(body.running[0].hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.outcomeVerdict, "unverified");

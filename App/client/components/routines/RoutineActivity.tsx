@@ -1,7 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, CalendarCheck, Clock3, Radio } from "lucide-react";
+import { ArrowUpRight, CalendarCheck, Clock3, Hourglass, OctagonX, Radio } from "lucide-react";
 import { api, type Company, type RoutineWithMeta, type Run } from "@/lib/api";
+import { isRunPaused } from "@/lib/runStatus";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -35,8 +36,15 @@ export type RoutineActivityRun = Pick<
   | "checksVerdict"
 >;
 
+/** A Run waiting to start, or one paused for a restart that resumes when it can. */
+export type RoutineActivityQueuedRun = RoutineActivityRun &
+  Required<Pick<Run, "queuedAt" | "pauseCount" | "pausedAt">>;
+
 export type RoutineActivityData = {
   running: RoutineActivityRun[];
+  /** The oldest waiting Runs; `queuedCount` counts every one. */
+  queued: RoutineActivityQueuedRun[];
+  queuedCount: number;
   today: { routineId: string; runCount: number; latestRun: RoutineActivityRun }[];
 };
 
@@ -49,7 +57,10 @@ function todayRange() {
   return { from: from.toISOString(), to: to.toISOString() };
 }
 
-/** Recent work is independent of Routine.lastRun, which can hide earlier Runs. */
+/**
+ * What is running, what waits to start, and what ran today. Recent work is
+ * independent of Routine.lastRun, which can hide earlier Runs.
+ */
 export function RoutineActivity({
   company,
   routines,
@@ -127,6 +138,9 @@ export function RoutineActivity({
     ? snapshot.data
     : null;
   const running = data?.running.filter((run) => byId.has(run.routineId)) ?? [];
+  const queued = data?.queued.filter((run) => byId.has(run.routineId)) ?? [];
+  // The reply lists the oldest waiting Runs; a longer queue still says how long.
+  const queuedBeyondList = data ? Math.max(0, data.queuedCount - data.queued.length) : 0;
   const today = data?.today.filter((item) => byId.has(item.routineId)) ?? [];
   const runCount = today.reduce((count, item) => count + item.runCount, 0);
 
@@ -163,20 +177,24 @@ export function RoutineActivity({
 
   return (
     <div className="mb-8 space-y-6">
-      {running.length > 0 && (
-        <section aria-labelledby="running-now-heading">
-          <div className="mb-3 flex items-center gap-2">
-            <Radio size={16} className="text-indigo-500" />
-            <h2
-              id="running-now-heading"
-              className="text-sm font-semibold text-slate-900 dark:text-slate-100"
-            >
-              Running now
-            </h2>
+      <section aria-labelledby="running-now-heading">
+        <div className="mb-3 flex items-center gap-2">
+          <Radio size={16} className="text-indigo-500" />
+          <h2
+            id="running-now-heading"
+            className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+          >
+            Running now
+          </h2>
+          {running.length > 0 && (
             <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-xs tabular-nums text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
               {running.length}
             </span>
-          </div>
+          )}
+        </div>
+        {running.length === 0 ? (
+          <EmptyActivity>Nothing is running right now.</EmptyActivity>
+        ) : (
           <ul className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
             {running.map((run) => (
               <ActivityRow
@@ -187,8 +205,50 @@ export function RoutineActivity({
               />
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
+
+      <section aria-labelledby="queued-heading">
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Hourglass size={16} className="text-slate-400" />
+          <h2
+            id="queued-heading"
+            className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+          >
+            Queued
+          </h2>
+          {queued.length + queuedBeyondList > 0 && (
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {queued.length + queuedBeyondList}
+            </span>
+          )}
+          <span className="text-xs text-slate-400 sm:ml-auto dark:text-slate-500">
+            Waiting to start · oldest first
+          </span>
+        </div>
+        {queued.length === 0 && queuedBeyondList === 0 ? (
+          <EmptyActivity>Nothing is waiting to start.</EmptyActivity>
+        ) : (
+          <>
+            <ul className="space-y-2">
+              {queued.map((run) => (
+                <ActivityRow
+                  key={run.id}
+                  company={company}
+                  routine={byId.get(run.routineId)!}
+                  run={run}
+                />
+              ))}
+            </ul>
+            {queuedBeyondList > 0 && (
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Showing the oldest {queued.length} of {queued.length + queuedBeyondList} queued
+                Runs.
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       <section aria-labelledby="ran-today-heading">
         <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -210,10 +270,7 @@ export function RoutineActivity({
           </span>
         </div>
         {today.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            No routines have finished a Run today
-            {routines.length === 0 ? " with these filters" : ""}.
-          </div>
+          <EmptyActivity>No routines have finished a Run today.</EmptyActivity>
         ) : (
           <>
             <ul className="space-y-2">
@@ -243,6 +300,14 @@ export function RoutineActivity({
   );
 }
 
+function EmptyActivity({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      {children}
+    </div>
+  );
+}
+
 function ActivityRow({
   company,
   routine,
@@ -251,21 +316,32 @@ function ActivityRow({
 }: {
   company: Company;
   routine: RoutineWithMeta;
-  run: RoutineActivityRun;
+  run: RoutineActivityRun | RoutineActivityQueuedRun;
   runCount?: number;
 }) {
   const running = run.status === "running";
+  const waiting = run.status === "queued" ? (run as RoutineActivityQueuedRun) : null;
+  // A Run paused for a restart has worked already; it waits to resume.
+  const paused = waiting ? isRunPaused(waiting) : false;
+  const waitingSince = waiting
+    ? ((paused ? waiting.pausedAt : waiting.queuedAt) ?? run.startedAt)
+    : null;
   const employee = routine.employee;
   const hrefForRun = (id: string) =>
     employee
       ? `/c/${company.slug}/routines/${employee.slug}/${routine.slug}?run=${encodeURIComponent(id)}`
       : `/c/${company.slug}/routines?routine=${encodeURIComponent(routine.id)}&run=${encodeURIComponent(id)}`;
   const endedAt = run.finishedAt ?? run.startedAt;
+  // A Standdown defers queued work rather than cancelling it; say so where it waits.
+  const standdownTitle =
+    waiting && routine.standdown
+      ? `${routine.standdown.scope === "company" ? "Company" : routine.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${routine.standdown.reason}`
+      : null;
   return (
     <li className="min-w-0">
       <Link
         to={hrefForRun(run.id)}
-        aria-label={`${routine.name}: ${running ? "view live Run" : "view latest Run"}`}
+        aria-label={`${routine.name}: ${running ? "view live Run" : waiting ? "view queued Run" : "view latest Run"}`}
         className="group flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-indigo-500/50"
       >
         <div className="min-w-0 flex-1 basis-48">
@@ -288,7 +364,25 @@ function ActivityRow({
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <RunStatusChip status={run.status} errorKind={run.errorKind} size="xs" />
+          <RunStatusChip
+            status={run.status}
+            errorKind={run.errorKind}
+            pauseCount={waiting?.pauseCount}
+            size="xs"
+          />
+          {standdownTitle && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300"
+              title={standdownTitle}
+            >
+              <OctagonX size={11} aria-hidden="true" /> Stood down
+            </span>
+          )}
+          {(run.attempt ?? 1) > 1 && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              attempt {run.attempt}
+            </span>
+          )}
           {run.continuationPending && (
             <span className="text-xs text-slate-500 dark:text-slate-400">
               Continuation scheduled
@@ -299,20 +393,22 @@ function ActivityRow({
               continuation {run.continuationCount}
             </span>
           )}
-          {!running && run.status !== "reviewed" && run.outcomeVerdict && (
+          {!running && !waiting && run.status !== "reviewed" && run.outcomeVerdict && (
             <RunOutcomeChip verdict={run.outcomeVerdict} size="xs" />
           )}
-          {!running && run.status !== "reviewed" && run.checksVerdict && (
+          {!running && !waiting && run.status !== "reviewed" && run.checksVerdict && (
             <RunChecksChip verdict={run.checksVerdict} size="xs" />
           )}
         </div>
         <div
           className="flex items-center gap-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-400"
-          title={new Date(running ? run.startedAt : endedAt).toLocaleString()}
+          title={new Date(waitingSince ?? (running ? run.startedAt : endedAt)).toLocaleString()}
         >
           <Clock3 size={12} className="shrink-0" />
           {running ? (
             `Started ${timeAgo(run.startedAt)}`
+          ) : waitingSince ? (
+            `${paused ? "Paused" : "Queued"} ${timeAgo(waitingSince)}`
           ) : (
             <span>
               {runCount && runCount > 1 ? `${runCount} Runs · latest ` : ""}

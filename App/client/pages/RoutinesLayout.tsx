@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Radio,
   Trash2,
   Users,
 } from "lucide-react";
@@ -49,9 +50,13 @@ import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
  * folder, folders nest, and selecting one narrows the list to that folder and
  * everything beneath it. Tags (M27) remain the cross-cutting axis on top.
  *
- * The routine list is loaded once here and shared with both children, because
+ * Above them, **Running** is the work rather than the list: Runs under way,
+ * Runs waiting in the queue, and what ran today, for every Routine.
+ *
+ * The routine list is loaded once here and shared with the children, because
  * the detail page resolves its routine out of it (`:empSlug/:routineSlug` —
- * a routine slug is only unique per employee, so it takes both segments).
+ * a routine slug is only unique per employee, so it takes both segments) and
+ * the Running page names each Run's routine and employee from it.
  */
 export default function RoutinesLayout({ company }: { company: Company }) {
   // A company switch must discard the old snapshot and editor immediately,
@@ -259,6 +264,7 @@ function Sidebar({
   const activeEmployee = params.get("employee");
   const activeFolder = params.get("folder");
   const onIndex = location.pathname === base;
+  const onRunning = location.pathname === `${base}/running`;
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
   const [creatingFolder, setCreatingFolder] = React.useState<null | "header" | "section">(null);
 
@@ -505,6 +511,20 @@ function Sidebar({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
+        {/* What runs now, what waits in the queue, and what ran today — the
+            work, apart from the list of every Routine beneath it. */}
+        <NavLink
+          to={`${base}/running`}
+          className={
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
+            (onRunning
+              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+              : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+          }
+        >
+          <Radio size={14} className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Running</span>
+        </NavLink>
         <NavLink
           to={base}
           end

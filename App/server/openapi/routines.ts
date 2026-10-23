@@ -401,16 +401,32 @@ const RoutineActivityRun = Run.pick({
   })
   .openapi("RoutineActivityRun");
 
+const RoutineActivityQueuedRun = RoutineActivityRun.extend({
+  queuedAt: z.string().datetime().describe("When this Run was accepted for dispatch."),
+  pauseCount: z
+    .number()
+    .int()
+    .min(0)
+    .describe("Restarts this Run was paused for. Above zero, it resumes where it stopped."),
+  pausedAt: z
+    .string()
+    .datetime()
+    .nullable()
+    .describe("When Genosyn last paused this Run to restart; null when it never was."),
+}).openapi("RoutineActivityQueuedRun");
+
 registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/routines/activity",
-  summary: "Show active Routines and Routines that ran during a calendar day",
+  summary: "Show active and queued Routines and Routines that ran during a calendar day",
   description:
     "Available to every company Member. Running includes all active Runs, even when " +
-    "they started before the requested day. Today groups terminal Runs by Routine, " +
+    "they started before the requested day. Queued lists Runs waiting to start, including " +
+    "Runs paused for a restart, oldest first and at most 100; queuedCount counts them all. " +
+    "Today groups terminal Runs by Routine, " +
     "excluding skipped ticks, whose start or finish falls in [from, to). Each group " +
     "contains its Run count and latest Run by finish time (or start time when absent), " +
-    "with Run ID breaking ties. Both sections contain metadata only, without transcripts " +
+    "with Run ID breaking ties. Every section contains metadata only, without transcripts " +
     "or prose. Supply local-day midnight boundaries as ISO instants with timezone offsets; " +
     "the interval must advance and span at most 26 hours to allow clock changes.",
   tags: ["Routines"],
@@ -425,11 +441,13 @@ registry.registerPath({
   responses: {
     200: {
       description:
-        "Active Run summaries and one daily summary per Routine; empty arrays when absent",
+        "Active and queued Run summaries and one daily summary per Routine; empty arrays when absent",
       content: {
         "application/json": {
           schema: z.object({
             running: z.array(RoutineActivityRun),
+            queued: z.array(RoutineActivityQueuedRun),
+            queuedCount: z.number().int().min(0),
             today: z.array(
               z.object({
                 routineId: z.string().uuid(),

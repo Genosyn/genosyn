@@ -7,6 +7,9 @@ import { loadRunFollowUps, runContinuationView, type RunFollowUp } from "./runCo
 
 export const ROUTINE_ACTIVITY_MAX_WINDOW_MS = 26 * 60 * 60 * 1000;
 
+/** Waiting Runs listed at once; `queuedCount` still counts every one. */
+export const ROUTINE_ACTIVITY_QUEUED_LIMIT = 100;
+
 const runSummaryFields = [
   "id",
   "routineId",
@@ -30,8 +33,17 @@ export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & 
   followUpRun?: RunFollowUp | null;
 };
 
+/**
+ * A Run waiting to start. A Run paused for a restart waits here too, keeping
+ * its pause so it reads as resuming rather than as new work.
+ */
+export type RoutineActivityQueuedRun = RoutineActivityRun &
+  Pick<Run, "pauseCount" | "pausedAt"> & { queuedAt: Date };
+
 export type RoutineActivity = {
   running: RoutineActivityRun[];
+  queued: RoutineActivityQueuedRun[];
+  queuedCount: number;
   today: { routineId: string; runCount: number; latestRun: RoutineActivityRun }[];
 };
 
@@ -77,11 +89,22 @@ function summary(run: Run, followUpRun: RunFollowUp | null): RoutineActivityRun 
   };
 }
 
+function queuedSummary(run: Run): RoutineActivityQueuedRun {
+  return {
+    // Nothing follows a Run that has not started yet.
+    ...summary(run, null),
+    queuedAt: run.createdAt,
+    pauseCount: run.pauseCount,
+    pausedAt: run.pausedAt,
+  };
+}
+
 /**
- * The Routines overview needs all active work and one latest Run per Routine
- * for a local calendar day. Count and choose the latest ID in the database,
- * then hydrate only those summaries: history and transcripts never enter the
- * response or application memory. Every query stays company-scoped.
+ * The Routines overview needs all active work, the Runs waiting to start, and
+ * one latest Run per Routine for a local calendar day. Count and choose the
+ * latest ID in the database, then hydrate only those summaries: history and
+ * transcripts never enter the response or application memory. Every query
+ * stays company-scoped.
  */
 export async function getRoutineActivity({
   companyId,
@@ -94,13 +117,22 @@ export async function getRoutineActivity({
 }): Promise<RoutineActivity> {
   const selectedFields = [...runSummaryFields, "checkpointJson"].map((field) => `run.${field}`);
   const dayParameters = { from, to, excludedStatuses: ["queued", "running", "skipped"] };
-  const [running, daily] = await Promise.all([
+  const [running, [queued, queuedCount], daily] = await Promise.all([
     companyRuns(companyId)
       .select(selectedFields)
       .andWhere("run.status = :running", { running: "running" })
       .orderBy("run.startedAt", "DESC")
       .addOrderBy("run.id", "DESC")
       .getMany(),
+    // Oldest first, for display only: each AI Model admits its own waiting
+    // Runs, so this is not the order every one of them will start in.
+    companyRuns(companyId)
+      .select([...selectedFields, "run.createdAt", "run.pauseCount", "run.pausedAt"])
+      .andWhere("run.status = :queued", { queued: "queued" })
+      .orderBy("run.createdAt", "ASC")
+      .addOrderBy("run.id", "ASC")
+      .take(ROUTINE_ACTIVITY_QUEUED_LIMIT)
+      .getManyAndCount(),
     companyRuns(companyId)
       .select("run.routineId", "routineId")
       .addSelect("COUNT(*)", "runCount")
@@ -150,5 +182,10 @@ export async function getRoutineActivity({
     const bTime = (b.latestRun.finishedAt ?? b.latestRun.startedAt).getTime();
     return bTime - aTime || b.latestRun.id.localeCompare(a.latestRun.id);
   });
-  return { running: running.map((run) => summary(run, followUps.get(run.id) ?? null)), today };
+  return {
+    running: running.map((run) => summary(run, followUps.get(run.id) ?? null)),
+    queued: queued.map(queuedSummary),
+    queuedCount,
+    today,
+  };
 }

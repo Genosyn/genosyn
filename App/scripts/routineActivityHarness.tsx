@@ -1,4 +1,4 @@
-/** Mount the production Routines page; the browser suite supplies API responses. */
+/** Mount the production Routines pages; the browser suite supplies API responses. */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, useOutletContext } from "react-router-dom";
@@ -10,6 +10,7 @@ import { RoutineActivity } from "@/components/routines/RoutineActivity";
 import { RunChecksStrip, RunEffectsPane } from "@/components/routines/RunViews";
 import RoutinesIndex from "@/pages/RoutinesIndex";
 import RoutinesLayout from "@/pages/RoutinesLayout";
+import RoutinesRunning from "@/pages/RoutinesRunning";
 import RoutineDetail from "@/pages/RoutineDetail";
 import "../client/styles/index.css";
 
@@ -143,7 +144,7 @@ createRoot(document.getElementById("root")!).render(
   ) : evidence ? <RunEvidenceLifecycleHarness /> : lifecycle ? (
     strictLifecycle ? <React.StrictMode>{activityHarness}</React.StrictMode> : activityHarness
   ) : <React.StrictMode>
-    <MemoryRouter initialEntries={["/c/company/routines"]}>
+    <MemoryRouter initialEntries={["/c/company/routines/running"]}>
       <ThemeProvider>
         <DialogProvider>
           <CompanySocketProvider companyId={company.id}>
@@ -155,6 +156,7 @@ createRoot(document.getElementById("root")!).render(
                   element={<RoutinesLayout company={company} />}
                 >
                   <Route index element={<RoutinesIndex company={company} />} />
+                  <Route path="running" element={<RoutinesRunning company={company} />} />
                   <Route path="*" element={<OpenedRoute />} />
                 </Route>
               </Routes>

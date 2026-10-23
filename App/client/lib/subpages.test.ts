@@ -769,6 +769,21 @@ describe("Routines in the catalogue", () => {
     );
   });
 
+  test("finds Routines → Running by the work it shows, for every Member", () => {
+    // Drawn by RoutinesLayout itself, above All routines, so the rail skips it.
+    const running = page("/routines/running");
+    assert.equal(running.rail, false);
+    assert.equal(running.access, undefined);
+    for (const viewer of Object.values(VIEWERS))
+      assert.equal(canOpenSubpage(running, viewer), true);
+    for (const query of ["routines running", "running routines", "routine queue", "ran today"]) {
+      assert.ok(
+        paths(palette(query, MEMBER_NONE).pages).includes("/routines/running"),
+        `"${query}" finds the Running page`,
+      );
+    }
+  });
+
   test("finds Routines → AI access by its section, its name, and what it governs", () => {
     assert.equal(palette("routines ai access").pages[0].page.path, "/routines/ai-access");
     for (const query of ["who can edit routines", "read and run", "routine grants"]) {

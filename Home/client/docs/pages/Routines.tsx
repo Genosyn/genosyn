@@ -37,8 +37,11 @@ export function Routines() {
 
       <H2 id="where-they-live">Where they live</H2>
       <P>
-        Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
-        is company-wide: every routine, every employee, one page. Narrow it with the{" "}
+        Routines have their own section in the nav, under <Strong>AI → Routines</Strong>, with two
+        pages at the top of its sidebar: <Strong>Running</Strong>, for the{" "}
+        <DocLink to="/docs/routines#recent-runs">Runs under way, waiting, and finished today</DocLink>
+        , and <Strong>All routines</Strong>, the list. That list is company-wide: every routine,
+        every employee, one page. Narrow it with the{" "}
         <DocLink to="/docs/routines#search">search box</DocLink> at the top, or filter by the{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —{" "}
         <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Two more
@@ -140,11 +143,26 @@ export function Routines() {
         before a real brief exists.
       </P>
 
-      <H2 id="recent-runs">Running now and today</H2>
+      <H2 id="recent-runs">Running, queued, and today</H2>
       <P>
-        Above the full list, <Strong>Running now</Strong> shows each active Run with its Routine,
-        assigned AI Employee, and start time. It disappears when nothing is running. Open a card to
-        follow that Run in the Routine&apos;s detail page.
+        <Strong>Running</Strong>, at the top of the Routines sidebar, is the work rather than the
+        list: every Routine&apos;s Runs as they happen, in three sections. It covers every Routine
+        — the sidebar&apos;s folders and AI Employees filter <Strong>All routines</Strong>, not
+        this page.
+      </P>
+      <P>
+        <Strong>Running now</Strong> shows each active Run with its Routine, assigned AI Employee,
+        and start time. Open a card to follow that Run in the Routine&apos;s detail page.
+      </P>
+      <P>
+        <Strong>Queued</Strong> shows each Run waiting to start, oldest first, and how long it has
+        waited. A Run waits while its AI Model already serves as many Runs as it allows (see{" "}
+        <DocLink to="/docs/routines#concurrent-runs">Concurrent Routine Runs</DocLink>), while a{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> covers it — its row then says{" "}
+        <Strong>Stood down</Strong> — or while Genosyn restarts for an upgrade. A Run paused for a
+        restart reads <Strong>Resuming</Strong> and continues where it stopped. Open a row for its
+        Run log: a Run waiting for its AI Model or for an upgrade says so there. A long queue lists
+        its oldest 100 Runs and says how many wait in all.
       </P>
       <P>
         <Strong>Ran today</Strong> shows each Routine&apos;s latest finished Run and how many times
@@ -154,8 +172,8 @@ export function Routines() {
       </P>
       <P>
         Today follows your browser&apos;s local calendar day, including Runs that started yesterday
-        and finished today. Skipped Runs are excluded. Both sections update automatically and follow
-        the same search, employee, folder, tag, and health filters as the list below.
+        and finished today. Skipped Runs are excluded. Every section says when it is empty and
+        updates automatically.
       </P>
       <P>
         A slow refresh can leave the last loaded results on screen until new data arrives. If recent
@@ -538,8 +556,9 @@ Post it to the #morning channel.`}</Pre>
       <P>
         The exception is an AI Model with a <Strong>Concurrent Routine Runs</Strong> limit. A model
         server on this machine or a private network serves one Routine at a time by default, and
-        you can set a limit on any model. Runs beyond it wait in the queue — the Run log says which
-        model they are waiting for — and start when a Run on that model finishes, oldest first,
+        you can set a limit on any model. Runs beyond it wait in the queue — Routines →{" "}
+        <Strong>Running</Strong> lists them under <Strong>Queued</Strong>, and the Run log says
+        which model they are waiting for — and start when a Run on that model finishes, oldest first,
         with their whole time limit. Continuations of unfinished work start ahead of new work, and
         their wait does not count against the time their earlier Run left. See{" "}
         <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.

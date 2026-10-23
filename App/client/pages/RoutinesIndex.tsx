@@ -38,10 +38,11 @@ import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders"
 import { filterRoutinesBySearch } from "../lib/routineSearch";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
-import { RoutineActivity } from "@/components/routines/RoutineActivity";
 
 /**
- * Every routine in the company. Filterable by the employee it's assigned to
+ * Every routine in the company — the list, apart from the work: what runs now,
+ * what waits in the queue, and what ran today live on Routines → Running
+ * (`RoutinesRunning.tsx`). Filterable by the employee it's assigned to
  * (`?employee=<slug>`), by the folder it's filed in (`?folder=<slug>`, or
  * `?folder=unfiled` for the ones in no folder), by tag, by health — and by
  * free text, which is the filter you reach for when you know what the routine
@@ -277,7 +278,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       ? "Unfiled routines"
       : employee
         ? `${employee.name}'s routines`
-        : "Routines";
+        : "All routines";
 
   return (
     <div className="page-shell p-6">
@@ -432,14 +433,6 @@ export default function RoutinesIndex({ company }: { company: Company }) {
               })
             }
           />
-
-          <RoutineActivity key={company.id} company={company} routines={shown} />
-
-          <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {employee || folder || unfiledView || searching || health !== "all" || selectedTagId
-              ? "Matching routines"
-              : "All routines"}
-          </h2>
 
           {selecting && (
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-2.5 text-sm dark:border-indigo-500/30 dark:bg-indigo-500/10">

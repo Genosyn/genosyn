@@ -169,7 +169,7 @@ function routes(s: Store): ApiRoute[] {
     ["GET", `${API}/routines`, () => s.routines],
     ["GET", `${API}/employees`, () => s.roster],
     ["GET", `${API}/routine-folders`, () => ({ folders: s.folders, unfiledCount: 2, maxDepth: 5 })],
-    ["GET", `${API}/routines/activity`, () => ({ running: [], today: [] })],
+    ["GET", `${API}/routines/activity`, () => ({ running: [], queued: [], queuedCount: 0, today: [] })],
     ["GET", /\/standdowns\/active$/, () => ({ standdown: null })],
     ["GET", /\/standdowns$/, () => ({ standdowns: [] })],
     ["GET", /\/tags$/, () => []],

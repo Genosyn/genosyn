@@ -1,5 +1,6 @@
 /**
- * Real Chrome tests the production Routines overview and its existing filters.
+ * Real Chrome tests the production Routines → Running page — Running now,
+ * Queued and Ran today — and its split from the All routines list.
  * HTTP and company socket fixtures are deterministic; unexpected requests and
  * product writes fail. Run with tsx scripts/test-routine-activity.ts; optional
  * arguments select case name substrings.
@@ -10,8 +11,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, type Page, type Route as BrowserRoute, type WebSocketRoute } from "playwright-core";
-import type { CompanyTag, EmployeeSummary, RoutineFolder, RoutineWithMeta, Run, RunCheckResultList, RunEffectList } from "../client/lib/api";
-import type { RoutineActivityData } from "../client/components/routines/RoutineActivity";
+import type { CompanyTag, EmployeeSummary, RoutineFolder, RoutineWithMeta, Run, RunCheckResultList, RunEffectList, Standdown } from "../client/lib/api";
+import type { RoutineActivityData, RoutineActivityQueuedRun } from "../client/components/routines/RoutineActivity";
 import { browserTestVite } from "./browserTestVite";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -128,6 +129,45 @@ function run(id: string, routineId: string, changes: Partial<Run> = {}): Run {
   };
 }
 
+const EMPTY: RoutineActivityData = { running: [], queued: [], queuedCount: 0, today: [] };
+
+function queuedRun(
+  id: string,
+  routineId: string,
+  queuedAt: string,
+  pause: { pauseCount: number; pausedAt: string | null } = { pauseCount: 0, pausedAt: null },
+): RoutineActivityQueuedRun {
+  return {
+    ...run(id, routineId, {
+      status: "queued",
+      startedAt: queuedAt,
+      finishedAt: null,
+      outcomeVerdict: null,
+      checksVerdict: null,
+      exitCode: null,
+    }),
+    queuedAt,
+    ...pause,
+  };
+}
+
+function standdownOn(routineId: string): Standdown {
+  return {
+    id: `standdown-${routineId}`,
+    scope: "routine",
+    scopeId: routineId,
+    reason: "Hold sends while the list is cleaned",
+    source: "human",
+    placedByUserId: "member",
+    placedAt: fixtureNow.toISOString(),
+    liftedAt: null,
+    liftedByUserId: null,
+    liftedReason: "",
+    active: true,
+    createdAt: fixtureNow.toISOString(),
+  };
+}
+
 function fixtures(extra = 0, longNames = false) {
   const inboxLive = run("inbox-live", "inbox", {
     status: "running",
@@ -158,6 +198,12 @@ function fixtures(extra = 0, longNames = false) {
     checksVerdict: "failed",
     exitCode: 1,
   });
+  // Paused for a restart before the fresh Run behind it was queued.
+  const accountResuming = queuedRun("account-resuming", "accounts", "2026-09-17T11:30:00.000Z", {
+    pauseCount: 1,
+    pausedAt: "2026-09-17T11:40:00.000Z",
+  });
+  const weeklyQueued = queuedRun("weekly-queued", "weekly", "2026-09-17T11:58:00.000Z");
   const rows: Array<
     Pick<RoutineWithMeta, "id" | "name" | "employee" | "folderId" | "tags" | "lastRun"> & {
       enabled?: boolean;
@@ -207,6 +253,8 @@ function fixtures(extra = 0, longNames = false) {
   ];
   const activity: RoutineActivityData = {
     running: [inboxLive, overnightLive],
+    queued: [accountResuming, weeklyQueued],
+    queuedCount: 2,
     today: [
       { routineId: "invoices", runCount: 3, latestRun: invoices },
       { routineId: "inbox", runCount: 1, latestRun: inboxEnded },
@@ -265,6 +313,8 @@ async function open(
     lifecycle?: boolean;
     strictLifecycle?: boolean;
     evidence?: boolean;
+    /** A Routine whose own Standdown defers its queued Run. */
+    standdown?: string;
   } = {},
 ) {
   const context = await browser.newContext({
@@ -300,7 +350,11 @@ async function open(
     await page.clock.setFixedTime(fixtureNow);
   }
   const data = fixtures(options.extra, options.longNames);
-  let activity = options.empty ? { running: [], today: [] } : data.activity;
+  if (options.standdown) {
+    const stoodDown = data.routines.find((routine) => routine.id === options.standdown)!;
+    stoodDown.standdown = standdownOn(stoodDown.id);
+  }
+  let activity = options.empty ? EMPTY : data.activity;
   if (options.noRunning) activity = { ...activity, running: [] };
   let failed = options.activityError ?? false;
   let releaseActivity: () => void = () => {};
@@ -364,7 +418,7 @@ async function open(
     ? page.getByTestId("evidence-identity")
     : options.lifecycle
     ? page.getByRole("button", { name: "Unmount activity", exact: true })
-    : page.getByRole("textbox", { name: "Search routines", exact: true })
+    : page.getByRole("heading", { name: "Running", exact: true, level: 1 })
   ).waitFor({ timeout: 300_000 });
   if (!options.evidence) await page.locator('[data-socket-status="open"]').waitFor({ state: "attached" });
   return {
@@ -516,7 +570,7 @@ async function openRoutineLoading(options: {
       return route.fulfill({ json: { standdown: null } });
     if (url.pathname.endsWith("/tags")) return route.fulfill({ json: [] });
     if (url.pathname.endsWith("/routines/activity"))
-      return route.fulfill({ json: { running: [], today: [] } });
+      return route.fulfill({ json: EMPTY });
     unexpectedRequests.push(`Unexpected read: ${url.pathname}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });
@@ -577,15 +631,23 @@ async function openRoutineLoading(options: {
 }
 
 const running = (page: Page) => page.getByRole("region", { name: "Running now", exact: true });
+const queued = (page: Page) => page.getByRole("region", { name: "Queued", exact: true });
 const today = (page: Page) => page.getByRole("region", { name: "Ran today", exact: true });
-async function names(page: Page, section: "running" | "today") {
-  const links = (section === "running" ? running(page) : today(page)).getByRole("link");
+type Section = "running" | "queued" | "today";
+const regions: Record<Section, (page: Page) => ReturnType<typeof running>> = { running, queued, today };
+const headingIds: Record<Section, string> = {
+  running: "running-now-heading",
+  queued: "queued-heading",
+  today: "ran-today-heading",
+};
+async function names(page: Page, section: Section) {
+  const links = regions[section](page).getByRole("link");
   return links.evaluateAll((rows) =>
     rows.map((row) => row.getAttribute("aria-label")!.split(": view ")[0]),
   );
 }
-async function expectNames(page: Page, section: "running" | "today", expected: string[]) {
-  const headingId = section === "running" ? "running-now-heading" : "ran-today-heading";
+async function expectNames(page: Page, section: Section, expected: string[]) {
+  const headingId = headingIds[section];
   await page.waitForFunction(
     ({ headingId, expected }) => {
       const region = document.querySelector(`section[aria-labelledby="${headingId}"]`);
@@ -607,17 +669,15 @@ async function fits(page: Page) {
   );
   assert.equal(
     await page
-      .getByRole("button", { name: "New routine", exact: true })
-      // The desktop sidebar has an icon button with the same accessible name.
-      .filter({ hasText: /^New routine$/ })
-      .evaluate((button) => {
-        const box = button.getBoundingClientRect();
+      .getByRole("heading", { name: "Running", exact: true, level: 1 })
+      .evaluate((title) => {
+        const box = title.getBoundingClientRect();
         return box.left >= 0 && box.right <= innerWidth;
       }),
     true,
-    "the New routine button must remain fully visible on narrow screens",
+    "the page title must remain fully visible on narrow screens",
   );
-  for (const region of [running(page), today(page)]) {
+  for (const region of [running(page), queued(page), today(page)]) {
     if (!(await region.count())) continue;
     const geometry = await region.evaluate((element) => {
       const box = element.getBoundingClientRect();
@@ -1054,7 +1114,7 @@ try {
       await fixture.waitForActivity(2);
       assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 1, maxActive: 1 });
       assert.equal(await fixture.page.getByText("Loading recent Runs…", { exact: true }).count(), 0);
-      await fixture.respondActivity(1, { running: [], today: [] });
+      await fixture.respondActivity(1, EMPTY);
       await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
       await fixture.page.clock.runFor(200);
       assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 0, maxActive: 1 });
@@ -1095,7 +1155,7 @@ try {
       await fixture.respondActivity(0);
       await running(fixture.page).waitFor();
       await fixture.waitForActivity(2);
-      await fixture.respondActivity(1, { running: [], today: [] });
+      await fixture.respondActivity(1, EMPTY);
       await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
       await fixture.page.clock.runFor(200);
       assert.deepEqual(await fixture.requestCounts(), { started: 2, active: 0, maxActive: 1 });
@@ -1116,7 +1176,7 @@ try {
       assert.equal(await today(fixture.page).count(), 0);
       await fixture.page.getByRole("button", { name: "Mount activity", exact: true }).click();
       await fixture.waitForActivity(2);
-      await fixture.respondActivity(1, { running: [], today: [] });
+      await fixture.respondActivity(1, EMPTY);
       await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
     } finally {
       await fixture.close();
@@ -1136,11 +1196,12 @@ try {
         await fixture.waitForActivity(3);
         await fixture.page.getByText("Loading recent Runs…", { exact: true }).waitFor();
         assert.equal(await running(fixture.page).count(), 0, "the previous company's snapshot must not remain visible");
-        await fixture.respondActivity(2, { running: [], today: [] });
+        await fixture.respondActivity(2, EMPTY);
         await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
         await fixture.respondActivity(1, undefined, oldStatus);
         await fixture.page.clock.runFor(200);
-        assert.equal(await running(fixture.page).count(), 0);
+        await running(fixture.page).getByText("Nothing is running right now.", { exact: true }).waitFor();
+        assert.equal(await running(fixture.page).getByRole("link").count(), 0);
         assert.equal(await fixture.page.getByRole("alert").count(), 0);
         assert.equal((await fixture.requestCounts()).started, 3, "old-company pending work must not refetch");
         await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
@@ -1159,7 +1220,7 @@ try {
       await fixture.waitForActivity(2);
       await fixture.page.getByText("Loading recent Runs…", { exact: true }).waitFor();
       assert.equal(await fixture.page.getByRole("alert").count(), 0);
-      await fixture.respondActivity(1, { running: [], today: [] });
+      await fixture.respondActivity(1, EMPTY);
       await today(fixture.page).getByText(/No routines have finished a Run today/).waitFor();
     } finally {
       await fixture.close();
@@ -1190,6 +1251,7 @@ try {
             followUpRun: child,
           });
           fixture.setActivity({
+            ...EMPTY,
             running: [child],
             today: [{ routineId: "inbox", runCount: 1, latestRun: parent }],
           });
@@ -1224,6 +1286,7 @@ try {
       try {
         await running(fixture.page).waitFor();
         await expectNames(fixture.page, "running", ["Inbox sweep", "Overnight audit"]);
+        await expectNames(fixture.page, "queued", ["Account review", "Weekly summary"]);
         await expectNames(fixture.page, "today", [
           "Invoice follow-up",
           "Inbox sweep",
@@ -1259,9 +1322,14 @@ try {
       }
     },
   );
-  await check("activity links open the selected live or latest Run", async () => {
+  await check("activity links open the selected live, queued or latest Run", async () => {
     for (const [section, label, expected] of [
       ["running", "Inbox sweep: view live Run", "/c/company/routines/jamie/inbox?run=inbox-live"],
+      [
+        "queued",
+        "Weekly summary: view queued Run",
+        "/c/company/routines/jamie/weekly?run=weekly-queued",
+      ],
       [
         "today",
         "Invoice follow-up: view latest Run",
@@ -1270,7 +1338,7 @@ try {
     ] as const) {
       const fixture = await open();
       try {
-        await (section === "running" ? running(fixture.page) : today(fixture.page))
+        await regions[section](fixture.page)
           .getByRole("link", { name: label, exact: true })
           .click();
         assert.equal(
@@ -1282,73 +1350,141 @@ try {
       }
     }
   });
-  await check(
-    "no running work hides its section and an empty day has an honest empty state",
-    async () => {
-      const fixture = await open({ empty: true });
-      try {
-        await today(fixture.page)
-          .getByText(/No routines have finished a Run today/)
-          .waitFor();
-        assert.equal(await running(fixture.page).count(), 0);
-        assert.equal(
-          await fixture.page.getByRole("heading", { name: "Running now", exact: true }).count(),
-          0,
-        );
-        assert.equal(await today(fixture.page).getByRole("link").count(), 0);
-        await fits(fixture.page);
-      } finally {
-        await fixture.close();
-      }
-      const completed = await open({ noRunning: true });
-      try {
-        await today(completed.page).getByRole("link").first().waitFor();
-        assert.equal(await running(completed.page).count(), 0);
-        assert.equal(await today(completed.page).getByRole("link").count(), 3);
-      } finally {
-        await completed.close();
-      }
-    },
-  );
-  await check("search, tag and health filters narrow both sections", async () => {
-    const fixture = await open();
+  await check("empty sections stay in place and say so", async () => {
+    const fixture = await open({ empty: true });
+    try {
+      await today(fixture.page)
+        .getByText("No routines have finished a Run today.", { exact: true })
+        .waitFor();
+      await running(fixture.page)
+        .getByText("Nothing is running right now.", { exact: true })
+        .waitFor();
+      await queued(fixture.page)
+        .getByText("Nothing is waiting to start.", { exact: true })
+        .waitFor();
+      for (const region of [running(fixture.page), queued(fixture.page), today(fixture.page)])
+        assert.equal(await region.getByRole("link").count(), 0);
+      await fits(fixture.page);
+    } finally {
+      await fixture.close();
+    }
+    const completed = await open({ noRunning: true });
+    try {
+      await today(completed.page).getByRole("link").first().waitFor();
+      await running(completed.page)
+        .getByText("Nothing is running right now.", { exact: true })
+        .waitFor();
+      assert.equal(await running(completed.page).getByRole("link").count(), 0);
+      assert.equal(await queued(completed.page).getByRole("link").count(), 2);
+      assert.equal(await today(completed.page).getByRole("link").count(), 3);
+    } finally {
+      await completed.close();
+    }
+  });
+  await check("queued Runs say how long they waited, which resume, and which a Standdown holds", async () => {
+    const fixture = await open({ standdown: "weekly" });
     const { page } = fixture;
     try {
-      await running(page).waitFor();
-      const search = page.getByRole("textbox", { name: "Search routines", exact: true });
-      await search.fill("inbox");
-      await expectNames(page, "running", ["Inbox sweep"]);
-      await expectNames(page, "today", ["Inbox sweep"]);
-      await search.press("Escape");
-      await page.getByRole("button", { name: "Customer", exact: true }).click();
-      await expectNames(page, "running", ["Inbox sweep"]);
-      await expectNames(page, "today", ["Inbox sweep", "Account review"]);
-      await page.getByRole("button", { name: /^Needs attention/ }).click();
-      await running(page).waitFor({ state: "detached" });
-      await expectNames(page, "today", ["Account review"]);
-      await page.getByRole("button", { name: /^All \d/ }).click();
-      await page.getByRole("button", { name: "Customer", exact: true }).click();
-      await page.getByRole("button", { name: /^Paused/ }).click();
-      await expectNames(page, "running", ["Overnight audit"]);
-      await expectNames(page, "today", []);
+      await expectNames(page, "queued", ["Account review", "Weekly summary"]);
+      const resuming = queued(page).getByRole("listitem").filter({ hasText: "Account review" });
+      await resuming.getByText("resuming", { exact: true }).waitFor();
+      await resuming.getByText("Paused 20m ago", { exact: true }).waitFor();
+      assert.equal(await resuming.getByText("Stood down", { exact: true }).count(), 0);
+      const fresh = queued(page).getByRole("listitem").filter({ hasText: "Weekly summary" });
+      await fresh.getByText("pending", { exact: true }).waitFor();
+      await fresh.getByText("Queued 2m ago", { exact: true }).waitFor();
+      const stoodDown = fresh.getByText("Stood down", { exact: true });
+      await stoodDown.waitFor();
+      assert.equal(
+        await stoodDown.getAttribute("title"),
+        "Routine Standdown: Hold sends while the list is cleaned",
+      );
+      await queued(page).getByText("2", { exact: true }).waitFor();
+      assert.equal(await queued(page).getByText(/^Showing the oldest/).count(), 0);
+      // Running work never carries the queue's Standdown note.
+      assert.equal(await running(page).getByText("Stood down", { exact: true }).count(), 0);
+      await fits(page);
+
+      // A queue longer than the reply lists says how long it is.
+      fixture.setActivity({ ...fixture.activity(), queuedCount: 7 });
+      fixture.event();
+      await queued(page)
+        .getByText("Showing the oldest 2 of 7 queued Runs.", { exact: true })
+        .waitFor();
+      await queued(page).getByText("7", { exact: true }).waitFor();
+
+      // A Run that starts leaves the queue for Running now.
+      const started = fixture.activity();
+      fixture.setActivity({
+        ...started,
+        running: [
+          ...started.running,
+          run("weekly-queued", "weekly", {
+            status: "running",
+            startedAt: fixtureNow.toISOString(),
+            finishedAt: null,
+            outcomeVerdict: null,
+            checksVerdict: null,
+            exitCode: null,
+          }),
+        ],
+        queued: started.queued.filter((item) => item.id !== "weekly-queued"),
+        queuedCount: 1,
+      });
+      fixture.event();
+      await expectNames(page, "queued", ["Account review"]);
+      await expectNames(page, "running", ["Inbox sweep", "Overnight audit", "Weekly summary"]);
     } finally {
       await fixture.close();
     }
   });
-  await check("employee and parent-folder filters apply to both activity sections", async () => {
+  await check("All routines keeps the list and leaves Runs to the Running page", async () => {
+    const fixture = await open();
+    const { page } = fixture;
+    try {
+      await running(page).waitFor();
+      const sidebar = page.locator("aside");
+      assert.equal(
+        await sidebar.getByRole("link", { name: "Running", exact: true }).getAttribute("href"),
+        "/c/company/routines/running",
+      );
+      await sidebar.getByRole("link", { name: /^All routines/ }).click();
+      await page.getByRole("textbox", { name: "Search routines", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "All routines", exact: true, level: 1 }).waitFor();
+      for (const region of [running(page), queued(page), today(page)])
+        assert.equal(await region.count(), 0);
+      assert.equal(await page.getByText("Loading recent Runs…", { exact: true }).count(), 0);
+      assert.equal(await page.getByRole("heading", { name: "Matching routines" }).count(), 0);
+      for (const name of ["Inbox sweep", "Invoice follow-up", "Weekly summary"])
+        await page.getByRole("link", { name, exact: true }).waitFor();
+      await page.screenshot({ path: path.join(output, "routines-all-desktop.png"), fullPage: true });
+      await sidebar.getByRole("link", { name: "Running", exact: true }).click();
+      await expectNames(page, "running", ["Inbox sweep", "Overnight audit"]);
+      await expectNames(page, "queued", ["Account review", "Weekly summary"]);
+    } finally {
+      await fixture.close();
+    }
+  });
+  await check("sidebar folders and employees filter the list; Running covers every Routine", async () => {
     const fixture = await open();
     const { page } = fixture;
     try {
       await running(page).waitFor();
       await page.locator('aside a[href="/c/company/routines?employee=alex"]').click();
-      await expectNames(page, "running", ["Overnight audit"]);
-      await expectNames(page, "today", ["Invoice follow-up"]);
+      await page
+        .getByRole("heading", { name: "Alex Rivera's routines", exact: true, level: 1 })
+        .waitFor();
+      assert.equal(await running(page).count(), 0);
+      await page.getByRole("link", { name: "Invoice follow-up", exact: true }).waitFor();
+      assert.equal(await page.getByRole("link", { name: "Inbox sweep", exact: true }).count(), 0);
       await page.locator('aside a[href="/c/company/routines?folder=operations"]').click();
-      await expectNames(page, "running", ["Inbox sweep"]);
-      await expectNames(page, "today", ["Inbox sweep", "Account review"]);
-      await page.locator('aside a[href="/c/company/routines?folder=unfiled"]').click();
-      await expectNames(page, "running", ["Overnight audit"]);
-      await expectNames(page, "today", []);
+      await page.getByRole("heading", { name: "Operations", exact: true, level: 1 }).waitFor();
+      await page.getByRole("link", { name: "Account review", exact: true }).waitFor();
+      assert.equal(await page.getByRole("link", { name: "Weekly summary", exact: true }).count(), 0);
+      await page.locator('aside a[href="/c/company/routines/running"]').click();
+      await expectNames(page, "running", ["Inbox sweep", "Overnight audit"]);
+      await expectNames(page, "queued", ["Account review", "Weekly summary"]);
+      await expectNames(page, "today", ["Invoice follow-up", "Inbox sweep", "Account review"]);
     } finally {
       await fixture.close();
     }
@@ -1361,11 +1497,13 @@ try {
         await running(fixture.page).waitFor();
         const latest = run("inbox-live", "inbox", { finishedAt: fixtureNow.toISOString() });
         fixture.setActivity({
-          running: [],
+          ...EMPTY,
           today: [{ routineId: "inbox", runCount: 2, latestRun: latest }],
         });
         fixture.event();
-        await running(fixture.page).waitFor({ state: "detached" });
+        await running(fixture.page)
+          .getByText("Nothing is running right now.", { exact: true })
+          .waitFor();
         await today(fixture.page).getByText("1 routine · 2 Runs", { exact: true }).waitFor();
         await expectNames(fixture.page, "today", ["Inbox sweep"]);
         assert.equal(
@@ -1384,9 +1522,11 @@ try {
       try {
         await running(fixture.page).waitFor();
         const before = fixture.reads.filter((url) => url.pathname.endsWith("/activity")).length;
-        fixture.setActivity({ running: [], today: [] });
+        fixture.setActivity(EMPTY);
         await fixture.page.clock.fastForward(30_001);
-        await running(fixture.page).waitFor({ state: "detached" });
+        await running(fixture.page)
+          .getByText("Nothing is running right now.", { exact: true })
+          .waitFor();
         assert.ok(
           fixture.reads.filter((url) => url.pathname.endsWith("/activity")).length > before,
         );
