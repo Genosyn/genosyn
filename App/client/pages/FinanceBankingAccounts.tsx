@@ -31,6 +31,8 @@ import {
   type SyncTone,
 } from "../lib/bankingSync";
 import { errorMessage } from "../lib/errors";
+import { canWriteFinance } from "../lib/subpages";
+import { FinanceReadOnlyNote } from "../components/finance/FinanceReadOnly";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -506,6 +508,10 @@ const PROVIDER_OF: Record<string, string> = { brex: "Brex", wise: "Wise", stripe
  * Point the account at another Connection of the same provider — how an
  * account whose Connection was removed starts syncing again, without losing
  * its transactions by removing and re-adding it.
+ *
+ * That is a finance write, so a Member with read-only Finance access is told
+ * why they can't make it instead of being offered a form the server refuses.
+ * The page offers them no way here; this holds even if a new one does.
  */
 export function ChangeConnectionModal({
   company,
@@ -518,6 +524,7 @@ export function ChangeConnectionModal({
   onClose: () => void;
   onChanged: () => Promise<void>;
 }) {
+  const canWrite = canWriteFinance(company);
   const provider = account.provider ?? "brex";
   const providerLabel = PROVIDER_OF[provider] ?? provider;
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
@@ -527,6 +534,7 @@ export function ChangeConnectionModal({
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
+    if (!canWrite) return;
     let alive = true;
     api
       .get<IntegrationConnection[]>(`/api/companies/${company.id}/integrations/connections`)
@@ -549,7 +557,7 @@ export function ChangeConnectionModal({
     return () => {
       alive = false;
     };
-  }, [account.feed.connectionId, company.id, provider]);
+  }, [account.feed.connectionId, canWrite, company.id, provider]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -571,6 +579,20 @@ export function ChangeConnectionModal({
   }
 
   const unchanged = connectionId === account.feed.connectionId;
+  if (!canWrite) {
+    return (
+      <Modal open onClose={onClose} title={`Change the Connection for ${account.feed.name}`}>
+        <div className="space-y-4">
+          <FinanceReadOnlyNote />
+          <div className="flex justify-end">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
   return (
     <Modal open onClose={onClose} title={`Change the Connection for ${account.feed.name}`}>
       <form onSubmit={save} className="space-y-4">
