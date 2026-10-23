@@ -386,7 +386,10 @@ export function Employees() {
         Choose a bubble to open the employee&apos;s <Strong>Routine Runs</Strong> and{" "}
         <Strong>work timeline</Strong> in a popup. The Runs list shows Routines working now
         and any pending work, including when a retry or continuation is waiting until later or a
-        Standdown is stopping the work. An AI Employee can run multiple Routines together, and the
+        Standdown is stopping the work. Pending Runs are listed in the order they will start, each
+        with its place in the company&apos;s queue — <Strong>Next up</Strong>, <Strong>#2</Strong>,
+        … — and a <DocLink to="/docs/routines#priority">High priority</DocLink> Routine carries a{" "}
+        <Strong>High</Strong> mark. An AI Employee can run multiple Routines together, and the
         list updates as work starts and finishes. It always shows current work, even while you
         browse an earlier day below. A long pending list starts with five Routines; expand it to see
         more.
