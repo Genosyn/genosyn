@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { In, IsNull, Not } from "typeorm";
@@ -10,18 +11,27 @@ import {
   EmployeeNoteGrant,
   NoteAccessLevel,
 } from "../db/entities/EmployeeNoteGrant.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { andWhereTokens, tokenizeQuery } from "../services/likeSearch.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
+  archiveNoteTree,
+  collectDescendantIds,
   deleteGrantsForNote,
+  duplicateNote,
+  isNoteDescendant,
   listDirectGrants,
   listInheritedGrants,
   listNotebookInheritedGrants,
+  moveNote,
+  NoteTreeError,
+  outlineOf,
+  restoreNoteTree,
   upsertNoteGrant,
 } from "../services/notes.js";
+import { noteSnippet } from "../../shared/notePreview.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import { recordAudit } from "../services/audit.js";
 import { recordCoalescedAudit } from "../services/auditCoalesce.js";
@@ -44,6 +54,22 @@ async function uniqueNoteSlug(companyId: string, base: string): Promise<string> 
     slug = `${base}-${n}`;
   }
   return slug;
+}
+
+/**
+ * A short token naming one exact state of a page's content. `updatedAt` alone
+ * can't do it: SQLite keeps it to the second, and two saves inside one second
+ * (an AI Employee's and a Member's) would look like one version.
+ */
+function noteVersion(note: Pick<Note, "updatedAt" | "title" | "body" | "icon">): string {
+  return createHash("sha256")
+    .update(`${new Date(note.updatedAt).getTime()}\u0000${note.title}\u0000${note.icon}\u0000${note.body}`)
+    .digest("base64url")
+    .slice(0, 22);
+}
+
+function withVersion<N extends Note>(note: N): N & { version: string } {
+  return { ...note, version: noteVersion(note) };
 }
 
 type AuthorRef =
@@ -110,24 +136,35 @@ async function hydrateNotes(companyId: string, notes: Note[]): Promise<HydratedN
 
 // ----- List & search -----
 
+const listNotesQuery = z.object({
+  archived: z.enum(["true", "false"]).optional(),
+  notebookSlug: z.string().max(80).optional(),
+  /**
+   * `outline` drops each body for a one-line `preview`: what the sidebar and
+   * the notebook pages need. They refetch whenever any page saves, and
+   * shipping every body on every keystroke-save was the bulk of the traffic.
+   */
+  view: z.enum(["full", "outline"]).optional(),
+});
+
 /**
  * Return every note in the company, ordered by sortOrder then updatedAt.
  * The client builds the tree from `parentId`. Archived notes are filtered
  * out unless `?archived=true` is passed (the trash view). Pass
  * `?notebookSlug=…` to scope to a single notebook.
  */
-notesRouter.get("/notes", async (req, res) => {
+notesRouter.get("/notes", validateQuery(listNotesQuery), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const archived = req.query.archived === "true";
-  const nbSlugParam = req.query.notebookSlug;
+  const query = req.query as z.infer<typeof listNotesQuery>;
+  const archived = query.archived === "true";
   const where: Record<string, unknown> = {
     companyId: cid,
     archivedAt: archived ? Not(IsNull()) : IsNull(),
   };
-  if (typeof nbSlugParam === "string" && nbSlugParam.length > 0) {
+  if (query.notebookSlug) {
     const nb = await AppDataSource.getRepository(Notebook).findOneBy({
       companyId: cid,
-      slug: nbSlugParam,
+      slug: query.notebookSlug,
     });
     if (!nb) return res.status(404).json({ error: "Notebook not found" });
     where.notebookId = nb.id;
@@ -136,7 +173,14 @@ notesRouter.get("/notes", async (req, res) => {
     where,
     order: { sortOrder: "ASC", updatedAt: "DESC" },
   });
-  res.json(await hydrateNotes(cid, notes));
+  const hydrated = await hydrateNotes(cid, notes);
+  res.json(query.view === "outline" ? hydrated.map(outlineOf) : hydrated);
+});
+
+const searchNotesQuery = z.object({
+  q: z.string().max(200).optional(),
+  notebookSlug: z.string().max(80).optional(),
+  view: z.enum(["full", "outline"]).optional(),
 });
 
 /**
@@ -146,25 +190,36 @@ notesRouter.get("/notes", async (req, res) => {
  * and, because bare LIKE folds ASCII case on sqlite but not on postgres,
  * returned different rows on the two supported drivers. SQLite plus a few
  * thousand notes is still fine; if this ever feels slow we can wire FTS5 in.
+ *
+ * `?view=outline` answers with previews and a `snippet` of the matching text
+ * instead of whole bodies; `?notebookSlug=` searches one notebook.
  */
-notesRouter.get("/notes/search", async (req, res) => {
+notesRouter.get("/notes/search", validateQuery(searchNotesQuery), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const q = (req.query.q as string | undefined)?.trim() ?? "";
+  const query = req.query as z.infer<typeof searchNotesQuery>;
+  const q = query.q?.trim() ?? "";
   if (!q) return res.json([]);
   const tokens = tokenizeQuery(q);
   if (tokens.length === 0) return res.json([]);
-  const rows = await andWhereTokens(
-    AppDataSource.getRepository(Note)
-      .createQueryBuilder("n")
-      .where("n.companyId = :cid", { cid })
-      .andWhere("n.archivedAt IS NULL"),
-    ["n.title", "n.body"],
-    tokens,
-  )
+  let builder = AppDataSource.getRepository(Note)
+    .createQueryBuilder("n")
+    .where("n.companyId = :cid", { cid })
+    .andWhere("n.archivedAt IS NULL");
+  if (query.notebookSlug) {
+    const nb = await AppDataSource.getRepository(Notebook).findOneBy({
+      companyId: cid,
+      slug: query.notebookSlug,
+    });
+    if (!nb) return res.status(404).json({ error: "Notebook not found" });
+    builder = builder.andWhere("n.notebookId = :nbId", { nbId: nb.id });
+  }
+  const rows = await andWhereTokens(builder, ["n.title", "n.body"], tokens)
     .orderBy("n.updatedAt", "DESC")
     .limit(50)
     .getMany();
-  res.json(await hydrateNotes(cid, rows));
+  const hydrated = await hydrateNotes(cid, rows);
+  if (query.view !== "outline") return res.json(hydrated);
+  res.json(hydrated.map((n) => ({ ...outlineOf(n), snippet: noteSnippet(n.body, q) })));
 });
 
 // ----- Create -----
@@ -252,7 +307,7 @@ notesRouter.post("/notes", validateBody(createNoteSchema), async (req, res) => {
     metadata: parentId ? { parentId } : undefined,
   });
   const [hydrated] = await hydrateNotes(cid, [note]);
-  res.json(hydrated);
+  res.json(withVersion(hydrated));
 });
 
 // ----- Single note -----
@@ -266,7 +321,7 @@ notesRouter.get("/notes/:noteSlug", async (req, res) => {
   const note = await loadNoteBySlug(cid, req.params.noteSlug);
   if (!note) return res.status(404).json({ error: "Note not found" });
   const [hydrated] = await hydrateNotes(cid, [note]);
-  res.json(hydrated);
+  res.json(withVersion(hydrated));
 });
 
 const patchNoteSchema = z.object({
@@ -277,6 +332,13 @@ const patchNoteSchema = z.object({
   notebookSlug: z.string().min(1).max(80).optional(),
   sortOrder: z.number().int().optional(),
   archived: z.boolean().optional(),
+  /**
+   * The `version` of the page these edits were made from. When the page has
+   * been saved since (an AI Employee wrote to it while a Member typed), the
+   * edit is refused with 409 and the current page, so the editor merges
+   * instead of silently overwriting the other side's work.
+   */
+  baseVersion: z.string().min(1).max(64).optional(),
 });
 
 notesRouter.patch(
@@ -288,6 +350,15 @@ notesRouter.patch(
     if (!note) return res.status(404).json({ error: "Note not found" });
     const body = req.body as z.infer<typeof patchNoteSchema>;
     const repo = AppDataSource.getRepository(Note);
+
+    const editsContent = body.title !== undefined || body.body !== undefined || body.icon !== undefined;
+    if (editsContent && body.baseVersion !== undefined && body.baseVersion !== noteVersion(note)) {
+      const [current] = await hydrateNotes(cid, [note]);
+      return res
+        .status(409)
+        .json({ error: "This page changed since you opened it", note: withVersion(current) });
+    }
+    const originalParentId = note.parentId;
 
     // Moving to a different notebook detaches the note from its parent —
     // a sub-page can't survive a notebook move because parents are
@@ -321,7 +392,10 @@ notesRouter.patch(
             error: "A note's parent must live in the same notebook",
           });
         }
-        if (await isDescendant(cid, parent.id, note.id)) {
+        // The cycle to refuse is the new parent sitting under this page. (This
+        // used to ask the opposite question, so moving a page up beside its
+        // parent was refused while moving it under its own child went through.)
+        if (await isNoteDescendant(cid, note.id, parent.id)) {
           return res
             .status(400)
             .json({ error: "Cannot move a note under one of its own descendants" });
@@ -341,11 +415,10 @@ notesRouter.patch(
       // stays self-consistent (parent's notebook == child's notebook).
       const descendants = await collectDescendantIds(cid, note.id);
       if (descendants.length > 0) {
-        await repo.update({ id: In(descendants) }, { notebookId: nextNotebookId });
+        await repo.update({ id: In(descendants), companyId: cid }, { notebookId: nextNotebookId });
       }
     }
 
-    const previousParentId = note.parentId;
     const wasArchived = note.archivedAt !== null;
     const editedFields: string[] = [];
     if (body.title !== undefined && body.title !== note.title) editedFields.push("title");
@@ -355,12 +428,17 @@ notesRouter.patch(
     if (body.body !== undefined) note.body = body.body;
     if (body.icon !== undefined) note.icon = body.icon;
     if (body.sortOrder !== undefined) note.sortOrder = body.sortOrder;
-    if (body.archived !== undefined) {
-      note.archivedAt = body.archived ? new Date() : null;
+    // Only an actual edit moves "last edited by": trashing or moving a page
+    // isn't writing it.
+    if (editedFields.length > 0) {
+      note.lastEditedById = req.userId ?? null;
+      note.lastEditedByEmployeeId = null;
     }
-    note.lastEditedById = req.userId ?? null;
-    note.lastEditedByEmployeeId = null;
     await repo.save(note);
+    // Trashing takes the sub-pages along; restoring brings back those that went with it.
+    let cascaded = 0;
+    if (body.archived === true && !wasArchived) cascaded = await archiveNoteTree(cid, note);
+    if (body.archived === false && wasArchived) cascaded = await restoreNoteTree(cid, note);
     const audit = {
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -369,9 +447,13 @@ notesRouter.patch(
       targetLabel: note.title,
     };
     if (body.archived !== undefined && body.archived !== wasArchived) {
-      await recordAudit({ ...audit, action: body.archived ? "note.archive" : "note.restore" });
+      await recordAudit({
+        ...audit,
+        action: body.archived ? "note.archive" : "note.restore",
+        metadata: cascaded > 0 ? { subPages: cascaded } : undefined,
+      });
     }
-    if (movingNotebook || note.parentId !== previousParentId) {
+    if (movingNotebook || note.parentId !== originalParentId) {
       await recordAudit({ ...audit, action: "note.move" });
     }
     if (editedFields.length > 0) {
@@ -384,64 +466,83 @@ notesRouter.patch(
       });
     }
     const [hydrated] = await hydrateNotes(cid, [note]);
-    res.json(hydrated);
+    res.json(withVersion(hydrated));
   },
 );
 
-/**
- * BFS down the note tree from `rootId`, returning every descendant id
- * (excluding the root itself). Used when moving a note to a different
- * notebook so we can drag the whole sub-tree along.
- */
-async function collectDescendantIds(
-  companyId: string,
-  rootId: string,
-): Promise<string[]> {
-  const repo = AppDataSource.getRepository(Note);
-  const out: string[] = [];
-  const queue: string[] = [rootId];
-  const seen = new Set<string>();
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const children = await repo.find({
-      where: { companyId, parentId: id },
-      select: ["id"],
-    });
-    for (const c of children) {
-      out.push(c.id);
-      queue.push(c.id);
-    }
-  }
-  return out;
-}
+const moveNoteSchema = z.object({
+  /** Destination notebook; defaults to the page's own. */
+  notebookSlug: z.string().min(1).max(80).optional(),
+  /** New parent page, or null for the notebook's top level. Defaults to the current parent. */
+  parentSlug: z.string().min(1).max(160).nullable().optional(),
+  /** Position among the new siblings; omitted means last. */
+  index: z.number().int().min(0).max(100_000).optional(),
+});
 
 /**
- * True if `descendantId` is found anywhere underneath `rootId` by walking
- * children. Used to reject parent-cycles when re-parenting a note.
+ * Put a page somewhere in the tree — what dragging it in the sidebar and
+ * "Move to…" do. Sub-pages travel with it; siblings are renumbered on the
+ * server so positions never collide; nobody's "last edited" moves.
  */
-async function isDescendant(
-  companyId: string,
-  rootId: string,
-  descendantId: string,
-): Promise<boolean> {
-  const repo = AppDataSource.getRepository(Note);
-  const queue: string[] = [rootId];
-  const seen = new Set<string>();
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (id === descendantId) return true;
-    const children = await repo.find({
-      where: { companyId, parentId: id },
-      select: ["id"],
-    });
-    for (const c of children) queue.push(c.id);
+notesRouter.post("/notes/:noteSlug/move", validateBody(moveNoteSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const note = await loadNoteBySlug(cid, req.params.noteSlug);
+  if (!note) return res.status(404).json({ error: "Note not found" });
+  if (note.archivedAt) return res.status(400).json({ error: "Restore the page before moving it" });
+  const body = req.body as z.infer<typeof moveNoteSchema>;
+  let notebookId = note.notebookId;
+  if (body.notebookSlug !== undefined) {
+    const nb = await AppDataSource.getRepository(Notebook).findOneBy({ companyId: cid, slug: body.notebookSlug });
+    if (!nb) return res.status(400).json({ error: "Unknown notebook" });
+    notebookId = nb.id;
   }
-  return false;
-}
+  let parentId: string | null =
+    body.parentSlug === undefined ? (notebookId === note.notebookId ? note.parentId : null) : null;
+  if (body.parentSlug) {
+    const parent = await loadNoteBySlug(cid, body.parentSlug);
+    if (!parent) return res.status(400).json({ error: "Unknown parent page" });
+    parentId = parent.id;
+  }
+  try {
+    const relocated = await moveNote(cid, note, { notebookId, parentId, index: body.index });
+    if (relocated) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "note.move",
+        targetType: "note",
+        targetId: note.id,
+        targetLabel: note.title,
+      });
+    }
+  } catch (err) {
+    if (err instanceof NoteTreeError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  const fresh = await loadNoteBySlug(cid, note.slug);
+  const [hydrated] = await hydrateNotes(cid, [fresh ?? note]);
+  res.json(withVersion(hydrated));
+});
+
+/** A copy of the page right after it: its title, body and icon, not its sub-pages or Grants. */
+notesRouter.post("/notes/:noteSlug/duplicate", validateBody(z.object({}).strict()), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const note = await loadNoteBySlug(cid, req.params.noteSlug);
+  if (!note) return res.status(404).json({ error: "Note not found" });
+  if (note.archivedAt) return res.status(400).json({ error: "Restore the page before duplicating it" });
+  const copy = await duplicateNote(cid, note, req.userId ?? null, (base) => uniqueNoteSlug(cid, base));
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "note.create",
+    targetType: "note",
+    targetId: copy.id,
+    targetLabel: copy.title,
+    metadata: { duplicateOf: note.id },
+  });
+  const [hydrated] = await hydrateNotes(cid, [copy]);
+  res.json(withVersion(hydrated));
+});
 
 notesRouter.delete("/notes/:noteSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
