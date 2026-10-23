@@ -69,11 +69,14 @@ export function TagPicker({
   value,
   onChange,
   label = "Tags",
+  variant = "field",
 }: {
   companyId: string;
   value: CompanyTag[];
   onChange: (tags: CompanyTag[]) => void | Promise<void>;
   label?: string;
+  /** `inline`: chips and an "Add tag" button on one quiet line, no label or box — a page header's property row. */
+  variant?: "field" | "inline";
 }) {
   const [open, setOpen] = React.useState(false);
   const [available, setAvailable] = React.useState<CompanyTag[] | null>(null);
@@ -154,8 +157,17 @@ export function TagPicker({
 
   return (
     <div ref={rootRef} className="relative">
-      <div className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">{label}</div>
-      <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900">
+      {variant === "field" && (
+        <div className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">{label}</div>
+      )}
+      <div
+        aria-label={variant === "inline" ? label : undefined}
+        className={
+          variant === "inline"
+            ? "flex flex-wrap items-center gap-1.5"
+            : "flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900"
+        }
+      >
         {displayValue.map((tag) => (
           <span
             key={tag.id}
@@ -266,6 +278,7 @@ export function ResourceTagPicker({
   value,
   onSaved,
   label,
+  variant,
 }: {
   companyId: string;
   resourceType: TaggableResourceType;
@@ -273,12 +286,14 @@ export function ResourceTagPicker({
   value: CompanyTag[];
   onSaved: (tags: CompanyTag[]) => void | Promise<void>;
   label?: string;
+  variant?: "field" | "inline";
 }) {
   return (
     <TagPicker
       companyId={companyId}
       value={value}
       label={label}
+      variant={variant}
       onChange={async (tags) => {
         const saved = await api.put<CompanyTag[]>(
           `/api/companies/${companyId}/tags/resources/${resourceType}/${resourceId}`,
@@ -296,11 +311,13 @@ export function AsyncResourceTagPicker({
   resourceType,
   resourceId,
   label,
+  variant,
 }: {
   companyId: string;
   resourceType: TaggableResourceType;
   resourceId: string;
   label?: string;
+  variant?: "field" | "inline";
 }) {
   const [tags, setTags] = React.useState<CompanyTag[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -319,7 +336,9 @@ export function AsyncResourceTagPicker({
 
   if (error) return <FormError message={error} />;
   if (tags === null) {
-    return (
+    return variant === "inline" ? (
+      <div className="h-6 w-20 rounded-md bg-slate-100 dark:bg-slate-800" aria-label="Loading tags" />
+    ) : (
       <div className="h-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-label="Loading tags" />
     );
   }
@@ -331,6 +350,7 @@ export function AsyncResourceTagPicker({
       value={tags}
       onSaved={setTags}
       label={label}
+      variant={variant}
     />
   );
 }

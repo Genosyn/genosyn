@@ -346,29 +346,59 @@ html.dark .doc-md pre {
   margin: 0.75rem 0;
 }
 
-/* Notion-style block editor — placeholder text appears when an editable
-   block is empty AND focused. The selector matches both empty <div> and
-   the all-<br> shape browsers leave behind after backspacing. */
-.block-editable[data-placeholder]:empty::before,
-.block-editable[data-placeholder]:has(br:only-child)::before {
+/* Notes editor (components/notes). Each block is its own contenteditable;
+   an empty one shows its placeholder (the editor decides which blocks get
+   one, and when, through `is-empty`). */
+.note-editable {
+  position: relative;
+  min-height: 1lh;
+  caret-color: rgb(15 23 42);
+}
+html.dark .note-editable {
+  caret-color: rgb(226 232 240);
+}
+.note-editable:focus {
+  outline: none;
+}
+.note-editable.is-empty::before {
   content: attr(data-placeholder);
   color: rgb(148 163 184); /* slate-400 */
   pointer-events: none;
+  position: absolute;
 }
-html.dark .block-editable[data-placeholder]:empty::before,
-html.dark .block-editable[data-placeholder]:has(br:only-child)::before {
-  color: rgb(71 85 105); /* slate-600 */
+html.dark .note-editable.is-empty::before {
+  color: rgb(100 116 139); /* slate-500 */
 }
-.block-editable:focus {
-  outline: none;
+.note-editable strong {
+  font-weight: 600;
 }
-/* Indent the rendered link/inline-code/bold/italic markdown so it reads
-   without overwhelming the content while still being scannable. */
-.block-editable {
-  caret-color: rgb(15 23 42);
+.note-editable code {
+  border-radius: 4px;
+  background-color: rgba(135, 131, 120, 0.15);
+  color: #eb5757;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.3em;
 }
-html.dark .block-editable {
-  caret-color: rgb(226 232 240);
+html.dark .note-editable code {
+  background-color: rgba(148, 163, 184, 0.16);
+  color: #ff8a8a;
+}
+.note-editable a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(100, 116, 139, 0.55);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.note-editable a:hover {
+  text-decoration-color: currentColor;
+}
+.note-editable span[data-raw] {
+  color: rgb(100 116 139);
+}
+.note-editable s {
+  text-decoration-color: rgba(100, 116, 139, 0.8);
 }
 
 /* Email section (M25) — rendered message HTML. Emails arrive with their own

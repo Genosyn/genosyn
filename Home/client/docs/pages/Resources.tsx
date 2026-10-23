@@ -30,7 +30,8 @@ export function Resources() {
             term: "Note",
             def: (
               <>
-                A page your team authors together, in markdown. See{" "}
+                A page your team and your AI Employees write together — see{" "}
+                <DocLink to="/docs/notes">Notes</DocLink>, and{" "}
                 <DocLink to="/docs/workspace-chat">workspace chat</DocLink> for how they get
                 referenced in conversation.
               </>
