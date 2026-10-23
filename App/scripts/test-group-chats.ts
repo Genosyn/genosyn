@@ -90,9 +90,9 @@ async function hire(name: string, slug: string, role: string): Promise<AIEmploye
   });
   return employee;
 }
-const ada = await hire("Ada", "ada", "Head of Product");
+await hire("Ada", "ada", "Head of Product");
 const ben = await hire("Ben", "ben", "CFO");
-const cy = await hire("Cy", "cy", "Sales lead");
+await hire("Cy", "cy", "Sales lead");
 
 // ---------- The model, scripted ----------
 
@@ -339,15 +339,18 @@ try {
   await page.screenshot({ path: path.join(artifacts, "group-chats-outcome.png"), fullPage: true });
   checks++;
 
-  // 5. A second discussion, stopped mid-turn.
+  // 5. A second discussion, set to two rounds under Advanced, stopped mid-turn.
   await page.getByRole("button", { name: "Start group chat" }).click();
   const second = page.getByRole("dialog", { name: "Start a group chat" });
   await pick(page, ["Ada", "Ben"]);
   await second.getByLabel("What should they work out?").fill("Should we open a Berlin office?");
+  await second.getByRole("button", { name: /^Advanced/ }).click();
+  await second.getByRole("combobox", { name: "Rounds" }).click();
+  await page.getByRole("option", { name: "2 rounds" }).click();
   waitForStop = "Ada";
   await second.getByRole("button", { name: "Start discussion" }).click();
   await second.waitFor({ state: "detached" });
-  await bar(page).getByText("Ada is thinking…", { exact: false }).waitFor();
+  await bar(page).getByText("Discussing · round 1 of 2 · Ada is thinking…").waitFor();
   await bar(page).getByRole("button", { name: "Stop" }).click();
   await bar(page).waitFor({ state: "detached" });
   await page.getByRole("note").filter({ hasText: "Stopped by Ruth." }).waitFor();
@@ -404,6 +407,11 @@ try {
       ["stopped", "stopped"],
       ["concluded", "converged"],
     ],
+  );
+  assert.deepEqual(
+    rows.map((d) => d.maxRounds),
+    [3, 2, 3],
+    "the rounds picked under Advanced",
   );
   const stoppedTurns = await AppDataSource.getRepository(ChannelMessage).count({
     where: { discussionId: rows[1].id, discussionRole: "turn" },

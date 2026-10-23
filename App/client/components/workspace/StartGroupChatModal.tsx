@@ -6,6 +6,7 @@ import { Disclosure } from "@/components/ui/Disclosure";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import type { Company } from "@/lib/api";
@@ -346,24 +347,19 @@ export function StartGroupChatModal({
               />
             )}
             <div className="flex flex-col gap-1">
-              <label
-                htmlFor="group-chat-rounds"
-                className="text-sm font-medium text-slate-700 dark:text-slate-300"
-              >
-                Rounds
-              </label>
-              <select
+              <Select
                 id="group-chat-rounds"
-                value={rounds}
+                label="Rounds"
+                value={String(rounds)}
                 onChange={(e) => setRounds(Number(e.target.value))}
-                className="w-40 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                containerClassName="w-40"
               >
                 {Array.from({ length: GROUP_CHAT_LIMITS.maxRounds }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>
                     {n} round{n === 1 ? "" : "s"}
                   </option>
                 ))}
-              </select>
+              </Select>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Each round, everyone speaks once or passes. It ends early when a round adds
                 nothing new.
