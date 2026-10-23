@@ -346,8 +346,9 @@ function ActivityRow({
     waiting && routine.standdown
       ? `${routine.standdown.scope === "company" ? "Company" : routine.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${routine.standdown.reason}`
       : null;
-  // The queue reads the Routine's priority when it orders, so the Routine's is
-  // the one to show; a waiting Run's own copy only covers a list newer than it.
+  // A Run has no priority of its own: the queue reads its Routine's. The list
+  // of Routines and the queue reply both carry it; prefer the list, which a
+  // settings change refreshes first.
   const priority = routine.priority ?? waiting?.priority;
   const place = waiting ? queuePlace(waiting.position) : null;
   const movedUp =

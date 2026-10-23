@@ -29,6 +29,11 @@ let routineHistoryIndex = "";
 
 /** Run `work`, then explain every statement it sent against `runs`. */
 async function plansOf(work: () => Promise<unknown>): Promise<Plan[]> {
+  return (await traced(work)).plans;
+}
+
+/** {@link plansOf}, keeping what `work` returned. */
+async function traced<T>(work: () => Promise<T>): Promise<{ plans: Plan[]; result: T }> {
   const sent: { sql: string; params: unknown[] }[] = [];
   const capture: Logger = {
     logQuery: (sql, params) => void sent.push({ sql, params: params ?? [] }),
@@ -40,8 +45,9 @@ async function plansOf(work: () => Promise<unknown>): Promise<Plan[]> {
   };
   const original = AppDataSource.logger;
   Object.assign(AppDataSource, { logger: capture });
+  let result: T;
   try {
-    await work();
+    result = await work();
   } finally {
     Object.assign(AppDataSource, { logger: original });
   }
@@ -53,7 +59,7 @@ async function plansOf(work: () => Promise<unknown>): Promise<Plan[]> {
     }[];
     plans.push({ sql, steps: rows.map((row) => row.detail) });
   }
-  return plans;
+  return { plans, result };
 }
 
 /** Fails when a plan reads `runs` without an index bounding it to live work. */
@@ -154,20 +160,14 @@ describe("Routine queue reads on a large Run history", () => {
   });
 
   test("the dispatcher's read is bounded to waiting Runs", async () => {
-    let read: Awaited<ReturnType<typeof queuedRunsInStartOrder>> = [];
-    const plans = await plansOf(async () => {
-      read = await queuedRunsInStartOrder();
-    });
+    const { plans, result: read } = await traced(() => queuedRunsInStartOrder());
     assertBounded(plans, "queuedRunsInStartOrder");
     assert.equal(read.length, 30);
     assert.equal(read[0].id, "q7", "the paused Run is first in line");
   });
 
   test("a company's queue is read through each employee's waiting Runs", async () => {
-    let line: Awaited<ReturnType<typeof companyRunQueue>> = [];
-    const plans = await plansOf(async () => {
-      line = await companyRunQueue("c1");
-    });
+    const { plans, result: line } = await traced(() => companyRunQueue("c1"));
     assertBounded(plans, "companyRunQueue");
     assert.equal(line.length, 30, "every waiting Run of c1's employees");
   });
@@ -181,18 +181,18 @@ describe("Routine queue reads on a large Run history", () => {
   });
 
   test("an AI Employee's day reads only its live and waiting work", async () => {
-    let queue: Awaited<ReturnType<typeof getEmployeeWorkQueue>> = null;
-    const plans = await plansOf(async () => {
-      queue = await getEmployeeWorkQueue("c1", "e1");
-    });
+    const { plans, result: queue } = await traced(() => getEmployeeWorkQueue("c1", "e1"));
     assertBounded(plans, "getEmployeeWorkQueue");
     assert.ok(queue);
-    const read = queue as NonNullable<typeof queue>;
     assert.deepEqual(
-      read.running.map((item) => item.runId),
+      queue.running.map((item) => item.runId),
       ["w1"],
     );
-    assert.equal(read.pending.at(-1)?.id, "follow-up:f1", "the owed retry is listed after the queue");
+    assert.equal(
+      queue.pending.at(-1)?.id,
+      "follow-up:f1",
+      "the owed retry is listed after the queue",
+    );
   });
 
   test("the Running page's running and queued sections are bounded", async () => {

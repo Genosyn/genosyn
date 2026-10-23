@@ -449,6 +449,25 @@ test("a slot that frees while a pass is under way goes to the Run ahead, not the
   assert.deepEqual(model.started, ["Busy", "Ahead", "Behind"]);
 });
 
+test("a new Run never takes a free slot from a Run ahead of it in the queue", async (t) => {
+  const co = await company();
+  const jamie = await employeeOn(co, "jamie");
+  const model = recordingModel(t, ["Waiting high"]);
+  // Waiting since before the slot came free, and not yet offered it.
+  await waitingRun(await routineFor(jamie, "Waiting high", { priority: "high" }), 1);
+  // A Run queued now is offered its start in queue order, behind that one.
+  const fresh = await startRoutineRun(await routineFor(jamie, "Fresh normal"), {
+    triggerKind: "manual",
+  });
+  await model.reached("Waiting high");
+  assert.deepEqual(model.started, ["Waiting high"]);
+  assert.equal((await runs().findOneByOrFail({ id: fresh.run.id })).status, "queued");
+
+  model.release("Waiting high");
+  assert.equal((await fresh.completion).status, "completed");
+  assert.deepEqual(model.started, ["Waiting high", "Fresh normal"]);
+});
+
 test("a model with no limit starts every waiting Run at once, whatever its priority", async (t) => {
   const co = await company();
   const jamie = await employeeOn(co, "jamie", { maxConcurrentRuns: 0 });

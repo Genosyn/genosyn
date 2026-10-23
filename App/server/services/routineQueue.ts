@@ -540,6 +540,11 @@ async function settleWaiter(runId: string): Promise<void> {
  * first. The order (`routineQueueOrder.ts`): Runs paused for a restart, then
  * continuations, then new work; within each, High priority before Normal,
  * and otherwise the order they were queued in.
+ *
+ * The order holds within one process — every SQLite install, and a Postgres
+ * install with one replica. Replicas each keep it for the Runs they offer;
+ * two offering a model's last slot in the same instant can start a Run one
+ * place out of turn, never one Run twice (the claim still fences that).
  */
 export function dispatchQueuedRoutineRuns(): Promise<void> {
   if (!canDispatch()) return Promise.resolve();
