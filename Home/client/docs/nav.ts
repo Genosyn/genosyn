@@ -376,7 +376,12 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/self-hosting",
         title: "Configuration",
-        blurb: "config.ts, the runtime settings in Admin, the data directory, backups.",
+        blurb: "config.ts, the runtime settings in Admin, the data directory.",
+      },
+      {
+        path: "/docs/backups",
+        title: "Backups",
+        blurb: "Back up now and on a schedule, keep copies off this server, see where each lives, restore.",
       },
       {
         path: "/docs/connect",

@@ -334,7 +334,7 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
         upgrade stops without changing Genosyn: free some space, set{" "}
         <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk, or pass <Code>--no-backup</Code>.
         In-app backups share the data volume&apos;s disk and pile up unless{" "}
-        <DocLink to="/docs/self-hosting#retention">retention</DocLink> is on.
+        <DocLink to="/docs/backups#retention">retention</DocLink> is on.
       </P>
       <P>
         Once the new version is ready, the upgrade removes the previous image, along with any
