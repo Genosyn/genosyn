@@ -98,6 +98,12 @@ trusted-origin check, is in `App/server/index.ts`.
      (`App/server/services/realtime.ts`).
    - `/api/health`, the OpenAPI document and its viewer, and the custom
      JavaScript loader.
+   - The `genosyn-api` command line, served to anyone as one file at
+     `/cli/genosyn-api.mjs` (`App/server/routes/cli.ts`): the open-source
+     client built from `App/cli/`, with no secret in it. It runs on Members'
+     own machines, keeps their API key in a mode-0600 file under
+     `~/.genosyn/`, sends it only to the install it was saved for, and never
+     follows a redirect with it.
    - **Loopback-only internal APIs**: `/api/internal/mcp` (the `genosyn`
      tools) and `/api/internal/browser/sessions/:id` (the browser tools),
      guarded by `App/server/middleware/loopbackOnly.ts` plus a bearer token.
