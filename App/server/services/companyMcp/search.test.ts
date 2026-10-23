@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { createApp } from "../../app.js";
-import {
-  buildOperationCatalogue,
-  operationCatalogue,
-  type OpenApiDocumentLike,
-} from "./catalogue.js";
+import { operationCatalogue } from "./appCatalogue.js";
+import { buildOperationCatalogue, type OpenApiDocumentLike } from "./catalogue.js";
 import {
   areaOverview,
   resolveArea,

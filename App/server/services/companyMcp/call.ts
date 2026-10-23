@@ -8,6 +8,9 @@ import {
   type InProcessRequest,
   type InProcessResponse,
 } from "./dispatch.js";
+import { acquireSlot } from "./limits.js";
+import { MAX_EMBEDDED_FILE_BYTES, MAX_TEXT_READ_BYTES, responseReadLimit } from "./results.js";
+import { PLAIN_BODY_LIMIT_BYTES } from "./transport.js";
 
 /**
  * Turning a tool call into the HTTP request it stands for, and sending it.
@@ -24,11 +27,11 @@ import {
 export const CALL_TIMEOUT_MS = 120_000;
 
 /**
- * The most of one response the tool reads: enough to embed a 4 MB file and
- * know a larger one is larger. A JSON answer is cut at 100,000 characters
- * anyway, so reading further would only hold memory for nothing.
+ * The most of any one response the tool reads. Each response is read only as
+ * far as it can be used (`responseReadLimit`): JSON and text as far as they
+ * can be shown, a file one byte past the size that can be embedded.
  */
-export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024 + 1;
+export const MAX_RESPONSE_BYTES = Math.max(MAX_TEXT_READ_BYTES, MAX_EMBEDDED_FILE_BYTES + 1);
 
 /** The largest file a call may carry, decoded. The request limit keeps it lower in practice. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -142,7 +145,9 @@ function safeFileName(name: string): string {
   return cleaned || "file";
 }
 
-const MIME_TYPE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
+/** `type/subtype`, with parameters such as `; charset=utf-8` — but nothing that could end a header. */
+const MIME_TYPE =
+  /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(?:\s*;\s*[A-Za-z0-9!#$&^_.+-]+=(?:[A-Za-z0-9!#$&^_.+-]+|"[^"\r\n\\]*"))*$/;
 /** Standard or URL-safe base64; Node decodes either. */
 const BASE64 = /^[A-Za-z0-9+/_-]*={0,2}$/;
 
@@ -191,7 +196,8 @@ export function decodeFile(
  * JSON object or array is unwrapped; any other string is left as it came.
  */
 export function unwrapJsonText(body: unknown): unknown {
-  if (typeof body !== "string") return body;
+  // Past the App's own 1 MB body limit the route would refuse it anyway.
+  if (typeof body !== "string" || body.length > PLAIN_BODY_LIMIT_BYTES) return body;
   const trimmed = body.trim();
   if (!/^[[{]/.test(trimmed)) return body;
   try {
@@ -366,7 +372,7 @@ export type SentRequest =
 
 /** Send a built request to the App, in memory, as the caller. */
 export async function sendRequest(
-  context: Pick<CallerContext, "app" | "remote">,
+  context: Pick<CallerContext, "app" | "remote"> & { member?: Pick<CallerContext["member"], "id"> },
   request: BuiltRequest,
   signal?: AbortSignal,
 ): Promise<SentRequest> {
@@ -378,9 +384,13 @@ export async function sendRequest(
     remote: context.remote,
     timeoutMs: CALL_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
+    responseLimit: responseReadLimit,
     signal,
   };
+  let release: (() => void) | null = null;
   try {
+    // A Member runs a few operations at a time; the rest wait their turn.
+    if (context.member) release = await acquireSlot(context.member.id, { signal });
     return { ok: true, request, response: await requestInProcess(context.app, inner) };
   } catch (error) {
     return {
@@ -391,8 +401,10 @@ export async function sendRequest(
           ? error
           : new InProcessRequestError(
               error instanceof Error ? error.message : String(error),
-              "failed",
+              signal?.aborted ? "aborted" : "failed",
             ),
     };
+  } finally {
+    release?.();
   }
 }

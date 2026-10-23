@@ -6,8 +6,9 @@ import { ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import { createApp } from "../../app.js";
 import { strictJsonSchemaValidator } from "../../test/jsonSchemaValidator.js";
-import { operationCatalogue } from "./catalogue.js";
+import { operationCatalogue } from "./appCatalogue.js";
 import type { CallerContext } from "./context.js";
+import { newEmbedBudget } from "./limits.js";
 import { instructionsFor, SERVER_INFO } from "./server.js";
 import { exampleValue, RESIDENT_TOOLS, RESIDENT_TOOLS_BY_NAME, toolDefinition } from "./tools.js";
 
@@ -220,6 +221,7 @@ describe("what the server tells a client on initialize", () => {
     forwardedHeaders: {},
     remote: {},
     baseUrl: "https://genosyn.example.com",
+    embedBudget: newEmbedBudget(),
   });
 
   test("whose authority, how much of the API, and how to find an operation", () => {

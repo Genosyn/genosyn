@@ -215,6 +215,46 @@ describe("limits", () => {
     assert.equal(response.body.length, 10_000);
   });
 
+  test("a limit chosen from the headers reads only what it allows — or nothing at all", async () => {
+    const app = express();
+    let closed = false;
+    app.get("/file", (req, res) => {
+      req.on("close", () => {
+        closed = true;
+      });
+      res.type("application/zip").setHeader("content-length", "50000");
+      res.end(Buffer.alloc(50_000));
+    });
+    app.get("/text", (_req, res) => res.type("text/plain").send("y".repeat(50_000)));
+    const skipped = await requestInProcess(
+      listener(app),
+      base({
+        path: "/file",
+        responseLimit: (headers) => (headers["content-type"] === "application/zip" ? 0 : 100),
+      }),
+    );
+    assert.equal(skipped.status, 200);
+    assert.equal(skipped.body.length, 0);
+    assert.equal(skipped.truncated, true);
+    assert.equal(skipped.headers["content-length"], "50000");
+    const capped = await requestInProcess(
+      listener(app),
+      base({ path: "/text", responseLimit: () => 1_000 }),
+    );
+    assert.equal(capped.body.length, 1_000);
+    assert.equal(capped.truncated, true);
+    // The overall cap still wins over a looser per-response one.
+    const overall = await requestInProcess(
+      listener(app),
+      base({ path: "/text", maxResponseBytes: 500, responseLimit: () => 10_000 }),
+    );
+    assert.equal(overall.body.length, 500);
+    for (let attempt = 0; attempt < 20 && !closed; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(closed, true, "the unread file's connection was closed");
+  });
+
   test("a response that never ends is returned as far as it got when time runs out", async () => {
     const app = express();
     let closed = false;

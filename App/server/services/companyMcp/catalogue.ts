@@ -1,6 +1,5 @@
 import type { FinanceAccess, Role } from "../../db/entities/Membership.js";
 import { roleAtLeast } from "../../middleware/auth.js";
-import { buildOpenApiDocument } from "../../openapi/spec.js";
 import { openApiToJsonSchema, type JsonSchema } from "./jsonSchema.js";
 
 /**
@@ -488,23 +487,6 @@ export function buildOperationCatalogue(document: OpenApiDocumentLike): Operatio
     unavailable,
     areas,
   };
-}
-
-const catalogues = new WeakMap<object, OperationCatalogue>();
-
-/**
- * The catalogue for the Express app the server listens with. Built once per
- * app, like the reference it reads: routes never change while the process runs.
- */
-export function operationCatalogue(app: object): OperationCatalogue {
-  let catalogue = catalogues.get(app);
-  if (!catalogue) {
-    catalogue = buildOperationCatalogue(
-      buildOpenApiDocument(app) as unknown as OpenApiDocumentLike,
-    );
-    catalogues.set(app, catalogue);
-  }
-  return catalogue;
 }
 
 // ── what one Member may call ───────────────────────────────────────────────

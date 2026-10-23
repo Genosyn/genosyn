@@ -127,6 +127,11 @@ export type InProcessRequest = {
   timeoutMs: number;
   /** Read at most this many response bytes; the rest is dropped and `truncated` set. */
   maxResponseBytes: number;
+  /**
+   * A tighter limit for one response, chosen from its headers once they
+   * arrive — so a file too large to use is never read at all. 0 reads nothing.
+   */
+  responseLimit?: (headers: http.IncomingHttpHeaders) => number;
   signal?: AbortSignal;
 };
 
@@ -210,11 +215,24 @@ export function requestInProcess(
       },
       (incoming) => {
         response = incoming;
+        const limit = Math.max(
+          0,
+          Math.min(
+            request.maxResponseBytes,
+            request.responseLimit?.(incoming.headers) ?? request.maxResponseBytes,
+          ),
+        );
+        if (limit === 0) {
+          // Nothing of this one is wanted: answer with its headers alone.
+          truncated = true;
+          finish({});
+          return;
+        }
         incoming.on("data", (chunk: Buffer) => {
           if (settled) return;
-          if (received + chunk.length > request.maxResponseBytes) {
-            chunks.push(chunk.subarray(0, Math.max(0, request.maxResponseBytes - received)));
-            received = request.maxResponseBytes;
+          if (received + chunk.length > limit) {
+            chunks.push(chunk.subarray(0, Math.max(0, limit - received)));
+            received = limit;
             truncated = true;
             finish({});
             return;

@@ -9,13 +9,19 @@ import { logRedactedError } from "../middleware/error.js";
 import { financeAccessFor } from "../middleware/financeAccess.js";
 import { rejectAiBrowserAppRequests } from "../services/browserRequestBoundary.js";
 import { FORWARDED_HEADERS, type CallerContext } from "../services/companyMcp/context.js";
+import {
+  enterRequest,
+  MAX_REQUESTS_IN_FLIGHT,
+  newEmbedBudget,
+} from "../services/companyMcp/limits.js";
 import { createCompanyMcpServer } from "../services/companyMcp/server.js";
 import {
+  batchProblem,
   isAllowedOrigin,
   jsonRpcError,
-  MAX_BATCH_MESSAGES,
   MAX_BODY,
   normalizedAccept,
+  oversizedBodyProblem,
 } from "../services/companyMcp/transport.js";
 import { getPublicUrl, isPublicUrlConfigured } from "../services/publicUrl.js";
 
@@ -57,7 +63,27 @@ companyMcpRouter.use((req: Request, res: Response, next: NextFunction) => {
 companyMcpRouter.use(rejectAiBrowserAppRequests);
 companyMcpRouter.use(requireApiKeyAuth);
 companyMcpRouter.use(requireCompanyMember);
-companyMcpRouter.use(express.json({ limit: MAX_BODY }));
+
+/**
+ * The JSON-RPC body, read as bytes and parsed only once its shape is known to
+ * be cheap to parse (`oversizedBodyProblem`). Compressed bodies are refused:
+ * a few kilobytes of gzip could otherwise inflate to the whole limit.
+ */
+const readBody = express.raw({ type: "application/json", limit: MAX_BODY, inflate: false });
+
+function parseBody(req: Request, res: Response, next: NextFunction) {
+  // Not JSON at all: leave the empty body for the SDK to refuse with 415.
+  if (!Buffer.isBuffer(req.body)) return next();
+  const problem = oversizedBodyProblem(req.body);
+  if (problem) return res.status(413).json(jsonRpcError(-32600, problem));
+  try {
+    // Never undefined: that would send the SDK back to a stream already read.
+    req.body = req.body.length ? JSON.parse(req.body.toString("utf8")) : null;
+  } catch {
+    return res.status(400).json(jsonRpcError(-32700, "Parse error: the body is not valid JSON."));
+  }
+  next();
+}
 
 /** The SDK requires `Accept` to list JSON and event streams; treat none or a wildcard as both. */
 function acceptMcpResponses(req: Request): void {
@@ -101,37 +127,63 @@ function callerContext(req: Request, company: Company): CallerContext {
       encrypted: Boolean(socket.encrypted),
     },
     baseUrl: isPublicUrlConfigured() ? getPublicUrl() : `${req.protocol}://${req.get("host")}`,
+    embedBudget: newEmbedBudget(),
   };
 }
 
-companyMcpRouter.post("/", async (req: Request, res: Response) => {
-  if (Array.isArray(req.body) && req.body.length > MAX_BATCH_MESSAGES) {
+/**
+ * Every open request holds its body and then its answers until the last is
+ * ready, so a Member gets a few at a time — refused at once beyond that, never
+ * queued, and before any of the body is read.
+ */
+function limitOpenRequests(req: Request, res: Response, next: NextFunction) {
+  const leave = enterRequest(req.userId!);
+  if (!leave) {
+    res.setHeader("Retry-After", "1");
     return res
-      .status(400)
-      .json(jsonRpcError(-32600, `A batch may hold at most ${MAX_BATCH_MESSAGES} messages.`));
+      .status(429)
+      .json(
+        jsonRpcError(
+          -32000,
+          `Too many requests at once: a Member may have ${MAX_REQUESTS_IN_FLIGHT} MCP requests open. Wait for one to finish.`,
+        ),
+      );
   }
-  const company = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
-  if (!company) return res.status(404).json(jsonRpcError(-32000, "Company not found"));
-  acceptMcpResponses(req);
+  res.on("close", leave);
+  next();
+}
 
-  const server = createCompanyMcpServer(callerContext(req, company));
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-  // Closing the server when the response closes also cancels a tool still
-  // waiting on Genosyn if the client went away.
-  res.on("close", () => {
-    void server.close().catch(() => undefined);
-  });
-  try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    logRedactedError("[mcp] request failed", error);
-    if (!res.headersSent) res.status(500).json(jsonRpcError(-32603, "Internal server error"));
-  }
-});
+companyMcpRouter.post(
+  "/",
+  limitOpenRequests,
+  readBody,
+  parseBody,
+  async (req: Request, res: Response) => {
+    try {
+      const refused = batchProblem(req.body);
+      if (refused) return res.status(400).json(jsonRpcError(-32600, refused));
+      const company = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
+      if (!company) return res.status(404).json(jsonRpcError(-32000, "Company not found"));
+      acceptMcpResponses(req);
+
+      const server = createCompanyMcpServer(callerContext(req, company));
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      // Closing the server when the response closes also cancels a tool still
+      // waiting on Genosyn if the client went away.
+      res.on("close", () => {
+        void server.close().catch(() => undefined);
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      logRedactedError("[mcp] request failed", error);
+      if (!res.headersSent) res.status(500).json(jsonRpcError(-32603, "Internal server error"));
+    }
+  },
+);
 
 function methodNotAllowed(_req: Request, res: Response) {
   res.setHeader("Allow", "POST");
@@ -147,6 +199,14 @@ function methodNotAllowed(_req: Request, res: Response) {
 companyMcpRouter.get("/", methodNotAllowed);
 companyMcpRouter.delete("/", methodNotAllowed);
 
+// Nothing else is served here. Answer it now rather than let an authenticated
+// request carry on into the rest of the App: another method on the endpoint is
+// 405, any path below it is 404.
+companyMcpRouter.use((req: Request, res: Response) => {
+  if (req.path === "/") return methodNotAllowed(req, res);
+  res.status(404).json(jsonRpcError(-32000, "Not found: the MCP endpoint is the URL itself."));
+});
+
 // A body that is not JSON, or is too big, still gets a JSON-RPC answer.
 companyMcpRouter.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
   const type = (error as { type?: unknown } | null)?.type;
@@ -157,6 +217,11 @@ companyMcpRouter.use((error: unknown, _req: Request, res: Response, next: NextFu
     return res
       .status(413)
       .json(jsonRpcError(-32600, `The request is too large: the limit is ${MAX_BODY}.`));
+  }
+  if (type === "encoding.unsupported") {
+    return res
+      .status(415)
+      .json(jsonRpcError(-32600, "Send the body uncompressed: Content-Encoding is not accepted."));
   }
   next(error);
 });

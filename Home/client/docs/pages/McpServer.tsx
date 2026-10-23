@@ -226,9 +226,16 @@ const found = await client.callTool({
           says why it cannot.
         </LI>
         <LI>
-          <Strong>Files:</Strong> a request can be up to 10 MB, so a file sent as base64 can be
-          about 7 MB. A file an operation answers with comes back embedded up to 4 MB; a larger one
-          is described with the URL to download it with the same key.
+          <Strong>Files:</Strong> a request can be up to 10 MB, so a file sent as one base64 string
+          — without line breaks — can be about 7 MB; past 1 MB a request may carry nothing else that
+          large. A file an operation answers with comes back embedded up to 1 MB, and one request
+          embeds up to 2 MB of files in all; past that a file is described with the URL to download
+          it with the same key.
+        </LI>
+        <LI>
+          <Strong>A few at a time:</Strong> each Member runs up to four operations at once — later
+          calls wait their turn — and has up to eight MCP requests open; one more is answered{" "}
+          <Code>429</Code>.
         </LI>
         <LI>
           <Strong>Long answers</Strong> are cut at about 100,000 characters, with a note to ask for
@@ -274,9 +281,14 @@ const found = await client.callTool({
           Desktop, command-line and server clients send none.
         </LI>
         <LI>
-          A request&apos;s body is read only after its key checks out, and the endpoint answers{" "}
-          <Code>GET</Code> and <Code>DELETE</Code> with <Code>405</Code>: there is no event stream
-          to open and no session to end.
+          A request&apos;s body is read only after its key checks out, compressed bodies are
+          refused, and the endpoint answers <Code>GET</Code> and <Code>DELETE</Code> with{" "}
+          <Code>405</Code>: there is no event stream to open and no session to end.
+        </LI>
+        <LI>
+          Each tool call is made inside Genosyn, so a reverse proxy in front of it sees only the
+          request to <Code>/mcp</Code>. Rules it applies to individual API paths — rate limits, path
+          rules, a web application firewall — do not reach the operations the server calls.
         </LI>
       </UL>
 
@@ -311,6 +323,25 @@ const found = await client.callTool({
               <>
                 The client&apos;s <Code>Accept</Code> header rules out JSON. Send{" "}
                 <Code>application/json, text/event-stream</Code>.
+              </>
+            ),
+          },
+          {
+            term: "413",
+            def: (
+              <>
+                The request is over 10 MB, or over 1 MB with something besides one file in it. Send
+                a large file as a single base64 string with no line breaks, and other data in
+                smaller calls.
+              </>
+            ),
+          },
+          {
+            term: "429",
+            def: (
+              <>
+                The Member already has eight MCP requests open. Let them finish; the client can
+                retry after a second.
               </>
             ),
           },

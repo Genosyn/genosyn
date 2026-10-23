@@ -7,7 +7,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { appVersion } from "../../lib/version.js";
 import { logRedactedError } from "../../middleware/error.js";
-import { availabilityFor, operationCatalogue } from "./catalogue.js";
+import { operationCatalogue } from "./appCatalogue.js";
+import { availabilityFor } from "./catalogue.js";
 import type { CallerContext } from "./context.js";
 import { callMistake } from "./results.js";
 import { RESIDENT_TOOLS, RESIDENT_TOOLS_BY_NAME, toolDefinition } from "./tools.js";

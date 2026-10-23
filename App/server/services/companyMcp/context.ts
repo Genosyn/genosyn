@@ -1,5 +1,6 @@
 import type { RequestListener } from "node:http";
 import type { CallerStanding } from "./catalogue.js";
+import type { EmbedBudget } from "./limits.js";
 
 /**
  * Who a Genosyn MCP request comes from, and how to reach the App on their
@@ -31,6 +32,8 @@ export type CallerContext = {
   remote: { address?: string; port?: number; family?: string; encrypted?: boolean };
   /** The origin the client reached this server at, for links it can follow: `https://host`. */
   baseUrl: string;
+  /** What this request may still embed of the files its calls answer with. */
+  embedBudget: EmbedBudget;
 };
 
 /** Headers an operation repeats from the MCP request it was called from. */

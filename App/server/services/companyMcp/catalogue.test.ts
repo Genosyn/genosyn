@@ -4,13 +4,13 @@ import { describe, test } from "node:test";
 import { createApp } from "../../app.js";
 import { buildOpenApiDocument, openApiCoverage } from "../../openapi/spec.js";
 import { strictJsonSchemaValidator } from "../../test/jsonSchemaValidator.js";
+import { operationCatalogue } from "./appCatalogue.js";
 import {
   annotationsFor,
   availabilityFor,
   buildOperationCatalogue,
   CALL_TOOL_BY_KIND,
   kindOf,
-  operationCatalogue,
   TRANSPORT_AREA,
   type HttpMethod,
   type OpenApiDocumentLike,

@@ -16,7 +16,12 @@ import { Membership, type FinanceAccess, type Role } from "../db/entities/Member
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { appVersion } from "../lib/version.js";
-import { operationCatalogue } from "../services/companyMcp/catalogue.js";
+import { operationCatalogue } from "../services/companyMcp/appCatalogue.js";
+import {
+  enterRequest,
+  MAX_REQUESTS_IN_FLIGHT,
+  newEmbedBudget,
+} from "../services/companyMcp/limits.js";
 import { RESIDENT_TOOLS_BY_NAME } from "../services/companyMcp/tools.js";
 import { setPublicUrl } from "../services/publicUrl.js";
 import {
@@ -240,6 +245,7 @@ describe("whoami", () => {
         forwardedHeaders: { host: "genosyn.example.test" },
         remote: {},
         baseUrl: "http://genosyn.example.test",
+        embedBudget: newEmbedBudget(),
       },
       {},
       new AbortController().signal,
@@ -855,6 +861,136 @@ describe("files", () => {
     assert.ok(image);
     assert.equal(image.mimeType, "image/png");
     assert.deepEqual(Buffer.from(image.data, "base64"), png);
+  });
+
+  test("a file over 1 MB goes up as base64 and comes back as a link, not inline", async () => {
+    const { client, company } = await ownerSession();
+    const bytes = Buffer.alloc(1_500_000, 7);
+    const uploaded = await call(client, "call_write_operation", {
+      operationId: "createContract",
+      file: { name: "scan.bin", base64: bytes.toString("base64") },
+    });
+    assert.equal(uploaded.structuredContent?.status, 201, textOf(uploaded));
+    const contract = uploaded.structuredContent?.data as { id: string; sizeBytes: number };
+    assert.equal(contract.sizeBytes, bytes.length);
+
+    const downloaded = await call(client, "call_read_operation", {
+      operationId: "getContractFile",
+      path: { id: contract.id },
+    });
+    assert.equal(downloaded.isError, undefined, textOf(downloaded));
+    assert.deepEqual(downloaded.structuredContent?.file, {
+      contentType: "application/octet-stream",
+      bytes: bytes.length,
+      url: `http://genosyn.example.test/api/companies/${company.id}/contracts/${contract.id}/file`,
+      name: "scan.bin",
+      embedded: false,
+    });
+    assert.equal(downloaded.content.length, 1, "no blob rides along");
+    assert.match(textOf(downloaded), /too large to return here; download it from/);
+  });
+
+  test("a batch of calls is answered whole, the key's calls taking turns", async () => {
+    const { company, token } = await ownerSession();
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(
+        Array.from({ length: 8 }, (_, index) => ({
+          jsonrpc: "2.0",
+          id: index,
+          method: "tools/call",
+          params: {
+            name: "call_write_operation",
+            arguments: { operationId: "createTag", body: { name: `Batch ${index}` } },
+          },
+        })),
+      ),
+    });
+    assert.equal(response.status, 200);
+    const replies = (await response.json()) as Array<{
+      id: number;
+      result: { structuredContent: { status: number } };
+    }>;
+    assert.deepEqual(
+      replies.map((reply) => reply.id).sort((a, b) => a - b),
+      [0, 1, 2, 3, 4, 5, 6, 7],
+    );
+    for (const reply of replies) assert.equal(reply.result.structuredContent.status, 201);
+  });
+
+  test("one request embeds a couple of megabytes of files at most; the rest come as links", async () => {
+    const { client, company, token } = await ownerSession();
+    const ids: string[] = [];
+    for (let index = 0; index < 3; index++) {
+      const uploaded = await call(client, "call_write_operation", {
+        operationId: "createContract",
+        file: {
+          name: `part-${index}.bin`,
+          base64: Buffer.alloc(900_000, index).toString("base64"),
+        },
+      });
+      ids.push((uploaded.structuredContent?.data as { id: string }).id);
+    }
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(
+        ids.map((id, index) => ({
+          jsonrpc: "2.0",
+          id: index,
+          method: "tools/call",
+          params: {
+            name: "call_read_operation",
+            arguments: { operationId: "getContractFile", path: { id } },
+          },
+        })),
+      ),
+    });
+    const replies = (await response.json()) as Array<{
+      result: {
+        content: Array<{ type: string; text?: string }>;
+        structuredContent: { file: { embedded: boolean } };
+      };
+    }>;
+    const embedded = replies.filter((reply) => reply.result.structuredContent.file.embedded);
+    assert.equal(embedded.length, 2, "two 900 KB files fit the request's budget, a third does not");
+    const linked = replies.find((reply) => !reply.result.structuredContent.file.embedded);
+    assert.match(
+      linked?.result.content[0]?.text ?? "",
+      /already returned as many files as one request may/,
+    );
+  });
+
+  test("a Member with too many requests open is told to wait", async () => {
+    const { client, user, company, token } = await ownerSession();
+    const held = Array.from({ length: MAX_REQUESTS_IN_FLIGHT }, () => enterRequest(user.id));
+    try {
+      await assert.rejects(call(client, "whoami"), (error: Error & { code?: number }) => {
+        assert.equal(error.code, 429);
+        assert.match(error.message, /Too many requests at once/);
+        return true;
+      });
+      // Refused before its body is read: a parse error would be a 400.
+      const raw = await fetch(`${baseUrl}/api/companies/${company.id}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: "{not json",
+      });
+      assert.equal(raw.status, 429);
+      assert.equal(raw.headers.get("retry-after"), "1");
+    } finally {
+      for (const leave of held) leave?.();
+    }
+    assert.equal((await call(client, "whoami")).isError, undefined, "free again once they finish");
   });
 
   test("a CSV export comes back as text", async () => {

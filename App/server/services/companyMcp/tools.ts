@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { operationCatalogue } from "./appCatalogue.js";
 import {
   availabilityFor,
   CALL_TOOL_BY_KIND,
-  operationCatalogue,
   type CallToolName,
   type CatalogueOperation,
   type OperationCatalogue,

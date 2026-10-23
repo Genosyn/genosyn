@@ -20,10 +20,34 @@ import type { CallerContext } from "./context.js";
 /** Text longer than this is cut, with a note on how to ask for less. */
 export const MAX_TEXT_CHARS = 100_000;
 
-/** Files up to this size come back embedded; larger ones are described with a link. */
-export const MAX_EMBEDDED_FILE_BYTES = 4 * 1024 * 1024;
+/**
+ * The most of a JSON or text answer worth reading: enough for MAX_TEXT_CHARS
+ * of any UTF-8, and no more, since a longer answer is cut anyway.
+ */
+export const MAX_TEXT_READ_BYTES = 4 * MAX_TEXT_CHARS;
+
+/**
+ * Files up to this size come back embedded; larger ones are described with
+ * the link to download them. Small on purpose: base64 makes a file a third
+ * larger in memory and on the wire, and a model does little with a big one.
+ */
+export const MAX_EMBEDDED_FILE_BYTES = 1024 * 1024;
 
 type Structured = Record<string, unknown>;
+
+/**
+ * How much of a response to read, from its headers alone. JSON and text are
+ * read as far as they can be shown; a file that says it is too large to embed
+ * is not read at all; any other file is read one byte past the embedding
+ * limit, to know whether it fits.
+ */
+export function responseReadLimit(headers: Record<string, string | string[] | undefined>): number {
+  const contentType = headerValue(headers["content-type"]);
+  if (!contentType || isJson(contentType) || isText(contentType)) return MAX_TEXT_READ_BYTES;
+  const declared = Number(headerValue(headers["content-length"]));
+  if (Number.isFinite(declared) && declared > MAX_EMBEDDED_FILE_BYTES) return 0;
+  return MAX_EMBEDDED_FILE_BYTES + 1;
+}
 
 function reasonPhrase(status: number): string {
   return STATUS_CODES[status] ?? "";
@@ -82,7 +106,7 @@ function successResult(
   operation: CatalogueOperation,
   request: BuiltRequest,
   response: NonNullable<Extract<SentRequest, { ok: true }>["response"]>,
-  context: Pick<CallerContext, "baseUrl">,
+  context: Pick<CallerContext, "baseUrl"> & Partial<Pick<CallerContext, "embedBudget">>,
 ): CallToolResult {
   const contentType = headerValue(response.headers["content-type"]);
   const base: Structured = {
@@ -95,7 +119,7 @@ function successResult(
   };
   const line = headline(request, response.status, operation);
 
-  if (response.body.length === 0) {
+  if (response.body.length === 0 && !response.truncated) {
     return {
       content: [{ type: "text", text: `${line}\nNo content.` }],
       structuredContent: { ...base, data: null },
@@ -152,9 +176,12 @@ function successResult(
 
   // A file: an image the model can see, or a document embedded as a resource.
   const mimeType = contentType.split(";")[0]?.trim() || "application/octet-stream";
-  const url = `${context.baseUrl}${request.path}`;
+  const url = `${context.baseUrl}${request.target}`;
   const name = fileNameOf(headerValue(response.headers["content-disposition"]));
-  const embeddable = !response.truncated && response.body.length <= MAX_EMBEDDED_FILE_BYTES;
+  const fits = !response.truncated && response.body.length <= MAX_EMBEDDED_FILE_BYTES;
+  // The request's other answers may already have spent what it can embed.
+  const affordable = !context.embedBudget || response.body.length <= context.embedBudget.remaining;
+  const embeddable = fits && affordable;
   // A file read only in part is as long as its header says, when it says.
   const declared = Number(headerValue(response.headers["content-length"]));
   const bytes = response.truncated
@@ -173,13 +200,16 @@ function successResult(
     `${line}\n${withIndefiniteArticle(`${mimeType} file`, { capitalized: true })}${name ? ` named ${name}` : ""}, ${size}.` +
     (embeddable
       ? ""
-      : ` It is too large to return here; download it from ${url} with the same API key as a Bearer token.`);
+      : fits
+        ? ` This request has already returned as many files as one request may; download it from ${url} with the same API key as a Bearer token, or ask for it on its own.`
+        : ` It is too large to return here; download it from ${url} with the same API key as a Bearer token.`);
   if (!embeddable) {
     return {
       content: [{ type: "text", text: described }],
       structuredContent: { ...base, file: { ...file, embedded: false } },
     };
   }
+  if (context.embedBudget) context.embedBudget.remaining -= response.body.length;
   const data = response.body.toString("base64");
   return {
     content: [
@@ -341,7 +371,8 @@ function failureResult(
 export function resultFor(
   operation: CatalogueOperation,
   sent: SentRequest,
-  context: Pick<CallerContext, "baseUrl" | "companyName" | "member" | "standing">,
+  context: Pick<CallerContext, "baseUrl" | "companyName" | "member" | "standing"> &
+    Partial<Pick<CallerContext, "embedBudget">>,
 ): CallToolResult {
   if (!sent.ok) {
     const text =

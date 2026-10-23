@@ -5,7 +5,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { createApp } from "../../app.js";
 import type { BuiltRequest, SentRequest } from "./call.js";
-import { operationCatalogue, type CatalogueOperation } from "./catalogue.js";
+import { operationCatalogue } from "./appCatalogue.js";
+import type { CatalogueOperation } from "./catalogue.js";
 import { InProcessRequestError } from "./dispatch.js";
 import {
   callMistake,
@@ -14,6 +15,8 @@ import {
   formatIssues,
   MAX_EMBEDDED_FILE_BYTES,
   MAX_TEXT_CHARS,
+  MAX_TEXT_READ_BYTES,
+  responseReadLimit,
   resultFor,
 } from "./results.js";
 
@@ -157,7 +160,7 @@ describe("success", () => {
     assert.deepEqual(result.structuredContent?.file, {
       contentType: "application/pdf",
       bytes: pdf.length,
-      url: "https://genosyn.example.com/api/companies/c1/tags",
+      url: "https://genosyn.example.com/api/companies/c1/tags?limit=5",
       name: "invoice-0001.pdf",
       embedded: true,
     });
@@ -166,7 +169,10 @@ describe("success", () => {
       resource: { uri: string; mimeType: string; blob: string };
     };
     assert.equal(resource.type, "resource");
-    assert.equal(resource.resource.uri, "https://genosyn.example.com/api/companies/c1/tags");
+    assert.equal(
+      resource.resource.uri,
+      "https://genosyn.example.com/api/companies/c1/tags?limit=5",
+    );
     assert.deepEqual(Buffer.from(resource.resource.blob, "base64"), pdf);
     assert.match(text(result), /An application\/pdf file named invoice-0001\.pdf, \d+ bytes\./);
   });
@@ -209,7 +215,7 @@ describe("success", () => {
     assert.equal((result.structuredContent?.file as { embedded: boolean }).embedded, false);
     assert.match(
       text(result),
-      /too large to return here; download it from https:\/\/genosyn\.example\.com\/api\/companies\/c1\/tags with the same API key/,
+      /too large to return here; download it from https:\/\/genosyn\.example\.com\/api\/companies\/c1\/tags\?limit=5 with the same API key/,
     );
   });
 });
@@ -398,6 +404,75 @@ describe("failure", () => {
     assert.deepEqual(callMistake("No such thing."), {
       isError: true,
       content: [{ type: "text", text: "No such thing." }],
+    });
+  });
+});
+
+describe("how much of an answer is read", () => {
+  test("JSON and text as far as they can be shown, files as far as they can be embedded", () => {
+    assert.equal(
+      responseReadLimit({ "content-type": "application/json; charset=utf-8" }),
+      MAX_TEXT_READ_BYTES,
+    );
+    assert.equal(responseReadLimit({ "content-type": "text/csv" }), MAX_TEXT_READ_BYTES);
+    assert.equal(responseReadLimit({}), MAX_TEXT_READ_BYTES, "no type: read it as text");
+    assert.equal(
+      responseReadLimit({ "content-type": "application/pdf" }),
+      MAX_EMBEDDED_FILE_BYTES + 1,
+    );
+    assert.equal(
+      responseReadLimit({ "content-type": "application/pdf", "content-length": "1000" }),
+      MAX_EMBEDDED_FILE_BYTES + 1,
+    );
+    assert.equal(
+      responseReadLimit({
+        "content-type": "video/mp4",
+        "content-length": String(MAX_EMBEDDED_FILE_BYTES + 1),
+      }),
+      0,
+      "a file that says it is too large is not read at all",
+    );
+    assert.ok(MAX_TEXT_READ_BYTES >= 4 * MAX_TEXT_CHARS);
+  });
+
+  test("files share one request's embedding budget", () => {
+    const budget = { remaining: 1_000 };
+    const file = (bytes: number) =>
+      resultFor(
+        listTags,
+        answered(200, Buffer.alloc(bytes), { "content-type": "application/pdf" }),
+        { ...owner, embedBudget: budget },
+      );
+    const first = file(600);
+    assert.equal((first.structuredContent?.file as { embedded: boolean }).embedded, true);
+    assert.equal(budget.remaining, 400);
+    const second = file(600);
+    assert.equal((second.structuredContent?.file as { embedded: boolean }).embedded, false);
+    assert.match(text(second), /already returned as many files as one request may/);
+    assert.equal(budget.remaining, 400, "a file left out spends nothing");
+    const third = file(300);
+    assert.equal((third.structuredContent?.file as { embedded: boolean }).embedded, true);
+    assert.equal(budget.remaining, 100);
+  });
+
+  test("a file left unread is described with its link, not as an empty answer", () => {
+    const result = resultFor(
+      listTags,
+      answered(200, "", { "content-type": "video/mp4", "content-length": "52428800" }, true),
+      owner,
+    );
+    assert.equal(result.isError, undefined);
+    assert.equal(result.content.length, 1);
+    assert.doesNotMatch(text(result), /No content/);
+    assert.match(
+      text(result),
+      /A video\/mp4 file, 52428800 bytes\. It is too large to return here; download it from https:\/\/genosyn\.example\.com\/api\/companies\/c1\/tags\?limit=5/,
+    );
+    assert.deepEqual(result.structuredContent?.file, {
+      contentType: "video/mp4",
+      bytes: 52_428_800,
+      url: "https://genosyn.example.com/api/companies/c1/tags?limit=5",
+      embedded: false,
     });
   });
 });

@@ -18,11 +18,8 @@ import {
   type BuiltRequest,
   type CallArguments,
 } from "./call.js";
-import {
-  buildOperationCatalogue,
-  operationCatalogue,
-  type CatalogueOperation,
-} from "./catalogue.js";
+import { operationCatalogue } from "./appCatalogue.js";
+import { buildOperationCatalogue, type CatalogueOperation } from "./catalogue.js";
 
 /**
  * Turning a tool call into the HTTP request it stands for. Everything
@@ -278,6 +275,9 @@ describe("a body sent as JSON text", () => {
     const object = { name: "x" };
     assert.equal(unwrapJsonText(object), object);
     assert.equal(unwrapJsonText(undefined), undefined);
+    // Past the App's 1 MB body limit the text is left for the route to refuse.
+    const huge = `[${"0,".repeat(600_000)}0]`;
+    assert.equal(unwrapJsonText(huge), huge);
   });
 
   test("reaches the route as the JSON it spells", () => {
@@ -292,6 +292,26 @@ describe("a body sent as JSON text", () => {
 });
 
 describe("files", () => {
+  test("a stated type may carry parameters, but nothing that could end its header", () => {
+    for (const contentType of [
+      "text/csv; charset=utf-8",
+      'text/plain;charset="utf-8"',
+      "application/pdf",
+    ]) {
+      const decoded = decodeFile({ name: "a.csv", text: "x", contentType });
+      assert.ok(decoded.ok, contentType);
+      assert.equal(decoded.contentType, contentType);
+    }
+    for (const contentType of [
+      "text/csv\r\nX-Evil: 1",
+      "text/csv; charset",
+      "pdf",
+      'text/plain; a="b\r\nc"',
+    ]) {
+      assert.equal(decodeFile({ name: "a.csv", text: "x", contentType }).ok, false, contentType);
+    }
+  });
+
   test("URL-safe base64 decodes too", () => {
     const bytes = Buffer.from([251, 255, 254, 62, 63]);
     const decoded = decodeFile({ name: "a.bin", base64: bytes.toString("base64url") });

@@ -57,8 +57,10 @@ registry.registerPath({
     "App's own router with the same key, so it acts as the key's Member, under the same role, Finance " +
     "and company limits as a REST request, and lands in the audit log the same way. Operations that " +
     "need a signed-in browser are not offered.\n\n" +
-    "A request whose `Origin` is not this install's public URL is refused with 403, and the body may " +
-    "be up to 10 MB so a file can travel as base64.",
+    "A request whose `Origin` is not this install's public URL is refused with 403. The body is never " +
+    "compressed and may be up to 10 MB, so a file can travel in it — but past 1 MB only as one " +
+    "base64 string. Each Member runs up to four operations at once, later calls waiting their " +
+    "turn, and may have eight requests open; one more is answered 429.",
   tags: ["MCP"],
   request: {
     params: companyParam,
@@ -77,7 +79,10 @@ registry.registerPath({
       },
     },
     202: { description: "The payload held only notifications, so there is nothing to reply." },
-    400: { description: "The body is not JSON-RPC, or a batch holds more than 20 messages." },
+    400: {
+      description:
+        "The body is not JSON-RPC, or a batch holds more than 20 messages or repeats a request id.",
+    },
     401: {
       description: "No API key, or one that is unknown, revoked, expired or for another company.",
     },
@@ -86,7 +91,11 @@ registry.registerPath({
         "A browser `Origin` other than this install's, or the key's Member is no longer in the company.",
     },
     406: { description: "`Accept` rules out JSON." },
-    413: { description: "The body is larger than 10 MB." },
+    413: {
+      description: "The body is larger than 10 MB, or past 1 MB holds more than one base64 string.",
+    },
+    415: { description: "The body is not JSON, or is compressed." },
+    429: { description: "The key's Member already has eight MCP requests open." },
   },
 });
 

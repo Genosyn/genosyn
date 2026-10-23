@@ -330,16 +330,79 @@ describe("the transport", () => {
     assert.equal(wrongType.status, 415);
   });
 
-  test("bodies up to 10 MB are read; larger ones are refused", async () => {
+  test("past 1 MB a body may only carry one base64 string, up to 10 MB in all", async () => {
     const { company, token } = await ownerWithKey();
-    const padded = { ...LIST_TOOLS, params: { _meta: { padding: "x".repeat(2 * 1024 * 1024) } } };
-    assert.equal((await send(company.id, { token, body: padded })).status, 200, "2 MB is fine");
+    const base64 = { ...LIST_TOOLS, params: { _meta: { file: "QUJD".repeat(1024 * 1024) } } };
+    assert.equal(
+      (await send(company.id, { token, body: base64 })).status,
+      200,
+      "4 MB of base64 is fine",
+    );
+    // The same size in many small values would block the process to parse.
+    const manyValues = {
+      ...LIST_TOOLS,
+      params: { _meta: { values: Array.from({ length: 400_000 }, () => ({})) } },
+    };
+    const refused = await send(company.id, { token, body: manyValues });
+    assert.equal(refused.status, 413);
+    assert.match(
+      (refused.json as { error: { message: string } }).error.message,
+      /past 1 MB, a request may carry only a file, as one base64 string/,
+    );
+    // Text with quotes and escapes is not base64 either.
+    const prose = { ...LIST_TOOLS, params: { _meta: { text: 'say "hi"\n'.repeat(200_000) } } };
+    assert.equal((await send(company.id, { token, body: prose })).status, 413);
     const huge = await send(company.id, {
       token,
-      body: { ...LIST_TOOLS, params: { _meta: { padding: "x".repeat(11 * 1024 * 1024) } } },
+      body: { ...LIST_TOOLS, params: { _meta: { file: "QUJD".repeat(3 * 1024 * 1024) } } },
     });
     assert.equal(huge.status, 413);
     assert.match((huge.json as { error: { message: string } }).error.message, /10mb/);
+  });
+
+  test("a compressed body is refused rather than inflated", async () => {
+    const { company, token } = await ownerWithKey();
+    const { gzipSync } = await import("node:zlib");
+    const answer = await send(company.id, {
+      token,
+      rawBody: gzipSync(JSON.stringify(LIST_TOOLS)) as unknown as string,
+      headers: { "content-encoding": "gzip" },
+    });
+    assert.equal(answer.status, 415);
+    assert.match((answer.json as { error: { message: string } }).error.message, /uncompressed/);
+  });
+
+  test("nothing else is served at or below the endpoint, and nothing falls through", async () => {
+    const { company, token } = await ownerWithKey();
+    for (const method of ["PUT", "PATCH"]) {
+      const answer = await send(company.id, { method, token, body: LIST_TOOLS });
+      assert.equal(answer.status, 405, method);
+      assert.equal(answer.headers.get("allow"), "POST", method);
+      assert.equal((answer.json as { jsonrpc: string }).jsonrpc, "2.0", method);
+    }
+    const below = await fetch(`${baseUrl}/api/companies/${company.id}/mcp/anything`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(LIST_TOOLS),
+    });
+    assert.equal(below.status, 404);
+    assert.equal(((await below.json()) as { jsonrpc: string }).jsonrpc, "2.0");
+  });
+
+  test("a batch with a repeated request id is refused", async () => {
+    const { company, token } = await ownerWithKey();
+    const answer = await send(company.id, {
+      token,
+      body: [
+        { jsonrpc: "2.0", id: 7, method: "ping" },
+        { jsonrpc: "2.0", id: 7, method: "tools/list" },
+      ],
+    });
+    assert.equal(answer.status, 400);
+    assert.match(
+      (answer.json as { error: { message: string } }).error.message,
+      /own id; 7 is repeated/,
+    );
   });
 
   test("a body is read only once the key checks out", async () => {

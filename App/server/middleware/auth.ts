@@ -166,7 +166,14 @@ export async function requireApiKeyAuth(
         "Authenticated Genosyn APIs are unavailable inside an AI Browser. Use AI Employee Grants and governed tools.",
     });
   }
-  const bearer = await tryBearerAuth(req);
+  let bearer: Awaited<ReturnType<typeof tryBearerAuth>>;
+  try {
+    bearer = await tryBearerAuth(req);
+  } catch (error) {
+    // Express 4 drops a rejected promise; hand the failure to the error handler
+    // so the client gets an answer instead of a socket left open.
+    return next(error);
+  }
   if (!bearer) {
     res.setHeader("WWW-Authenticate", 'Bearer realm="Genosyn"');
     return res.status(401).json({
