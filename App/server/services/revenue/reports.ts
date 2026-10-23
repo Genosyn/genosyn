@@ -23,10 +23,10 @@ import {
 import type { MrrMovement, RetentionResult } from "./mrr.js";
 import { arrCents, computeMrrMovement, computeRetention, sumSnapshot } from "./mrr.js";
 import { roundHalfAway } from "../../lib/money.js";
-import type { MonthlyRevenueSnapshots } from "./revenueData.js";
+import type { MonthlyRevenueSnapshots, RevenueConversion } from "./revenueData.js";
 import {
   buildEverBeforeSet,
-  buildMonthlyRevenueSnapshots,
+  buildRecurringRevenue,
   collectCollectedRevenue,
   collectFunnelDeals,
   collectSpendByChannel,
@@ -96,6 +96,8 @@ export type MrrSection = {
   /** The final month's movement. Zeroed (not null) when the period is empty. */
   movement: MrrMovement;
   series: MrrSeriesPoint[];
+  /** The other currencies converted into the reporting one, and any left out for want of a rate. */
+  conversion: RevenueConversion;
 };
 
 type MrrBuild = {
@@ -129,7 +131,7 @@ async function buildMrr(companyId: string, from: Date, to: Date): Promise<MrrBui
   // the last instant before it. Without this, a period of exactly [Jan, Feb)
   // would report an empty February.
   const lastInstant = new Date(to.getTime() - 1);
-  const snapshots = await buildMonthlyRevenueSnapshots(companyId, from, lastInstant);
+  const { snapshots, conversion } = await buildRecurringRevenue(companyId, from, lastInstant);
   const months = [...snapshots.keys()];
 
   const series: MrrSeriesPoint[] = [];
@@ -154,6 +156,7 @@ async function buildMrr(companyId: string, from: Date, to: Date): Promise<MrrBui
       currentCents: last?.endingCents ?? 0,
       movement: last ?? emptyMovement(),
       series,
+      conversion,
     },
   };
 }
@@ -421,6 +424,7 @@ export type MrrSeriesReport = {
   arrCents: number;
   series: MrrSeriesPoint[];
   currency: string;
+  conversion: RevenueConversion;
 };
 
 /**
@@ -460,6 +464,7 @@ export async function getMrrSeries(
     arrCents: arrCents(mrr.section.currentCents),
     series: mrr.section.series,
     currency,
+    conversion: mrr.section.conversion,
   };
 }
 

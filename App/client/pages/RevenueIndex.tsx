@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { ArrowRight, Contact2, Info, Target } from "lucide-react";
+import { ArrowRight, Contact2, Info, Target, TriangleAlert } from "lucide-react";
 import { api, formatMoney } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -93,6 +93,11 @@ type RevenueOverview = {
     currentCents: number;
     movement: MrrMovement;
     series: MrrSeriesPoint[];
+    /** Other currencies converted into `currency`, and any left out for want of a rate. */
+    conversion: {
+      converted: Array<{ currency: string; rate: number; rateDate: string }>;
+      unconverted: Array<{ currency: string; customers: number }>;
+    };
   };
   arrCents: number;
   retention: {
@@ -279,7 +284,21 @@ export default function RevenueIndex() {
     void reload();
   }, [reload]);
 
-  useLiveRefetch(["deal", "dealstage", "contact", "activity"], reload);
+  // Recurring revenue reads schedules, customers' contract values, exchange
+  // rates and whether automatic ones are on, as well as the pipeline.
+  useLiveRefetch(
+    [
+      "deal",
+      "dealstage",
+      "contact",
+      "activity",
+      "recurringinvoice",
+      "customer",
+      "currency",
+      "financesettings",
+    ],
+    reload,
+  );
 
   async function retry() {
     setRetrying(true);
@@ -333,7 +352,10 @@ export default function RevenueIndex() {
         <NothingYet slug={company.slug} />
       ) : (
         <div className="space-y-8">
-          <StatTiles overview={overview} />
+          <div>
+            <StatTiles overview={overview} />
+            <ConversionNote overview={overview} companySlug={company.slug} />
+          </div>
           <MrrWaterfall
             movement={overview.mrr.movement}
             currency={overview.currency}
@@ -432,6 +454,57 @@ function StatTiles({ overview }: { overview: RevenueOverview }) {
             : `GRR ${formatPct(overview.retention.grrPct)} · ${overview.retention.cohortSize} customers`
         }
       />
+    </div>
+  );
+}
+
+/** "EUR", "EUR and GBP", "EUR, GBP and JPY". */
+function listOf(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * Which currencies the recurring revenue above was converted from, and any it
+ * couldn't be: those customers' revenue is left out of every figure rather
+ * than added at face value, so say so and point at where a rate is added.
+ */
+function ConversionNote({
+  overview,
+  companySlug,
+}: {
+  overview: RevenueOverview;
+  companySlug: string;
+}) {
+  const { converted, unconverted } = overview.mrr.conversion;
+  if (converted.length === 0 && unconverted.length === 0) return null;
+  const customers = unconverted.reduce((sum, left) => sum + left.customers, 0);
+  return (
+    <div className="mt-3 space-y-1.5 text-xs">
+      {converted.length > 0 && (
+        <p className="text-slate-500 dark:text-slate-400">
+          Recurring revenue in {listOf(converted.map((rate) => rate.currency))} is converted to{" "}
+          {overview.currency} at the latest {converted.length === 1 ? "rate" : "rates"} on file, one
+          rate for every month, so a currency&apos;s own moves never show as expansion or
+          contraction.
+        </p>
+      )}
+      {unconverted.length > 0 && (
+        <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400">
+          <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden="true" />
+          <span>
+            Revenue in {listOf(unconverted.map((left) => left.currency))} from {customers}{" "}
+            {customers === 1 ? "customer isn't" : "customers isn't"} counted: there&apos;s no
+            exchange rate into {overview.currency}.{" "}
+            <Link
+              to={`/c/${companySlug}/finance/currencies`}
+              className="font-medium underline underline-offset-2 hover:text-amber-800 dark:hover:text-amber-300"
+            >
+              Add {unconverted.length === 1 ? "a rate" : "rates"}
+            </Link>
+          </span>
+        </p>
+      )}
     </div>
   );
 }

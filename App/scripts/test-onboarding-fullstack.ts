@@ -399,7 +399,8 @@ try {
         "running",
       );
     }
-    await go(`/c/${company.slug}/routines`);
+    // Runs under way have their own page, apart from the list of All routines.
+    await go(`/c/${company.slug}/routines/running`);
     const runningNow = page.getByRole("region", { name: "Running now", exact: true });
     for (const { marker } of concurrentRuns) {
       await runningNow

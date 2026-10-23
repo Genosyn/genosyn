@@ -1,4 +1,4 @@
-import { Brackets, In, IsNull, type ObjectLiteral, type SelectQueryBuilder } from "typeorm";
+import { Brackets, IsNull, type ObjectLiteral, type SelectQueryBuilder } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AdSpendEvent } from "../../db/entities/AdSpendEvent.js";
@@ -12,9 +12,9 @@ import {
   RecurringInvoice,
   type RecurringInvoiceFrequency,
 } from "../../db/entities/RecurringInvoice.js";
-import { RecurringInvoiceLineItem } from "../../db/entities/RecurringInvoiceLineItem.js";
 import { DEFAULT_CURRENCY, roundHalfAway } from "../../lib/money.js";
-import { discountCentsFor } from "../../../shared/documentDiscount.js";
+import { convertAtRate, rateOnFile, type RateOnFile } from "../fx.js";
+import { scheduleTotals } from "../recurringInvoices.js";
 import type { FunnelDeal, StageLike } from "./funnel.js";
 import {
   monthRange,
@@ -56,6 +56,19 @@ import {
 
 /** `YYYY-MM` → (customerId → monthly recurring cents). Feeds `mrr.ts`. */
 export type MonthlyRevenueSnapshots = Map<string, Map<string, number>>;
+
+/** How recurring revenue got into the reporting currency. */
+export type RevenueConversion = {
+  /** The other currencies converted, at the rate on file at the end of the range. */
+  converted: Array<{ currency: string; rate: number; rateDate: string }>;
+  /** Currencies with no rate on file, left out, and how many customers that leaves out. */
+  unconverted: Array<{ currency: string; customers: number }>;
+};
+
+export type RecurringRevenue = {
+  snapshots: MonthlyRevenueSnapshots;
+  conversion: RevenueConversion;
+};
 
 /**
  * Bucket for spend or wins with no channel recorded.
@@ -106,24 +119,6 @@ const FREQUENCY_TO_INTERVAL: Record<RecurringInvoiceFrequency, BillingInterval> 
   quarterly: "quarter",
   yearly: "year",
 };
-
-/**
- * Sum a recurring template's lines, tax excluded.
- *
- * **Tax is deliberately not included in MRR.** Sales tax is collected on behalf
- * of a government and remitted to it; counting it as recurring revenue inflates
- * MRR by the local VAT rate and makes two customers on the same plan in
- * different countries look like different sized accounts. `RecurringInvoiceLineItem`
- * stores no computed totals precisely because rates are snapshotted at
- * generation time, so there is nothing to include here even if we wanted to.
- *
- * A line with a non-finite quantity or unit price contributes zero rather than
- * poisoning the schedule's total with NaN.
- */
-function lineCents(quantity: number, unitPriceCents: number): number {
-  if (!Number.isFinite(quantity) || !Number.isFinite(unitPriceCents)) return 0;
-  return roundHalfAway(quantity * unitPriceCents);
-}
 
 /**
  * The monthly-equivalent value of one schedule, or `null` when the row cannot
@@ -267,66 +262,99 @@ function creditMonths(
  * 3. **Months are UTC**, per `mrr.ts`'s `monthKey`. A series that shifts when
  *    somebody edits their timezone setting is worse than one consistently off
  *    by a few hours at the boundary.
- * 4. **Tax is excluded, cron is not parsed** — see {@link lineCents} and
- *    {@link monthlyCentsForSchedule}. A schedule's discount comes off before
- *    tax, as it does on the invoices the schedule creates.
+ * 4. **Tax is excluded, cron is not parsed** — see {@link monthlyCentsForSchedule}.
+ *    A schedule is priced exactly as the invoices it creates are
+ *    (`scheduleTotals`): each line at its tax rate, the discount taken before
+ *    tax, and what counts is the subtotal. Sales tax is collected on behalf of
+ *    a government; counting it would inflate MRR by the local VAT rate, and a
+ *    line whose tax is included in its price counts net of that tax.
  * 5. **A customer whose total is zero or less is absent from the month.**
  *    `mrr.ts` reads a zero entry as "not a customer", and writing one anyway
  *    would make churn and reactivation ambiguous.
  * 6. **Schedules pointing at a customer row that no longer exists are dropped.**
  *    Their revenue belongs to nobody, and keeping it would put an id in the
  *    snapshot that no other report can resolve to a name.
+ * 7. **One currency, at one rate.** Every amount converts into the reporting
+ *    currency at the rate on file at the end of the range — a schedule from
+ *    its own currency, the ACV fallback from the customer's — and that one rate
+ *    serves every month. A constant-currency series is the point: converting
+ *    each month at its own rate would show a currency's moves as expansion and
+ *    contraction no customer made. A currency with no rate on file is left
+ *    out, not added at face value, and named in `conversion.unconverted`. With
+ *    automatic rates off, only rates a person set count (`rateOnFile`).
  *
  * **Deliberately not done:** issued invoices are not consulted. Actual billing
  * is lumpy — an annual plan invoiced in January is not twelve times January's
  * MRR — and reconstructing a run rate from invoice history is a different, much
  * larger job (`collectCollectedRevenue` is the cash-basis counterpart, and the
- * two are *supposed* to disagree). Currency is also not converted: a company
- * billing in EUR and USD gets a total that mixes both, which the reporting
- * currency label makes visible but does not fix.
+ * two are *supposed* to disagree).
  *
  * Every month in `[from, to]` is present in the result, empty ones included, so
  * a caller can chart the range without patching holes.
  */
-export async function buildMonthlyRevenueSnapshots(
+export async function buildRecurringRevenue(
   companyId: string,
   from: Date,
   to: Date,
-): Promise<MonthlyRevenueSnapshots> {
+): Promise<RecurringRevenue> {
   const keys = monthRange(from, to);
   const snapshots: MonthlyRevenueSnapshots = new Map(
     keys.map((key) => [key, new Map<string, number>()]),
   );
-  if (keys.length === 0) return snapshots;
+  const empty = { snapshots, conversion: { converted: [], unconverted: [] } };
+  if (keys.length === 0) return empty;
 
   // Whole rows rather than a projection: a company has hundreds of customers,
   // not millions, and the projection would have to be kept in step with every
   // field the window logic reads.
   const customers = await AppDataSource.getRepository(Customer).findBy({ companyId });
-  if (customers.length === 0) return snapshots;
+  if (customers.length === 0) return empty;
   const customerIds = new Set(customers.map((c) => c.id));
 
   const schedules = await AppDataSource.getRepository(RecurringInvoice).findBy({ companyId });
-  const templateCents = await sumTemplateLines(schedules.map((s) => s.id));
+  const totals = await scheduleTotals(companyId, schedules);
+  const home = (await getReportingCurrency(companyId)).toUpperCase();
 
   const windows = keys.map(monthWindow);
+  /** Each other currency's rate into home, looked up once; null with none on file. */
+  const rates = new Map<string, RateOnFile | null>();
+  const rateInto = async (currency: string): Promise<number | null> => {
+    const code = (currency || home).toUpperCase();
+    if (code === home) return 1;
+    if (!rates.has(code)) rates.set(code, await rateOnFile(companyId, code, home, to));
+    return rates.get(code)?.rate ?? null;
+  };
+  /** Currency → customers whose revenue in it was left out for want of a rate. */
+  const leftOut = new Map<string, Set<string>>();
+  /** Credit a source's months in home cents, or leave it out when its currency can't convert. */
+  const credit = async (customerId: string, currency: string, cents: number, live: LiveWindow) => {
+    if (!overlapsAny(windows, live)) return;
+    const rate = await rateInto(currency);
+    if (rate === null) {
+      const code = (currency || home).toUpperCase();
+      leftOut.set(code, (leftOut.get(code) ?? new Set()).add(customerId));
+      return;
+    }
+    creditMonths(snapshots, windows, customerId, convertAtRate(cents, rate), live);
+  };
   /** Customers priced from a schedule — these do *not* get the ACV fallback. */
   const scheduled = new Set<string>();
 
   for (const schedule of schedules) {
     if (!customerIds.has(schedule.customerId)) continue;
-    const baseCents = templateCents.get(schedule.id) ?? 0;
     const monthlyCents = monthlyCentsForSchedule(
       schedule,
-      baseCents - discountCentsFor(baseCents, schedule),
+      totals.get(schedule.id)?.subtotalCents ?? 0,
     );
     // An unreadable cadence does not suppress the fallback: ACV is a worse
     // number than a real schedule but a better one than nothing.
     if (monthlyCents === null) continue;
     const live = scheduleWindow(schedule);
     if (live === null) continue;
+    // A schedule whose currency can't be converted still makes its customer a
+    // schedule customer: falling back to their ACV would count them another way.
     scheduled.add(schedule.customerId);
-    creditMonths(snapshots, windows, schedule.customerId, monthlyCents, live);
+    await credit(schedule.customerId, schedule.currency, monthlyCents, live);
   }
 
   for (const customer of customers) {
@@ -335,7 +363,7 @@ export async function buildMonthlyRevenueSnapshots(
     if (!Number.isFinite(acv) || acv <= 0) continue;
     const startMs = timeOf(customer.createdAt);
     if (startMs === null) continue;
-    creditMonths(snapshots, windows, customer.id, roundHalfAway(acv / MONTHS_PER_YEAR), {
+    await credit(customer.id, customer.currency, roundHalfAway(acv / MONTHS_PER_YEAR), {
       startMs,
       // Archiving is this codebase's soft delete; an archived customer stops
       // paying us on the day they were archived.
@@ -351,23 +379,36 @@ export async function buildMonthlyRevenueSnapshots(
     }
   }
 
-  return snapshots;
+  return {
+    snapshots,
+    conversion: {
+      converted: [...rates.entries()]
+        .flatMap(([currency, found]) =>
+          found ? [{ currency, rate: found.rate, rateDate: found.date.toISOString() }] : [],
+        )
+        .sort((a, b) => a.currency.localeCompare(b.currency)),
+      unconverted: [...leftOut.entries()]
+        .map(([currency, ids]) => ({ currency, customers: ids.size }))
+        .sort((a, b) => a.currency.localeCompare(b.currency)),
+    },
+  };
 }
 
-/** Template value per schedule id, in one query rather than one per schedule. */
-async function sumTemplateLines(scheduleIds: string[]): Promise<Map<string, number>> {
-  const totals = new Map<string, number>();
-  // `In([])` renders as `IN ()`, which is a syntax error on Postgres.
-  if (scheduleIds.length === 0) return totals;
+/** The snapshots alone, for a caller with no use for how they were converted. */
+export async function buildMonthlyRevenueSnapshots(
+  companyId: string,
+  from: Date,
+  to: Date,
+): Promise<MonthlyRevenueSnapshots> {
+  return (await buildRecurringRevenue(companyId, from, to)).snapshots;
+}
 
-  const lines = await AppDataSource.getRepository(RecurringInvoiceLineItem).findBy({
-    recurringInvoiceId: In(scheduleIds),
-  });
-  for (const line of lines) {
-    const cents = lineCents(line.quantity, line.unitPriceCents);
-    totals.set(line.recurringInvoiceId, (totals.get(line.recurringInvoiceId) ?? 0) + cents);
-  }
-  return totals;
+/** Whether a source was live in any of the months — the test `creditMonths` applies to each. */
+function overlapsAny(windows: readonly MonthWindow[], live: LiveWindow): boolean {
+  return windows.some(
+    (window) =>
+      live.startMs < window.endExclusiveMs && (live.endMs === null || live.endMs >= window.startMs),
+  );
 }
 
 /**
@@ -654,25 +695,58 @@ export async function collectWonDealsByChannel(
  *
  * Payments against **voided** invoices are included. Voiding an invoice is an
  * accounting correction to the document; it does not un-receive the money, and
- * a refund is recorded as its own negative payment or by deleting the row. The
- * currency caveat from the snapshots applies here too: amounts are summed
- * without FX conversion.
+ * a refund is recorded as its own negative payment or by deleting the row.
+ *
+ * **In the reporting currency, at the rate each payment was booked at.** A
+ * payment in another currency locked the rate of the day it was paid
+ * (`InvoicePayment.exchangeRate`), the rate the ledger booked its cash at; one
+ * recorded before rates were locked converts at the rate on file for that day.
+ * A payment with neither is left out rather than added at face value. Payments
+ * in the reporting currency are still summed in the database.
  */
 export async function collectCollectedRevenue(
   companyId: string,
   from: Date,
   to: Date,
 ): Promise<number> {
-  const qb = AppDataSource.getRepository(InvoicePayment)
-    .createQueryBuilder("p")
-    .innerJoin(Invoice, "i", "CAST(i.id AS text) = p.invoiceId")
-    .select("SUM(p.amountCents)", "total")
-    .where("i.companyId = :companyId", { companyId });
-  applyPeriod(qb, "p.paidAt", from, to);
+  const home = (await getReportingCurrency(companyId)).toUpperCase();
+  const paidIn = () => {
+    const qb = AppDataSource.getRepository(InvoicePayment)
+      .createQueryBuilder("p")
+      .innerJoin(Invoice, "i", "CAST(i.id AS text) = p.invoiceId")
+      .where("i.companyId = :companyId", { companyId });
+    applyPeriod(qb, "p.paidAt", from, to);
+    return qb;
+  };
 
-  const row = await qb.getRawOne<{ total: string | number | null }>();
-  const total = Number(row?.total ?? 0);
-  return Number.isFinite(total) ? total : 0;
+  const sums = await paidIn()
+    .select("i.currency", "currency")
+    .addSelect("SUM(p.amountCents)", "total")
+    .groupBy("i.currency")
+    .getRawMany<{ currency: string | null; total: string | number | null }>();
+  let total = 0;
+  for (const row of sums) {
+    const code = (row.currency || home).toUpperCase();
+    if (code === home) {
+      const cents = Number(row.total ?? 0);
+      if (Number.isFinite(cents)) total += cents;
+      continue;
+    }
+    // Another currency: payment by payment, at the rate each one was booked at.
+    const payments = await paidIn()
+      .andWhere("i.currency = :currency", { currency: row.currency })
+      .getMany();
+    for (const payment of payments) {
+      if (!Number.isFinite(payment.amountCents)) continue;
+      const rate =
+        payment.exchangeRate && payment.exchangeRate > 0
+          ? payment.exchangeRate
+          : (await rateOnFile(companyId, code, home, payment.paidAt))?.rate;
+      if (rate === undefined) continue;
+      total += convertAtRate(payment.amountCents, rate);
+    }
+  }
+  return total;
 }
 
 /**

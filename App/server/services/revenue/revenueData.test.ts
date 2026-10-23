@@ -7,15 +7,18 @@ import { CompanyFinanceSettings } from "../../db/entities/CompanyFinanceSettings
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { ExchangeRate } from "../../db/entities/ExchangeRate.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { InvoicePayment } from "../../db/entities/InvoicePayment.js";
 import { RecurringInvoice } from "../../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../../db/entities/RecurringInvoiceLineItem.js";
+import { TaxRate } from "../../db/entities/TaxRate.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import {
   UNATTRIBUTED_CHANNEL,
   buildEverBeforeSet,
   buildMonthlyRevenueSnapshots,
+  buildRecurringRevenue,
   collectCollectedRevenue,
   collectFunnelDeals,
   collectSpendByChannel,
@@ -223,6 +226,36 @@ describe("buildMonthlyRevenueSnapshots", () => {
     assert.equal(snapshots.get("2026-02")?.get(fixed.id), 8_000);
   });
 
+  test("a line whose tax is included in its price counts net of that tax", async () => {
+    const vat = await insert(TaxRate, {
+      companyId: CO,
+      name: "VAT",
+      ratePercent: 20,
+      inclusive: true,
+    });
+    const salesTax = await insert(TaxRate, { companyId: CO, name: "Sales tax", ratePercent: 10 });
+    const inclusive = await makeCustomer();
+    const exclusive = await makeCustomer();
+    for (const [customer, taxRateId] of [
+      [inclusive, vat.id],
+      [exclusive, salesTax.id],
+    ] as const) {
+      const schedule = await makeSchedule(customer, {}, null);
+      await insert(RecurringInvoiceLineItem, {
+        recurringInvoiceId: schedule.id,
+        description: "Plan",
+        quantity: 1,
+        unitPriceCents: customer === inclusive ? 120_000 : 100_000,
+        taxRateId,
+        sortOrder: 0,
+      });
+    }
+    const snapshots = await snapshotsFor();
+    // 120_000 with 20% VAT inside it, and 100_000 with 10% added on top: both are 100_000.
+    assert.equal(snapshots.get("2026-02")?.get(inclusive.id), 100_000);
+    assert.equal(snapshots.get("2026-02")?.get(exclusive.id), 100_000);
+  });
+
   test("two schedules on one customer are summed", async () => {
     const customer = await makeCustomer();
     await makeSchedule(customer, {}, { unitPriceCents: 50_000 });
@@ -325,6 +358,76 @@ describe("buildMonthlyRevenueSnapshots", () => {
 });
 
 // ───────────────────────── buildEverBeforeSet ─────────────────────────
+
+describe("recurring revenue in the reporting currency", () => {
+  async function rate(from: string, day: string, value: number): Promise<void> {
+    await insert(ExchangeRate, {
+      companyId: CO,
+      fromCurrency: from,
+      toCurrency: "USD",
+      date: at(`${day}T00:00:00Z`),
+      rate: value,
+      source: "manual",
+    });
+  }
+
+  test("another currency converts at the rate on file at the end of the range, for every month", async () => {
+    await rate("EUR", "2026-01-01", 1.1);
+    await rate("EUR", "2026-03-01", 1.2);
+    await rate("EUR", "2026-06-01", 1.5); // After the range: not used.
+    const customer = await makeCustomer();
+    await makeSchedule(customer, { currency: "EUR" }, { unitPriceCents: 50_000 });
+
+    const { snapshots, conversion } = await buildRecurringRevenue(CO, JAN, APR_END);
+    // One rate for every month, so the euro's moves don't read as expansion.
+    assert.deepEqual(plain(snapshots), {
+      "2026-01": [60_000],
+      "2026-02": [60_000],
+      "2026-03": [60_000],
+      "2026-04": [60_000],
+    });
+    assert.deepEqual(conversion, {
+      converted: [{ currency: "EUR", rate: 1.2, rateDate: "2026-03-01T00:00:00.000Z" }],
+      unconverted: [],
+    });
+  });
+
+  test("the ACV fallback converts from the customer's own currency", async () => {
+    await rate("GBP", "2026-01-01", 1.25);
+    const customer = await makeCustomer({ currency: "GBP", annualContractValueCents: 1_200_000 });
+    const { snapshots } = await buildRecurringRevenue(CO, JAN, APR_END);
+    assert.equal(snapshots.get("2026-02")?.get(customer.id), 125_000);
+  });
+
+  test("a currency with no rate on file is left out and named, never added at face value", async () => {
+    // A schedule customer stays one even when the schedule can't convert:
+    // their USD contract value doesn't stand in for it.
+    const scheduled = await makeCustomer({ annualContractValueCents: 9_999_999 });
+    await makeSchedule(scheduled, { currency: "JPY" }, { unitPriceCents: 5_000_000 });
+    await makeCustomer({ currency: "JPY", annualContractValueCents: 1_200_000 });
+    const dollars = await makeCustomer();
+    await makeSchedule(dollars, {}, { unitPriceCents: 50_000 });
+
+    const { snapshots, conversion } = await buildRecurringRevenue(CO, JAN, APR_END);
+    assert.deepEqual([...(snapshots.get("2026-02") ?? new Map()).keys()], [dollars.id]);
+    assert.deepEqual(conversion, {
+      converted: [],
+      unconverted: [{ currency: "JPY", customers: 2 }],
+    });
+  });
+
+  test("a schedule that ended before the range needs no rate", async () => {
+    const customer = await makeCustomer();
+    await makeSchedule(customer, {
+      currency: "CHF",
+      status: "ended",
+      createdAt: at("2025-01-01T00:00:00Z"),
+      lastRunAt: at("2025-06-01T00:00:00Z"),
+    });
+    const { conversion } = await buildRecurringRevenue(CO, JAN, APR_END);
+    assert.deepEqual(conversion, { converted: [], unconverted: [] });
+  });
+});
 
 describe("buildEverBeforeSet", () => {
   const snapshots = new Map<string, Map<string, number>>([
@@ -588,7 +691,7 @@ describe("collectWonDealsByChannel", () => {
 
 // ─────────────────────── collectCollectedRevenue ───────────────────────
 
-async function makeInvoice(companyId = CO): Promise<Invoice> {
+async function makeInvoice(companyId = CO, currency = "USD"): Promise<Invoice> {
   const n = nextSeq();
   return insert(Invoice, {
     companyId,
@@ -597,6 +700,7 @@ async function makeInvoice(companyId = CO): Promise<Invoice> {
     status: "sent",
     issueDate: JAN,
     dueDate: JAN,
+    currency,
     totalCents: 100_000,
   });
 }
@@ -639,6 +743,44 @@ describe("collectCollectedRevenue", () => {
       paidAt: at("2026-02-01T00:00:00Z"),
     });
     assert.equal(await collectCollectedRevenue(CO, from, to), 0);
+  });
+
+  test("another currency converts at each payment's locked rate, or the rate on file for its day", async () => {
+    const dollars = await makeInvoice();
+    const euros = await makeInvoice(CO, "EUR");
+    const yen = await makeInvoice(CO, "JPY");
+    await insert(ExchangeRate, {
+      companyId: CO,
+      fromCurrency: "EUR",
+      toCurrency: "USD",
+      date: at("2026-02-01T00:00:00Z"),
+      rate: 1.2,
+      source: "manual",
+    });
+    await insert(InvoicePayment, {
+      invoiceId: dollars.id,
+      amountCents: 10_000,
+      paidAt: at("2026-02-10T00:00:00Z"),
+    });
+    await insert(InvoicePayment, {
+      invoiceId: euros.id,
+      amountCents: 10_000,
+      exchangeRate: 1.1,
+      paidAt: at("2026-02-10T00:00:00Z"),
+    });
+    // Recorded before payments locked their rate: the rate on file for its day.
+    await insert(InvoicePayment, {
+      invoiceId: euros.id,
+      amountCents: 20_000,
+      paidAt: at("2026-03-10T00:00:00Z"),
+    });
+    // No rate anywhere: left out rather than counted at face value.
+    await insert(InvoicePayment, {
+      invoiceId: yen.id,
+      amountCents: 1_000_000,
+      paidAt: at("2026-02-10T00:00:00Z"),
+    });
+    assert.equal(await collectCollectedRevenue(CO, from, to), 10_000 + 11_000 + 24_000);
   });
 
   test("a company with no payments collects zero, not NaN", async () => {
