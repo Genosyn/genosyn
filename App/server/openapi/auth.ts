@@ -2,9 +2,10 @@ import { z } from "zod";
 import { defaultSecurity, publicSecurity, registry } from "./registry.js";
 
 /**
- * Auth endpoints. Login + signup are public; everything else requires the
- * cookie or a Bearer token. Once you have a session cookie, you can mint a
- * Bearer token at Settings → API keys for use against this same surface.
+ * Auth endpoints. Login + signup are public; everything else is the signed-in
+ * account itself and needs the browser session cookie — an API key is a
+ * company credential and is refused here. Once signed in, mint a key at
+ * Settings → API keys for the company endpoints.
  */
 
 const MeResponse = z
@@ -94,8 +95,8 @@ registry.registerPath({
   path: "/api/auth/me",
   summary: "Get the authenticated user",
   description:
-    "Returns the currently-authenticated user. Useful as a `whoami` probe to " +
-    "confirm a Bearer token works before making real calls.",
+    "Returns the signed-in account. To check which Member an API key acts as, call " +
+    "`GET /api/companies/{cid}/me` instead — this one is browser-only.",
   tags: ["Auth"],
   security: defaultSecurity,
   responses: {
@@ -104,7 +105,7 @@ registry.registerPath({
       content: { "application/json": { schema: MeResponse } },
     },
     401: {
-      description: "No valid session or Bearer token",
+      description: "No valid browser session",
       content: { "application/json": { schema: ErrorResponse } },
     },
   },

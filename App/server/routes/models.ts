@@ -273,7 +273,7 @@ modelsRouter.post(
       res.json(await discoverApiModels(body.provider, body.apiKey));
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json({ error: error.message });
+      res.status(error.status).json(error.responseBody());
     }
   },
 );
@@ -311,7 +311,7 @@ modelsRouter.post(
       res.json(await publicModel(model, ctx.emp));
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json({ error: error.message });
+      res.status(error.status).json(error.responseBody());
     }
   },
 );
@@ -357,7 +357,7 @@ modelsRouter.post(
       res.json(await publicModel(model, ctx.emp));
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json({ error: error.message });
+      res.status(error.status).json(error.responseBody());
     }
   },
 );
@@ -431,7 +431,7 @@ modelsRouter.put(
         await verifyModelEdit(m, body.model);
       } catch (error) {
         if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json({ error: error.message });
+        return res.status(error.status).json(error.responseBody());
       }
     }
     // If provider or auth mode switched, any prior credentials are invalid.
@@ -440,7 +440,7 @@ modelsRouter.put(
         await editSubscriptionModel(m, body.model);
       } catch (error) {
         if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json({ error: error.message });
+        return res.status(error.status).json(error.responseBody());
       }
     } else if (body.authMode === "apikey" && (changedAuth || changedModel || body.apiKey)) {
       try {
@@ -452,7 +452,7 @@ modelsRouter.put(
         });
       } catch (error) {
         if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json({ error: error.message });
+        return res.status(error.status).json(error.responseBody());
       }
     } else if (changedAuth) {
       await repo.update(
@@ -542,7 +542,7 @@ modelsRouter.post(
       verified = await replaceApiKey(m, apiKey, ctx.co.id);
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json({ error: error.message });
+      return res.status(error.status).json(error.responseBody());
     }
     // First moment we can ask the provider anything — find out how much room the
     // model actually has.
@@ -669,7 +669,7 @@ modelsRouter.post(
       saved = await saveSubscriptionAccessToken(m.id, accessToken);
     } catch (error) {
       if (error instanceof ModelSetupError)
-        return res.status(error.status).json({ error: error.message });
+        return res.status(error.status).json(error.responseBody());
       if (!(error instanceof SubscriptionCredentialConflictError)) throw error;
       return res.status(409).json({
         error: error.message,
@@ -741,7 +741,7 @@ modelsRouter.post(
       res.json(await publicModel(model, ctx.emp));
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json({ error: error.message });
+      res.status(error.status).json(error.responseBody());
     }
   },
 );
@@ -772,7 +772,7 @@ modelsRouter.post(
       );
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json({ error: error.message });
+      return res.status(error.status).json(error.responseBody());
     }
     await refreshContextWindow(verified);
     await recordAudit({

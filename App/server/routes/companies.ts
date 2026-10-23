@@ -14,6 +14,7 @@ import {
   requireBrowserSession,
   requireCompanyMember,
 } from "../middleware/auth.js";
+import { describeBrowserSessionCondition } from "../middleware/routeMetadata.js";
 import { toSlug } from "../lib/slug.js";
 import { MAX_TIME_ZONE_LENGTH, isValidTimeZone } from "../lib/timeZone.js";
 import { generateToken, hashToken } from "../lib/token.js";
@@ -228,6 +229,38 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
   });
 });
 
+/**
+ * Who is calling, inside this company: the API's `whoami`. `/api/auth/me` is
+ * the account itself and stays browser-only, so this is the identity check an
+ * API key can make — it answers with the key's Member, their role and Finance
+ * access here, and which key it was.
+ */
+companiesRouter.get(
+  "/:cid/me",
+  requireCompanyMember,
+  validateParams(z.object({ cid: z.string().uuid() })),
+  async (req, res) => {
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
+    if (!co) return res.status(404).json({ error: "Not found" });
+    const user = req.user!;
+    res.json({
+      user: { id: user.id, email: user.email, name: user.name, handle: user.handle ?? null },
+      company: { id: co.id, name: co.name, slug: co.slug },
+      role: req.companyRole,
+      financeAccess: financeAccessFor(req.companyRole, req.membership?.financeAccess),
+      authentication: req.apiKey ? "api_key" : "session",
+      apiKey: req.apiKey
+        ? {
+            id: req.apiKey.id,
+            name: req.apiKey.name,
+            prefix: `gen_${req.apiKey.prefix}`,
+            expiresAt: req.apiKey.expiresAt ? req.apiKey.expiresAt.toISOString() : null,
+          }
+        : null,
+    });
+  },
+);
+
 const onboardingStatusParamsSchema = z.object({ cid: z.string().uuid() });
 const onboardingStatusQuerySchema = z.object({ employeeId: z.string().uuid().optional() });
 
@@ -288,7 +321,10 @@ companiesRouter.patch(
   "/:cid",
   requireCompanyMember,
   validateBody(patchSchema),
-  whenTwoFactorPolicyChanges(requireBrowserSession),
+  describeBrowserSessionCondition(
+    whenTwoFactorPolicyChanges(requireBrowserSession),
+    "to change requireTwoFactor",
+  ),
   async (req, res) => {
     const role = (req as unknown as { role: string }).role;
     if (role !== "owner" && role !== "admin") return res.status(403).json({ error: "Forbidden" });

@@ -125,4 +125,25 @@ for (const [status, expected] of [
 test("timeouts and network failures never echo the SDK message or key", () => {
   assert.equal(modelSetupFailure({ name: "AbortError", message: "private-key" }).status, 504);
   assert.doesNotMatch(modelSetupFailure(new Error("private-key")).message, /private-key/);
+  assert.deepEqual(modelSetupFailure(new Error("private-key")).responseBody(), {
+    error: "We could not test this AI Model. Check your connection and try again.",
+  });
+});
+
+test("a rejected test says why only under its details, and a 400 is not called a missing model", () => {
+  const providerDetail =
+    "HTTP 400 · invalid_request_error\nYour credit balance is too low to access the Anthropic API.";
+  const rejected = modelSetupFailure(
+    Object.assign(new Error("The AI Model request failed (HTTP 400)."), {
+      status: 400,
+      providerDetail,
+    }),
+  );
+  assert.match(rejected.message, /rejected the request/);
+  assert.doesNotMatch(rejected.message, /credit balance/);
+  assert.deepEqual(rejected.responseBody(), { error: rejected.message, detail: providerDetail });
+  assert.match(modelSetupFailure({ status: 404 }).message, /not available with this credential/);
+  assert.equal(modelSetupFailure({ status: 404 }).detail, null);
+  // Only the runtime's own `providerDetail` is shown, never another error's fields.
+  assert.equal(modelSetupFailure({ status: 400, detail: "private-key" }).detail, null);
 });

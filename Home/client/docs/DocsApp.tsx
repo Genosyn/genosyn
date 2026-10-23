@@ -63,6 +63,7 @@ import { SelfHosting } from "@/docs/pages/SelfHosting";
 import { Backups } from "@/docs/pages/Backups";
 import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
+import { Api } from "@/docs/pages/Api";
 import { Vocabulary } from "@/docs/pages/Vocabulary";
 import { NotFound } from "@/docs/pages/NotFound";
 
@@ -130,6 +131,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/backups": Backups,
   "/docs/cli": Cli,
   "/docs/kubernetes": Kubernetes,
+  "/docs/api": Api,
   "/docs/vocabulary": Vocabulary,
 };
 

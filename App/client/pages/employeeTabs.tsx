@@ -51,7 +51,7 @@ import {
   Team,
 } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
-import { errorMessage } from "../lib/errors";
+import { errorDetail, errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { employeeSettingsPage } from "../lib/employeeSettingsNav";
 import { Button } from "../components/ui/Button";
@@ -2353,7 +2353,7 @@ function ApiKeyPanel({
 }) {
   const [key, setKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
   return (
     <form
       className="flex flex-col gap-2"
@@ -2369,7 +2369,7 @@ function ApiKeyPanel({
           setKey("");
           onSaved();
         } catch (err) {
-          setError(errorMessage(err));
+          setError(err);
         } finally {
           setSaving(false);
         }
@@ -2386,7 +2386,7 @@ function ApiKeyPanel({
       <div className="text-xs text-slate-500 dark:text-slate-400">
         Stored encrypted at rest. Removed on disconnect.
       </div>
-      <FormError message={error} />
+      <FormError message={error ? errorMessage(error) : null} detail={errorDetail(error)} />
       <div>
         <Button type="submit" loading={saving} disabled={key.length === 0}>
           {saving ? "Testing connection…" : "Connect AI Model"}
@@ -2416,7 +2416,7 @@ function CustomEndpointPanel({
   const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
   const [apiKey, setApiKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
   const connected = model.status === "connected";
   return (
     <form
@@ -2437,7 +2437,7 @@ function CustomEndpointPanel({
           setApiKey("");
           onSaved();
         } catch (err) {
-          setError(errorMessage(err));
+          setError(err);
         } finally {
           setSaving(false);
         }
@@ -2474,7 +2474,7 @@ function CustomEndpointPanel({
         encrypted at rest. Leave the model id blank on a server that serves one model, such as
         vLLM: Genosyn uses that model, and follows it if the server is restarted with another.
       </div>
-      <FormError message={error} />
+      <FormError message={error ? errorMessage(error) : null} detail={errorDetail(error)} />
       <div>
         <Button type="submit" loading={saving} disabled={baseURL.length === 0}>
           {saving ? "Testing connection…" : connected ? "Update endpoint" : "Save & connect"}
