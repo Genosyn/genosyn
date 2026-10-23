@@ -1004,6 +1004,9 @@ await app.check(
       routes: financeBase,
     });
     const { page } = view;
+    // New invoice asks one-time or recurring first; the customer stays picked.
+    await view.click(page.getByRole("link", { name: "One-time invoice", exact: true }));
+    await view.landedOn("/c/acme/finance/invoices/new?kind=one-time&customerId=acct-globex");
     await page.waitForFunction(() =>
       [...document.querySelectorAll("select")].some((s) => s.value === "acct-globex"),
     );

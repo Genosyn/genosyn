@@ -179,8 +179,14 @@ export type RecurringInvoicePrefill = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Whole days from issue to due, within the 0–365 the form accepts; null when unknown. */
-function paymentTermsDays(issueDate: string, dueDate: string | null | undefined): number | null {
+/**
+ * Whole days from issue to due, within the 0–365 the form's Days until due
+ * accepts; null when either date is unknown or unreadable.
+ */
+export function paymentTermsDays(
+  issueDate: string,
+  dueDate: string | null | undefined,
+): number | null {
   if (!dueDate) return null;
   const days = Math.round((new Date(dueDate).getTime() - new Date(issueDate).getTime()) / DAY_MS);
   if (!Number.isFinite(days)) return null;

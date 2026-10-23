@@ -63,7 +63,11 @@ const financeBase: ApiRoute[] = [
 ];
 
 await app.check("New invoice: Add line puts the cursor in the new line's description", async () => {
-  const view = await app.open({ path: "/c/acme/finance/invoices/new", routes: financeBase });
+  // Past New invoice's one-time-or-recurring question, straight to the form.
+  const view = await app.open({
+    path: "/c/acme/finance/invoices/new?kind=one-time",
+    routes: financeBase,
+  });
   const { page } = view;
   const first = page.getByLabel("Line 1 description");
   await first.waitFor();

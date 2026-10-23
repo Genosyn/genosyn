@@ -20,6 +20,7 @@ import {
   InvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { newInvoicePath } from "../lib/invoiceKind";
 import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -222,7 +223,7 @@ export default function FinanceInvoices() {
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Invoices</h1>
         {canWrite && (
-          <Link to={`/c/${company.slug}/finance/invoices/new`}>
+          <Link to={newInvoicePath(`/c/${company.slug}/finance`)}>
             <Button>
               <Plus size={14} /> New invoice
             </Button>
@@ -288,7 +289,7 @@ export default function FinanceInvoices() {
                 Create one to start billing customers.
               </p>
               <div className="mt-4">
-                <Link to={`/c/${company.slug}/finance/invoices/new`}>
+                <Link to={newInvoicePath(`/c/${company.slug}/finance`)}>
                   <Button>
                     <Plus size={14} /> New invoice
                   </Button>

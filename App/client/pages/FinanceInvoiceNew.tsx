@@ -1,5 +1,12 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { ArrowLeft, Mail, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -28,6 +35,18 @@ import {
 } from "../lib/discountForm";
 import { initialCustomerPick, requestedCustomerPick } from "../lib/customerPick";
 import { errorMessage } from "../lib/errors";
+import {
+  DEFAULT_PAYMENT_TERMS_DAYS,
+  addDays,
+  draftCustomerRequest,
+  draftFromOneTimeInvoice,
+  invoiceDraftState,
+  newInvoiceStep,
+  oneTimeInvoiceFromDraft,
+  readInvoiceDraft,
+  switchInvoiceKindPath,
+  type InvoiceDraftLine,
+} from "../lib/invoiceKind";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -40,6 +59,7 @@ import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/In
 import { CustomerBillTo } from "@/components/finance/CustomerBillTo";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
 import { DiscountField } from "@/components/finance/DiscountField";
+import { InvoiceKindChoice, InvoiceKindSwitch } from "@/components/finance/InvoiceKind";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -51,15 +71,29 @@ type LineRow = {
   taxRateId: string;
 };
 
+function lineKey(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 function emptyLine(): LineRow {
   return {
-    key: Math.random().toString(36).slice(2, 10),
+    key: lineKey(),
     productId: null,
     description: "",
     quantityText: "1",
     priceText: "0.00",
     taxRateId: "",
   };
+}
+
+/** A line the recurring form handed over when someone switched. */
+function lineRowFromDraft(line: InvoiceDraftLine): LineRow {
+  return { key: lineKey(), ...line };
+}
+
+/** Today, as the date fields write it. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function lineRowFromExisting(l: {
@@ -70,7 +104,7 @@ function lineRowFromExisting(l: {
   taxRateId: string | null;
 }): LineRow {
   return {
-    key: Math.random().toString(36).slice(2, 10),
+    key: lineKey(),
     productId: l.productId,
     description: l.description,
     quantityText: String(l.quantity),
@@ -83,10 +117,15 @@ function lineRowFromExisting(l: {
  * `invoices/new` and `invoices/:invoiceSlug/edit`. Saving either needs Full
  * finance access, so a read-only Member who lands here gets a note instead
  * of a form that could only be refused.
+ *
+ * `invoices/new` first asks whether the invoice is one-time or recurring
+ * (`lib/invoiceKind.ts`): Recurring goes to the New recurring invoice form,
+ * and One-time comes back here as `?kind=one-time`, to the form.
  */
 export default function FinanceInvoiceNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { invoiceSlug } = useParams();
+  const [searchParams] = useSearchParams();
   if (!canWriteFinance(company)) {
     return (
       <FinanceReadOnlyPage
@@ -96,6 +135,9 @@ export default function FinanceInvoiceNew() {
         backTo={invoiceSlug ? `invoices/${invoiceSlug}` : "invoices"}
       />
     );
+  }
+  if (!invoiceSlug && newInvoiceStep(searchParams) === "choose") {
+    return <InvoiceKindChoice company={company} customerId={requestedCustomerPick(searchParams)} />;
   }
   return <InvoiceForm />;
 }
@@ -113,17 +155,30 @@ export default function FinanceInvoiceNew() {
  *
  * Lifecycle actions (Issue / Send / Mark paid / Void) live on the
  * detail page so users can preview the rendered HTML before sending.
+ *
+ * A new invoice keeps a One-time / Recurring switch at the top. Switching to
+ * Recurring hands what was typed to the New recurring invoice form, and
+ * coming back from it fills this form with what was typed there.
  */
 function InvoiceForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { invoiceSlug } = useParams();
   const isEdit = Boolean(invoiceSlug);
+  const financeBase = `/c/${company.slug}/finance`;
   // From a customer's page the link names them (`?customerId=`), so the form
   // starts with them rather than the first customer in the list.
   const [searchParams] = useSearchParams();
   const requestedCustomerId = isEdit ? null : requestedCustomerPick(searchParams);
   const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
+  // What the recurring form handed over, read once: the state is cleared
+  // below, so a reload or a later Back starts the form fresh.
+  const [received] = React.useState(() => (isEdit ? null : readInvoiceDraft(location.state)));
+  React.useEffect(() => {
+    if (!readInvoiceDraft(location.state)) return;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location, navigate]);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
@@ -136,10 +191,8 @@ function InvoiceForm() {
   const [savedIssuer, setSavedIssuer] = React.useState<InvoiceIssuer | null>(null);
   const [savedSubsidiaryId, setSavedSubsidiaryId] = React.useState<string | null>(null);
   const [customerId, setCustomerId] = React.useState("");
-  const [issueDate, setIssueDate] = React.useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = React.useState(
-    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-  );
+  const [issueDate, setIssueDate] = React.useState(today);
+  const [dueDate, setDueDate] = React.useState(() => addDays(today(), DEFAULT_PAYMENT_TERMS_DAYS));
   const [currency, setCurrency] = React.useState("USD");
   const [notes, setNotes] = React.useState("");
   const [footer, setFooter] = React.useState("");
@@ -190,11 +243,25 @@ function InvoiceForm() {
             existing.lines.length === 0 ? [emptyLine()] : existing.lines.map(lineRowFromExisting),
           );
         } else {
-          const initial = initialCustomerPick(c, requestedCustomerId);
+          const initial = initialCustomerPick(
+            c,
+            draftCustomerRequest(received, requestedCustomerId),
+          );
           setRequestedCustomerUnavailable(initial.requestedUnavailable);
           if (initial.customer) {
             setCustomerId(initial.customer.id);
             setCurrency(initial.customer.currency || "USD");
+          }
+          if (received) {
+            const start = oneTimeInvoiceFromDraft(received, today());
+            setSubsidiaryId(start.subsidiaryId);
+            setCurrency(start.currency);
+            setNotes(start.notes);
+            setFooter(start.footer);
+            setLines(start.lines.length === 0 ? [emptyLine()] : start.lines.map(lineRowFromDraft));
+            setDiscount(start.discount);
+            setIssueDate(start.issueDate);
+            setDueDate(start.dueDate);
           }
         }
         setReady(true);
@@ -203,7 +270,7 @@ function InvoiceForm() {
         setReady(true);
       }
     })();
-  }, [company.id, invoiceSlug, isEdit, requestedCustomerId]);
+  }, [company.id, invoiceSlug, isEdit, requestedCustomerId, received]);
 
   // When the customer changes, also adopt their default currency (the user
   // can override before saving).
@@ -259,6 +326,34 @@ function InvoiceForm() {
   // Issued: the customer already holds a copy under this number.
   const issued = existing !== null && existing.status !== "draft";
   const settledCents = existing ? invoiceSettledCents(existing) : 0;
+
+  // Switching to Recurring hands that form everything typed here, as it stands.
+  const switchToRecurring = isEdit
+    ? null
+    : {
+        to: switchInvoiceKindPath(
+          "recurring",
+          financeBase,
+          customerId,
+          draftCustomerRequest(received, requestedCustomerId),
+        ),
+        state: invoiceDraftState(
+          draftFromOneTimeInvoice(
+            {
+              customerId,
+              subsidiaryId,
+              currency,
+              notes,
+              footer,
+              lines,
+              discount,
+              issueDate,
+              dueDate,
+            },
+            received,
+          ),
+        ),
+      };
 
   async function save(then: "view" | "resend") {
     if (!canSave || busy) return;
@@ -383,7 +478,12 @@ function InvoiceForm() {
         />
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div
+        className={
+          "flex flex-wrap items-center justify-between gap-3 " +
+          (switchToRecurring ? "mb-4" : "mb-6")
+        }
+      >
         <div className="flex items-center gap-3">
           <Link
             to={
@@ -391,12 +491,13 @@ function InvoiceForm() {
                 ? `/c/${company.slug}/finance/invoices/${invoiceSlug}`
                 : `/c/${company.slug}/finance/invoices`
             }
+            aria-label={isEdit ? "Back to the invoice" : "Back to invoices"}
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            {isEdit ? `Edit ${existing?.number || "invoice"}` : "New invoice"}
+            {isEdit ? `Edit ${existing?.number || "invoice"}` : "New one-time invoice"}
           </h1>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -431,6 +532,15 @@ function InvoiceForm() {
           )}
         </div>
       </div>
+
+      {switchToRecurring && (
+        <InvoiceKindSwitch
+          current="one-time"
+          to={switchToRecurring.to}
+          state={switchToRecurring.state}
+          disabled={busy !== null}
+        />
+      )}
 
       {issued && existing && (
         <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
@@ -563,6 +673,7 @@ function InvoiceForm() {
                         <Select
                           value={l.productId ?? ""}
                           onChange={(e) => pickProduct(i, e.target.value)}
+                          aria-label={`Line ${i + 1} product`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                           <option value="">—</option>
@@ -578,6 +689,7 @@ function InvoiceForm() {
                           value={l.quantityText}
                           onChange={(e) => patchLine(i, { quantityText: e.target.value })}
                           inputMode="decimal"
+                          aria-label={`Line ${i + 1} quantity`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
@@ -586,6 +698,7 @@ function InvoiceForm() {
                           value={l.priceText}
                           onChange={(e) => patchLine(i, { priceText: e.target.value })}
                           inputMode="decimal"
+                          aria-label={`Line ${i + 1} unit price`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
@@ -593,6 +706,7 @@ function InvoiceForm() {
                         <Select
                           value={l.taxRateId}
                           onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
+                          aria-label={`Line ${i + 1} tax`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                           <option value="">No tax</option>
