@@ -12,6 +12,7 @@ import {
   RecurringRevenueMetrics,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { describeCron } from "../lib/schedule";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -201,7 +202,7 @@ export default function FinanceRecurringInvoices() {
           </p>
         </div>
         {canWrite && (
-          <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
+          <Link to={newRecurringInvoicePath(`/c/${company.slug}/finance`)}>
             <Button>
               <Plus size={14} /> New schedule
             </Button>
@@ -288,7 +289,7 @@ export default function FinanceRecurringInvoices() {
                 Set up a schedule once — Genosyn handles the rest.
               </p>
               <div className="mt-4">
-                <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
+                <Link to={newRecurringInvoicePath(`/c/${company.slug}/finance`)}>
                   <Button>
                     <Plus size={14} /> New schedule
                   </Button>

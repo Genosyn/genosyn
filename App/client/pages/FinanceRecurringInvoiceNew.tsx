@@ -1,5 +1,12 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -40,6 +47,16 @@ import {
 } from "../lib/discountForm";
 import { errorMessage } from "../lib/errors";
 import {
+  DEFAULT_PAYMENT_TERMS_DAYS,
+  draftCustomerRequest,
+  draftFromRecurringInvoice,
+  invoiceDraftState,
+  readInvoiceDraft,
+  recurringInvoiceFromDraft,
+  switchInvoiceKindPath,
+  type InvoiceDraftLine,
+} from "../lib/invoiceKind";
+import {
   changeRecurringInvoiceNameCustomer,
   existingRecurringInvoiceName,
   initialRecurringInvoiceCustomer,
@@ -70,6 +87,7 @@ import { DiscountField } from "@/components/finance/DiscountField";
 import { InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
 import { CustomerBillTo } from "@/components/finance/CustomerBillTo";
 import { FinanceReadOnlyPage } from "@/components/finance/FinanceReadOnly";
+import { InvoiceKindSwitch } from "@/components/finance/InvoiceKind";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -81,15 +99,24 @@ type LineRow = {
   taxRateId: string;
 };
 
+function lineKey(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 function emptyLine(): LineRow {
   return {
-    key: Math.random().toString(36).slice(2, 10),
+    key: lineKey(),
     productId: null,
     description: "",
     quantityText: "1",
     priceText: "0.00",
     taxRateId: "",
   };
+}
+
+/** A line the one-time form handed over when someone switched. */
+function lineRowFromDraft(line: InvoiceDraftLine): LineRow {
+  return { key: lineKey(), ...line };
 }
 
 function lineRowFromExisting(l: {
@@ -100,7 +127,7 @@ function lineRowFromExisting(l: {
   taxRateId: string | null;
 }): LineRow {
   return {
-    key: Math.random().toString(36).slice(2, 10),
+    key: lineKey(),
     productId: l.productId,
     description: l.description,
     quantityText: String(l.quantity),
@@ -171,15 +198,28 @@ export default function FinanceRecurringInvoiceNew() {
  * customer it starts with, which is how a customer's Billing tab opens it.
  * `?fromInvoice=` / `?fromEstimate=` start it as a copy of that document —
  * Make recurring on an invoice or estimate — leaving only the schedule to pick.
+ *
+ * A new schedule keeps a One-time / Recurring switch at the top. Switching to
+ * One-time hands what was typed to the one-time invoice form, and coming
+ * back from it fills this form with what was typed there
+ * (`lib/invoiceKind.ts`), in place of any document named in the link.
  */
 function RecurringInvoiceForm() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { recurringSlug } = useParams();
   const isEdit = Boolean(recurringSlug);
   const [searchParams] = useSearchParams();
   const requestedCustomerId = isEdit ? null : requestedRecurringInvoiceCustomerId(searchParams);
-  const sourceRef = isEdit ? null : requestedRecurringInvoiceSource(searchParams);
+  // What the one-time form handed over, read once: the state is cleared
+  // below, so a reload or a later Back starts the form fresh.
+  const [received] = React.useState(() => (isEdit ? null : readInvoiceDraft(location.state)));
+  React.useEffect(() => {
+    if (!readInvoiceDraft(location.state)) return;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location, navigate]);
+  const sourceRef = isEdit || received ? null : requestedRecurringInvoiceSource(searchParams);
   const sourceKind = sourceRef?.kind ?? null;
   const sourceSlug = sourceRef?.slug ?? null;
   const financeBase = `/c/${company.slug}/finance`;
@@ -202,12 +242,15 @@ function RecurringInvoiceForm() {
   const [subsidiaryId, setSubsidiaryId] = React.useState("");
   const [savedSubsidiaryId, setSavedSubsidiaryId] = React.useState<string | null>(null);
   const [customerId, setCustomerId] = React.useState("");
+  // The customer the form was asked to start with — by the link, a copied
+  // document, or the one-time form — which a switch passes on.
+  const [askedCustomerId, setAskedCustomerId] = React.useState<string | null>(null);
   const [requestedCustomerUnavailable, setRequestedCustomerUnavailable] = React.useState(false);
   const [name, setName] = React.useState<RecurringInvoiceNameState>(() =>
     initialRecurringInvoiceName(null),
   );
   const [schedule, setSchedule] = React.useState<ScheduleParts>(defaultScheduleParts);
-  const [daysUntilDue, setDaysUntilDue] = React.useState(14);
+  const [daysUntilDue, setDaysUntilDue] = React.useState(DEFAULT_PAYMENT_TERMS_DAYS);
   const [autoSend, setAutoSend] = React.useState(false);
   const [currency, setCurrency] = React.useState("USD");
   const [notes, setNotes] = React.useState("");
@@ -270,16 +313,30 @@ function RecurringInvoiceForm() {
           // A copied document's customer is asked for like a `?customerId=`
           // one: if it is archived, the form starts with nobody rather than
           // billing whoever is first in the list.
-          const initial = initialRecurringInvoiceCustomer(
-            c,
-            prefill?.customerId ?? requestedCustomerId,
-          );
+          const asked = prefill?.customerId ?? draftCustomerRequest(received, requestedCustomerId);
+          setAskedCustomerId(asked);
+          const initial = initialRecurringInvoiceCustomer(c, asked);
           setRequestedCustomerUnavailable(initial.requestedUnavailable);
           if (initial.customer) {
             setCustomerId(initial.customer.id);
             setCurrency(initial.customer.currency || "USD");
           }
           setName(initialRecurringInvoiceName(initial.customer));
+          if (received) {
+            const start = recurringInvoiceFromDraft(received, initial.customer);
+            setSubsidiaryId(start.subsidiaryId);
+            setCurrency(start.currency);
+            setNotes(start.notes);
+            setFooter(start.footer);
+            setLines(start.lines.length === 0 ? [emptyLine()] : start.lines.map(lineRowFromDraft));
+            setDiscount(start.discount);
+            setDaysUntilDue(start.daysUntilDue);
+            setName(start.name);
+            setSchedule(start.schedule);
+            setAutoSend(start.autoSend);
+            setMaxRunsText(start.maxRunsText);
+            setEndsOn(start.endsOn);
+          }
           if (ref && loaded && prefill) {
             setSubsidiaryId(prefill.subsidiaryId);
             setCurrency(prefill.currency);
@@ -302,7 +359,16 @@ function RecurringInvoiceForm() {
         setReady(true);
       }
     })();
-  }, [company.id, company.slug, recurringSlug, isEdit, requestedCustomerId, sourceKind, sourceSlug]);
+  }, [
+    company.id,
+    company.slug,
+    recurringSlug,
+    isEdit,
+    requestedCustomerId,
+    sourceKind,
+    sourceSlug,
+    received,
+  ]);
 
   function changeCustomer(id: string) {
     setCustomerId(id);
@@ -359,6 +425,33 @@ function RecurringInvoiceForm() {
     !!nameToSave &&
     lines.some((l) => l.description.trim().length > 0) &&
     !discountDraftProblem(discount);
+
+  // Switching to One-time hands that form everything typed here, as it stands.
+  const switchToOneTime = isEdit
+    ? null
+    : {
+        to: switchInvoiceKindPath("one-time", financeBase, customerId, askedCustomerId),
+        state: invoiceDraftState(
+          draftFromRecurringInvoice(
+            {
+              customerId,
+              subsidiaryId,
+              currency,
+              notes,
+              footer,
+              lines,
+              discount,
+              daysUntilDue,
+              name,
+              schedule,
+              autoSend,
+              maxRunsText,
+              endsOn,
+            },
+            received,
+          ),
+        ),
+      };
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -491,10 +584,15 @@ function RecurringInvoiceForm() {
         />
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div
+        className={
+          "flex flex-wrap items-center justify-between gap-3 " + (switchToOneTime ? "mb-4" : "mb-6")
+        }
+      >
         <div className="flex items-center gap-3">
           <Link
             to={backPath}
+            aria-label="Back"
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
@@ -503,7 +601,7 @@ function RecurringInvoiceForm() {
             {isEdit ? "Edit schedule" : "New recurring invoice"}
           </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Link to={backPath}>
             <Button type="button" variant="secondary" disabled={busy}>
               Cancel
@@ -514,6 +612,15 @@ function RecurringInvoiceForm() {
           </Button>
         </div>
       </div>
+
+      {switchToOneTime && (
+        <InvoiceKindSwitch
+          current="recurring"
+          to={switchToOneTime.to}
+          state={switchToOneTime.state}
+          disabled={busy}
+        />
+      )}
 
       <FormError message={error} className="mb-4" />
 
@@ -762,6 +869,7 @@ function RecurringInvoiceForm() {
                         <Select
                           value={l.productId ?? ""}
                           onChange={(e) => pickProduct(i, e.target.value)}
+                          aria-label={`Line ${i + 1} product`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                           <option value="">—</option>
@@ -777,6 +885,7 @@ function RecurringInvoiceForm() {
                           value={l.quantityText}
                           onChange={(e) => patchLine(i, { quantityText: e.target.value })}
                           inputMode="decimal"
+                          aria-label={`Line ${i + 1} quantity`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
@@ -785,6 +894,7 @@ function RecurringInvoiceForm() {
                           value={l.priceText}
                           onChange={(e) => patchLine(i, { priceText: e.target.value })}
                           inputMode="decimal"
+                          aria-label={`Line ${i + 1} unit price`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
@@ -792,6 +902,7 @@ function RecurringInvoiceForm() {
                         <Select
                           value={l.taxRateId}
                           onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
+                          aria-label={`Line ${i + 1} tax`}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                           <option value="">No tax</option>
@@ -818,14 +929,18 @@ function RecurringInvoiceForm() {
                       </td>
                     </tr>
                     <tr>
-                      <td colSpan={6} className="px-2 pb-2">
-                        <input
+                      <td colSpan={6} className="px-2 pb-3 pt-2">
+                        {/* Multi-line, like the one-time form's: an `<input>`
+                            would drop the line breaks of a description copied
+                            from an invoice or carried over by a switch. */}
+                        <textarea
                           value={l.description}
                           onChange={(e) => patchLine(i, { description: e.target.value })}
                           autoFocus={l.key === newLineKey}
                           aria-label={`Line ${i + 1} description`}
                           placeholder="Description"
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                          rows={2}
+                          className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
                     </tr>

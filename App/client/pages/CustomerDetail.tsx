@@ -51,6 +51,7 @@ import {
 } from "../lib/customerOverview";
 import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
+import { newInvoicePath } from "../lib/invoiceKind";
 import { withCustomerPick } from "../lib/customerPick";
 import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
@@ -1183,9 +1184,7 @@ function CustomerOverview({ company }: { company: Company }) {
             title="Invoices"
             count={listedInvoices.length}
             newLabel="New invoice"
-            newTo={
-              canWrite ? withCustomerPick(`${financeBase}/invoices/new`, customer.id) : undefined
-            }
+            newTo={canWrite ? newInvoicePath(financeBase, customer.id) : undefined}
             emptyText="No invoices for this customer yet."
             first
           >
