@@ -34,6 +34,9 @@ export type EstimateHtmlInput = {
   defaultFromBlock?: string;
   /** Default footer when the estimate has no `footer` of its own. */
   defaultFooter?: string;
+  /** Optional note shown above the estimate in an email body. It is never
+   *  included in the separately rendered PDF attachment. */
+  emailMessage?: string;
 };
 
 const STYLES = `
@@ -51,6 +54,15 @@ body {
   margin: 32px auto;
   padding: 40px 48px;
   background: #fff;
+}
+.email-message {
+  margin-bottom: 32px;
+  padding: 16px 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  white-space: pre-wrap;
 }
 .header {
   display: flex;
@@ -257,6 +269,9 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
 
   const numberDisplay = estimate.status === "draft" ? "DRAFT" : estimate.number || "DRAFT";
   const statusClass = estimate.status;
+  const emailMessageBlock = input.emailMessage?.trim()
+    ? `<div class="email-message">${esc(input.emailMessage.trim())}</div>`
+    : "";
 
   const billingAddress = customer.billingAddress
     ? `<div class="party-detail">${esc(customer.billingAddress)}</div>`
@@ -274,6 +289,7 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
 </head>
 <body>
   <div class="page">
+    ${emailMessageBlock}
     <div class="header">
       <div>
         <div class="brand">${esc(issuer.companyName || "")}</div>
@@ -337,6 +353,7 @@ export async function renderEstimateHtmlForCompany(
   estimate: Estimate,
   customer: Customer,
   lines: EstimateLineItem[],
+  options: { emailMessage?: string } = {},
 ): Promise<string> {
   const [company, settings] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
@@ -349,6 +366,7 @@ export async function renderEstimateHtmlForCompany(
     companyName: company?.name ?? "",
     defaultFromBlock: settings.defaultFromBlock,
     defaultFooter: settings.defaultFooter,
+    emailMessage: options.emailMessage,
   });
 }
 

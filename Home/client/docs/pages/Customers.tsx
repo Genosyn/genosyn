@@ -319,8 +319,12 @@ export function Customers() {
         Beyond the billing record, a customer can carry any number of <Strong>contacts</Strong>: the
         humans at that account, each with their own name, role, email, and phone. Mark one as the
         primary contact to surface it first. Add, edit, or remove contacts inline on the New / Edit
-        customer page. Contacts are for your records — invoice and estimate email still goes to the
-        customer&apos;s billing email.
+        customer page. Invoice and estimate email goes to the customer&apos;s billing email unless
+        you choose otherwise: when you resend one, its contacts — with the Revenue contacts linked
+        to the account, on its deals, or at its domain — are suggested one click away, billing and
+        finance roles and the primary contact first. An address you type there that isn&apos;t a
+        contact yet can be saved as one. See{" "}
+        <DocLink to="/docs/finance#invoices-recipients">Choosing who an invoice goes to</DocLink>.
       </P>
       <P>
         These lightweight contacts support billing records. The people you are selling to are{" "}

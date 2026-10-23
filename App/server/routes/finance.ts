@@ -160,10 +160,12 @@ import {
   duplicateEstimate,
   EstimateEditError,
   type EstimateSendResult,
+  failedEstimateSend,
+  getEstimateEmailDetails,
   hydrateEstimates,
   issueEstimate,
   loadEstimateBySlug,
-  resolveEstimateRecipient,
+  resolveEstimateRecipients,
   sendEstimateEmail,
   setEstimatesArchived,
   updateEstimate,
@@ -265,6 +267,10 @@ import {
 } from "../services/bills.js";
 import { hydrateCustomers, listCustomers } from "../services/customers.js";
 import { listCustomerMail } from "../services/customerMail.js";
+import {
+  listRecipientSuggestions,
+  MAX_RECIPIENT_SUGGESTIONS,
+} from "../services/recipientSuggestions.js";
 import { resolveDocumentIssuer } from "../services/subsidiaries.js";
 import { subsidiariesRouter } from "./subsidiaries.js";
 import { customerMergeRouter } from "./customerMerge.js";
@@ -781,6 +787,32 @@ financeRouter.get("/customers/:slug/contacts", async (req, res) => {
   });
   res.json(contacts);
 });
+
+const customerSlugParamsSchema = z.object({
+  cid: z.string().min(1),
+  slug: z.string().min(1).max(200),
+});
+
+export const recipientSuggestionsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(MAX_RECIPIENT_SUGGESTIONS).optional(),
+  })
+  .strict();
+
+// Who to offer in an invoice or estimate's send dialog: the customer's people,
+// best first. See services/recipientSuggestions.ts for who counts and why.
+financeRouter.get(
+  "/customers/:slug/recipient-suggestions",
+  validateParams(customerSlugParamsSchema),
+  validateQuery(recipientSuggestionsQuerySchema),
+  async (req, res) => {
+    const { cid, slug } = req.params as z.infer<typeof customerSlugParamsSchema>;
+    const query = req.query as unknown as z.infer<typeof recipientSuggestionsQuerySchema>;
+    const customer = await loadCustomerBySlug(cid, slug);
+    if (!customer) return res.status(404).json({ error: "Customer not found" });
+    res.json(await listRecipientSuggestions(cid, customer, { limit: query.limit }));
+  },
+);
 
 financeRouter.post(
   "/customers/:slug/contacts",
@@ -1312,7 +1344,13 @@ financeRouter.post("/invoices/:slug/issue", async (req, res) => {
   }
 });
 
-const invoiceSendSchema = z.preprocess(
+/**
+ * What the send dialog confirms before an invoice or estimate is emailed. An
+ * empty body sends to the customer's billing email with the PDF attached —
+ * Issue & send — and `to` / `cc`, when given, are exactly who it goes to
+ * (plus Finance → Settings → Always Cc, on an invoice).
+ */
+const documentSendSchema = z.preprocess(
   (value) => value ?? {},
   z
     .object({
@@ -1323,6 +1361,7 @@ const invoiceSendSchema = z.preprocess(
     })
     .strict(),
 );
+const invoiceSendSchema = documentSendSchema;
 
 // Email send (auto-issues drafts, then sends). Issued invoices reach this
 // endpoint through the resend confirmation modal.
@@ -2356,11 +2395,12 @@ financeRouter.get("/estimates/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const est = await loadEstimateBySlug(cid, req.params.slug);
   if (!est) return res.status(404).json({ error: "Estimate not found" });
-  const [[hydrated], revision] = await Promise.all([
+  const [[hydrated], revision, emailDetails] = await Promise.all([
     hydrateEstimates(cid, [est]),
     documentRevisionState(cid, "estimate", est.id),
+    getEstimateEmailDetails(cid, est),
   ]);
-  res.json({ ...hydrated, revision });
+  res.json({ ...hydrated, revision, emailDetails });
 });
 
 export const estimatePatchSchema = z.object({
@@ -2459,13 +2499,16 @@ financeRouter.post("/estimates/:slug/issue", async (req, res) => {
   }
 });
 
-financeRouter.post("/estimates/:slug/send", async (req, res) => {
+// Email send (auto-issues drafts, then sends). Issued estimates reach this
+// endpoint through the resend dialog, which confirms the recipients.
+financeRouter.post("/estimates/:slug/send", validateBody(documentSendSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   let est = await loadEstimateBySlug(cid, req.params.slug);
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   if (est.status === "void") {
     return res.status(409).json({ error: "Voided estimates cannot be sent" });
   }
+  const body = req.body as z.infer<typeof documentSendSchema>;
   // Issuing a draft mints its gapless number and re-slugs the row from
   // `edraft-…` to `est-nnnn`, so once we have issued, the caller *must* be
   // told the new slug — an error response instead leaves the open detail page
@@ -2475,7 +2518,7 @@ financeRouter.post("/estimates/:slug/send", async (req, res) => {
   // to a failed send rather than an error status.
   let issuedHere = false;
   try {
-    await resolveEstimateRecipient(cid, est);
+    await resolveEstimateRecipients(cid, est, body);
     if (est.status === "draft") {
       est = await issueEstimate(est, req.userId ?? null);
       issuedHere = true;
@@ -2488,15 +2531,20 @@ financeRouter.post("/estimates/:slug/send", async (req, res) => {
   }
   let send: EstimateSendResult;
   try {
-    send = await sendEstimateEmail(cid, est, req.userId ?? null);
+    send = await sendEstimateEmail(cid, est, req.userId ?? null, body);
   } catch (err) {
     const errorMessage = (err as Error).message;
     if (!issuedHere) return res.status(400).json({ error: errorMessage });
-    send = { status: "failed", logId: "", errorMessage };
+    send = failedEstimateSend(errorMessage, body);
   }
   await auditFinance(req, "finance.estimate.send", { type: "estimate", id: est.id, label: est.number || "Draft estimate" }, {
     status: send.status,
     errorMessage: send.errorMessage,
+    toAddress: send.toAddress,
+    ccAddress: send.ccAddress,
+    pdfRequested: send.pdfRequested,
+    pdfAttached: send.pdfAttached,
+    hasMessage: send.hasMessage,
   });
   // Express 4 does not catch a rejected async handler, so the tail stays
   // guarded too — an unanswered request is worse than an error.

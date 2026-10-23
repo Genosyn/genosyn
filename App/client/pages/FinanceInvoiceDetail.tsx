@@ -10,7 +10,6 @@ import {
   Download,
   Mail,
   MoreHorizontal,
-  Paperclip,
   Pencil,
   Plus,
   Repeat,
@@ -22,6 +21,7 @@ import {
   api,
   changedSinceEmailed,
   displayInvoiceStatus,
+  type DocumentEmailDetails,
   type DocumentRevision,
   formatExchangeRate,
   formatMoney,
@@ -33,6 +33,7 @@ import {
   InvoiceWriteOffKind,
   CustomerCreditApplicationRow,
   parseMoneyToCents,
+  wantsRevisedResend,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
@@ -52,7 +53,7 @@ import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
 import { InvoiceStatusBadge } from "@/components/finance/InvoiceStatusBadge";
 import { DocumentLinesTable } from "@/components/finance/DocumentLinesTable";
-import { splitAddressList } from "@/lib/addressList";
+import { SendDocumentModal } from "@/components/finance/SendDocumentModal";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
@@ -66,17 +67,8 @@ const PAYMENT_METHOD_LABEL: Record<InvoicePaymentMethod, string> = {
   other: "Other",
 };
 
-type InvoiceEmailDetails = {
-  toAddress: string;
-  alwaysCcAddress: string;
-  fromAddress: string;
-  replyTo: string;
-  configured: boolean;
-  source: "company_provider" | "global_smtp" | "console";
-};
-
 type InvoiceDetailPayload = Invoice & {
-  emailDetails: InvoiceEmailDetails;
+  emailDetails: DocumentEmailDetails;
   writeOffs: InvoiceWriteOff[];
   creditApplications: CustomerCreditApplicationRow[];
   revision: DocumentRevision;
@@ -116,7 +108,7 @@ export default function FinanceInvoiceDetail() {
   const location = useLocation();
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
-  const [emailDetails, setEmailDetails] = React.useState<InvoiceEmailDetails | null>(null);
+  const [emailDetails, setEmailDetails] = React.useState<DocumentEmailDetails | null>(null);
   const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
   const [creditApplications, setCreditApplications] = React.useState<
     CustomerCreditApplicationRow[]
@@ -175,7 +167,7 @@ export default function FinanceInvoiceDetail() {
   // Save & resend on the edit page lands here to confirm the email. The state
   // is cleared first, so a reload never reopens the dialog.
   React.useEffect(() => {
-    if (!(location.state as { resendRevised?: boolean } | null)?.resendRevised) return;
+    if (!wantsRevisedResend(location.state)) return;
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     setResendMessage(REVISED_MESSAGE);
     setShowResend(true);
@@ -967,11 +959,16 @@ export default function FinanceInvoiceDetail() {
       </div>
 
       {showResend && emailDetails && (
-        <ResendInvoiceModal
+        <SendDocumentModal
           companyId={company.id}
-          invoice={invoice}
+          kind="invoice"
+          title={`Resend ${invoice.number || "invoice"}`}
+          number={invoice.number}
+          customer={invoice.customer}
           details={emailDetails}
+          sendPath={`/api/companies/${company.id}/invoices/${invoice.slug}/send`}
           initialMessage={resendMessage}
+          submitLabel="Resend email"
           onClose={() => setShowResend(false)}
           onFinished={() => {
             setShowResend(false);
@@ -1193,192 +1190,6 @@ function WriteOffModal({
       </div>
     </Modal>
   );
-}
-
-function ResendInvoiceModal({
-  companyId,
-  invoice,
-  details,
-  initialMessage = "",
-  onClose,
-  onFinished,
-}: {
-  companyId: string;
-  invoice: Invoice;
-  details: InvoiceEmailDetails;
-  /** A note to start from, such as the one that says the invoice was updated. */
-  initialMessage?: string;
-  onClose: () => void;
-  onFinished: () => void;
-}) {
-  const dialog = useDialog();
-  const [to, setTo] = React.useState(details.toAddress);
-  const [cc, setCc] = React.useState("");
-  const [message, setMessage] = React.useState(initialMessage);
-  const [attachPdf, setAttachPdf] = React.useState(true);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  async function resend(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const toRecipients = parseRecipientInput(to);
-    const ccRecipients = parseRecipientInput(cc);
-    if (toRecipients.length === 0) {
-      setError("Add at least one To recipient");
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await api.post<InvoiceSendResponse>(
-        `/api/companies/${companyId}/invoices/${invoice.slug}/send`,
-        { to: toRecipients, cc: ccRecipients, message: message.trim(), attachPdf },
-      );
-      // The modal closes on every outcome and the History feed logs it; only
-      // a partial or failed send carries a reason worth stopping the user for.
-      if (result.send.status === "sent") {
-        if (result.send.pdfRequested && !result.send.pdfAttached) {
-          void dialog.error("The PDF attachment could not be generated.", {
-            title: "Email resent without the PDF",
-          });
-        }
-      } else if (result.send.status === "skipped") {
-        void dialog.error("Set one in Settings → Email, then resend.", {
-          title: "No email transport configured",
-        });
-      } else {
-        void dialog.error(result.send.errorMessage || "Unknown error", {
-          title: "Couldn’t resend the invoice email",
-        });
-      }
-      onFinished();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal open onClose={onClose} title={`Resend ${invoice.number || "invoice"}`}>
-      <form onSubmit={resend} className="space-y-5">
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-sm dark:border-slate-700 dark:bg-slate-800/50">
-          <dl className="divide-y divide-slate-200 dark:divide-slate-700">
-            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
-              <dt className="text-slate-500 dark:text-slate-400">From</dt>
-              <dd className="break-all font-medium text-slate-900 dark:text-slate-100">
-                {details.fromAddress || "No sender configured"}
-              </dd>
-            </div>
-            {details.alwaysCcAddress && (
-              <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
-                <dt className="text-slate-500 dark:text-slate-400">Always Cc</dt>
-                <dd className="break-all text-slate-700 dark:text-slate-200">
-                  {details.alwaysCcAddress}
-                </dd>
-              </div>
-            )}
-            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
-              <dt className="text-slate-500 dark:text-slate-400">To</dt>
-              <dd>
-                <Input
-                  type="email"
-                  multiple
-                  required
-                  aria-label="To recipients"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  placeholder="name@example.com, other@example.com"
-                  className="h-9"
-                />
-              </dd>
-            </div>
-            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
-              <dt className="pt-2 text-slate-500 dark:text-slate-400">Cc</dt>
-              <dd>
-                <Input
-                  type="email"
-                  multiple
-                  aria-label="Cc recipients"
-                  value={cc}
-                  onChange={(e) => setCc(e.target.value)}
-                  placeholder="Optional"
-                  className="h-9"
-                />
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Additional recipients only. Finance → Settings recipients are always included.
-                  Separate multiple addresses with commas.
-                </p>
-              </dd>
-            </div>
-            {details.replyTo && (
-              <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
-                <dt className="text-slate-500 dark:text-slate-400">Reply to</dt>
-                <dd className="break-all text-slate-700 dark:text-slate-200">{details.replyTo}</dd>
-              </div>
-            )}
-          </dl>
-        </div>
-
-        {!details.configured && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-            No email transport is configured. This attempt will be logged, but no email will be
-            delivered.
-          </div>
-        )}
-
-        <Textarea
-          label="Message (optional)"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Add a short note for the customer…"
-          maxLength={4000}
-          rows={5}
-        />
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700">
-          <input
-            type="checkbox"
-            checked={attachPdf}
-            onChange={(e) => setAttachPdf(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
-          />
-          <span className="flex min-w-0 gap-2">
-            <Paperclip size={16} className="mt-0.5 shrink-0 text-slate-400" />
-            <span>
-              <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
-                Attach invoice as PDF
-              </span>
-              <span className="block text-xs text-slate-500 dark:text-slate-400">
-                {invoice.number || "invoice"}.pdf
-              </span>
-            </span>
-          </span>
-        </label>
-
-        <FormError message={error} />
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={busy} disabled={!to.trim()}>
-            <Mail size={14} /> {busy ? "Sending…" : "Resend email"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function parseRecipientInput(value: string): string[] {
-  const seen = new Set<string>();
-  return splitAddressList(value).flatMap((address) => {
-    const key = address.toLowerCase();
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [address];
-  });
 }
 
 function PaymentModal({
