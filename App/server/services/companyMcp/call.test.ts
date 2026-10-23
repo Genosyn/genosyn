@@ -14,6 +14,7 @@ import {
   MAX_FILE_BYTES,
   multipartBody,
   sendRequest,
+  unwrapJsonText,
   type BuiltRequest,
   type CallArguments,
 } from "./call.js";
@@ -266,7 +267,38 @@ describe("structural mistakes, refused before anything is sent", () => {
   });
 });
 
+describe("a body sent as JSON text", () => {
+  test("is unwrapped when it is a JSON object or array, and left alone otherwise", () => {
+    assert.deepEqual(unwrapJsonText('{"name":"Hot"}'), { name: "Hot" });
+    assert.deepEqual(unwrapJsonText("  [1, 2] "), [1, 2]);
+    assert.equal(unwrapJsonText("Hot"), "Hot");
+    assert.equal(unwrapJsonText('"quoted"'), '"quoted"');
+    assert.equal(unwrapJsonText("{not json"), "{not json");
+    assert.equal(unwrapJsonText("null"), "null");
+    const object = { name: "x" };
+    assert.equal(unwrapJsonText(object), object);
+    assert.equal(unwrapJsonText(undefined), undefined);
+  });
+
+  test("reaches the route as the JSON it spells", () => {
+    const request = built("createTag", { body: '{"name":"From text"}' });
+    assert.deepEqual(JSON.parse(request.body!.toString()), { name: "From text" });
+    const form = built("createContract", {
+      body: '{"title":"MSA"}',
+      file: { name: "a.txt", text: "x" },
+    });
+    assert.match(form.body!.toString(), /name="title"\r\n\r\nMSA\r\n/);
+  });
+});
+
 describe("files", () => {
+  test("URL-safe base64 decodes too", () => {
+    const bytes = Buffer.from([251, 255, 254, 62, 63]);
+    const decoded = decodeFile({ name: "a.bin", base64: bytes.toString("base64url") });
+    assert.ok(decoded.ok);
+    assert.deepEqual(decoded.data, bytes);
+  });
+
   test("base64 and text decode to their bytes; whitespace in base64 is fine", () => {
     const bytes = Buffer.from([0, 255, 1, 254]);
     const encoded = bytes.toString("base64").replace(/(.{2})/g, "$1\n");

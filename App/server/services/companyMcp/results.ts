@@ -154,15 +154,23 @@ function successResult(
   const mimeType = contentType.split(";")[0]?.trim() || "application/octet-stream";
   const url = `${context.baseUrl}${request.path}`;
   const name = fileNameOf(headerValue(response.headers["content-disposition"]));
+  const embeddable = !response.truncated && response.body.length <= MAX_EMBEDDED_FILE_BYTES;
+  // A file read only in part is as long as its header says, when it says.
+  const declared = Number(headerValue(response.headers["content-length"]));
+  const bytes = response.truncated
+    ? Number.isFinite(declared) && declared > 0
+      ? declared
+      : null
+    : response.body.length;
   const file: Structured = {
     contentType: mimeType,
-    bytes: response.body.length,
+    ...(bytes !== null ? { bytes } : {}),
     url,
     ...(name ? { name } : {}),
   };
-  const embeddable = !response.truncated && response.body.length <= MAX_EMBEDDED_FILE_BYTES;
+  const size = bytes !== null ? `${bytes} bytes` : `over ${MAX_EMBEDDED_FILE_BYTES} bytes`;
   const described =
-    `${line}\n${withIndefiniteArticle(`${mimeType} file`, { capitalized: true })}${name ? ` named ${name}` : ""}, ${response.body.length} bytes.` +
+    `${line}\n${withIndefiniteArticle(`${mimeType} file`, { capitalized: true })}${name ? ` named ${name}` : ""}, ${size}.` +
     (embeddable
       ? ""
       : ` It is too large to return here; download it from ${url} with the same API key as a Bearer token.`);
@@ -186,19 +194,36 @@ function successResult(
 
 type ErrorBody = { error?: unknown; issues?: unknown };
 
-/** Zod issues as `body.title: Required` lines. */
-export function formatIssues(issues: unknown, location: string): string[] {
+/** Zod issues as `body.title: Required` lines, each under the part of the request it is about. */
+export function formatIssues(
+  issues: unknown,
+  location: string | ((issue: unknown) => string),
+): string[] {
   if (!Array.isArray(issues)) return [];
   return issues.slice(0, 20).map((issue) => {
     const record = (issue ?? {}) as { path?: unknown; message?: unknown };
     const path = Array.isArray(record.path) ? record.path.map(String).join(".") : "";
-    const where = [location, path].filter(Boolean).join(".");
+    const part = typeof location === "function" ? location(issue) : location;
+    const where = [part, path].filter(Boolean).join(".");
     return `- ${where || "(request)"}: ${typeof record.message === "string" ? record.message : "is invalid"}`;
   });
 }
 
-/** Where a validation issue points: the body, unless the operation has none. */
-function issueLocation(operation: CatalogueOperation): string {
+/**
+ * The part of the request a validation issue is about. A route validates its
+ * path, query and body separately and its issues do not say which; the
+ * issue's first field does, for any operation that names it.
+ */
+function issueLocation(operation: CatalogueOperation, issue: unknown): string {
+  const path = (issue as { path?: unknown } | null)?.path;
+  const first = Array.isArray(path) && path.length ? String(path[0]) : undefined;
+  const bodySchema = (operation.inputSchema.properties as Record<string, { properties?: object }>)
+    ?.body;
+  if (first !== undefined) {
+    if (first === "cid" || operation.pathParams.includes(first)) return "path";
+    if (bodySchema?.properties && first in bodySchema.properties) return "body";
+    if (operation.queryParams.some((parameter) => parameter.name === first)) return "query";
+  }
   if (operation.body) return "body";
   return operation.queryParams.length ? "query" : "path";
 }
@@ -281,8 +306,12 @@ function failureResult(
       : raw.trim()
         ? cut(raw.trim()).text.slice(0, 2000)
         : reasonPhrase(response.status) || `HTTP ${response.status}`;
-  const issues = formatIssues(parsed?.issues, issueLocation(operation));
-  const explanation = explainStatus(response.status, message, operation, context);
+  const issues = formatIssues(parsed?.issues, (issue) => issueLocation(operation, issue));
+  const location = headerValue(response.headers.location);
+  const explanation =
+    response.status >= 300 && response.status < 400 && location
+      ? `It redirects to ${location}, a page for a browser rather than an answer for a client.`
+      : explainStatus(response.status, message, operation, context);
   const text = [
     headline(request, response.status, operation),
     message,

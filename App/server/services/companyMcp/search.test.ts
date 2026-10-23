@@ -67,6 +67,19 @@ describe("everyday requests land on the right operation first", () => {
     });
   }
 
+  test("an operation asked for by its id comes first", () => {
+    for (const name of [
+      "createRevenueDeal",
+      "getRevenueDeal",
+      "listRevenueDeals",
+      "updateTag",
+      "getCompanyMe",
+    ]) {
+      assert.equal(first(name)?.name, name, name);
+      assert.equal(first(name.toLowerCase())?.name, name, `${name}, in lower case`);
+    }
+  });
+
   test("people's words reach the product's: tasks, agents and leads", () => {
     assert.equal(first("tasks")?.area, "Tasks");
     assert.equal(first("list my agents")?.area, "Employees");

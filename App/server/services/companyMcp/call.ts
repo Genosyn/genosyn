@@ -23,8 +23,12 @@ import {
 /** How long one operation may take before the tool gives up waiting. */
 export const CALL_TIMEOUT_MS = 120_000;
 
-/** The most of one response the tool reads. */
-export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+/**
+ * The most of one response the tool reads: enough to embed a 4 MB file and
+ * know a larger one is larger. A JSON answer is cut at 100,000 characters
+ * anyway, so reading further would only hold memory for nothing.
+ */
+export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024 + 1;
 
 /** The largest file a call may carry, decoded. The request limit keeps it lower in practice. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -139,7 +143,8 @@ function safeFileName(name: string): string {
 }
 
 const MIME_TYPE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+/** Standard or URL-safe base64; Node decodes either. */
+const BASE64 = /^[A-Za-z0-9+/_-]*={0,2}$/;
 
 /** The bytes and type of the file argument, or why it cannot be sent. */
 export function decodeFile(
@@ -178,6 +183,23 @@ export function decodeFile(
     };
   }
   return { ok: true, name: safeFileName(file.name), contentType, data };
+}
+
+/**
+ * A body a model sent as JSON text rather than as JSON — `"{\"name\":\"x\"}"` —
+ * which it does often enough to be worth meeting halfway. Only text that is a
+ * JSON object or array is unwrapped; any other string is left as it came.
+ */
+export function unwrapJsonText(body: unknown): unknown {
+  if (typeof body !== "string") return body;
+  const trimmed = body.trim();
+  if (!/^[[{]/.test(trimmed)) return body;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return parsed !== null && typeof parsed === "object" ? parsed : body;
+  } catch {
+    return body;
+  }
 }
 
 /** A `multipart/form-data` body: the text fields, then the file. */
@@ -284,8 +306,10 @@ export function buildRequest(
     accept: "application/json, */*;q=0.8",
   };
   let body: Buffer | undefined;
+  const bodyArgument = unwrapJsonText(args.body);
   const hasBody =
-    args.body !== undefined && !(isPlainObject(args.body) && Object.keys(args.body).length === 0);
+    bodyArgument !== undefined &&
+    !(isPlainObject(bodyArgument) && Object.keys(bodyArgument).length === 0);
 
   if (operation.body === null) {
     if (hasBody) {
@@ -302,10 +326,10 @@ export function buildRequest(
     if (args.file) {
       return fail(`${operation.name} takes a JSON body, not a file. Put the data in body instead.`);
     }
-    body = Buffer.from(JSON.stringify(args.body === undefined ? {} : args.body), "utf8");
+    body = Buffer.from(JSON.stringify(bodyArgument === undefined ? {} : bodyArgument), "utf8");
     headers["content-type"] = "application/json";
   } else {
-    if (args.body !== undefined && !isPlainObject(args.body)) {
+    if (bodyArgument !== undefined && !isPlainObject(bodyArgument)) {
       return fail(`${operation.name} takes a form: body must be an object of its text fields.`);
     }
     let file: Parameters<typeof multipartBody>[1] = null;
@@ -319,7 +343,7 @@ export function buildRequest(
         `${operation.name} needs a file: ${operation.upload.description} Pass it as file, with its name and its contents as base64 or text.`,
       );
     }
-    const form = multipartBody((args.body as Record<string, unknown> | undefined) ?? {}, file);
+    const form = multipartBody((bodyArgument as Record<string, unknown> | undefined) ?? {}, file);
     body = form.body;
     headers["content-type"] = form.contentType;
   }

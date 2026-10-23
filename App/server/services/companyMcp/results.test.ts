@@ -180,6 +180,24 @@ describe("success", () => {
     assert.deepEqual(Buffer.from(image.data, "base64"), png);
   });
 
+  test("a file read only in part reports the size its header gives, or that it is over the limit", () => {
+    const part = Buffer.alloc(16);
+    const declared = resultFor(
+      listTags,
+      answered(200, part, { "content-type": "application/zip", "content-length": "9000000" }, true),
+      owner,
+    );
+    assert.equal((declared.structuredContent?.file as { bytes: number }).bytes, 9_000_000);
+    assert.match(text(declared), /An application\/zip file, 9000000 bytes\. It is too large/);
+    const unknown = resultFor(
+      listTags,
+      answered(200, part, { "content-type": "video/mp4" }, true),
+      owner,
+    );
+    assert.equal((unknown.structuredContent?.file as { bytes?: number }).bytes, undefined);
+    assert.match(text(unknown), new RegExp(`over ${MAX_EMBEDDED_FILE_BYTES} bytes`));
+  });
+
   test("a file too large to embed is described, with where to download it", () => {
     const big = Buffer.alloc(MAX_EMBEDDED_FILE_BYTES + 1);
     const result = resultFor(
@@ -295,6 +313,53 @@ describe("failure", () => {
     }
   });
 
+  test("each validation issue is placed in the part of the request it is about", () => {
+    const listContacts = catalogue.byName.get("listRevenueContacts") as CatalogueOperation;
+    const query = resultFor(
+      listContacts,
+      answered(
+        400,
+        JSON.stringify({
+          error: "ValidationError",
+          issues: [{ path: ["limit"], message: "Too big" }],
+        }),
+      ),
+      owner,
+    );
+    assert.match(text(query), /- query\.limit: Too big/);
+    const updateStage = catalogue.byName.get("updateRevenueStage") as CatalogueOperation;
+    const mixed = resultFor(
+      updateStage,
+      answered(
+        400,
+        JSON.stringify({
+          error: "ValidationError",
+          issues: [
+            { path: ["id"], message: "Invalid uuid" },
+            { path: ["name"], message: "Too long" },
+            { path: [], message: "Something is required" },
+          ],
+        }),
+      ),
+      owner,
+    );
+    assert.match(text(mixed), /- path\.id: Invalid uuid/);
+    assert.match(text(mixed), /- body\.name: Too long/);
+    assert.match(text(mixed), /- body: Something is required/);
+  });
+
+  test("a redirect says where it points, since a client cannot follow a browser page", () => {
+    const result = resultFor(
+      listTags,
+      answered(302, "Found. Redirecting to /signin", {
+        location: "https://accounts.example/signin",
+      }),
+      owner,
+    );
+    assert.equal(result.isError, true);
+    assert.match(text(result), /It redirects to https:\/\/accounts\.example\/signin/);
+  });
+
   test("a failure with no JSON body still says what happened", () => {
     const html = resultFor(listTags, answered(502, "<html>Bad gateway</html>"), owner);
     assert.match(text(html), /<html>Bad gateway<\/html>/);
@@ -342,6 +407,10 @@ describe("helpers", () => {
     assert.deepEqual(
       formatIssues([{ path: ["a", 0, "b"], message: "Bad" }, { message: "Whole" }, null], "body"),
       ["- body.a.0.b: Bad", "- body: Whole", "- body: is invalid"],
+    );
+    assert.deepEqual(
+      formatIssues([{ path: ["x"], message: "Bad" }], () => "query"),
+      ["- query.x: Bad"],
     );
     assert.deepEqual(formatIssues("not issues", "body"), []);
     assert.equal(

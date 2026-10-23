@@ -252,11 +252,15 @@ export function searchOperations(
           compare(a.method, b.method),
       );
   } else {
+    // An operation asked for by its own id comes first, however its words score.
+    const exact = (options.query ?? "").trim().toLowerCase();
+    const isExact = (entry: Indexed) => (entry.operation.name.toLowerCase() === exact ? 1 : 0);
     ranked = candidates
       .map((entry) => ({ entry, ...scoreOf(entry, words) }))
-      .filter((scored) => scored.matched > 0)
+      .filter((scored) => scored.matched > 0 || isExact(scored.entry))
       .sort(
         (a, b) =>
+          isExact(b.entry) - isExact(a.entry) ||
           b.matched - a.matched ||
           b.score - a.score ||
           KIND_ORDER[a.entry.operation.kind] - KIND_ORDER[b.entry.operation.kind] ||

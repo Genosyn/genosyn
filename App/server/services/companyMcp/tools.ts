@@ -13,7 +13,13 @@ import { buildRequest, callArguments, sendRequest } from "./call.js";
 import type { CallerContext } from "./context.js";
 import type { JsonSchema } from "./jsonSchema.js";
 import { callMistake, resultFor } from "./results.js";
-import { areaOverview, resolveArea, searchOperations, similarOperationNames } from "./search.js";
+import {
+  areaOverview,
+  resolveArea,
+  searchOperations,
+  searchWords,
+  similarOperationNames,
+} from "./search.js";
 
 /**
  * The Genosyn MCP server's resident tools — the only ones `tools/list` shows.
@@ -290,7 +296,11 @@ const whoami: ResidentTool = {
     const sent = await sendRequest(context, built.request, signal);
     const result = resultFor(me, sent, context);
     const structured = result.structuredContent as { ok?: boolean; data?: unknown } | undefined;
-    if (result.isError || !structured?.ok || !isRecord(structured.data)) return result;
+    if (result.isError || !structured?.ok || !isRecord(structured.data)) {
+      // The call's own structured result is shaped for the call tools, not for
+      // whoami's output schema, which a client would check it against.
+      return { isError: true, content: result.content };
+    }
     const available = catalogue.operations.filter(
       (operation) => availabilityFor(operation, context.standing).available,
     ).length;
@@ -385,7 +395,8 @@ const search: ResidentTool = {
     const parsed = searchArguments.safeParse(args);
     if (!parsed.success) return callMistake(`Invalid arguments: ${zodProblems(parsed.error)}`);
     const catalogue = operationCatalogue(context.app);
-    const query = parsed.data.query?.trim() ?? "";
+    // A query of nothing but filler ("the", "all") asks for nothing in particular.
+    const query = searchWords(parsed.data.query ?? "").length ? parsed.data.query!.trim() : "";
     let area: string | undefined;
     if (parsed.data.area?.trim()) {
       const resolved = resolveArea(catalogue, parsed.data.area);

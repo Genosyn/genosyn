@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Server } from "node:http";
+import type { RequestListener, Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
 
@@ -17,6 +17,7 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { appVersion } from "../lib/version.js";
 import { operationCatalogue } from "../services/companyMcp/catalogue.js";
+import { RESIDENT_TOOLS_BY_NAME } from "../services/companyMcp/tools.js";
 import { setPublicUrl } from "../services/publicUrl.js";
 import {
   createMemberOfNewCompany,
@@ -224,6 +225,30 @@ describe("whoami", () => {
     assert.match(textOf(result), /"role": "owner"/);
   });
 
+  test("a key that stops working mid-request makes whoami fail plainly, without a mismatched result", async () => {
+    const { company, user } = await ownerSession();
+    const whoami = RESIDENT_TOOLS_BY_NAME.get("whoami")!;
+    const result = await whoami.run(
+      {
+        app: app as unknown as RequestListener,
+        companyId: company.id,
+        companyName: company.name,
+        member: { id: user.id, name: user.name, email: user.email },
+        standing: { role: "owner", financeAccess: "full" },
+        apiKey: { id: "k", name: "gone", prefix: "gen_x" },
+        authorization: `Bearer gen_${"Z".repeat(43)}`,
+        forwardedHeaders: { host: "genosyn.example.test" },
+        remote: {},
+        baseUrl: "http://genosyn.example.test",
+      },
+      {},
+      new AbortController().signal,
+    );
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent, undefined, "whoami's output schema is never violated");
+    assert.match(textOf(result), /→ 401 Unauthorized \(getCompanyMe\)/);
+  });
+
   test("a Member without Finance access sees fewer operations available", async () => {
     const { company } = await ownerSession();
     const member = await memberWithKey(company.id, "member", "none");
@@ -259,6 +284,12 @@ describe("search_operations", () => {
     assert.ok(!areas.some((area) => area.name === "MCP"), "the transports are not operations");
     assert.ok(!areas.some((area) => area.name === "Vault"), "the Vault needs a browser");
     assert.match(textOf(result), /Revenue \(\d+\)/);
+  });
+
+  test("a query of nothing but filler lists the areas, as no query does", async () => {
+    const { client } = await ownerSession();
+    const result = await call(client, "search_operations", { query: " the  " });
+    assert.ok(Array.isArray(result.structuredContent?.areas));
   });
 
   test("finds an operation by what it does, and names the tool that calls it", async () => {
@@ -866,6 +897,41 @@ describe("the key stays the authority for every call", () => {
       body: { title: "Grow again", targetValue: 20 },
     });
     assert.equal(refused.structuredContent?.status, 403);
+  });
+
+  test("another company's records are out of reach, by id or by listing", async () => {
+    const first = await ownerSession();
+    const second = await ownerSession();
+    const made = await call(first.client, "call_write_operation", {
+      operationId: "createRevenueContact",
+      body: { name: "Only in the first company" },
+    });
+    const contact = made.structuredContent?.data as { id: string };
+    assert.equal(made.structuredContent?.status, 201);
+
+    const read = await call(second.client, "call_read_operation", {
+      operationId: "getRevenueContact",
+      path: { id: contact.id },
+    });
+    assert.equal(read.structuredContent?.status, 404);
+    const update = await call(second.client, "call_write_operation", {
+      operationId: "updateRevenueContact",
+      path: { id: contact.id },
+      body: { name: "Hijacked" },
+    });
+    assert.equal(update.structuredContent?.status, 404);
+    const listed = await call(second.client, "call_read_operation", {
+      operationId: "listRevenueContacts",
+    });
+    assert.equal((listed.structuredContent?.data as { total: number }).total, 0);
+    const untouched = await call(first.client, "call_read_operation", {
+      operationId: "getRevenueContact",
+      path: { id: contact.id },
+    });
+    assert.equal(
+      (untouched.structuredContent?.data as { contact: { name: string } }).contact.name,
+      "Only in the first company",
+    );
   });
 
   test("using the server records the key as used", async () => {

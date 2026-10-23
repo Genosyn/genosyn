@@ -329,12 +329,23 @@ describe("discovering the App", () => {
     assert.ok(mounts.has("/api/companies/:cid/vault/sources"));
   });
 
-  test("every company route sits behind requireAuth in its chain", async () => {
-    const { requireAuth } = await import("../middleware/auth.js");
+  test("every company route sits behind requireAuth — or, for the MCP server, requireApiKeyAuth", async () => {
+    const { requireApiKeyAuth, requireAuth } = await import("../middleware/auth.js");
     for (const route of routes) {
       if (!route.path.startsWith("/api/companies/{cid}")) continue;
       const handlers = [...route.chain.map((link) => link.handle), ...route.handlers];
-      assert.ok(handlers.includes(requireAuth), `${route.method} ${route.path}`);
+      assert.ok(
+        handlers.includes(requireAuth) || handlers.includes(requireApiKeyAuth),
+        `${route.method} ${route.path}`,
+      );
+    }
+    // The Genosyn MCP server never reaches the cookie-reading guard at all.
+    const mcp = routes.filter((route) => route.path === "/api/companies/{cid}/mcp");
+    assert.deepEqual(mcp.map((route) => route.method).sort(), ["delete", "get", "post"]);
+    for (const route of mcp) {
+      const handlers = [...route.chain.map((link) => link.handle), ...route.handlers];
+      assert.ok(handlers.includes(requireApiKeyAuth), route.method);
+      assert.ok(!handlers.includes(requireAuth), `${route.method} must not read the session`);
     }
   });
 
