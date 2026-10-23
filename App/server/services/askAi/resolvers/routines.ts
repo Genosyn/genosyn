@@ -168,6 +168,12 @@ export const resolveRoutine: AskAiResolver = async ({ companyId, ref }) => {
       ["Last run", routine.lastRunAt ? routine.lastRunAt.toISOString() : "never"],
       ["Timeout", `${routine.timeoutSec}s`],
       [
+        "Priority",
+        routine.priority === "high"
+          ? "High — its Runs start before Normal ones waiting for the same AI Model"
+          : "Normal — its Runs wait their turn behind High priority work",
+      ],
+      [
         "Approval",
         routine.requiresApproval ? "each scheduled run waits for a human" : "runs without asking",
       ],
