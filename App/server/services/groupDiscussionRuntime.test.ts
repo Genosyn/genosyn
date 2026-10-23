@@ -109,8 +109,8 @@ afterEach(async () => {
 
 function captureTurns(t: TestContext, replies: string[]): Seen[] {
   const seen: Seen[] = [];
-  const run = agentRuntime.run;
-  t.mock.method(agentRuntime, "run", (async (params: Parameters<typeof run>[0]) => {
+  type Run = typeof agentRuntime.run;
+  t.mock.method(agentRuntime, "run", (async (params: Parameters<Run>[0]) => {
     seen.push({
       system: params.system,
       tools: [...params.registry.all.keys()],
@@ -118,7 +118,7 @@ function captureTurns(t: TestContext, replies: string[]): Seen[] {
       maxSteps: params.maxSteps,
     });
     return { finalText: replies.shift() ?? "PASS", steps: 1, stopReason: "end_turn" };
-  }) as unknown as typeof run);
+  }) as unknown as Run);
   return seen;
 }
 

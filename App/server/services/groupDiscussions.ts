@@ -857,7 +857,7 @@ async function runDiscussion(
 
     let state = parseDiscussionState(d.stateJson);
     let participants = parseParticipants(d.participantsJson);
-    let round = d.round === 0 ? 1 : d.round;
+    const round = d.round === 0 ? 1 : d.round;
 
     // Fold in what Members wrote since the last step.
     const folded = await foldMemberInput(d, state, participants, round);
@@ -1843,13 +1843,10 @@ export async function startDiscussionFollowThrough(params: {
     id: params.requester.userId,
   });
   const requesterName = requester?.name || requester?.email || "A Member";
-  await postNote(
-    d,
-    `${requesterName} started the work: ${items
-      .filter((i) => i.status === "queued")
-      .map((i) => `${i.owner?.name ?? i.ownerLabel} — ${clipLine(i.action, 80)}`)
-      .join("; ")}.`,
-  );
+  const owners = [
+    ...new Set(items.filter((i) => i.status === "queued").map((i) => i.owner?.name ?? i.ownerLabel)),
+  ];
+  await postNote(d, `${requesterName} started the work for ${joinNames(owners)}.`);
   await recordAudit({
     companyId: d.companyId,
     actorUserId: params.requester.userId,
@@ -2055,6 +2052,11 @@ function clipText(text: string, max: number): string {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 function escapeRegExp(text: string): string {

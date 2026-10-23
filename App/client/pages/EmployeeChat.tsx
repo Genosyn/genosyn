@@ -670,6 +670,7 @@ export default function EmployeeChat() {
         <ChatHeader
           company={company}
           emp={emp}
+          currentUserId={currentUserId}
           convTitle={activeConv?.title ?? null}
           onNew={handleNewClick}
           creating={creatingConversation}
@@ -1085,6 +1086,7 @@ function ConversationRow({
 function ChatHeader({
   company,
   emp,
+  currentUserId,
   convTitle,
   onNew,
   creating,
@@ -1092,6 +1094,7 @@ function ChatHeader({
 }: {
   company: Company;
   emp: Employee;
+  currentUserId: string;
   convTitle: string | null;
   onNew: () => void;
   creating: boolean;
@@ -1102,6 +1105,7 @@ function ChatHeader({
       company={company}
       emp={emp}
       active="chat"
+      currentUserId={currentUserId}
       subtitle={convTitle ?? "New conversation"}
       actions={
         <>

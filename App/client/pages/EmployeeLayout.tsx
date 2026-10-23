@@ -101,7 +101,12 @@ export default function EmployeeLayout({
       ) : (
         <>
           <div className="sticky top-0 z-10">
-            <EmployeeHeader company={company} emp={emp} active="settings" />
+            <EmployeeHeader
+              company={company}
+              emp={emp}
+              active="settings"
+              currentUserId={currentUserId}
+            />
           </div>
           <div className="page-shell p-8">
             <Outlet context={ctx} />

@@ -393,12 +393,11 @@ describe("taint through a channel", () => {
       configJson: "{}",
       isActive: true,
     });
-    const run = agentRuntime.run;
     t.mock.method(agentRuntime, "run", (async () => ({
       finalText: "Noted.",
       steps: 1,
       stopReason: "end_turn",
-    })) as unknown as typeof run);
+    })) as unknown as typeof agentRuntime.run);
 
     async function replyTo(tainted: boolean): Promise<ChannelMessage> {
       const channel = await insert(Channel, {

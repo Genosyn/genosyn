@@ -905,6 +905,12 @@ describe("starting the work", () => {
     const reports = rows.filter((m) => m.discussionRole === "follow_through");
     assert.equal(reports.length, 2);
     assert.ok(reports.every((m) => m.tainted));
+    const note = rows.find((m) => m.discussionRole === "note" && /started the work/.test(m.content));
+    assert.equal(note?.content, "Sam started the work for Ben and Cy.");
+    assert.ok(
+      rows.indexOf(note!) < rows.indexOf(reports[0]),
+      "the note reads before the reports it announces",
+    );
     const fresh = await getGroupDiscussion(company.id, d.id);
     const items = parseOutcome(fresh!.outcomeJson)!.actionItems;
     assert.deepEqual(

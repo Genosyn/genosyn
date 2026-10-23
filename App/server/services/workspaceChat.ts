@@ -640,6 +640,25 @@ export type ChannelMessageAuthor =
   | Extract<DmActor, { kind: "ai" }>
   | { kind: "system"; name: string | null };
 
+/** The last stamp `nextMessageStamp` handed out, in epoch milliseconds. */
+let lastMessageStamp = 0;
+
+/**
+ * A creation time later than every one before it in this process.
+ *
+ * Stamped here rather than left to the column's database default, which on
+ * SQLite is `datetime('now')` — whole seconds. A group discussion writes a
+ * note, a turn and the next turn inside one second, and the transcript must
+ * read back in the order it was written, on the server and in every browser
+ * that sorts by it (`mergeWorkspaceMessages`). The audit ledger made the same
+ * change for the same reason (`services/audit.ts`).
+ */
+function nextMessageStamp(): Date {
+  const now = Math.max(Date.now(), lastMessageStamp + 1);
+  lastMessageStamp = now;
+  return new Date(now);
+}
+
 /**
  * Persist one message, bind its files, move the channel's activity marker and
  * announce it to open pages — and nothing else. No @mention replies, no bells:
@@ -673,6 +692,7 @@ export async function insertChannelMessage(params: {
       tainted: params.tainted === true,
       editedAt: null,
       deletedAt: null,
+      createdAt: nextMessageStamp(),
     }),
   );
   if (params.attachmentIds && params.attachmentIds.length > 0) {

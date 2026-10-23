@@ -50,6 +50,11 @@ export type ComposerChannel = {
   kind: string;
   /** Names the room in the placeholder — `#youtube`, or a person for a DM. */
   label: string;
+  /**
+   * The invitation in the box, when the room asks for something else than
+   * "Message …" — a group chat asks its AI Employees to work something out.
+   */
+  placeholder?: string | null;
 };
 
 /**
@@ -458,7 +463,7 @@ export const ChannelComposer = React.forwardRef<
               setEmojiOpen(false);
             }
           }}
-          placeholder={compact ? "Reply…" : `Message ${channel.label}`}
+          placeholder={compact ? "Reply…" : channel.placeholder || `Message ${channel.label}`}
           className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
           rows={1}
         />

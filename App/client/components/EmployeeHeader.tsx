@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, MessageSquare, Settings as SettingsIcon } from "lucide-react";
 import { Company, Employee } from "../lib/api";
 import { Avatar, employeeAvatarUrl } from "./ui/Avatar";
+import { StartGroupChatButton } from "./workspace/StartGroupChatButton";
 
 /**
  * The one bar an AI Employee gets.
@@ -23,6 +24,7 @@ export function EmployeeHeader({
   active,
   subtitle,
   actions,
+  currentUserId,
 }: {
   company: Company;
   emp: Employee;
@@ -31,8 +33,19 @@ export function EmployeeHeader({
   subtitle?: React.ReactNode;
   /** Page-specific controls, placed before the Chat / Settings switch. */
   actions?: React.ReactNode;
+  /** The signed-in Member; with it, the header offers a group chat with this employee. */
+  currentUserId?: string;
 }) {
   const base = `/c/${company.slug}/employees/${emp.slug}`;
+  const allActions =
+    actions !== undefined || currentUserId ? (
+      <>
+        {currentUserId && (
+          <StartGroupChatButton company={company} meId={currentUserId} employeeId={emp.id} />
+        )}
+        {actions}
+      </>
+    ) : undefined;
 
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white px-4 py-3 sm:flex-nowrap sm:px-6 dark:border-slate-800 dark:bg-slate-950">
@@ -68,8 +81,10 @@ export function EmployeeHeader({
           means a wide action — the conversation's browser picker — drops to a
           second line on a phone instead of pushing the switch off-screen.
           Narrow actions still share the first line. */}
-      {actions !== undefined && (
-        <div className="order-last flex shrink-0 items-center gap-2 sm:order-none">{actions}</div>
+      {allActions !== undefined && (
+        <div className="order-last flex shrink-0 items-center gap-2 sm:order-none">
+          {allActions}
+        </div>
       )}
       <nav
         aria-label="Employee"
