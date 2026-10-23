@@ -15,7 +15,7 @@
 import { mergeSnapshots, type NoteSnapshot } from "./noteMerge.js";
 import { sameSnapshot } from "./noteDrafts.js";
 
-export type ServerVersion = { snapshot: NoteSnapshot; updatedAt: string };
+export type ServerVersion = { snapshot: NoteSnapshot; version: string };
 
 export type SaveOutcome =
   | { kind: "saved"; server: ServerVersion }
@@ -31,7 +31,7 @@ export type AutosaveTimers = {
 };
 
 export type AutosaverOptions = {
-  save: (snapshot: NoteSnapshot, baseUpdatedAt: string, options: { keepalive: boolean }) => Promise<SaveOutcome>;
+  save: (snapshot: NoteSnapshot, baseVersion: string, options: { keepalive: boolean }) => Promise<SaveOutcome>;
   /** The status changed; `error` is the last failure while status is "error". */
   onStatus?: (status: AutosaveStatus, error?: unknown) => void;
   /** The server now holds this version. */
@@ -52,7 +52,8 @@ export function normalizeSnapshot(snapshot: NoteSnapshot): NoteSnapshot {
 const defaultTimers: AutosaveTimers = {
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
   clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
-  now: () => Date.now(),
+  // Elapsed time, not wall time: a clock change mid-burst can't stall a save.
+  now: () => (typeof performance !== "undefined" ? performance.now() : Date.now()),
 };
 
 export class Autosaver {
@@ -158,7 +159,7 @@ export class Autosaver {
    */
   serverChanged(server: ServerVersion): { snapshot: NoteSnapshot; conflicts: number } | null {
     if (this.disposed || this.inFlight) return null;
-    if (server.updatedAt === this.server.updatedAt) return null;
+    if (server.version === this.server.version) return null;
     const base = this.server.snapshot;
     this.server = server;
     if (sameSnapshot(this.current, base) || !this.dirtyAgainst(base)) {
@@ -187,7 +188,7 @@ export class Autosaver {
     const finish = () => {
       if (!this.dirty) return;
       void this.options
-        .save(normalizeSnapshot(this.current), this.server.updatedAt, { keepalive: true })
+        .save(normalizeSnapshot(this.current), this.server.version, { keepalive: true })
         .catch(() => undefined);
     };
     if (this.inFlight) void this.inFlight.then(finish);
@@ -200,7 +201,7 @@ export class Autosaver {
     const base = this.server;
     this.setStatus("saving");
     const done = this.options
-      .save(sent, base.updatedAt, { keepalive })
+      .save(sent, base.version, { keepalive })
       .catch((error: unknown): SaveOutcome => ({ kind: "error", error }))
       .then((outcome) => this.settle(outcome, base));
     this.inFlight = done.finally(() => {

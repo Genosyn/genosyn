@@ -63,7 +63,8 @@
     "test:clicks-home": "tsx scripts/test-clicks-home.ts",
     "test:clicks-settings": "tsx scripts/test-clicks-settings.ts",
     "test:clicks-finance": "tsx scripts/test-clicks-finance.ts",
-    "test:advanced-disclosures": "tsx scripts/test-advanced-disclosures.ts"
+    "test:advanced-disclosures": "tsx scripts/test-advanced-disclosures.ts",
+    "test:notes-editor": "tsx scripts/test-notes-editor.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

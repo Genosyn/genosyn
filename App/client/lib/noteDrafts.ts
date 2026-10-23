@@ -14,7 +14,7 @@ export type NoteDraft = {
   snapshot: NoteSnapshot;
   /** The server version the edits started from. */
   base: NoteSnapshot;
-  baseUpdatedAt: string;
+  baseVersion: string;
   savedAt: number;
 };
 
@@ -44,7 +44,7 @@ export function readDraft(storage: DraftStorage | null, key: string): NoteDraft 
       typeof parsed.noteId !== "string" ||
       !isSnapshot(parsed.snapshot) ||
       !isSnapshot(parsed.base) ||
-      typeof parsed.baseUpdatedAt !== "string" ||
+      typeof parsed.baseVersion !== "string" ||
       typeof parsed.savedAt !== "number"
     ) {
       return null;
@@ -99,7 +99,7 @@ export type DraftRecovery =
  */
 export function planDraftRecovery(
   draft: NoteDraft | null,
-  server: NoteSnapshot & { updatedAt: string },
+  server: NoteSnapshot & { version: string },
   now: number,
 ): DraftRecovery {
   if (!draft) return { kind: "none" };
@@ -107,7 +107,7 @@ export function planDraftRecovery(
   const current: NoteSnapshot = { title: server.title, body: server.body, icon: server.icon };
   if (sameSnapshot(draft.snapshot, current)) return { kind: "discard" };
   if (sameSnapshot(draft.snapshot, draft.base)) return { kind: "discard" };
-  if (draft.baseUpdatedAt === server.updatedAt || sameSnapshot(draft.base, current)) {
+  if (draft.baseVersion === server.version || sameSnapshot(draft.base, current)) {
     return { kind: "restore", snapshot: draft.snapshot, conflicts: 0 };
   }
   const merged = mergeSnapshots(draft.base, draft.snapshot, current);

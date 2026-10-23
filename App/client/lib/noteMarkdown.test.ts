@@ -10,6 +10,7 @@ import {
   newBlockId,
   type NoteDoc,
   parseDoc,
+  parseTableSource,
   serializeDoc,
 } from "./noteMarkdown.js";
 
@@ -413,6 +414,29 @@ describe("editing writes only what changed", () => {
     const doc = parseDoc("*  a\n   *  b");
     assert.equal(blocksToMarkdown(doc.blocks.slice(1)), "- b");
     assert.equal(blocksToMarkdown(doc.blocks), "- a\n  - b");
+  });
+});
+
+describe("parseTableSource", () => {
+  test("reads header, alignment and rows, padding short rows", () => {
+    assert.deepEqual(parseTableSource("| Name | Role | Pay |\n| :-- | :-: | --: |\n| Ada | A \\| B |\n"), {
+      header: ["Name", "Role", "Pay"],
+      align: ["left", "center", "right"],
+      rows: [["Ada", "A | B", ""]],
+    });
+  });
+
+  test("tables without outer pipes", () => {
+    assert.deepEqual(parseTableSource("a | b\n--|--\n1 | 2"), {
+      header: ["a", "b"],
+      align: [null, null],
+      rows: [["1", "2"]],
+    });
+  });
+
+  test("anything else is not a table", () => {
+    assert.equal(parseTableSource("just text"), null);
+    assert.equal(parseTableSource("| a | b |\n| nope |"), null);
   });
 });
 

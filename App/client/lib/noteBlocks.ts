@@ -197,6 +197,11 @@ export function splitBlock(
   const runs = deleteRange(block.runs, start, end);
   const empty = plainText(runs) === "";
 
+  // An empty line inside a list item or toggle steps back out, so Enter twice leaves it.
+  if (empty && block.type === "paragraph" && block.depth > 0) {
+    return { blocks: normalizeDepths(shiftSubtree(blocks, index, -1)), focus: { id, start: 0 } };
+  }
+
   if (empty && (isListItem(block) || block.type === "quote" || block.type === "callout" || block.type === "toggle")) {
     if (isListItem(block) && block.depth > 0) {
       const shifted = shiftSubtree(blocks, index, -1);
@@ -589,6 +594,96 @@ function caretAtEnd(block: Block): Focus | undefined {
   if (isRichText(block.type)) return { id: block.id, start: runsLength(block.runs) };
   if (isPlainText(block.type)) return { id: block.id, start: block.text.length };
   return undefined;
+}
+
+function contentKey(block: Block): string {
+  return JSON.stringify([
+    block.type,
+    block.depth,
+    block.level ?? 0,
+    block.checked ? 1 : 0,
+    block.lang ?? "",
+    block.kind ?? "",
+    block.src ?? "",
+    block.alt ?? "",
+    block.text,
+    block.runs,
+  ]);
+}
+
+/**
+ * When the page changes from outside (an AI Employee saved, edits were
+ * merged), keep the ids and open toggles of blocks that are still there, so
+ * the caret stays in its block and nothing the person is looking at jumps.
+ * Unchanged blocks are matched by content in order; a changed block keeps the
+ * id of the block of the same type at its position.
+ */
+export function reconcileBlocks(previous: readonly Block[], next: readonly Block[]): Block[] {
+  const keys = previous.map(contentKey);
+  const nextKeys = next.map(contentKey);
+  const used = new Set<number>();
+  let cursor = 0;
+  return next.map((block, index) => {
+    const key = nextKeys[index];
+    let match = -1;
+    for (let j = cursor; j < previous.length; j++) {
+      if (!used.has(j) && keys[j] === key) {
+        match = j;
+        break;
+      }
+    }
+    // A changed block takes over the old block at its position — unless that
+    // old block still turns up, unchanged, further down.
+    if (
+      match < 0 &&
+      cursor < previous.length &&
+      !used.has(cursor) &&
+      previous[cursor].type === block.type &&
+      nextKeys.indexOf(keys[cursor], index + 1) < 0
+    ) {
+      match = cursor;
+    }
+    if (match < 0) return block;
+    used.add(match);
+    cursor = match + 1;
+    const old = previous[match];
+    return { ...block, id: old.id, ...(old.type === "toggle" && block.type === "toggle" ? { open: old.open } : {}) };
+  });
+}
+
+/**
+ * What a numbered item shows: 1. at the top level, a. one level in, i. the
+ * next, as Notion counts. Display only — the saved Markdown keeps numbers.
+ */
+export function ordinalLabel(n: number, depth: number): string {
+  const style = depth % 3;
+  const value = Math.max(1, Math.floor(n));
+  if (style === 1) {
+    let out = "";
+    let rest = value;
+    while (rest > 0) {
+      rest--;
+      out = String.fromCharCode(97 + (rest % 26)) + out;
+      rest = Math.floor(rest / 26);
+    }
+    return `${out}.`;
+  }
+  if (style === 2) {
+    const table: Array<[number, string]> = [
+      [1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
+      [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"],
+    ];
+    let rest = value;
+    let out = "";
+    for (const [amount, numeral] of table) {
+      while (rest >= amount) {
+        out += numeral;
+        rest -= amount;
+      }
+    }
+    return `${out}.`;
+  }
+  return `${Math.floor(n)}.`;
 }
 
 /** The ids from `anchor` to `focus` (inclusive, either order), visible blocks only. */

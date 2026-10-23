@@ -268,6 +268,26 @@ export function linkAt(
   return spans.find((span) => offset >= span.start && offset <= span.end && span.end > span.start) ?? null;
 }
 
+/** Is this string a link someone would expect pasting over selected text to create? */
+export function looksLikeUrl(text: string): boolean {
+  return /^(?:https?:\/\/|mailto:)[^\s]+$/i.test(text.trim());
+}
+
+/**
+ * A typed link target made into an address: a bare domain gets https://, an
+ * email address mailto:. Null when it isn't one — and always for script and
+ * data URLs, which have no business in a note.
+ */
+export function normalizeHref(input: string): string | null {
+  const value = input.trim();
+  if (!value || /\s/.test(value)) return null;
+  if (/^(?:javascript|vbscript|data):/i.test(value)) return null;
+  if (/^(?:https?:|mailto:|tel:|\/|#)/i.test(value)) return value;
+  if (/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(value)) return `mailto:${value}`;
+  if (/^[\w-]+(\.[\w-]+)+(?::\d+)?(?:[/?#].*)?$/.test(value)) return `https://${value}`;
+  return null;
+}
+
 /** Strip every mark and link: what code blocks and headings-turned-code keep. */
 export function stripFormatting(runs: readonly Run[]): Run[] {
   return textRuns(plainText(runs));
@@ -470,7 +490,7 @@ function parseLinkAt(src: string, i: number): LinkMatch | null {
       else if (c === ")") {
         if (parens === 0) break;
         parens--;
-      } else if (/[\s\x00-\x1f]/.test(c)) break;
+      } else if (c <= " " || /\s/.test(c)) break;
       k++;
     }
     if (parens !== 0) return null;

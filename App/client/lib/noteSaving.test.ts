@@ -160,7 +160,7 @@ describe("drafts", () => {
     noteId: "n1",
     snapshot,
     base,
-    baseUpdatedAt: "2026-10-23T10:00:00.000Z",
+    baseVersion: "2026-10-23T10:00:00.000Z",
     savedAt: 1000,
     ...extra,
   });
@@ -198,12 +198,12 @@ describe("drafts", () => {
   });
 
   test("a draft the server already has is discarded", () => {
-    const server = { ...base, body: "edited", updatedAt: "2026-10-23T10:05:00.000Z" };
+    const server = { ...base, body: "edited", version: "2026-10-23T10:05:00.000Z" };
     assert.deepEqual(planDraftRecovery(draft({ ...base, body: "edited" }), server, 2000), { kind: "discard" });
   });
 
   test("a draft over an unchanged server copy is restored as written", () => {
-    const server = { ...base, updatedAt: "2026-10-23T10:00:00.000Z" };
+    const server = { ...base, version: "2026-10-23T10:00:00.000Z" };
     assert.deepEqual(planDraftRecovery(draft({ ...base, body: "one\ntwo\nthree" }), server, 2000), {
       kind: "restore",
       snapshot: { ...base, body: "one\ntwo\nthree" },
@@ -212,7 +212,7 @@ describe("drafts", () => {
   });
 
   test("a draft over a copy someone else saved since is merged onto it", () => {
-    const server = { ...base, body: "zero\none\ntwo", updatedAt: "2026-10-23T11:00:00.000Z" };
+    const server = { ...base, body: "zero\none\ntwo", version: "2026-10-23T11:00:00.000Z" };
     assert.deepEqual(planDraftRecovery(draft({ ...base, body: "one\ntwo\nthree" }), server, 2000), {
       kind: "restore",
       snapshot: { ...base, body: "zero\none\ntwo\nthree" },
@@ -221,7 +221,7 @@ describe("drafts", () => {
   });
 
   test("stale drafts are discarded", () => {
-    const server = { ...base, updatedAt: "2026-10-23T10:00:00.000Z" };
+    const server = { ...base, version: "2026-10-23T10:00:00.000Z" };
     assert.deepEqual(planDraftRecovery(draft({ ...base, body: "x" }), server, 1000 + DRAFT_MAX_AGE_MS + 1), { kind: "discard" });
     assert.deepEqual(planDraftRecovery(null, server, 0), { kind: "none" });
   });
@@ -270,7 +270,7 @@ function harness(replies: Array<(call: Call) => SaveOutcome | Promise<SaveOutcom
   const merged: NoteSnapshot[] = [];
   let version = 0;
   const saver = new Autosaver(
-    { snapshot: { title: "T", body: "", icon: "" }, updatedAt: "v0" },
+    { snapshot: { title: "T", body: "", icon: "" }, version: "v0" },
     {
       timers: clock.timers,
       debounceMs: 500,
@@ -284,7 +284,7 @@ function harness(replies: Array<(call: Call) => SaveOutcome | Promise<SaveOutcom
         const reply = replies.shift();
         if (reply) return reply(call);
         version++;
-        return { kind: "saved", server: { snapshot, updatedAt: `v${version}` } };
+        return { kind: "saved", server: { snapshot, version: `v${version}` } };
       },
     },
   );
@@ -333,7 +333,7 @@ describe("Autosaver", () => {
     const { saver, clock, calls } = harness([
       async (call) => {
         await gate;
-        return { kind: "saved", server: { snapshot: call.snapshot, updatedAt: "v1" } };
+        return { kind: "saved", server: { snapshot: call.snapshot, version: "v1" } };
       },
     ]);
     saver.update(snap("first"));
@@ -377,9 +377,9 @@ describe("Autosaver", () => {
 
   test("a conflict merges our edits onto the newer version and saves again", async () => {
     const { saver, clock, calls, merged } = harness([
-      () => ({ kind: "conflict", server: { snapshot: snap("ai line\nintro"), updatedAt: "v-ai" } }),
+      () => ({ kind: "conflict", server: { snapshot: snap("ai line\nintro"), version: "v-ai" } }),
     ]);
-    saver.serverChanged({ snapshot: snap("intro"), updatedAt: "v0b" });
+    saver.serverChanged({ snapshot: snap("intro"), version: "v0b" });
     saver.update(snap("intro\nmy line"));
     await clock.advance(500);
     assert.equal(merged.length, 1);
@@ -419,7 +419,7 @@ describe("Autosaver", () => {
     const { saver, clock, calls } = harness([
       async (call) => {
         await gate;
-        return { kind: "saved", server: { snapshot: call.snapshot, updatedAt: "v1" } };
+        return { kind: "saved", server: { snapshot: call.snapshot, version: "v1" } };
       },
     ]);
     saver.update(snap("a"));
@@ -450,15 +450,15 @@ describe("Autosaver", () => {
 
   test("a live server change replaces clean content and merges into unsaved edits", async () => {
     const clean = harness();
-    const applied = clean.saver.serverChanged({ snapshot: snap("from ai"), updatedAt: "v9" });
+    const applied = clean.saver.serverChanged({ snapshot: snap("from ai"), version: "v9" });
     assert.deepEqual(applied, { snapshot: snap("from ai"), conflicts: 0 });
     assert.equal(clean.saver.dirty, false);
-    assert.equal(clean.saver.serverChanged({ snapshot: snap("from ai"), updatedAt: "v9" }), null);
+    assert.equal(clean.saver.serverChanged({ snapshot: snap("from ai"), version: "v9" }), null);
 
     const dirty = harness();
-    dirty.saver.serverChanged({ snapshot: snap("intro"), updatedAt: "v1" });
+    dirty.saver.serverChanged({ snapshot: snap("intro"), version: "v1" });
     dirty.saver.update(snap("intro\nmine"));
-    const merged = dirty.saver.serverChanged({ snapshot: snap("theirs\nintro"), updatedAt: "v9" });
+    const merged = dirty.saver.serverChanged({ snapshot: snap("theirs\nintro"), version: "v9" });
     assert.equal(merged?.snapshot.body, "theirs\nintro\nmine");
     await dirty.clock.advance(10);
     assert.equal(dirty.calls[0].base, "v9");

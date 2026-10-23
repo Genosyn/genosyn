@@ -47,7 +47,7 @@ const AUTO_CLOSE: Record<string, string[]> = {
 };
 
 const ENTITIES: Record<string, string> = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", copy: "©", reg: "®", trade: "™",
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0", copy: "©", reg: "®", trade: "™",
   hellip: "…", mdash: "—", ndash: "–", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", bull: "•",
   middot: "·", times: "×", euro: "€", pound: "£", deg: "°", laquo: "«", raquo: "»",
 };
@@ -194,7 +194,7 @@ class InlineBuffer {
 /** Collapse whitespace the way a browser renders it, and trim the ends. */
 function cleanRuns(runs: Run[]): Run[] {
   const collapsed = runs.map((run) =>
-    run.code ? run : { ...run, text: run.text.replace(/[ \t\r\f\v ]*\n[ \t\r\f\v ]*/g, "\n").replace(/[ \t\r\f\v]+/g, " ") },
+    run.code ? run : { ...run, text: run.text.replace(/[ \t\r\f\v\u00a0]*\n[ \t\r\f\v\u00a0]*/g, "\n").replace(/[ \t\r\f\v]+/g, " ") },
   );
   const normalized = normalizeRuns(collapsed);
   // Trim leading and trailing whitespace across runs.

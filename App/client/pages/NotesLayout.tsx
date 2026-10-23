@@ -1,151 +1,214 @@
 import React from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import {
-  Book,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Plus,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ContextualLayout } from "../components/AppShell";
-import { api, Company, Note, Notebook } from "../lib/api";
-import { useDialog } from "../components/ui/Dialog";
-import { ButtonSpinner } from "../components/ui/Spinner";
-import { clsx } from "../components/ui/clsx";
+import { api, Company, Note, Notebook, NoteOutline } from "../lib/api";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { NotesSidebar } from "../components/notes/NotesSidebar";
+import { MoveNoteModal } from "../components/notes/MoveNoteModal";
+import { applyMove, descendantIds, type DropTarget, noteHref } from "../lib/noteTree";
 
 /**
- * Notes section shell. The sidebar lists every Notebook in the company;
- * inside each notebook is its own collapsible Notion-style note tree. The
- * outlet renders the welcome screen, archived view, or a single note's
- * editor.
+ * The Notes section: a sidebar tree of notebooks and their pages beside the
+ * page being read or written. Notebooks hold pages; pages nest under pages.
  *
- * Notebooks themselves do not nest — only the notes inside them do.
- * Adding a page from the notebook header creates an "Untitled" note inside
- * that notebook; the "+" next to a note creates a sub-page in the same
- * notebook as its parent.
+ * The sidebar works from the outline (`?view=outline` — titles, icons,
+ * positions and a preview line, no bodies), refetched whenever any page or
+ * notebook changes, and patched in place while someone types a title so the
+ * tree and breadcrumbs follow along.
  */
 export default function NotesLayout({ company }: { company: Company }) {
   const [notebooks, setNotebooks] = React.useState<Notebook[]>([]);
-  const [notes, setNotes] = React.useState<Note[]>([]);
+  const [notes, setNotes] = React.useState<NoteOutline[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [showArchived, setShowArchived] = React.useState(false);
-  const [filter, setFilter] = React.useState("");
-  const [creatingIn, setCreatingIn] = React.useState<string | null>(null);
-  const [creatingNotebook, setCreatingNotebook] = React.useState<null | "header" | "empty">(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [creating, setCreating] = React.useState<string | null>(null);
+  const [moving, setMoving] = React.useState<NoteOutline | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  // The layout's own route has no params; the open notebook is in the path.
+  const currentNotebookSlug = /\/notes\/([^/]+)/.exec(location.pathname)?.[1];
   const dialog = useDialog();
+  const background = useBackgroundAction();
+  const base = `/api/companies/${company.id}`;
 
   const refresh = React.useCallback(async () => {
     try {
       const [nbRows, noteRows] = await Promise.all([
-        api.get<Notebook[]>(`/api/companies/${company.id}/notebooks`),
-        api.get<Note[]>(
-          `/api/companies/${company.id}/notes${showArchived ? "?archived=true" : ""}`,
-        ),
+        api.get<Notebook[]>(`${base}/notebooks`),
+        api.get<NoteOutline[]>(`${base}/notes?view=outline`),
       ]);
       setNotebooks(nbRows);
       setNotes(noteRows);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load notes");
     } finally {
       setLoading(false);
     }
-  }, [company.id, showArchived]);
+  }, [base]);
 
   React.useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   useLiveRefetch(["note", "notebook"], refresh);
 
-  const createNoteInNotebook = React.useCallback(
-    async (notebook: Notebook) => {
-      setCreatingIn(notebook.id);
-      try {
-        const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
-          title: "Untitled",
-          notebookSlug: notebook.slug,
-        });
-        await refresh();
-        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`, {
-          state: { newNote: true },
-        });
-      } catch (err) {
-        void dialog.error(err, { title: "Couldn’t create the page" });
-      } finally {
-        setCreatingIn(null);
-      }
-    },
-    [company.id, company.slug, dialog, navigate, refresh],
+  const notebookById = React.useMemo(() => new Map(notebooks.map((nb) => [nb.id, nb])), [notebooks]);
+
+  const hrefFor = React.useCallback(
+    (note: { slug: string; notebookId: string }) =>
+      noteHref(company.slug, notebookById.get(note.notebookId)?.slug ?? "general", note.slug),
+    [company.slug, notebookById],
   );
 
-  const createChild = React.useCallback(
-    async (parent: Note, notebook: Notebook) => {
-      setCreatingIn(parent.id);
+  const patchNote = React.useCallback((id: string, patch: Partial<NoteOutline>) => {
+    setNotes((rows) => rows.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  }, []);
+
+  const createPage = React.useCallback(
+    async (target: { notebook?: Notebook | null; parent?: NoteOutline | null; key?: string } = {}) => {
+      const key = target.key ?? (target.parent ? `note:${target.parent.id}` : target.notebook ? `notebook:${target.notebook.id}` : "quick");
+      const notebook =
+        target.notebook ??
+        (currentNotebookSlug ? notebooks.find((nb) => nb.slug === currentNotebookSlug) : undefined) ??
+        notebooks[0];
+      setCreating(key);
       try {
-        const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
+        const created = await api.post<Note>(`${base}/notes`, {
           title: "Untitled",
-          parentSlug: parent.slug,
+          ...(target.parent ? { parentSlug: target.parent.slug } : notebook ? { notebookSlug: notebook.slug } : {}),
         });
-        await refresh();
-        navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`, {
+        const { body, version, ...outline } = created;
+        void version;
+        setNotes((rows) => [...rows, { ...outline, preview: body ? body.slice(0, 160) : "" }]);
+        const nb = notebooks.find((n) => n.id === created.notebookId);
+        navigate(noteHref(company.slug, nb?.slug ?? notebook?.slug ?? "general", created.slug), {
           state: { newNote: true },
         });
+        void refresh();
       } catch (err) {
-        void dialog.error(err, { title: "Couldn’t create the sub-page" });
+        void dialog.error(err, { title: target.parent ? "Couldn’t create the sub-page" : "Couldn’t create the page" });
       } finally {
-        setCreatingIn(null);
+        setCreating(null);
       }
     },
-    [company.id, company.slug, dialog, navigate, refresh],
+    [base, company.slug, currentNotebookSlug, dialog, navigate, notebooks, refresh],
   );
 
-  const createNotebook = React.useCallback(async (from: "header" | "empty") => {
+  const createNotebook = React.useCallback(async () => {
     const title = await dialog.prompt({
       title: "New notebook",
-      message: "Notebooks group related pages — runbooks, briefs, post-mortems, etc.",
+      message: "Notebooks group related pages — a handbook, product briefs, runbooks.",
       placeholder: "Notebook name",
       confirmLabel: "Create",
     });
     if (!title) return;
-    setCreatingNotebook(from);
+    setCreating("notebook");
     try {
-      const created = await api.post<Notebook>(
-        `/api/companies/${company.id}/notebooks`,
-        { title },
-      );
-      await refresh();
+      const created = await api.post<Notebook>(`${base}/notebooks`, { title });
+      setNotebooks((rows) => [...rows, created]);
       navigate(`/c/${company.slug}/notes/${created.slug}`);
+      void refresh();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t create the notebook" });
     } finally {
-      setCreatingNotebook(null);
+      setCreating(null);
     }
-  }, [company.id, company.slug, dialog, navigate, refresh]);
+  }, [base, company.slug, dialog, navigate, refresh]);
+
+  const movePage = React.useCallback(
+    (note: NoteOutline, target: DropTarget) => {
+      const previous = notes;
+      setNotes((rows) => applyMove(rows, note.id, target));
+      const notebook = notebookById.get(target.notebookId);
+      const parent = target.parentId ? notes.find((n) => n.id === target.parentId) : null;
+      background(
+        () =>
+          api.post<Note>(`${base}/notes/${note.slug}/move`, {
+            notebookSlug: notebook?.slug,
+            parentSlug: parent ? parent.slug : null,
+            index: target.index,
+          }),
+        {
+          title: "Couldn’t move the page",
+          onError: () => setNotes(previous),
+          onSuccess: (moved) => {
+            // The page's address carries its notebook: follow it there.
+            if (location.pathname.endsWith(`/${note.slug}`) && moved.notebookId !== note.notebookId) {
+              navigate(hrefFor(moved), { replace: true });
+            }
+            void refresh();
+          },
+        },
+      );
+    },
+    [background, base, hrefFor, location.pathname, navigate, notebookById, notes, refresh],
+  );
+
+  const duplicatePage = React.useCallback(
+    async (note: NoteOutline) => {
+      try {
+        const copy = await api.post<Note>(`${base}/notes/${note.slug}/duplicate`, {});
+        await refresh();
+        navigate(hrefFor(copy));
+      } catch (err) {
+        void dialog.error(err, { title: "Couldn’t duplicate the page" });
+      }
+    },
+    [base, dialog, hrefFor, navigate, refresh],
+  );
+
+  const trashPage = React.useCallback(
+    (note: NoteOutline) => {
+      const previous = notes;
+      const gone = new Set([note.id, ...descendantIds(notes, note.id)]);
+      setNotes((rows) => rows.filter((n) => !gone.has(n.id)));
+      const open = notes.find((n) => gone.has(n.id) && location.pathname.endsWith(`/${n.slug}`));
+      if (open) {
+        const nb = notebookById.get(note.notebookId);
+        navigate(nb ? `/c/${company.slug}/notes/${nb.slug}` : `/c/${company.slug}/notes`);
+      }
+      background(() => api.patch(`${base}/notes/${note.slug}`, { archived: true }), {
+        title: "Couldn’t move the page to the trash",
+        onError: () => setNotes(previous),
+        onSuccess: () => void refresh(),
+      });
+    },
+    [background, base, company.slug, location.pathname, navigate, notebookById, notes, refresh],
+  );
+
+  const context: NotesContext = {
+    notebooks,
+    notes,
+    loading,
+    refresh,
+    patchNote,
+    createPage,
+    creating,
+    createNotebook,
+    movePage,
+    duplicatePage,
+    trashPage,
+    openMoveDialog: setMoving,
+    hrefFor,
+  };
 
   return (
     <ContextualLayout
-      sidebar={
-        <Sidebar
-          company={company}
-          notebooks={notebooks}
-          notes={notes}
-          loading={loading}
-          showArchived={showArchived}
-          filter={filter}
-          onFilter={setFilter}
-          onToggleArchived={() => setShowArchived((v) => !v)}
-          onCreateNote={createNoteInNotebook}
-          onCreateChild={createChild}
-          onCreateNotebook={createNotebook}
-          creatingIn={creatingIn}
-          creatingNotebook={creatingNotebook}
-        />
-      }
+      sidebar={<NotesSidebar company={company} context={context} loadError={loadError} />}
     >
-      <Outlet
-        context={{ notebooks, notes, refresh } satisfies NotesContext}
+      <Outlet context={context} />
+      <MoveNoteModal
+        open={moving !== null}
+        note={moving}
+        notebooks={notebooks}
+        notes={notes}
+        onClose={() => setMoving(null)}
+        onMove={(target) => {
+          if (moving) movePage(moving, target);
+          setMoving(null);
+        }}
       />
     </ContextualLayout>
   );
@@ -153,425 +216,20 @@ export default function NotesLayout({ company }: { company: Company }) {
 
 export type NotesContext = {
   notebooks: Notebook[];
-  notes: Note[];
-  refresh: () => Promise<void>;
-};
-
-function Sidebar({
-  company,
-  notebooks,
-  notes,
-  loading,
-  showArchived,
-  filter,
-  onFilter,
-  onToggleArchived,
-  onCreateNote,
-  onCreateChild,
-  onCreateNotebook,
-  creatingIn,
-  creatingNotebook,
-}: {
-  company: Company;
-  notebooks: Notebook[];
-  notes: Note[];
+  /** Live pages, without bodies. */
+  notes: NoteOutline[];
   loading: boolean;
-  showArchived: boolean;
-  filter: string;
-  onFilter: (q: string) => void;
-  onToggleArchived: () => void;
-  onCreateNote: (notebook: Notebook) => void;
-  onCreateChild: (parent: Note, notebook: Notebook) => void;
-  onCreateNotebook: (from: "header" | "empty") => void;
-  creatingIn: string | null;
-  creatingNotebook: "header" | "empty" | null;
-}) {
-  const navigate = useNavigate();
-  const notesByNotebook = React.useMemo(() => {
-    const m = new Map<string, Note[]>();
-    for (const n of notes) {
-      const list = m.get(n.notebookId);
-      if (list) list.push(n);
-      else m.set(n.notebookId, [n]);
-    }
-    return m;
-  }, [notes]);
-
-  const filteredFlat = React.useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return null;
-    return notes
-      .filter((n) => (n.title || "").toLowerCase().includes(q))
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      )
-      .slice(0, 30);
-  }, [filter, notes]);
-
-  return (
-    <div className="flex flex-1 flex-col">
-      <div className="px-3 pt-3">
-        <div className="mb-1 flex items-center justify-between px-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {showArchived ? "Trash" : "Notebooks"}
-          </span>
-          {!showArchived && (
-            <button
-              onClick={() => onCreateNotebook("header")}
-              disabled={creatingNotebook !== null}
-              aria-busy={creatingNotebook === "header" || undefined}
-              className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              title="New notebook"
-              aria-label="New notebook"
-            >
-              {creatingNotebook === "header" ? <ButtonSpinner size={14} /> : <Plus size={14} />}
-            </button>
-          )}
-        </div>
-        {!showArchived && (
-          <div className="relative mb-2">
-            <Search
-              size={13}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
-            />
-            <input
-              value={filter}
-              onChange={(e) => onFilter(e.target.value)}
-              onKeyDown={(e) => {
-                // Enter opens the best match, so finding a page is type + Enter.
-                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-                const first = filteredFlat?.[0];
-                const nb = first && notebooks.find((x) => x.id === first.notebookId);
-                if (!first || !nb) return;
-                e.preventDefault();
-                navigate(`/c/${company.slug}/notes/${nb.slug}/${first.slug}`);
-              }}
-              aria-label="Quick find"
-              placeholder="Quick find"
-              className="w-full rounded-md border border-transparent bg-slate-100/70 py-1.5 pl-7 pr-2 text-sm text-slate-700 placeholder:text-slate-400 hover:bg-slate-100 focus:border-slate-300 focus:bg-white focus:outline-none dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:bg-slate-800 dark:focus:border-slate-600 dark:focus:bg-slate-900"
-            />
-          </div>
-        )}
-      </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 pb-2">
-        {loading ? (
-          <div className="px-3 py-2 text-xs text-slate-400">Loading…</div>
-        ) : filteredFlat ? (
-          filteredFlat.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-              No matching pages.
-            </div>
-          ) : (
-            filteredFlat.map((n) => {
-              const nb = notebooks.find((x) => x.id === n.notebookId);
-              return (
-                <FlatNoteRow
-                  key={n.id}
-                  company={company}
-                  note={n}
-                  notebookSlug={nb?.slug ?? ""}
-                />
-              );
-            })
-          )
-        ) : notebooks.length === 0 ? (
-          <div className="px-3 py-6 text-center">
-            <div className="mb-2 text-xs text-slate-400 dark:text-slate-500">
-              No notebooks yet.
-            </div>
-            <button
-              onClick={() => onCreateNotebook("empty")}
-              disabled={creatingNotebook !== null}
-              aria-busy={creatingNotebook === "empty" || undefined}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
-            >
-              {creatingNotebook === "empty" ? <ButtonSpinner size={12} /> : <Plus size={12} />} New
-              notebook
-            </button>
-          </div>
-        ) : (
-          notebooks.map((nb) => (
-            <NotebookSection
-              key={nb.id}
-              company={company}
-              notebook={nb}
-              notes={notesByNotebook.get(nb.id) ?? []}
-              showAdd={!showArchived}
-              onCreateNote={() => onCreateNote(nb)}
-              onCreateChild={(parent) => onCreateChild(parent, nb)}
-              creatingIn={creatingIn}
-            />
-          ))
-        )}
-      </nav>
-      <div className="mt-auto border-t border-slate-100 px-2 py-2 dark:border-slate-800">
-        <button
-          onClick={onToggleArchived}
-          className={clsx(
-            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm",
-            showArchived
-              ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-              : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200",
-          )}
-        >
-          <Trash2 size={13} />
-          <span>{showArchived ? "Hide trash" : "Trash"}</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-type NoteNode = Note & { children: NoteNode[] };
-
-function buildTree(notes: Note[]): NoteNode[] {
-  const byId = new Map<string, NoteNode>();
-  for (const n of notes) byId.set(n.id, { ...n, children: [] });
-  const roots: NoteNode[] = [];
-  for (const node of byId.values()) {
-    if (node.parentId && byId.has(node.parentId)) {
-      byId.get(node.parentId)!.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  const sorter = (a: NoteNode, b: NoteNode) =>
-    a.sortOrder - b.sortOrder ||
-    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  roots.sort(sorter);
-  for (const node of byId.values()) node.children.sort(sorter);
-  return roots;
-}
-
-function NotebookSection({
-  company,
-  notebook,
-  notes,
-  showAdd,
-  onCreateNote,
-  onCreateChild,
-  creatingIn,
-}: {
-  company: Company;
-  notebook: Notebook;
-  notes: Note[];
-  showAdd: boolean;
-  onCreateNote: () => void;
-  onCreateChild: (parent: Note) => void;
-  creatingIn: string | null;
-}) {
-  const [open, setOpen] = React.useState(true);
-  const tree = React.useMemo(() => buildTree(notes), [notes]);
-  return (
-    <div>
-      <div className="group/nb relative flex items-center">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="absolute left-1 flex h-6 w-4 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
-          aria-label={open ? "Collapse" : "Expand"}
-        >
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </button>
-        <NavLink
-          to={`/c/${company.slug}/notes/${notebook.slug}`}
-          end
-          className={({ isActive }) =>
-            clsx(
-              "flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pl-6 pr-1 text-sm font-medium",
-              isActive
-                ? "bg-slate-200/70 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-                : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70",
-            )
-          }
-        >
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[13px]">
-            {notebook.icon ? (
-              <span aria-hidden>{notebook.icon}</span>
-            ) : (
-              <Book size={13} className="text-slate-400 dark:text-slate-500" />
-            )}
-          </span>
-          <span className="min-w-0 flex-1 truncate">
-            {notebook.title || "Untitled notebook"}
-          </span>
-          {notebook.noteCount > 0 && (
-            <span className="ml-1 shrink-0 rounded text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
-              {notebook.noteCount}
-            </span>
-          )}
-        </NavLink>
-        {showAdd && (
-          <button
-            type="button"
-            onClick={onCreateNote}
-            disabled={creatingIn === notebook.id}
-            aria-busy={creatingIn === notebook.id || undefined}
-            className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 opacity-0 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:opacity-100 group-hover/nb:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
-            title="New page in this notebook"
-            aria-label="New page in this notebook"
-          >
-            {creatingIn === notebook.id ? <ButtonSpinner size={12} /> : <Plus size={12} />}
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="mt-0.5">
-          {tree.length === 0 ? (
-            <div className="px-3 pb-1 pl-6 text-[11px] text-slate-400 dark:text-slate-500">
-              No pages yet.
-            </div>
-          ) : (
-            tree.map((n) => (
-              <NoteRow
-                key={n.id}
-                company={company}
-                notebookSlug={notebook.slug}
-                node={n}
-                depth={1}
-                onCreateChild={onCreateChild}
-                showAdd={showAdd}
-                creatingIn={creatingIn}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NoteRow({
-  company,
-  notebookSlug,
-  node,
-  depth,
-  onCreateChild,
-  showAdd,
-  creatingIn,
-}: {
-  company: Company;
-  notebookSlug: string;
-  node: NoteNode;
-  depth: number;
-  onCreateChild: (parent: Note) => void;
-  showAdd: boolean;
-  creatingIn: string | null;
-}) {
-  const [open, setOpen] = React.useState(true);
-  const hasChildren = node.children.length > 0;
-  return (
-    <div>
-      <div
-        className="group relative flex items-center"
-        style={{ paddingLeft: `${depth * 14}px` }}
-      >
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className={clsx(
-            "absolute left-0 flex h-7 w-5 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200",
-            !hasChildren && "pointer-events-none opacity-0 group-hover:opacity-60",
-          )}
-          aria-label={open ? "Collapse" : "Expand"}
-          style={{ left: `${depth * 14}px` }}
-        >
-          {hasChildren ? (
-            open ? <ChevronDown size={12} /> : <ChevronRight size={12} />
-          ) : (
-            <ChevronRight size={12} />
-          )}
-        </button>
-        <NavLink
-          to={`/c/${company.slug}/notes/${notebookSlug}/${node.slug}`}
-          className={({ isActive }) =>
-            clsx(
-              "flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pl-5 pr-1 text-sm",
-              isActive
-                ? "bg-slate-200/70 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-                : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70",
-            )
-          }
-        >
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[13px]">
-            {node.icon ? (
-              <span aria-hidden>{node.icon}</span>
-            ) : (
-              <FileText size={13} className="text-slate-400 dark:text-slate-500" />
-            )}
-          </span>
-          <span className="min-w-0 flex-1 truncate">
-            {node.title || "Untitled"}
-          </span>
-        </NavLink>
-        {showAdd && (
-          <button
-            type="button"
-            onClick={() => onCreateChild(node)}
-            disabled={creatingIn === node.id}
-            aria-busy={creatingIn === node.id || undefined}
-            className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 opacity-0 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
-            title="New sub-page"
-            aria-label="New sub-page"
-          >
-            {creatingIn === node.id ? <ButtonSpinner size={12} /> : <Plus size={12} />}
-          </button>
-        )}
-      </div>
-      {open && hasChildren && (
-        <div>
-          {node.children.map((c) => (
-            <NoteRow
-              key={c.id}
-              company={company}
-              notebookSlug={notebookSlug}
-              node={c}
-              depth={depth + 1}
-              onCreateChild={onCreateChild}
-              showAdd={showAdd}
-              creatingIn={creatingIn}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FlatNoteRow({
-  company,
-  note,
-  notebookSlug,
-}: {
-  company: Company;
-  note: Note;
-  notebookSlug: string;
-}) {
-  return (
-    <NavLink
-      to={`/c/${company.slug}/notes/${notebookSlug}/${note.slug}`}
-      className={({ isActive }) =>
-        clsx(
-          "flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm",
-          isActive
-            ? "bg-slate-200/70 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-            : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70",
-        )
-      }
-    >
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[13px]">
-        {note.icon ? (
-          <span aria-hidden>{note.icon}</span>
-        ) : (
-          <FileText size={13} className="text-slate-400 dark:text-slate-500" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1 truncate">
-        {note.title || "Untitled"}
-      </span>
-    </NavLink>
-  );
-}
-
-export { Link };
+  refresh: () => Promise<void>;
+  /** Update a page in the tree right away (a title being typed). */
+  patchNote: (id: string, patch: Partial<NoteOutline>) => void;
+  /** Make an "Untitled" page and open it: in a notebook, under a page, or wherever the person is. */
+  createPage: (target?: { notebook?: Notebook | null; parent?: NoteOutline | null; key?: string }) => Promise<void>;
+  /** Which create button is working: "quick", "notebook", "notebook:<id>" or "note:<id>". */
+  creating: string | null;
+  createNotebook: () => Promise<void>;
+  movePage: (note: NoteOutline, target: DropTarget) => void;
+  duplicatePage: (note: NoteOutline) => Promise<void>;
+  trashPage: (note: NoteOutline) => void;
+  openMoveDialog: (note: NoteOutline) => void;
+  hrefFor: (note: { slug: string; notebookId: string }) => string;
+};

@@ -2813,7 +2813,19 @@ export type Note = {
   updatedAt: string;
   createdBy: NoteAuthor | null;
   lastEditedBy: NoteAuthor | null;
+  /**
+   * One exact state of the page's content, on single-page responses. Sent
+   * back as `baseVersion` when saving, so a save never silently overwrites
+   * someone else's newer one.
+   */
+  version?: string;
 };
+
+/** A page without its body — what lists and the sidebar get (`?view=outline`). */
+export type NoteOutline = Omit<Note, "body" | "version"> & { preview: string };
+
+/** A search hit: the outline plus the stretch of text that matched. */
+export type NoteSearchHit = NoteOutline & { snippet: string };
 
 export type Notebook = {
   id: string;

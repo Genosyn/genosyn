@@ -21,9 +21,11 @@ import {
   moveBlocksBy,
   nextVisible,
   normalizeDepths,
+  ordinalLabel,
   outdentBlocks,
   pasteBlocks,
   previousVisible,
+  reconcileBlocks,
   selectionSpan,
   setToggleOpen,
   splitBlock,
@@ -83,6 +85,13 @@ describe("splitBlock (Enter)", () => {
     const twice = splitBlock(once.blocks, doc[1].id, 0);
     assert.deepEqual(sketch(twice.blocks), ["bulleted:0:parent", "paragraph:0:"]);
     assert.deepEqual(twice.focus, { id: doc[1].id, start: 0 });
+  });
+
+  test("Enter on an empty line inside a toggle or list item steps out of it", () => {
+    const doc = [b("toggle", "More", { open: true }), b("paragraph", "inside", { depth: 1 }), b("paragraph", "", { depth: 1 })];
+    const result = splitBlock(doc, doc[2].id, 0);
+    assert.deepEqual(sketch(result.blocks), ["toggle:0:More", "paragraph:1:inside", "paragraph:0:"]);
+    assert.deepEqual(result.focus, { id: doc[2].id, start: 0 });
   });
 
   test("Enter on an empty quote, callout or toggle turns it into text", () => {
@@ -421,6 +430,53 @@ describe("inserting", () => {
 
   test("ensureBlocks gives an empty page one paragraph", () => {
     assert.deepEqual(sketch(ensureBlocks([])), ["paragraph:0:"]);
+  });
+});
+
+describe("ordinalLabel", () => {
+  test("counts 1., a., i. by depth", () => {
+    assert.equal(ordinalLabel(3, 0), "3.");
+    assert.equal(ordinalLabel(0, 0), "0.");
+    assert.equal(ordinalLabel(1, 1), "a.");
+    assert.equal(ordinalLabel(26, 1), "z.");
+    assert.equal(ordinalLabel(27, 1), "aa.");
+    assert.equal(ordinalLabel(4, 2), "iv.");
+    assert.equal(ordinalLabel(1994, 2), "mcmxciv.");
+    assert.equal(ordinalLabel(2, 3), "2.");
+  });
+});
+
+describe("reconcileBlocks", () => {
+  test("blocks that survive an outside change keep their ids; new ones get their own", () => {
+    const before = parseDoc("# Title\n\nFirst\n\nSecond").blocks;
+    const after = parseDoc("# Title\n\nAdded by AI\n\nFirst\n\nSecond").blocks;
+    const merged = reconcileBlocks(before, after);
+    assert.equal(merged[0].id, before[0].id);
+    assert.notEqual(merged[1].id, before[1].id);
+    assert.equal(merged[2].id, before[1].id);
+    assert.equal(merged[3].id, before[2].id);
+  });
+
+  test("an edited block keeps its id, so the caret stays in it", () => {
+    const before = parseDoc("One\n\nTwo\n\nThree").blocks;
+    const after = parseDoc("One\n\nTwo, edited elsewhere\n\nThree").blocks;
+    const merged = reconcileBlocks(before, after);
+    assert.deepEqual(merged.map((b) => b.id), before.map((b) => b.id));
+    assert.equal(plainText(merged[1].runs), "Two, edited elsewhere");
+  });
+
+  test("keeps a toggle open that the person opened", () => {
+    const before = parseDoc("<details>\n<summary>T</summary>\n\nx\n\n</details>").blocks;
+    before[0] = { ...before[0], open: true };
+    const after = parseDoc("<details>\n<summary>T</summary>\n\nx\n\n</details>\n\nmore").blocks;
+    assert.equal(reconcileBlocks(before, after)[0].open, true);
+  });
+
+  test("the result is written from the new source, not the old one", () => {
+    const before = parseDoc("Keep\n\nOld").blocks;
+    const nextDoc = parseDoc("Keep\n\nNew text\n");
+    const merged = reconcileBlocks(before, nextDoc.blocks);
+    assert.equal(serializeDoc({ ...nextDoc, blocks: merged }), "Keep\n\nNew text\n");
   });
 });
 

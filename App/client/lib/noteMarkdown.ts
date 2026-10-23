@@ -1054,6 +1054,34 @@ export function blocksToMarkdown(blocks: readonly Block[]): string {
   return serializeDoc({ blocks: shifted, leading: "", trailing: "", segments: 0 });
 }
 
+export type TableAlign = "left" | "center" | "right" | null;
+
+/** A GFM table's cells, for showing a table block. Null when the source isn't a table. */
+export function parseTableSource(
+  text: string,
+): { header: string[]; align: TableAlign[]; rows: string[][] } | null {
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
+  if (lines.length < 2 || !isTableStart(lines[0], lines[1])) return null;
+  const cells = (line: string) => {
+    let body = line.trim();
+    if (body.startsWith("|")) body = body.slice(1);
+    if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+    return body.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+  };
+  const header = cells(lines[0]);
+  const align = cells(lines[1]).map((cell): TableAlign => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    return left && right ? "center" : right ? "right" : left ? "left" : null;
+  });
+  const rows = lines.slice(2).map((line) => {
+    const row = cells(line);
+    while (row.length < header.length) row.push("");
+    return row.slice(0, header.length);
+  });
+  return { header, align, rows };
+}
+
 /** Plain text of a block, for previews and search. */
 export function blockPlainText(block: Block): string {
   if (isRichText(block.type)) return plainText(block.runs);

@@ -9,6 +9,8 @@ import {
   insertText,
   linkAt,
   linkifyRuns,
+  looksLikeUrl,
+  normalizeHref,
   normalizeRuns,
   parseInline,
   plainText,
@@ -374,6 +376,27 @@ describe("run editing", () => {
     assert.deepEqual(linkAt(linked, 3), { start: 0, end: 5, href: "https://x.dev" });
     assert.equal(linkAt(linked, 8), null);
     assert.deepEqual(setLink(linked, 0, 5, null), runs);
+  });
+
+  test("normalizeHref accepts addresses people type and refuses scripts", () => {
+    assert.equal(normalizeHref("https://x.dev/a?b=1"), "https://x.dev/a?b=1");
+    assert.equal(normalizeHref("  genosyn.com/docs  "), "https://genosyn.com/docs");
+    assert.equal(normalizeHref("localhost.test:8471/x"), "https://localhost.test:8471/x");
+    assert.equal(normalizeHref("ada@example.com"), "mailto:ada@example.com");
+    assert.equal(normalizeHref("/c/acme/notes"), "/c/acme/notes");
+    assert.equal(normalizeHref("#section"), "#section");
+    assert.equal(normalizeHref("mailto:a@b.co"), "mailto:a@b.co");
+    assert.equal(normalizeHref("javascript:alert(1)"), null);
+    assert.equal(normalizeHref("DATA:text/html,x"), null);
+    assert.equal(normalizeHref("not a link"), null);
+    assert.equal(normalizeHref(""), null);
+  });
+
+  test("looksLikeUrl spots a pasted link", () => {
+    assert.equal(looksLikeUrl("https://x.dev"), true);
+    assert.equal(looksLikeUrl(" mailto:a@b.co\n"), true);
+    assert.equal(looksLikeUrl("see https://x.dev"), false);
+    assert.equal(looksLikeUrl("x.dev"), false);
   });
 
   test("linkifyRuns turns typed URLs into links", () => {
