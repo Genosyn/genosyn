@@ -275,7 +275,9 @@ Most, roughly in order:
    (`App/server/services/repositories.ts`), SSO client secrets, TOTP seeds.
 4. **The AI runtime boundary**:
    - the per-turn model proxy that keeps API keys in the App and gives
-     OpenCode a disposable token (`App/server/services/agent/opencodeProxy.ts`);
+     OpenCode a disposable token (`App/server/services/agent/opencodeProxy.ts`),
+     including an AI Model's backup keys, which it tries in turn when a key is
+     refused (`App/server/services/agent/apiKeyRing.ts`);
    - OpenCode process setup (`App/server/services/agent/opencodeServer.ts`,
      `App/server/services/agent/opencodeRuntime.ts`);
    - the Codex runtime (`App/server/services/agent/codexRuntime.ts`,

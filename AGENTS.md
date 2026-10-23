@@ -695,7 +695,12 @@ in a Work session instead of leaving them stranded as local commits.
   company context and scoped tool registry to a managed OpenCode process;
   credentials and runtime state must not become persistent employee files.
   A per-turn model proxy keeps API keys in Genosyn and gives OpenCode only a
-  disposable access token and endpoint.
+  disposable access token and endpoint. An Anthropic or OpenAI API-key model
+  may hold any number of backup keys beside its primary (`services/modelApiKeys.ts`);
+  the proxy resends a request on the next key when the provider refuses the
+  key itself, before any reply reaches OpenCode (`services/agent/apiKeyRing.ts`).
+  Each key's health is an `AIModelKeyHealth` row — never written into
+  `configJson`, which key edits save only if nobody changed it meanwhile.
   OpenAI subscription models use the official pinned `@openai/codex`
   app-server with the same Genosyn-owned domain tool registry:
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
