@@ -407,6 +407,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Script everything a Member can do with a personal API key — the base URL, the auth header, /api/docs and /api/openapi.json.",
       },
       {
+        path: "/docs/mcp-server",
+        title: "MCP server",
+        blurb:
+          "Connect Claude Desktop, Claude Code, Cursor or any MCP client to Genosyn with an API key — everything the REST API does, one search away.",
+      },
+      {
         path: "/docs/vocabulary",
         title: "Vocabulary",
         blurb: "Words we use, and the words we don't.",

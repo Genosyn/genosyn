@@ -785,6 +785,14 @@ in a Work session instead of leaving them stranded as local commits.
   `describeBrowserSessionOnly` / `describeBrowserSessionCondition`
   (`middleware/routeMetadata.ts`); `openapi/apiKeySweep.test.ts` sends a real
   key to every operation and fails when the reference and the server disagree.
+- **The Genosyn MCP server is generated from that reference.**
+  `/api/companies/:cid/mcp` (`routes/companyMcp.ts`, `services/companyMcp/`)
+  offers every operation an API key may call to any MCP client through six
+  resident tools, so a new route reaches it with no extra step. Each call is
+  replayed in memory through the App's own router with the caller's key —
+  never reimplement an operation for it, and never let it read the session
+  cookie. It is not the per-employee `mcp/connect` endpoint, nor the
+  loopback `genosyn` tools an AI Employee runs with.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

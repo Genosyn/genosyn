@@ -84,7 +84,7 @@ export function mcpClientSetup(
             [MCP_SERVER_NAME]: { url: options.url, headers: { Authorization: bearer } },
           },
         }),
-        note: "Or .cursor/mcp.json in one project. Cursor lists the server under Settings → MCP once the file is saved.",
+        note: "Or .cursor/mcp.json in one project. Cursor picks the server up once the file is saved, and lists it in its MCP settings.",
       };
     case "http":
       return {

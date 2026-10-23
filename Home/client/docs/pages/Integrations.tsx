@@ -253,6 +253,11 @@ export function Integrations() {
         drives that employee from anywhere: Claude Desktop, Cursor, VS Code, or your own agent, all
         seeing the same tools, Grants, and audit trail as the in-app assistant.
       </P>
+      <P>
+        To give an outside agent everything a Member can do through the API instead — not one
+        employee&apos;s tools, but Revenue, Finance, Tasks, Routines and the rest, acting as the
+        key&apos;s Member — connect it to the <DocLink to="/docs/mcp-server">MCP server</DocLink>.
+      </P>
 
       <H3 id="external-mcp-url">Get the endpoint URL</H3>
       <P>

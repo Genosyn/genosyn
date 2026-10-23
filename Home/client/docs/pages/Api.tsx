@@ -115,6 +115,15 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
         field saying whether a key works, which company role it needs, and what Finance access.
       </P>
 
+      <H2 id="mcp">From an AI agent</H2>
+      <P>
+        The same keys open the <DocLink to="/docs/mcp-server">MCP server</DocLink>. Point Claude
+        Desktop, Claude Code, Cursor or any MCP client at <Code>/api/companies/&lt;id&gt;/mcp</Code>{" "}
+        and it can search, describe and call every operation a key can call here, by the same{" "}
+        <Code>operationId</Code>s, under the same rules. <Strong>Settings → API keys</Strong> shows
+        the endpoint and each client&apos;s setup.
+      </P>
+
       <H2 id="what-a-key-can-do">What a key can and cannot do</H2>
       <P>
         A key acts as the Member who minted it, with that Member&apos;s role and Finance access at
@@ -206,8 +215,11 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
         starting a <DocLink to="/docs/pipelines">Pipeline</DocLink> from its Webhook trigger, and
         posting to a <DocLink to="/docs/workspace-chat">workspace channel</DocLink> in Slack&apos;s
         format. Copy each URL from the app; the reference lists them under{" "}
-        <Strong>Inbound webhooks</Strong>. To drive an AI Employee&apos;s tools from another agent,
-        use its <DocLink to="/docs/integrations">MCP endpoint</DocLink> with the same API key.
+        <Strong>Inbound webhooks</Strong>. To give another agent everything a key can do, connect it
+        to the <DocLink to="/docs/mcp-server">MCP server</DocLink>; to have it act as one AI
+        Employee with that employee&apos;s tools, use the employee&apos;s{" "}
+        <DocLink to="/docs/integrations#external-mcp">MCP endpoint</DocLink>. Both take the same API
+        key.
       </P>
 
       <Callout kind="warn" title="Treat a key like your password for this company.">
