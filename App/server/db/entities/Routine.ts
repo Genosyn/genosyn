@@ -7,6 +7,9 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
  */
 export type CatchUpPolicy = "once" | "skip";
 
+/** {@link Routine.timeoutSec} for a new Routine: 6 hours, the editor's ceiling. */
+export const DEFAULT_ROUTINE_TIMEOUT_SEC = 6 * 60 * 60;
+
 @Entity("routines")
 @Index(["employeeId", "slug"], { unique: true })
 // The heartbeat's hot query — `enabled = true AND nextRunAt <= now`, every 30
@@ -93,12 +96,13 @@ export class Routine {
 
   /**
    * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
-   * this long and marks the Run `timeout`. Default 60 min (`3600`) gives
-   * long-running agent work room to finish without letting a wedged process
-   * hold a license / API quota indefinitely. Editable per routine from the
-   * Routine editor (10 s – 6 h).
+   * this long and marks the Run `timeout`. Default 6 h
+   * ({@link DEFAULT_ROUTINE_TIMEOUT_SEC}), the editor's ceiling: an initial
+   * Run and its automatic continuations share this one window, and a slow
+   * local model needs most of it for a long backlog. Editable per routine from
+   * the Routine editor (10 s – 6 h).
    */
-  @Column({ type: "integer", default: 3600 })
+  @Column({ type: "integer", default: DEFAULT_ROUTINE_TIMEOUT_SEC })
   timeoutSec!: number;
 
   /**
