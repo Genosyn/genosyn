@@ -477,6 +477,20 @@ try {
     await app.shot(page, "notes-editor-mobile");
     await page.close();
   });
+
+  await app.check("A code block's language comes from a searchable list", async () => {
+    const view = await app.open({ path: `/c/acme/notes/general/${pageSlug}`, routes });
+    const { page } = view;
+    await editor(page).waitFor();
+    await editor(page).getByRole("combobox", { name: "Code language" }).click();
+    await page.keyboard.type("type");
+    const options = page.getByRole("listbox").getByRole("option");
+    assert.deepEqual(await options.allInnerTexts(), ["TypeScript"], "typing narrows the languages");
+    await app.shot(page, "notes-code-language");
+    await options.first().click();
+    await waitForBody(pageSlug, (b) => b.includes("```typescript\nnpm ci\n```"), "the chosen language saves");
+    await page.close();
+  });
 } finally {
   await app.finish();
   await new Promise<void>((resolve) => server.close(() => resolve()));

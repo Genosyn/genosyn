@@ -382,7 +382,12 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/self-hosting",
         title: "Configuration",
-        blurb: "config.ts, the runtime settings in Admin, the data directory, backups.",
+        blurb: "config.ts, the runtime settings in Admin, the data directory.",
+      },
+      {
+        path: "/docs/backups",
+        title: "Backups",
+        blurb: "Back up now and on a schedule, keep copies off this server, see where each lives, restore.",
       },
       {
         path: "/docs/connect",
@@ -405,6 +410,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "REST API",
         blurb:
           "Script everything a Member can do with a personal API key — the base URL, the auth header, /api/docs and /api/openapi.json.",
+      },
+      {
+        path: "/docs/api-cli",
+        title: "API CLI",
+        blurb:
+          "genosyn-api: every API operation from a terminal, a script or an AI agent — login, discovery, calls, output and exit codes.",
       },
       {
         path: "/docs/mcp-server",

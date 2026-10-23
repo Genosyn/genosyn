@@ -45,7 +45,8 @@ export function modelSetupFailure(
       detail,
     );
   }
-  if (status === 429) {
+  // 402 is Anthropic's billing_error: out of credit, or a payment problem.
+  if (status === 429 || status === 402) {
     return new ModelSetupError(
       "The AI Model could not respond because of billing, quota, or a rate limit. Check your account and try again.",
       422,

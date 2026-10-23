@@ -1,4 +1,5 @@
 import type { AIModel, AuthMode, Provider } from "./api";
+import { apiKeyNotes } from "./modelApiKeys";
 
 /**
  * How an AI Model is described to a Member.
@@ -66,12 +67,15 @@ export function tuningNotes(
   model: Pick<
     AIModel,
     "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
-  >,
+  > &
+    Partial<Pick<AIModel, "provider" | "apiKeys">>,
 ): string[] {
   // A ChatGPT sign-in has neither control, and an unconnected model has no
   // settings worth reporting yet.
   if (model.status !== "connected" || model.authMode === "subscription") return [];
-  const notes: string[] = [];
+  // Backup keys, and any key the provider is refusing, come first: a dead key
+  // is the one thing in here an owner should not have to go looking for.
+  const notes: string[] = model.provider ? apiKeyNotes({ ...model, provider: model.provider }) : [];
   if (model.contextWindowSource === "manual") notes.push("Context window set manually");
   else if (model.authMode === "customEndpoint" && model.contextWindow === null) {
     notes.push("Context window unknown");
@@ -83,15 +87,17 @@ export function tuningNotes(
 /**
  * The one line an Advanced disclosure shows while it is closed: the other AI
  * Models the employee holds and whatever has been tuned away from its default,
- * e.g. "Context window set manually · 2 concurrent Runs". Empty when there is
- * nothing to say, so the caller can show a plain hint of what is inside.
+ * e.g. "2 backup API keys · Context window set manually · 2 concurrent Runs".
+ * Empty when there is nothing to say, so the caller can show a plain hint of
+ * what is inside.
  */
 export function advancedSummary(
   models: ReadonlyArray<
     Pick<
       AIModel,
       "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
-    >
+    > &
+      Partial<Pick<AIModel, "provider" | "apiKeys">>
   >,
 ): string {
   const parts: string[] = [];

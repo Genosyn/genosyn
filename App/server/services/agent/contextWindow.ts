@@ -1,9 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AIModel } from "../../db/entities/AIModel.js";
-import { decryptSecret } from "../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
+import { orderedApiKeys } from "./apiKeyRing.js";
 
 /**
  * Ask a provider how many tokens its model can take.
@@ -118,24 +118,26 @@ export function readWindow(entry: unknown): number | null {
   return null;
 }
 
-/** Anthropic's models API reports the context window as `max_input_tokens`. */
-async function probeAnthropic(model: AIModel): Promise<number | null> {
-  const apiKey = readApiKey(model);
-  if (!apiKey) return null;
-  const client = new Anthropic({ apiKey, timeout: PROBE_TIMEOUT_MS, maxRetries: 0 });
-  const found = await client.models.retrieve(model.model);
-  return plausible(readNumber(found, "max_input_tokens"));
-}
+/** Statuses that refuse the key itself, so the next key may still answer. */
+const KEY_REFUSALS = new Set([401, 402, 403, 429]);
 
-function readApiKey(model: AIModel): string | null {
-  try {
-    const cfg = JSON.parse(model.configJson || "{}") as Record<string, unknown>;
-    const enc = cfg.apiKeyEncrypted;
-    if (typeof enc !== "string") return null;
-    return decryptSecret(enc);
-  } catch {
-    return null;
+/**
+ * Anthropic's models API reports the context window as `max_input_tokens`.
+ * Asked with the AI Model's keys in the order a Run would try them, moving on
+ * only when a key itself is refused, as a Run's request would.
+ */
+async function probeAnthropic(model: AIModel): Promise<number | null> {
+  for (const { apiKey } of await orderedApiKeys(model)) {
+    const client = new Anthropic({ apiKey, timeout: PROBE_TIMEOUT_MS, maxRetries: 0 });
+    try {
+      const found = await client.models.retrieve(model.model);
+      return plausible(readNumber(found, "max_input_tokens"));
+    } catch (error) {
+      const status = (error as { status?: unknown } | null)?.status;
+      if (typeof status !== "number" || !KEY_REFUSALS.has(status)) throw error;
+    }
   }
+  return null;
 }
 
 /** Pull a numeric field off a provider payload that our SDK types don't model. */

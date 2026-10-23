@@ -561,7 +561,8 @@ export function SelfHosting() {
           switching into it first.
         </LI>
         <LI>
-          <Strong>Backups</Strong> — see below.
+          <Strong>Backups</Strong> — whether the install is backed up, where each backup lives,
+          and restoring one; see <DocLink to="/docs/backups">Backups</DocLink>.
         </LI>
       </UL>
 
@@ -722,197 +723,19 @@ export function SelfHosting() {
 
       <H2 id="backups">Backups</H2>
       <P>
-        A backup zips the <em>entire</em> data directory — every company&apos;s rows, uploads, and
+        A backup copies the <em>entire</em> data directory — every company&apos;s rows, uploads, and
         credentials, including the hidden managed <Code>.instance-secrets.json</Code> file — so it
         is install-wide, not per company. On Postgres the database lives outside that directory:
         back it up separately with <Code>pg_dump</Code> or your provider&apos;s backups, from the
-        same point in time as the archive. Run one from the CLI:
-      </P>
-      <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
-genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
-      <P>
-        Or drive it in-app at <Code>Admin → Backups</Code>: back up now, upload an existing{" "}
-        <Code>.zip</Code> to restore from, download or restore any past archive, and set a recurring
-        schedule (daily / weekly / monthly at a chosen hour) backed by the{" "}
-        <Code>BackupSchedule</Code> row. See <DocLink to="/docs/cli">CLI reference</DocLink> for the
-        flag list.
-      </P>
-
-      <P>
-        The SQLite database is copied with SQLite&apos;s online backup API a few pages at a time, so
-        the App keeps answering requests while a backup runs and the archive still holds one
-        consistent point-in-time copy as <Code>app.sqlite</Code>. SQLite won&apos;t copy while a
-        change to the database is part-way through, so a backup waits for it. If one has not
-        finished after two minutes, the backup fails with that reason in History rather than
-        saving an archive without the database, and Genosyn refuses to restore or upload an
-        archive that has no <Code>app.sqlite</Code>.
+        same point in time.
       </P>
       <P>
-        A backup is written to a temporary <Code>.part</Code> file and moved into place only once it
-        is complete, so a <Code>.zip</Code> in <Code>data/Backup/</Code> is always a whole archive —
-        never a half-one left by a container restart or an OOM kill. If a backup is interrupted,
-        History keeps showing it as <Code>running</Code> and the leftover <Code>.part</Code> is
-        swept on the next start. Restoring also opens the archive before it touches anything, so a
-        damaged file is refused up front rather than part-way through replacing your data.
-      </P>
-      <Callout kind="warn" title="Treat every backup like the live Vault">
-        Every archive contains both encrypted credentials and the installation key that can decrypt
-        them, so it is a plaintext-equivalent secret bundle. Genosyn creates local in-app, mounted
-        path, and CLI archives with file mode <Code>0600</Code>, but you must still restrict who can
-        read, copy, or restore them. TLS or SSH protects a backup while it is moving; it does not
-        encrypt the archive after it reaches its destination.
-      </Callout>
-
-      <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
-      <P>
-        Backups live in <Code>data/Backup/</Code> by default — on the same disk as everything else.
-        Add one or more <Strong>off-box destinations</Strong> under{" "}
-        <Code>Admin → Backups → Off-box destinations</Code> and every completed backup is mirrored
-        there automatically. Three kinds:
-      </P>
-      <UL>
-        <LI>
-          <Strong>Mounted path</Strong> — a filesystem path Genosyn can already write to. Mount your
-          NAS share (SMB / NFS / iSCSI) on the host or bind-mount it into the container, then point
-          the destination at that path (for example <Code>/mnt/nas/genosyn</Code>). The kernel
-          handles the protocol; Genosyn just copies the archive. Still the simplest option when you
-          are able to mount the share.
-        </LI>
-        <LI>
-          <Strong>SMB / CIFS</Strong> — push straight to a Windows or NAS share with{" "}
-          <em>no mount required</em>. Enter the host, share, an optional folder within it, and a
-          username, password, and optional domain. For when bind-mounting is not available to you —
-          a locked-down Kubernetes cluster, or a host where you cannot mount CIFS. Genosyn
-          negotiates SMB3 and signs the connection; leave <Code>Encrypt in transit</Code> on (the
-          default) so the archive is not readable on your network, and turn it off only for a NAS
-          that predates SMB3.
-        </LI>
-        <LI>
-          <Strong>SFTP / SSH</Strong> — push to a remote host with no mount required. Enter the
-          host, port, username, and a password or private key. Good for appliance NASes (Synology,
-          QNAP, TrueNAS) that expose SSH but are awkward to bind-mount.
-        </LI>
-      </UL>
-      <P>
-        Credentials for the SMB and SFTP kinds are encrypted at rest with the same AES-256-GCM
-        helper used for model API keys, and are never returned to the browser.
-      </P>
-      <P>
-        Use <Code>Test</Code> on a destination to confirm it is reachable and writable, toggle{" "}
-        <Code>Enabled</Code> to pause mirroring without deleting it, and use <Code>Send</Code> next
-        to any archive in History to push an existing backup on demand. Delivery is best-effort: a
-        mirror that fails never fails the backup itself, which is already safe in{" "}
-        <Code>data/Backup/</Code>.
-      </P>
-      <P>
-        Every copy is written under a <Code>.partial</Code> name and renamed once the whole archive
-        has arrived, so a copy cut short — by a timeout, a dropped link, or an upgrade restarting the
-        server — never sits on the destination looking like a finished backup. An SMB copy gets as
-        long as the archive needs: half an hour, plus the time the archive takes at 2 MB/s — about
-        seven and a half hours in all for a 50 GB archive. Only a copy slower than that is stopped as
-        stuck, so a large backup over a VPN to a home NAS still gets through.
-      </P>
-
-      <H3 id="off-box-failures">When a destination fails</H3>
-      <P>
-        A destination counts as <Strong>failing</Strong> from its first failed delivery until a
-        backup gets through again, and Genosyn makes sure someone hears about it:
-      </P>
-      <UL>
-        <LI>
-          A red banner at the top of <Code>Admin → Backups</Code> names each failing destination,
-          when the failures began, when a copy last arrived, and the error.
-        </LI>
-        <LI>
-          The <Code>Off-box backups</Code> row on <Code>Admin → Overview</Code> and{" "}
-          <Code>Admin → Instance Health</Code> turns red.
-        </LI>
-        <LI>
-          Every master admin is emailed when the failures begin, at most once a day while they
-          last, and once more when a copy arrives again. The emails go out through{" "}
-          <Code>Admin → Email transport</Code>; without one they are only printed to the server log,
-          so set one up if you want to hear about it.
-        </LI>
-      </UL>
-      <P>
-        A passing <Code>Test</Code> does not clear a failing destination. The test writes a tiny
-        file, and a share can take that and still time out on a full archive, so the destination
-        stays failing until a real backup reaches it. After fixing it, use <Code>Send</Code> on the
-        newest backup in History to confirm.
-      </P>
-
-      <H3 id="retention">Retention (deleting old backups)</H3>
-      <P>
-        Left alone, backups pile up forever. <Code>Admin → Backups → Retention</Code> has two
-        policies, each a tick-box and a number of days past which archives are deleted: one for
-        archives on this server, one for copies on off-box destinations. They are separate because
-        the two have different room — a NAS can usually keep far more history than the
-        server&apos;s own disk.
-      </P>
-      <P>
-        <Strong>On this server.</Strong> Genosyn checks hourly and again straight after every
-        backup, so a window that lapses at midday is honoured at midday. The policy is{" "}
-        <em>independent of the recurring schedule</em> — it covers every archive in{" "}
-        <Code>data/Backup/</Code>, including ones you made by hand with <Code>Back up now</Code>,
-        and it runs even when the schedule is off. Two things are always spared, on the principle
-        that a retention setting must never leave you with nothing to restore from:
-      </P>
-      <UL>
-        <LI>
-          <Strong>The newest completed archive</Strong> — kept however old it is. If backups stop
-          running for a year, the last one survives. Should that archive turn out not to open, the
-          newest one that <em>does</em> open is kept as well, so an unreadable file can never cost
-          you the last archive you could actually restore from.
-        </LI>
-        <LI>
-          <Strong>Archives you uploaded</Strong> through <Code>Admin → Backups</Code> — you carried
-          those in from somewhere else and they may be the only copy. Delete them by hand when you
-          are done with them.
-        </LI>
-      </UL>
-      <P>
-        <Strong>On off-box destinations.</Strong> Off by default, so nothing on a NAS is deleted
-        until you ask. Once on, it runs each time a backup is copied to a{" "}
-        <DocLink to="/docs/self-hosting#off-box-destinations">destination</DocLink>: archives there
-        older than the window are deleted, except the copy just made, so a destination always holds
-        at least one complete backup. Only archives Genosyn delivered (
-        <Code>backup-YYYY-MM-DD-HHMMSS.zip</Code>) and partial copies of them are touched —
-        anything else in that folder is left alone. If several installs deliver to one folder,
-        give each its own: each prunes every Genosyn archive it finds there. A destination that cannot be reached is not pruned; its old archives go at its
-        next successful delivery. Saving the policy does not prune on the spot: it applies at each
-        destination&apos;s next delivery, the moment a fresh copy is known to be there.
-      </P>
-
-      <H3 id="backup-verification">Daily backup verification</H3>
-      <P>
-        Taking a backup and still having it are different things. Every day, a few hours after the
-        scheduled backup, Genosyn holds each place backups are kept to the schedule and to that
-        place&apos;s retention policy, and shows what it found in the{" "}
-        <Code>Daily verification</Code> card at the top of <Code>Admin → Backups</Code>:
-      </P>
-      <UL>
-        <LI>
-          <Strong>Every scheduled run produced a backup</Strong>, over the on-box retention window —
-          or the last seven days without one. A run that never happened, because the server was
-          down, or that failed is reported with its time and error.
-        </LI>
-        <LI>
-          <Strong>Every archive on this server is there and opens.</Strong> One listed in History
-          whose file is gone, that won&apos;t open, or that holds no database is reported by name.
-        </LI>
-        <LI>
-          <Strong>Every destination holds a copy of each backup</Strong>, over the off-box retention
-          window — or the last seven days — since the destination was added. A copy smaller than the
-          archive it copies never finished arriving, and is reported as such. A copy is only expected
-          12 hours after its backup, so a large one still on its way isn&apos;t counted as missing.
-        </LI>
-      </UL>
-      <P>
-        Master admins are emailed when verification finds something it hasn&apos;t reported
-        before, and once more when everything is back in place: a missing archive is reported once,
-        while backups that keep failing bring a new email each day another one is missed. Use{" "}
-        <Code>Verify now</Code> on the card to run it on demand. The result also shows under
-        Backups on <Code>Admin → Overview</Code> and <Code>Admin → Instance Health</Code>.
+        <Code>Admin → Backups</Code> says whether the install is backed up, takes a backup on a
+        schedule or with <Code>Back up now</Code>, copies every backup to off-box destinations
+        such as a NAS, and lists where each backup lives. See{" "}
+        <DocLink to="/docs/backups">Backups</DocLink> for the whole page, and the{" "}
+        <DocLink to="/docs/cli">CLI reference</DocLink> for <Code>genosyn backup</Code> and{" "}
+        <Code>genosyn restore</Code>.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>

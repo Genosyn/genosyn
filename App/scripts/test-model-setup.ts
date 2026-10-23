@@ -50,6 +50,19 @@ function connectedRow(overrides: Partial<AIModel> = {}): AIModel {
     connectedAt: "2026-09-09T12:00:00Z",
     status: "connected",
     apiKeyMasked: "sk-…••••",
+    apiKeys: [
+      {
+        id: "primary",
+        preview: "sk-…live",
+        addedAt: null,
+        lastUsedAt: "2026-09-09T12:30:00Z",
+        lastErrorAt: null,
+        lastErrorStatus: null,
+        lastErrorKind: null,
+        lastError: null,
+        restingUntil: null,
+      },
+    ],
     // The server still sends the conventional env var; no screen may show it.
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
@@ -431,7 +444,9 @@ try {
   assert.doesNotMatch(await page.locator("main").innerText(), /ANTHROPIC_API_KEY|OPENAI_API_KEY/);
   assert.equal(
     await page
-      .getByText("Context window, concurrent Runs, add or remove models", { exact: true })
+      .getByText("API keys, context window, concurrent Runs, add or remove models", {
+        exact: true,
+      })
       .isVisible(),
     true,
   );
@@ -543,6 +558,7 @@ try {
       status: "connected",
       connectedAt: "2026-09-09T12:00:00Z",
       apiKeyMasked: null,
+      apiKeys: [],
       apiKeyEnv: null,
       supportsApiKey: false,
       supportsSubscription: false,

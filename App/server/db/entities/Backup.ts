@@ -31,6 +31,16 @@ export class Backup {
   @Column({ type: "text", default: "" })
   errorMessage!: string;
 
+  /**
+   * Whether every attempt to copy this backup off-box is recorded as a
+   * `BackupCopy`. False for backups taken before copies were recorded, for
+   * archives found on disk without a row, and for a row a restore brought back
+   * mid-backup — for those, a destination with no copy row is "not recorded",
+   * never "not copied", until daily verification looks for it there.
+   */
+  @Column({ type: "boolean", default: false })
+  copiesTracked!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

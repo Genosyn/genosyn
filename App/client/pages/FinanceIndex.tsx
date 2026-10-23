@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { ArrowRight, FileText, Landmark, Plus, Users, Wallet } from "lucide-react";
 import { api, BankingAccount, Customer, formatMoney, InvoiceListItem } from "../lib/api";
+import { newInvoicePath } from "../lib/invoiceKind";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -122,7 +123,7 @@ export default function FinanceIndex() {
         </div>
         {canWrite && (
           <div className="flex gap-2">
-            <Link to={`/c/${company.slug}/finance/invoices/new`}>
+            <Link to={newInvoicePath(`/c/${company.slug}/finance`)}>
               <Button>
                 <Plus size={14} /> New invoice
               </Button>
@@ -194,7 +195,7 @@ export default function FinanceIndex() {
                   <>
                     {" "}
                     <Link
-                      to={`/c/${company.slug}/finance/invoices/new`}
+                      to={newInvoicePath(`/c/${company.slug}/finance`)}
                       className="text-indigo-600 hover:underline dark:text-indigo-400"
                     >
                       Create your first invoice

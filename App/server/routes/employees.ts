@@ -55,6 +55,7 @@ import {
   revokeDisabledBrowserSessionsForEmployee,
 } from "../services/browserAccess.js";
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
+import { deleteKeyHealth } from "../services/modelKeyHealth.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
 import { detachEmployeeFromTldrs, ensureDefaultTldrSchedule } from "../services/tldrs.js";
 import { detachEmployeeFromBoardLetters } from "../services/boardLetters.js";
@@ -471,6 +472,13 @@ employeesRouter.delete("/:eid", async (req, res) => {
   }
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
+  const modelIds = (
+    await AppDataSource.getRepository(AIModel).find({
+      where: { employeeId: emp.id },
+      select: { id: true },
+    })
+  ).map((model) => model.id);
+  await deleteKeyHealth(modelIds);
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(McpServer).delete({ employeeId: emp.id });
   await deleteEmployeeConversations(emp.id);

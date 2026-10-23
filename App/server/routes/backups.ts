@@ -2,22 +2,25 @@ import { Router } from "express";
 import fs from "node:fs";
 import { z } from "zod";
 import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   backupFilePath,
+  backupHistoryItem,
   deleteBackup,
-  deliverBackup,
+  getBackup,
   getBackupSchedule,
   ingestUploadedArchive,
-  listBackups,
+  listBackupHistory,
   MAX_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
   restoreFromBackup,
-  runBackup,
   serializeBackup,
   serializeSchedule,
+  startBackup,
+  startCopy,
   updateBackupSchedule,
 } from "../services/backups.js";
+import { serializeCopy } from "../services/backupCopies.js";
 import { getLastBackupVerification, verifyBackups } from "../services/backupVerification.js";
 import { config } from "../../config.js";
 
@@ -40,9 +43,15 @@ backupsRouter.use((_req, res, next) => {
   next();
 });
 
-backupsRouter.get("/", async (_req, res) => {
-  const rows = await listBackups();
-  res.json(rows.map(serializeBackup));
+const idParams = z.object({ id: z.string().min(1).max(64) });
+
+/** History: every backup with where it is — on this server, and each off-box copy. */
+backupsRouter.get("/", async (_req, res, next) => {
+  try {
+    res.json(await listBackupHistory());
+  } catch (err) {
+    next(err);
+  }
 });
 
 /** The last daily backup verification, or null before the first one has run. */
@@ -59,20 +68,29 @@ backupsRouter.post("/verification", async (_req, res, next) => {
   }
 });
 
+/**
+ * Back up now. Answers as soon as the backup is recorded, with its History row
+ * (`inProgress` while this server writes it): the archive and its off-box
+ * copies can take hours, and the page follows them from History. While a
+ * backup is already running, that one comes back with `alreadyRunning`.
+ */
 backupsRouter.post("/", async (_req, res, next) => {
   try {
-    const row = await runBackup("manual");
-    res.json(serializeBackup(row));
+    const { backup, alreadyRunning } = await startBackup("manual");
+    res.status(202).json({ ...(await backupHistoryItem(backup)), alreadyRunning });
   } catch (err) {
     next(err);
   }
 });
 
-backupsRouter.delete("/:id", async (req, res) => {
-  const { id } = req.params;
-  const ok = await deleteBackup(id);
-  if (!ok) return res.status(404).json({ error: "Not found" });
-  res.json({ ok: true });
+backupsRouter.delete("/:id", validateParams(idParams), async (req, res, next) => {
+  try {
+    const ok = await deleteBackup(req.params.id);
+    if (!ok) return res.status(404).json({ error: "This backup no longer exists." });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
@@ -92,24 +110,35 @@ backupsRouter.post("/upload", async (req, res, next) => {
 });
 
 /**
- * Push an existing archive to every enabled off-box destination (NAS / remote
- * volume) on demand. Returns a per-destination result list so the UI can show
- * which mirrors succeeded and which errored.
+ * Copy an existing backup off-box now: to every enabled destination, or to the
+ * one `destinationId` names (Try again on one copy). Answers once the copies
+ * are queued — each `pending`, or as they stand with `alreadyRunning` when
+ * this backup is already being copied; History follows them from there.
  */
-backupsRouter.post("/:id/deliver", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const results = await deliverBackup(id);
-    res.json({ ok: true, results });
-  } catch (err) {
-    next(err);
-  }
-});
+const copySchema = z
+  .object({
+    destinationId: z.string().min(1).max(64).optional(),
+  })
+  .strict();
 
-backupsRouter.post("/:id/restore", async (req, res, next) => {
+backupsRouter.post(
+  "/:id/deliver",
+  validateParams(idParams),
+  validateBody(copySchema),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof copySchema>;
+      const { copies, alreadyRunning } = await startCopy(req.params.id, body.destinationId ?? null);
+      res.status(202).json({ ok: true, alreadyRunning, copies: copies.map(serializeCopy) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+backupsRouter.post("/:id/restore", validateParams(idParams), async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const result = await restoreFromBackup(id);
+    const result = await restoreFromBackup(req.params.id);
     res.json({
       ok: true,
       safety: serializeBackup(result.safety),
@@ -120,16 +149,18 @@ backupsRouter.post("/:id/restore", async (req, res, next) => {
   }
 });
 
-backupsRouter.get("/:id/download", async (req, res) => {
-  const { id } = req.params;
-  const rows = await listBackups();
-  const row = rows.find((r) => r.id === id);
-  if (!row) return res.status(404).json({ error: "Not found" });
-  const abs = backupFilePath(row.filename);
-  if (!fs.existsSync(abs)) {
-    return res.status(404).json({ error: "Backup file is missing on disk" });
+backupsRouter.get("/:id/download", validateParams(idParams), async (req, res, next) => {
+  try {
+    const row = await getBackup(req.params.id);
+    if (!row) return res.status(404).json({ error: "This backup no longer exists." });
+    const abs = backupFilePath(row.filename);
+    if (!fs.existsSync(abs)) {
+      return res.status(404).json({ error: "This backup is no longer on this server." });
+    }
+    res.download(abs, row.filename);
+  } catch (err) {
+    next(err);
   }
-  res.download(abs, row.filename);
 });
 
 backupsRouter.get("/schedule", async (_req, res) => {
@@ -146,12 +177,7 @@ const scheduleSchema = z.object({
   retentionEnabled: z.boolean().optional(),
   retentionDays: z.number().int().min(MIN_RETENTION_DAYS).max(MAX_RETENTION_DAYS).optional(),
   offBoxRetentionEnabled: z.boolean().optional(),
-  offBoxRetentionDays: z
-    .number()
-    .int()
-    .min(MIN_RETENTION_DAYS)
-    .max(MAX_RETENTION_DAYS)
-    .optional(),
+  offBoxRetentionDays: z.number().int().min(MIN_RETENTION_DAYS).max(MAX_RETENTION_DAYS).optional(),
 });
 
 /**

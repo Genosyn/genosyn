@@ -1,0 +1,10 @@
+// The genosyn-api CLI (`cli/`). It runs on people's own machines on Node's
+// built-ins alone, so it is checked on its own, never emitted by `tsc` —
+// `cli/build.ts` bundles it — and its end-to-end tests, which boot the real
+// App, pull the server's files in under the server's own settings, with the
+// server's ambient declarations (the session's shape) beside them.
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["cli/**/*.ts", "server/**/*.d.ts"]
+}

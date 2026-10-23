@@ -342,7 +342,9 @@ describe("failed off-box deliveries", () => {
     await fs.rm(blocked);
     const check = await testDestination(dest.id);
 
+    assert.ok(check, "the destination exists");
     assert.equal(check.ok, true);
+    assert.equal(check.stillFailing, true);
     assert.match(check.message, /still failing/);
     const row = await destinationRow(dest.id);
     assert.equal(row.lastStatus, "error");

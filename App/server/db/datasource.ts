@@ -12,6 +12,7 @@ import { Company } from "./entities/Company.js";
 import { Membership } from "./entities/Membership.js";
 import { Invitation } from "./entities/Invitation.js";
 import { AIModel } from "./entities/AIModel.js";
+import { AIModelKeyHealth } from "./entities/AIModelKeyHealth.js";
 import { AIEmployee } from "./entities/AIEmployee.js";
 import { Skill } from "./entities/Skill.js";
 import { Routine } from "./entities/Routine.js";
@@ -58,6 +59,7 @@ import { BaseFormSubmission } from "./entities/BaseFormSubmission.js";
 import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { BackupDestination } from "./entities/BackupDestination.js";
+import { BackupCopy } from "./entities/BackupCopy.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
 import { IntegrationContinuation } from "./entities/IntegrationContinuation.js";
 import { AskAiConversation } from "./entities/AskAiConversation.js";
@@ -243,6 +245,8 @@ const entities = [
   Membership,
   Invitation,
   AIModel,
+  // How each of an AI Model's API keys has been doing (backup-key failover).
+  AIModelKeyHealth,
   AIEmployee,
   Skill,
   Routine,
@@ -300,6 +304,7 @@ const entities = [
   Backup,
   BackupSchedule,
   BackupDestination,
+  BackupCopy,
   IntegrationConnection,
   IntegrationContinuation,
   AskAiConversation,

@@ -310,6 +310,33 @@ export function Finance() {
         <Code>Archived</Code>, and the other tabs narrow Active down by status.
       </P>
 
+      <H3 id="invoices-new">One-time or recurring</H3>
+      <P>
+        <Code>New invoice</Code> asks one question before anything else:{" "}
+        <Strong>Is this a one-time invoice or a recurring invoice?</Strong> It asks wherever you
+        start an invoice — <Code>Finance → Invoices</Code>, the Finance <Code>Overview</Code>, a
+        customer&apos;s <DocLink to="/docs/customers#overview">Billing tab</DocLink>, and{" "}
+        <Code>New invoice</Code> in the <Code>⌘K</Code> palette — so a bill that should repeat is
+        never set up as a one-off by mistake. <Strong>One-time invoice</Strong> opens the invoice
+        form. <Strong>Recurring invoice</Strong> opens the New recurring invoice form (see{" "}
+        <DocLink to="/docs/finance#recurring-invoices">Recurring invoices</DocLink>). If you started
+        from a customer, that customer stays picked whichever you choose. <Code>New schedule</Code>{" "}
+        on the Recurring list, <Code>New recurring invoice</Code> on a customer&apos;s Billing tab
+        or in the palette, and <Code>Make recurring</Code> can only mean a schedule, so they skip
+        the question.
+      </P>
+      <P>
+        Both forms keep a <Code>One-time</Code> / <Code>Recurring</Code> switch at the top, so you
+        can change your mind halfway through. Switching keeps what you&apos;ve entered: the
+        customer, issuer, currency, line items, discount, notes, and footer come along as they are.
+        The days between the issue and due dates become <Strong>Days until due</Strong>; going the
+        other way, the invoice is issued today and falls due that many days later. Switch back and
+        the schedule, its name, and its settings are as you left them, and so are the invoice&apos;s
+        dates — unless you changed Days until due in between, which moves the due date to match.
+        Editing an invoice or a schedule shows no switch; to bill an existing invoice on a schedule,
+        use <Code>Make recurring</Code>.
+      </P>
+
       <H3 id="invoices-paid-confirmation">Paid confirmation</H3>
       <P>
         When an invoice becomes <Code>paid</Code>, Genosyn emails each of the company&apos;s owners
@@ -532,7 +559,11 @@ export function Finance() {
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
         template, or click <Code>New recurring invoice</Code> on a customer&apos;s{" "}
         <DocLink to="/docs/customers#overview">Billing tab</DocLink> to start one with that customer
-        already picked. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
+        already picked. Answering <Strong>Recurring invoice</Strong> after <Code>New invoice</Code>{" "}
+        opens the same form, and its <Code>One-time</Code> / <Code>Recurring</Code> switch moves
+        what you&apos;ve entered to a one-time invoice (see{" "}
+        <DocLink to="/docs/finance#invoices-new">One-time or recurring</DocLink>). Pick a customer,
+        choose how often it should bill — every <Strong>N</Strong>{" "}
         <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
         and compose the line items just like a normal invoice. <Code>Add discount</Code> under

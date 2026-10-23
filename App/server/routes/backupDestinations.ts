@@ -1,11 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   createDestination,
   deleteDestination,
-  getDestination,
   listDestinations,
   serializeDestination,
   testDestination,
@@ -152,28 +151,47 @@ backupDestinationsRouter.post("/", validateBody(createSchema), async (req, res, 
   }
 });
 
-backupDestinationsRouter.put("/:id", validateBody(updateSchema), async (req, res, next) => {
+const idParams = z.object({ id: z.string().min(1).max(64) });
+
+const GONE = "This destination no longer exists.";
+
+backupDestinationsRouter.put(
+  "/:id",
+  validateParams(idParams),
+  validateBody(updateSchema),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof updateSchema>;
+      const row = await updateDestination(req.params.id, body);
+      if (!row) return res.status(404).json({ error: GONE });
+      res.json(serializeDestination(row));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+backupDestinationsRouter.delete("/:id", validateParams(idParams), async (req, res, next) => {
   try {
-    const body = req.body as z.infer<typeof updateSchema>;
-    const row = await updateDestination(req.params.id, body);
-    if (!row) return res.status(404).json({ error: "Not found" });
-    res.json(serializeDestination(row));
+    const ok = await deleteDestination(req.params.id);
+    if (!ok) return res.status(404).json({ error: GONE });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }
 });
 
-backupDestinationsRouter.delete("/:id", async (req, res) => {
-  const ok = await deleteDestination(req.params.id);
-  if (!ok) return res.status(404).json({ error: "Not found" });
-  res.json({ ok: true });
-});
-
-backupDestinationsRouter.post("/:id/test", async (req, res, next) => {
+/**
+ * Test a destination: write a small file there and delete it again. Always a
+ * 200 when the destination exists, whatever the test found — the result is
+ * what the page shows beside the destination: `ok`, `message` (the
+ * destination's own reason when it failed), `stillFailing` (the test passed,
+ * but copies of real backups there are still failing) and `testedAt`.
+ */
+backupDestinationsRouter.post("/:id/test", validateParams(idParams), async (req, res, next) => {
   try {
-    const dest = await getDestination(req.params.id);
-    if (!dest) return res.status(404).json({ error: "Not found" });
     const result = await testDestination(req.params.id);
+    if (!result) return res.status(404).json({ error: GONE });
     res.json(result);
   } catch (err) {
     next(err);

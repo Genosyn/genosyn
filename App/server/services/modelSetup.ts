@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
-import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { residentOnlyRegistry } from "./agent/tools/toolRegistry.js";
 import {
@@ -12,6 +11,14 @@ import {
 } from "./modelCatalog.js";
 import { isModelConnected } from "./providers.js";
 import { createActiveModel } from "./models.js";
+import {
+  decryptApiKey,
+  newStoredApiKey,
+  readApiKeys,
+  writeApiKeys,
+  type StoredApiKey,
+} from "./modelApiKeys.js";
+import { pruneKeyHealth } from "./modelKeyHealth.js";
 
 /** Exercise the same OpenCode runtime as employee Runs using one harmless tool. */
 export async function verifyOpenCodeModel(model: AIModel): Promise<void> {
@@ -57,11 +64,36 @@ export async function verifyOpenCodeModel(model: AIModel): Promise<void> {
   }
 }
 
-export function configWithApiKey(model: AIModel, apiKey: string, companyId: string): string {
-  const cfg = JSON.parse(model.configJson || "{}") as Record<string, unknown>;
-  cfg.apiKeyEncrypted = encryptSecret(apiKey, companyId);
-  cfg.apiKeyPreview = maskSecret(apiKey);
-  return JSON.stringify(cfg);
+/**
+ * `configJson` with `apiKey` as the AI Model's primary key, and that key.
+ * Backup keys stay as they are. Entering the current primary again keeps its
+ * id, so its health carries on; entering one of the backups is refused, since
+ * one key twice would only be refused twice — move it to the top instead.
+ */
+export function configWithApiKey(
+  configJson: string,
+  apiKey: string,
+  companyId: string,
+): { configJson: string; key: StoredApiKey } {
+  const [current, ...backups] = readApiKeys(configJson);
+  if (backups.some((backup) => decryptApiKey(backup) === apiKey)) {
+    throw new ModelSetupError(
+      "This key is already one of this AI Model's backup keys. Move it to the top of the API keys instead.",
+      400,
+    );
+  }
+  const key =
+    current && decryptApiKey(current) === apiKey ? current : newStoredApiKey(apiKey, companyId);
+  return { configJson: writeApiKeys(configJson, [key, ...backups]), key };
+}
+
+/**
+ * A copy of `model` holding `key` alone, for a connection test that proves
+ * that key works — with the backups on it, another key answering after it was
+ * refused would vouch for it.
+ */
+export function withOnlyKey(model: AIModel, key: StoredApiKey): AIModel {
+  return Object.assign(new AIModel(), model, { configJson: writeApiKeys(model.configJson, [key]) });
 }
 
 export async function connectApiModel(options: {
@@ -84,7 +116,7 @@ export async function connectApiModel(options: {
     isActive: false,
     connectedAt: null,
   });
-  model.configJson = configWithApiKey(model, options.apiKey, options.companyId);
+  model.configJson = writeApiKeys("{}", [newStoredApiKey(options.apiKey, options.companyId)]);
   await verifyOpenCodeModel(model);
   model.connectedAt = new Date();
   // Nothing is saved or activated before a real model reply succeeds.
@@ -93,17 +125,19 @@ export async function connectApiModel(options: {
   return saved;
 }
 
+/** Replace the primary key, keeping the backups; the new key is tested alone. */
 export async function replaceApiKey(
   model: AIModel,
   apiKey: string,
   companyId: string,
 ): Promise<AIModel> {
-  const candidate = Object.assign(new AIModel(), model, {
-    configJson: configWithApiKey(model, apiKey, companyId),
-  });
-  await verifyOpenCodeModel(candidate);
+  const { configJson, key } = configWithApiKey(model.configJson, apiKey, companyId);
+  const candidate = Object.assign(new AIModel(), model, { configJson });
+  await verifyOpenCodeModel(withOnlyKey(candidate, key));
   candidate.connectedAt = new Date();
-  return saveVerifiedModel(model, candidate);
+  const saved = await saveVerifiedModel(model, candidate);
+  await pruneKeyHealth(saved);
+  return saved;
 }
 
 /** Model-only edits must not leave a connected badge on an unusable model. */
@@ -175,13 +209,22 @@ export async function editApiModel(
       ? { contextWindow: null, contextWindowSource: null }
       : {}),
   });
-  if (options.apiKey)
-    candidate.configJson = configWithApiKey(candidate, options.apiKey, options.companyId);
+  // A new key is tested alone. A model-only change is tested on every key, as
+  // a Run would send it: the question is whether this AI Model answers.
+  let tested: AIModel = candidate;
+  if (options.apiKey) {
+    const edited = configWithApiKey(candidate.configJson, options.apiKey, options.companyId);
+    candidate.configJson = edited.configJson;
+    tested = withOnlyKey(candidate, edited.key);
+  }
   if (isModelConnected(candidate)) {
-    await verifyOpenCodeModel(candidate);
+    await verifyOpenCodeModel(tested);
     candidate.connectedAt = new Date();
   }
-  return saveVerifiedModel(previous, candidate, {
+  const saved = await saveVerifiedModel(previous, candidate, {
     resetContext: changedAuth || options.model !== previous.model,
   });
+  // A new service starts with no keys of the old one; a replaced primary goes.
+  await pruneKeyHealth(saved);
+  return saved;
 }

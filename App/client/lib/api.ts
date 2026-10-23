@@ -1268,6 +1268,27 @@ export type SubscriptionDeviceSession = {
   userCode: string | null;
   error: string | null;
 };
+/** Why a provider refused one of an AI Model's API keys. */
+export type ApiKeyFailureKind = "auth" | "permission" | "billing" | "quota" | "rate_limit";
+/**
+ * One of an API-key AI Model's keys, as a masked preview with its health. The
+ * key itself never leaves the server.
+ */
+export type AIModelApiKey = {
+  id: string;
+  /** e.g. `sk-…c123`. */
+  preview: string;
+  addedAt: string | null;
+  /** When a request on it last succeeded. */
+  lastUsedAt: string | null;
+  /** When a provider last refused it — the status, why, and in its words. */
+  lastErrorAt: string | null;
+  lastErrorStatus: number | null;
+  lastErrorKind: ApiKeyFailureKind | null;
+  lastError: string | null;
+  /** While in the future, requests try the AI Model's other keys first. */
+  restingUntil: string | null;
+};
 export type AIModel = {
   id: string;
   employeeId: string;
@@ -1279,6 +1300,11 @@ export type AIModel = {
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
+  /**
+   * An API-key model's keys in the order requests try them: the primary, then
+   * every backup key. Empty for subscription and custom-endpoint models.
+   */
+  apiKeys: AIModelApiKey[];
   /** Env var the provider conventionally reads (informational), or null. */
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
@@ -2155,9 +2181,44 @@ export type Backup = {
   kind: BackupKind;
   status: BackupStatus;
   errorMessage: string;
+  /** Every attempt to copy it off-box is recorded. False for a backup taken
+   *  before that, whose copies read as "not recorded" until daily
+   *  verification looks for them. */
+  copiesTracked: boolean;
   createdAt: string;
   completedAt: string | null;
 };
+
+/** Where one backup's copy on one off-box destination stands. */
+export type BackupCopyStatus = "pending" | "copying" | "copied" | "failed" | "missing" | "removed";
+export type BackupCopy = {
+  destinationId: string;
+  status: BackupCopyStatus;
+  /** Why it isn't there, in the destination's own words; empty otherwise. */
+  error: string;
+  startedAt: string | null;
+  /** When it arrived; null when daily verification found it without seeing it arrive. */
+  copiedAt: string | null;
+  /** When daily verification last looked for it there. */
+  checkedAt: string | null;
+  updatedAt: string;
+};
+
+/** One History row (GET /api/backups): the backup and where it is right now. */
+export type BackupHistoryItem = Backup & {
+  /** Its archive is on this server. */
+  onServer: boolean;
+  /** This server's run for it is under way: writing it while `running`,
+   *  copying it off-box once `completed`. No new backup starts until it ends. */
+  inProgress: boolean;
+  copies: BackupCopy[];
+};
+
+/** POST /api/backups (Back up now): the backup's History row, answered at once. */
+export type BackupStarted = BackupHistoryItem & { alreadyRunning: boolean };
+
+/** POST /api/backups/:id/deliver: the copies, queued, or as they stand. */
+export type BackupCopiesStarted = { ok: true; alreadyRunning: boolean; copies: BackupCopy[] };
 
 export type BackupFrequency = "daily" | "weekly" | "monthly";
 /** `retentionEnabled` / `retentionDays` are the auto-delete policy for
@@ -2174,6 +2235,10 @@ export type BackupSchedule = {
   dayOfWeek: number;
   dayOfMonth: number;
   cronExpr: string;
+  /** When the schedule next fires; null while it is off. */
+  nextRunAt: string | null;
+  /** The server's time zone, which `hour` is in. */
+  timeZone: string;
   lastRunAt: string | null;
   retentionEnabled: boolean;
   retentionDays: number;
@@ -2222,12 +2287,14 @@ export type BackupDestination = {
   createdAt: string;
   updatedAt: string;
 };
-/** Result of pushing one archive to one destination. */
-export type BackupDeliveryResult = {
-  destinationId: string;
-  destinationName: string;
+/** What Test found on a destination (POST /api/backup-destinations/:id/test).
+ *  `message` is the destination's own reason when it failed; `stillFailing`
+ *  marks a pass on a destination whose copies of real backups still fail. */
+export type BackupDestinationTest = {
   ok: boolean;
-  error?: string;
+  message: string;
+  stillFailing: boolean;
+  testedAt: string;
 };
 
 /** One thing daily backup verification found wrong. `key` stays the same from

@@ -125,6 +125,7 @@ describe("wide operational page layout", () => {
 
     assert.deepEqual(cappedFiles, [
       "client/pages/MailThreadView.tsx",
+      "client/pages/NotesIndex.tsx",
       "client/pages/Onboarding.tsx",
       "client/pages/ResourceDetail.tsx",
     ]);
@@ -142,7 +143,10 @@ describe("wide operational page layout", () => {
     const focusedSurfaces = [
       ["client/pages/MailThreadView.tsx", /\bmax-w-4xl\b/],
       ["client/pages/ResourceDetail.tsx", /\bmax-w-4xl\b/],
-      ["client/pages/NoteDetail.tsx", /max-w-\[820px\]/],
+      // Notes read like a document, as in Notion: a centered home and a page
+      // that keeps its line length.
+      ["client/pages/NotesIndex.tsx", /\bmax-w-4xl\b/],
+      ["client/pages/NoteDetail.tsx", /max-w-\[52rem\]/],
       ["client/pages/EmployeeChat.tsx", /\bmax-w-3xl\b/],
       ["client/pages/Onboarding.tsx", /\bmax-w-5xl\b/],
       ["client/pages/Login.tsx", /\bmax-w-sm\b/],

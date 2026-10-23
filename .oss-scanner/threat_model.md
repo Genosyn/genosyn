@@ -98,6 +98,12 @@ trusted-origin check, is in `App/server/index.ts`.
      (`App/server/services/realtime.ts`).
    - `/api/health`, the OpenAPI document and its viewer, and the custom
      JavaScript loader.
+   - The `genosyn-api` command line, served to anyone as one file at
+     `/cli/genosyn-api.mjs` (`App/server/routes/cli.ts`): the open-source
+     client built from `App/cli/`, with no secret in it. It runs on Members'
+     own machines, keeps their API key in a mode-0600 file under
+     `~/.genosyn/`, sends it only to the install it was saved for, and never
+     follows a redirect with it.
    - **Loopback-only internal APIs**: `/api/internal/mcp` (the `genosyn`
      tools) and `/api/internal/browser/sessions/:id` (the browser tools),
      guarded by `App/server/middleware/loopbackOnly.ts` plus a bearer token.
@@ -281,7 +287,9 @@ Most, roughly in order:
    (`App/server/services/repositories.ts`), SSO client secrets, TOTP seeds.
 4. **The AI runtime boundary**:
    - the per-turn model proxy that keeps API keys in the App and gives
-     OpenCode a disposable token (`App/server/services/agent/opencodeProxy.ts`);
+     OpenCode a disposable token (`App/server/services/agent/opencodeProxy.ts`),
+     including an AI Model's backup keys, which it tries in turn when a key is
+     refused (`App/server/services/agent/apiKeyRing.ts`);
    - OpenCode process setup (`App/server/services/agent/opencodeServer.ts`,
      `App/server/services/agent/opencodeRuntime.ts`);
    - the Codex runtime (`App/server/services/agent/codexRuntime.ts`,

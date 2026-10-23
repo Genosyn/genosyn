@@ -79,6 +79,7 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
     proxy = await serveOpenCodeModel(model, params.signal, {
       holdOutages: turnWaitsForModel(params),
       onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
+      onKeyFailover: (change) => params.callbacks?.onApiKeyFailover?.(change),
       onServedModelChange: ({ from, to }) => {
         params.callbacks?.onServedModelChange?.({ from, to: to.id });
         // The card follows the server, so the next turn starts on the new model.

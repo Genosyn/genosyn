@@ -130,6 +130,32 @@ export function Cli() {
         }
       />
 
+      <H2 id="two-clis">Two command lines</H2>
+      <KeyList
+        rows={[
+          {
+            term: "genosyn",
+            def: (
+              <>
+                Runs the server: install, upgrade, back up, restore. It lives on the machine that
+                hosts Genosyn and is the subject of this page.
+              </>
+            ),
+          },
+          {
+            term: "genosyn-api",
+            def: (
+              <>
+                Works inside a company — list Deals, create and run a Routine, upload a file — from
+                any computer, script or AI agent, with an API key. Every install serves it at{" "}
+                <Code>/cli/genosyn-api.mjs</Code>; see the{" "}
+                <DocLink to="/docs/api-cli">API CLI</DocLink>.
+              </>
+            ),
+          },
+        ]}
+      />
+
       <H2 id="installing-the-cli">Installing the CLI</H2>
       <P>
         The installer at <Code>genosyn.com/install.sh</Code> downloads the script to{" "}
@@ -334,7 +360,7 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
         upgrade stops without changing Genosyn: free some space, set{" "}
         <Code>GENOSYN_BACKUP_DIR</Code> to a larger disk, or pass <Code>--no-backup</Code>.
         In-app backups share the data volume&apos;s disk and pile up unless{" "}
-        <DocLink to="/docs/self-hosting#retention">retention</DocLink> is on.
+        <DocLink to="/docs/backups#retention">retention</DocLink> is on.
       </P>
       <P>
         Once the new version is ready, the upgrade removes the previous image, along with any

@@ -230,10 +230,11 @@ export function Customers() {
           count in the outstanding and lifetime billed totals. A small repeat mark beside an
           invoice&apos;s number shows that{" "}
           <DocLink to="/docs/finance#recurring-invoices-created">a recurring invoice</DocLink>{" "}
-          created it.{" "}
-          <Code>New invoice</Code> and <Code>New estimate</Code> open with this customer and their
-          currency picked, and <Code>New recurring invoice</Code> opens a schedule for this
-          customer, named after it (see{" "}
+          created it. <Code>New invoice</Code> first asks whether it is a{" "}
+          <DocLink to="/docs/finance#invoices-new">one-time or a recurring invoice</DocLink>, and
+          either form opens with this customer and their currency picked. <Code>New estimate</Code>{" "}
+          opens with them picked too, and <Code>New recurring invoice</Code> opens a schedule for
+          this customer straight away, named after it (see{" "}
           <DocLink to="/docs/finance#recurring-names">naming a schedule</DocLink>). A customer who
           has since been archived is never swapped for another: the form picks nobody and says so.
         </LI>

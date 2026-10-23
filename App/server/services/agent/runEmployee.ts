@@ -641,6 +641,7 @@ async function runDelegatedBrief(
     onModelRetry: parent.callbacks?.onModelRetry,
     onModelOutage: parent.callbacks?.onModelOutage,
     onServedModelChange: parent.callbacks?.onServedModelChange,
+    onApiKeyFailover: parent.callbacks?.onApiKeyFailover,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,

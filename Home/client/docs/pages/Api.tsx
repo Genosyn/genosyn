@@ -81,6 +81,27 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
         anything.
       </P>
 
+      <H2 id="cli">From the command line</H2>
+      <P>
+        <DocLink to="/docs/api-cli">genosyn-api</DocLink> turns every operation in the reference
+        below into a command, reading the reference from your install as it runs. It keeps the key
+        out of your shell history, prints tables for you and JSON for scripts, and exits with a
+        code a script can branch on. Every install serves it at <Code>/cli/genosyn-api.mjs</Code>.
+      </P>
+      <Pre lang="bash">{`genosyn-api login --url https://genosyn.example.com/api/companies/<company-id>
+genosyn-api whoami
+genosyn-api revenue list-deals --limit 20
+genosyn-api call createRevenueContact name="Ada Lovelace" email=ada@example.com`}</Pre>
+
+      <H2 id="mcp">From an AI agent</H2>
+      <P>
+        The same keys open the <DocLink to="/docs/mcp-server">MCP server</DocLink>. Point Claude
+        Desktop, Claude Code, Cursor or any MCP client at <Code>/api/companies/&lt;id&gt;/mcp</Code>{" "}
+        and it can search, describe and call every operation in the reference below that a key can
+        call, by the same <Code>operationId</Code>s and under the same rules.{" "}
+        <Strong>Settings → API keys</Strong> shows the endpoint and each client&apos;s setup.
+      </P>
+
       <H2 id="reference">The API reference</H2>
       <KeyList
         rows={[
@@ -113,15 +134,6 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
         strings and path parameters come from the same validation the server runs, and every
         operation carries an <Strong>Access</Strong> paragraph plus an <Code>x-genosyn-access</Code>{" "}
         field saying whether a key works, which company role it needs, and what Finance access.
-      </P>
-
-      <H2 id="mcp">From an AI agent</H2>
-      <P>
-        The same keys open the <DocLink to="/docs/mcp-server">MCP server</DocLink>. Point Claude
-        Desktop, Claude Code, Cursor or any MCP client at <Code>/api/companies/&lt;id&gt;/mcp</Code>{" "}
-        and it can search, describe and call every operation a key can call here, by the same{" "}
-        <Code>operationId</Code>s, under the same rules. <Strong>Settings → API keys</Strong> shows
-        the endpoint and each client&apos;s setup.
       </P>
 
       <H2 id="what-a-key-can-do">What a key can and cannot do</H2>

@@ -1,8 +1,9 @@
 import type { Config, FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2";
 import type { AIModel } from "../../db/entities/AIModel.js";
-import { decryptSecret } from "../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
+import { readApiKeys } from "../modelApiKeys.js";
+import { apiKeyRingFor, type ApiKeyRing } from "./apiKeyRing.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
 import type { AgentMessage } from "./types.js";
 
@@ -55,6 +56,12 @@ export type OpenCodeModel = {
   apiKey: string;
   baseURL?: string;
   contextWindow: number | null;
+  /**
+   * An API-key AI Model's keys — the primary and its backups — as the ring the
+   * model proxy tries them from (`apiKeyRing.ts`); `apiKey` is the first of
+   * them. Only the proxy reads it, and the model it hands OpenCode has none.
+   */
+  keys?: ApiKeyRing;
 };
 
 /** Credentials come from the AI Model row, never the host's provider profiles. */
@@ -75,21 +82,18 @@ export async function resolveOpenCodeModel(model: AIModel): Promise<OpenCodeMode
     };
   }
   if (model.authMode !== "apikey") throw new Error("This AI Model requires an API key.");
-  let encrypted: unknown;
-  try {
-    encrypted = (JSON.parse(model.configJson || "{}") as Record<string, unknown>).apiKeyEncrypted;
-  } catch {
-    encrypted = null;
-  }
-  if (typeof encrypted !== "string" || !encrypted)
+  if (readApiKeys(model.configJson).length === 0)
     throw new Error("No API key is set for this AI Model.");
-  let apiKey: string;
-  try {
-    apiKey = decryptSecret(encrypted);
-  } catch {
-    throw new Error("The stored AI Model API key could not be decrypted.");
-  }
-  return { id: model.model, provider: model.provider, apiKey, contextWindow: model.contextWindow };
+  // A backup key that no longer decrypts is skipped; only none decrypting fails.
+  const keys = await apiKeyRingFor(model);
+  if (!keys) throw new Error("The stored AI Model API key could not be decrypted.");
+  return {
+    id: model.model,
+    provider: model.provider,
+    apiKey: keys.attemptOrder()[0].apiKey,
+    contextWindow: model.contextWindow,
+    keys,
+  };
 }
 
 /**

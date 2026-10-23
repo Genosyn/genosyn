@@ -69,7 +69,9 @@ everything else on its own, and asks the board only what an owner must.
 
 ```
 genosyn/
-├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind
+├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind.
+│                # App/cli/ is genosyn-api, the API's command line, which
+│                # every install serves at /cli/genosyn-api.mjs — see below.
 ├── Connect/     # Genosyn Connect: the hosted OAuth sign-in service
 │                # (connect.genosyn.com, image ghcr.io/genosyn/connect).
 ├── Helm/        # Official Kubernetes Helm chart (Helm/genosyn). Packaged and
@@ -108,7 +110,9 @@ or by-design behavior). `App/server/ossScanner.test.ts` pins the contract.
 right medium here — the CLI wraps `docker` on the operator's host, runs with
 no Node dependency, and ships as a single file. The TypeScript-only rule
 covers the product code in `App/` and `Home/`; it does not extend to the
-operator CLI.
+operator CLI. The command line for the *API* is a different tool for
+different people and lives in `App/cli/` (next section); do not grow API
+subcommands here.
 
 Both files are copied into `Home/client/public/` by Home's `sync-cli`
 npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
@@ -133,6 +137,40 @@ workflows for AI Employees to inspect; Connect needs it for the license. `Home/D
 layout inside the image at `/build/Home` + `/build/CLI` so the relative path
 resolves the same way as local dev. If you rename `CLI/`, update **all three**:
 the sync script, the Dockerfile, and the workflow matrix.
+
+### About `App/cli/`
+
+`genosyn-api` is the REST API's command line, for people, scripts and AI
+agents on their own machines — not the server's host, which is `CLI/`'s job.
+It is TypeScript like the rest of the product, imports nothing but Node's
+built-ins and its own files, and `npm run build` bundles it with the App's
+Vite into one `dist/cli/genosyn-api.mjs` that every install serves at
+`/cli/genosyn-api.mjs` (`server/routes/cli.ts`) — the way the Member-browser
+bridge agent ships — so the CLI a person downloads always matches its server
+and a self-hosted install needs nothing from genosyn.com.
+
+- **It is generated from the API reference at run time.** Areas come from
+  tags, commands from operation ids, flags from parameters, and who may call
+  what from `x-genosyn-access`, all read from `/api/openapi.json` and cached
+  under `~/.genosyn/cache`. Never hand-write a command for one operation: a
+  route documented by §7 is already a command.
+- **Its contracts are stable.** The exit codes in `cli/errors.ts` (also in
+  `help exit-codes` and the docs) never change meaning; add a kind instead.
+  An error is one JSON line on stderr for programs. Operation ids are the
+  names scripts use.
+- **The key stays private.** It is read from a hidden prompt, stdin
+  (`--with-token`) or `GENOSYN_API_KEY` — never a flag — stored mode 0600 in
+  `~/.genosyn/genosyn-api.json`, sent only to the install it was saved for,
+  and never printed: output and `--verbose` show `gen_` and its first
+  characters. Redirects are not followed.
+- **Its options win the `--name` spelling.** A parameter named like one of
+  them (`url`, `data`, `format`, `raw`, `dryRun` today) is written
+  `name=value`, and help says so. A new option takes its name from every
+  parameter that has it, so pick one no operation uses.
+- **Tests:** unit tests beside each module, `cli/e2e.test.ts` against the real
+  `createApp()` with real keys, and `cli/bundle.test.ts` on the built file,
+  which also fails if a source file imports a package. Document it in
+  `Home/client/docs/pages/ApiCli.tsx`.
 
 ### About `Connect/`
 
@@ -695,7 +733,12 @@ in a Work session instead of leaving them stranded as local commits.
   company context and scoped tool registry to a managed OpenCode process;
   credentials and runtime state must not become persistent employee files.
   A per-turn model proxy keeps API keys in Genosyn and gives OpenCode only a
-  disposable access token and endpoint.
+  disposable access token and endpoint. An Anthropic or OpenAI API-key model
+  may hold any number of backup keys beside its primary (`services/modelApiKeys.ts`);
+  the proxy resends a request on the next key when the provider refuses the
+  key itself, before any reply reaches OpenCode (`services/agent/apiKeyRing.ts`).
+  Each key's health is an `AIModelKeyHealth` row — never written into
+  `configJson`, which key edits save only if nobody changed it meanwhile.
   OpenAI subscription models use the official pinned `@openai/codex`
   app-server with the same Genosyn-owned domain tool registry:
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
@@ -774,7 +817,8 @@ in a Work session instead of leaving them stranded as local commits.
 - **Every new route** gets a zod schema for body/query/params.
 - **Every route is in the API reference.** `GET /api/openapi.json` (rendered
   at `/api/docs`) is generated from the router stack by `server/openapi/`, so
-  anything a Member can do in the UI an API key can script. Mount routers in
+  anything a Member can do in the UI an API key can script — and the
+  `genosyn-api` CLI can call, since it reads this document. Mount routers in
   `server/app.ts`, validate with `validateBody` / `validateQuery` /
   `validateParams` so the schema is what gets documented, give a new router
   its product area in `server/openapi/areas.ts`, describe an upload's form in
@@ -956,7 +1000,8 @@ just to speed things up. Everything runs in CI anyway.
 The marketing site at `Home/` ships the user-facing docs under
 `Home/client/docs/pages/`. When you change something a user can see —
 a new UI surface, a new auth mode, a renamed concept, a new
-`genosyn` CLI subcommand, a new MCP tool, a config knob — **update
+`genosyn` CLI subcommand, a new `genosyn-api` command or option, a
+new MCP tool, a config knob — **update
 the docs in the same PR** as the feature. Stale docs are worse than
 no docs: users follow the steps, hit a different reality, and lose
 trust in the rest of the page.

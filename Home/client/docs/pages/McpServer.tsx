@@ -132,7 +132,8 @@ const found = await client.callTool({
       <P>
         A client that only starts local (stdio) servers can use the same <Code>mcp-remote</Code>{" "}
         bridge as Claude Desktop. One that can only sign in with OAuth, rather than send a header,
-        cannot connect yet.
+        cannot connect yet. For a terminal or a script rather than an MCP client,{" "}
+        <DocLink to="/docs/api-cli">genosyn-api</DocLink> offers the same operations as commands.
       </P>
 
       <H2 id="tools">What the server offers</H2>

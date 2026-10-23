@@ -1,8 +1,10 @@
 /** Common messages, tools, and activity callbacks shared by the OpenCode and Codex adapters. */
 
 import type { ContextUsage } from "./contextUsage.js";
+import type { ApiKeyFailover } from "./apiKeyRing.js";
 
 export type { ContextUsage } from "./contextUsage.js";
+export type { ApiKeyFailover } from "./apiKeyRing.js";
 
 /** Supported AI Model services. */
 export type AgentProvider = "anthropic" | "openai" | "custom";
@@ -115,6 +117,11 @@ export type StreamCallbacks = {
    * model it serves. The AI Model's card follows.
    */
   onServedModelChange?: (change: { from: string; to: string }) => void;
+  /**
+   * Fired the first time in a turn a provider refuses one of an API-key AI
+   * Model's keys and the request moves on to the next key — by preview only.
+   */
+  onApiKeyFailover?: (change: ApiKeyFailover) => void;
   /**
    * Fired when a work turn stopped with no reply and no tool call, just before
    * the runtime asks the model in the same session to continue or report.

@@ -918,7 +918,7 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Plus,
       rail: false,
       access: FINANCE_FULL,
-      keywords: ["create invoice", "bill a customer"],
+      keywords: ["create invoice", "bill a customer", "one-time invoice"],
     },
     {
       label: "New estimate",
