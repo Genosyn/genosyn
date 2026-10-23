@@ -1,10 +1,17 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
-import { BookOpen, Check, Copy, KeyRound, Trash2 } from "lucide-react";
+import { BookOpen, Cable, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
 import { apiKeyCurlExample, apiReferenceUrl, companyApiBaseUrl } from "../lib/apiAccess";
 import { copyToClipboard } from "../lib/clipboard";
+import {
+  API_KEY_PLACEHOLDER,
+  companyMcpUrl,
+  MCP_CLIENTS,
+  mcpClientSetup,
+  type McpClientId,
+} from "../lib/mcpSetup";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -23,6 +30,10 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * REST surface the web UI hits. Each key authenticates as the calling user
  * and is scoped to one company; the plaintext is shown exactly once on
  * create. Revocation is soft so audit history survives.
+ *
+ * The same keys open the Genosyn MCP server, so its endpoint and the setup
+ * for each MCP client sit here too — and, filled in with the real key, at the
+ * one moment the key is shown.
  */
 export function SettingsApiKeys() {
   const { company } = useOutletContext<SettingsOutletCtx>();
@@ -30,6 +41,7 @@ export function SettingsApiKeys() {
     <>
       <TopBar title="API keys" />
       <ApiKeysCard company={company} />
+      <McpServerCard companyId={company.id} />
     </>
   );
 }
@@ -161,34 +173,165 @@ function ApiKeysCard({ company }: { company: Company }) {
  * it is the one thing a script needs besides the key itself.
  */
 function ApiBaseUrl({ companyId }: { companyId: string }) {
-  const baseUrl = companyApiBaseUrl(window.location.origin, companyId);
+  return (
+    <CopyableUrl
+      label="Base URL"
+      url={companyApiBaseUrl(window.location.origin, companyId)}
+      copyLabel="Copy the base URL"
+      hint="Every request a key for this company makes starts here."
+      className="mb-3 border-b border-slate-100 pb-3 dark:border-slate-800"
+    />
+  );
+}
+
+/** A labelled URL with a copy button, wrapping rather than overflowing on a phone. */
+function CopyableUrl({
+  label,
+  url,
+  copyLabel,
+  hint,
+  className,
+}: {
+  label: string;
+  url: string;
+  copyLabel: string;
+  hint: string;
+  className?: string;
+}) {
   const [copied, setCopied] = React.useState(false);
   const [copyError, setCopyError] = React.useState<string | null>(null);
   return (
-    <div className="mb-3 border-b border-slate-100 pb-3 dark:border-slate-800">
+    <div className={className}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <span className="font-medium text-slate-600 dark:text-slate-300">Base URL</span>
+        <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
         <code className="min-w-0 break-all rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-          {baseUrl}
+          {url}
         </code>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          aria-label="Copy the base URL"
+          aria-label={copyLabel}
           onClick={async () => {
             setCopyError(null);
-            if (await copyToClipboard(baseUrl)) setCopied(true);
+            if (await copyToClipboard(url)) setCopied(true);
             else setCopyError("Could not access the clipboard — copy the URL manually.");
           }}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Every request a key for this company makes starts here.
-      </p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>
       <FormError message={copyError} className="mt-2" />
+    </div>
+  );
+}
+
+/**
+ * The Genosyn MCP server: its endpoint and how to point each client at it.
+ * The setup shows a placeholder for the key — the real one is shown only once,
+ * when it is generated, and the new-key dialog fills it in there.
+ */
+function McpServerCard({ companyId }: { companyId: string }) {
+  const url = companyMcpUrl(window.location.origin, companyId);
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <div className="flex items-start gap-2">
+          <Cable size={16} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">MCP server</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Connect Claude, Cursor or any MCP client to this company. It works with an API key and
+              acts as the key&apos;s Member: it can find, read and change whatever they can, and
+              nothing more.
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-4">
+        <CopyableUrl
+          label="Endpoint"
+          url={url}
+          copyLabel="Copy the MCP endpoint"
+          hint="Streamable HTTP. Send an API key from above as a Bearer token."
+        />
+        <McpClientSetupPanel url={url} token={null} />
+      </CardBody>
+    </Card>
+  );
+}
+
+/** Pick a client, copy its setup. With `token`, the setup carries the real key. */
+function McpClientSetupPanel({ url, token }: { url: string; token: string | null }) {
+  const [client, setClient] = React.useState<McpClientId>("claude-desktop");
+  const [copied, setCopied] = React.useState<McpClientId | null>(null);
+  const [copyError, setCopyError] = React.useState<string | null>(null);
+  const label = MCP_CLIENTS.find((candidate) => candidate.id === client)?.label ?? "";
+  const setup = mcpClientSetup(client, { url, token });
+  const panelId = React.useId();
+  return (
+    <div className="min-w-0">
+      <div className="overflow-x-auto">
+        <div
+          role="tablist"
+          aria-label="MCP client"
+          className="flex min-w-max gap-0.5 border-b border-slate-200 dark:border-slate-800"
+        >
+          {MCP_CLIENTS.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              role="tab"
+              aria-selected={client === candidate.id}
+              aria-controls={panelId}
+              onClick={() => {
+                setClient(candidate.id);
+                setCopyError(null);
+              }}
+              className={
+                "-mb-px whitespace-nowrap border-b-2 px-2.5 py-1.5 text-xs font-medium transition " +
+                (client === candidate.id
+                  ? "border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300"
+                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
+              }
+            >
+              {candidate.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div id={panelId} role="tabpanel" aria-label={`${label} setup`} className="mt-2 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-mono text-xs text-slate-500 dark:text-slate-400">
+            {setup.where}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={`Copy the ${label} setup`}
+            onClick={async () => {
+              setCopyError(null);
+              if (await copyToClipboard(setup.snippet)) setCopied(client);
+              else setCopyError("Could not access the clipboard — copy the setup manually.");
+            }}
+          >
+            {copied === client ? <Check size={12} /> : <Copy size={12} />}{" "}
+            {copied === client ? "Copied" : "Copy"}
+          </Button>
+        </div>
+        <pre className="mt-1 max-w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+          {setup.snippet}
+        </pre>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{setup.note}</p>
+        {!token && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Replace <code className="font-mono">{API_KEY_PLACEHOLDER}</code> with a key from above.
+          </p>
+        )}
+        <FormError message={copyError} className="mt-2" />
+      </div>
     </div>
   );
 }
@@ -400,6 +543,15 @@ function NewKeyTokenModal({
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             It answers with the Member the key acts as, their role, and the key.
           </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            Connect an MCP client
+          </label>
+          <McpClientSetupPanel
+            url={companyMcpUrl(window.location.origin, companyId)}
+            token={created.token}
+          />
         </div>
         <div className="flex justify-end pt-2">
           <Button onClick={onClose}>Done</Button>
