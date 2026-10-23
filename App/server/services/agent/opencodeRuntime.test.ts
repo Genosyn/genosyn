@@ -17,7 +17,7 @@ import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
-import { serveOpenCodeModel } from "./opencodeProxy.js";
+import { endOnUserTurn, serveOpenCodeModel } from "./opencodeProxy.js";
 import { openCodeModelLimits } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
@@ -1399,6 +1399,65 @@ test("provider forwarding keeps the stored key out of child configuration and pr
     assert.equal(response.headers.get("retry-after"), "2");
     await response.text();
     assert.deepEqual(observed, ["Bearer stored-key-stays-in-genosyn"]);
+  } finally {
+    await proxy.close();
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  }
+});
+
+// 2026-10-23: connecting Claude Opus 5.5 failed every time. The connection test
+// allows two steps, and OpenCode ends a turn's last step with its "maximum steps
+// reached" instruction as an assistant message — a prefill, which Claude Opus
+// 4.6 and every later model reject with a 400.
+test("Claude requests end on the user's turn, so a step limit is never sent as a prefill", async () => {
+  const limit = { role: "assistant", content: [{ type: "text", text: "MAXIMUM STEPS REACHED" }] };
+  const toolResult = { role: "user", content: [{ type: "tool_result", tool_use_id: "t" }] };
+  assert.deepEqual(endOnUserTurn({ model: "m", messages: [toolResult, limit] }), {
+    model: "m",
+    messages: [toolResult, { ...limit, role: "user" }],
+  });
+  assert.deepEqual(endOnUserTurn({ messages: [{ role: "assistant", content: "Continue" }] }), {
+    messages: [{ role: "user", content: "Continue" }],
+  });
+  const toolCall = { role: "assistant", content: [{ type: "tool_use", id: "t" }] };
+  assert.equal(endOnUserTurn({ messages: [toolResult, toolCall] }), null);
+  assert.equal(endOnUserTurn({ messages: [toolResult] }), null);
+  assert.equal(endOnUserTurn({ prompt: "no messages" }), null);
+
+  const received: string[] = [];
+  const upstream = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    received.push(Buffer.concat(chunks).toString());
+    res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== "string");
+  const proxy = await serveOpenCodeModel({
+    id: "claude-opus-5-5",
+    provider: "anthropic",
+    apiKey: "stored-key",
+    baseURL: `http://127.0.0.1:${address.port}`,
+    contextWindow: null,
+  });
+  const send = (body: string) =>
+    fetch(`${proxy.model.baseURL}/messages`, {
+      method: "POST",
+      headers: { "x-api-key": proxy.model.apiKey, "Content-Type": "application/json" },
+      body,
+    }).then((response) => response.text());
+  try {
+    await send(JSON.stringify({ model: "claude-opus-5-5", messages: [toolResult, limit] }));
+    const forwarded = JSON.parse(received[0]) as { messages: Array<{ role: string }> };
+    assert.deepEqual(
+      forwarded.messages.map((message) => message.role),
+      ["user", "user"],
+    );
+    const unchanged = JSON.stringify({ model: "claude-opus-5-5", messages: [toolResult] });
+    await send(unchanged);
+    assert.equal(received[1], unchanged, "a request already ending on the user is sent as is");
   } finally {
     await proxy.close();
     upstream.closeAllConnections();

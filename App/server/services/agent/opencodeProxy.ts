@@ -87,6 +87,31 @@ function withModel(body: Buffer<ArrayBuffer>, id: string): Buffer<ArrayBuffer> {
 }
 
 /**
+ * A Claude request that ends on the user's turn, or null when it already does.
+ * On a turn's last allowed step OpenCode appends its "maximum steps reached"
+ * instruction as an assistant message, which Claude reads as a prefill to
+ * continue. Claude Opus 4.6, Sonnet 4.6 and every later model reject a prefill
+ * with a 400, so each turn that reached its step limit failed on them — the
+ * connection test, which allows two steps, on every connect. A text-only
+ * trailing assistant message is sent as a user message instead, which every
+ * Claude model accepts. One with tool calls is left alone: only an assistant
+ * may make those.
+ */
+export function endOnUserTurn(request: Record<string, unknown>): Record<string, unknown> | null {
+  const messages = request.messages;
+  if (!Array.isArray(messages)) return null;
+  const last = messages.at(-1) as { role?: unknown; content?: unknown } | undefined;
+  if (last?.role !== "assistant") return null;
+  const textOnly =
+    typeof last.content === "string" ||
+    (Array.isArray(last.content) &&
+      last.content.length > 0 &&
+      last.content.every((block) => (block as { type?: unknown } | null)?.type === "text"));
+  if (!textOnly) return null;
+  return { ...request, messages: [...messages.slice(0, -1), { ...last, role: "user" }] };
+}
+
+/**
  * Forward provider wire traffic without exposing the real API key to native
  * coding commands. OpenCode still owns the provider SDK and complete model
  * loop; this endpoint only authenticates and forwards bytes for one turn.
@@ -98,6 +123,9 @@ function withModel(body: Buffer<ArrayBuffer>, id: string): Buffer<ArrayBuffer> {
  * A custom endpoint that answers 404 for the model, while serving exactly one
  * other model, has been restarted with that model; every turn moves to it
  * rather than failing on the old id (see `services/servedModels.ts`).
+ *
+ * A Claude request that would end on an assistant message is sent ending on
+ * the user's turn instead (see `endOnUserTurn`).
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
@@ -179,9 +207,11 @@ export async function serveOpenCodeModel(
         chunks.push(buffer);
       }
       const body = Buffer.concat(chunks);
+      let request: Record<string, unknown>;
       let requestedModel: unknown;
       try {
-        requestedModel = (JSON.parse(body.toString()) as { model?: unknown }).model;
+        request = JSON.parse(body.toString()) as Record<string, unknown>;
+        requestedModel = request.model;
       } catch {
         res.writeHead(400).end();
         return;
@@ -200,7 +230,9 @@ export async function serveOpenCodeModel(
         if (typeof req.headers["anthropic-beta"] === "string")
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
       } else if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
-      let outgoing = servedId ? withModel(body, servedId) : body;
+      const userTurn = model.provider === "anthropic" ? endOnUserTurn(request) : null;
+      const sent = userTurn ? Buffer.from(JSON.stringify(userTurn)) : body;
+      let outgoing = servedId ? withModel(sent, servedId) : sent;
       const send = () => {
         const init = {
           method: "POST",
