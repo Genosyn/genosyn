@@ -286,6 +286,17 @@ export async function serveOpenCodeModel(
         const value = response.headers.get(name);
         if (value) responseHeaders[name] = value;
       }
+      if (response.status >= 400 && model.apiKey.length >= 8) {
+        // OpenCode keeps an error's body to report what the provider said, and
+        // a provider may quote the key it was sent. The key stays in Genosyn.
+        // A self-hosted server's placeholder such as "EMPTY" is no secret, and
+        // replacing it everywhere would garble what the server said.
+        const text = await response.text();
+        res
+          .writeHead(response.status, responseHeaders)
+          .end(text.split(model.apiKey).join("[redacted]"));
+        return;
+      }
       res.writeHead(response.status, responseHeaders);
       if (!response.body) {
         res.end();

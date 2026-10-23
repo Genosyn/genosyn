@@ -822,6 +822,43 @@ test(
   },
 );
 
+test(
+  "pinned OpenCode reports what Claude said about a refused request, without the key",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({
+      reject: {
+        status: 400,
+        body: {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message: "Your credit balance is too low for upstream-private-key.",
+          },
+          request_id: "req_fixture",
+        },
+      },
+    }));
+    try {
+      await assert.rejects(
+        realTurn(claudeFixtureModel(fixture.baseURL), []),
+        (error: Error & { status?: number; providerDetail?: string }) => {
+          assert.equal(error.message, "The AI Model request failed (HTTP 400).");
+          assert.equal(error.status, 400);
+          assert.equal(
+            error.providerDetail,
+            "HTTP 400 · invalid_request_error\nYour credit balance is too low for [redacted].\nRequest ID: req_fixture",
+          );
+          return true;
+        },
+      );
+      assert.equal(fixture.requests.length, 1, "a refused request is not retried");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
 // 2026-10-02: a YouTube prospecting Run on Qwen thought for 18,334 tokens,
 // then ended its turn with no reply and no tool call, and was recorded as
 // Completed with nothing done.

@@ -212,8 +212,10 @@ export function Models() {
         that employee work uses and checks that the model can call a harmless test tool. The request
         uses a small amount of your API allowance. Only a successful test saves and activates the AI
         Model. If the key, model access, billing, or network needs attention, an inline error
-        explains what to check; correct it and try again. A failed key replacement keeps the
-        previous working credential.
+        explains what to check; correct it and try again. When the AI Model&apos;s service said why
+        it refused the test, select <Strong>View details</Strong> on the error to read its own
+        explanation, HTTP status, and request ID, which its support team can look up. A failed key
+        replacement keeps the previous working credential.
       </P>
       <P>
         The OpenAI and Anthropic model lists do not declare a general default. Genosyn recommends

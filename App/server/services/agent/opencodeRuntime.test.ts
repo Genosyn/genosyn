@@ -14,7 +14,7 @@ import {
   SELF_HOSTED_RESPONSE_WAIT_MS,
 } from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
-import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
+import { OpenCodeEvents, openCodeActivityError, providerErrorDetail } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
 import { endOnUserTurn, serveOpenCodeModel } from "./opencodeProxy.js";
@@ -1463,6 +1463,102 @@ test("Claude requests end on the user's turn, so a step limit is never sent as a
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
+});
+
+test("an error body a provider sends back never carries the stored key to OpenCode", async () => {
+  // The way a provider quotes back the key it was sent.
+  const upstream = createServer((req, res) => {
+    req.resume();
+    const sent = req.headers.authorization?.replace(/^Bearer /, "");
+    res
+      .writeHead(401, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ error: { message: `Invalid key: ${sent}` } }));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== "string");
+  const quoted = async (apiKey: string) => {
+    const proxy = await serveOpenCodeModel({
+      ...model,
+      apiKey,
+      baseURL: `http://127.0.0.1:${address.port}`,
+    });
+    try {
+      const response = await fetch(`${proxy.model.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${proxy.model.apiKey}` },
+        body: JSON.stringify({ model: "fixture" }),
+      });
+      assert.equal(response.status, 401);
+      return ((await response.json()) as { error: { message: string } }).error.message;
+    } finally {
+      await proxy.close();
+    }
+  };
+  try {
+    assert.equal(await quoted("stored-key-stays-in-genosyn"), "Invalid key: [redacted]");
+    // A self-hosted server's placeholder is no secret; replacing it would garble the reply.
+    assert.equal(await quoted("EMPTY"), "Invalid key: EMPTY");
+  } finally {
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  }
+});
+
+test("a provider's explanation travels apart from the safe message, without key-shaped text", () => {
+  const events = new OpenCodeEvents("session");
+  events.accept({
+    id: "failure",
+    type: "session.error",
+    properties: {
+      sessionID: "session",
+      error: {
+        name: "APIError",
+        data: {
+          message: "This model does not support assistant message prefill.",
+          statusCode: 400,
+          isRetryable: false,
+          responseHeaders: { "set-cookie": "private-header" },
+          responseBody: JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: "This model does not support assistant message prefill.",
+            },
+            request_id: "req_fixture",
+          }),
+        },
+      },
+    },
+  });
+  const error = events.error as Error & { status: number; providerDetail: string };
+  assert.equal(error.message, "The AI Model request failed (HTTP 400).");
+  assert.equal(error.status, 400);
+  assert.equal(
+    error.providerDetail,
+    "HTTP 400 · invalid_request_error\nThis model does not support assistant message prefill.\nRequest ID: req_fixture",
+  );
+
+  const quoted = providerErrorDetail({
+    message: "Unauthorized",
+    statusCode: 401,
+    isRetryable: false,
+    responseBody: JSON.stringify({
+      error: {
+        message: "Incorrect API key provided: sk-proj-abc*********wxyz. Bearer abc.def",
+        code: "invalid_api_key",
+      },
+    }),
+  });
+  assert.equal(
+    quoted,
+    "HTTP 401 · invalid_api_key\nIncorrect API key provided: [redacted]. [redacted]",
+  );
+  assert.equal(
+    providerErrorDetail({ message: "", isRetryable: false, responseBody: "upstream timeout" }),
+    "upstream timeout",
+  );
+  assert.equal(providerErrorDetail({ message: "", isRetryable: false }), null);
 });
 
 test("startup diagnostics explain installation errors without exposing raw output", () => {

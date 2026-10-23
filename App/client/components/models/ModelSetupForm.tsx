@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { errorDetail } from "@/lib/errors";
 
 type ModelCatalog = { models: Array<{ id: string; label: string }>; recommendedModel: string };
 
@@ -48,7 +49,8 @@ export function ModelSetupForm({
   const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null);
   const [discovering, setDiscovering] = React.useState(false);
   const [discoveryError, setDiscoveryError] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  // The thrown value, so a failed test can offer the service's own explanation.
+  const [error, setError] = React.useState<unknown>(null);
   const [saving, setSaving] = React.useState(false);
   const [refresh, setRefresh] = React.useState(0);
   const requestVersion = React.useRef(0);
@@ -127,7 +129,7 @@ export function ModelSetupForm({
       setApiKey("");
       onSaved();
     } catch (err) {
-      setError(message(err));
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -324,7 +326,7 @@ export function ModelSetupForm({
             />
           </>
         )}
-        <FormError message={error} />
+        <FormError message={error ? message(error) : null} detail={errorDetail(error)} />
         {!editingExistingCustom && (
           <div>
             <Button
