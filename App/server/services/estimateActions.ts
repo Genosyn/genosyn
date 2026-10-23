@@ -1,4 +1,5 @@
 import {
+  failedEstimateSend,
   hydrateEstimates,
   issueEstimate,
   loadEstimateBySlug,
@@ -55,7 +56,7 @@ export async function sendEstimateBySlug(
   try {
     send = await sendEstimateEmail(companyId, estimate, null);
   } catch (err) {
-    send = { status: "failed", logId: "", errorMessage: (err as Error).message };
+    send = failedEstimateSend((err as Error).message);
   }
   return { estimate: { ...hydrated, ...estimate }, issued, send };
 }

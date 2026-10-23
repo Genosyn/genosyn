@@ -3,7 +3,6 @@ import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { Customer } from "../db/entities/Customer.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
-import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { Invoice, InvoiceStatus } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
@@ -47,9 +46,11 @@ import {
 } from "../../shared/documentDiscount.js";
 import { invoiceArchiveBlocker } from "../../shared/invoiceArchive.js";
 import {
-  formatGlobalSmtpSender,
-  getEffectiveGlobalSmtp,
-} from "./globalEmailTransport.js";
+  type DocumentEmailDetails,
+  resolveCcRecipients,
+  resolveEmailSenderPreview,
+  resolveToRecipients,
+} from "./documentEmail.js";
 
 /**
  * Finance service — pure orchestration over the Phase A entities. Routes
@@ -1592,14 +1593,7 @@ export function displayStatus(invoice: Invoice, now: Date = new Date()): Display
 
 // ─────────────────────────── Email send ────────────────────────────────
 
-export type InvoiceEmailDetails = {
-  toAddress: string;
-  alwaysCcAddress: string;
-  fromAddress: string;
-  replyTo: string;
-  configured: boolean;
-  source: "company_provider" | "global_smtp" | "console";
-};
+export type InvoiceEmailDetails = DocumentEmailDetails;
 
 export type InvoiceResendActivity = {
   id: string;
@@ -1615,30 +1609,6 @@ export type InvoiceResendActivity = {
   errorMessage: string;
 };
 
-async function resolveInvoiceEmailSenderPreview(
-  companyId: string,
-): Promise<Omit<InvoiceEmailDetails, "toAddress" | "alwaysCcAddress">> {
-  const provider = await AppDataSource.getRepository(EmailProvider).findOne({
-    where: { companyId, isDefault: true, enabled: true },
-  });
-  if (provider) {
-    return {
-      fromAddress: provider.fromAddress,
-      replyTo: provider.replyTo,
-      configured: true,
-      source: "company_provider",
-    };
-  }
-
-  const global = await getEffectiveGlobalSmtp();
-  return {
-    fromAddress: formatGlobalSmtpSender(global.settings),
-    replyTo: "",
-    configured: global.configured && Boolean(global.settings.host),
-    source: global.configured ? "global_smtp" : "console",
-  };
-}
-
 /** Resolve the addresses shown in the resend confirmation modal. */
 export async function getInvoiceEmailDetails(
   companyId: string,
@@ -1649,7 +1619,7 @@ export async function getInvoiceEmailDetails(
       id: invoice.customerId,
       companyId,
     }),
-    resolveInvoiceEmailSenderPreview(companyId),
+    resolveEmailSenderPreview(companyId),
     getFinanceSettings(companyId),
   ]);
   if (!customer) throw new Error("Customer not found");
@@ -1744,14 +1714,7 @@ export async function resolveInvoiceRecipients(
     companyId,
   });
   if (!customer) throw new Error("Customer not found");
-  if (!customer.email && options.to === undefined) {
-    throw new Error("Customer has no email address — add one before sending");
-  }
-  const to = normalizeRecipientAddresses(
-    options.to ?? (customer.email ? [customer.email] : []),
-  );
-  if (to.length === 0) throw new Error("Add at least one To recipient");
-  return { customer, to };
+  return { customer, to: resolveToRecipients(customer.email, options.to) };
 }
 
 /**
@@ -1775,12 +1738,7 @@ export async function sendInvoiceEmail(
     resolveInvoiceRecipients(companyId, invoice, options),
     getFinanceSettings(companyId),
   ]);
-  const cc = normalizeRecipientAddresses([
-    ...settings.invoiceCcEmails,
-    ...(options.cc ?? []),
-  ]).filter(
-    (address) => !to.some((toAddress) => toAddress.toLowerCase() === address.toLowerCase()),
-  );
+  const cc = resolveCcRecipients(to, settings.invoiceCcEmails, options.cc ?? []);
   const toAddress = to.join(", ");
   const ccAddress = cc.join(", ");
   const [lines, payments] = await Promise.all([
@@ -1795,7 +1753,7 @@ export async function sendInvoiceEmail(
   ]);
   const [company, sender] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
-    resolveInvoiceEmailSenderPreview(companyId),
+    resolveEmailSenderPreview(companyId),
   ]);
   const htmlInput = {
     invoice,
@@ -1862,17 +1820,6 @@ export async function sendInvoiceEmail(
     pdfAttached,
     hasMessage: Boolean(message),
   };
-}
-
-function normalizeRecipientAddresses(addresses: string[]): string[] {
-  const seen = new Set<string>();
-  return addresses.flatMap((address) => {
-    const trimmed = address.trim();
-    const key = trimmed.toLowerCase();
-    if (!trimmed || seen.has(key)) return [];
-    seen.add(key);
-    return [trimmed];
-  });
 }
 
 // ──────────────────────── Lookup helpers ──────────────────────────────
