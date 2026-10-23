@@ -13,6 +13,7 @@ import {
 } from "./paths.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
+import { deleteKeyHealth } from "./modelKeyHealth.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
@@ -431,6 +432,10 @@ export async function deleteCompanyCascade(args: {
       await m.delete(EmployeeDashboardGrant, { employeeId: In(employeeIds) });
       await m.delete(McpServer, { employeeId: In(employeeIds) });
       await m.delete(JournalEntry, { employeeId: In(employeeIds) });
+      const modelIds = (
+        await m.find(AIModel, { where: { employeeId: In(employeeIds) }, select: ["id"] })
+      ).map((model) => model.id);
+      await deleteKeyHealth(modelIds, m);
       await m.delete(AIModel, { employeeId: In(employeeIds) });
       await m.delete(Conversation, { employeeId: In(employeeIds) });
     }
