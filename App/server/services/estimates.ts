@@ -24,6 +24,12 @@ import {
 } from "./finance.js";
 import { type DocumentDiscount, documentTotals } from "../../shared/documentDiscount.js";
 import { resolveDocumentIssuer } from "./subsidiaries.js";
+import {
+  type DocumentEmailDetails,
+  resolveCcRecipients,
+  resolveEmailSenderPreview,
+  resolveToRecipients,
+} from "./documentEmail.js";
 
 /**
  * Estimate service — pure orchestration over the Estimate + line item
@@ -750,11 +756,46 @@ export type EstimateSendResult = {
   status: "sent" | "skipped" | "failed";
   logId: string;
   errorMessage: string;
+  /** Who it went to, comma-separated, as the send dialog confirmed them. */
+  toAddress: string;
+  ccAddress: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+  hasMessage: boolean;
 };
 
 /**
- * Resolve the customer an estimate email would be addressed to, throwing the
- * same errors {@link sendEstimateEmail} would.
+ * What the send dialog lets a Member choose about an estimate email. Leaving
+ * everything out sends it to the customer's billing email with the PDF, the
+ * way Issue & send and AI Employees always have.
+ */
+export type EstimateSendOptions = {
+  message?: string;
+  attachPdf?: boolean;
+  to?: string[];
+  cc?: string[];
+};
+
+/** A send that never reached the transport, reported in the shape of one that did. */
+export function failedEstimateSend(
+  errorMessage: string,
+  options: EstimateSendOptions = {},
+): EstimateSendResult {
+  return {
+    status: "failed",
+    logId: "",
+    errorMessage,
+    toAddress: "",
+    ccAddress: "",
+    pdfRequested: options.attachPdf ?? true,
+    pdfAttached: false,
+    hasMessage: Boolean(options.message?.trim()),
+  };
+}
+
+/**
+ * Resolve who an estimate email would be addressed to, throwing the same
+ * errors {@link sendEstimateEmail} would.
  *
  * Split out so `/estimates/:slug/send` can refuse *before* auto-issuing a
  * draft. Issuing mints the gapless number and re-slugs the row from
@@ -762,67 +803,100 @@ export type EstimateSendResult = {
  * caller holding a URL that no longer resolved — the open detail page then
  * reported a perfectly live estimate as deleted.
  */
-export async function resolveEstimateRecipient(
+export async function resolveEstimateRecipients(
   companyId: string,
   estimate: Estimate,
-): Promise<Customer> {
+  options: { to?: string[] } = {},
+): Promise<{ customer: Customer; to: string[] }> {
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
     id: estimate.customerId,
     companyId,
   });
   if (!customer) throw new Error("Customer not found");
-  if (!customer.email) {
-    throw new Error("Customer has no email address — add one before sending");
-  }
-  return customer;
+  return { customer, to: resolveToRecipients(customer.email, options.to) };
+}
+
+/** The customer an estimate goes to by default: one with a billing email. */
+export async function resolveEstimateRecipient(
+  companyId: string,
+  estimate: Estimate,
+): Promise<Customer> {
+  return (await resolveEstimateRecipients(companyId, estimate)).customer;
 }
 
 /**
- * Email the rendered HTML estimate to the customer's `email`. Uses the
- * company's default `EmailProvider` if one exists, falling back to the
- * global SMTP block (or console). Returns the email log id so the UI
- * can deep-link to the delivery record.
+ * What the send dialog shows before an estimate is emailed. Estimates have no
+ * Always Cc — that setting is for invoices — so the dialog shows none.
+ */
+export async function getEstimateEmailDetails(
+  companyId: string,
+  estimate: Estimate,
+): Promise<DocumentEmailDetails> {
+  const [customer, sender] = await Promise.all([
+    AppDataSource.getRepository(Customer).findOneBy({ id: estimate.customerId, companyId }),
+    resolveEmailSenderPreview(companyId),
+  ]);
+  return { toAddress: customer?.email ?? "", alwaysCcAddress: "", ...sender };
+}
+
+/**
+ * Email the rendered HTML estimate to the customer: by default to its
+ * billing email, or to exactly the To and Cc a Member confirmed in the send
+ * dialog. Uses the company's default `EmailProvider` if one exists, falling
+ * back to the global SMTP block (or console). Returns the email log id so
+ * the UI can deep-link to the delivery record.
  */
 export async function sendEstimateEmail(
   companyId: string,
   estimate: Estimate,
   triggeredByUserId: string | null,
+  options: EstimateSendOptions = {},
 ): Promise<EstimateSendResult> {
-  const customer = await resolveEstimateRecipient(companyId, estimate);
+  const { customer, to } = await resolveEstimateRecipients(companyId, estimate, options);
+  const cc = resolveCcRecipients(to, options.cc ?? []);
+  const toAddress = to.join(", ");
+  const ccAddress = cc.join(", ");
   const lines = await AppDataSource.getRepository(EstimateLineItem).find({
     where: { estimateId: estimate.id },
     order: { sortOrder: "ASC" },
   });
-  const html = await renderEstimateHtmlForCompany(
-    companyId,
-    estimate,
-    customer,
-    lines,
-  );
+  const message = options.message?.trim() ?? "";
+  // The note sits above the estimate in the email only; the PDF is the
+  // document itself, so it is rendered without it.
+  const html = await renderEstimateHtmlForCompany(companyId, estimate, customer, lines);
+  const emailHtml = message
+    ? await renderEstimateHtmlForCompany(companyId, estimate, customer, lines, {
+        emailMessage: message,
+      })
+    : html;
+  const pdfRequested = options.attachPdf ?? true;
   // Attach a PDF copy so the customer gets a portable, printable document
   // rather than only the inline HTML body. Falls back to no attachment if
   // Chromium isn't available — the HTML body still carries the full estimate.
-  const attachments = await renderPdfAttachment(
-    html,
-    `${estimate.number || "estimate"}.pdf`,
-    "estimate",
-  );
+  const attachments = pdfRequested
+    ? await renderPdfAttachment(html, `${estimate.number || "estimate"}.pdf`, "estimate")
+    : undefined;
+  const pdfAttached = Boolean(attachments?.length);
   const text =
+    (message ? `${message}\n\n` : "") +
     `Estimate ${estimate.number || "(draft)"} — total ` +
     `${formatMoney(estimate.totalCents, estimate.currency)} valid until ` +
     `${estimate.validUntil.toISOString().slice(0, 10)}.\n\n` +
-    (attachments
+    (pdfAttached
       ? `The estimate is attached as a PDF.`
-      : `Open the estimate HTML in your browser to print or save as PDF.`);
+      : pdfRequested
+        ? `The PDF attachment could not be generated; the estimate is included in this email.`
+        : `The estimate is included in this email.`);
   const subject = `Estimate ${estimate.number || "(draft)"} — ${formatMoney(
     estimate.totalCents,
     estimate.currency,
   )}`;
   const result = await sendEmail({
-    to: customer.email,
+    to: toAddress,
+    cc: ccAddress || undefined,
     subject,
     text,
-    html,
+    html: emailHtml,
     attachments,
     companyId,
     purpose: "other",
@@ -832,6 +906,11 @@ export async function sendEstimateEmail(
     status: result.status,
     logId: result.logId,
     errorMessage: result.errorMessage,
+    toAddress,
+    ccAddress,
+    pdfRequested,
+    pdfAttached,
+    hasMessage: Boolean(message),
   };
 }
 

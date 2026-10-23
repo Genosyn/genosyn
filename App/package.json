@@ -49,6 +49,7 @@
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts",
     "test:recurring-invoice-name": "tsx scripts/test-recurring-invoice-name.ts",
     "test:invoice-kind": "tsx scripts/test-invoice-kind.ts",
+    "test:invoice-contact-suggestions": "tsx scripts/test-invoice-contact-suggestions.ts",
     "test:command-palette": "tsx scripts/test-command-palette.ts",
     "test:resources-ai-access": "tsx scripts/test-resources-ai-access.ts",
     "test:routines-ai-access": "tsx scripts/test-routines-ai-access.ts",

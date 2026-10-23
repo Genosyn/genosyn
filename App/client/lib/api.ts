@@ -4750,6 +4750,58 @@ export type Customer = {
   mergedInto?: { id: string; slug: string; name: string } | null;
 };
 
+/** Why someone is in a send dialog's suggestions, strongest tie first. */
+export type RecipientSuggestionSource =
+  | "billing_email"
+  | "customer_contact"
+  | "revenue_contact"
+  | "deal"
+  | "domain";
+
+/** One of the customer's people, offered in an invoice or estimate's send dialog. */
+export type RecipientSuggestion = {
+  email: string;
+  /** "" when the address is all there is — the billing email. */
+  name: string;
+  /** Role or job title. */
+  role: string;
+  primary: boolean;
+  /** The billing email, or a billing or finance role, title or mailbox. */
+  billing: boolean;
+  sources: RecipientSuggestionSource[];
+  dealTitle: string | null;
+  lastEmailedAt: string | null;
+};
+
+/** GET /customers/:slug/recipient-suggestions — best first. */
+export type RecipientSuggestionList = {
+  suggestions: RecipientSuggestion[];
+  /** The domain people were matched at, or null (unset, free mail, or the company's own). */
+  domain: string | null;
+};
+
+/** What an invoice or estimate's send dialog shows before anything goes out. */
+export type DocumentEmailDetails = {
+  /** The customer's billing email, the To the dialog starts with. */
+  toAddress: string;
+  /** Finance → Settings → Always Cc, comma-separated; "" on estimates. */
+  alwaysCcAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  configured: boolean;
+  source: "company_provider" | "global_smtp" | "console";
+};
+
+/** What `/invoices/:slug/send` and `/estimates/:slug/send` say about the email. */
+export type DocumentSendResult = {
+  status: "sent" | "skipped" | "failed";
+  errorMessage: string;
+  toAddress: string;
+  ccAddress: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+};
+
 /** One of the customer's people on a mail conversation. */
 export type CustomerMailPerson = {
   email: string;
@@ -5456,6 +5508,8 @@ export type Estimate = {
   invoice: EstimateInvoiceStub | null;
   /** Present on the detail read (`GET …/estimates/:slug`) only. */
   revision?: DocumentRevision;
+  /** Present on the detail read only: what its send dialog shows. */
+  emailDetails?: DocumentEmailDetails;
 };
 
 export type EstimateListItem = Omit<Estimate, "lines"> & {
@@ -5489,12 +5543,19 @@ export function canEditEstimate(est: Pick<Estimate, "status" | "invoiceId">): bo
 }
 
 /**
- * Router state Save & resend hands the estimate detail page: the edit is
- * saved, and this says how the email went.
+ * Router state Save & resend hands an invoice or estimate's detail page: the
+ * edit is saved, and the page opens its send dialog with a note saying this
+ * copy replaces the earlier one, for the Member to confirm.
  */
-export type EstimateResentState = {
-  resent: { status: string; errorMessage: string; to: string };
-};
+export type ResendRevisedState = { resendRevised: true };
+
+export function wantsRevisedResend(state: unknown): boolean {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    (state as { resendRevised?: unknown }).resendRevised === true
+  );
+}
 
 export type DisplayEstimateStatus = EstimateStatus | "expired" | "invoiced";
 
