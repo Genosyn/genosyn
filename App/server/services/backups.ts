@@ -16,11 +16,24 @@ import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
 import { bootCron, resetSchedulesAfterRestore, stopCron } from "./cron.js";
 import {
-  deliverArchive,
+  claimBackupCopy,
   deliverBackupToDestinations,
-  DeliveryResult,
+  isBackupBeingCopied,
+  isDeliveryRunning,
   OffBoxRetention,
+  releaseBackupCopy,
 } from "./backupDestinations.js";
+import { BackupDestination } from "../db/entities/BackupDestination.js";
+import type { BackupCopy } from "../db/entities/BackupCopy.js";
+import {
+  copiesByBackup,
+  deleteCopiesOfBackups,
+  failCopiesInFlight,
+  markCopiesPending,
+  recoverInterruptedCopies,
+  serializeCopy,
+} from "./backupCopies.js";
+import { BackupError } from "./backupErrors.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
 import { finalizeInterruptedAskAiTurns } from "./askAi/assistant.js";
@@ -97,6 +110,58 @@ export function setSnapshotBusyLimitForTests(ms: number | null): void {
 }
 
 /**
+ * How long writing an archive may go without writing a byte or reaching a new
+ * file before it is treated as stuck. Compressing even a 50 GB database emits
+ * output every few megabytes, so half an hour of nothing is a hung disk or
+ * mount, not a big backup.
+ */
+const WRITE_STALL_LIMIT_MS = 30 * 60_000;
+let writeStallLimitMs = WRITE_STALL_LIMIT_MS;
+
+/** Shorten the write watchdog so a test can reach it; null restores it. */
+export function setWriteStallLimitForTests(ms: number | null): void {
+  writeStallLimitMs = ms ?? WRITE_STALL_LIMIT_MS;
+}
+
+function writeStallMessage(): string {
+  const minutes = Math.max(1, Math.round(writeStallLimitMs / 60_000));
+  return (
+    `Writing the backup made no progress for ${minutes} minute${minutes === 1 ? "" : "s"}, ` +
+    "so it was stopped. A disk, or a mount inside the data directory, may be stuck."
+  );
+}
+
+/**
+ * Call `onStall` once `read()` — a count of work done — has not moved for
+ * `limitMs`. Looks a few times per limit; returns a function that stops it.
+ */
+export function watchForStall(
+  read: () => number,
+  limitMs: number,
+  onStall: () => void,
+): () => void {
+  let last = read();
+  let movedAt = Date.now();
+  const timer = setInterval(
+    () => {
+      const current = read();
+      if (current !== last) {
+        last = current;
+        movedAt = Date.now();
+        return;
+      }
+      if (Date.now() - movedAt >= limitMs) {
+        clearInterval(timer);
+        onStall();
+      }
+    },
+    Math.max(5, Math.min(60_000, Math.floor(limitMs / 4))),
+  );
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+/**
  * Hourly rather than daily so a window that lapses at 14:05 isn't enforced at
  * 03:00 the next morning. The prune is a cheap no-op when nothing is past the
  * cutoff.
@@ -114,7 +179,17 @@ export const MAX_RETENTION_DAYS = 3650;
 
 let scheduledTask: ScheduledTask | null = null;
 let retentionTask: ScheduledTask | null = null;
-let runningBackup: Promise<Backup> | null = null;
+
+/**
+ * The backup this process is taking. `recorded` settles as soon as its row is
+ * saved (or with the error that stopped it first); `done` once the archive is
+ * written and copied off-box. Serializes runs: asking for a backup while one
+ * is under way joins it.
+ */
+type BackupRun = { recorded: Promise<Backup>; done: Promise<Backup> };
+let runningBackup: BackupRun | null = null;
+/** The row of {@link runningBackup}, once it has one. */
+let runningBackupId: string | null = null;
 let runningPrune: Promise<number> | null = null;
 
 /**
@@ -413,6 +488,15 @@ export async function bootBackups(): Promise<void> {
   ensureBackupDir();
   await withSchedulerLease("backup-boot", 30 * 60_000, async () => {
     await reconcileBackupHistory();
+    // Copies the last process left waiting or part-way. Nothing resumes them,
+    // and History must not show them as still on their way.
+    const interrupted = await recoverInterruptedCopies();
+    if (interrupted > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[backups] marked ${interrupted} interrupted off-box cop${interrupted === 1 ? "y" : "ies"} as failed`,
+      );
+    }
   });
   const sched = await getBackupSchedule();
   applyBackupSchedule(sched);
@@ -537,6 +621,9 @@ async function pruneOldBackupsInner(): Promise<number> {
     // be past the cutoff anyway) or the debris of a crash that reconcile will
     // adopt on the next boot. Neither is ours to delete.
     if (row.status === "running") continue;
+    // Being copied off-box right now: deleting the archive would break the
+    // copy part-way. The next hourly prune gets it.
+    if (isBackupBeingCopied(row.id)) continue;
     // createdAt, not completedAt: reconcile rewrites completedAt to restore
     // time, which would make every archive look freshly taken after a restore.
     if (row.createdAt.getTime() >= cutoff) continue;
@@ -552,6 +639,9 @@ async function pruneOldBackupsInner(): Promise<number> {
       }
     }
     await repo.delete({ id: row.id });
+    // History's record of its off-box copies goes with it; the copies
+    // themselves stay until off-box retention removes them there.
+    await deleteCopiesOfBackups([row.id]);
     deleted += 1;
   }
 
@@ -625,19 +715,95 @@ export function previousScheduledFireTime(sched: BackupSchedule, now: Date): Dat
 }
 
 /**
- * Create a zip archive of the data directory. Returns the completed
- * {@link Backup} row. Serialized via {@link runningBackup} so the user
- * can't kick off two concurrent runs from the UI.
+ * The first moment after `now` the schedule fires, in the server's local time
+ * like the cron itself: one period after {@link previousScheduledFireTime}.
+ * Calendar arithmetic, so the hour holds across a daylight-saving change.
+ */
+export function nextScheduledFireTime(sched: BackupSchedule, now: Date): Date {
+  const next = previousScheduledFireTime(sched, now);
+  switch (sched.frequency) {
+    case "weekly":
+      next.setDate(next.getDate() + 7);
+      break;
+    case "monthly":
+      next.setMonth(next.getMonth() + 1);
+      break;
+    case "daily":
+    default:
+      next.setDate(next.getDate() + 1);
+      break;
+  }
+  next.setHours(clamp(sched.hour, 0, 23), 0, 0, 0);
+  return next;
+}
+
+/**
+ * Create a zip archive of the data directory and copy it off-box. Resolves
+ * with the completed {@link Backup} row. Serialized via {@link runningBackup}
+ * so two runs never overlap: asking while one is under way joins it.
  */
 export async function runBackup(kind: "manual" | "scheduled"): Promise<Backup> {
+  return beginBackup(kind).done;
+}
+
+/**
+ * Start a backup without waiting for it, for Back up now. Resolves as soon as
+ * its row is recorded: a 50 GB archive takes the better part of an hour to
+ * write and hours more to reach a NAS, which no browser request — or the proxy
+ * in front of one — waits for. A failure after that point is recorded on the
+ * row, where History and the status summary show it. While a backup is already
+ * under way, this is that backup, and `alreadyRunning` says so.
+ */
+export async function startBackup(
+  kind: "manual" | "scheduled" = "manual",
+): Promise<{ backup: Backup; alreadyRunning: boolean }> {
+  const alreadyRunning = runningBackup !== null;
+  const run = beginBackup(kind);
+  run.done.catch(() => undefined);
+  return { backup: await run.recorded, alreadyRunning };
+}
+
+/** Whether `backupId` is the backup this process is writing right now. */
+export function isBackupInProgress(backupId: string): boolean {
+  return runningBackupId === backupId;
+}
+
+/** Whether this process is taking a backup — writing it, or copying it off-box — right now. */
+export function isBackupRunning(): boolean {
+  return runningBackup !== null;
+}
+
+function beginBackup(kind: "manual" | "scheduled"): BackupRun {
   if (runningBackup) return runningBackup;
-  runningBackup = runBackupInner(kind).finally(() => {
-    runningBackup = null;
+  let markRecorded!: (row: Backup) => void;
+  let failedBeforeRecorded!: (err: unknown) => void;
+  const recorded = new Promise<Backup>((resolve, reject) => {
+    markRecorded = resolve;
+    failedBeforeRecorded = reject;
   });
+  // Nobody may be listening: a scheduled run only awaits `done`.
+  recorded.catch(() => undefined);
+  const done = runBackupInner(kind, (row) => {
+    runningBackupId = row.id;
+    markRecorded(row);
+  })
+    .catch((err: unknown) => {
+      // A no-op once the row was recorded; otherwise the caller hears why.
+      failedBeforeRecorded(err);
+      throw err;
+    })
+    .finally(() => {
+      runningBackup = null;
+      runningBackupId = null;
+    });
+  runningBackup = { recorded, done };
   return runningBackup;
 }
 
-async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
+async function runBackupInner(
+  kind: "manual" | "scheduled",
+  onRecorded: (row: Backup) => void,
+): Promise<Backup> {
   ensureBackupDir();
   // Reclaim debris from any previous run killed mid-flight before staging a
   // fresh snapshot of our own. A long-lived install that never restarts would
@@ -653,8 +819,10 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     status: "running",
     errorMessage: "",
     completedAt: null,
+    copiesTracked: true,
   });
   await repo.save(row);
+  onRecorded(row);
 
   const outPath = backupFilePath(filename);
   const stagingDbPath = path.join(backupDir(), `${STAGING_PREFIX}${row.id}.sqlite`);
@@ -685,13 +853,18 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
 
     // Mirror the finished archive to any enabled off-box destinations (NAS /
     // remote volume). Best-effort — the local backup already succeeded, so a
-    // delivery failure is recorded on the destination row rather than failing
-    // the run.
+    // delivery failure is recorded on the destination row, and on this
+    // backup's copy there, rather than failing the run.
+    claimBackupCopy(row.id);
     try {
-      await deliverBackupToDestinations(filename, outPath, await offBoxRetention());
+      await deliverBackupToDestinations(filename, outPath, await offBoxRetention(), {
+        backupId: row.id,
+      });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[backups] off-box delivery failed:", err);
+    } finally {
+      releaseBackupCopy(row.id);
     }
 
     // Enforce retention now that a fresh archive has landed — that's the
@@ -746,6 +919,14 @@ type SqliteBackupHandle = {
 
 const MISSING_SNAPSHOT_MESSAGE =
   "The database snapshot is missing. The backup was stopped rather than saved without its database.";
+
+/** Why a backup left `running` by a process that stopped part-way failed. */
+export const BACKUP_INTERRUPTED_MESSAGE =
+  "Genosyn stopped while writing this backup (a restart, an upgrade or a crash), so it didn't finish.";
+export const UPLOAD_INTERRUPTED_MESSAGE =
+  "Genosyn stopped while receiving this upload, so it didn't finish.";
+export const INTERRUPTED_UNREADABLE_MESSAGE =
+  "Genosyn stopped while writing this backup, and the file it left doesn't open.";
 
 function snapshotBusyMessage(): string {
   const minutes = Math.max(1, Math.round(snapshotBusyLimitMs / 60_000));
@@ -846,14 +1027,29 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     const partPath = `${outPath}${PART_SUFFIX}`;
     const output = createWriteStream(partPath, { mode: 0o600 });
     const archive = new ZipArchive({ zlib: { level: 9 } });
+    const walked = { entries: 0 };
 
     let failed = false;
     const fail = (err: Error) => {
       if (failed) return;
       failed = true;
+      stopWatching();
       output.destroy();
       reject(err);
     };
+
+    // A read stuck on a hung disk or mount never errors: the run would hold
+    // the backup lock — every later backup joining it — for good, and History
+    // would say "running" for weeks. Bytes written and entries walked are the
+    // run's pulse; when neither moves for the limit, it fails instead.
+    const stopWatching = watchForStall(
+      () => archive.pointer() + walked.entries,
+      writeStallLimitMs,
+      () => {
+        fail(new Error(writeStallMessage()));
+        archive.abort();
+      },
+    );
 
     let archivedDatabase = false;
     archive.on("entry", (entry) => {
@@ -862,6 +1058,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
 
     output.on("close", () => {
       if (failed) return;
+      stopWatching();
       if (sqliteSnapshot && !archivedDatabase) {
         fail(new Error(MISSING_SNAPSHOT_MESSAGE));
         return;
@@ -886,7 +1083,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     const root = dataRoot();
     const appendAll = async () => {
       if (fs.existsSync(root)) {
-        await walkAndAppend(archive, root, "", sqliteSnapshot);
+        await walkAndAppend(archive, root, "", sqliteSnapshot, walked);
       }
       if (sqliteSnapshot) {
         archive.file(sqliteSnapshot, { name: "app.sqlite" });
@@ -908,6 +1105,7 @@ async function walkAndAppend(
   absDir: string,
   relPrefix: string,
   sqliteSnapshot: string | null,
+  walked: { entries: number },
 ): Promise<void> {
   let entries: fs.Dirent[];
   try {
@@ -916,6 +1114,7 @@ async function walkAndAppend(
     return;
   }
   for (const entry of entries) {
+    walked.entries += 1;
     const absPath = path.join(absDir, entry.name);
     const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
 
@@ -923,7 +1122,7 @@ async function walkAndAppend(
     if (relPrefix === "" && entry.name === BACKUP_DIR_NAME) continue;
 
     if (entry.isDirectory()) {
-      await walkAndAppend(archive, absPath, relPath, sqliteSnapshot);
+      await walkAndAppend(archive, absPath, relPath, sqliteSnapshot, walked);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -946,20 +1145,107 @@ export async function listBackups(): Promise<Backup[]> {
   return repo.find({ order: { createdAt: "DESC" }, take: 200 });
 }
 
+async function fileExists(abs: string): Promise<boolean> {
+  try {
+    await fs.promises.access(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getBackup(id: string): Promise<Backup | null> {
+  return AppDataSource.getRepository(Backup).findOneBy({ id });
+}
+
 /**
- * Push an already-completed archive to every enabled backup destination on
- * demand (the "Send to destinations" action in History). Per-destination
- * failures come back inside the result list; throws only when the backup row
- * or its archive can't be found.
+ * One History row: the backup, and where it is right now — whether its
+ * archive is still on this server, whether this server's run for it is still
+ * under way (writing it while `running`, copying it off-box once `completed`;
+ * a new backup can't start until it ends), and each of its off-box copies.
  */
-export async function deliverBackup(id: string): Promise<DeliveryResult[]> {
+async function historyItem(row: Backup, copies: BackupCopy[]) {
+  return {
+    ...serializeBackup(row),
+    onServer: row.status === "completed" && (await fileExists(backupFilePath(row.filename))),
+    inProgress: isBackupInProgress(row.id),
+    copies: copies.map(serializeCopy),
+  };
+}
+
+export type BackupHistoryItem = Awaited<ReturnType<typeof historyItem>>;
+
+/** History: every backup, newest first, each with where it is right now. */
+export async function listBackupHistory(): Promise<BackupHistoryItem[]> {
+  const rows = await listBackups();
+  const copies = await copiesByBackup(rows.map((row) => row.id));
+  return Promise.all(rows.map((row) => historyItem(row, copies.get(row.id) ?? [])));
+}
+
+/** {@link listBackupHistory}'s row for one backup. */
+export async function backupHistoryItem(row: Backup): Promise<BackupHistoryItem> {
+  return historyItem(row, (await copiesByBackup([row.id])).get(row.id) ?? []);
+}
+
+/**
+ * Copy an existing backup off-box now — to every enabled destination, or to
+ * just `destinationId` (Try again on one copy, paused or not). Returns as soon
+ * as the copies are queued, each recorded as waiting its turn; the copying
+ * runs on and History follows it. While this backup is already being copied,
+ * returns its copies as they stand with `alreadyRunning` set.
+ */
+export async function startCopy(
+  id: string,
+  destinationId: string | null = null,
+): Promise<{ copies: BackupCopy[]; alreadyRunning: boolean }> {
   const repo = AppDataSource.getRepository(Backup);
   const row = await repo.findOneBy({ id });
-  if (!row) throw new Error("Backup not found");
+  if (!row) throw new BackupError("This backup no longer exists.", 404);
   if (row.status !== "completed") {
-    throw new Error("Can only deliver a completed backup");
+    throw new BackupError("Only a finished backup can be copied off-box.");
   }
-  return deliverArchive(row.filename, backupFilePath(row.filename), await offBoxRetention());
+  const absPath = backupFilePath(row.filename);
+  if (!(await fileExists(absPath))) {
+    throw new BackupError("This backup is no longer on this server, so there is nothing to copy.");
+  }
+  if (!claimBackupCopy(id)) {
+    return { copies: (await copiesByBackup([id])).get(id) ?? [], alreadyRunning: true };
+  }
+  try {
+    const destinations = AppDataSource.getRepository(BackupDestination);
+    const targets = destinationId
+      ? await destinations.findBy({ id: destinationId })
+      : await destinations.find({ where: { enabled: true }, order: { createdAt: "ASC" } });
+    if (destinationId && targets.length === 0) {
+      throw new BackupError("That off-box destination no longer exists.", 404);
+    }
+    if (targets.length === 0) {
+      throw new BackupError(
+        "No off-box destination is turned on. Add one, or resume a paused one, first.",
+      );
+    }
+    const destinationIds = targets.map((target) => target.id);
+    const copies = await markCopiesPending(id, destinationIds);
+    const retention = await offBoxRetention();
+    void deliverBackupToDestinations(row.filename, absPath, retention, {
+      backupId: id,
+      destinationIds,
+      includePaused: destinationId !== null,
+    })
+      .catch(async (err: unknown) => {
+        const message = (err as Error)?.message ?? String(err);
+        // eslint-disable-next-line no-console
+        console.error("[backups] copying a backup off-box failed:", message);
+        // Whatever stopped it, no copy may be left waiting for a delivery
+        // that is no longer running.
+        await failCopiesInFlight(id, destinationIds, message).catch(() => undefined);
+      })
+      .finally(() => releaseBackupCopy(id));
+    return { copies, alreadyRunning: false };
+  } catch (err) {
+    releaseBackupCopy(id);
+    throw err;
+  }
 }
 
 export async function deleteBackup(id: string): Promise<boolean> {
@@ -967,11 +1253,19 @@ export async function deleteBackup(id: string): Promise<boolean> {
   // resolved its archive on disk and is about to wipe `dataDir` around it.
   // Deleting anything underneath it strands the restore mid-flight.
   if (restoreInProgress) {
-    throw new Error("A restore is in progress; try again when it finishes.");
+    throw new BackupError("A restore is in progress. Try again once it finishes.");
   }
   const repo = AppDataSource.getRepository(Backup);
   const row = await repo.findOneBy({ id });
   if (!row) return false;
+  if (isBackupInProgress(id)) {
+    throw new BackupError("This backup is still being written. Delete it once it finishes.");
+  }
+  if (isBackupBeingCopied(id)) {
+    throw new BackupError(
+      "This backup is being copied off-box right now. Delete it once the copy finishes.",
+    );
+  }
   const filePath = backupFilePath(row.filename);
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -979,6 +1273,9 @@ export async function deleteBackup(id: string): Promise<boolean> {
     // best-effort; still remove the row so the UI doesn't orphan it
   }
   await repo.delete({ id });
+  // History's record of its off-box copies goes too. The copies themselves
+  // stay on the destinations until off-box retention removes them there.
+  await deleteCopiesOfBackups([id]);
   return true;
 }
 
@@ -1007,6 +1304,7 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     status: "running",
     errorMessage: "",
     completedAt: null,
+    copiesTracked: true,
   });
   await repo.save(row);
 
@@ -1015,8 +1313,9 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
   try {
     const contentLength = Number(req.headers["content-length"] ?? "0");
     if (contentLength && contentLength > MAX_UPLOAD_BYTES) {
-      throw new Error(
+      throw new BackupError(
         `Upload is ${(contentLength / (1024 * 1024)).toFixed(1)} MB, which exceeds the 2 GB limit.`,
+        413,
       );
     }
 
@@ -1024,7 +1323,7 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     req.on("data", (chunk: Buffer) => {
       received += chunk.length;
       if (received > MAX_UPLOAD_BYTES) {
-        req.destroy(new Error("Upload exceeded 2 GB limit"));
+        req.destroy(new BackupError("Upload exceeded the 2 GB limit.", 413));
       }
     });
 
@@ -1037,11 +1336,12 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     // something that was never a zip.
     const check = await checkArchive(partPath);
     if (check === "unreadable") {
-      throw new Error("Uploaded file is not a complete zip archive");
+      throw new BackupError("The uploaded file is not a complete zip archive.", 400);
     }
     if (check === "no-database") {
-      throw new Error(
-        "Uploaded archive does not contain the database (app.sqlite), so it cannot be restored from",
+      throw new BackupError(
+        "The uploaded archive does not contain the database (app.sqlite), so it can't be restored from.",
+        400,
       );
     }
 
@@ -1082,28 +1382,37 @@ export async function restoreFromBackup(id: string): Promise<{
   restored: Backup;
 }> {
   if (restoreInProgress) {
-    throw new Error("A restore is already running; wait for it to finish.");
+    throw new BackupError("A restore is already running. Wait for it to finish.");
   }
   if (runningBackup) {
-    throw new Error("A backup is currently running; try again in a moment.");
+    throw new BackupError("A backup is being taken right now. Restore once it finishes.");
+  }
+  // A copy reads its archive from Backup/ and records its progress in the
+  // database the restore is about to replace.
+  if (isDeliveryRunning()) {
+    throw new BackupError(
+      "A backup is being copied off-box right now. Restore once the copy finishes.",
+    );
   }
   // A prune already in flight has read its candidate list and could unlink the
   // archive we're about to extract. Refuse rather than race it — the flag we
   // set below only stops prunes that haven't started yet.
   if (runningPrune) {
-    throw new Error("Backup retention is currently running; try again in a moment.");
+    throw new BackupError("Old backups are being deleted right now. Try again in a moment.");
   }
   restoreInProgress = true;
   try {
     const repo = AppDataSource.getRepository(Backup);
     const target = await repo.findOneBy({ id });
-    if (!target) throw new Error("Backup not found");
+    if (!target) throw new BackupError("This backup no longer exists.", 404);
     if (target.status !== "completed") {
-      throw new Error("Can only restore from a completed backup");
+      throw new BackupError("Only a finished backup can be restored.");
     }
     const zipPath = backupFilePath(target.filename);
     if (!fs.existsSync(zipPath)) {
-      throw new Error("Backup archive is missing on disk");
+      throw new BackupError(
+        "This backup is no longer on this server. Copy it back into the backup folder, or upload it under Advanced, to restore it.",
+      );
     }
     // Open it before doing anything expensive or destructive. `status` and
     // `existsSync` only say a file is there, not that it can be extracted —
@@ -1111,12 +1420,12 @@ export async function restoreFromBackup(id: string): Promise<{
     // to replace.
     const check = await checkArchive(zipPath);
     if (check === "no-database") {
-      throw new Error(
-        "Backup archive does not contain the database (app.sqlite), so restoring it would leave this install empty",
+      throw new BackupError(
+        "This backup does not contain the database (app.sqlite), so restoring it would leave this install empty.",
       );
     }
     if (check !== "restorable") {
-      throw new Error("Backup archive is incomplete or corrupt and cannot be restored from");
+      throw new BackupError("This backup is incomplete or damaged and can't be restored from.");
     }
 
     // Pre-restore safety snapshot. Reuses runBackup so the resulting archive
@@ -1158,8 +1467,8 @@ export async function restoreFromBackup(id: string): Promise<{
     if (!(await isRestorableArchive(target.filename))) {
       await AppDataSource.initialize();
       bootMailSearchIndex();
-      throw new Error(
-        "Backup archive went missing or became unreadable before the restore started",
+      throw new BackupError(
+        "This backup went missing or became unreadable before the restore started. Nothing was changed.",
       );
     }
 
@@ -1244,8 +1553,8 @@ async function reconcileBackupHistory(): Promise<void> {
   // Sweep debris from a backup killed mid-write. The `.part` name is what kept
   // it from being mistaken for an archive; nothing can resume one, so it is
   // just dead bytes. (An install upgraded from before writeZip wrote atomically
-  // may still hold a truncated `.zip` under a real filename — the salvage loop
-  // below leaves those `running` rather than promoting them.)
+  // may still hold a truncated `.zip` under a real filename — the loop below
+  // fails its row rather than promoting it, and leaves the file for a person.)
   for (const entry of fs.readdirSync(dir)) {
     if (entry.endsWith(".zip")) fs.chmodSync(path.join(dir, entry), 0o600);
     if (!entry.endsWith(PART_SUFFIX)) continue;
@@ -1259,29 +1568,45 @@ async function reconcileBackupHistory(): Promise<void> {
   const existing = await repo.find();
   const byName = new Map(existing.map((r) => [r.filename, r]));
 
-  // Patch up rows that were captured mid-backup. The SQLite snapshot we
-  // ship inside each archive freezes the table while the row is still
-  // `running` with sizeBytes=0; after a restore, those rows would otherwise
-  // look perpetually in-flight. Promote them to completed and fill in the
-  // real file size so History matches what's actually on disk.
+  // Settle every row still marked `running`. Nothing is writing one: this runs
+  // at boot and after a restore, before anything can start a backup.
+  //
+  // A row captured mid-backup — what the SQLite snapshot inside each archive
+  // freezes, and what a restore brings back — has its archive right here: it
+  // is promoted to completed, with the real size, so History matches the disk.
+  // `completed` is a load-bearing claim, since it lets restoreFromBackup wipe
+  // `dataDir` for the archive, so only one that actually opens is promoted.
+  //
+  // Every other one belongs to a process that stopped part-way — a restart, an
+  // upgrade, the OOM killer — whose `.part` was swept just above. Those used to
+  // stay `running` for good, weeks-old rows History showed as still going; now
+  // each fails with the plain reason.
   const salvage: Backup[] = [];
+  const settledAt = new Date();
   for (const row of existing) {
     const abs = backupFilePath(row.filename);
-    if (!fs.existsSync(abs)) continue;
+    const onDisk = fs.existsSync(abs);
     let dirty = false;
-    if (row.status === "running") {
-      // Existing on disk is not the same as restorable, and `completed` is a
-      // load-bearing claim: it is what lets restoreFromBackup wipe `dataDir`
-      // for this archive. Only promote one we can actually open. A row left
-      // `running` is inert — prune skips it and restore refuses it — which is
-      // the right resting place for both crash debris and an archive we simply
-      // couldn't read right now.
-      if (!(await isRestorableArchive(row.filename))) continue;
-      row.status = "completed";
-      if (!row.completedAt) row.completedAt = new Date();
+    if (row.status === "running" && !isBackupInProgress(row.id)) {
+      if (onDisk && (await isRestorableArchive(row.filename))) {
+        row.status = "completed";
+        if (!row.completedAt) row.completedAt = settledAt;
+        // Whatever was copied off-box happened after this row was captured, so
+        // this database cannot know it: its copies are "not recorded" until
+        // daily verification looks for them.
+        row.copiesTracked = false;
+      } else {
+        row.status = "failed";
+        row.errorMessage = onDisk
+          ? INTERRUPTED_UNREADABLE_MESSAGE
+          : row.kind === "uploaded"
+            ? UPLOAD_INTERRUPTED_MESSAGE
+            : BACKUP_INTERRUPTED_MESSAGE;
+        if (!row.completedAt) row.completedAt = settledAt;
+      }
       dirty = true;
     }
-    if (row.sizeBytes === 0) {
+    if (onDisk && row.sizeBytes === 0 && row.status === "completed") {
       row.sizeBytes = fs.statSync(abs).size;
       dirty = true;
     }
@@ -1345,12 +1670,18 @@ export function serializeBackup(b: Backup) {
     kind: b.kind,
     status: b.status,
     errorMessage: b.errorMessage,
+    copiesTracked: b.copiesTracked,
     createdAt: b.createdAt,
     completedAt: b.completedAt,
   };
 }
 
-export function serializeSchedule(s: BackupSchedule) {
+/** The server's time zone, which the schedule's hour is in. */
+export function serverTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+export function serializeSchedule(s: BackupSchedule, now = new Date()) {
   return {
     enabled: s.enabled,
     frequency: s.frequency,
@@ -1358,6 +1689,10 @@ export function serializeSchedule(s: BackupSchedule) {
     dayOfWeek: s.dayOfWeek,
     dayOfMonth: s.dayOfMonth,
     cronExpr: cronExprForSchedule(s),
+    /** When the schedule next fires; null while it is off. */
+    nextRunAt: s.enabled ? nextScheduledFireTime(s, now) : null,
+    /** The hour above is this zone's, the server's own. */
+    timeZone: serverTimeZone(),
     lastRunAt: s.lastRunAt,
     retentionEnabled: s.retentionEnabled,
     retentionDays: s.retentionDays,

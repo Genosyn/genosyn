@@ -4,6 +4,7 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import SftpClient from "ssh2-sftp-client";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import {
   BackupDestination,
@@ -12,6 +13,16 @@ import {
 } from "../db/entities/BackupDestination.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { alertDeliveryFailed, alertDeliveryRecovered, alertDue } from "./backupAlerts.js";
+import {
+  deleteCopiesAtDestination,
+  markCopiesPending,
+  markCopiesRemoved,
+  markCopyCopied,
+  markCopyFailed,
+  markCopyStarted,
+  unqueueCopy,
+} from "./backupCopies.js";
+import { BackupError } from "./backupErrors.js";
 
 /**
  * Off-box delivery of backup archives to NAS / remote volumes.
@@ -61,6 +72,8 @@ type DestConfig = LocalConfig | SftpConfig | SmbConfig;
 /** A small file we write then remove to prove a destination is writable. */
 const PROBE_NAME = ".genosyn-write-test";
 const SFTP_READY_TIMEOUT_MS = 15_000;
+const SFTP_KEEPALIVE_INTERVAL_MS = 30_000;
+const SFTP_KEEPALIVE_COUNT_MAX = 4;
 const SMB_PROBE_TIMEOUT_MS = 30_000;
 /** Listing a destination, deleting archives there, or renaming a finished copy. */
 const SMB_HOUSEKEEPING_TIMEOUT_MS = 5 * 60_000;
@@ -154,6 +167,80 @@ export type DeliveryResult = {
   ok: boolean;
   error?: string;
 };
+
+/**
+ * What one connection test found. `message` is the destination's own reason
+ * when it failed. `stillFailing` marks a test that passed on a destination
+ * whose copies of real backups are still failing: a test file is tiny, and a
+ * share can take it and still time out on a 50 GB archive.
+ */
+export type DestinationTestResult = {
+  ok: boolean;
+  message: string;
+  stillFailing: boolean;
+  testedAt: string;
+};
+
+/** How a delivery is aimed and recorded. */
+export type DeliveryOptions = {
+  /** Record each copy's progress against this backup, as `BackupCopy` rows. */
+  backupId?: string | null;
+  /** Copy to these destinations only; otherwise to every enabled one. */
+  destinationIds?: string[] | null;
+  /**
+   * Copy to a paused destination too: Try again on that one copy is asked for
+   * by name. Otherwise a destination paused by its turn is skipped.
+   */
+  includePaused?: boolean;
+};
+
+/**
+ * What this process is copying right now. In memory, like the backup run it
+ * guards: built-in archives belong to the single-process self-hosted install.
+ * A restore waits for every copy to finish, a backup being copied is neither
+ * deleted nor pruned, and a destination being copied to isn't removed under
+ * the copy.
+ */
+const backupsBeingCopied = new Set<string>();
+const destinationsBeingCopied = new Set<string>();
+let deliveriesRunning = 0;
+
+/** Reserve `backupId` for one delivery; false while another is copying it. */
+export function claimBackupCopy(backupId: string): boolean {
+  if (backupsBeingCopied.has(backupId)) return false;
+  backupsBeingCopied.add(backupId);
+  return true;
+}
+
+export function releaseBackupCopy(backupId: string): void {
+  backupsBeingCopied.delete(backupId);
+}
+
+export function isBackupBeingCopied(backupId: string): boolean {
+  return backupsBeingCopied.has(backupId);
+}
+
+/** Whether any copy to any destination is running in this process. */
+export function isDeliveryRunning(): boolean {
+  return deliveriesRunning > 0 || backupsBeingCopied.size > 0;
+}
+
+/**
+ * A test's hold on each copy to a destination, and each connection test of
+ * one, just before it starts; always null in production.
+ */
+let destinationGateForTests: ((destination: BackupDestination) => Promise<void>) | null = null;
+
+/**
+ * Hold every copy and connection test until `gate` settles, so a test can see
+ * one waiting its turn or under way; a rejection fails it with that error.
+ * Null lets them through again.
+ */
+export function setDestinationGateForTests(
+  gate: ((destination: BackupDestination) => Promise<void>) | null,
+): void {
+  destinationGateForTests = gate;
+}
 
 function decodeConfig(row: BackupDestination): DestConfig | null {
   try {
@@ -272,30 +359,52 @@ export async function updateDestination(
   return repo.save(row);
 }
 
+/**
+ * Remove a destination and History's record of the copies on it. The archives
+ * already there stay on the destination: Genosyn just stops copying to it and
+ * tracking them. Refused while a copy to it is running, which would otherwise
+ * finish by recording itself against a destination that no longer exists.
+ */
 export async function deleteDestination(id: string): Promise<boolean> {
   const repo = AppDataSource.getRepository(BackupDestination);
   const row = await repo.findOneBy({ id });
   if (!row) return false;
+  if (destinationsBeingCopied.has(id)) {
+    throw new BackupError(
+      `A backup is being copied to ${row.name} right now. Remove it once that copy finishes.`,
+    );
+  }
   await repo.delete({ id });
+  await deleteCopiesAtDestination(id);
   return true;
 }
+
+/** What a passing test says, in plain words. */
+export const TEST_PASSED_MESSAGE = "Connected. Genosyn can write backups here.";
+export const TEST_PASSED_STILL_FAILING_MESSAGE =
+  "Connected, and a test file got through, but copies of real backups here are still failing. Copy the latest backup here to confirm it's fixed.";
 
 /**
  * Probe a destination without shipping a real archive: ensure the target
  * directory exists and is writable by creating and deleting a tiny marker
- * file. Records the outcome on the row so History reflects the last
- * connection test, except that a passing probe leaves a run of failed
- * deliveries standing.
+ * file. Records the outcome on the row, except that a passing probe leaves a
+ * run of failed deliveries standing — and says so, rather than reading as
+ * though the destination were fixed.
  */
-export async function testDestination(id: string): Promise<{ ok: boolean; message: string }> {
+export async function testDestination(id: string): Promise<DestinationTestResult | null> {
   const repo = AppDataSource.getRepository(BackupDestination);
   const row = await repo.findOneBy({ id });
-  if (!row) return { ok: false, message: "Destination not found" };
+  if (!row) return null;
   const cfg = decodeConfig(row);
   let ok = false;
   let message = "";
   try {
-    if (!cfg) throw new Error("Stored configuration could not be decrypted");
+    if (destinationGateForTests) await destinationGateForTests(row);
+    if (!cfg) {
+      throw new Error(
+        "Its saved settings can't be read (was the encryption key changed?). Edit it and enter its password again.",
+      );
+    }
     if (row.kind === "local") {
       await probeLocal(cfg as LocalConfig);
     } else if (row.kind === "smb") {
@@ -304,23 +413,25 @@ export async function testDestination(id: string): Promise<{ ok: boolean; messag
       await probeSftp(cfg as SftpConfig);
     }
     ok = true;
-    message = "Destination is reachable and writable.";
   } catch (err) {
     ok = false;
-    message = (err as Error).message ?? String(err);
+    message =
+      ((err as Error)?.message ?? String(err)).trim() || "The test failed without a reason.";
   }
-  row.lastCheckedAt = new Date();
+  const testedAt = new Date();
   // The probe proves a small file gets through, not a whole archive: a share
   // can take it and still time out on a 50 GB copy. While deliveries are
   // failing, their error stays the destination's status until one succeeds.
-  if (ok && row.failingSince) {
-    message = `${message} Backups copied here are still failing, though — send one to confirm it's fixed.`;
-  } else {
-    row.lastStatus = ok ? "ok" : "error";
-    row.lastError = ok ? "" : message;
-  }
-  await repo.save(row);
-  return { ok, message };
+  const stillFailing = ok && row.failingSince !== null;
+  if (ok) message = stillFailing ? TEST_PASSED_STILL_FAILING_MESSAGE : TEST_PASSED_MESSAGE;
+  // Only the columns a test owns: an edit saved while it ran must survive it.
+  await repo.update(
+    { id: row.id },
+    stillFailing
+      ? { lastCheckedAt: testedAt }
+      : { lastCheckedAt: testedAt, lastStatus: ok ? "ok" : "error", lastError: ok ? "" : message },
+  );
+  return { ok, message, stillFailing, testedAt: testedAt.toISOString() };
 }
 
 async function probeLocal(cfg: LocalConfig): Promise<void> {
@@ -346,40 +457,78 @@ async function probeSftp(cfg: SftpConfig): Promise<void> {
 }
 
 /**
- * Copy a completed archive to every enabled destination. Best-effort: a
- * failure to reach one destination is recorded on that row and returned in the
- * result list, but never throws — the local backup already succeeded. With an
- * off-box `retention` policy, each destination the copy reaches then drops
- * the archives the policy has expired there.
+ * Copy a completed archive to every enabled destination, one at a time, or to
+ * the ones `options.destinationIds` names. Best-effort: a failure to reach one
+ * destination is recorded on that row and returned in the result list, but
+ * never throws — the local backup already succeeded. With an off-box
+ * `retention` policy, each destination the copy reaches then drops the
+ * archives the policy has expired there. Given a `backupId`, each copy's
+ * progress is recorded against that backup, so History can say where it is.
  */
 export async function deliverBackupToDestinations(
   filename: string,
   absPath: string,
   retention: OffBoxRetention | null = null,
+  options: DeliveryOptions = {},
 ): Promise<DeliveryResult[]> {
   const repo = AppDataSource.getRepository(BackupDestination);
-  const rows = await repo.find({ where: { enabled: true } });
-  const results: DeliveryResult[] = [];
-  for (const row of rows) {
-    results.push(await deliverOne(row, filename, absPath, retention));
+  const backupId = options.backupId ?? null;
+  deliveriesRunning += 1;
+  try {
+    const queued = options.destinationIds
+      ? await repo.find({ where: { id: In(options.destinationIds) }, order: { createdAt: "ASC" } })
+      : await repo.find({ where: { enabled: true }, order: { createdAt: "ASC" } });
+    if (backupId) {
+      await recordCopy("queue", () =>
+        markCopiesPending(
+          backupId,
+          queued.map((row) => row.id),
+        ),
+      );
+    }
+    const results: DeliveryResult[] = [];
+    for (const { id } of queued) {
+      // Read again when its turn comes: the copy before may have taken hours,
+      // and a destination removed — or, unless it was asked for by name,
+      // paused — in the meantime is not copied to. Fresh credentials are used.
+      const row = await repo.findOneBy({ id });
+      if (!row || (!row.enabled && !options.includePaused)) {
+        if (backupId) await recordCopy("skip", () => unqueueCopy(backupId, id));
+        continue;
+      }
+      destinationsBeingCopied.add(id);
+      try {
+        if (backupId) await recordCopy("start", () => markCopyStarted(backupId, id));
+        const result = await deliverOne(row, filename, absPath, retention);
+        if (backupId) {
+          await recordCopy("finish", () =>
+            result.ok
+              ? markCopyCopied(backupId, id)
+              : markCopyFailed(backupId, id, result.error ?? ""),
+          );
+        }
+        results.push(result);
+      } finally {
+        destinationsBeingCopied.delete(id);
+      }
+    }
+    return results;
+  } finally {
+    deliveriesRunning -= 1;
   }
-  return results;
 }
 
 /**
- * Push one specific archive to every enabled destination on demand (the
- * "Send to destinations" action in History). Throws if the source file is
- * gone; per-destination failures come back inside the result list.
+ * Bookkeeping for History, best-effort like the rest of a delivery's: a copy
+ * that arrived must not be reported as failed because its row would not save.
  */
-export async function deliverArchive(
-  filename: string,
-  absPath: string,
-  retention: OffBoxRetention | null = null,
-): Promise<DeliveryResult[]> {
-  if (!fs.existsSync(absPath)) {
-    throw new Error("Backup archive is missing on disk");
+async function recordCopy(step: string, write: () => Promise<unknown>): Promise<void> {
+  try {
+    await write();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[backups] could not record a copy (${step}):`, (err as Error)?.message ?? err);
   }
-  return deliverBackupToDestinations(filename, absPath, retention);
 }
 
 /**
@@ -395,12 +544,18 @@ async function deliverOne(
   absPath: string,
   retention: OffBoxRetention | null,
 ): Promise<DeliveryResult> {
-  const repo = AppDataSource.getRepository(BackupDestination);
   const cfg = decodeConfig(row);
   const attemptedAt = new Date();
   try {
-    if (!cfg) throw new Error("Stored configuration could not be decrypted");
-    if (!fs.existsSync(absPath)) throw new Error("Source archive missing");
+    if (destinationGateForTests) await destinationGateForTests(row);
+    if (!cfg) {
+      throw new Error(
+        "Its saved settings can't be read (was the encryption key changed?). Edit it and enter its password again.",
+      );
+    }
+    if (!fs.existsSync(absPath)) {
+      throw new Error("This backup is no longer on this server, so there was nothing to copy.");
+    }
     if (row.kind === "local") {
       await copyLocal(cfg as LocalConfig, filename, absPath);
     } else if (row.kind === "smb") {
@@ -408,37 +563,52 @@ async function deliverOne(
     } else {
       await copySftp(cfg as SftpConfig, filename, absPath);
     }
-    const failedFor = row.failingSince;
-    const adminsWereTold = row.lastAlertedAt !== null;
-    row.lastStatus = "ok";
-    row.lastError = "";
-    row.lastSyncedAt = new Date();
-    row.lastAttemptAt = attemptedAt;
-    row.failingSince = null;
-    row.lastAlertedAt = null;
-    await repo.save(row);
-    if (failedFor && adminsWereTold) await alertDeliveryRecovered(row, failedFor);
-    if (retention) await applyOffBoxRetention(row, cfg, filename, retention);
-    return { destinationId: row.id, destinationName: row.name, ok: true };
   } catch (err) {
-    const message = (err as Error).message ?? String(err);
+    const message = ((err as Error)?.message ?? String(err)).trim() || "The copy failed";
     row.lastStatus = "error";
     row.lastError = message;
     row.lastAttemptAt = attemptedAt;
     row.failingSince = row.failingSince ?? attemptedAt;
     const alert = alertDue(row.lastAlertedAt, attemptedAt);
     if (alert) row.lastAlertedAt = attemptedAt;
-    await repo.save(row);
+    await saveDeliveryState(row);
     // eslint-disable-next-line no-console
     console.error(`[backups] delivery to "${row.name}" failed:`, message);
     if (alert) await alertDeliveryFailed(row, filename);
-    return {
-      destinationId: row.id,
-      destinationName: row.name,
-      ok: false,
-      error: message,
-    };
+    return { destinationId: row.id, destinationName: row.name, ok: false, error: message };
   }
+  const failedFor = row.failingSince;
+  const adminsWereTold = row.lastAlertedAt !== null;
+  row.lastStatus = "ok";
+  row.lastError = "";
+  row.lastSyncedAt = new Date();
+  row.lastAttemptAt = attemptedAt;
+  row.failingSince = null;
+  row.lastAlertedAt = null;
+  await saveDeliveryState(row);
+  if (failedFor && adminsWereTold) await alertDeliveryRecovered(row, failedFor);
+  if (retention) await applyOffBoxRetention(row, cfg, filename, retention);
+  return { destinationId: row.id, destinationName: row.name, ok: true };
+}
+
+/**
+ * Only the columns a delivery owns. The row was read before a copy that can
+ * run for hours: saving all of it would undo a pause, a rename or new
+ * credentials saved meanwhile — and an update, unlike a save, can never bring
+ * back a destination removed in the meantime.
+ */
+async function saveDeliveryState(dest: BackupDestination): Promise<void> {
+  await AppDataSource.getRepository(BackupDestination).update(
+    { id: dest.id },
+    {
+      lastStatus: dest.lastStatus,
+      lastError: dest.lastError,
+      lastSyncedAt: dest.lastSyncedAt,
+      lastAttemptAt: dest.lastAttemptAt,
+      failingSince: dest.failingSince,
+      lastAlertedAt: dest.lastAlertedAt,
+    },
+  );
 }
 
 /**
@@ -459,6 +629,10 @@ async function applyOffBoxRetention(
     const expired = expiredArchives(names, cutoff, keep);
     if (expired.length === 0) return;
     await deleteArchives(row.kind, cfg, expired);
+    await markCopiesRemoved(
+      row.id,
+      expired.filter((name) => !name.endsWith(PARTIAL_SUFFIX)),
+    );
     // eslint-disable-next-line no-console
     console.log(
       `[backups] retention removed ${expired.length} archive(s) older than ${retention.days} day(s) from "${row.name}"`,
@@ -605,6 +779,11 @@ function sftpConnectOptions(cfg: SftpConfig): SftpClient.ConnectOptions {
     port: cfg.port || 22,
     username: cfg.username,
     readyTimeout: SFTP_READY_TIMEOUT_MS,
+    // A link that dies mid-copy sends no error: without these, the copy — and
+    // the backup run waiting on it — would hang for good. Any answer resets the
+    // count, so only a server silent for two minutes is given up on.
+    keepaliveInterval: SFTP_KEEPALIVE_INTERVAL_MS,
+    keepaliveCountMax: SFTP_KEEPALIVE_COUNT_MAX,
   };
   if (cfg.authMode === "key" && cfg.privateKey) {
     opts.privateKey = cfg.privateKey;
