@@ -6,6 +6,7 @@ import type { RequestHandler } from "express";
 import { indefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
   onRoutePaths,
+  requireApiKeyAuth,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
@@ -112,6 +113,59 @@ describe("who may call a route", () => {
     // requireBrowserSession without requireAuth cannot authenticate anyone;
     // the classification follows requireAuth.
     assert.equal(accessOf(route([requireBrowserSession])).authenticated, false);
+  });
+});
+
+describe("routes that take an API key and nothing else", () => {
+  test("requireApiKeyAuth authenticates, takes a key, and never a session", () => {
+    const access = accessOf(route([requireApiKeyAuth, requireCompanyMember]));
+    assert.equal(access.authenticated, true);
+    assert.equal(access.apiKey, true);
+    assert.equal(access.apiKeyOnly, true);
+    assert.equal(access.sessionOnly, undefined);
+    assert.equal(access.companyMember, true);
+    assert.deepEqual(securityFor(access), [{ bearerAuth: [] }]);
+    assert.deepEqual(accessExtension(access), { apiKey: true, browserSession: false });
+  });
+
+  test("its paragraph says a cookie alone is refused", () => {
+    const text = accessDescription(accessOf(route([requireApiKeyAuth])), COMPANY);
+    assert.match(text, /Needs an API key for this company/);
+    assert.match(text, /a cookie alone is refused with 401/);
+    for (const [, article, word] of text.matchAll(/\b(a|an)\s+([A-Za-z]+)/gi)) {
+      assert.equal(article.toLowerCase(), indefiniteArticle(word), `"${article} ${word}"`);
+    }
+  });
+
+  test("role and Finance gates still apply on top", () => {
+    const access = accessOf(
+      route([
+        requireApiKeyAuth,
+        requireCompanyMember,
+        requireCompanyRole("admin"),
+        requireFinanceRead,
+      ]),
+    );
+    assert.equal(access.apiKeyOnly, true);
+    assert.equal(access.minimumRole, "admin");
+    assert.equal(access.financeAccess, "read");
+    assert.deepEqual(accessExtension(access), {
+      apiKey: true,
+      browserSession: false,
+      minimumRole: "admin",
+      financeAccess: "read",
+    });
+  });
+
+  test("outside a company path no key is recognized, so it is not key-only either", () => {
+    const access = accessOf(route([requireApiKeyAuth], { path: "/api/auth/me" }));
+    assert.equal(access.sessionOnly, "accountLevel");
+    assert.equal(access.apiKey, false);
+    assert.equal(access.apiKeyOnly, undefined);
+  });
+
+  test("a plain requireAuth route is never marked key-only", () => {
+    assert.equal(accessOf(route([requireAuth])).apiKeyOnly, undefined);
   });
 });
 

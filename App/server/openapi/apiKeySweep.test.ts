@@ -185,7 +185,10 @@ describe("every documented operation answers credentials the way the reference s
   test("a browser session passes authentication wherever a key cannot, and elsewhere too", async () => {
     // Every browser-only operation — the ones a session is the sole way into —
     // plus every tenth of the rest, which share their guards with the others.
-    const authenticated = operations.filter((operation) => operation.access.authenticated);
+    // Operations that take an API key and nothing else are checked below.
+    const authenticated = operations.filter(
+      (operation) => operation.access.authenticated && !operation.access.apiKeyOnly,
+    );
     const selected = authenticated.filter(
       (operation, index) => !operation.access.apiKey || index % 10 === 0,
     );
@@ -197,6 +200,21 @@ describe("every documented operation answers credentials the way the reference s
           `${describeOperation(operation)} refused the session (${result.status} ${result.text})`,
       );
     assert.deepEqual(refusals, []);
+  });
+
+  test("operations that take only an API key refuse a browser session", async () => {
+    const keyOnly = operations.filter((operation) => operation.access.apiKeyOnly);
+    // The Genosyn MCP server's POST, GET and DELETE, at least.
+    assert.ok(keyOnly.length >= 3, `only ${keyOnly.length} key-only operations`);
+    for (const { operation, result } of await sweep(keyOnly, { cookie })) {
+      assert.equal(result.status, 401, `${describeOperation(operation)} accepted a session`);
+      assert.equal(result.reached, false, describeOperation(operation));
+    }
+    // And the key itself passes, as the sweep above already proved for all of them.
+    for (const { operation, result } of withKey) {
+      if (!operation.access.apiKeyOnly) continue;
+      assert.equal(result.reached, true, `${describeOperation(operation)} → ${result.status}`);
+    }
   });
 
   test("session-only operations name the browser in their refusal", () => {

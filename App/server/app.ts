@@ -35,6 +35,7 @@ import { decisionsRouter } from "./routes/decisions.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { mcpConnectRouter } from "./routes/mcpConnect.js";
+import { companyMcpRouter } from "./routes/companyMcp.js";
 import { mcpInternalRouter } from "./routes/mcpInternal.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { vaultRouter } from "./routes/vault.js";
@@ -156,6 +157,12 @@ export function createApp(): express.Express {
   // cookie or Origin, and its signature (keyed by the number's Connection) is
   // the only credential, checked by the router itself.
   app.use(PHONE_WEBHOOK_MOUNT, phoneWebhooksRouter);
+  // The Genosyn MCP server — every API-key operation, for any MCP client.
+  // Mounted before the JSON parser and the session on purpose: an API key is
+  // its only credential, so it never reads the session cookie, and it parses
+  // its JSON-RPC body (larger than 1 MB, to carry a file) only after the key
+  // checks out. Each tool call goes back through this same app with that key.
+  app.use("/api/companies/:cid/mcp", companyMcpRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
