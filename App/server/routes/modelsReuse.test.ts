@@ -14,8 +14,15 @@ import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
+import { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
+import {
+  decryptApiKeys,
+  newStoredApiKey,
+  readApiKeys,
+  writeApiKeys,
+} from "../services/modelApiKeys.js";
 import { listReusableModels, reuseModelForEmployee } from "../services/modelReuse.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
@@ -349,6 +356,49 @@ describe("reusing an AI Model", () => {
     assert.equal(untouched.isActive, true);
     assert.equal(untouched.employeeId, source.id);
     assert.equal(untouched.configJson, original.configJson);
+  });
+
+  test("an API-key model's backup keys come along, in order; their health starts fresh", async () => {
+    const keys = [SOURCE_KEY, OTHER_KEY, "sk-third-backup-private-key-55555"];
+    const original = await apiKeyModel(source, {
+      configJson: writeApiKeys(
+        "{}",
+        keys.map((key) => newStoredApiKey(key, company.id)),
+      ),
+    });
+    const [, firstBackup] = readApiKeys(original.configJson);
+    await insert(AIModelKeyHealth, {
+      modelId: original.id,
+      keyId: firstBackup.id,
+      lastErrorAt: new Date(),
+      lastErrorStatus: 401,
+      lastErrorKind: "auth",
+    });
+
+    const response = await reuse(original.id);
+
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assertNoSecrets(response.body);
+    const shown = response.body.apiKeys as Array<{ preview: string; lastErrorAt: string | null }>;
+    assert.deepEqual(
+      shown.map((key) => key.preview),
+      keys.map((key) => maskSecret(key)),
+    );
+    assert.ok(
+      shown.every((key) => key.lastErrorAt === null),
+      "the copy has no history yet",
+    );
+    const copy = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      id: String(response.body.id),
+    });
+    assert.deepEqual(
+      decryptApiKeys(copy.configJson).map((key) => key.apiKey),
+      keys,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(AIModelKeyHealth).countBy({ modelId: copy.id }),
+      0,
+    );
   });
 
   test("a custom endpoint keeps its URL, key, hand-set context window and Run limit", async () => {

@@ -174,7 +174,8 @@ jobs:
 
   onboarding-browser-test:
     name: Onboarding browser regressions
-    timeout-minutes: 15
+    # One more fixture build for the backup API keys suite; keep the headroom.
+    timeout-minutes: 18
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -202,6 +203,8 @@ jobs:
         run: npm run test:onboarding
       - name: Test model discovery and verified connection forms
         run: npm run test:model-setup
+      - name: Test adding, ordering, and removing an AI Model's backup API keys
+        run: npm run test:model-api-keys
       - name: Test Gmail OAuth-only setup
         run: npm run test:mail-connect
       - name: Test hosted Gmail connection dialogs

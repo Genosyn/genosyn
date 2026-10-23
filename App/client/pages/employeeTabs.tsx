@@ -1,7 +1,9 @@
 import { AdvancedDisclosure } from "@/components/models/AdvancedDisclosure";
+import { ApiKeysPanel } from "@/components/models/ApiKeysPanel";
 import { FirstModelSetup } from "@/components/models/FirstModelSetup";
 import { ModelSetupForm as ModelForm } from "@/components/models/ModelSetupForm";
 import { activeFirst, advancedSummary, describeModel } from "@/lib/modelSummary";
+import { apiKeyConnectionLine, holdsApiKeys } from "@/lib/modelApiKeys";
 import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
@@ -1472,7 +1474,7 @@ function modelSubtitle(model: AIModel): string {
         ? "Connected with a Business or Enterprise access token"
         : "Connected to a ChatGPT subscription";
     }
-    return "Connected with an API key";
+    return apiKeyConnectionLine(model.apiKeys?.length ?? 1);
   }
   if (model.authMode === "customEndpoint") {
     return "Enter the server's base URL and model id below to connect.";
@@ -1578,10 +1580,11 @@ function ModelCard({
 }
 
 /**
- * The one Advanced disclosure under the model cards: each model's context
- * window, Run limit, endpoint or sign-in and way to change or remove it, and
- * Add model. Closed unless opened; its closed line names whatever has been moved
- * off its default (see `advancedSummary`).
+ * The one Advanced disclosure under the model cards: each model's API keys,
+ * context window, Run limit, endpoint or sign-in and way to change or remove
+ * it, and Add model. Closed unless opened; its closed line names whatever has
+ * been moved off its default, and any key the provider is refusing (see
+ * `advancedSummary`).
  */
 function ModelAdvanced({
   company,
@@ -1598,7 +1601,7 @@ function ModelAdvanced({
   return (
     <AdvancedDisclosure
       summary={advancedSummary(models)}
-      hint="Context window, concurrent Runs, add or remove models"
+      hint="API keys, context window, concurrent Runs, add or remove models"
     >
       {models.map((m) => (
         <ModelSettings
@@ -1695,6 +1698,9 @@ function ModelSettings({
           </div>
           <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         </div>
+      )}
+      {connected && holdsApiKeys(model) && (
+        <ApiKeysPanel company={company} emp={emp} model={model} onChanged={onChanged} />
       )}
       {tunable && (
         <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />

@@ -23,9 +23,10 @@ export function Models() {
           <>
             Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
-            an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
-            subscription access for OpenAI. A new hire can use the AI Model the company already
-            has connected, so a key is pasted once. OpenCode runs API-key and custom models, with
+            an API key — plus as many <a href="#backup-keys">backup keys</a> as you like — point
+            at your own OpenAI-compatible endpoint, or use eligible ChatGPT subscription access for
+            OpenAI. A new hire can use the AI Model the company already has connected, so a key is
+            pasted once. OpenCode runs API-key and custom models, with
             host coding access enabled by default. Switch the active model any time without losing
             the others&apos; credentials.
           </>
@@ -87,7 +88,8 @@ export function Models() {
       </UL>
       <P>
         Genosyn copies the encrypted credential on the server; it never reaches your browser, so
-        there is no key to paste or reveal. The copy belongs to the new employee. Removing it, or
+        there is no key to paste or reveal. Its backup keys come along in the same order. The copy
+        belongs to the new employee. Removing it, or
         firing either employee, does not touch the other, and each can later move to a different
         model on their own. What they share is the account the provider bills, so usage lands on
         the same bill. Rotate the key at the provider to change it for everyone who holds a copy.
@@ -108,6 +110,10 @@ export function Models() {
       </P>
       <UL>
         <LI>
+          <Strong>API keys</Strong> for a Claude or OpenAI model connected with a key: the primary
+          and its <a href="#backup-keys">backup keys</a>, each with how it has been doing.
+        </LI>
+        <LI>
           <Strong>Context window</Strong> and <Strong>Concurrent Routine Runs</Strong>, described
           below.
         </LI>
@@ -123,10 +129,58 @@ export function Models() {
       <P>
         The closed line names whatever has been moved off its default, so nothing you set is
         hidden by being folded away: for example{" "}
-        <Strong>Context window set manually · 2 concurrent Runs</Strong>, or{" "}
-        <Strong>1 other AI Model</Strong> when the employee holds more than one. A custom endpoint
-        whose server did not report a context window reads <Strong>Context window unknown</Strong>.
-        With nothing changed it lists what is inside.
+        <Strong>2 backup API keys · Context window set manually · 2 concurrent Runs</Strong>, or{" "}
+        <Strong>1 other AI Model</Strong> when the employee holds more than one. A key the provider
+        is refusing adds <Strong>1 API key failing</Strong>. A custom endpoint whose server did not
+        report a context window reads <Strong>Context window unknown</Strong>. With nothing
+        changed it lists what is inside.
+      </P>
+
+      <H2 id="backup-keys">Backup API keys</H2>
+      <P>
+        A Claude (Anthropic) or OpenAI model connected with an API key can hold any number of
+        backup keys — another account&apos;s key for when this one runs out of credit, say, or a
+        second key for when the first is rate-limited. Open <Strong>Advanced</Strong> on the model
+        card; <Strong>API keys</Strong> lists the primary first, then each backup:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Add a backup key</Strong>, then <Strong>Add backup key</Strong>. Genosyn tests a
+          real reply with that key on its own before adding it, the same test a new model gets, so
+          a key that fails is never saved. There is no limit on how many you add.
+        </LI>
+        <LI>
+          The arrows move a key up or down; the key at the top is the primary. The bin removes a
+          key after you confirm, and the next key moves up. The only key can&apos;t be removed —
+          remove the model instead.
+        </LI>
+        <LI>
+          To replace the primary, use <Strong>Replace primary API key</Strong> under{" "}
+          <Strong>Change provider, model, or endpoint</Strong>. The backups stay; switching to
+          another service drops them, since another service&apos;s keys would not work.
+        </LI>
+      </UL>
+      <P>
+        Requests use the first key. When the provider refuses it — invalid or revoked (HTTP 401),
+        not allowed (403), out of credit or a billing problem (402, or a 400 that says the credit
+        balance is too low), rate-limited or out of quota (429) — Genosyn sends the very same
+        request again on the next key before any of the reply reaches the AI Employee, so its
+        work carries on without noticing. A refused key is then skipped for five minutes, or for
+        as long as a rate limit asks (a minute when it doesn&apos;t say), though it is still tried
+        last when every other key is refused. Anything else — a malformed or over-long request,
+        an unknown model, the provider failing or overloaded, no answer at all — is not about the
+        key, so it goes back unchanged, and OpenCode retries the temporary ones itself. When every
+        key is refused, the chat or Run reports the provider&apos;s own error: the last key&apos;s,
+        or an earlier key&apos;s rate limit, which can still succeed once the limit resets. The
+        Run log notes each switch, by preview.
+      </P>
+      <P>
+        Each key shows only a preview such as <Code>sk-…c123</Code>, with when it was last used,
+        when the provider last refused it and why, and <Strong>Skipped for now</Strong> while it
+        rests — so a dead key is easy to spot. Every key is encrypted at rest like the primary.
+        Owners and admins add, order and remove keys; other Members only see the list. Each change
+        is in the <DocLink to="/docs/security#audit-log">audit log</DocLink>. Custom endpoints and
+        ChatGPT sign-in don&apos;t take backup keys.
       </P>
 
       <H2 id="supported-providers">Provider kinds</H2>
@@ -298,9 +352,10 @@ export function Models() {
       </P>
 
       <Callout kind="info" title="Encrypted at rest, ephemeral when materialized.">
-        API keys, endpoints, and OpenAI subscription credentials are AES-256-GCM encrypted in the
-        database. Genosyn keeps the selected model&apos;s API key and gives OpenCode a temporary
-        token for its model-request proxy. Managed Codex authentication requires file-backed state,
+        API keys (backup keys included), endpoints, and OpenAI subscription credentials are
+        AES-256-GCM encrypted in the database. Genosyn keeps the selected model&apos;s API keys and
+        gives OpenCode a temporary token for its model-request proxy. Managed Codex authentication
+        requires file-backed state,
         so a subscription login or Run gets a new locked temporary <Code>CODEX_HOME</Code>; Genosyn
         materializes the credential there, never in the employee workspace, and removes the
         directory afterward. The app-server itself gets a separate empty scratch directory. This is
@@ -437,8 +492,10 @@ export function Models() {
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
-        OpenCode manages temporary model-service retries for API-key and custom models. The Codex
-        app-server manages subscription retries. Genosyn keeps the same Run while the runtime
+        OpenCode manages temporary model-service retries for API-key and custom models; a key the
+        provider refuses first moves the request to the model&apos;s{" "}
+        <a href="#backup-keys">backup keys</a>. The Codex app-server manages subscription retries.
+        Genosyn keeps the same Run while the runtime
         retries; cancelling work or reaching the Run deadline stops it. If the runtime cannot
         complete a model request, the Run ends with <Strong>Error</Strong>. Retry timing and context
         compaction belong to the selected runtime rather than a second Genosyn model loop.

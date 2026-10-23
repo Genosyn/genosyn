@@ -36,7 +36,9 @@ import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
+import { refusalWords } from "./agent/apiKeyRing.js";
 import type {
+  ApiKeyFailover,
   CompactionInfo,
   ModelOutage,
   ToolDeferralInfo,
@@ -1125,6 +1127,7 @@ async function prepareRoutineRun(
               onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
               onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
               onServedModelChange: (change) => log.line(`\n${servedModelLine(change)}`),
+              onApiKeyFailover: (change) => log.line(`\n${apiKeyFailoverLine(change)}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
@@ -1883,6 +1886,7 @@ async function runCheckPhase(args: {
           },
           onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
           onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
+          onApiKeyFailover: (change) => log.line(`\n${apiKeyFailoverLine(change)}`),
         },
       });
       if (
@@ -2141,6 +2145,14 @@ export function routineDeliveryMessage(
 /** The log line for a self-hosted server that now serves a different model. */
 export function servedModelLine(change: { from: string; to: string }): string {
   return `[model] The AI Model's server now serves only ${change.to}, not ${change.from}; this AI Model uses ${change.to} from now on.`;
+}
+
+/**
+ * The log line for a provider refusing one of the AI Model's API keys and the
+ * request moving on to the next — previews only, never a key.
+ */
+export function apiKeyFailoverLine(change: ApiKeyFailover): string {
+  return `[model] The provider refused API key ${change.from} (${refusalWords(change.kind)}, HTTP ${change.status}); the request moved to the next key, ${change.to}. See the API keys under this AI Model's Advanced settings.`;
 }
 
 /** The log line for a self-hosted AI Model's server stopping and answering again. */

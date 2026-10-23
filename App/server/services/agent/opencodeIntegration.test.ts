@@ -11,6 +11,7 @@ import type { AIModel } from "../../db/entities/AIModel.js";
 import type { AgentMessage, AgentTool, ModelOutage } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
+import { ApiKeyRing, type ApiKeyFailover } from "./apiKeyRing.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
 import {
@@ -84,6 +85,8 @@ async function fakeProvider(
   script: (
     request: Record<string, unknown>,
     index: number,
+    /** The key the request was sent with. */
+    auth: string | undefined,
   ) =>
     | string
     | ToolCall
@@ -109,7 +112,7 @@ async function fakeProvider(
         .end(JSON.stringify({ error: { message: "Fixture exceeded request count" } }));
       return;
     }
-    const result = script(body, requests.length - 1);
+    const result = script(body, requests.length - 1, requests.at(-1)?.auth);
     if (typeof result === "object" && "reject" in result) {
       res
         .writeHead(result.reject.status, { "Content-Type": "application/json" })
@@ -853,6 +856,104 @@ test(
         },
       );
       assert.equal(fixture.requests.length, 1, "a refused request is not retried");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+const DEAD_PRIMARY = "sk-ant-api03-dead-primary-key-0000001";
+const LIVE_BACKUP = "sk-ant-api03-live-backup-key-00000002";
+
+function backupKeyModel(baseURL: string, modelId = "backup-key-model"): OpenCodeModel {
+  return {
+    ...claudeFixtureModel(baseURL),
+    apiKey: DEAD_PRIMARY,
+    keys: new ApiKeyRing(modelId, [
+      { id: "primary", apiKey: DEAD_PRIMARY, preview: "sk-…0001" },
+      { id: "backup", apiKey: LIVE_BACKUP, preview: "sk-…0002" },
+    ]),
+  };
+}
+
+test(
+  "pinned OpenCode finishes a Claude turn on a backup key when the primary is refused",
+  { timeout: 180_000 },
+  async () => {
+    const failovers: ApiKeyFailover[] = [];
+    const calls: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((_body, index, auth) => {
+      if (auth === DEAD_PRIMARY)
+        return {
+          reject: {
+            status: 401,
+            body: {
+              type: "error",
+              error: { type: "authentication_error", message: "invalid x-api-key" },
+            },
+          },
+        };
+      return index <= 1 ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } } : "OK";
+    });
+    try {
+      const result = await realTurn(
+        backupKeyModel(fixture.baseURL),
+        [echoTool(calls)],
+        {},
+        undefined,
+        { onKeyFailover: (change) => failovers.push(change) },
+      );
+      // The AI Employee's turn ran as if nothing happened: tool call, reply.
+      assert.equal(result.finalText, "OK");
+      assert.deepEqual(calls, [{ value: "actual tool" }]);
+      // First request refused on the primary and resent on the backup; the
+      // primary then rests, so the next step goes straight to the backup.
+      assert.deepEqual(
+        fixture.requests.map((request) => request.auth),
+        [DEAD_PRIMARY, LIVE_BACKUP, LIVE_BACKUP],
+      );
+      assert.deepEqual(fixture.requests[0].body, fixture.requests[1].body);
+      assert.deepEqual(failovers, [
+        { from: "sk-…0001", to: "sk-…0002", status: 401, kind: "auth" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode reports the provider's refusal, without any key, when every key is refused",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider((_body, _index, auth) => ({
+      reject: {
+        status: 401,
+        body: {
+          type: "error",
+          error: { type: "authentication_error", message: `invalid x-api-key: ${auth}` },
+          request_id: "req_fixture",
+        },
+      },
+    }));
+    try {
+      await assert.rejects(
+        realTurn(backupKeyModel(fixture.baseURL, "every-key-refused"), []),
+        (error: Error & { status?: number; providerDetail?: string }) => {
+          assert.equal(error.status, 401);
+          for (const key of [DEAD_PRIMARY, LIVE_BACKUP]) {
+            assert.ok(!error.message.includes(key));
+            assert.ok(!(error.providerDetail ?? "").includes(key));
+          }
+          assert.match(error.providerDetail ?? "", /invalid x-api-key: \[redacted\]/);
+          return true;
+        },
+      );
+      assert.deepEqual(
+        fixture.requests.map((request) => request.auth),
+        [DEAD_PRIMARY, LIVE_BACKUP],
+        "both keys tried once; a 401 is not retried",
+      );
     } finally {
       await fixture.close();
     }

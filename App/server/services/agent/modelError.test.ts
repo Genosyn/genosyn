@@ -53,6 +53,31 @@ describe("formatModelError classification", () => {
     );
   });
 
+  test("a refused key reaching the Run says whether backup keys were tried", () => {
+    const backups = JSON.stringify({
+      apiKeyEncrypted: "v2.primary",
+      apiKeyId: "k1",
+      backupKeys: [{ id: "k2", apiKeyEncrypted: "v2.backup" }],
+    });
+    const single = JSON.stringify({ apiKeyEncrypted: "v2.primary" });
+    for (const error of [
+      { status: 401, message: "invalid x-api-key" },
+      { status: 429, message: "slow down" },
+    ]) {
+      const tried = formatModelError(model("anthropic", { configJson: backups }), error);
+      assert.match(tried, /Every API key on this AI Model was tried/);
+      assert.doesNotMatch(tried, /Add a backup API key/);
+      const alone = formatModelError(model("openai", { configJson: single }), error);
+      assert.match(alone, /Add a backup API key under Advanced in Settings → Model/);
+      assert.doesNotMatch(alone, /Every API key/);
+    }
+    // Neither a ChatGPT sign-in nor a custom endpoint holds backup keys.
+    for (const other of [model("openai", { authMode: "subscription" }), model("custom")]) {
+      const out = formatModelError(other, { status: 401, message: "no" });
+      assert.doesNotMatch(out, /backup API key|Every API key/);
+    }
+  });
+
   test("gives subscription-specific authentication recovery without API-key advice", () => {
     const out = formatModelError(model("openai", { authMode: "subscription" }), {
       status: 401,

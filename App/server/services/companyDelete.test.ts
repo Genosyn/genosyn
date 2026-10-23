@@ -6,6 +6,9 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import type { EntityTarget, ObjectLiteral } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AIModel } from "../db/entities/AIModel.js";
+import { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { BaseForm } from "../db/entities/BaseForm.js";
@@ -208,5 +211,38 @@ describe("company deletion integrity", () => {
     assert.equal(await AppDataSource.getRepository(CustomerCreditLine).count(), 1);
     assert.equal(await AppDataSource.getRepository(VendorCreditLine).count(), 1);
     assert.equal(await AppDataSource.getRepository(TagAssignment).count(), 1);
+  });
+
+  test("an AI Model's API key health goes with its company, and only its company", async () => {
+    const companies = await Promise.all(
+      ["Delete me", "Keep me"].map((name) =>
+        insert(Company, { name, slug: testId("slug"), ownerId: testId("user") }),
+      ),
+    );
+    const models: AIModel[] = [];
+    for (const company of companies) {
+      const employee = await insert(AIEmployee, {
+        companyId: company.id,
+        name: "Avery",
+        slug: testId("avery"),
+        role: "Operations",
+      });
+      const model = await insert(AIModel, {
+        employeeId: employee.id,
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        authMode: "apikey",
+        configJson: "{}",
+      });
+      models.push(model);
+      for (const keyId of ["primary", testId("backup")])
+        await insert(AIModelKeyHealth, { modelId: model.id, keyId, lastUsedAt: new Date() });
+    }
+
+    await deleteCompanyCascade({ companyId: companies[0].id, companySlug: companies[0].slug });
+
+    const health = AppDataSource.getRepository(AIModelKeyHealth);
+    assert.equal(await health.countBy({ modelId: models[0].id }), 0);
+    assert.equal(await health.countBy({ modelId: models[1].id }), 2);
   });
 });

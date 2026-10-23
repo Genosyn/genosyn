@@ -30,7 +30,12 @@ export type ContextWindowSource = "probed" | "manual";
  * predate this column, which migrate in as `false`).
  *
  * configJson shape:
- *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview }`
+ *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview, apiKeyId?, apiKeyAddedAt?,
+ *                        backupKeys?: [{ id, apiKeyEncrypted, apiKeyPreview,
+ *                                        addedAt? }] }` — the primary key and
+ *                     any number of backup keys, tried in order when a key is
+ *                     refused (`services/modelApiKeys.ts`; their health is
+ *                     `AIModelKeyHealth`)
  *   - subscription:   `{ codexAuthEncrypted, subscriptionCredentialKind }`
  *                     or `{ codexAccessTokenEncrypted,
  *                           subscriptionCredentialKind }`
@@ -64,7 +69,7 @@ export class AIModel {
   @Column({ type: "boolean", default: false })
   isActive!: boolean;
 
-  /** JSON blob. `apikey` mode stores { apiKeyEncrypted: "..." }. */
+  /** JSON blob of encrypted credentials; see the shapes above. */
   @Column({ type: "text", default: "{}" })
   configJson!: string;
 

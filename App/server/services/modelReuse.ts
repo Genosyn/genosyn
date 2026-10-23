@@ -58,7 +58,9 @@ export type ReusableModel = {
  * a field added later, must not ride along into a different employee's row.
  */
 const COPIED_CONFIG_KEYS: Record<ReusableAuthMode, readonly string[]> = {
-  apikey: ["apiKeyEncrypted", "apiKeyPreview"],
+  // The primary key and every backup key with it: the copy fails over the
+  // same way the original does. Key health is not copied; it starts fresh.
+  apikey: ["apiKeyEncrypted", "apiKeyPreview", "apiKeyId", "apiKeyAddedAt", "backupKeys"],
   customEndpoint: [
     "baseURLEncrypted",
     "baseURLPreview",

@@ -186,7 +186,7 @@ export function ModelSetupForm({
         {isApiKey && (
           <>
             <Input
-              label={needsKey ? "API key" : "Replace API key (optional)"}
+              label={needsKey ? "API key" : "Replace primary API key (optional)"}
               type="password"
               autoComplete="off"
               // Connecting a model is pasting a key: start there, not on the

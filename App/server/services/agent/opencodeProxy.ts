@@ -4,6 +4,13 @@ import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SELF_HOSTED_RESPONSE_WAIT_MS, type OpenCodeModel } from "./opencodeConfig.js";
+import {
+  classifyKeyRefusal,
+  surfacedRefusal,
+  type ApiKeyFailover,
+  type ApiKeyRing,
+  type KeyRefusal,
+} from "./apiKeyRing.js";
 import type { ModelOutage } from "./types.js";
 import { endpointAnswers } from "../modelAvailability.js";
 import { outboundAgent } from "../outboundNetworkPolicy.js";
@@ -111,10 +118,83 @@ export function endOnUserTurn(request: Record<string, unknown>): Record<string, 
   return { ...request, messages: [...messages.slice(0, -1), { ...last, role: "user" }] };
 }
 
+/** What one request sent on an AI Model's API keys came back with. */
+export type KeyRingOutcome =
+  /** An answer to stream on, its body still unread. */
+  | { kind: "response"; response: Response }
+  /** An error to send on as it is, already read. */
+  | { kind: "error"; status: number; headers: Headers; body: string };
+
+/**
+ * Send one model request on an AI Model's API keys in turn (see
+ * `apiKeyRing.ts`). When the provider refuses the key itself, the key rests
+ * and the very same request goes out on the next key; any other answer —
+ * success, or an error about the request or the service — ends it there.
+ *
+ * Nothing reaches the caller until the outcome is settled: a success comes
+ * back with its body unread, for the caller to stream, so a request only ever
+ * moves to another key before the first byte of a reply has been sent on.
+ * When every key is refused, the outcome is the provider's own refusal that
+ * {@link surfacedRefusal} picks.
+ */
+export async function sendOnKeyRing(args: {
+  ring: ApiKeyRing;
+  send: (apiKey: string) => Promise<Response>;
+  onFailover?: (change: ApiKeyFailover, refusedKeyId: string) => void;
+}): Promise<KeyRingOutcome> {
+  const order = args.ring.attemptOrder();
+  const refused: Array<{ refusal: KeyRefusal; status: number; headers: Headers; body: string }> =
+    [];
+  for (const [index, key] of order.entries()) {
+    const response = await args.send(key.apiKey);
+    if (response.status < 400) {
+      // Health is saved in the background; the reply streams on at once.
+      void args.ring.succeeded(key);
+      return { kind: "response", response };
+    }
+    const body = await response.text();
+    const refusal = classifyKeyRefusal({
+      status: response.status,
+      body,
+      headers: response.headers,
+    });
+    if (!refusal)
+      return { kind: "error", status: response.status, headers: response.headers, body };
+    void args.ring.refused(key, refusal);
+    refused.push({ refusal, status: response.status, headers: response.headers, body });
+    const next = order[index + 1];
+    if (next)
+      args.onFailover?.(
+        { from: key.preview, to: next.preview, status: response.status, kind: refusal.kind },
+        key.id,
+      );
+  }
+  const surfaced = surfacedRefusal(refused);
+  return { kind: "error", status: surfaced.status, headers: surfaced.headers, body: surfaced.body };
+}
+
+/** The headers of a provider's answer that OpenCode is told about. */
+function forwardedHeaders(headers: Headers): Record<string, string> {
+  const forwarded: Record<string, string> = {
+    "Content-Type": headers.get("content-type") ?? "application/json",
+  };
+  for (const name of ["retry-after", "retry-after-ms"]) {
+    const value = headers.get(name);
+    if (value) forwarded[name] = value;
+  }
+  return forwarded;
+}
+
 /**
  * Forward provider wire traffic without exposing the real API key to native
  * coding commands. OpenCode still owns the provider SDK and complete model
  * loop; this endpoint only authenticates and forwards bytes for one turn.
+ *
+ * An API-key AI Model's requests go out on its key ring: a key the provider
+ * refuses — invalid, forbidden, out of credit, rate-limited — hands the same
+ * request to the next key before anything reaches OpenCode (see
+ * `sendOnKeyRing`). `onKeyFailover` hears each such move once per key and
+ * turn, by preview; every key is redacted from what the provider says back.
  *
  * With `holdOutages`, a request to a self-hosted (custom) endpoint waits while
  * that server is down instead of failing: a model server restarting for an
@@ -134,6 +214,7 @@ export async function serveOpenCodeModel(
     holdOutages?: boolean;
     onOutage?: (outage: ModelOutage) => void;
     onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
+    onKeyFailover?: (change: ApiKeyFailover) => void;
     holdMs?: number;
     probeMs?: number;
     /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
@@ -152,6 +233,13 @@ export async function serveOpenCodeModel(
   let outageSince: number | null = null;
   // The model the server serves now, once it no longer serves `model.id`.
   let servedId: string | null = null;
+  // Each refused key is reported once a turn, however many requests it fails.
+  const reportedFailovers = new Set<string>();
+  const reportFailover = (change: ApiKeyFailover, refusedKeyId: string) => {
+    if (reportedFailovers.has(refusedKeyId)) return;
+    reportedFailovers.add(refusedKeyId);
+    options.onKeyFailover?.(change);
+  };
   // A self-hosted server may take longer than undici's five minutes to start
   // answering (see SELF_HOSTED_RESPONSE_WAIT_MS); hosted APIs keep the default.
   const dispatcher =
@@ -222,21 +310,26 @@ export async function serveOpenCodeModel(
       }
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (model.provider === "anthropic") {
-        headers["x-api-key"] = model.apiKey;
         headers["anthropic-version"] =
           typeof req.headers["anthropic-version"] === "string"
             ? req.headers["anthropic-version"]
             : "2023-06-01";
         if (typeof req.headers["anthropic-beta"] === "string")
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
-      } else if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+      }
+      const withKey = (apiKey: string): Record<string, string> =>
+        model.provider === "anthropic"
+          ? { ...headers, "x-api-key": apiKey }
+          : apiKey
+            ? { ...headers, Authorization: `Bearer ${apiKey}` }
+            : headers;
       const userTurn = model.provider === "anthropic" ? endOnUserTurn(request) : null;
       const sent = userTurn ? Buffer.from(JSON.stringify(userTurn)) : body;
       let outgoing = servedId ? withModel(sent, servedId) : sent;
-      const send = () => {
+      const send = (apiKey = model.apiKey) => {
         const init = {
           method: "POST",
-          headers,
+          headers: withKey(apiKey),
           body: outgoing,
           signal: controller.signal,
           redirect: "manual" as const,
@@ -244,48 +337,57 @@ export async function serveOpenCodeModel(
         };
         return fetch(`${upstreamBase}${endpoint}`, init);
       };
-      let response = holdOutages
-        ? await sendThroughOutage({
-            send,
-            answers: () => endpointAnswers(upstreamBase, model.apiKey),
-            signal: controller.signal,
-            holdMs: options.holdMs,
-            probeMs: options.probeMs,
-            onWait: () => {
-              if (outageSince !== null) return;
-              outageSince = Date.now();
-              options.onOutage?.({ state: "waiting", waitedMs: 0 });
-            },
-          })
-        : await send();
-      if (!response) {
-        res
-          .writeHead(503, { "Content-Type": "application/json", "retry-after-ms": "1000" })
-          .end(JSON.stringify({ error: { message: "The AI Model's server is not answering." } }));
-        return;
-      }
-      if (outageSince !== null) {
-        options.onOutage?.({ state: "answered", waitedMs: Date.now() - outageSince });
-        outageSince = null;
-      }
-      if (model.provider === "custom" && response.status === 404) {
-        const sent = servedId ?? model.id;
-        const next = await soleOtherServedModel(upstreamBase, model.apiKey, sent);
-        if (next) {
-          await response.body?.cancel().catch(() => {});
-          servedId = next.id;
-          outgoing = withModel(body, next.id);
-          options.onServedModelChange?.({ from: sent, to: next });
-          response = await send();
+      let response: Response | null;
+      if (model.keys) {
+        const ring = model.keys;
+        const outcome = await sendOnKeyRing({ ring, send, onFailover: reportFailover });
+        if (outcome.kind === "error") {
+          // OpenCode keeps an error's body to report what the provider said, and
+          // a provider may quote the key it was sent. Every key stays in Genosyn.
+          res
+            .writeHead(outcome.status, forwardedHeaders(outcome.headers))
+            .end(ring.redact(outcome.body));
+          return;
+        }
+        response = outcome.response;
+      } else {
+        response = holdOutages
+          ? await sendThroughOutage({
+              send: () => send(),
+              answers: () => endpointAnswers(upstreamBase, model.apiKey),
+              signal: controller.signal,
+              holdMs: options.holdMs,
+              probeMs: options.probeMs,
+              onWait: () => {
+                if (outageSince !== null) return;
+                outageSince = Date.now();
+                options.onOutage?.({ state: "waiting", waitedMs: 0 });
+              },
+            })
+          : await send();
+        if (!response) {
+          res
+            .writeHead(503, { "Content-Type": "application/json", "retry-after-ms": "1000" })
+            .end(JSON.stringify({ error: { message: "The AI Model's server is not answering." } }));
+          return;
+        }
+        if (outageSince !== null) {
+          options.onOutage?.({ state: "answered", waitedMs: Date.now() - outageSince });
+          outageSince = null;
+        }
+        if (model.provider === "custom" && response.status === 404) {
+          const sent = servedId ?? model.id;
+          const next = await soleOtherServedModel(upstreamBase, model.apiKey, sent);
+          if (next) {
+            await response.body?.cancel().catch(() => {});
+            servedId = next.id;
+            outgoing = withModel(body, next.id);
+            options.onServedModelChange?.({ from: sent, to: next });
+            response = await send();
+          }
         }
       }
-      const responseHeaders: Record<string, string> = {
-        "Content-Type": response.headers.get("content-type") ?? "application/json",
-      };
-      for (const name of ["retry-after", "retry-after-ms"]) {
-        const value = response.headers.get(name);
-        if (value) responseHeaders[name] = value;
-      }
+      const responseHeaders = forwardedHeaders(response.headers);
       if (response.status >= 400 && model.apiKey.length >= 8) {
         // OpenCode keeps an error's body to report what the provider said, and
         // a provider may quote the key it was sent. The key stays in Genosyn.
@@ -332,7 +434,14 @@ export async function serveOpenCodeModel(
   if (!address || typeof address === "string")
     throw new Error("Could not start the AI Model forwarding endpoint.");
   return {
-    model: { ...model, apiKey: token, baseURL: `http://127.0.0.1:${address.port}` },
+    // Built field by field: the key ring, with every real key, stays here.
+    model: {
+      id: model.id,
+      provider: model.provider,
+      apiKey: token,
+      baseURL: `http://127.0.0.1:${address.port}`,
+      contextWindow: model.contextWindow,
+    },
     async close() {
       for (const controller of controllers) controller.abort();
       http.closeAllConnections();
