@@ -1,29 +1,22 @@
-import { OpenApiGeneratorV3 } from "@asteasolutions/zod-to-openapi";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPublicUrl } from "../services/publicUrl.js";
-import { registry } from "./registry.js";
-import "./auth.js";
-import "./companies.js";
-import "./apiKeys.js";
-import "./employees.js";
-import "./routines.js";
-import "./revenue.js";
-import "./finance.js";
+import { buildApiDocument, type CoverageReport } from "./document.js";
 
 /**
- * Assembles the final OpenAPI 3.0 document from the shared registry. The
- * per-area files (`auth.ts`, etc.) are imported for their side-effect:
- * each one calls `registry.registerPath(...)` at module load.
+ * The OpenAPI 3.0 document for an Express app: every route it serves, with
+ * the hand-written registrations where they exist (`document.ts`).
  *
- * Memoized — the document is built once on first request and cached for the
- * lifetime of the process. There is no scenario in production where the spec
- * would change between requests, and re-walking the registry on every hit is
- * wasteful.
+ * Memoized per app. Routes are registered once at startup and never change, so
+ * walking the router stack again on every request would be pure waste. Only
+ * the `servers` entry is rebuilt each time, because the public URL is an
+ * Admin setting that can change while the process runs.
  */
 
-let cached: ReturnType<OpenApiGeneratorV3["generateDocument"]> | null = null;
+type Built = ReturnType<typeof buildApiDocument>;
+
+const cache = new WeakMap<object, Built>();
 
 function readVersion(): string {
   // Container builds cannot see the repo-root VERSION file because App is
@@ -52,35 +45,25 @@ function readVersion(): string {
   return "0.0.0";
 }
 
-export function buildOpenApiDocument() {
-  if (!cached) {
-    const generator = new OpenApiGeneratorV3(registry.definitions);
-    cached = generator.generateDocument({
-      openapi: "3.0.0",
-      info: {
-        title: "Genosyn API",
-        version: readVersion(),
-        description:
-          "REST API for Genosyn — the open-source platform for running companies " +
-          "with AI employees.\n\n" +
-          "**Authentication.** Every endpoint listed here accepts either a browser " +
-          "session cookie (used by the web UI) or a Bearer API key minted at " +
-          "Settings → API keys. API keys are scoped to a single company.\n\n" +
-          "**Coverage.** This document covers the canonical scripting surface: " +
-          "auth, companies, employees, routines, API keys, Revenue, and Finance document issuers. " +
-          "The full surface is much larger — most routes the UI uses are not " +
-          "(yet) registered here. Open an issue if there's an endpoint you want " +
-          "documented.",
-        contact: {
-          name: "Genosyn",
-          url: "https://github.com/Genosyn/genosyn",
-        },
-        license: { name: "Apache 2.0", url: "https://www.apache.org/licenses/LICENSE-2.0" },
-      },
-    });
+function built(app: object): Built {
+  let result = cache.get(app);
+  if (!result) {
+    result = buildApiDocument(app, { version: readVersion() });
+    cache.set(app, result);
   }
+  return result;
+}
+
+/** The API reference for `app` — pass the Express app the server listens with. */
+export function buildOpenApiDocument(app: object) {
+  const { document } = built(app);
   return {
-    ...cached,
+    ...document,
     servers: [{ url: getPublicUrl(), description: "This Genosyn instance" }],
   };
+}
+
+/** What the reference covers and what it could not, for the coverage test. */
+export function openApiCoverage(app: object): CoverageReport {
+  return built(app).report;
 }

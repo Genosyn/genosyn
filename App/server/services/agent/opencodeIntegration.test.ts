@@ -34,6 +34,8 @@ type TruncatedReply = { truncated: string };
 type ReasoningOnlyReply = { reasoningOnly: string };
 /** Several tool calls in one reply, as Qwen makes when it has a batch of records to write. */
 type ParallelToolCalls = { parallel: ToolCall[] };
+/** An error response, the way a provider refuses a request it will not run. */
+type Rejection = { reject: { status: number; body: Record<string, unknown> } };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -82,7 +84,14 @@ async function fakeProvider(
   script: (
     request: Record<string, unknown>,
     index: number,
-  ) => string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls | "hang",
+  ) =>
+    | string
+    | ToolCall
+    | TruncatedReply
+    | ReasoningOnlyReply
+    | ParallelToolCalls
+    | Rejection
+    | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
   const server = createServer(async (req, res) => {
@@ -101,10 +110,16 @@ async function fakeProvider(
       return;
     }
     const result = script(body, requests.length - 1);
+    if (typeof result === "object" && "reject" in result) {
+      res
+        .writeHead(result.reject.status, { "Content-Type": "application/json" })
+        .end(JSON.stringify(result.reject.body));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     if (req.url?.endsWith("/chat/completions")) chatResponse(res, result);
     else if (req.url?.endsWith("/messages"))
-      anthropicResponse(res, typeof result === "string" ? result : "Verified");
+      anthropicResponse(res, typeof result === "string" || "name" in result ? result : "Verified");
     else if (req.url?.endsWith("/responses"))
       responsesResponse(res, typeof result === "string" ? result : "Verified");
     else {
@@ -163,7 +178,7 @@ function chatResponse(
   }
   res.end("data: [DONE]\n\n");
 }
-function anthropicResponse(res: ServerResponse, text: string) {
+function anthropicResponse(res: ServerResponse, value: string | ToolCall) {
   const send = (type: string, value: Record<string, unknown>) =>
     res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`);
   send("message_start", {
@@ -178,13 +193,39 @@ function anthropicResponse(res: ServerResponse, text: string) {
       usage: { input_tokens: 29, output_tokens: 0 },
     },
   });
-  send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
-  send("content_block_delta", { index: 0, delta: { type: "text_delta", text } });
-  send("content_block_stop", { index: 0 });
-  send("message_delta", {
-    delta: { stop_reason: "end_turn", stop_sequence: null },
-    usage: { output_tokens: 5 },
-  });
+  if (typeof value === "string") {
+    send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+    send("content_block_delta", { index: 0, delta: { type: "text_delta", text: value } });
+    send("content_block_stop", { index: 0 });
+    send("message_delta", {
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { output_tokens: 5 },
+    });
+  } else {
+    // Claude 4.6 and later think before a tool call, and sign what they thought.
+    send("content_block_start", {
+      index: 0,
+      content_block: { type: "thinking", thinking: "", signature: "" },
+    });
+    send("content_block_delta", {
+      index: 0,
+      delta: { type: "signature_delta", signature: "fixture-signature" },
+    });
+    send("content_block_stop", { index: 0 });
+    send("content_block_start", {
+      index: 1,
+      content_block: { type: "tool_use", id: "toolu-fixture", name: value.name, input: {} },
+    });
+    send("content_block_delta", {
+      index: 1,
+      delta: { type: "input_json_delta", partial_json: JSON.stringify(value.input) },
+    });
+    send("content_block_stop", { index: 1 });
+    send("message_delta", {
+      delta: { stop_reason: "tool_use", stop_sequence: null },
+      usage: { output_tokens: 20 },
+    });
+  }
   send("message_stop", {});
   res.end();
 }
@@ -727,6 +768,91 @@ test(
       assert.equal(result.stopReason, "length");
       assert.equal(fixture.requests.length, 1, "OpenCode does not continue a truncated reply");
       assert.equal(fixture.requests[0].body.max_tokens, 8000, "a quarter of the 32K window");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+/** A Claude model from Opus 4.6 on, which refuses an assistant prefill. */
+function claudeFixtureModel(baseURL: string): OpenCodeModel {
+  return {
+    id: "claude-opus-5-5",
+    provider: "anthropic",
+    apiKey: "upstream-private-key",
+    baseURL,
+    contextWindow: null,
+  };
+}
+
+// 2026-10-23: connecting Claude Opus 5.5 failed with "This model is not
+// available for AI Employee work". The connection test allows two steps, and
+// OpenCode ends a turn's last step with an assistant message, which Claude Opus
+// 4.6 and every later model refuse as a prefill.
+test(
+  "pinned OpenCode ends a Claude turn's last step on the user's turn",
+  { timeout: 180_000 },
+  async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((body, index) => {
+      if ((body.messages as Array<{ role: string }>).at(-1)?.role !== "user")
+        return {
+          reject: {
+            status: 400,
+            body: {
+              type: "error",
+              error: { type: "invalid_request_error", message: "Prefill is not supported." },
+            },
+          },
+        };
+      return index === 0 ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } } : "OK";
+    });
+    try {
+      const result = await realTurn(claudeFixtureModel(fixture.baseURL), [echoTool(calls)], {
+        maxSteps: 2,
+      });
+      assert.equal(result.finalText, "OK");
+      assert.deepEqual(calls, [{ value: "actual tool" }]);
+      const last = (fixture.requests[1].body.messages as Array<{ role: string }>).at(-1);
+      assert.equal(last?.role, "user");
+      assert.match(JSON.stringify(last), /MAXIMUM STEPS REACHED/);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode reports what Claude said about a refused request, without the key",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({
+      reject: {
+        status: 400,
+        body: {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message: "Your credit balance is too low for upstream-private-key.",
+          },
+          request_id: "req_fixture",
+        },
+      },
+    }));
+    try {
+      await assert.rejects(
+        realTurn(claudeFixtureModel(fixture.baseURL), []),
+        (error: Error & { status?: number; providerDetail?: string }) => {
+          assert.equal(error.message, "The AI Model request failed (HTTP 400).");
+          assert.equal(error.status, 400);
+          assert.equal(
+            error.providerDetail,
+            "HTTP 400 · invalid_request_error\nYour credit balance is too low for [redacted].\nRequest ID: req_fixture",
+          );
+          return true;
+        },
+      );
+      assert.equal(fixture.requests.length, 1, "a refused request is not retried");
     } finally {
       await fixture.close();
     }

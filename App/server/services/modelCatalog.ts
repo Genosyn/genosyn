@@ -13,9 +13,20 @@ export class ModelSetupError extends Error {
   constructor(
     message: string,
     readonly status = 422,
+    /**
+     * What the AI Model's service said, shown under "View details": the
+     * `providerDetail` the runtime read from the response body, never an SDK
+     * message.
+     */
+    readonly detail: string | null = null,
   ) {
     super(message);
     this.name = "ModelSetupError";
+  }
+
+  /** The JSON a route answers with. */
+  responseBody(): { error: string; detail?: string } {
+    return this.detail ? { error: this.message, detail: this.detail } : { error: this.message };
   }
 }
 
@@ -24,27 +35,41 @@ export function modelSetupFailure(
   operation = "test this AI Model",
 ): ModelSetupError {
   if (error instanceof ModelSetupError) return error;
-  const detail = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
-  const status = detail.status;
+  const record = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const status = record.status;
+  const detail = typeof record.providerDetail === "string" ? record.providerDetail : null;
   if (status === 401 || status === 403) {
     return new ModelSetupError(
       "The AI Model rejected this credential. Check the key and its model access, then try again.",
+      422,
+      detail,
     );
   }
   if (status === 429) {
     return new ModelSetupError(
       "The AI Model could not respond because of billing, quota, or a rate limit. Check your account and try again.",
+      422,
+      detail,
     );
   }
-  if (status === 400 || status === 404) {
+  if (status === 404) {
     return new ModelSetupError(
-      "This model is not available for AI Employee work with this credential. Choose another model or check its access.",
+      "This model is not available with this credential. Choose another model or check its access.",
+      422,
+      detail,
+    );
+  }
+  if (status === 400) {
+    return new ModelSetupError(
+      "The AI Model service rejected the request. Choose another model, or check the account's billing and model access.",
+      422,
+      detail,
     );
   }
   if (
-    detail.name === "AbortError" ||
-    detail.name === "TimeoutError" ||
-    detail.name === "APIUserAbortError"
+    record.name === "AbortError" ||
+    record.name === "TimeoutError" ||
+    record.name === "APIUserAbortError"
   ) {
     return new ModelSetupError(
       `We could not ${operation} before the request timed out. Please try again.`,
@@ -54,6 +79,7 @@ export function modelSetupFailure(
   return new ModelSetupError(
     `We could not ${operation}. Check your connection and try again.`,
     502,
+    detail,
   );
 }
 

@@ -159,7 +159,7 @@ function acceptResume(req: Request, res: Response, next: NextFunction): void {
 
 const optionalText = (max: number) => z.string().max(max).optional().default("");
 
-const applicationFieldsSchema = z
+export const applicationFieldsSchema = z
   .object({
     submissionId: z.string().uuid(),
     name: z.string().max(400),

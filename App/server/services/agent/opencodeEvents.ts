@@ -1,4 +1,4 @@
-import type { Event, Part, AssistantMessage } from "@opencode-ai/sdk/v2";
+import type { ApiError, Event, Part, AssistantMessage } from "@opencode-ai/sdk/v2";
 import type { StreamCallbacks } from "./types.js";
 import { contextUsage } from "./contextUsage.js";
 import { OPENCODE_MCP } from "./opencodeConfig.js";
@@ -186,14 +186,22 @@ export class OpenCodeEvents {
   }
 }
 
-/** Provider response bodies and headers may contain secrets; expose only status/type. */
+/**
+ * Provider response bodies and headers may contain secrets; the message carries
+ * only the status. What the provider said goes on `providerDetail` (see
+ * `providerErrorDetail`), which only the AI Model setup forms show.
+ */
 export function openCodeError(error: NonNullable<AssistantMessage["error"]>): Error {
   if (error.name === "APIError")
     return Object.assign(
       new Error(
         `The AI Model request failed${error.data.statusCode ? ` (HTTP ${error.data.statusCode})` : ""}.`,
       ),
-      { status: error.data.statusCode, statusCode: error.data.statusCode },
+      {
+        status: error.data.statusCode,
+        statusCode: error.data.statusCode,
+        providerDetail: providerErrorDetail(error.data),
+      },
     );
   if (error.name === "ProviderAuthError")
     return Object.assign(new Error("The AI Model rejected its stored credentials."), {
@@ -205,6 +213,56 @@ export function openCodeError(error: NonNullable<AssistantMessage["error"]>): Er
       "The AI Model's context window was exceeded after OpenCode tried to compact the conversation.",
     );
   return new Error(`OpenCode could not complete the AI Model turn (${error.name}).`);
+}
+
+/** Text shaped like an API key or a bearer token, as a provider may quote one back. */
+const KEY_SHAPED = /\b(?:sk|rk|pk)-[\w*•-]{6,}|\bBearer\s+[\w.~+/=-]+/gi;
+
+/**
+ * What the provider said about a failed request, for the person connecting an
+ * AI Model: the HTTP status, the error type and message from the response
+ * body, and the request ID the provider's support asks for. Never the response
+ * headers. The proxy has already taken the stored key out of the body
+ * (`opencodeProxy.ts`); text shaped like a key is removed here too, and the
+ * whole is bounded. Null when the provider said nothing.
+ */
+export function providerErrorDetail(data: ApiError["data"]): string | null {
+  const body = parseObject(data.responseBody);
+  const error = asObject(body?.error);
+  const message =
+    textField(error, "message") ??
+    textField(body, "error") ??
+    textField(body, "message") ??
+    textField(body, "detail") ??
+    textField(data, "message") ??
+    (body ? null : textField(data, "responseBody"));
+  const type = textField(error, "type") ?? textField(error, "code");
+  const requestId = textField(body, "request_id");
+  const lines = [
+    [data.statusCode ? `HTTP ${data.statusCode}` : null, type].filter(Boolean).join(" · "),
+    message?.replace(/\s+/g, " ").slice(0, 1_000) ?? "",
+    requestId ? `Request ID: ${requestId.slice(0, 200)}` : "",
+  ].filter(Boolean);
+  return lines.length ? lines.join("\n").replace(KEY_SHAPED, "[redacted]") : null;
+}
+
+function parseObject(text: string | undefined): Record<string, unknown> | null {
+  try {
+    return asObject(JSON.parse(text ?? ""));
+  } catch {
+    return null;
+  }
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function textField(record: object | null, key: string): string | null {
+  const value = (record as Record<string, unknown> | null)?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function openCodeActivityError(error: unknown): Error {

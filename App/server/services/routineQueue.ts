@@ -12,7 +12,7 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
-import { Routine } from "../db/entities/Routine.js";
+import { DEFAULT_ROUTINE_TIMEOUT_SEC, Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { SchedulerLease } from "../db/entities/SchedulerLease.js";
 import { executeQueuedRoutineRun, type StartRunOptions } from "./runner.js";
@@ -658,7 +658,7 @@ export async function releaseOrphanedQueueSlots(
     const cutoff =
       Math.max(
         run.continuationDeadlineAt?.getTime() ??
-          run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? 3600) * 1000,
+          run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? DEFAULT_ROUTINE_TIMEOUT_SEC) * 1000,
         postRunDeadline,
       ) + ORPHAN_GRACE_MS;
     if (!singleProcessBoot && now.getTime() <= cutoff) continue;

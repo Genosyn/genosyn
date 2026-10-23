@@ -2,21 +2,20 @@ import { OpenAPIRegistry, extendZodWithOpenApi } from "@asteasolutions/zod-to-op
 import { z } from "zod";
 
 /**
- * Shared OpenAPI registry. Per-area files (`auth.ts`, `apiKeys.ts`, …) call
- * `registry.registerPath(...)` at module load to declare their endpoints, and
- * `spec.ts` walks the registry once at server boot to assemble the final
- * OpenAPI document.
+ * Shared OpenAPI registry for the hand-written pages. Per-area files
+ * (`auth.ts`, `apiKeys.ts`, …) call `registry.registerPath(...)` at module
+ * load, and `document.ts` merges them into the generated document.
  *
  * `extendZodWithOpenApi(z)` monkeypatches the imported `z` with an `.openapi(...)`
  * method used to attach schema names + descriptions. Done once at module load.
  *
- * **Coverage philosophy.** This is *not* a full-surface contract — only the
- * endpoints registered here appear in `/api/docs`. We registered the M14
- * api-keys CRUD plus a representative slice (auth, companies, employees,
- * routines) so the docs page is immediately useful for someone trying to
- * script Genosyn. Adding a new area = creating one more file under
- * `server/openapi/` that imports `registry` and registers its paths. The
- * pattern is intentionally simple so it scales without a framework.
+ * **Coverage.** Every route the App serves is documented without a page here:
+ * `document.ts` reads the router stack, the zod schemas each route validates
+ * with, and its guards. A hand-written page is for what the router cannot
+ * know — prose, response schemas, examples — and wins over the generated
+ * description for its route, except for access, which always comes from the
+ * guards that run. Adding one = a file under `server/openapi/` that registers
+ * its paths, imported in `document.ts`.
  */
 extendZodWithOpenApi(z);
 

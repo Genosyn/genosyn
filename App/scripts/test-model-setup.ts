@@ -101,7 +101,13 @@ await context.route("**/api/**", async (route) => {
     requests.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill(
       connectFailure
-        ? { status: 422, json: { error: "The model rejected this credential. Check the key." } }
+        ? {
+            status: 422,
+            json: {
+              error: "The model rejected this credential. Check the key.",
+              detail: "HTTP 401 · authentication_error\ninvalid x-api-key\nRequest ID: req_fixture",
+            },
+          }
         : { json: { id: "model", status: "connected" } },
     );
   }
@@ -224,11 +230,21 @@ try {
   checks++;
   connectFailure = true;
   await page.getByRole("button", { name: "Connect AI Model" }).click();
-  await page.getByRole("alert").filter({ hasText: "rejected this credential" }).waitFor();
+  const failure = page.getByRole("alert").filter({ hasText: "rejected this credential" });
+  await failure.waitFor();
   assert.equal(
     await page.getByLabel("API key", { exact: true }).inputValue(),
     "replacement-test-key",
   );
+  checks++;
+  // What the service said stays behind its own control until asked for.
+  assert.equal(await failure.getByText("invalid x-api-key").count(), 0);
+  await failure.getByRole("button", { name: "View details" }).click();
+  await failure.getByText("HTTP 401 · authentication_error").waitFor();
+  assert.match(await failure.innerText(), /Request ID: req_fixture/);
+  await page.screenshot({ path: path.join(artifacts, "model-setup-details.png"), fullPage: true });
+  await failure.getByRole("button", { name: "Hide details" }).click();
+  assert.equal(await failure.getByText("invalid x-api-key").count(), 0);
   checks++;
   connectFailure = false;
   await page.getByRole("button", { name: "Connect AI Model" }).click();

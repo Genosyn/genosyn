@@ -119,7 +119,7 @@ const fieldSchema = z
     message: "Field geometry must fit inside the page",
   });
 
-const createMultipartSchema = z
+export const createMultipartSchema = z
   .object({
     title: z.string().trim().min(1).max(255),
     customerId: z.union([uuid, z.literal("")]).optional(),

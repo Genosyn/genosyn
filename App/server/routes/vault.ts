@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { EmployeeVaultAccessLevel } from "../db/entities/EmployeeVaultGrant.js";
 import type { VaultMemberAccessLevel } from "../db/entities/VaultItemMemberAccess.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { describeBrowserSessionOnly } from "../middleware/routeMetadata.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -60,18 +61,20 @@ vaultRouter.use((req, res, next) => {
 });
 vaultRouter.use(requireAuth);
 vaultRouter.use(requireCompanyMember);
-vaultRouter.use((req, res, next) => {
-  if (req.apiKey) {
-    return res.status(403).json({
-      error: "Vault access requires a logged-in browser session",
-    });
-  }
-  // Decrypted metadata is sensitive too. This also covers every reveal error
-  // path, so proxies and browsers never cache a plaintext response.
-  res.set("Cache-Control", "no-store, max-age=0");
-  res.set("Pragma", "no-cache");
-  next();
-});
+vaultRouter.use(
+  describeBrowserSessionOnly((req: Request, res: Response, next: NextFunction) => {
+    if (req.apiKey) {
+      return res.status(403).json({
+        error: "Vault access requires a logged-in browser session",
+      });
+    }
+    // Decrypted metadata is sensitive too. This also covers every reveal error
+    // path, so proxies and browsers never cache a plaintext response.
+    res.set("Cache-Control", "no-store, max-age=0");
+    res.set("Pragma", "no-cache");
+    next();
+  }),
+);
 
 // External-vault connection management shares this surface's guards, and sits
 // above the item routes so `/sources` is never read as an item id.

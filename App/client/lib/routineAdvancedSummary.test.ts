@@ -11,7 +11,7 @@ import {
 /** A Routine as the server creates it: every Advanced setting at its default. */
 const defaults: RoutineAdvancedValues = {
   folderPath: null,
-  timeoutSec: 3600,
+  timeoutSec: 21600,
   requiresApproval: false,
   outcomeCheck: false,
   checks: 0,
@@ -75,7 +75,8 @@ describe("describeRoutineAdvanced", () => {
   });
 
   test("does not mention a timeout equal to the default", () => {
-    assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 3600 }), "All defaults");
+    assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 21600 }), "All defaults");
+    assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 3600 }), "Timeout 1h");
     assert.equal(describeRoutineAdvanced({ ...defaults, timeoutSec: 600 }), "Timeout 10m");
   });
 

@@ -91,7 +91,11 @@ import {
 } from "../components/routines/RunViews";
 import { describeCronExpr } from "../lib/scheduleBuilder";
 import { ScheduleField } from "../components/ScheduleField";
-import { describeRoutineAdvanced, formatTimeout } from "../lib/routineAdvancedSummary";
+import {
+  DEFAULT_TIMEOUT_SEC,
+  describeRoutineAdvanced,
+  formatTimeout,
+} from "../lib/routineAdvancedSummary";
 import {
   buildCheckSpec,
   checkSpecDraft,
@@ -1578,7 +1582,7 @@ function SettingsTab({
   React.useEffect(() => {
     setGoalId(routine.goalId ?? "");
   }, [routine.id, routine.goalId]);
-  const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 3600);
+  const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? DEFAULT_TIMEOUT_SEC);
   const [requiresApproval, setRequiresApproval] = React.useState(routine.requiresApproval ?? false);
   // "" is the inherit choice — the routine follows the employee's active model.
   const [modelId, setModelId] = React.useState(routine.modelId ?? "");
@@ -1820,7 +1824,7 @@ function SettingsTab({
                   min={10}
                   max={21600}
                   value={String(timeoutSec)}
-                  onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 3600))}
+                  onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || DEFAULT_TIMEOUT_SEC))}
                 />
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   Stop after this long. The Run is marked <strong>Error</strong>, with a timeout
