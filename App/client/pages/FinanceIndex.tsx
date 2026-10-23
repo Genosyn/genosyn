@@ -2,8 +2,11 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { ArrowRight, FileText, Landmark, Plus, Users, Wallet } from "lucide-react";
 import { api, BankingAccount, Customer, formatMoney, InvoiceListItem } from "../lib/api";
+import { summarizeSync } from "../lib/bankingSync";
 import { newInvoicePath } from "../lib/invoiceKind";
 import { canWriteFinance } from "../lib/subpages";
+import { useNow } from "../lib/useNow";
+import { SyncMark } from "./FinanceBankingAccounts";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -278,17 +281,42 @@ function BankingCard({
             )}
           </div>
         ) : (
-          <Link to={to} className="group flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-              {toReview}
-            </span>
-            <span className="flex items-center gap-1 text-xs text-indigo-600 group-hover:underline dark:text-indigo-400">
-              {toReview > 0 ? "Review" : "Open Banking"} <ArrowRight size={12} />
-            </span>
-          </Link>
+          <>
+            <Link to={to} className="group flex items-baseline justify-between gap-2">
+              <span className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                {toReview}
+              </span>
+              <span className="flex items-center gap-1 text-xs text-indigo-600 group-hover:underline dark:text-indigo-400">
+                {toReview > 0 ? "Review" : "Open Banking"} <ArrowRight size={12} />
+              </span>
+            </Link>
+            <BankingHealth accounts={accounts} />
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A line under the count only when an account needs a look — one that can't
+ * sync, or has fallen behind. In step, the count says enough.
+ */
+function BankingHealth({ accounts }: { accounts: BankingAccount[] }) {
+  const now = useNow(60_000);
+  const health = summarizeSync(accounts, now);
+  if (health.tone !== "error" && health.tone !== "stale") return null;
+  return (
+    <p
+      className={
+        health.tone === "error"
+          ? "mt-1.5 flex items-center gap-1.5 text-xs text-red-700 dark:text-red-300"
+          : "mt-1.5 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+      }
+    >
+      <SyncMark tone={health.tone} />
+      <span className="truncate">{health.label}</span>
+    </p>
   );
 }
 
