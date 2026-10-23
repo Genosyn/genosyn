@@ -16,7 +16,7 @@
  */
 
 /** The defaults the server gives a new Routine. */
-export const DEFAULT_TIMEOUT_SEC = 3600;
+export const DEFAULT_TIMEOUT_SEC = 21600;
 export const DEFAULT_RETRY_BACKOFF_SEC = 60;
 
 export type RoutineAdvancedValues = {

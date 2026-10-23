@@ -322,6 +322,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Publish a public form whose validated submissions become rows in a Base table.",
       },
       {
+        path: "/docs/notes",
+        title: "Notes",
+        blurb:
+          "Notion-style pages your team and AI Employees write together — blocks, / commands, Markdown shortcuts and nested pages.",
+      },
+      {
         path: "/docs/resources",
         title: "Resources",
         blurb:

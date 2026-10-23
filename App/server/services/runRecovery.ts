@@ -4,7 +4,7 @@ import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { Run } from "../db/entities/Run.js";
-import { Routine } from "../db/entities/Routine.js";
+import { DEFAULT_ROUTINE_TIMEOUT_SEC, Routine } from "../db/entities/Routine.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import {
@@ -217,7 +217,7 @@ export async function reconcileOrphanedRuns(opts?: {
       const routine = byId.get(run.routineId) ?? null;
       // A routine deleted out from under a live run leaves no timeout to reason
       // about; fall back to the column default rather than stranding the row.
-      const timeoutSec = routine?.timeoutSec ?? 3600;
+      const timeoutSec = routine?.timeoutSec ?? DEFAULT_ROUTINE_TIMEOUT_SEC;
       // A Member may edit timeoutSec while this Run is active. Its captured
       // absolute deadline stays authoritative, with an age fallback only for
       // legacy rows that did not persist one.
@@ -495,7 +495,7 @@ async function pauseCutOffRun(
   const runRepo = AppDataSource.getRepository(Run);
   const deadline =
     run.continuationDeadlineAt?.getTime() ??
-    run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? 3600) * 1000;
+    run.startedAt.getTime() + Math.max(1, routine?.timeoutSec ?? DEFAULT_ROUTINE_TIMEOUT_SEC) * 1000;
   // Close any browser session the Run left open, as a terminal Run's would be.
   await finalizeBrowserRecordingsForRun(run.id).catch((error) => {
     // eslint-disable-next-line no-console

@@ -316,7 +316,7 @@ await app.check("routine Settings: nothing set says so, in a few words", async (
   const current = {
     ...routine(),
     folderId: null,
-    timeoutSec: 3600,
+    timeoutSec: 21600,
     requiresApproval: false,
     webhookEnabled: false,
     webhookToken: null,

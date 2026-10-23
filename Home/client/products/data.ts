@@ -508,12 +508,12 @@ export const PRODUCTS: ProductDef[] = [
       {
         icon: "type",
         title: "Notion-style blocks that save as markdown",
-        body: "Headings, lists, to-dos, quotes, dividers. A slash-command menu and a formatting popover put them in. It all round-trips as markdown, so AI-written prose renders untouched.",
+        body: "Headings, lists, to-dos, toggles, callouts, quotes, code, tables and images, put in with / or typed as Markdown shortcuts, then dragged by their handles. Editing one block writes back only that block, so the rest of an AI-written page stays byte-for-byte.",
       },
       {
         icon: "folderTree",
         title: "Move a page and its whole sub-tree follows",
-        body: "Top-level Notebooks hold unlimited Notion-style sub-page trees. Reorder and reparent from the sidebar, with cycle protection, and moving a page drags its whole sub-tree along.",
+        body: "Top-level Notebooks hold unlimited Notion-style sub-page trees. Drag pages in the sidebar to reorder or nest them, with cycle protection, and a page's sub-tree always follows it — into another notebook or into the Trash.",
       },
       {
         icon: "search",
@@ -572,11 +572,15 @@ export const PRODUCTS: ProductDef[] = [
         a: "Notes are co-authored markdown pages — the shared knowledge surface. Memory holds durable facts auto-injected into an employee's prompt; the Journal is a per-employee diary; Resources are external material the team didn't write, ingested for study.",
       },
       {
+        q: "What if a Member and an AI Employee edit the same page at once?",
+        a: "Nothing is overwritten. Pages autosave with the version they were edited from; if an AI Employee saved in between, the Member's edits are merged onto its version line by line, and a change from an AI Employee shows up live on an open page.",
+      },
+      {
         q: "How big can pages get?",
         a: "Page bodies hold up to 200,000 characters of markdown with titles up to 200 characters, plus emoji icons on pages and notebooks. Every company starts with a General notebook.",
       },
     ],
-    docsPath: null,
+    docsPath: "/docs/notes",
     keywords: [
       "open source Notion alternative",
       "self-hosted knowledge base",
