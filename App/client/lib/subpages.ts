@@ -1072,7 +1072,17 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/api-keys",
       icon: TerminalSquare,
       navGroup: "Company",
-      keywords: ["api tokens", "personal access tokens", "cli"],
+      // The same page sets up the Genosyn MCP server, which these keys open.
+      keywords: [
+        "api tokens",
+        "personal access tokens",
+        "cli",
+        "mcp server",
+        "model context protocol",
+        "claude desktop",
+        "claude code",
+        "cursor",
+      ],
     },
     {
       label: "Usage",

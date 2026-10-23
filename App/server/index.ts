@@ -26,7 +26,8 @@ import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
-import { errorHandler, installProcessErrorHandlers } from "./middleware/error.js";
+import { errorHandler, installProcessErrorHandlers, logRedactedError } from "./middleware/error.js";
+import { operationCatalogue } from "./services/companyMcp/appCatalogue.js";
 import { bootProactiveDefaults } from "./services/proactive/defaults.js";
 import { finalizeInterruptedAskAiTurns } from "./services/askAi/assistant.js";
 import { bootRoutineTriggers } from "./services/routineTriggers.js";
@@ -244,6 +245,15 @@ async function main() {
   }
 
   app.use(errorHandler);
+
+  // Build the API reference, and the Genosyn MCP server's operations from it,
+  // before taking traffic: the first build walks the whole router stack
+  // synchronously, and would otherwise stall the first request that needs it.
+  try {
+    operationCatalogue(app);
+  } catch (err) {
+    logRedactedError("[mcp] could not build the operation catalogue", err);
+  }
 
   // Wrap Express in an http.Server so we can attach the WebSocket upgrade
   // listener for the realtime workspace-chat surface. REST and WS share the

@@ -65,6 +65,7 @@ import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
 import { Api } from "@/docs/pages/Api";
 import { ApiCli } from "@/docs/pages/ApiCli";
+import { McpServer } from "@/docs/pages/McpServer";
 import { Vocabulary } from "@/docs/pages/Vocabulary";
 import { NotFound } from "@/docs/pages/NotFound";
 
@@ -134,6 +135,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/kubernetes": Kubernetes,
   "/docs/api": Api,
   "/docs/api-cli": ApiCli,
+  "/docs/mcp-server": McpServer,
   "/docs/vocabulary": Vocabulary,
 };
 

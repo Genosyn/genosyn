@@ -512,6 +512,15 @@ describe("subpage search", () => {
     assert.equal(top("subscriptions"), "/finance/recurring-invoices");
   });
 
+  test("finds the MCP server's setup on Settings → API keys, for every Member", () => {
+    const top = (q: string, viewer = OWNER) =>
+      searchSubpages(PALETTE_SUBPAGES, q, { viewer })[0]?.page.path;
+    for (const query of ["mcp server", "model context protocol", "claude desktop", "cursor"]) {
+      assert.equal(top(query), "/settings/api-keys", query);
+      assert.equal(top(query, MEMBER_FULL), "/settings/api-keys", `${query} for a Member`);
+    }
+  });
+
   test("finds Teams by its own words, and no page for the removed org chart", () => {
     const top = (q: string) => searchSubpages(PALETTE_SUBPAGES, q, { viewer: OWNER })[0]?.page.path;
     assert.equal(top("teams"), "/settings/teams");

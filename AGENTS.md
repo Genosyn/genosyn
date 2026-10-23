@@ -733,7 +733,12 @@ in a Work session instead of leaving them stranded as local commits.
   company context and scoped tool registry to a managed OpenCode process;
   credentials and runtime state must not become persistent employee files.
   A per-turn model proxy keeps API keys in Genosyn and gives OpenCode only a
-  disposable access token and endpoint.
+  disposable access token and endpoint. An Anthropic or OpenAI API-key model
+  may hold any number of backup keys beside its primary (`services/modelApiKeys.ts`);
+  the proxy resends a request on the next key when the provider refuses the
+  key itself, before any reply reaches OpenCode (`services/agent/apiKeyRing.ts`).
+  Each key's health is an `AIModelKeyHealth` row — never written into
+  `configJson`, which key edits save only if nobody changed it meanwhile.
   OpenAI subscription models use the official pinned `@openai/codex`
   app-server with the same Genosyn-owned domain tool registry:
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
@@ -824,6 +829,14 @@ in a Work session instead of leaving them stranded as local commits.
   `describeBrowserSessionOnly` / `describeBrowserSessionCondition`
   (`middleware/routeMetadata.ts`); `openapi/apiKeySweep.test.ts` sends a real
   key to every operation and fails when the reference and the server disagree.
+- **The Genosyn MCP server is generated from that reference.**
+  `/api/companies/:cid/mcp` (`routes/companyMcp.ts`, `services/companyMcp/`)
+  offers every operation an API key may call to any MCP client through six
+  resident tools, so a new route reaches it with no extra step. Each call is
+  replayed in memory through the App's own router with the caller's key —
+  never reimplement an operation for it, and never let it read the session
+  cookie. It is not the per-employee `mcp/connect` endpoint, nor the
+  loopback `genosyn` tools an AI Employee runs with.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

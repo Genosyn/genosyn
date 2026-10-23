@@ -1268,6 +1268,27 @@ export type SubscriptionDeviceSession = {
   userCode: string | null;
   error: string | null;
 };
+/** Why a provider refused one of an AI Model's API keys. */
+export type ApiKeyFailureKind = "auth" | "permission" | "billing" | "quota" | "rate_limit";
+/**
+ * One of an API-key AI Model's keys, as a masked preview with its health. The
+ * key itself never leaves the server.
+ */
+export type AIModelApiKey = {
+  id: string;
+  /** e.g. `sk-…c123`. */
+  preview: string;
+  addedAt: string | null;
+  /** When a request on it last succeeded. */
+  lastUsedAt: string | null;
+  /** When a provider last refused it — the status, why, and in its words. */
+  lastErrorAt: string | null;
+  lastErrorStatus: number | null;
+  lastErrorKind: ApiKeyFailureKind | null;
+  lastError: string | null;
+  /** While in the future, requests try the AI Model's other keys first. */
+  restingUntil: string | null;
+};
 export type AIModel = {
   id: string;
   employeeId: string;
@@ -1279,6 +1300,11 @@ export type AIModel = {
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
+  /**
+   * An API-key model's keys in the order requests try them: the primary, then
+   * every backup key. Empty for subscription and custom-endpoint models.
+   */
+  apiKeys: AIModelApiKey[];
   /** Env var the provider conventionally reads (informational), or null. */
   apiKeyEnv: string | null;
   supportsApiKey: boolean;

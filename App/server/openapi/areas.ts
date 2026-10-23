@@ -16,6 +16,7 @@ import { cardExpensesRouter } from "../routes/cardExpenses.js";
 import { careersRouter } from "../routes/careers.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "../routes/chatSurfaces.js";
 import { companiesRouter } from "../routes/companies.js";
+import { companyMcpRouter } from "../routes/companyMcp.js";
 import { companyPoliciesRouter } from "../routes/companyPolicies.js";
 import { companySsoRouter } from "../routes/companySso.js";
 import { companySsoAuthRouter } from "../routes/companySsoAuth.js";
@@ -194,7 +195,8 @@ export const AREAS: readonly Area[] = [
   { name: "MCP servers", description: "MCP servers configured for an AI Employee." },
   {
     name: "MCP",
-    description: "The Streamable HTTP MCP endpoint for an AI Employee's built-in tools.",
+    description:
+      "Streamable HTTP MCP endpoints: the Genosyn MCP server, which offers every operation an API key may call, and an AI Employee's built-in tools.",
   },
   { name: "Browser", description: "Live sessions in an AI Employee's browser." },
   {
@@ -324,6 +326,7 @@ function areaRules(): AreaRule[] {
     { router: integrationsRouter, area: "Integrations" },
     { router: mcpRouter, area: "MCP servers" },
     { router: mcpConnectRouter, area: "MCP" },
+    { router: companyMcpRouter, area: "MCP" },
     { router: browserSessionsRouter, area: "Browser" },
     { router: memberBrowsersRouter, area: "Member browsers" },
     { router: phoneRouter, area: "Phone numbers" },
