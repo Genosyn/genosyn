@@ -432,6 +432,32 @@ test("failure reporting is deferred and restricted before discovery, including s
   }
 });
 
+test("the Run's own checkpoint tool is resident, so saving progress never costs a find_tools turn", async () => {
+  const name = "save_run_checkpoint";
+  assert.equal(RESIDENT_GENOSYN_TOOLS.includes(name), false);
+  const child = issueDelegatedMcpToken(token);
+  tokens.add(child);
+  for (const [issued, expected] of [
+    [token, "resident"],
+    [issue({ runId: undefined, routineId: undefined }), undefined],
+    [child, undefined],
+  ] as const) {
+    const gathered = await gatherEmployeeTools({
+      employeeId: employee.id,
+      genosynToken: issued,
+      cwd: "/unused-checkpoint-test",
+      toolEnv: {},
+      bashTimeoutMs: 1000,
+      allowPrivilegedToolSources: false,
+    });
+    try {
+      assert.equal(gathered.registry.visibility(name), expected);
+    } finally {
+      await gathered.close();
+    }
+  }
+});
+
 test("Run readers include Error and expose the employee's failure separately from grading", async () => {
   await AppDataSource.getRepository(Run).update(run.id, {
     status: "error",
