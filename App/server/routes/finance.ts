@@ -264,7 +264,7 @@ import { customerMergeRouter } from "./customerMerge.js";
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
  *
  * One router for all four resource families (customers, products, tax
- * rates, invoices) so the mount point in `index.ts` stays compact and
+ * rates, invoices) so the mount point in `app.ts` stays compact and
  * cross-resource validation (e.g. "this product references a missing
  * tax rate") can stay local.
  */

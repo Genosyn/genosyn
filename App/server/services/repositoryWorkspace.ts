@@ -59,7 +59,7 @@ export { assertSafeBranchName } from "./gitCredentialHelper.js";
  *
  * The ceiling comes from the save path: a save travels as a JSON string, where
  * escaping newlines and quotes can nearly double the byte count, and the App's
- * global body limit is 1 MB (`express.json` in `server/index.ts`). Reading
+ * global body limit is 1 MB (`express.json` in `server/app.ts`). Reading
  * could afford to be more generous — but a file you can open and then cannot
  * save is a worse experience than one that says plainly it is too big, and it
  * would need its own state in the editor to express. If you raise this, raise
