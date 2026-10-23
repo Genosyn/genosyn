@@ -92,6 +92,7 @@ import { careersRouter } from "./routes/careers.js";
 import { careersHostGuard } from "./routes/careersSite.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
+import { cliRouter } from "./routes/cli.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
 import { navigationRouter } from "./routes/navigation.js";
@@ -142,6 +143,9 @@ export function createApp(): express.Express {
   // A careers site's custom domain serves the careers site and nothing else:
   // before any other route, so no App API, page or sign-in answers there.
   app.use(careersHostGuard({ isDev: process.env.NODE_ENV !== "production" }));
+  // The genosyn-api command line, a file to download (`routes/cli.ts`). It
+  // needs no session or body, so it sits ahead of both.
+  app.use("/cli", cliRouter());
   // External chat surface webhooks (M59) — Microsoft Teams and WhatsApp POST
   // here. Mounted BEFORE express.json() and before requireTrustedOrigin/session
   // middleware, because the signature is the only credential this endpoint
