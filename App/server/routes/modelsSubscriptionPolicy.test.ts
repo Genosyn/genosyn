@@ -445,6 +445,25 @@ describe("API model setup routes", () => {
     assert.doesNotMatch(JSON.stringify(response.body), /secret-credential/);
     assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
   });
+
+  test("a refused test answers with what the service said beside the sentence", async (t) => {
+    const providerDetail = "HTTP 400 · invalid_request_error\nYour credit balance is too low.";
+    t.mock.method(agentRuntime, "run", async () => {
+      throw Object.assign(new Error("The AI Model request failed (HTTP 400)."), {
+        status: 400,
+        providerDetail,
+      });
+    });
+    const response = await call("POST", "/connect", {
+      provider: "anthropic",
+      apiKey: "secret-credential",
+      model: "claude-opus-5-5",
+    });
+    assert.equal(response.status, 422);
+    assert.match(String(response.body.error), /rejected the request/);
+    assert.equal(response.body.detail, providerDetail);
+    assert.equal(await AppDataSource.getRepository(AIModel).count(), 0);
+  });
 });
 
 describe("OpenAI subscription policy routes", () => {

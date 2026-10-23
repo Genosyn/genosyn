@@ -14,10 +14,10 @@ import {
   SELF_HOSTED_RESPONSE_WAIT_MS,
 } from "./opencodeConfig.js";
 import { openCodeEnvironment, openCodeStartupError } from "./opencodeServer.js";
-import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
+import { OpenCodeEvents, openCodeActivityError, providerErrorDetail } from "./opencodeEvents.js";
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
-import { serveOpenCodeModel } from "./opencodeProxy.js";
+import { endOnUserTurn, serveOpenCodeModel } from "./opencodeProxy.js";
 import { openCodeModelLimits } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
@@ -1404,6 +1404,161 @@ test("provider forwarding keeps the stored key out of child configuration and pr
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
+});
+
+// 2026-10-23: connecting Claude Opus 5.5 failed every time. The connection test
+// allows two steps, and OpenCode ends a turn's last step with its "maximum steps
+// reached" instruction as an assistant message — a prefill, which Claude Opus
+// 4.6 and every later model reject with a 400.
+test("Claude requests end on the user's turn, so a step limit is never sent as a prefill", async () => {
+  const limit = { role: "assistant", content: [{ type: "text", text: "MAXIMUM STEPS REACHED" }] };
+  const toolResult = { role: "user", content: [{ type: "tool_result", tool_use_id: "t" }] };
+  assert.deepEqual(endOnUserTurn({ model: "m", messages: [toolResult, limit] }), {
+    model: "m",
+    messages: [toolResult, { ...limit, role: "user" }],
+  });
+  assert.deepEqual(endOnUserTurn({ messages: [{ role: "assistant", content: "Continue" }] }), {
+    messages: [{ role: "user", content: "Continue" }],
+  });
+  const toolCall = { role: "assistant", content: [{ type: "tool_use", id: "t" }] };
+  assert.equal(endOnUserTurn({ messages: [toolResult, toolCall] }), null);
+  assert.equal(endOnUserTurn({ messages: [toolResult] }), null);
+  assert.equal(endOnUserTurn({ prompt: "no messages" }), null);
+
+  const received: string[] = [];
+  const upstream = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    received.push(Buffer.concat(chunks).toString());
+    res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== "string");
+  const proxy = await serveOpenCodeModel({
+    id: "claude-opus-5-5",
+    provider: "anthropic",
+    apiKey: "stored-key",
+    baseURL: `http://127.0.0.1:${address.port}`,
+    contextWindow: null,
+  });
+  const send = (body: string) =>
+    fetch(`${proxy.model.baseURL}/messages`, {
+      method: "POST",
+      headers: { "x-api-key": proxy.model.apiKey, "Content-Type": "application/json" },
+      body,
+    }).then((response) => response.text());
+  try {
+    await send(JSON.stringify({ model: "claude-opus-5-5", messages: [toolResult, limit] }));
+    const forwarded = JSON.parse(received[0]) as { messages: Array<{ role: string }> };
+    assert.deepEqual(
+      forwarded.messages.map((message) => message.role),
+      ["user", "user"],
+    );
+    const unchanged = JSON.stringify({ model: "claude-opus-5-5", messages: [toolResult] });
+    await send(unchanged);
+    assert.equal(received[1], unchanged, "a request already ending on the user is sent as is");
+  } finally {
+    await proxy.close();
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  }
+});
+
+test("an error body a provider sends back never carries the stored key to OpenCode", async () => {
+  // The way a provider quotes back the key it was sent.
+  const upstream = createServer((req, res) => {
+    req.resume();
+    const sent = req.headers.authorization?.replace(/^Bearer /, "");
+    res
+      .writeHead(401, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ error: { message: `Invalid key: ${sent}` } }));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== "string");
+  const quoted = async (apiKey: string) => {
+    const proxy = await serveOpenCodeModel({
+      ...model,
+      apiKey,
+      baseURL: `http://127.0.0.1:${address.port}`,
+    });
+    try {
+      const response = await fetch(`${proxy.model.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${proxy.model.apiKey}` },
+        body: JSON.stringify({ model: "fixture" }),
+      });
+      assert.equal(response.status, 401);
+      return ((await response.json()) as { error: { message: string } }).error.message;
+    } finally {
+      await proxy.close();
+    }
+  };
+  try {
+    assert.equal(await quoted("stored-key-stays-in-genosyn"), "Invalid key: [redacted]");
+    // A self-hosted server's placeholder is no secret; replacing it would garble the reply.
+    assert.equal(await quoted("EMPTY"), "Invalid key: EMPTY");
+  } finally {
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  }
+});
+
+test("a provider's explanation travels apart from the safe message, without key-shaped text", () => {
+  const events = new OpenCodeEvents("session");
+  events.accept({
+    id: "failure",
+    type: "session.error",
+    properties: {
+      sessionID: "session",
+      error: {
+        name: "APIError",
+        data: {
+          message: "This model does not support assistant message prefill.",
+          statusCode: 400,
+          isRetryable: false,
+          responseHeaders: { "set-cookie": "private-header" },
+          responseBody: JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: "This model does not support assistant message prefill.",
+            },
+            request_id: "req_fixture",
+          }),
+        },
+      },
+    },
+  });
+  const error = events.error as Error & { status: number; providerDetail: string };
+  assert.equal(error.message, "The AI Model request failed (HTTP 400).");
+  assert.equal(error.status, 400);
+  assert.equal(
+    error.providerDetail,
+    "HTTP 400 · invalid_request_error\nThis model does not support assistant message prefill.\nRequest ID: req_fixture",
+  );
+
+  const quoted = providerErrorDetail({
+    message: "Unauthorized",
+    statusCode: 401,
+    isRetryable: false,
+    responseBody: JSON.stringify({
+      error: {
+        message: "Incorrect API key provided: sk-proj-abc*********wxyz. Bearer abc.def",
+        code: "invalid_api_key",
+      },
+    }),
+  });
+  assert.equal(
+    quoted,
+    "HTTP 401 · invalid_api_key\nIncorrect API key provided: [redacted]. [redacted]",
+  );
+  assert.equal(
+    providerErrorDetail({ message: "", isRetryable: false, responseBody: "upstream timeout" }),
+    "upstream timeout",
+  );
+  assert.equal(providerErrorDetail({ message: "", isRetryable: false }), null);
 });
 
 test("startup diagnostics explain installation errors without exposing raw output", () => {
