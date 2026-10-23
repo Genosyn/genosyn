@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { pbkdf2, randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -651,6 +651,70 @@ describe("backups never ship without the database", () => {
         /does not contain the database/,
       ),
     );
+    const uploads = (await listBackupDir()).filter((name) => name.startsWith("uploaded-"));
+    assert.deepEqual(uploads, [], "a rejected upload was kept");
+  });
+});
+
+/**
+ * Regression coverage for a rejected upload that took the server down.
+ *
+ * Reading an archive's central directory opens the file a second time, and
+ * an archive that lists no files — a backup of a data directory with nothing
+ * in it comes out that way — was answered before that open had run. The
+ * upload was then removed, the open failed on its own, and a stream error
+ * nobody listened for was an uncaught exception. It depended on how soon
+ * libuv's thread pool got to the open, so it struck about one CI run in four.
+ */
+describe("a rejected upload", () => {
+  /** A zip that lists no files: its end-of-central-directory record alone. */
+  function emptyArchive(): Buffer {
+    const record = Buffer.alloc(22);
+    record.writeUInt32LE(0x06054b50, 0);
+    return record;
+  }
+
+  function uploadOf(bytes: Buffer): IncomingMessage {
+    const body = Object.assign(new PassThrough(), {
+      headers: { "content-length": String(bytes.length) },
+    });
+    body.end(bytes);
+    return body as unknown as IncomingMessage;
+  }
+
+  /**
+   * Keep every thread in libuv's pool busy, the way a loaded server's are,
+   * so each file open waits its turn. Returns a function that stops and waits
+   * for the pool to drain — and for whatever was waiting in it to run.
+   */
+  function occupyThreadPool(): () => Promise<void> {
+    let busy = true;
+    const threads = Number(process.env.UV_THREADPOOL_SIZE) || 4;
+    const work = async () => {
+      while (busy) {
+        await new Promise<void>((resolve, reject) =>
+          pbkdf2("busy", "salt", 50_000, 32, "sha256", (err) => (err ? reject(err) : resolve())),
+        );
+      }
+    };
+    const workers = Array.from({ length: threads * 2 }, work);
+    return async () => {
+      busy = false;
+      await Promise.all(workers);
+    };
+  }
+
+  test("is removed only once nothing is still opening it, however busy the server", async () => {
+    const drain = occupyThreadPool();
+    try {
+      await withSqliteDriver(() =>
+        assert.rejects(ingestUploadedArchive(uploadOf(emptyArchive())), /does not contain the database/),
+      );
+    } finally {
+      // An open still waiting in the pool runs now; one that outlived the
+      // upload fails here as an uncaught exception, and fails the test.
+      await drain();
+    }
     const uploads = (await listBackupDir()).filter((name) => name.startsWith("uploaded-"));
     assert.deepEqual(uploads, [], "a rejected upload was kept");
   });
