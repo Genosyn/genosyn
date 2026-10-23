@@ -212,8 +212,8 @@ export function Introduction() {
         The palette finds the pages inside each section as well. Type &ldquo;recurring&rdquo; and{" "}
         <DocLink to="/docs/finance">Finance</DocLink>&apos;s <Strong>Recurring invoices</Strong>{" "}
         appears under <Strong>Pages</Strong>, beside Routines; &ldquo;members&rdquo; opens Settings →
-        Members, &ldquo;drafts&rdquo; opens your Email drafts, and &ldquo;new invoice&rdquo; opens
-        the invoice form. Each page shows the section it belongs to, and whichever group holds the
+        Members, &ldquo;drafts&rdquo; opens your Email drafts, and &ldquo;new invoice&rdquo; starts
+        a new invoice. Each page shows the section it belongs to, and whichever group holds the
         closest match comes first, so <Code>↵</Code> opens it. Add the section&apos;s name to narrow
         things down: &ldquo;revenue accounts&rdquo; finds Revenue&apos;s Accounts and not
         Finance&apos;s Chart of accounts. Pages only appear when you can open them, here and in each
