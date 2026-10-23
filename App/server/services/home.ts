@@ -327,7 +327,9 @@ export async function getHomeData(params: {
       const label =
         c.kind === "dm"
           ? others.map((m) => m.name).join(", ") || "Direct message"
-          : `#${c.name ?? c.slug ?? "channel"}`;
+          : c.kind === "group"
+            ? c.name || others.map((m) => m.name).join(", ") || "Group chat"
+            : `#${c.name ?? c.slug ?? "channel"}`;
       return {
         id: c.id,
         kind: c.kind,

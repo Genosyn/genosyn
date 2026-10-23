@@ -269,6 +269,9 @@ async function checkNode(
       if (channel.kind === "dm") {
         return refusal(node, "A pipeline cannot post into a DM channel.");
       }
+      if (channel.kind === "group") {
+        return refusal(node, "A pipeline cannot post into a group chat.");
+      }
       if (channel.kind === "private") {
         const membership = await AppDataSource.getRepository(ChannelMember).findOneBy({
           channelId: channel.id,

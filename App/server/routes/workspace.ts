@@ -140,7 +140,8 @@ workspaceRouter.post("/channels", validateBody(createChannelSchema), async (req,
 });
 
 const renameChannelSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
+  /** An empty name clears a group chat's, which then shows its members. */
+  name: z.string().max(80).optional(),
   topic: z.string().max(280).optional(),
 });
 workspaceRouter.patch(
@@ -155,6 +156,12 @@ workspaceRouter.patch(
     });
     if (!ok) return res.status(404).json({ error: "Channel not found" });
     const body = req.body as z.infer<typeof renameChannelSchema>;
+    if (body.name !== undefined && !body.name.trim()) {
+      const channel = await getChannel(req.params.channelId, co.id, req.userId!);
+      if (channel?.kind !== "group") {
+        return res.status(400).json({ error: "A channel needs a name." });
+      }
+    }
     try {
       await renameChannel({
         channelId: req.params.channelId,

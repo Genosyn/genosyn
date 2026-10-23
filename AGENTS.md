@@ -237,6 +237,8 @@ code, UI copy, commits, and docs.
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
 | **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
 | **Workstream** (a persistent state document for work spanning many Runs — `Workstream`) | Project (reserved for the task manager), Thread, Epic |
+| **Group chat** (a private Workspace conversation between Members and the AI Employees they bring in — a `Channel` of kind `group`) | Group DM, Room, Huddle |
+| **Group discussion** (several AI Employees working one Member's question out together in a channel, in bounded read-only rounds, ending in one outcome — `GroupDiscussion`) | Meeting (reserved for Meetings), Debate, Swarm, Council |
 | **Initiative** (standing work an employee proposes and a human accepts — `Initiative`) | Proposal (Revision proposals own that word), Suggestion, Idea |
 | **Work timeline** (one AI Employee's work over a window, assembled at read time from the rows the server wrote — `services/employeeWorkTimeline.ts`) | Activity feed, Journal (the employee's own diary), Audit trail, History, Shift |
 | **Policy** (a company-wide rule binding every employee — `CompanyPolicy`; a decision-routing rule is a `DecisionPolicy`, always said as "decision policy") | Rule, Guideline, Guardrail |
@@ -550,6 +552,33 @@ never criteria, instructions or another applicant's data; a verified custom
 domain is answered by `careersHostGuard` with the careers site and nothing
 else; resumes stay App-private under `.private/recruiting/` and reach only
 signed-in Members. Keep those boundaries when extending it.
+
+**A group discussion talks; it does not act.** Several AI Employees take turns
+on one Member's question in a Workspace channel — in a group chat every Member
+message is one — and the lead writes the outcome (summary, recommendation, open
+questions, who does what) in a restricted turn whose one tool submits it
+(`services/groupDiscussions.ts`). Every discussion turn, and every answer to
+`ask_colleague` (one employee asking another mid-work, `services/colleagueConsult.ts`),
+is a *collaboration turn*: read tools from the explicit allowlist in
+`services/collaborationScope.ts` and nothing else, narrowed where the tool list
+is built and refused again at the MCP seam, with no coding, browser, configured
+MCP servers, secrets or delegation. So talk is never a path around an Approval,
+a Decision or a delivery limit: the work an outcome assigns starts only when a
+Member presses Start the work, as ordinary chat turns under that Member's
+authority. Each turn runs as the speaking employee with its own Grants,
+intersected with the starting Member's access and re-checked before every turn;
+a company Standdown ends the discussion, an employee Standdown sits that
+employee out. Bounds live in `GROUP_DISCUSSION_LIMITS` (roster, rounds, turns,
+provider-reported tokens, wall clock), and passes, agreement and repetition end
+a discussion early (`groupDiscussionPlan.ts`). Taint travels with the words: a
+message a tainted turn wrote carries `ChannelMessage.tainted`, and any AI turn
+that replays one — a mention reply, the next speaker, the work started from an
+outcome — starts tainted. Keep it so: do not give collaboration turns a write
+tool, let `ask_colleague` chain (it is absent from the allowlist on purpose),
+start follow-through work without a Member, or let AI Employees rename, archive
+or post into group chats they are not in. Outside discussions, AI-to-AI
+@mention replies pause after `AI_MENTION_CHAIN_LIMIT` messages with no Member
+writing (`services/workspaceChat.ts`).
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

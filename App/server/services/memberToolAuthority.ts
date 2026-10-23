@@ -62,6 +62,10 @@ const MEMBER_TOOLS = [
   "read_record_attachment",
   "delete_record_attachment",
   "list_teams",
+  // A Member may chat with any AI Employee directly. Asking one through a
+  // colleague is no wider: the answer runs read-only, under this same Member's
+  // access intersected with the colleague's own Grants.
+  "ask_colleague",
   "list_handoffs",
   "create_handoff",
   "complete_handoff",

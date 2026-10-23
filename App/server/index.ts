@@ -52,6 +52,7 @@ import { bootCustomJavaScript } from "./services/customJavaScript.js";
 import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
 import { bootAuthFlowStateSweeper, stopAuthFlowStateSweeper } from "./services/authFlowCleanup.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
+import { bootGroupDiscussions } from "./services/groupDiscussions.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
@@ -120,6 +121,9 @@ async function main() {
   // out of the runner's dependency graph.
   bootRoutineTriggers();
   await bootDurableChatTurnRecovery();
+  // Group discussions a previous process was driving end as interrupted;
+  // writing in the chat again picks the discussion up.
+  await bootGroupDiscussions();
   await bootSignatureExpirySweeper();
   await bootBackups();
   // Daily verification that every backup the schedule promised is really there.

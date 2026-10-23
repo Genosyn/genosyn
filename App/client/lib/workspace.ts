@@ -7,7 +7,17 @@ import { api, Notification } from "./api";
  */
 
 export type WorkspaceAuthorKind = "user" | "ai" | "system";
-export type WorkspaceChannelKind = "public" | "private" | "dm";
+/** `group` is a group chat: private, unnamed if you like, and discussed by its AI Employees. */
+export type WorkspaceChannelKind = "public" | "private" | "dm" | "group";
+
+/** What a message is to the group discussion it belongs to. Mirrors the server. */
+export type WorkspaceDiscussionRole =
+  | "question"
+  | "input"
+  | "turn"
+  | "outcome"
+  | "note"
+  | "follow_through";
 
 export type WorkspaceAuthor =
   | { kind: "user"; id: string; name: string; email: string | null }
@@ -41,6 +51,92 @@ export type WorkspaceMessage = {
   createdAt: string;
   attachments: WorkspaceAttachment[];
   reactions: WorkspaceReaction[];
+  /** The group discussion this message belongs to; absent on older payloads. */
+  discussionId?: string | null;
+  discussionRole?: WorkspaceDiscussionRole | null;
+};
+
+export type GroupDiscussionStatus = "running" | "concluded" | "stopped" | "failed" | "interrupted";
+
+export type GroupDiscussionEndReason =
+  | "converged"
+  | "max_rounds"
+  | "turn_budget"
+  | "usage_budget"
+  | "time_limit"
+  | "repetition"
+  | "wrapped_up"
+  | "stopped"
+  | "standdown"
+  | "access_changed"
+  | "channel_archived"
+  | "no_participants"
+  | "restart"
+  | "error";
+
+export type DiscussionParticipantState =
+  | "waiting"
+  | "speaking"
+  | "spoke"
+  | "passed"
+  | "skipped"
+  | "benched"
+  | "writing";
+
+export type DiscussionActionItem = {
+  owner:
+    | { kind: "ai"; id: string; name: string; slug: string }
+    | { kind: "user"; id: string; name: string }
+    | null;
+  ownerLabel: string;
+  action: string;
+  status?: "queued" | "working" | "done" | "failed" | "skipped";
+  detail?: string;
+};
+
+export type DiscussionOutcome = {
+  summary: string;
+  recommendation: string;
+  openQuestions: string[];
+  actionItems: DiscussionActionItem[];
+  writtenByEmployeeId: string | null;
+};
+
+/** A group discussion as `GET …/discussions/:id` returns it. Mirrors the server DTO. */
+export type GroupDiscussion = {
+  id: string;
+  channelId: string;
+  status: GroupDiscussionStatus;
+  phase: "discussing" | "concluding" | "done";
+  endReason: GroupDiscussionEndReason | null;
+  endDetail: string | null;
+  question: string;
+  questionMessageId: string | null;
+  startedBy: { id: string; name: string } | null;
+  leadEmployeeId: string | null;
+  participants: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    avatarKey: string | null;
+    state: DiscussionParticipantState;
+  }>;
+  round: number;
+  rounds: number;
+  turnsTaken: number;
+  maxTurns: number;
+  tokensUsed: number;
+  tokenBudget: number;
+  currentEmployeeId: string | null;
+  passes: Array<{ employeeId: string; round: number; reason: "pass" | "agree" | "repeat" }>;
+  skipped: Array<{ employeeId: string; round: number; reason: string; detail?: string }>;
+  outcome: DiscussionOutcome | null;
+  outcomeMessageId: string | null;
+  followThrough: { startedAt: string; byUserId: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
 };
 
 export type WorkspaceChannel = {
@@ -202,6 +298,45 @@ export const workspaceApi = {
     `${base(companyId)}/attachments/${attachmentId}`,
 
   wsToken: (companyId: string) => api.post<{ token: string }>(`${base(companyId)}/ws-token`),
+
+  // ── Group chats and group discussions ──
+
+  createGroupChat: (
+    companyId: string,
+    body: {
+      employeeIds: string[];
+      memberUserIds?: string[];
+      name?: string;
+      question?: string;
+      maxRounds?: number;
+      attachmentIds?: string[];
+    },
+  ) =>
+    api.post<{ channel: WorkspaceChannel; discussion: GroupDiscussion | null }>(
+      `${base(companyId)}/group-chats`,
+      body,
+    ),
+
+  listDiscussions: (companyId: string, channelId: string) =>
+    api.get<GroupDiscussion[]>(`${base(companyId)}/channels/${channelId}/discussions`),
+
+  getDiscussion: (companyId: string, discussionId: string) =>
+    api.get<GroupDiscussion>(`${base(companyId)}/discussions/${discussionId}`),
+
+  startDiscussion: (
+    companyId: string,
+    channelId: string,
+    body: { question: string; employeeIds?: string[]; maxRounds?: number; attachmentIds?: string[] },
+  ) => api.post<GroupDiscussion>(`${base(companyId)}/channels/${channelId}/discussions`, body),
+
+  stopDiscussion: (companyId: string, discussionId: string) =>
+    api.post<GroupDiscussion>(`${base(companyId)}/discussions/${discussionId}/stop`, {}),
+
+  finishDiscussion: (companyId: string, discussionId: string) =>
+    api.post<GroupDiscussion>(`${base(companyId)}/discussions/${discussionId}/finish`, {}),
+
+  startDiscussionWork: (companyId: string, discussionId: string) =>
+    api.post<GroupDiscussion>(`${base(companyId)}/discussions/${discussionId}/start-work`, {}),
 };
 
 // ──────────────────────── WebSocket client ───────────────────────────────
@@ -234,6 +369,7 @@ export type WsInboundEvent =
   | { type: "channel.new"; channel: WorkspaceChannel }
   | { type: "channel.update"; channelId: string; channel: WorkspaceChannel }
   | { type: "channel.archive"; channelId: string }
+  | { type: "discussion.update"; channelId: string; discussion: GroupDiscussion }
   | {
       type: "typing";
       channelId: string;

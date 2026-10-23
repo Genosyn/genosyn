@@ -7,6 +7,7 @@ import { Help } from "@/docs/pages/Help";
 import { MobileApp } from "@/docs/pages/MobileApp";
 import { Security } from "@/docs/pages/Security";
 import { Employees } from "@/docs/pages/Employees";
+import { Collaboration } from "@/docs/pages/Collaboration";
 import { Soul } from "@/docs/pages/Soul";
 import { Skills } from "@/docs/pages/Skills";
 import { Routines } from "@/docs/pages/Routines";
@@ -78,6 +79,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/mobile": MobileApp,
   "/docs/security": Security,
   "/docs/employees": Employees,
+  "/docs/collaboration": Collaboration,
   "/docs/soul": Soul,
   "/docs/skills": Skills,
   "/docs/routines": Routines,

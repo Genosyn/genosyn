@@ -3709,7 +3709,9 @@ export type NotificationKind =
   /** Someone applied to an Opening the recipient owns, and nobody screens it. */
   | "recruiting_application"
   /** The AI screener rated an applicant a strong match for the recipient's Opening. */
-  | "recruiting_strong_match";
+  | "recruiting_strong_match"
+  /** A group discussion the recipient started handed back its outcome. */
+  | "group_discussion";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, Bot, ExternalLink, Hash, Lock, User as UserIcon } from "lucide-react";
+import { ArrowDown, Bot, ExternalLink, Hash, Lock, User as UserIcon, Users } from "lucide-react";
 
 import { useCompanySocket, useCompanySocketSubscription } from "@/components/CompanySocket";
 import { MessageList } from "@/components/workspace/MessageList";
@@ -541,15 +541,25 @@ function ChannelMeta({
 }) {
   const withAi = detail?.members.some((m) => m.kind === "ai") ?? false;
   const Icon =
-    channel.kind === "dm" ? (withAi ? Bot : UserIcon) : channel.kind === "private" ? Lock : Hash;
+    channel.kind === "dm"
+      ? withAi
+        ? Bot
+        : UserIcon
+      : channel.kind === "group"
+        ? Users
+        : channel.kind === "private"
+          ? Lock
+          : Hash;
   const kindLabel =
     channel.kind === "dm"
       ? withAi
         ? "Direct message with an AI Employee"
         : "Direct message"
-      : channel.kind === "private"
-        ? "Private channel"
-        : "Channel";
+      : channel.kind === "group"
+        ? "Group chat"
+        : channel.kind === "private"
+          ? "Private channel"
+          : "Channel";
   const memberCount = detail?.members.length ?? 0;
   return (
     <span className="block min-w-0">

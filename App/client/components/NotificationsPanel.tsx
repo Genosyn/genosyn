@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Star,
   Target,
+  Users,
 } from "lucide-react";
 import { api, Company, Notification, NotificationKind } from "../lib/api";
 import { errorMessage } from "../lib/errors";
@@ -425,6 +426,8 @@ function KindIcon({
       return <Briefcase size={size} className={className} />;
     case "recruiting_strong_match":
       return <Star size={size} className={className} />;
+    case "group_discussion":
+      return <Users size={size} className={className} />;
   }
 }
 
@@ -520,6 +523,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   recruiting_strong_match: {
     iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
     iconFg: "text-emerald-600 dark:text-emerald-300",
+  },
+  group_discussion: {
+    iconBg: "bg-indigo-100 dark:bg-indigo-500/15",
+    iconFg: "text-indigo-600 dark:text-indigo-300",
   },
 };
 

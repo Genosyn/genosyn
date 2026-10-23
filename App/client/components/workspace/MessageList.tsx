@@ -47,11 +47,18 @@ export function MessageList({
   onEdit,
   onDelete,
   onReact,
+  renderRow,
 }: {
   messages: WorkspaceMessage[];
   meId: string;
   mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
+  /**
+   * A surface's own rendering for a message it knows better — a group
+   * discussion's outcome card, its quiet notes. Return nothing to keep the
+   * ordinary row. A replaced row never bundles with its neighbours.
+   */
+  renderRow?: (message: WorkspaceMessage) => React.ReactNode | null | undefined;
   /**
    * Draw the "new messages" line above this message. Comes from
    * `firstUnreadMessageId` in `lib/unreadMessages.ts`, which applies the same
@@ -77,6 +84,16 @@ export function MessageList({
   return (
     <div className="space-y-0.5">
       {messages.map((m) => {
+        const special = renderRow?.(m);
+        if (special) {
+          prev = null;
+          return (
+            <React.Fragment key={m.id}>
+              {m.id === unreadFromMessageId && <NewMessagesDivider />}
+              {special}
+            </React.Fragment>
+          );
+        }
         const bundled = isBundled(prev, m) && m.id !== unreadFromMessageId;
         prev = m;
         return (

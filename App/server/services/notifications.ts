@@ -38,7 +38,9 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
  * and for the few events an owner hears about at once: a Goal settled or
  * waiting for someone to confirm it was met, a Budget spent, a Standdown placed,
  * the monthly letter to the board, an applicant the AI screener rated a strong
- * match for an Opening the recipient owns.
+ * match for an Opening the recipient owns, and the outcome of a group
+ * discussion the recipient started — the answer they asked several AI
+ * Employees to come back with.
  *
  * The rest wait quietly in the bell and on Home: a failed or off-goal Run, a
  * reminder about something already pushed, a proposed edit or Initiative to
@@ -60,6 +62,7 @@ export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<
   "standdown_placed",
   "board_letter_ready",
   "recruiting_strong_match",
+  "group_discussion",
 ]);
 
 export type CreateNotificationInput = {

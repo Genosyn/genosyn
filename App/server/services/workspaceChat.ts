@@ -3,7 +3,11 @@ import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Channel, ChannelKind } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
-import { ChannelMessage, ChannelMessageAuthorKind } from "../db/entities/ChannelMessage.js";
+import {
+  ChannelMessage,
+  ChannelMessageAuthorKind,
+  type ChannelMessageDiscussionRole,
+} from "../db/entities/ChannelMessage.js";
 import { MessageReaction } from "../db/entities/MessageReaction.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -90,6 +94,9 @@ export type MessageSummary = {
   createdAt: string;
   attachments: AttachmentSummary[];
   reactions: ReactionSummary[];
+  /** The group discussion this message belongs to, and what it is to it. */
+  discussionId: string | null;
+  discussionRole: ChannelMessageDiscussionRole | null;
 };
 
 export type ReactionSummary = {
@@ -223,6 +230,95 @@ export async function createChannel(params: {
   }
   if (memberRows.length > 0) await members.save(memberRows);
 
+  return channel;
+}
+
+/** Longest name a group chat takes; the same cap as a channel's. */
+export const GROUP_CHAT_NAME_MAX = 80;
+
+/** Characters of the question a group chat's default name keeps. */
+const GROUP_CHAT_NAME_FROM_QUESTION = 60;
+
+/**
+ * A group chat started with a question is named after it, so the sidebar
+ * says what each one is about: its first line, trimmed at a word near 60
+ * characters. Null when the question has no words.
+ */
+export function groupChatNameFromQuestion(question: string): string | null {
+  const firstLine = question
+    .split("\n")
+    .map((line) => line.replace(/[#*_`>]/g, "").trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+  const oneLine = firstLine.replace(/\s+/g, " ");
+  if (oneLine.length <= GROUP_CHAT_NAME_FROM_QUESTION) return oneLine;
+  const cut = oneLine.slice(0, GROUP_CHAT_NAME_FROM_QUESTION);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 30 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/**
+ * Open a group chat: a private conversation between the Member starting it,
+ * the AI Employees they bring in, and any other Members. Unlike a channel it
+ * needs no unique name — the sidebar falls back to its members — so it never
+ * collides with one, and it never auto-joins anybody: only the people named
+ * here, and those added later, can read it.
+ */
+export async function createGroupChat(params: {
+  companyId: string;
+  createdByUserId: string;
+  name: string | null;
+  employeeIds: string[];
+  memberUserIds: string[];
+}): Promise<Channel> {
+  const { channels, members } = repos();
+  await assertActorsInCompany(params.companyId, {
+    userIds: [params.createdByUserId, ...params.memberUserIds],
+    employeeIds: params.employeeIds,
+  });
+  const name = params.name?.trim().slice(0, GROUP_CHAT_NAME_MAX) || null;
+  const channel = await channels.save(
+    channels.create({
+      companyId: params.companyId,
+      kind: "group",
+      name,
+      slug: null,
+      topic: "",
+      webhookToken: null,
+      createdByUserId: params.createdByUserId,
+      archivedAt: null,
+      lastMessageAt: null,
+    }),
+  );
+  const now = new Date();
+  const rows: ChannelMember[] = [];
+  const seenUsers = new Set<string>();
+  for (const userId of [params.createdByUserId, ...params.memberUserIds]) {
+    if (seenUsers.has(userId)) continue;
+    seenUsers.add(userId);
+    rows.push(
+      members.create({
+        channelId: channel.id,
+        memberKind: "user",
+        userId,
+        employeeId: null,
+        // The creator has read their own empty room; the others have not.
+        lastReadAt: userId === params.createdByUserId ? now : null,
+      }),
+    );
+  }
+  for (const employeeId of [...new Set(params.employeeIds)]) {
+    rows.push(
+      members.create({
+        channelId: channel.id,
+        memberKind: "ai",
+        userId: null,
+        employeeId,
+        lastReadAt: null,
+      }),
+    );
+  }
+  await members.save(rows);
   return channel;
 }
 
@@ -448,7 +544,13 @@ export async function renameChannel(params: {
   if (!c) throw new Error("Channel not found");
   if (c.kind === "dm") throw new Error("DMs cannot be renamed");
 
-  if (params.name !== undefined && params.name.trim()) {
+  if (c.kind === "group") {
+    // A group chat's name is a label, not an address: no slug, nothing to
+    // collide with, and clearing it falls back to the members' names.
+    if (params.name !== undefined) {
+      c.name = params.name.trim().slice(0, GROUP_CHAT_NAME_MAX) || null;
+    }
+  } else if (params.name !== undefined && params.name.trim()) {
     const nextName = params.name.trim();
     const nextSlug = slugify(nextName, { lower: true, strict: true }) || "channel";
     if (nextSlug !== c.slug) {
@@ -532,6 +634,80 @@ export async function removeChannelMember(channelId: string, memberId: string): 
 
 // ─────────────────────────── Messages ────────────────────────────────────
 
+/** Who wrote a message: a Member, an AI Employee, or the system itself. */
+export type ChannelMessageAuthor =
+  | Extract<DmActor, { kind: "user" }>
+  | Extract<DmActor, { kind: "ai" }>
+  | { kind: "system"; name: string | null };
+
+/** The last stamp `nextMessageStamp` handed out, in epoch milliseconds. */
+let lastMessageStamp = 0;
+
+/**
+ * A creation time later than every one before it in this process.
+ *
+ * Stamped here rather than left to the column's database default, which on
+ * SQLite is `datetime('now')` — whole seconds. A group discussion writes a
+ * note, a turn and the next turn inside one second, and the transcript must
+ * read back in the order it was written, on the server and in every browser
+ * that sorts by it (`mergeWorkspaceMessages`). The audit ledger made the same
+ * change for the same reason (`services/audit.ts`).
+ */
+function nextMessageStamp(): Date {
+  const now = Math.max(Date.now(), lastMessageStamp + 1);
+  lastMessageStamp = now;
+  return new Date(now);
+}
+
+/**
+ * Persist one message, bind its files, move the channel's activity marker and
+ * announce it to open pages — and nothing else. No @mention replies, no bells:
+ * the callers that want those (`postMessage`) add them, and the ones that must
+ * not trigger them (an AI reply, a group discussion's own turns) call this.
+ */
+export async function insertChannelMessage(params: {
+  channel: Channel;
+  author: ChannelMessageAuthor;
+  content: string;
+  parentMessageId?: string | null;
+  attachmentIds?: string[];
+  discussionId?: string | null;
+  discussionRole?: ChannelMessageDiscussionRole | null;
+  tainted?: boolean;
+  /** Whose `byMe` the broadcast reactions are computed for. */
+  viewerUserId?: string | null;
+}): Promise<{ row: ChannelMessage; summary: MessageSummary }> {
+  const { channels, messages } = repos();
+  const row = await messages.save(
+    messages.create({
+      channelId: params.channel.id,
+      authorKind: params.author.kind,
+      authorUserId: params.author.kind === "user" ? params.author.userId : null,
+      authorEmployeeId: params.author.kind === "ai" ? params.author.employeeId : null,
+      authorName: params.author.kind === "system" ? params.author.name : null,
+      content: params.content,
+      parentMessageId: params.parentMessageId ?? null,
+      discussionId: params.discussionId ?? null,
+      discussionRole: params.discussionRole ?? null,
+      tainted: params.tainted === true,
+      editedAt: null,
+      deletedAt: null,
+      createdAt: nextMessageStamp(),
+    }),
+  );
+  if (params.attachmentIds && params.attachmentIds.length > 0) {
+    await bindAttachmentsToMessage(params.attachmentIds, row.id, params.channel.companyId);
+  }
+  await channels.update({ id: params.channel.id }, { lastMessageAt: row.createdAt });
+  const summary = await hydrateMessage(row, params.viewerUserId ?? null);
+  broadcastToCompany(params.channel.companyId, {
+    type: "message.new",
+    channelId: params.channel.id,
+    message: summary,
+  });
+  return { row, summary };
+}
+
 type PostMessageParams = {
   channelId: string;
   companyId: string;
@@ -543,60 +719,69 @@ type PostMessageParams = {
       author: Extract<DmActor, { kind: "user" }>;
       /** Auth epoch captured by the browser route that accepted a human mention. */
       requesterSessionVersion: number;
+      tainted?: never;
     }
   | {
       author: Extract<DmActor, { kind: "ai" }>;
       requesterSessionVersion?: never;
+      /**
+       * The posting turn had read outside content. Stamped on the message so
+       * any AI turn that replays it starts tainted too.
+       */
+      tainted?: boolean;
     }
 );
 
 export async function postMessage(params: PostMessageParams): Promise<MessageSummary> {
-  const { channels, messages } = repos();
+  const { channels } = repos();
   const channel = await channels.findOneBy({ id: params.channelId });
   if (!channel) throw new Error("Channel not found");
   if (channel.companyId !== params.companyId) throw new Error("Channel not found");
 
-  const msg = messages.create({
-    channelId: params.channelId,
-    authorKind: params.author.kind === "user" ? "user" : "ai",
-    authorUserId: params.author.kind === "user" ? params.author.userId : null,
-    authorEmployeeId: params.author.kind === "ai" ? params.author.employeeId : null,
+  const viewerUserId = params.author.kind === "user" ? params.author.userId : null;
+  const { row: msg, summary } = await insertChannelMessage({
+    channel,
+    author: params.author,
     content: params.content,
     parentMessageId: params.parentMessageId ?? null,
-    editedAt: null,
-    deletedAt: null,
+    attachmentIds: params.attachmentIds,
+    tainted: params.author.kind === "ai" ? params.tainted === true : false,
+    viewerUserId,
   });
-  await messages.save(msg);
 
-  if (params.attachmentIds && params.attachmentIds.length > 0) {
-    await bindAttachmentsToMessage(params.attachmentIds, msg.id, params.companyId);
+  if (channel.kind === "group" && params.author.kind === "user") {
+    // In a group chat a Member writes to the group: the AI Employees in it
+    // work the message out together and come back with an outcome, rather
+    // than each @mentioned one answering alone. See `groupDiscussions.ts`.
+    const requester = {
+      userId: params.author.userId,
+      sessionVersion: params.requesterSessionVersion!,
+    };
+    void import("./groupDiscussions.js")
+      .then(({ discussGroupChatMessage }) =>
+        discussGroupChatMessage({ channel, message: msg, requester }),
+      )
+      .catch((e) => {
+        console.error("[workspaceChat] group discussion failed:", e);
+      });
+  } else {
+    // Fire-and-forget AI replies for @mentions. Failures log but don't back-
+    // pressure the caller's request.
+    void handleMentions({
+      channel,
+      message: msg,
+      trigger: params.author,
+      requester:
+        params.author.kind === "user"
+          ? {
+              userId: params.author.userId,
+              sessionVersion: params.requesterSessionVersion!,
+            }
+          : null,
+    }).catch((e) => {
+      console.error("[workspaceChat] mention reply failed:", e);
+    });
   }
-  await channels.update({ id: channel.id }, { lastMessageAt: msg.createdAt });
-
-  const viewerUserId = params.author.kind === "user" ? params.author.userId : null;
-  const summary = await hydrateMessage(msg, viewerUserId);
-  broadcastToCompany(params.companyId, {
-    type: "message.new",
-    channelId: channel.id,
-    message: summary,
-  });
-
-  // Fire-and-forget AI replies for @mentions. Failures log but don't back-
-  // pressure the caller's request.
-  void handleMentions({
-    channel,
-    message: msg,
-    trigger: params.author,
-    requester:
-      params.author.kind === "user"
-        ? {
-            userId: params.author.userId,
-            sessionVersion: params.requesterSessionVersion!,
-          }
-        : null,
-  }).catch((e) => {
-    console.error("[workspaceChat] mention reply failed:", e);
-  });
 
   // Bell notifications for human recipients only fire on human-authored
   // messages today — the notification surface is tuned for human@human
@@ -626,7 +811,13 @@ export async function postIncomingWebhookMessage(params: {
   content: string;
 }): Promise<MessageSummary> {
   const { channels, messages } = repos();
-  if (params.channel.kind === "dm" || params.channel.archivedAt) {
+  // Webhooks are channel integrations. A DM or a group chat is a private
+  // conversation between people, never somewhere an outside service posts.
+  if (
+    params.channel.kind === "dm" ||
+    params.channel.kind === "group" ||
+    params.channel.archivedAt
+  ) {
     throw new Error("Channel not found");
   }
   const message = await messages.save(
@@ -1114,6 +1305,8 @@ async function hydrateMessages(
       createdAt: m.createdAt.toISOString(),
       attachments: m.deletedAt ? [] : attachmentSummaries,
       reactions: reactionSummaries,
+      discussionId: m.discussionId ?? null,
+      discussionRole: m.discussionRole ?? null,
     };
   });
 }
@@ -1136,7 +1329,7 @@ async function handleMentions(args: {
   trigger: DmActor | { kind: "system"; name: string };
   requester: { userId: string; sessionVersion: number } | null;
 }): Promise<void> {
-  const { employees, members, channels, messages: msgRepo } = repos();
+  const { employees, members, messages: msgRepo } = repos();
 
   // Collect candidate AI employees from the @mention tokens AND — for DMs
   // with an AI counterparty — always reply even without an explicit tag, so
@@ -1176,6 +1369,21 @@ async function handleMentions(args: {
   }
 
   if (respondingEmployees.length === 0) return;
+
+  // Chain guard. An AI Employee that posts with `send_workspace_message` and
+  // @mentions a colleague gets that colleague's reply — and the colleague's
+  // turn holds the same tool, so two of them could keep @mentioning each
+  // other with nobody in the room, every exchange a paid turn. Past a run of
+  // AI messages with no Member writing in between, an AI's @mention stops
+  // starting a reply until a Member writes again. Group discussions bound
+  // their own talk and do not count here.
+  if (args.trigger.kind === "ai") {
+    const chain = await aiMentionChainLength(args.channel.id, args.message);
+    if (chain > AI_MENTION_CHAIN_LIMIT) {
+      await notePausedMentionChain(args.channel);
+      return;
+    }
+  }
 
   // Also constrain: only mention AI employees that are actually members of
   // this channel, to avoid spam-@-ing any slug across the company.
@@ -1251,15 +1459,7 @@ async function handleMentions(args: {
     // Broadcast typing every 3 s while the CLI is thinking so teammates
     // see a "{name} is typing..." pill instead of silence. The interval
     // clears in the finally so a CLI crash still stops the indicator.
-    const emitTyping = () => {
-      broadcastToCompany(args.channel.companyId, {
-        type: "typing",
-        channelId: args.channel.id,
-        by: { kind: "ai", id: emp.id, name: emp.name },
-      });
-    };
-    emitTyping();
-    const typingTimer = setInterval(emitTyping, 3_000);
+    const stopTyping = startTypingBroadcast(args.channel, emp);
     let result;
     try {
       result = await streamChatWithEmployee(
@@ -1274,6 +1474,9 @@ async function handleMentions(args: {
           // for two answers, not a queue.
           images: imageContext.get(args.message.id),
           workloadScope: `workspace-channel:${args.channel.id}`,
+          // A message a tainted turn wrote is outside content to whoever
+          // reads it next. Replaying it taints this turn as well.
+          startTainted: replayRows.some((row) => row.tainted),
           ...(args.requester
             ? {
                 requesterUserId: args.requester.userId,
@@ -1285,33 +1488,97 @@ async function handleMentions(args: {
         },
       );
     } finally {
-      clearInterval(typingTimer);
+      stopTyping();
     }
 
-    const reply = await msgRepo.save(
-      msgRepo.create({
-        channelId: args.channel.id,
-        authorKind: "ai",
-        authorUserId: null,
-        authorEmployeeId: emp.id,
-        content: result.reply,
-        parentMessageId: null,
-        editedAt: null,
-        deletedAt: null,
-      }),
-    );
-    if (result.attachmentIds.length > 0) {
-      await bindAttachmentsToMessage(result.attachmentIds, reply.id, args.channel.companyId);
-    }
-    await channels.update({ id: args.channel.id }, { lastMessageAt: reply.createdAt });
-    const viewerUserId = args.trigger.kind === "user" ? args.trigger.userId : null;
-    const summary = await hydrateMessage(reply, viewerUserId);
-    broadcastToCompany(args.channel.companyId, {
-      type: "message.new",
-      channelId: args.channel.id,
-      message: summary,
+    await insertChannelMessage({
+      channel: args.channel,
+      author: { kind: "ai", employeeId: emp.id },
+      content: result.reply,
+      attachmentIds: result.attachmentIds,
+      tainted: result.tainted === true,
+      viewerUserId: args.trigger.kind === "user" ? args.trigger.userId : null,
     });
   }
+}
+
+/**
+ * Announce "{name} is typing…" now and every three seconds until the returned
+ * stop is called. Callers stop it in a `finally`, so a failed turn still ends
+ * the indicator.
+ */
+export function startTypingBroadcast(
+  channel: Pick<Channel, "id" | "companyId">,
+  employee: Pick<AIEmployee, "id" | "name">,
+): () => void {
+  const emit = () => {
+    broadcastToCompany(channel.companyId, {
+      type: "typing",
+      channelId: channel.id,
+      by: { kind: "ai", id: employee.id, name: employee.name },
+    });
+  };
+  emit();
+  const timer = setInterval(emit, 3_000);
+  return () => clearInterval(timer);
+}
+
+/** AI messages in a row, outside group discussions, before a Member writes. */
+export const AI_MENTION_CHAIN_LIMIT = 6;
+
+/** Text of the note a paused chain leaves; recognised so it is left once. */
+export const PAUSED_MENTION_CHAIN_NOTE =
+  "AI Employees have traded several messages here with no Member writing in between, so their @mentions of each other are paused. Write a message to let them carry on.";
+
+/**
+ * How many AI-authored messages sit, newest first through `through`, between
+ * it and the last Member message. Group discussion messages are skipped:
+ * a discussion has its own round and turn limits and never chains mentions.
+ */
+export async function aiMentionChainLength(
+  channelId: string,
+  through: Pick<ChannelMessage, "id" | "createdAt">,
+): Promise<number> {
+  const recent = await repos().messages.find({
+    where: { channelId },
+    order: { createdAt: "DESC" },
+    take: 60,
+  });
+  let chain = 0;
+  let reached = false;
+  for (const row of recent) {
+    if (!reached) {
+      if (row.id !== through.id && row.createdAt > through.createdAt) continue;
+      reached = true;
+    }
+    if (row.discussionId) continue;
+    if (row.authorKind === "user") break;
+    if (row.authorKind === "ai") chain += 1;
+  }
+  return chain;
+}
+
+/**
+ * Leave the pause note once per pause. An AI that keeps posting into a paused
+ * chain must not bury the channel under copies of it, so a note already left
+ * since the last Member message is enough.
+ */
+async function notePausedMentionChain(channel: Channel): Promise<void> {
+  const recent = await repos().messages.find({
+    where: { channelId: channel.id },
+    order: { createdAt: "DESC" },
+    take: 60,
+  });
+  for (const row of recent) {
+    if (row.discussionId) continue;
+    if (row.authorKind === "user") break;
+    if (row.authorKind === "system" && row.content === PAUSED_MENTION_CHAIN_NOTE) return;
+  }
+  await insertChannelMessage({
+    channel,
+    author: { kind: "system", name: "Genosyn" },
+    content: PAUSED_MENTION_CHAIN_NOTE,
+  });
 }
 
 /** Keep queued and multi-employee replies anchored to the same Member message. */
@@ -1425,12 +1692,22 @@ async function notifyHumanRecipients(args: {
   const author = authorUserId ? await users.findOneBy({ id: authorUserId }) : null;
   const authorName = args.authorName || author?.name || author?.email || "Someone";
   const channelLabel =
-    channel.kind === "dm" ? null : channel.name ? `#${channel.name}` : "a channel";
+    channel.kind === "dm"
+      ? null
+      : channel.kind === "group"
+        ? channel.name
+          ? `the group chat “${channel.name}”`
+          : "a group chat"
+        : channel.name
+          ? `#${channel.name}`
+          : "a channel";
   const linkBase = `/c/${company.slug}/workspace/${channel.id}`;
 
   const recipients = new Set<string>();
 
-  if (channel.kind === "dm") {
+  // A group chat is a conversation you were invited into, like a DM: every
+  // Member in it hears about every message, @mentioned or not.
+  if (channel.kind === "dm" || channel.kind === "group") {
     const memberRows = await members.find({ where: { channelId: channel.id } });
     for (const m of memberRows) {
       if (m.memberKind !== "user" || !m.userId) continue;
@@ -1471,11 +1748,13 @@ async function notifyHumanRecipients(args: {
   const inputs = Array.from(recipients).map((uid) => ({
     companyId: channel.companyId,
     userId: uid,
-    kind: channel.kind === "dm" ? ("mention" as const) : ("mention" as const),
+    kind: "mention" as const,
     title:
       channel.kind === "dm"
         ? `${authorName} sent you a message`
-        : `${authorName} mentioned you in ${channelLabel}`,
+        : channel.kind === "group"
+          ? `${authorName} wrote in ${channelLabel}`
+          : `${authorName} mentioned you in ${channelLabel}`,
     body: preview,
     link: linkBase,
     actorKind: "user" as const,

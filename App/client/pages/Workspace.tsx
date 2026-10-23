@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Archive,
+  ArrowLeft,
   AtSign,
   Bot,
   CheckCheck,
@@ -15,9 +16,11 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   User as UserIcon,
+  Users,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import {
+  GroupDiscussion,
   Mentionable,
   WorkspaceAuthor,
   WorkspaceChannel,
@@ -29,6 +32,23 @@ import {
   workspaceChannelHref,
 } from "../lib/workspace";
 import { applyWorkspaceMessageEvent, mergeWorkspaceMessages } from "../lib/workspaceMessages";
+import {
+  composerPlaceholder,
+  discussionsByOutcomeMessage,
+  groupChatTitle,
+  mergeDiscussion,
+  runningDiscussion,
+} from "../lib/groupDiscussions";
+import {
+  StartGroupChatModal,
+  type GroupChatStarted,
+} from "../components/workspace/StartGroupChatModal";
+import {
+  DiscussionBar,
+  DiscussionNote,
+  DiscussionOutcomeCard,
+} from "../components/workspace/GroupDiscussion";
+import { useWideViewport } from "../components/ui/SidePanel";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
@@ -88,6 +108,12 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDM, setShowNewDM] = React.useState(false);
+  const [showNewGroupChat, setShowNewGroupChat] = React.useState(false);
+  /** Channels with a group discussion running right now, for the sidebar's live dot. */
+  const [discussingChannelIds, setDiscussingChannelIds] = React.useState<Set<string>>(new Set());
+  // On a phone the list and the conversation take turns on screen; on a wide
+  // screen they sit side by side and the first channel opens on arrival.
+  const wide = useWideViewport();
 
   // Mirrors activeChannelId so the long-lived WS handler reads the latest
   // value instead of the one captured when the socket was opened. Without
@@ -188,14 +214,22 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   }, [wsStatus, refetchChannels]);
 
   // Land on the first channel if the URL has no channel and channels
-  // have loaded. Separate from the data load so we don't refetch.
+  // have loaded. Separate from the data load so we don't refetch. A phone
+  // shows the list instead: landing would hide it before anyone chose.
   React.useEffect(() => {
+    if (!wide) return;
     if (urlChannelId || !channels || channels.length === 0) return;
     if (activeChannelId) return;
     const first = channels[0];
     setActiveChannelId(first.id);
     navigate(workspaceChannelHref(company.slug, first.id), { replace: true });
-  }, [urlChannelId, channels, activeChannelId, company.slug, navigate]);
+  }, [wide, urlChannelId, channels, activeChannelId, company.slug, navigate]);
+
+  // On a phone, the URL without a channel is the list — including after the
+  // browser's own Back from a conversation.
+  React.useEffect(() => {
+    if (!wide && !urlChannelId) setActiveChannelId(null);
+  }, [wide, urlChannelId]);
 
   // Keep activeChannelId in sync with the URL (e.g. browser back/forward
   // or deep-linking after channels have loaded).
@@ -273,6 +307,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
       // `typing` is handled by `useChannelTyping` in the channel being
       // viewed. The page used to keep a channel-keyed map of typers, but
       // nothing ever rendered one for a channel you were not looking at.
+      case "discussion.update": {
+        // The channel being viewed folds the frame into its own list; the
+        // page only keeps the sidebar's "discussing" dot honest.
+        const running = ev.discussion.status === "running";
+        setDiscussingChannelIds((prev) => {
+          if (prev.has(ev.channelId) === running) return prev;
+          const next = new Set(prev);
+          if (running) next.add(ev.channelId);
+          else next.delete(ev.channelId);
+          return next;
+        });
+        return;
+      }
       case "channel.archive": {
         const remaining = (channels ?? []).filter((channel) => channel.id !== ev.channelId);
         setChannels(remaining);
@@ -390,6 +437,27 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     navigate(workspaceChannelHref(company.slug, id));
   }
 
+  /** Back to the list, on a phone where the list and the conversation take turns. */
+  function backToList() {
+    setActiveChannelId(null);
+    navigate(`/c/${company.slug}/workspace`);
+  }
+
+  function groupChatStarted(started: GroupChatStarted) {
+    setShowNewGroupChat(false);
+    const channel = started.channel;
+    if (channel) {
+      setChannels((prev) => {
+        if (!prev) return [channel];
+        return prev.some((c) => c.id === channel.id) ? prev : [channel, ...prev];
+      });
+    }
+    if (started.discussion) {
+      setDiscussingChannelIds((prev) => new Set(prev).add(started.channelId));
+    }
+    selectChannel(started.channelId);
+  }
+
   async function archiveWorkspaceChannel(channelId: string) {
     try {
       await workspaceApi.archiveChannel(company.id, channelId);
@@ -412,20 +480,31 @@ export default function Workspace({ company, me }: WorkspaceProps) {
 
   // ──────────────── Layout ─────────────────────────────────────────────
 
+  // A phone shows the list, or the conversation — never both squeezed side by side.
+  const showListOnly = !wide && !activeChannelId;
+
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 min-w-0 flex-1">
       <WorkspaceSidebar
         companySlug={company.slug}
         me={me}
         channels={channels}
         activeChannelId={activeChannelId}
         onlineUsers={onlineUsers}
+        discussingChannelIds={discussingChannelIds}
         onSelect={selectChannel}
         onNewChannel={() => setShowNewChannel(true)}
         onNewDM={() => setShowNewDM(true)}
+        onNewGroupChat={() => setShowNewGroupChat(true)}
         onArchive={archiveWorkspaceChannel}
+        layout={wide ? "side" : showListOnly ? "full" : "hidden"}
       />
-      <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-950">
+      <main
+        className={
+          (showListOnly ? "hidden " : "flex ") +
+          "min-w-0 flex-1 flex-col bg-white dark:bg-slate-950"
+        }
+      >
         {loadError ? (
           <FormError message={loadError} className="m-6" />
         ) : channels === null ? (
@@ -436,6 +515,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             company={company}
             me={me}
             channel={activeChannel}
+            onBack={wide ? undefined : backToList}
             messages={
               messageHistoryLoaded[activeChannel.id] ? (messages[activeChannel.id] ?? []) : null
             }
@@ -457,9 +537,20 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           <EmptyWorkspace
             onCreate={() => setShowNewChannel(true)}
             onStartDm={() => setShowNewDM(true)}
+            onStartGroupChat={() => setShowNewGroupChat(true)}
           />
         )}
       </main>
+
+      <StartGroupChatModal
+        open={showNewGroupChat}
+        onClose={() => setShowNewGroupChat(false)}
+        company={company}
+        meId={me.id}
+        mode={{ kind: "new" }}
+        directory={directory}
+        onStarted={groupChatStarted}
+      />
 
       <NewChannelModal
         open={showNewChannel}
@@ -499,25 +590,44 @@ function WorkspaceSidebar({
   channels,
   activeChannelId,
   onlineUsers,
+  discussingChannelIds,
   onSelect,
   onNewChannel,
   onNewDM,
+  onNewGroupChat,
   onArchive,
+  layout,
 }: {
   companySlug: string;
   me: Me;
   channels: WorkspaceChannel[] | null;
   activeChannelId: string | null;
   onlineUsers: Set<string>;
+  discussingChannelIds: Set<string>;
   onSelect: (id: string) => void;
   onNewChannel: () => void;
   onNewDM: () => void;
+  onNewGroupChat: () => void;
   onArchive: (id: string) => Promise<void>;
+  /**
+   * `side` beside the conversation on a wide screen; on a phone, `full` while
+   * choosing and `hidden` while a conversation is open.
+   */
+  layout: "side" | "full" | "hidden";
 }) {
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const publicChannels = (channels ?? []).filter((c) => c.kind === "public");
   const privateChannels = (channels ?? []).filter((c) => c.kind === "private");
+  const groupChats = (channels ?? []).filter((c) => c.kind === "group");
   const dms = (channels ?? []).filter((c) => c.kind === "dm");
+  const discussingDot = (id: string) =>
+    discussingChannelIds.has(id) ? (
+      <span
+        className="h-1.5 w-1.5 rounded-full bg-indigo-500 motion-safe:animate-pulse"
+        title="Discussing now"
+        aria-label="Discussing now"
+      />
+    ) : null;
 
   async function archive(id: string) {
     setArchivingId(id);
@@ -529,11 +639,24 @@ function WorkspaceSidebar({
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-      <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+    <aside
+      className={
+        "shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 " +
+        (layout === "hidden" ? "hidden" : layout === "full" ? "flex w-full" : "flex w-64")
+      }
+      aria-label="Workspace conversations"
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
           Workspace chat
         </div>
+        <button
+          type="button"
+          onClick={onNewGroupChat}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+        >
+          <Users size={12} /> Group chat
+        </button>
       </div>
       {channels === null ? (
         <div
@@ -572,6 +695,35 @@ function WorkspaceSidebar({
             {publicChannels.length === 0 && privateChannels.length === 0 && (
               <EmptyHint label="No channels yet." />
             )}
+          </SidebarSection>
+          <SidebarSection
+            title="Group chats"
+            action={<AddButton onClick={onNewGroupChat} label="Start group chat" />}
+          >
+            {groupChats.map((c) => (
+              <ChannelRow
+                key={c.id}
+                icon={<Users size={14} />}
+                label={groupChatTitle(c, me.id)}
+                right={discussingDot(c.id)}
+                active={c.id === activeChannelId}
+                unread={c.unreadCount}
+                onClick={() => onSelect(c.id)}
+                action={
+                  <button
+                    onClick={() => void archive(c.id)}
+                    disabled={archivingId === c.id}
+                    aria-busy={archivingId === c.id || undefined}
+                    className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Archive group chat"
+                    aria-label={`Archive group chat ${groupChatTitle(c, me.id)}`}
+                  >
+                    {archivingId === c.id ? <ButtonSpinner size={12} /> : <Archive size={12} />}
+                  </button>
+                }
+              />
+            ))}
+            {groupChats.length === 0 && <EmptyHint label="Ask several AI Employees at once." />}
           </SidebarSection>
           <SidebarSection
             title="Direct messages"
@@ -735,6 +887,7 @@ function ChannelView({
   onAttachmentUrl,
   onChannelUpdated,
   onArchive,
+  onBack,
 }: {
   company: Company;
   me: Me;
@@ -749,7 +902,14 @@ function ChannelView({
   onAttachmentUrl: (id: string) => string;
   onChannelUpdated: (c: WorkspaceChannel) => void;
   onArchive: () => Promise<void>;
+  /** On a phone, the way back to the list of conversations. */
+  onBack?: () => void;
 }) {
+  const discussions = useChannelDiscussions(company.id, channel, onChannelUpdated);
+  const running = runningDiscussion(discussions.list);
+  const outcomes = discussionsByOutcomeMessage(discussions.list);
+  const [showDiscuss, setShowDiscuss] = React.useState(false);
+  const title = channelTitle(channel, me.id);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const endRef = React.useRef<HTMLDivElement | null>(null);
   const lastMessageIdRef = React.useRef<string | null>(null);
@@ -837,21 +997,58 @@ function ChannelView({
     setEditingMessageId(null);
   }, [channel.id]);
 
+  const aiMembers = channel.members.filter(
+    (m): m is Extract<WorkspaceAuthor, { kind: "ai" }> => m.kind === "ai",
+  );
+  const aiMemberIds = aiMembers.map((m) => m.id);
+  const composerLabel =
+    channel.kind === "dm"
+      ? "your recipient"
+      : channel.kind === "group"
+        ? title
+        : `#${channel.name ?? "channel"}`;
+
   return (
     <>
-      <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2">
+      <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 px-4 py-3 sm:px-6 dark:border-slate-800">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            aria-label="All conversations"
+            title="All conversations"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        )}
+        <div className="flex min-w-0 items-center gap-2">
           <ChannelIcon channel={channel} meId={me.id} />
-          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {channelTitle(channel, me.id)}
-          </div>
+          <h1 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {title}
+          </h1>
           {channel.topic && (
-            <div className="border-l border-slate-200 pl-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            <div className="hidden truncate border-l border-slate-200 pl-3 text-xs text-slate-500 sm:block dark:border-slate-700 dark:text-slate-400">
               {channel.topic}
             </div>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {(channel.kind === "public" || channel.kind === "private") && (
+            <button
+              type="button"
+              onClick={() => setShowDiscuss(true)}
+              disabled={Boolean(running)}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+              title={
+                running
+                  ? "A discussion is already running here"
+                  : "Ask several AI Employees to work something out here"
+              }
+            >
+              <Users size={12} /> <span className="hidden sm:inline">Discuss</span>
+            </button>
+          )}
           {channel.kind === "dm" && (
             <button
               onClick={() => void archive()}
@@ -867,9 +1064,21 @@ function ChannelView({
             <button
               onClick={() => setShowSettings(true)}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              title="Channel settings"
+              title={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
+              aria-label={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
             >
-              <SettingsIcon size={12} /> Settings
+              {channel.kind === "group" ? (
+                <>
+                  <AtSign size={12} /> {channel.members.length}
+                  <span className="hidden sm:inline">
+                    member{channel.members.length === 1 ? "" : "s"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <SettingsIcon size={12} /> Settings
+                </>
+              )}
             </button>
           )}
           {channel.kind === "dm" && (
@@ -886,7 +1095,7 @@ function ChannelView({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6"
         onScroll={(event) => {
           if (
             messages !== null &&
@@ -904,11 +1113,13 @@ function ChannelView({
           <WorkspaceLoading label="Loading messages…" />
         ) : messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-slate-400 dark:text-slate-500">
-            <div>
+            <div className="max-w-sm">
               <div className="mb-1 text-base font-medium text-slate-600 dark:text-slate-300">
-                {channelTitle(channel, me.id)}
+                {title}
               </div>
-              Start the conversation. @mention an AI employee to bring them in.
+              {channel.kind === "group"
+                ? "Ask the group something. Each AI Employee here reads what the others say, and they come back to you with one outcome."
+                : "Start the conversation. @mention an AI employee to bring them in."}
             </div>
           </div>
         ) : (
@@ -943,16 +1154,36 @@ function ChannelView({
               onReact={async (m, emoji) => {
                 await workspaceApi.toggleReaction(company.id, m.id, emoji);
               }}
+              renderRow={(m) => {
+                if (m.discussionRole === "note") return <DiscussionNote message={m} />;
+                if (m.discussionRole !== "outcome") return null;
+                const discussion = outcomes.get(m.id);
+                if (!discussion?.outcome) return null;
+                return (
+                  <DiscussionOutcomeCard
+                    company={company}
+                    message={m}
+                    discussion={discussion}
+                    mentionables={mentionables}
+                    onChanged={discussions.merge}
+                  />
+                );
+              }}
             />
           </>
         )}
         <div ref={endRef} />
       </div>
 
-      {typers.length > 0 && (
-        <div className="shrink-0 border-t border-slate-100 px-6 py-1.5 dark:border-slate-800">
-          <TypingPill typers={typers} />
-        </div>
+      {running ? (
+        // The bar already says who is thinking; a typing pill would repeat it.
+        <DiscussionBar company={company} discussion={running} onChanged={discussions.merge} />
+      ) : (
+        typers.length > 0 && (
+          <div className="shrink-0 border-t border-slate-100 px-6 py-1.5 dark:border-slate-800">
+            <TypingPill typers={typers} />
+          </div>
+        )
       )}
 
       <ChannelComposer
@@ -961,7 +1192,12 @@ function ChannelView({
         channel={{
           id: channel.id,
           kind: channel.kind,
-          label: channel.kind === "dm" ? "your recipient" : `#${channel.name ?? "channel"}`,
+          label: composerLabel,
+          placeholder: composerPlaceholder(
+            channel.kind,
+            aiMembers.map((m) => m.name),
+            running,
+          ),
         }}
         mentionables={mentionables}
         editLast={{
@@ -993,8 +1229,88 @@ function ChannelView({
           onArchive={onArchive}
         />
       )}
+      {(channel.kind === "public" || channel.kind === "private") && (
+        <StartGroupChatModal
+          open={showDiscuss}
+          onClose={() => setShowDiscuss(false)}
+          company={company}
+          meId={me.id}
+          directory={directory}
+          mode={{
+            kind: "channel",
+            channelId: channel.id,
+            channelLabel: `#${channel.name ?? "channel"}`,
+            memberEmployeeIds: aiMemberIds,
+          }}
+          onStarted={(started) => {
+            setShowDiscuss(false);
+            if (started.discussion) discussions.merge(started.discussion);
+          }}
+        />
+      )}
     </>
   );
+}
+
+/**
+ * The group discussions in one channel, live: loaded when the channel opens,
+ * then kept current from the company socket. When a discussion brings in
+ * someone the channel's member list does not show yet, the channel is
+ * re-read so its header and settings catch up.
+ */
+function useChannelDiscussions(
+  companyId: string,
+  channel: WorkspaceChannel,
+  onChannelUpdated: (c: WorkspaceChannel) => void,
+): { list: GroupDiscussion[]; merge: (d: GroupDiscussion) => void } {
+  const [list, setList] = React.useState<GroupDiscussion[]>([]);
+  const memberIdsRef = React.useRef(new Set<string>());
+  memberIdsRef.current = new Set(
+    channel.members.flatMap((m) => (m.kind === "system" ? [] : [m.id])),
+  );
+  const refreshingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setList([]);
+    workspaceApi
+      .listDiscussions(companyId, channel.id)
+      .then((rows) => {
+        if (!cancelled) setList((prev) => rows.reduce((acc, d) => mergeDiscussion(acc, d), prev));
+      })
+      .catch(() => {
+        // Discussions decorate a channel; the messages still read without them.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, channel.id]);
+
+  const merge = React.useCallback(
+    (d: GroupDiscussion) => {
+      setList((prev) => mergeDiscussion(prev, d));
+      const joined = d.participants.some((p) => !memberIdsRef.current.has(p.id));
+      if (joined && !refreshingRef.current) {
+        refreshingRef.current = true;
+        workspaceApi
+          .getChannel(companyId, d.channelId)
+          .then(onChannelUpdated)
+          .catch(() => undefined)
+          .finally(() => {
+            refreshingRef.current = false;
+          });
+      }
+    },
+    [companyId, onChannelUpdated],
+  );
+
+  useCompanySocketSubscription((event) => {
+    if (event.type === "discussion.update" && event.channelId === channel.id) {
+      merge(event.discussion);
+    }
+  });
+
+  return { list, merge };
 }
 
 function ChannelIcon({ channel, meId }: { channel: WorkspaceChannel; meId: string }) {
@@ -1006,6 +1322,7 @@ function ChannelIcon({ channel, meId }: { channel: WorkspaceChannel; meId: strin
       <UserIcon size={16} className="text-slate-400" />
     );
   }
+  if (channel.kind === "group") return <Users size={16} className="text-indigo-500" />;
   if (channel.kind === "private") return <Lock size={16} className="text-slate-400" />;
   return <Hash size={16} className="text-slate-400" />;
 }
@@ -1015,6 +1332,7 @@ function channelTitle(c: WorkspaceChannel, meId: string): string {
     const other = dmCounterpart(c, meId);
     return other?.name ?? "Direct message";
   }
+  if (c.kind === "group") return groupChatTitle(c, meId);
   return c.name ?? "channel";
 }
 
@@ -1031,7 +1349,15 @@ function WorkspaceLoading({ label }: { label: string }) {
   );
 }
 
-function EmptyWorkspace({ onCreate, onStartDm }: { onCreate: () => void; onStartDm: () => void }) {
+function EmptyWorkspace({
+  onCreate,
+  onStartDm,
+  onStartGroupChat,
+}: {
+  onCreate: () => void;
+  onStartDm: () => void;
+  onStartGroupChat: () => void;
+}) {
   return (
     <div className="flex flex-1 items-center justify-center">
       <div className="max-w-md p-8 text-center">
@@ -1042,10 +1368,14 @@ function EmptyWorkspace({ onCreate, onStartDm }: { onCreate: () => void; onStart
           Your workspace chat
         </h2>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Create a channel for your team, or start a DM with a teammate or AI employee.
+          Create a channel for your team, start a DM with a teammate or AI employee, or ask several
+          AI employees to work something out together in a group chat.
         </p>
-        <div className="flex justify-center gap-2">
-          <Button onClick={onCreate}>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button onClick={onStartGroupChat}>
+            <Users size={14} /> Start a group chat
+          </Button>
+          <Button variant="secondary" onClick={onCreate}>
             <Hash size={14} /> New channel
           </Button>
           <Button variant="secondary" onClick={onStartDm}>
@@ -1400,6 +1730,9 @@ function ChannelSettingsModal({
   const [webhookError, setWebhookError] = React.useState<string | null>(null);
   const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
+  // A group chat is a conversation, not a destination: its name is optional
+  // (the members stand in for it) and no outside service posts into it.
+  const group = channel.kind === "group";
 
   React.useEffect(() => {
     if (!open) return;
@@ -1409,6 +1742,7 @@ function ChannelSettingsModal({
     setGeneralError(null);
     setWebhookError(null);
     setCopyNotice(null);
+    if (group) return;
     setLoadingWebhook(true);
     workspaceApi
       .getChannelWebhook(company.id, channel.id)
@@ -1417,10 +1751,10 @@ function ChannelSettingsModal({
         setWebhookError(errorMessage(error, "Could not load webhook settings"));
       })
       .finally(() => setLoadingWebhook(false));
-  }, [channel.id, channel.name, channel.topic, company.id, open]);
+  }, [channel.id, channel.name, channel.topic, company.id, open, group]);
 
   async function saveGeneral() {
-    if (!name.trim() || saving) return;
+    if ((!group && !name.trim()) || saving) return;
     setSaving(true);
     setGeneralError(null);
     try {
@@ -1462,9 +1796,10 @@ function ChannelSettingsModal({
 
   async function archive() {
     const ok = await dialog.confirm({
-      title: `Archive #${channel.name ?? "channel"}?`,
-      message:
-        "The channel will leave the sidebar and its incoming webhook will stop immediately. Message history is preserved.",
+      title: group ? "Archive this group chat?" : `Archive #${channel.name ?? "channel"}?`,
+      message: group
+        ? "It leaves the sidebar for everyone in it, and a discussion still running stops. Message history is preserved."
+        : "The channel will leave the sidebar and its incoming webhook will stop immediately. Message history is preserved.",
       confirmLabel: "Archive",
       variant: "danger",
     });
@@ -1474,13 +1809,20 @@ function ChannelSettingsModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Channel settings" size="lg">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={group ? "Group chat settings" : "Channel settings"}
+      size="lg"
+    >
       <div className="space-y-6">
         <section className="space-y-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">General</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Change how this channel appears in Workspace.
+              {group
+                ? "Name it, or leave the name empty to show who is in it."
+                : "Change how this channel appears in Workspace."}
             </p>
           </div>
           <div>
@@ -1527,7 +1869,7 @@ function ChannelSettingsModal({
           </div>
           <FormError message={generalError} />
           <div className="flex justify-end">
-            <Button loading={saving} disabled={!name.trim()} onClick={saveGeneral}>
+            <Button loading={saving} disabled={!group && !name.trim()} onClick={saveGeneral}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -1538,7 +1880,9 @@ function ChannelSettingsModal({
             <div>
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Members</h3>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                See who is in this channel and add Members or AI employees.
+                {group
+                  ? "See who is in this group chat and add Members or AI employees. An AI employee added here joins the next discussion."
+                  : "See who is in this channel and add Members or AI employees."}
               </p>
             </div>
             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -1553,6 +1897,7 @@ function ChannelSettingsModal({
           />
         </section>
 
+        {!group && (
         <section className="space-y-3 border-t border-slate-100 pt-5 dark:border-slate-800">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1635,14 +1980,17 @@ function ChannelSettingsModal({
             </div>
           )}
         </section>
+        )}
 
         <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5 dark:border-slate-800">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Archive channel
+              {group ? "Archive group chat" : "Archive channel"}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Hide the channel and disable its webhook while preserving history.
+              {group
+                ? "Hide it for everyone in it while preserving history."
+                : "Hide the channel and disable its webhook while preserving history."}
             </p>
           </div>
           <Button variant="danger" onClick={archive}>

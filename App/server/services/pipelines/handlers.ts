@@ -56,6 +56,9 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     if (!content) throw new Error("content is required");
     const channel = await findChannelBySlugOrId(ctx.companyId, channelIdOrSlug);
     if (!channel) throw new Error(`Channel "${channelIdOrSlug}" not found`);
+    // A group chat is a conversation between people; a pipeline posting into
+    // one would also read to its AI Employees as a question to discuss.
+    if (channel.kind === "group") throw new Error("A pipeline cannot post into a group chat");
     const msgRepo = AppDataSource.getRepository(ChannelMessage);
     const channelRepo = AppDataSource.getRepository(Channel);
     const saved = await msgRepo.save(
@@ -87,6 +90,8 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
         createdAt: saved.createdAt.toISOString(),
         attachments: [],
         reactions: [],
+        discussionId: null,
+        discussionRole: null,
       },
     });
     ctx.log(`posted message to #${channel.slug ?? channel.id}: ${truncate(content, 120)}`);

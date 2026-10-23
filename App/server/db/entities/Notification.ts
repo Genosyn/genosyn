@@ -41,7 +41,9 @@ export type NotificationKind =
   | "standdown_placed"
   | "board_letter_ready"
   | "recruiting_application"
-  | "recruiting_strong_match";
+  | "recruiting_strong_match"
+  /** A group discussion the recipient started handed back its outcome. */
+  | "group_discussion";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -62,7 +64,8 @@ export type NotificationEntityKind =
   | "initiative"
   | "standdown"
   | "board_letter"
-  | "recruiting_application";
+  | "recruiting_application"
+  | "group_discussion";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

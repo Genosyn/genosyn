@@ -23,6 +23,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   standdown_placed: "push",
   board_letter_ready: "push",
   recruiting_strong_match: "push",
+  group_discussion: "push",
   finance_review_ready: "bell",
   run_failed: "bell",
   run_off_goal: "bell",

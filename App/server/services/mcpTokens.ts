@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
+import type { CollaborationTurn } from "./collaborationScope.js";
 
 /**
  * Short-lived auth tokens for the built-in Genosyn MCP server.
@@ -52,6 +53,13 @@ export type McpTokenInfo = {
    * not sent to work on.
    */
   repositoryWorkSessionId: string | null;
+  /**
+   * Set when the turn is one AI Employee talking to colleagues — a turn in a
+   * group discussion, or an answer to `ask_colleague`. Like
+   * `proactiveReview`, this is authority, not provenance: such a turn can only
+   * read (`services/collaborationScope.ts`), and the seam refuses the rest.
+   */
+  collaboration: CollaborationTurn | null;
   /**
    * Authority carried by this turn. Routine Runs and other trusted internal
    * automation deliberately act as the AI Employee. Browser-originated chat
@@ -118,6 +126,13 @@ const tokenAttachments = new Map<string, Set<string>>();
 const stagedSidecars = new Map<string, Map<string, unknown[]>>();
 
 /**
+ * `ask_colleague` calls made by each turn (keyed by the turn's own token, so a
+ * delegated worker shares its parent's count). The cap lives here because a
+ * count is per-turn state with exactly a token's lifetime.
+ */
+const consultCounts = new Map<string, number>();
+
+/**
  * Tokens whose turn has ingested untrusted web content (M53's taint policy).
  * Once a turn is tainted it stays tainted — there is no untaint, because the
  * model has already read whatever the page said. The high-risk sinks consult
@@ -148,6 +163,12 @@ export function issueMcpToken(
     proactiveReview?: boolean;
     mailHandoverId?: string | null;
     repositoryWorkSessionId?: string | null;
+    collaboration?: CollaborationTurn | null;
+    /**
+     * Start the turn already tainted: it replays a message that a tainted turn
+     * wrote, so it has read that outside content too.
+     */
+    tainted?: boolean;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
     requesterSessionVersion?: number;
@@ -187,11 +208,13 @@ export function issueMcpToken(
     proactiveReview: origin.proactiveReview ?? false,
     mailHandoverId: origin.mailHandoverId ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
+    collaboration: origin.collaboration ?? null,
     authority,
     requesterUserId,
     requesterSessionVersion: origin.requesterSessionVersion ?? null,
     expiresAt: Date.now() + TTL_MS,
   });
+  if (origin.tainted) taintedTokens.add(token);
   return token;
 }
 
@@ -249,6 +272,19 @@ export function markTokenTainted(token: string): void {
 
 export function isTokenTainted(token: string): boolean {
   return tokens.has(token) && taintedTokens.has(turnStateToken(token));
+}
+
+/**
+ * Count one `ask_colleague` call against this turn and return the new total.
+ * Zero for a token that is no longer live, so a late call cannot be counted
+ * against nothing and slip under the cap.
+ */
+export function countConsultForToken(token: string): number {
+  if (!tokens.has(token)) return 0;
+  token = turnStateToken(token);
+  const next = (consultCounts.get(token) ?? 0) + 1;
+  consultCounts.set(token, next);
+  return next;
 }
 
 export function drainAttachmentsForToken(token: string): string[] {
@@ -311,6 +347,7 @@ export function revokeMcpToken(token: string): void {
   tokenAttachments.delete(token);
   stagedSidecars.delete(token);
   taintedTokens.delete(token);
+  consultCounts.delete(token);
 }
 
 function sweep(): void {
@@ -333,5 +370,8 @@ function sweep(): void {
   }
   for (const k of taintedTokens) {
     if (!tokens.has(k)) taintedTokens.delete(k);
+  }
+  for (const k of consultCounts.keys()) {
+    if (!tokens.has(k)) consultCounts.delete(k);
   }
 }

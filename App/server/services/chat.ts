@@ -9,9 +9,11 @@ import { resolveChatModel } from "./models.js";
 import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
+  isTokenTainted,
   issueMcpToken,
   revokeMcpToken,
 } from "./mcpTokens.js";
+import type { CollaborationTurn } from "./collaborationScope.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { workBlocked } from "./standdowns.js";
@@ -35,10 +37,12 @@ import type {
   ContextUsage,
   StreamCallbacks,
   ToolResultImage,
+  TurnUsage,
   UserBlock,
 } from "./agent/types.js";
 import { config } from "../../config.js";
 import {
+  composeCollaborationSystemPrompt,
   composeEmployeeSystemPrompt,
   composeRepositoryWorkSystemPrompt,
 } from "./agent/systemPrompt.js";
@@ -120,24 +124,37 @@ export type ChatResult =
        * when the runtime reported none (an interrupted turn, for one).
        */
       finalText?: string;
+      /**
+       * The turn read outside content (a web page, an application) — or
+       * started from a message that did. A caller that persists the reply
+       * where another AI turn will replay it stamps it, so the taint travels
+       * with the words (`ChannelMessage.tainted`).
+       */
+      tainted?: boolean;
     }
   | {
       status: "skipped";
       reply: string;
       attachmentIds: string[];
       sidecars: Record<string, unknown[]>;
+      /** Never set: a skipped turn ran no tools. Present so every variant reads alike. */
+      tainted?: boolean;
     }
   | {
       status: "busy";
       reply: string;
       attachmentIds: string[];
       sidecars: Record<string, unknown[]>;
+      /** Never set: a busy turn ran no tools. */
+      tainted?: boolean;
     }
   | {
       status: "error";
       reply: string;
       attachmentIds: string[];
       sidecars: Record<string, unknown[]>;
+      /** As on `ok`: an errored turn may still have read a page first. */
+      tainted?: boolean;
     };
 
 /**
@@ -263,6 +280,27 @@ type ChatBaseOptions = {
    * reply.
    */
   extraToolset?: string[];
+  /**
+   * The turn is one AI Employee talking to colleagues — a turn in a group
+   * discussion, or an answer to a colleague's `ask_colleague`. It can read
+   * and nothing else (`services/collaborationScope.ts`): no writes, no
+   * delivery, no coding, browser, configured MCP servers or delegation, and no
+   * secrets or repositories in the prompt. Carried on the turn's MCP token so
+   * the seam refuses what the tool list leaves out.
+   */
+  collaboration?: CollaborationTurn;
+  /**
+   * Start the turn tainted, because it replays something a tainted turn
+   * wrote. Its sinks then queue for review exactly as if it had read the page
+   * itself (`services/taintPolicy.ts`).
+   */
+  startTainted?: boolean;
+  /**
+   * Receives what the provider says each model call cost. A caller with a
+   * usage budget — a group discussion — adds these up; the turn itself is not
+   * bounded by them.
+   */
+  onUsage?: (usage: TurnUsage) => void;
   /**
    * Stable id for a durable turn. Recovery uses it to replace the reply lease
    * an interrupted process could not release.
@@ -587,8 +625,14 @@ export async function streamChatWithEmployee(
     : decisionChatSource
       ? "Decision"
       : "TLDR";
+  // A talking turn (group discussion, colleague consult) only reads, so it gets
+  // none of the ambient sources a read-only scope cannot govern: no coding, no
+  // browser, no configured MCP servers, no secrets, no repositories.
   const privilegedToolSourcesAllowed =
-    contextAccess.privilegedToolSources && !options.proactiveReview && !options.selfReviewOnly;
+    contextAccess.privilegedToolSources &&
+    !options.proactiveReview &&
+    !options.selfReviewOnly &&
+    !options.collaboration;
   const authorizePrivilegedToolCall =
     options.requesterUserId && requesterSessionVersion !== undefined && privilegedToolSourcesAllowed
       ? createPrivilegedMemberToolAuthorizer({
@@ -811,7 +855,26 @@ export async function streamChatWithEmployee(
             skills: effectiveSkills,
             policiesContext,
           })
-        : composeEmployeeSystemPrompt({
+        : options.collaboration
+          ? composeCollaborationSystemPrompt({
+              co,
+              emp,
+              skills: effectiveSkills,
+              opening:
+                options.collaboration.kind === "discussion"
+                  ? `You are ${emp.name}, ${emp.role} at ${co.name}, taking part in a group discussion with colleagues in Genosyn's Workspace chat. Speak in your own voice, guided by your Soul, Memory and Skills below.`
+                  : `You are ${emp.name}, ${emp.role} at ${co.name}. A colleague has asked you a question in the middle of their own work. Answer in your own voice, guided by your Soul, Memory and Skills below.`,
+              memoryContext,
+              goalsContext,
+              policiesContext,
+              financeContext,
+              signingContext,
+              revenueContext,
+              marketingContext,
+              recruitingContext,
+              resourcesContext,
+            })
+          : composeEmployeeSystemPrompt({
             co,
             emp,
             skills: effectiveSkills,
@@ -898,6 +961,8 @@ export async function streamChatWithEmployee(
       routineId: options.routineId ?? undefined,
       runId: options.runId ?? undefined,
       repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
+      collaboration: options.collaboration ?? null,
+      tainted: options.startTainted ?? false,
     };
     mcpToken = issueMcpToken(
       emp.id,
@@ -982,15 +1047,24 @@ export async function streamChatWithEmployee(
           },
           onProgress: options.onProgress,
           onContextUsage: options.onContextUsage,
+          onUsage: options.onUsage,
         },
       });
       const attachmentIds = drainAttachmentsForToken(mcpToken);
       const sidecars = drainSidecarsForToken(mcpToken);
+      // Read before the token is revoked below: revoking forgets the taint.
+      const tainted = isTokenTainted(mcpToken);
       if (options.wasInterrupted?.()) {
-        return { status: "ok", reply: interruptedReply(buffered), attachmentIds, sidecars };
+        return {
+          status: "ok",
+          reply: interruptedReply(buffered),
+          attachmentIds,
+          sidecars,
+          tainted,
+        };
       }
       if (result.status === "error") {
-        return { status: "error", reply: result.error, attachmentIds, sidecars };
+        return { status: "error", reply: result.error, attachmentIds, sidecars, tainted };
       }
       const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
       const finalText = result.finalText.trim();
@@ -999,6 +1073,7 @@ export async function streamChatWithEmployee(
         reply,
         attachmentIds,
         sidecars,
+        tainted,
         ...(result.stopReason ? { stopReason: result.stopReason } : {}),
         ...(finalText && finalText !== "(no reply)" ? { finalText } : {}),
       };
