@@ -6,7 +6,7 @@ import {
   InvoiceWriteOff,
   type InvoiceWriteOffKind,
 } from "../db/entities/InvoiceWriteOff.js";
-import { convertCents, getFinanceSettings } from "./fx.js";
+import { convertAtRate, getFinanceSettings, invoiceBookedRate } from "./fx.js";
 import {
   findClosedPeriodCovering,
   postLedgerEntry,
@@ -117,12 +117,11 @@ export async function createInvoiceWriteOff(
     );
   }
   const settings = await getFinanceSettings(invoice.companyId);
-  const { converted: homeCents } = await convertCents(
-    invoice.companyId,
+  // Both legs at the rate the invoice was booked at, so the write-off clears
+  // exactly the receivable it carries.
+  const homeCents = convertAtRate(
     amountCents,
-    invoice.currency,
-    settings.homeCurrency,
-    invoice.issueDate,
+    await invoiceBookedRate(invoice, settings.homeCurrency),
   );
   if (homeCents <= 0) throw new Error("Converted write-off amount rounds to zero");
   const expense = await resolveExpenseAccount(invoice.companyId, input.expenseAccountId);

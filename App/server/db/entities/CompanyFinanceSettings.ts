@@ -25,6 +25,9 @@ import {
  *     Per-doc footers always win — this is just the default.
  *   - `invoiceCcEmails`: internal recipients copied on every customer
  *     invoice email, including recurring auto-sends and manual resends.
+ *   - `automaticExchangeRates`: fill the exchange rates from the European
+ *     Central Bank's daily reference rates (`services/exchangeRateFeed.ts`).
+ *     On by default; off, conversions use only the rates a person set.
  *
  * Created lazily the first time `getFinanceSettings()` is called.
  */
@@ -48,6 +51,9 @@ export class CompanyFinanceSettings {
 
   @Column({ type: "simple-json", default: "[]" })
   invoiceCcEmails!: string[];
+
+  @Column({ type: "boolean", default: true })
+  automaticExchangeRates!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;

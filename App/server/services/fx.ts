@@ -1,8 +1,12 @@
+import { LessThanOrEqual, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import type { Bill } from "../db/entities/Bill.js";
 import { CompanyFinanceSettings } from "../db/entities/CompanyFinanceSettings.js";
 import { Currency } from "../db/entities/Currency.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
+import type { Invoice } from "../db/entities/Invoice.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
+import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { roundHalfAway } from "../lib/money.js";
 import { seedChartOfAccounts } from "./ledger.js";
 
@@ -15,9 +19,15 @@ import { seedChartOfAccounts } from "./ledger.js";
  *   2. Seed the standard currency catalog on first read.
  *   3. Look up an `ExchangeRate` by date with walk-back semantics —
  *      the most recent rate on or before the requested date wins.
+ *      Rates come from a person or, while a company has automatic rates
+ *      on, from the ECB (`services/exchangeRateFeed.ts`).
  *   4. Convert cent amounts between currencies, throwing when a rate
  *      is missing for a foreign-currency conversion (the auto-post
  *      hooks turn this into a "set up an exchange rate" 400 to the UI).
+ *   5. Read the rate a document was booked at. An invoice or bill locks
+ *      its rate when issued and a payment locks the rate of its day, so
+ *      everything that later clears a receivable or payable converts at
+ *      the rate it was booked at, whatever rates arrive afterwards.
  */
 
 // Standard catalog seeded on first visit. Add more as needed; users
@@ -171,7 +181,98 @@ export async function setInvoiceCcEmails(
   return repo.save(s);
 }
 
+/**
+ * Turn the ECB's daily rates on or off for a company. Off keeps the rates
+ * already fetched, so the documents and history that used them still read
+ * true, but conversions stop using them.
+ */
+export async function setAutomaticExchangeRates(
+  companyId: string,
+  on: boolean,
+): Promise<CompanyFinanceSettings> {
+  const repo = AppDataSource.getRepository(CompanyFinanceSettings);
+  const s = await getFinanceSettings(companyId);
+  s.automaticExchangeRates = on;
+  return repo.save(s);
+}
+
 // ────────────────────────── Rate lookups ──────────────────────────────
+
+/**
+ * Whether a company takes the ECB's rates. Read without creating the settings
+ * row, which `getFinanceSettings` would: a company with none has the default,
+ * on.
+ */
+export async function automaticRatesOn(companyId: string): Promise<boolean> {
+  const row = await AppDataSource.getRepository(CompanyFinanceSettings).findOne({
+    where: { companyId },
+    select: ["automaticExchangeRates"],
+  });
+  return row?.automaticExchangeRates ?? true;
+}
+
+/** The rate on file for `from` → `to` on or before a date, and where it came from. */
+export type RateOnFile = {
+  rate: number;
+  date: Date;
+  source: string;
+  automatic: boolean;
+};
+
+/**
+ * The most recent rate on or before `date` for `from` → `to`, or null with
+ * none. A direct rate wins over the inverse of the opposite pair. While the
+ * company has automatic rates off, the ones fetched before are skipped:
+ * off means conversions use only the rates a person set.
+ */
+export async function rateOnFile(
+  companyId: string,
+  from: string,
+  to: string,
+  date: Date,
+): Promise<RateOnFile | null> {
+  const f = from.toUpperCase();
+  const t = to.toUpperCase();
+  const repo = AppDataSource.getRepository(ExchangeRate);
+  const automatic = (await automaticRatesOn(companyId)) ? {} : { automatic: false };
+  // The most recent usable rate on or before the date, read through the
+  // (company, from, to, date) index: with a rate fetched every business day,
+  // a pair's history grows by hundreds of rows a year, too many to walk in
+  // memory on every conversion. A 0 rate (a fat-fingered entry) is skipped
+  // rather than converting every amount to zero.
+  const usableBy = (fromCurrency: string, toCurrency: string) =>
+    repo.findOne({
+      where: {
+        companyId,
+        fromCurrency,
+        toCurrency,
+        date: LessThanOrEqual(date),
+        rate: MoreThan(0),
+        ...automatic,
+      },
+      order: { date: "DESC" },
+    });
+  const directHit = await usableBy(f, t);
+  if (directHit) {
+    return {
+      rate: directHit.rate,
+      date: directHit.date,
+      source: directHit.source,
+      automatic: directHit.automatic,
+    };
+  }
+  // Try the reverse rate as an inverse fallback.
+  const inverseHit = await usableBy(t, f);
+  if (inverseHit) {
+    return {
+      rate: 1 / inverseHit.rate,
+      date: inverseHit.date,
+      source: inverseHit.source,
+      automatic: inverseHit.automatic,
+    };
+  }
+  return null;
+}
 
 /**
  * Look up the rate to convert `from` → `to` on or before `date`.
@@ -191,36 +292,13 @@ export async function lookupRate(
   const f = from.toUpperCase();
   const t = to.toUpperCase();
   if (f === t) return { rate: 1, sourceDate: null };
-  const repo = AppDataSource.getRepository(ExchangeRate);
-  // Pull every rate for this pair, then walk back from the requested
-  // date to the most recent on-or-before in memory. Two reasons over
-  // pushing the bound into the WHERE clause: simpler portability
-  // across sqlite/postgres, and the per-pair list is tiny in practice
-  // (one rate per business day).
-  const direct = await repo.find({
-    where: { companyId, fromCurrency: f, toCurrency: t },
-    order: { date: "DESC" },
-  });
-  // Skip a 0 rate (a fat-fingered entry) rather than silently converting
-  // every amount to zero — walk back to the next usable rate, mirroring the
-  // `rate !== 0` guard on the inverse fallback below.
-  const directHit = direct.find((r) => r.date.getTime() <= date.getTime() && r.rate !== 0);
-  if (directHit) {
-    return { rate: directHit.rate, sourceDate: directHit.date };
-  }
-  // Try the reverse rate as an inverse fallback.
-  const inverse = await repo.find({
-    where: { companyId, fromCurrency: t, toCurrency: f },
-    order: { date: "DESC" },
-  });
-  const inverseHit = inverse.find(
-    (r) => r.date.getTime() <= date.getTime() && r.rate !== 0,
-  );
-  if (inverseHit) {
-    return { rate: 1 / inverseHit.rate, sourceDate: inverseHit.date };
-  }
+  const found = await rateOnFile(companyId, f, t, date);
+  if (found) return { rate: found.rate, sourceDate: found.date };
+  const fix = (await automaticRatesOn(companyId))
+    ? "Click Update now under Finance → Currencies to fetch the ECB's latest rates, or set one there."
+    : "Add one under Finance → Currencies.";
   throw new Error(
-    `No exchange rate available for ${f} → ${t} on or before ${date.toISOString().slice(0, 10)}. Add one under Finance → Currencies.`,
+    `No exchange rate available for ${f} → ${t} on or before ${date.toISOString().slice(0, 10)}. ${fix}`,
   );
 }
 
@@ -239,7 +317,85 @@ export async function convertCents(
     return { converted: cents, rate: 1 };
   }
   const { rate } = await lookupRate(companyId, from, to, date);
-  return { converted: roundHalfAway(cents * rate), rate };
+  return { converted: convertAtRate(cents, rate), rate };
+}
+
+/** Convert at a rate already in hand — one a document locked — rounding as `convertCents` does. */
+export function convertAtRate(cents: number, rate: number): number {
+  return rate === 1 ? cents : roundHalfAway(cents * rate);
+}
+
+// ───────────────────────── Booked rates ───────────────────────────────
+
+/**
+ * The rate a posted entry converted its document at, or null. Every line the
+ * entry converted from `currency` carries the same rate, so any one will do.
+ */
+async function postedRate(
+  companyId: string,
+  source: LedgerEntry["source"],
+  sourceRefId: string,
+  currency: string,
+): Promise<number | null> {
+  const entry = await AppDataSource.getRepository(LedgerEntry).findOne({
+    where: { companyId, source, sourceRefId },
+    select: ["id"],
+  });
+  if (!entry) return null;
+  const line = await AppDataSource.getRepository(LedgerLine).findOne({
+    where: { companyId, ledgerEntryId: entry.id, origCurrency: currency, rate: MoreThan(0) },
+    select: ["rate"],
+  });
+  return line?.rate ?? null;
+}
+
+/**
+ * The rate an issued invoice was booked at, into `home`: what everything that
+ * clears its receivable — payments, credits, write-offs — converts at.
+ *
+ * Locked on the invoice when it was issued. An invoice issued before rates
+ * were locked has none, and reads the rate its issue entry used rather than
+ * the rate on file for its issue date today, which a rate fetched since can
+ * have changed. Only with neither does it fall back to the rate on file.
+ */
+export async function invoiceBookedRate(
+  invoice: Pick<Invoice, "id" | "companyId" | "currency" | "issueDate" | "exchangeRate">,
+  home: string,
+): Promise<number> {
+  if (invoice.currency.toUpperCase() === home.toUpperCase()) return 1;
+  if (invoice.exchangeRate && invoice.exchangeRate > 0) return invoice.exchangeRate;
+  const posted = await postedRate(invoice.companyId, "invoice_issue", invoice.id, invoice.currency);
+  if (posted !== null) return posted;
+  return (await lookupRate(invoice.companyId, invoice.currency, home, invoice.issueDate)).rate;
+}
+
+/** The rate an issued bill was booked at, into `home`, read as {@link invoiceBookedRate} reads an invoice's. */
+export async function billBookedRate(
+  bill: Pick<Bill, "id" | "companyId" | "currency" | "issueDate" | "exchangeRate">,
+  home: string,
+): Promise<number> {
+  if (bill.currency.toUpperCase() === home.toUpperCase()) return 1;
+  if (bill.exchangeRate && bill.exchangeRate > 0) return bill.exchangeRate;
+  const posted = await postedRate(bill.companyId, "manual", `bill_issue:${bill.id}`, bill.currency);
+  if (posted !== null) return posted;
+  return (await lookupRate(bill.companyId, bill.currency, home, bill.issueDate)).rate;
+}
+
+/**
+ * The rate a payment converts at: the one it locked, or the rate on file for
+ * the day it was paid. The caller saves it on the payment as it posts, which
+ * is the lock: the cash a payment brought in keeps its value in the home
+ * currency, whatever rates arrive for that day afterwards.
+ */
+export async function paymentRate(
+  companyId: string,
+  payment: { paidAt: Date; exchangeRate: number | null },
+  currency: string,
+  home: string,
+): Promise<number> {
+  if (currency.toUpperCase() === home.toUpperCase()) return 1;
+  if (payment.exchangeRate && payment.exchangeRate > 0) return payment.exchangeRate;
+  return (await lookupRate(companyId, currency, home, payment.paidAt)).rate;
 }
 
 export async function setRate(
@@ -260,6 +416,9 @@ export async function setRate(
   if (existing) {
     existing.rate = rate;
     existing.source = source;
+    // A person's rate replaces a fetched one for its day, and the feed never
+    // writes over it again.
+    existing.automatic = false;
     return repo.save(existing);
   }
   return repo.save(
@@ -270,6 +429,7 @@ export async function setRate(
       date,
       rate,
       source,
+      automatic: false,
     }),
   );
 }

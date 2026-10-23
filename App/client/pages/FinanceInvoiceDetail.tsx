@@ -23,6 +23,7 @@ import {
   changedSinceEmailed,
   displayInvoiceStatus,
   type DocumentRevision,
+  formatExchangeRate,
   formatMoney,
   Invoice,
   InvoiceBulkAction,
@@ -79,6 +80,8 @@ type InvoiceDetailPayload = Invoice & {
   writeOffs: InvoiceWriteOff[];
   creditApplications: CustomerCreditApplicationRow[];
   revision: DocumentRevision;
+  /** What the invoice's and its payments' locked rates convert into. */
+  homeCurrency: string;
 };
 
 /** Pre-filled in the resend dialog after an edit; the Member can change it. */
@@ -131,6 +134,7 @@ export default function FinanceInvoiceDetail() {
   const [showResend, setShowResend] = React.useState(false);
   const [resendMessage, setResendMessage] = React.useState("");
   const [revision, setRevision] = React.useState<DocumentRevision | null>(null);
+  const [homeCurrency, setHomeCurrency] = React.useState<string | null>(null);
 
   // True once this slug has loaded. Issuing a draft re-slugs the invoice from
   // `draft-…` to `inv-nnnn`, and the socket refetch that write triggers can
@@ -151,6 +155,7 @@ export default function FinanceInvoiceDetail() {
       setWriteOffs(inv.writeOffs ?? []);
       setCreditApplications(inv.creditApplications ?? []);
       setRevision(inv.revision ?? null);
+      setHomeCurrency(inv.homeCurrency ?? null);
       shown.current = true;
       setLoadError(null);
     } catch (err) {
@@ -421,6 +426,9 @@ export default function FinanceInvoiceDetail() {
   const emailedOn = revision?.emailedAt
     ? new Date(revision.emailedAt).toISOString().slice(0, 10)
     : null;
+  // Locked rates are shown only on an invoice in a currency other than home.
+  const home = homeCurrency ?? invoice.currency;
+  const foreign = invoice.currency.toUpperCase() !== home.toUpperCase();
 
   return (
     <div className="page-shell p-8">
@@ -740,6 +748,19 @@ export default function FinanceInvoiceDetail() {
                   {formatMoney(invoice.totalCents, invoice.currency)}
                 </span>
               </div>
+              {foreign && invoice.exchangeRate !== null && (
+                <div
+                  className="flex justify-between text-xs text-slate-400 dark:text-slate-500"
+                  title="Locked when the invoice was issued: its payments, credits and write-offs clear the receivable at this rate."
+                >
+                  <span>
+                    Booked in {home} at {formatExchangeRate(invoice.exchangeRate)}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatMoney(Math.round(invoice.totalCents * invoice.exchangeRate), home)}
+                  </span>
+                </div>
+              )}
               {invoice.paidCents > 0 && (
                 <div className="flex justify-between text-slate-500 dark:text-slate-400">
                   <span>Paid</span>
@@ -807,6 +828,15 @@ export default function FinanceInvoiceDetail() {
                       {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
                       {p.reference ? ` · ${p.reference}` : ""}
                     </div>
+                    {foreign && p.exchangeRate !== null && (
+                      <div
+                        className="text-xs tabular-nums text-slate-500 dark:text-slate-400"
+                        title="The rate of the day it was paid, locked when the payment was recorded."
+                      >
+                        {formatMoney(Math.round(p.amountCents * p.exchangeRate), home)} at{" "}
+                        {formatExchangeRate(p.exchangeRate)}
+                      </div>
+                    )}
                     {p.notes && (
                       <div className="mt-0.5 truncate text-xs text-slate-400" title={p.notes}>
                         {p.notes}

@@ -6,7 +6,13 @@ import { BillPayment } from "../db/entities/BillPayment.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { computeLineTotals, reconcilePartsToTotal } from "../lib/money.js";
-import { convertCents, getFinanceSettings } from "./fx.js";
+import {
+  billBookedRate,
+  convertAtRate,
+  getFinanceSettings,
+  lookupRate,
+  paymentRate,
+} from "./fx.js";
 import {
   findClosedPeriodCovering,
   hasEntryFor,
@@ -187,6 +193,7 @@ export async function issueBill(
     slug: bill.slug,
     status: bill.status,
     receivedAt: bill.receivedAt,
+    exchangeRate: bill.exchangeRate,
   };
   const seq = await mintNextBillSeq(bill.companyId);
   bill.numberSeq = seq;
@@ -225,6 +232,12 @@ async function postBillIssue(
 
   const settings = await getFinanceSettings(bill.companyId);
   const home = settings.homeCurrency;
+  // Lock the rate the bill is booked at onto it, so the payments and vendor
+  // credits that clear its payable later convert the same way, whatever
+  // rates arrive afterwards. A bill's header can't change once issued.
+  const rate = (await lookupRate(bill.companyId, bill.currency, home, bill.issueDate)).rate;
+  bill.exchangeRate = rate;
+  await AppDataSource.getRepository(Bill).update({ id: bill.id }, { exchangeRate: rate });
 
   // Build per-line debits to each line's expense account.
   type Entry = {
@@ -239,20 +252,13 @@ async function postBillIssue(
   const entryLines: Entry[] = [];
   for (const l of lines) {
     if (!l.expenseAccountId) continue;
-    const conv = await convertCents(
-      bill.companyId,
-      l.lineSubtotalCents,
-      bill.currency,
-      home,
-      bill.issueDate,
-    );
     entryLines.push({
       accountId: l.expenseAccountId,
-      debitCents: conv.converted,
+      debitCents: convertAtRate(l.lineSubtotalCents, rate),
       description: `${bill.number} — ${l.description}`,
       origCurrency: bill.currency,
       origAmountCents: l.lineSubtotalCents,
-      rate: conv.rate,
+      rate,
     });
   }
   if (bill.taxCents > 0) {
@@ -261,20 +267,13 @@ async function postBillIssue(
     // account as invoice tax (negative on the credit side reflects
     // tax we've paid that offsets what we owe). A jurisdiction-aware
     // split lands with the composable tax engine.
-    const conv = await convertCents(
-      bill.companyId,
-      bill.taxCents,
-      bill.currency,
-      home,
-      bill.issueDate,
-    );
     entryLines.push({
       accountId: tax.id,
-      debitCents: conv.converted,
+      debitCents: convertAtRate(bill.taxCents, rate),
       description: `${bill.number} — tax`,
       origCurrency: bill.currency,
       origAmountCents: bill.taxCents,
-      rate: conv.rate,
+      rate,
     });
   }
   // AP credit balances the entry. Anchor on the converted total, then
@@ -282,15 +281,9 @@ async function postBillIssue(
   // independently can leave the debits a cent off the credit
   // (`round(a)+round(b) !== round(a+b)`), which the ledger would reject as
   // unbalanced — stranding a foreign-currency bill "sent" but unposted.
-  const totalConv = await convertCents(
-    bill.companyId,
-    bill.totalCents,
-    bill.currency,
-    home,
-    bill.issueDate,
-  );
+  const total = convertAtRate(bill.totalCents, rate);
   const reconciledDebits = reconcilePartsToTotal(
-    totalConv.converted,
+    total,
     entryLines.map((l) => l.debitCents ?? 0),
   );
   entryLines.forEach((l, i) => {
@@ -298,11 +291,11 @@ async function postBillIssue(
   });
   entryLines.push({
     accountId: ap.id,
-    creditCents: totalConv.converted,
+    creditCents: total,
     description: `${bill.number} — payable`,
     origCurrency: bill.currency,
     origAmountCents: bill.totalCents,
-    rate: totalConv.rate,
+    rate,
   });
 
   await postLedgerEntry({
@@ -343,24 +336,23 @@ export async function postBillPayment(
   const fxGain = accounts.get("4910")!;
   const fxLoss = accounts.get("6900")!;
 
-  const atPayment = await convertCents(
-    bill.companyId,
-    payment.amountCents,
-    bill.currency,
-    home,
-    payment.paidAt,
-  );
-  const atIssue = await convertCents(
-    bill.companyId,
-    payment.amountCents,
-    bill.currency,
-    home,
-    bill.issueDate,
-  );
+  // The cash goes out at the rate of the day it was paid, locked on the
+  // payment; AP clears at the rate the bill was booked at.
+  const paidRate = await paymentRate(bill.companyId, payment, bill.currency, home);
+  const bookedRate = await billBookedRate(bill, home);
+  if (payment.exchangeRate !== paidRate) {
+    payment.exchangeRate = paidRate;
+    await AppDataSource.getRepository(BillPayment).update(
+      { id: payment.id },
+      { exchangeRate: paidRate },
+    );
+  }
+  const atPayment = convertAtRate(payment.amountCents, paidRate);
+  const atIssue = convertAtRate(payment.amountCents, bookedRate);
   // We owed `atIssue` home dollars per unit of foreign currency on the
   // bill; we're now paying `atPayment` home dollars. If the home
   // currency strengthened, we paid less than we owed = FX gain.
-  const fxDelta = atIssue.converted - atPayment.converted;
+  const fxDelta = atIssue - atPayment;
 
   const lines: Array<{
     accountId: string;
@@ -373,19 +365,19 @@ export async function postBillPayment(
   }> = [
     {
       accountId: ap.id,
-      debitCents: atIssue.converted,
+      debitCents: atIssue,
       description: bill.number,
       origCurrency: bill.currency,
       origAmountCents: payment.amountCents,
-      rate: atIssue.rate,
+      rate: bookedRate,
     },
     {
       accountId: bank.id,
-      creditCents: atPayment.converted,
+      creditCents: atPayment,
       description: payment.reference || bill.number,
       origCurrency: bill.currency,
       origAmountCents: payment.amountCents,
-      rate: atPayment.rate,
+      rate: paidRate,
     },
   ];
   if (fxDelta > 0) {

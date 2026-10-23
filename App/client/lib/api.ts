@@ -4818,6 +4818,9 @@ export type InvoicePayment = {
   amountCents: number;
   currency: string;
   paidAt: string;
+  /** The rate into the home currency on the day it was paid, locked when it
+   *  posted. Null on a payment recorded before rates were locked. */
+  exchangeRate: number | null;
   method: InvoicePaymentMethod;
   reference: string;
   notes: string;
@@ -4876,6 +4879,10 @@ export type Invoice = {
   issueDate: string;
   dueDate: string;
   currency: string;
+  /** The rate into the home currency the invoice was booked at, locked when
+   *  it was issued. Null on a draft, and on an invoice issued before rates
+   *  were locked. */
+  exchangeRate: number | null;
   /** Pre-tax amount charged — already net of `discountCents`. */
   subtotalCents: number;
   /** Whole-invoice discount; see `shared/documentDiscount.ts`. */
@@ -5094,6 +5101,11 @@ export function formatMoney(cents: number, currency: string): string {
   } catch {
     return `${(cents / 100).toFixed(2)} ${c}`;
   }
+}
+
+/** An exchange rate to six significant figures, the precision fetched rates keep: 1.1205, 0.00636756. */
+export function formatExchangeRate(rate: number): string {
+  return String(Number(rate.toPrecision(6)));
 }
 
 export function parseMoneyToCents(input: string): number {
@@ -6018,13 +6030,37 @@ export type ExchangeRate = {
   date: string;
   rate: number;
   source: string;
+  /** Fetched from the ECB rather than set by a person. */
+  automatic: boolean;
   createdAt: string;
+};
+
+/** `GET …/exchange-rates/overview`, from `services/exchangeRateFeed.ts`. */
+export type ExchangeRateOverview = {
+  homeCurrency: string;
+  automatic: {
+    enabled: boolean;
+    /** Whether the ECB quotes the home currency, so automatic rates can work at all. */
+    available: boolean;
+    /** The newest ECB reference day on file, `YYYY-MM-DD`. */
+    latestDate: string | null;
+  };
+  /** The rate each currency in use converts at today; null where none is on file. */
+  rates: Array<{
+    currency: string;
+    rate: number | null;
+    date: string | null;
+    source: string | null;
+    automatic: boolean;
+  }>;
 };
 
 export type CompanyFinanceSettings = {
   id: string;
   companyId: string;
   homeCurrency: string;
+  /** Fill exchange rates from the ECB's daily reference rates. On by default. */
+  automaticExchangeRates: boolean;
   /** Multi-line text rendered in the "From" column on every invoice
    *  and estimate. Empty means fall back to the bare company name. */
   defaultFromBlock: string;
@@ -6099,6 +6135,8 @@ export type BillPayment = {
   amountCents: number;
   currency: string;
   paidAt: string;
+  /** The rate into the home currency on the day it was paid, locked when it posted. */
+  exchangeRate: number | null;
   method: BillPaymentMethod;
   reference: string;
   notes: string;
@@ -6120,6 +6158,8 @@ export type Bill = {
   issueDate: string;
   dueDate: string;
   currency: string;
+  /** The rate into the home currency the bill was booked at, locked when it was issued. */
+  exchangeRate: number | null;
   subtotalCents: number;
   taxCents: number;
   totalCents: number;

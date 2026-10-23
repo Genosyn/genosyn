@@ -13,7 +13,13 @@ import { CustomerCreditLine } from "../db/entities/CustomerCreditLine.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
 import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { computeLineTotals, reconcilePartsToTotal, roundHalfAway } from "../lib/money.js";
-import { convertCents, getFinanceSettings } from "./fx.js";
+import {
+  convertAtRate,
+  convertCents,
+  getFinanceSettings,
+  invoiceBookedRate,
+  lookupRate,
+} from "./fx.js";
 import {
   findClosedPeriodCovering,
   postLedgerEntry,
@@ -394,10 +400,10 @@ export async function issueCreditNote(
 
   const settings = await getFinanceSettings(credit.companyId);
   const home = settings.homeCurrency;
-  const rateDate = await creditRateDate(credit);
-  const homeTotal = (await convertCents(credit.companyId, credit.totalCents, credit.currency, home, rateDate)).converted;
-  const homeSubRaw = (await convertCents(credit.companyId, credit.subtotalCents, credit.currency, home, rateDate)).converted;
-  const homeTaxRaw = (await convertCents(credit.companyId, credit.taxCents, credit.currency, home, rateDate)).converted;
+  const rate = await creditRate(credit, home);
+  const homeTotal = convertAtRate(credit.totalCents, rate);
+  const homeSubRaw = convertAtRate(credit.subtotalCents, rate);
+  const homeTaxRaw = convertAtRate(credit.taxCents, rate);
   const [homeSubtotal, homeTax] = reconcilePartsToTotal(homeTotal, [homeSubRaw, homeTaxRaw]);
   if (homeTotal <= 0) throw new Error("Converted credit total rounds to zero");
 
@@ -439,16 +445,17 @@ export async function issueCreditNote(
   return credit;
 }
 
-async function creditRateDate(credit: CustomerCredit): Promise<Date> {
-  // A memo is a correction to a past sale, so value it at that sale's rate.
+async function creditRate(credit: CustomerCredit, home: string): Promise<number> {
+  // A memo is a correction to a past sale, so value it at the rate that sale
+  // was booked at: applying it then relieves the receivable with no FX left.
   if (credit.sourceInvoiceId) {
     const inv = await AppDataSource.getRepository(Invoice).findOneBy({
       id: credit.sourceInvoiceId,
       companyId: credit.companyId,
     });
-    if (inv) return inv.issueDate;
+    if (inv) return invoiceBookedRate(inv, home);
   }
-  return credit.issueDate;
+  return (await lookupRate(credit.companyId, credit.currency, home, credit.issueDate)).rate;
 }
 
 // ─────────────────────────────── Apply ─────────────────────────────────
@@ -484,7 +491,7 @@ export async function applyCustomerCredit(
   const settings = await getFinanceSettings(credit.companyId);
   const home = settings.homeCurrency;
   // Relieve AR at the rate the invoice booked it.
-  const arCents = (await convertCents(credit.companyId, amount, invoice.currency, home, invoice.issueDate)).converted;
+  const arCents = convertAtRate(amount, await invoiceBookedRate(invoice, home));
   // Consume the credit's home carrying value; the final draw takes the exact
   // remaining home balance so the sum of applications equals homeTotalCents.
   const isFinalDraw = amount === creditOpenCents(credit);

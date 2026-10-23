@@ -49,8 +49,11 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Catalog</Strong> — reusable <Code>Products</Code> and <Code>Tax rates</Code>,
-          snapshotted onto every line so editing a product never rewrites historical documents.
-          Click a product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
+          snapshotted onto every line so editing a product never rewrites historical documents,
+          and <Code>Currencies</Code>, whose exchange rates fill themselves from the European
+          Central Bank (see{" "}
+          <DocLink to="/docs/finance#currencies">Currencies and exchange rates</DocLink>). Click a
+          product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
         </LI>
         <LI>
           <Strong>Banking</Strong> — your bank accounts and cards with every transaction on them:
@@ -568,8 +571,9 @@ export function Finance() {
       </P>
       <P>
         Every figure is in the home currency set under <Code>Finance → Currencies</Code>. A schedule
-        in another currency is converted at the latest exchange rate on file there, and the note
-        under the figures names the rates used. A currency with no rate into the home currency is
+        in another currency is converted at the latest exchange rate on file there (see{" "}
+        <DocLink to="/docs/finance#currencies-automatic">Automatic exchange rates</DocLink>), and the
+        note under the figures names the rates used. A currency with no rate into the home currency is
         left out of every figure rather than added at face value; the note says how many schedules
         that leaves out, with an <Code>Add a rate</Code> link. The figures update as schedules
         change. <DocLink to="/docs/revenue#insights">Revenue → Insights</DocLink> reports ARR across
@@ -723,6 +727,49 @@ export function Finance() {
         archived schedule restores it as well, so a schedule that bills is always in the list. AI
         Employees see the same split: <Code>list_recurring_invoices</Code> leaves archived schedules
         out unless asked to include them.
+      </P>
+
+      <H2 id="currencies">Currencies and exchange rates</H2>
+      <P>
+        Every amount in the ledger is in the <Strong>home currency</Strong> picked under{" "}
+        <Code>Finance → Currencies</Code>. Invoices, bills and payments can be in other currencies,
+        and convert into the home currency as they post.
+      </P>
+
+      <H3 id="currencies-automatic">Automatic exchange rates</H3>
+      <P>
+        Exchange rates fill themselves from the <Strong>European Central Bank</Strong>&apos;s daily
+        euro reference rates: the official rates for about thirty currencies, published each
+        business day around 16:00 CET. Genosyn checks for new ones every three hours, converts them
+        into the home currency through the euro, and files one rate a day for each currency the
+        company uses — its currency list, and any its customers, vendors, invoices, bills and
+        recurring invoices are in. A weekend or holiday uses the last business day&apos;s rate.
+        Each check covers the last 90 days, so a gap fills itself; for an older date, set the rate
+        by hand. <Strong>Today&apos;s rates</Strong> on the page shows the rate each currency
+        converts at now, and <Code>Update now</Code> fetches straight away.
+      </P>
+      <P>
+        Automatic rates are on for every company. A rate set with <Code>Set rate</Code> — your
+        bank&apos;s, say — wins over the ECB&apos;s for its day and is listed under{" "}
+        <Strong>Rates you set</Strong>. Turn off{" "}
+        <Strong>Automatic rates from the European Central Bank</Strong> to use only the rates you
+        set: the rates already fetched stay on file but are no longer used. When the ECB
+        doesn&apos;t publish the home currency, the page says so and the rates have to be set by
+        hand.
+      </P>
+
+      <H3 id="currencies-locked">Locked rates</H3>
+      <P>
+        A foreign-currency invoice or bill converts at the most recent rate on or before its issue
+        date, and <Strong>locks</Strong> that rate when it is issued. Each payment locks the rate of
+        the day it was paid. The cash is booked at the payment&apos;s rate, the receivable or
+        payable is cleared at the document&apos;s own rate, and the difference posts to{" "}
+        <Code>4910 FX Gain</Code> or <Code>6900 FX Loss</Code>. Credits, credit notes and write-offs
+        clear at the document&apos;s rate too, so a rate that arrives later for the issue date
+        never leaves part of a balance behind. Under the total, an invoice or bill shows what it was
+        booked at in the home currency, and each of its payments shows its home amount and rate.
+        Changing an issued invoice&apos;s issue date or currency, which is allowed only while
+        nothing is applied to it, books it again at the new date&apos;s rate.
       </P>
 
       <H2 id="banking">Banking</H2>

@@ -93,6 +93,17 @@ export class Invoice {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
+  /** The rate into the home currency the invoice was booked at, locked when it
+   *  is issued: 1 in the home currency, and null on a draft. The payments,
+   *  credits and write-offs that clear its receivable convert at this rate,
+   *  so a rate that arrives afterwards for the issue date can't leave part of
+   *  the receivable behind. Re-locked only when an edit moves the issue date
+   *  or currency, which nothing applied to the invoice allows. An invoice
+   *  issued before rates were locked reads the rate back from its issue entry
+   *  (`invoiceBookedRate` in `services/fx.ts`). */
+  @Column({ type: "real", nullable: true })
+  exchangeRate!: number | null;
+
   /** Pre-tax amount charged: the lines' subtotal less any discount, so
    *  `subtotalCents + taxCents = totalCents` and revenue is the subtotal. */
   @Column({ type: "int", default: 0 })

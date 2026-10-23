@@ -140,6 +140,7 @@ import { memberBrowserBridgeRouter } from "./routes/memberBrowserBridge.js";
 import { memberBrowsersRouter } from "./routes/memberBrowsers.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootBrowserRecordingRetention } from "./services/browserRecordingRetention.js";
+import { bootExchangeRateFeed } from "./services/exchangeRateFeed.js";
 import { bootVaultSourceSync } from "./services/vaultSourceSync.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
@@ -247,6 +248,9 @@ async function main() {
   // Deletes Routine browser recordings past the window set at Admin → Runtime
   // → Browser. The first pass runs in the background, never gating startup.
   bootBrowserRecordingRetention();
+  // The ECB's daily reference rates for companies with automatic exchange
+  // rates on: a pass shortly after boot, then every three hours.
+  bootExchangeRateFeed();
   bootVaultSourceSync();
   // External chat surfaces (M59) — the transports that dial out and hold a
   // connection open: one long poll per Telegram Connection, one Socket Mode

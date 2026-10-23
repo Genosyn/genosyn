@@ -68,6 +68,14 @@ export class Bill {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
+  /** The rate into the home currency the bill was booked at, locked when it
+   *  is issued, as on `Invoice`: payments and vendor credits clear its
+   *  payable at this rate. A bill's header can't change once issued, so it is
+   *  never re-locked. Null on a draft, and on a bill issued before rates were
+   *  locked (`billBookedRate` in `services/fx.ts` reads its ledger entry). */
+  @Column({ type: "real", nullable: true })
+  exchangeRate!: number | null;
+
   @Column({ type: "int", default: 0 })
   subtotalCents!: number;
 

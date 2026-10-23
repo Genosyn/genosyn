@@ -9,7 +9,13 @@ import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
 import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
 import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { roundHalfAway } from "../lib/money.js";
-import { convertCents, getFinanceSettings } from "./fx.js";
+import {
+  billBookedRate,
+  convertAtRate,
+  convertCents,
+  getFinanceSettings,
+  lookupRate,
+} from "./fx.js";
 import {
   findClosedPeriodCovering,
   postLedgerEntry,
@@ -247,7 +253,7 @@ export async function issueVendorCredit(
 
   const settings = await getFinanceSettings(credit.companyId);
   const home = settings.homeCurrency;
-  const rateDate = await creditRateDate(credit);
+  const rate = await creditRate(credit, home);
   const accounts = await requireAccountsByCode(credit.companyId, [VENDOR_CREDITS_CODE, TAX_CODE]);
 
   // Convert each line's subtotal to home and credit its expense account; DR
@@ -262,15 +268,13 @@ export async function issueVendorCredit(
       await lineRepo.save(l);
       continue;
     }
-    const homeSub = (await convertCents(credit.companyId, l.lineSubtotalCents, credit.currency, home, rateDate)).converted;
+    const homeSub = convertAtRate(l.lineSubtotalCents, rate);
     l.homeSubtotalCents = homeSub;
     await lineRepo.save(l);
     homeSubtotal += homeSub;
     creditLines.push({ accountId: l.expenseAccountId, creditCents: homeSub, description: `Vendor credit ${l.description}` });
   }
-  const homeTax = credit.taxCents > 0
-    ? (await convertCents(credit.companyId, credit.taxCents, credit.currency, home, rateDate)).converted
-    : 0;
+  const homeTax = credit.taxCents > 0 ? convertAtRate(credit.taxCents, rate) : 0;
   if (homeTax > 0) {
     creditLines.push({ accountId: accounts.get(TAX_CODE)!.id, creditCents: homeTax, description: "Vendor credit tax" });
   }
@@ -304,15 +308,17 @@ export async function issueVendorCredit(
   return credit;
 }
 
-async function creditRateDate(credit: VendorCredit): Promise<Date> {
+async function creditRate(credit: VendorCredit, home: string): Promise<number> {
+  // A credit against a bill corrects that bill, so value it at the rate the
+  // bill was booked at: applying it then relieves the payable with no FX left.
   if (credit.sourceBillId) {
     const bill = await AppDataSource.getRepository(Bill).findOneBy({
       id: credit.sourceBillId,
       companyId: credit.companyId,
     });
-    if (bill) return bill.issueDate;
+    if (bill) return billBookedRate(bill, home);
   }
-  return credit.issueDate;
+  return (await lookupRate(credit.companyId, credit.currency, home, credit.issueDate)).rate;
 }
 
 // ─────────────────────────────── Apply ─────────────────────────────────
@@ -342,7 +348,8 @@ export async function applyVendorCredit(
   if (closed) throw new Error(`That date falls in the closed period "${closed.name}".`);
 
   const settings = await getFinanceSettings(credit.companyId);
-  const apCents = (await convertCents(credit.companyId, amount, bill.currency, settings.homeCurrency, bill.issueDate)).converted;
+  // Relieve AP at the rate the bill booked it.
+  const apCents = convertAtRate(amount, await billBookedRate(bill, settings.homeCurrency));
   const isFinalDraw = amount === vendorCreditOpenCents(credit);
   const creditCents = isFinalDraw
     ? credit.homeTotalCents - credit.homeAppliedCents - credit.homeRefundedCents
