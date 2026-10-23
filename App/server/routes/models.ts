@@ -21,6 +21,20 @@ import {
   verifyModelEdit,
   editApiModel,
 } from "../services/modelSetup.js";
+import { addBackupKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
+import {
+  LEGACY_PRIMARY_KEY_ID,
+  publicApiKeys,
+  readApiKeys,
+  type PublicApiKey,
+} from "../services/modelApiKeys.js";
+import {
+  deleteKeyHealth,
+  keyRestingUntil,
+  listKeyHealth,
+  pruneKeyHealth,
+} from "../services/modelKeyHealth.js";
+import type { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { previewBaseURL } from "../services/customEndpoint.js";
 import { connectCustomModel } from "../services/customModelSetup.js";
 import { listReusableModels, reuseModelForEmployee } from "../services/modelReuse.js";
@@ -54,7 +68,9 @@ import {
  * `POST /:id/activate` flips the default model used by the runner and chat.
  * `GET /reusable` and `POST /reuse` let a new employee use an AI Model another
  * employee in the company already runs on, copied on the server (see
- * `services/modelReuse.ts`).
+ * `services/modelReuse.ts`). `/:id/api-keys` adds, removes and reorders an
+ * API-key model's backup keys — as many as the owner wants — each shown only
+ * as a preview with its health (see `services/modelApiKeySetup.ts`).
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -84,6 +100,12 @@ type PublicModel = {
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
+  /**
+   * An API-key model's keys in the order requests try them — the primary,
+   * then every backup — each as a masked preview with its health. Empty for
+   * subscription and custom-endpoint models.
+   */
+  apiKeys: PublicApiKey[];
   /** Env var the provider conventionally reads (informational), or null. */
   apiKeyEnv: string | null;
   /** Does this provider connect with a plain API key? */
@@ -151,7 +173,11 @@ async function loadModelContext(
   return { co: ctx.co, emp: ctx.emp, m };
 }
 
-function toPublic(m: AIModel, isActive: boolean): PublicModel {
+function toPublic(
+  m: AIModel,
+  isActive: boolean,
+  health: readonly AIModelKeyHealth[] = [],
+): PublicModel {
   const cfg = safeParseConfig(m.configJson);
   const apiKeyEncrypted =
     typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
@@ -172,6 +198,9 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     connectedAt: m.connectedAt?.toISOString() ?? null,
     status: connected ? "connected" : "not_connected",
     apiKeyMasked: apiKeyEncrypted ? "sk-…••••" : null,
+    apiKeys: publicApiKeys(m, health, {
+      restingUntil: (keyId) => keyRestingUntil(m.id, keyId),
+    }),
     apiKeyEnv: spec.apiKeyEnv,
     supportsApiKey: spec.supportsApiKey,
     supportsSubscription: spec.supportsSubscription,
@@ -199,7 +228,18 @@ async function publicModel(m: AIModel, emp: AIEmployee): Promise<PublicModel> {
     where: { employeeId: emp.id },
   });
   const activeId = effectiveActiveId(all);
-  return toPublic(m, m.id === activeId);
+  return toPublic(m, m.id === activeId, await listKeyHealth([m.id]));
+}
+
+/** Each model's key health, by model id. */
+async function healthByModel(models: AIModel[]): Promise<Map<string, AIModelKeyHealth[]>> {
+  const byModel = new Map<string, AIModelKeyHealth[]>();
+  for (const row of await listKeyHealth(models.map((m) => m.id))) {
+    const rows = byModel.get(row.modelId);
+    if (rows) rows.push(row);
+    else byModel.set(row.modelId, [row]);
+  }
+  return byModel;
 }
 
 function safeParseConfig(s: string): Record<string, unknown> {
@@ -247,7 +287,8 @@ modelsRouter.get("/", async (req, res) => {
     order: { createdAt: "DESC" },
   });
   const activeId = effectiveActiveId(all);
-  res.json(all.map((m) => toPublic(m, m.id === activeId)));
+  const health = await healthByModel(all);
+  res.json(all.map((m) => toPublic(m, m.id === activeId, health.get(m.id))));
 });
 
 const modelCollectionParamsSchema = z.object({ cid: z.string().uuid(), eid: z.string().uuid() });
@@ -483,6 +524,8 @@ modelsRouter.put(
     }
     const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
     if (!saved) return res.status(404).json({ error: "Model not found" });
+    // A change of service or sign-in takes the old keys, and their health, with it.
+    await pruneKeyHealth(saved);
     await recordAudit({
       companyId: ctx.co.id,
       actorUserId: req.userId ?? null,
@@ -557,6 +600,137 @@ modelsRouter.post(
       metadata: { provider: m.provider },
     });
     res.json(await publicModel(verified, ctx.emp));
+  },
+);
+
+// ---------- Backup API keys ----------
+//
+// An Anthropic or OpenAI model connected with an API key holds its primary key
+// and any number of backup keys, tried in order when the provider refuses the
+// key a request went out on (see `services/agent/apiKeyRing.ts`). Only
+// previews leave the server; admins edit them like every other credential.
+
+/** A key's id: a UUID, or `primary` for a primary saved before backup keys. */
+const apiKeyIdSchema = z.union([z.literal(LEGACY_PRIMARY_KEY_ID), z.string().uuid()]);
+const apiKeyItemParamsSchema = modelItemParamsSchema.extend({ keyId: apiKeyIdSchema });
+const addApiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) }).strict();
+const reorderApiKeysSchema = z
+  .object({
+    orderedIds: z
+      .array(apiKeyIdSchema)
+      .min(1)
+      .refine((ids) => new Set(ids).size === ids.length, "Each key may appear only once."),
+  })
+  .strict();
+
+// POST /api/companies/:cid/employees/:eid/models/:id/api-keys — test a key, add it as a backup.
+modelsRouter.post(
+  "/:id/api-keys",
+  validateParams(modelItemParamsSchema),
+  validateBody(addApiKeySchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    let added: Awaited<ReturnType<typeof addBackupKey>>;
+    try {
+      added = await addBackupKey(
+        ctx.m,
+        (req.body as z.infer<typeof addApiKeySchema>).apiKey,
+        ctx.co.id,
+      );
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      return res.status(error.status).json(error.responseBody());
+    }
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.apikey.add",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: added.model.provider,
+        model: added.model.model,
+        keyId: added.key.id,
+        keyPreview: added.key.apiKeyPreview,
+        keyCount: readApiKeys(added.model.configJson).length,
+      },
+    });
+    res.json(await publicModel(added.model, ctx.emp));
+  },
+);
+
+// POST /api/companies/:cid/employees/:eid/models/:id/api-keys/reorder — the first is the primary.
+modelsRouter.post(
+  "/:id/api-keys/reorder",
+  validateParams(modelItemParamsSchema),
+  validateBody(reorderApiKeysSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    let saved: AIModel;
+    try {
+      saved = await reorderApiKeys(
+        ctx.m,
+        (req.body as z.infer<typeof reorderApiKeysSchema>).orderedIds,
+      );
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      return res.status(error.status).json(error.responseBody());
+    }
+    const keys = readApiKeys(saved.configJson);
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.apikey.reorder",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: saved.provider,
+        model: saved.model,
+        orderedKeyIds: keys.map((key) => key.id),
+        orderedPreviews: keys.map((key) => key.apiKeyPreview),
+      },
+    });
+    res.json(await publicModel(saved, ctx.emp));
+  },
+);
+
+// DELETE /api/companies/:cid/employees/:eid/models/:id/api-keys/:keyId — the next key moves up.
+modelsRouter.delete(
+  "/:id/api-keys/:keyId",
+  validateParams(apiKeyItemParamsSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    let removed: Awaited<ReturnType<typeof removeApiKey>>;
+    try {
+      removed = await removeApiKey(ctx.m, p.keyId);
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      return res.status(error.status).json(error.responseBody());
+    }
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.apikey.remove",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: removed.model.provider,
+        model: removed.model.model,
+        keyId: removed.key.id,
+        keyPreview: removed.key.apiKeyPreview,
+        keyCount: readApiKeys(removed.model.configJson).length,
+      },
+    });
+    res.json(await publicModel(removed.model, ctx.emp));
   },
 );
 
@@ -928,6 +1102,7 @@ modelsRouter.delete("/:id", async (req, res) => {
     (r) => r.id !== m.id,
   );
   await repo.delete({ id: m.id });
+  await deleteKeyHealth([m.id]);
   // Routines pinned to this model revert to inheriting the active one, so the
   // pin never outlives the row it names.
   await clearRoutinePins(m.id, ctx.co.id);
