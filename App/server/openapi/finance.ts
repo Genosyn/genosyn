@@ -409,6 +409,77 @@ registry.registerPath({
   },
 });
 
+const recipientSuggestion = z
+  .object({
+    email: z.string().describe("Lowercased, and accepted by the invoice and estimate send endpoints."),
+    name: z.string().describe("The person's name, or empty when the address is all there is."),
+    role: z.string().describe("Role or job title from the strongest source that has one."),
+    primary: z.boolean().describe("The customer's primary billing contact."),
+    billing: z
+      .boolean()
+      .describe(
+        "The billing email, or a role, title or mailbox that reads as billing or finance (Accounts payable, CFO, ap@, billing@).",
+      ),
+    sources: z
+      .array(z.enum(["billing_email", "customer_contact", "revenue_contact", "deal", "domain"]))
+      .describe(
+        "Why they are suggested, strongest first: the customer's billing email, a billing contact, a Revenue contact linked to the account, a Revenue contact on one of its Deals, or a Revenue contact at its domain.",
+      ),
+    dealTitle: z
+      .string()
+      .nullable()
+      .describe("The most recently updated Deal they are on, when a Deal is why they are here."),
+    lastEmailedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "The last delivered invoice or estimate email of this customer's that went to them, or outbound email with them as a Revenue contact; null when neither is recorded.",
+      ),
+  })
+  .openapi("FinanceRecipientSuggestion");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/customers/{slug}/recipient-suggestions",
+  summary: "Suggest who to email a customer's invoice or estimate to",
+  description:
+    "The people the send dialog offers as one-click To and Cc recipients: the customer's billing email, its billing contacts, Revenue contacts linked to the account or on its Deals, and Revenue contacts at its domain, subdomains included. A free-mail domain such as gmail.com, or one of the company's own domains, is never matched as a whole. Archived contacts, anyone marked Do not contact, and suppressed addresses are left out. Ranked billing and finance people and the primary contact first, then whoever was emailed most recently, then the rest. Suggesting changes no email; send to the people you choose with the invoice or estimate send endpoint.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: {
+    params: companyParams.extend({ slug: z.string() }),
+    query: z.object({
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("At most this many suggestions, best first. Defaults to 50."),
+    }),
+  },
+  responses: {
+    200: {
+      description: "The customer's people, best first",
+      content: {
+        "application/json": {
+          schema: z.object({
+            suggestions: z.array(recipientSuggestion),
+            domain: z
+              .string()
+              .nullable()
+              .describe(
+                "The domain people were matched at, or null when the customer has none, it is free mail, or it is the company's own.",
+              ),
+          }),
+        },
+      },
+    },
+    ...errors,
+  },
+});
+
 registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/recurring-invoices",

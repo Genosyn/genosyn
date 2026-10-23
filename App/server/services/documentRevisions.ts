@@ -34,6 +34,11 @@ export function reviseAction(kind: RevisableDocument): string {
   return DOCUMENT_ACTIONS[kind].revise;
 }
 
+/** The audit actions an email of a document of this kind records — first sends and resends. */
+export function sendActions(kind: RevisableDocument): string[] {
+  return [...DOCUMENT_ACTIONS[kind].send];
+}
+
 export async function documentRevisionState(
   companyId: string,
   kind: RevisableDocument,
@@ -57,7 +62,7 @@ export async function documentRevisionState(
 }
 
 /** Member sends record `status`; AI Employee sends record `sendStatus`. */
-function wasDelivered(metadataJson: string): boolean {
+export function wasDelivered(metadataJson: string): boolean {
   try {
     const meta = JSON.parse(metadataJson || "{}") as Record<string, unknown>;
     return (meta.status ?? meta.sendStatus) === "sent";

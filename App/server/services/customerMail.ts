@@ -91,9 +91,11 @@ export type CustomerMailPage = {
 /**
  * The domain to match for a Customer, or null when matching it would sweep in
  * mail that is not theirs: a free-mail host would claim every Gmail user, and
- * the company's own domain would claim every internal message.
+ * the company's own domain would claim every internal message. The send
+ * dialog's recipient suggestions (`recipientSuggestions.ts`) match people by
+ * the same rule, so the two never disagree about who is at the account.
  */
-function searchableDomain(raw: string, ownDomains: Set<string>): string | null {
+export function searchableDomain(raw: string, ownDomains: ReadonlySet<string>): string | null {
   const domain = normalizeAccountDomain(raw);
   if (!domain || !domain.includes(".")) return null;
   if (isFreeMailDomain(domain) || ownDomains.has(domain)) return null;
