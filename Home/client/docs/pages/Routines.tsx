@@ -103,14 +103,39 @@ export function Routines() {
 
       <H2 id="creating">Creating a Routine</H2>
       <P>
-        Owners and admins start from <Strong>New routine</Strong>. Say what you want and an AI
-        Employee drafts it for you, or fill in the details yourself.
+        Owners and admins start from <Strong>New routine</Strong>, which opens on the form. Fill in
+        the details yourself, or describe what you want and an AI Employee drafts it for you.
       </P>
-      <H3 id="describe-it">Describe it</H3>
+      <H3 id="set-it-up-yourself">Set it up yourself</H3>
       <P>
-        The page opens on one box, <Strong>What should happen, and how often?</Strong> Write it the
-        way you would tell a colleague, or press one of the <Strong>Examples</Strong> to start from.
-        Choose the <Strong>AI Employee</Strong> to ask — only employees with a connected{" "}
+        The form asks for a <Strong>Name</Strong>, who the routine is <Strong>Assigned to</Strong>,
+        its <Strong>Schedule</Strong>, and <Strong>What should happen on each run?</Strong> — the
+        brief, which this form requires. <Strong>Create routine</Strong> opens the new routine,
+        already on its schedule. <Strong>More options</Strong> holds the <Strong>Folder</Strong> and{" "}
+        <Strong>Tags</Strong> and stays closed until you open it; closed, it names the folder when
+        one was carried over from the list you came from.
+      </P>
+      <P>
+        Every <Strong>New routine</Strong> opens this form: on the Routines list and its sidebar, in
+        a folder, on one AI Employee&apos;s routines, on <Strong>Running</Strong> and{" "}
+        <Strong>Proactive</Strong>, and in the <Code>⌘K</Code> palette. From a folder or one
+        employee&apos;s routines it starts filed in that folder and assigned to that employee.
+      </P>
+      <P>
+        Through the authenticated company API, the same fields go to{" "}
+        <Code>POST /api/companies/:companyId/employees/:employeeId/routines</Code>:{" "}
+        <Code>name</Code>, <Code>cronExpr</Code>, an optional <Code>brief</Code> of up to 20,000
+        characters, and optional <Code>folderId</Code> and <Code>tagIds</Code>. With a{" "}
+        <Code>brief</Code> the routine starts switched on. Without one — or with a blank brief, or
+        the starter outline unchanged — it is created paused with nothing scheduled, so nothing runs
+        before a real brief exists.
+      </P>
+      <H3 id="describe-it">Describe it instead</H3>
+      <P>
+        <Strong>Describe it instead</Strong>, under the form, swaps the fields for one box,{" "}
+        <Strong>What should happen, and how often?</Strong> Write it the way you would tell a
+        colleague, or press one of the <Strong>Examples</Strong> to start from. Choose the{" "}
+        <Strong>AI Employee</Strong> to ask — only employees with a connected{" "}
         <DocLink to="/docs/models">AI Model</DocLink> are offered, and when only one can answer they
         are already chosen — then press <Strong>Continue to Chat</Strong>.
       </P>
@@ -122,25 +147,12 @@ export function Routines() {
         <DocLink to="/docs/decisions">Decision stack</DocLink> until an owner or admin accepts it,
         and accepting it is what creates the Routine, switched on.
       </P>
-      <H3 id="set-it-up-yourself">Set it up yourself</H3>
       <P>
-        <Strong>Set it up yourself</Strong>, under the box, opens the form: a <Strong>Name</Strong>,
-        who the routine is <Strong>Assigned to</Strong>, its <Strong>Schedule</Strong>, and{" "}
-        <Strong>What should happen on each run?</Strong> — the brief, which this form requires.{" "}
-        <Strong>Create routine</Strong> opens the new routine, already on its schedule.{" "}
-        <Strong>More options</Strong> holds the <Strong>Folder</Strong> and <Strong>Tags</Strong>{" "}
-        and stays closed until you open it; closed, it names the folder when one was carried over
-        from the list you came from. <Strong>Describe it instead</Strong> goes back to the box, and
-        what you typed in either place is kept.
-      </P>
-      <P>
-        Through the authenticated company API, the same fields go to{" "}
-        <Code>POST /api/companies/:companyId/employees/:employeeId/routines</Code>:{" "}
-        <Code>name</Code>, <Code>cronExpr</Code>, an optional <Code>brief</Code> of up to 20,000
-        characters, and optional <Code>folderId</Code> and <Code>tagIds</Code>. With a{" "}
-        <Code>brief</Code> the routine starts switched on. Without one — or with a blank brief, or
-        the starter outline unchanged — it is created paused with nothing scheduled, so nothing runs
-        before a real brief exists.
+        <Strong>Back to the form</Strong>, under the box, returns to the fields, and what you typed
+        in either place is kept. While the box is open the page&apos;s address includes{" "}
+        <Code>describe=1</Code>, so a reload keeps the box open and a link that includes it opens
+        straight on the box. Until an AI Employee has a connected AI Model, a note under the form
+        says so in place of <Strong>Describe it instead</Strong>, with a link to connect one.
       </P>
 
       <H2 id="recent-runs">Running, queued, and today</H2>

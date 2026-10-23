@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BankFeed } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
@@ -6,6 +6,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
+import { ProviderRequestError, parseRetryAfter } from "../integrations/providerErrors.js";
 import {
   type BrexCashAccountSummary,
   type BrexConfig,
@@ -13,6 +14,7 @@ import {
   listBrexCashAccounts,
   summarizeBrexCashAccount,
 } from "../integrations/providers/brex.js";
+import { FeedSyncError, withProviderRetry } from "./feedSyncErrors.js";
 import { decryptConnectionConfig } from "./integrations.js";
 import { Account } from "../db/entities/Account.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
@@ -48,8 +50,38 @@ import { syncWiseBalanceFeed } from "./wiseFeeds.js";
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
-const MATCH_DATE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-const BREX_SYNC_OVERLAP_MS = 7 * 24 * 60 * 60 * 1000;
+const STRIPE_TIMEOUT_MS = 30_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MATCH_DATE_WINDOW_MS = 3 * DAY_MS;
+/**
+ * How far before the last successful sync the next one asks again. A
+ * transaction a provider posts late — or a sync that finished while one was
+ * posting — still comes in, and dedupe by the provider's id keeps the second
+ * look free of duplicates. The window starts at the last *successful* sync,
+ * whenever that was, so an account that missed months catches up on all of
+ * them in one pass.
+ */
+export const BANK_SYNC_OVERLAP_MS = 7 * DAY_MS;
+
+/**
+ * Advance a feed's cursor — the last successful sync — without saving the
+ * whole row. A `save` would write back every column of the copy this sync
+ * loaded, over the sync status `bankingSync.ts` keeps on the same row.
+ */
+async function recordFeedSynced(
+  feed: BankFeed,
+  at: Date,
+  balance?: { cents: number; currency: string } | null,
+): Promise<void> {
+  const values: Partial<BankFeed> = { lastSyncAt: at };
+  if (balance) {
+    values.balanceCents = balance.cents;
+    values.balanceCurrency = balance.currency;
+    values.balanceAt = at;
+  }
+  await AppDataSource.getRepository(BankFeed).update({ id: feed.id, companyId: feed.companyId }, values);
+  Object.assign(feed, values);
+}
 
 /** Why a deposit that already paid some invoices can't be matched or categorized whole. */
 export const PARTLY_PAID =
@@ -72,49 +104,112 @@ type StripePayoutsResponse = {
   has_more?: boolean;
 };
 
+/** Stripe refused a request, or never answered it (`status` 0). */
+export class StripeApiError extends ProviderRequestError {
+  constructor(message: string, status: number, retryAfterMs: number | null = null, request = "") {
+    super(message, "Stripe", status, retryAfterMs, request);
+    this.name = "StripeApiError";
+  }
+}
+
+/** Stripe's own sentence for a refused request, from its `{ error: { message } }` body. */
+function stripeErrorMessage(status: number, text: string): string {
+  try {
+    const message = (JSON.parse(text) as { error?: { message?: unknown } })?.error?.message;
+    if (typeof message === "string" && message.trim()) return `Stripe ${status}: ${message.trim()}`;
+  } catch {
+    // Not JSON: a proxy's page, or nothing at all.
+  }
+  const trimmed = text.trim();
+  return trimmed && !trimmed.startsWith("<")
+    ? `Stripe ${status}: ${trimmed.slice(0, 200)}`
+    : `Stripe ${status}`;
+}
+
+async function getStripePayoutsPage(
+  apiKey: string,
+  options: { startingAfter?: string; createdGte?: number },
+): Promise<StripePayoutsResponse> {
+  const url = new URL(`${STRIPE_API}/payouts`);
+  url.searchParams.set("limit", "100");
+  if (options.startingAfter) url.searchParams.set("starting_after", options.startingAfter);
+  if (options.createdGte !== undefined) {
+    url.searchParams.set("created[gte]", String(options.createdGte));
+  }
+  const request = "GET /v1/payouts";
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(STRIPE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new StripeApiError(
+        `Stripe didn't answer within ${STRIPE_TIMEOUT_MS / 1000} seconds. Try again.`,
+        0,
+        null,
+        request,
+      );
+    }
+    throw err;
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    throw new StripeApiError(
+      stripeErrorMessage(res.status, text),
+      res.status,
+      parseRetryAfter(res.headers.get("retry-after")),
+      request,
+    );
+  }
+  try {
+    return JSON.parse(text) as StripePayoutsResponse;
+  } catch {
+    throw new FeedSyncError("bad_data", "Stripe answered the payout list with something other than JSON");
+  }
+}
+
 /**
  * Pull payouts from Stripe and create `BankTransaction` rows for any
  * we haven't seen before. Returns the count of new rows. Idempotent —
  * dedupes on `(feedId, externalId=stripe payout id)`.
  *
- * Phase D fetches the most recent 100 payouts in one call. Pagination
- * lands when a real production install needs it; until then a single
- * page is plenty for a small business that runs reconcile daily.
+ * The first sync walks the whole payout history; later ones ask only for
+ * payouts created since a week before the last successful sync, however long
+ * ago that was. Stripe caps a page at 100 and sets `has_more` when more remain.
  */
-export async function syncStripePayouts(feed: BankFeed): Promise<number> {
+export async function syncStripePayouts(feed: BankFeed, now = new Date()): Promise<number> {
   if (feed.kind !== "stripe_payouts") {
     throw new Error("Feed is not a Stripe payouts feed");
   }
   if (!feed.connectionId) {
-    throw new Error("Stripe feed has no connection — pick one first");
+    throw new FeedSyncError("connection_missing", "Stripe feed has no connection — pick one first");
   }
   const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
     id: feed.connectionId,
     companyId: feed.companyId,
   });
-  if (!conn) throw new Error("Stripe connection not found");
-  const cfg = decryptConnectionConfig(conn) as { apiKey?: string };
+  if (!conn) throw new FeedSyncError("connection_missing", "Stripe connection not found");
+  let cfg: { apiKey?: string };
+  try {
+    cfg = decryptConnectionConfig(conn) as { apiKey?: string };
+  } catch (err) {
+    throw new FeedSyncError("credentials", (err as Error).message);
+  }
   const apiKey = cfg.apiKey;
-  if (!apiKey) throw new Error("Stripe connection is missing an API key");
+  if (!apiKey) throw new FeedSyncError("credentials", "Stripe connection is missing an API key");
+  const createdGte = feed.lastSyncAt
+    ? Math.floor((feed.lastSyncAt.getTime() - BANK_SYNC_OVERLAP_MS) / 1000)
+    : undefined;
 
-  // Walk the full payout history via cursor pagination. Stripe caps a page
-  // at 100 and sets `has_more` when more remain; fetching a single page
-  // silently dropped every payout older than the newest 100. The page cap
-  // is a backstop against a pathological response looping forever.
+  // The page cap is a backstop against a pathological response looping forever.
   const payouts: StripePayout[] = [];
   let startingAfter: string | undefined;
   for (let page = 0; page < 1000; page += 1) {
-    const url = new URL(`${STRIPE_API}/payouts`);
-    url.searchParams.set("limit", "100");
-    if (startingAfter) url.searchParams.set("starting_after", startingAfter);
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(`Stripe ${res.status}: ${text.slice(0, 200)}`);
-    }
-    const parsed = JSON.parse(text) as StripePayoutsResponse;
+    const parsed = await withProviderRetry(() =>
+      getStripePayoutsPage(apiKey, { startingAfter, createdGte }),
+    );
     const batch = parsed.data ?? [];
     payouts.push(...batch);
     if (!parsed.has_more || batch.length === 0) break;
@@ -131,6 +226,10 @@ export async function syncStripePayouts(feed: BankFeed): Promise<number> {
   const fresh: BankTransaction[] = [];
   for (const p of payouts) {
     if (seen.has(p.id)) continue;
+    if (!Number.isSafeInteger(p.amount) || !Number.isFinite(p.arrival_date)) {
+      throw new FeedSyncError("bad_data", `Stripe payout ${p.id} has no usable amount or arrival date`);
+    }
+    seen.add(p.id);
     fresh.push(
       txnRepo.create({
         companyId: feed.companyId,
@@ -147,8 +246,7 @@ export async function syncStripePayouts(feed: BankFeed): Promise<number> {
   if (fresh.length > 0) {
     await txnRepo.save(fresh);
   }
-  feed.lastSyncAt = new Date();
-  await AppDataSource.getRepository(BankFeed).save(feed);
+  await recordFeedSynced(feed, now);
   return fresh.length;
 }
 
@@ -160,10 +258,15 @@ async function getBrexConfig(companyId: string, connectionId: string): Promise<B
     companyId,
     provider: "brex",
   });
-  if (!connection) throw new Error("Brex Connection not found");
-  const config = decryptConnectionConfig(connection) as Partial<BrexConfig>;
+  if (!connection) throw new FeedSyncError("connection_missing", "Brex Connection not found");
+  let config: Partial<BrexConfig>;
+  try {
+    config = decryptConnectionConfig(connection) as Partial<BrexConfig>;
+  } catch (err) {
+    throw new FeedSyncError("credentials", (err as Error).message);
+  }
   if (!config.userToken || typeof config.userToken !== "string") {
-    throw new Error("Brex Connection is missing its user token");
+    throw new FeedSyncError("credentials", "Brex Connection is missing its user token");
   }
   return { userToken: config.userToken };
 }
@@ -194,26 +297,39 @@ export async function assertBrexCashAccountConnection(
 
 /**
  * Pull settled transactions for one Brex Cash account. The first sync walks
- * the complete paginated history. Later syncs overlap the prior seven days so
- * late-posted rows are not missed; Brex transaction ids make every retry
- * idempotent.
+ * the complete paginated history. Later syncs ask for everything posted since
+ * a week before the last successful sync — however long ago that was — so
+ * late-posted rows are not missed and an account that went months without a
+ * sync catches up on all of them; Brex transaction ids make every retry
+ * idempotent. Each sync also reads the account itself, for the balance the
+ * Banking card shows and to notice an account that was closed.
  */
-export async function syncBrexCashTransactions(feed: BankFeed): Promise<number> {
+export async function syncBrexCashTransactions(feed: BankFeed, now = new Date()): Promise<number> {
   if (feed.kind !== "brex_cash") throw new Error("Feed is not a Brex Cash feed");
   if (!feed.connectionId) {
-    throw new Error("Brex feed has no Connection — pick one first");
+    throw new FeedSyncError("connection_missing", "Brex feed has no Connection — pick one first");
   }
-  if (!feed.externalAccountId) {
-    throw new Error("Brex feed has no Cash account — pick one first");
+  const accountId = feed.externalAccountId;
+  if (!accountId) {
+    throw new FeedSyncError("account_missing", "Brex feed has no Cash account — pick one first");
   }
   const config = await getBrexConfig(feed.companyId, feed.connectionId);
+  const account = (await withProviderRetry(() => listBrexCashAccounts(config.userToken))).find(
+    (candidate) => candidate.id === accountId,
+  );
+  if (!account) {
+    throw new FeedSyncError(
+      "account_missing",
+      "This Brex cash account is no longer on the Connection — it may have been closed",
+    );
+  }
   const existing = await AppDataSource.getRepository(BankTransaction).find({
     where: { feedId: feed.id },
     select: ["externalId"],
   });
   const seen = new Set(existing.map((row) => row.externalId).filter((id): id is string => !!id));
   const postedAtStart = feed.lastSyncAt
-    ? new Date(feed.lastSyncAt.getTime() - BREX_SYNC_OVERLAP_MS).toISOString()
+    ? new Date(feed.lastSyncAt.getTime() - BANK_SYNC_OVERLAP_MS).toISOString()
     : undefined;
   const seenCursors = new Set<string>();
   const transactionRepo = AppDataSource.getRepository(BankTransaction);
@@ -221,20 +337,28 @@ export async function syncBrexCashTransactions(feed: BankFeed): Promise<number> 
   let inserted = 0;
 
   for (;;) {
-    const page = await getBrexCashTransactionsPage(config.userToken, feed.externalAccountId, {
-      cursor,
-      limit: 100,
-      postedAtStart,
-    });
+    const page = await withProviderRetry(() =>
+      getBrexCashTransactionsPage(config.userToken, accountId, {
+        cursor,
+        limit: 100,
+        postedAtStart,
+      }),
+    );
     const fresh: BankTransaction[] = [];
     for (const transaction of page.items ?? []) {
       if (seen.has(transaction.id)) continue;
       if (!transaction.amount || !Number.isSafeInteger(transaction.amount.amount)) {
-        throw new Error(`Brex transaction ${transaction.id} has no safe integer amount`);
+        throw new FeedSyncError(
+          "bad_data",
+          `Brex transaction ${transaction.id} has no safe integer amount`,
+        );
       }
       const postedAt = new Date(transaction.posted_at_date);
       if (Number.isNaN(postedAt.getTime())) {
-        throw new Error(`Brex transaction ${transaction.id} has an invalid posted date`);
+        throw new FeedSyncError(
+          "bad_data",
+          `Brex transaction ${transaction.id} has an invalid posted date`,
+        );
       }
       seen.add(transaction.id);
       fresh.push(
@@ -256,13 +380,21 @@ export async function syncBrexCashTransactions(feed: BankFeed): Promise<number> 
     }
     const next = page.next_cursor ?? undefined;
     if (!next) break;
-    if (seenCursors.has(next)) throw new Error("Brex returned a repeated transaction cursor");
+    if (seenCursors.has(next)) {
+      throw new FeedSyncError("bad_data", "Brex returned a repeated transaction cursor");
+    }
     seenCursors.add(next);
     cursor = next;
   }
 
-  feed.lastSyncAt = new Date();
-  await AppDataSource.getRepository(BankFeed).save(feed);
+  const balance = account.current_balance;
+  await recordFeedSynced(
+    feed,
+    now,
+    balance && Number.isSafeInteger(balance.amount)
+      ? { cents: balance.amount, currency: (balance.currency ?? "USD").toUpperCase() }
+      : null,
+  );
   return inserted;
 }
 
@@ -270,7 +402,7 @@ export async function syncBankFeed(feed: BankFeed): Promise<number> {
   if (feed.kind === "stripe_payouts") return syncStripePayouts(feed);
   if (feed.kind === "brex_cash") return syncBrexCashTransactions(feed);
   if (feed.kind === "wise_balance") return syncWiseBalanceFeed(feed);
-  throw new Error("This feed type can only be imported via CSV");
+  throw new FeedSyncError("unsupported", "This feed type can only be imported via CSV");
 }
 
 // ─────────────────────────── CSV import ────────────────────────────────
@@ -353,8 +485,7 @@ export async function importBankCsv(
     );
   }
   if (fresh.length > 0) await txnRepo.save(fresh);
-  feed.lastSyncAt = new Date();
-  await AppDataSource.getRepository(BankFeed).save(feed);
+  await recordFeedSynced(feed, new Date());
   return { inserted: fresh.length, skipped };
 }
 
@@ -462,10 +593,12 @@ function parseCsv(text: string): string[][] {
  */
 export async function autoMatchFeed(feed: BankFeed): Promise<number> {
   const txnRepo = AppDataSource.getRepository(BankTransaction);
-  const txns = await txnRepo.find({
-    where: { feedId: feed.id, reconciledAt: undefined },
+  // Only the ones still in review, found through the company's reconciled-at
+  // index: this runs after every sync — every half hour for a connected
+  // account — and a feed's matched history only grows.
+  const unmatched = await txnRepo.find({
+    where: { companyId: feed.companyId, feedId: feed.id, reconciledAt: IsNull() },
   });
-  const unmatched = txns.filter((t) => !t.reconciledAt);
   if (unmatched.length === 0) return 0;
 
   // Pull every payment for this company, then filter in memory. Phase D

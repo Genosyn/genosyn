@@ -22,8 +22,8 @@ export function Banking() {
           business account or card, a Wise balance, or Stripe payouts.
         </LI>
         <LI>
-          <Strong>Bring transactions in</Strong> — import a CSV, or click <Code>Update now</Code>{" "}
-          on a connected account.
+          <Strong>Bring transactions in</Strong> — import a CSV, or let a connected account{" "}
+          <DocLink to="#sync">sync on its own</DocLink>.
         </LI>
         <LI>
           <Strong>Work through To review</Strong> — open each transaction and choose what it was:
@@ -32,9 +32,11 @@ export function Banking() {
         </LI>
       </OL>
       <P>
-        The accounts sit across the top of the page, each with how many of its transactions are
-        waiting. Click one to see only its transactions, or <Code>All accounts</Code> to see
-        every account together. The list has three tabs: <Code>To review</Code> (nothing explains
+        The accounts sit across the top of the page as cards. Each says what kind of account it is
+        and where it comes from, its balance when the provider reports one (Brex business accounts
+        and Wise balances), how many of its transactions are waiting, and how its sync is doing.
+        Click one to see only its transactions, or <Code>All accounts</Code> to see every account
+        together. The list has three tabs: <Code>To review</Code> (nothing explains
         the transaction yet, or a card purchase&apos;s category is waiting for a look),{" "}
         <Code>Done</Code>, and <Code>All</Code>. The search box finds a transaction by its
         description, amount, account, invoice, or category. The Finance <Code>Overview</Code>{" "}
@@ -58,7 +60,7 @@ export function Banking() {
           },
           {
             term: "Brex business account",
-            def: "A Brex cash account. Pick the Brex Connection and the account, and its transactions come in when you click Update now.",
+            def: "A Brex cash account. Pick the Brex Connection and the account; its transactions start coming in straight away and keep syncing.",
           },
           {
             term: "Brex card",
@@ -66,7 +68,7 @@ export function Banking() {
           },
           {
             term: "Wise balance",
-            def: "One balance on a Wise business account, in your home currency. Pick the Wise Connection and the balance, and its transactions — fees included — come in when you click Update now.",
+            def: "One balance on a Wise business account, in your home currency. Pick the Wise Connection and the balance, and its transactions — fees included — start coming in and keep syncing.",
           },
           {
             term: "Stripe payouts",
@@ -97,26 +99,61 @@ export function Banking() {
         <Code>1100 Bank</Code>.
       </P>
 
-      <H3 id="import-update">Importing and updating</H3>
+      <H3 id="import-update">Importing a CSV, and removing an account</H3>
       <P>
-        Pick an account to see its actions. A CSV bank account has <Code>Import CSV</Code>: the
-        file needs a header row with at least a date and an amount column (common names such as{" "}
-        <Code>Date</Code>, <Code>Amount</Code>, <Code>Description</Code> and{" "}
-        <Code>Reference</Code> work). Rows already imported are skipped, so uploading an
-        overlapping statement is safe. A connected account has <Code>Update now</Code>, which
-        brings in everything new; the first update walks the whole history. A Wise balance also
-        looks again at the 30 days before its last update, because Wise dates each transaction by
-        when it was created, which can be days before it reached the balance; nothing comes in
-        twice. A deposit for the same amount as a payment already recorded on an invoice, within
-        three days of it, is matched to that payment on the way in — when it is the only payment
-        that fits.
+        A CSV bank account has <Code>Import CSV</Code> on its card. The file needs a header row
+        with at least a date and an amount column (<Code>Date</Code>, <Code>Amount</Code>,{" "}
+        <Code>Description</Code> and <Code>Reference</Code> work); rows already imported are
+        skipped, so an overlapping statement is safe. <Code>Remove from Banking</Code>, in the{" "}
+        <Code>⋯</Code> menu above an open account, takes a bank account&apos;s transactions with it
+        but leaves what they put in your books. A card can be removed only before its first sync.
       </P>
+
+      <H2 id="sync">Keeping accounts up to date</H2>
       <P>
-        <Code>Remove</Code> takes an account off Banking. A bank account&apos;s transactions go
-        with it, but whatever they put in your books — invoice payments and categories — stays. A
-        card can be removed only before its first update, because its purchases are part of your
-        books from then on.
+        Brex business accounts and cards, Wise balances and Stripe payouts sync on their own every
+        30 minutes (operators change that at{" "}
+        <DocLink to="/docs/self-hosting#runtime-settings">Admin → Runtime → Bank sync</DocLink>),
+        and straight away when you add one; <Code>Sync now</Code>, the arrows on a card, syncs one
+        at once. Each sync asks for everything posted since a week before the last one that worked
+        — a Wise balance, 30 days, as Wise dates a transaction by when it was created — so nothing
+        that settles late is missed, nothing comes in twice, and an account that missed days while
+        the server was off catches up on all of them. The first sync walks the whole history. New
+        transactions land in <Code>To review</Code>, and a deposit for the same amount as a payment
+        already recorded on an invoice, within three days of it, is matched to that payment on the
+        way in — when it is the only payment that fits.
       </P>
+      <KeyList
+        rows={[
+          { term: "Synced 4 min ago", def: "The last sync worked." },
+          { term: "Syncing…", def: "A sync is running now; the card updates when it is done." },
+          {
+            term: "Synced on 18 Jul, in amber",
+            def: "It hasn't synced for longer than it should — ask the operator whether automatic sync is on.",
+          },
+          {
+            term: "Sync failed",
+            def: "The card says why — say, Brex rejected the token. Open the account for the provider's own words under View details.",
+          },
+        ]}
+      />
+      <H3 id="sync-fix">When a sync fails</H3>
+      <UL>
+        <LI>
+          <Strong>A rejected token</Strong>, or one missing a permission: <Code>Reconnect</Code> on
+          the card opens the Connection for a new token (owners and admins manage Connections). It
+          syncs again within a minute.
+        </LI>
+        <LI>
+          <Strong>A removed Connection</Strong>: <Code>Choose a Connection</Code> (or{" "}
+          <Code>Change Connection</Code> in the <Code>⋯</Code> menu) points the account at another
+          that reaches it. Its transactions and your books stay as they are.
+        </LI>
+        <LI>
+          <Strong>A busy or silent provider</Strong>: nothing to do — Genosyn tries again within
+          minutes, then less often, and the card says when. If the account was closed, remove it.
+        </LI>
+      </UL>
 
       <H2 id="review">Explain a bank transaction</H2>
       <P>
@@ -347,11 +384,11 @@ export function Banking() {
       <P>
         Banking follows each Member&apos;s{" "}
         <DocLink to="/docs/finance#finance-access">Finance access</DocLink>. With{" "}
-        <Strong>Full</Strong> access a Member adds and removes accounts, imports, updates,
-        explains or undoes transactions, ticks them to change many at once, and fixes card
-        categories. With{" "}
-        <Strong>Read-only</Strong> access they see every account and transaction, and what
-        explains it, without any of those controls.
+        <Strong>Full</Strong> access a Member adds and removes accounts, imports, syncs, chooses
+        an account&apos;s Connection, explains or undoes transactions, ticks them to change many at
+        once, and fixes card categories. With <Strong>Read-only</Strong> access they see every
+        account, how its sync is doing, and every transaction and what explains it, without any of
+        those controls. Reconnecting a Connection is for owners and admins.
       </P>
     </>
   );

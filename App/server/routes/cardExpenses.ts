@@ -5,21 +5,30 @@ import { CardFeed } from "../db/entities/CardFeed.js";
 import { CardTransaction } from "../db/entities/CardTransaction.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
+import { BankingAccountError, changeFeedConnection } from "../services/banking.js";
+import {
+  FeedBusyError,
+  FeedNotFoundError,
+  syncFeedForRequest,
+  syncResponse,
+  whileFeedIdle,
+} from "../services/bankingSync.js";
 import {
   CardCategoryFixError,
   cardCategoryFixesToReview,
   fixSplitCardCategory,
 } from "../services/cardCategoryRepair.js";
 import {
+  CardFeedInUseError,
   createCardFeed,
   deleteEmptyCardFeed,
   listCardTransactions,
   loadCardFeed,
   reclassifyCardTransaction,
   retryCardTransaction,
-  syncCardFeed,
 } from "../services/cardExpenses.js";
+import { FeedSyncError } from "../services/feedSyncErrors.js";
 
 export const cardExpensesRouter = Router({ mergeParams: true });
 cardExpensesRouter.use(requireAuth);
@@ -61,6 +70,9 @@ const cardFeedCreateSchema = z.object({
 });
 const categorySchema = z.object({
   expenseAccountId: z.string().uuid(),
+});
+const feedConnectionSchema = z.object({
+  connectionId: z.string().uuid(),
 });
 /** The correcting entry the person was shown, which the fix must still match. */
 const fixCategorySchema = z.object({
@@ -106,34 +118,74 @@ cardExpensesRouter.post("/card-feeds", validateBody(cardFeedCreateSchema), async
   }
 });
 
-cardExpensesRouter.post("/card-feeds/:feedId/sync", async (req, res) => {
-  const params = feedParamsSchema.safeParse(req.params);
-  if (!params.success) {
-    return res.status(400).json({ error: "Invalid card feed id" });
-  }
-  const feed = await loadCardFeed(params.data.cid, params.data.feedId);
-  if (!feed) return res.status(404).json({ error: "Card feed not found" });
-  try {
-    res.json(await syncCardFeed(feed));
-  } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
-  }
-});
+// Sync the card now, exactly as the background sync does: 200 with what came
+// in, 400 with why it failed (the card keeps saying so on Banking), 202 when
+// it is still running after twenty seconds and carries on.
+cardExpensesRouter.post(
+  "/card-feeds/:feedId/sync",
+  validateParams(feedParamsSchema),
+  async (req, res, next) => {
+    const { cid, feedId } = req.params as unknown as z.infer<typeof feedParamsSchema>;
+    try {
+      const { status, body } = syncResponse(
+        await syncFeedForRequest({ kind: "card", companyId: cid, id: feedId }),
+      );
+      res.status(status).json(body);
+    } catch (err) {
+      if (err instanceof FeedNotFoundError) {
+        return res.status(404).json({ error: "Card feed not found" });
+      }
+      if (err instanceof FeedSyncError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
-cardExpensesRouter.delete("/card-feeds/:feedId", async (req, res) => {
-  const params = feedParamsSchema.safeParse(req.params);
-  if (!params.success) {
-    return res.status(400).json({ error: "Invalid card feed id" });
-  }
-  const feed = await loadCardFeed(params.data.cid, params.data.feedId);
-  if (!feed) return res.status(404).json({ error: "Card feed not found" });
-  try {
-    await deleteEmptyCardFeed(feed);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(409).json({ error: (err as Error).message });
-  }
-});
+// Point the card at another Brex Connection — the way back for one whose
+// Connection was removed. The next sync runs at once.
+cardExpensesRouter.patch(
+  "/card-feeds/:feedId",
+  validateParams(feedParamsSchema),
+  validateBody(feedConnectionSchema),
+  async (req, res, next) => {
+    const { cid, feedId } = req.params as unknown as z.infer<typeof feedParamsSchema>;
+    const body = req.body as z.infer<typeof feedConnectionSchema>;
+    try {
+      const feed = await loadCardFeed(cid, feedId);
+      if (!feed) return res.status(404).json({ error: "Card feed not found" });
+      res.json(
+        await whileFeedIdle({ kind: "card", companyId: cid, id: feedId }, () =>
+          changeFeedConnection("card", feed, body.connectionId),
+        ),
+      );
+    } catch (err) {
+      if (err instanceof FeedBusyError) return res.status(409).json({ error: err.message });
+      if (err instanceof BankingAccountError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+cardExpensesRouter.delete(
+  "/card-feeds/:feedId",
+  validateParams(feedParamsSchema),
+  async (req, res, next) => {
+    const { cid, feedId } = req.params as unknown as z.infer<typeof feedParamsSchema>;
+    try {
+      const feed = await loadCardFeed(cid, feedId);
+      if (!feed) return res.status(404).json({ error: "Card feed not found" });
+      // Never under a sync, which may be putting its first purchases in the books.
+      await whileFeedIdle({ kind: "card", companyId: cid, id: feedId }, () =>
+        deleteEmptyCardFeed(feed),
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof FeedBusyError) return res.status(409).json({ error: err.message });
+      if (err instanceof CardFeedInUseError) return res.status(409).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 cardExpensesRouter.get("/card-transactions", async (req, res) => {
   const params = companyParamsSchema.safeParse(req.params);

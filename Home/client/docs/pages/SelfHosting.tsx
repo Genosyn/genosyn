@@ -137,7 +137,9 @@ export function SelfHosting() {
                 <Strong>Hosted sign-in</Strong> (Genosyn Connect on or off, its URL, and its live
                 status),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
-                size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
+                size cap), <Strong>Bank sync</Strong> (whether Banking&apos;s Brex, Wise and
+                Stripe accounts sync on their own, and how often — every 30 minutes by default),{" "}
+                <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input, how long Routine recordings are kept),{" "}
                 <Strong>Agent</Strong> (taint policy, member browsers, tool
                 discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}

@@ -3,15 +3,17 @@
  * and resume from the routine's header in one click (snapping back with the
  * reason if refused; Members see the state only), with a Save on the Settings
  * tab never sending `enabled` back; Run now disabled with the reason while a
- * Standdown covers the routine; New routine opens on "Describe it" (an example
- * fills the box, only employees whose Chat is ready are offered, and Continue
- * to Chat stages the request as an unsent draft) while Set it up yourself
- * creates the routine with its brief written, so it starts on; a routine made
- * through the API without a brief waits paused until one save writes it and
- * switches it on; ⌘S saves the brief; the list's last Run opens in one click;
- * an empty folder deletes without a confirm while a full one still asks; and
- * the same employee carry-over for New skill. Each flow counts its clicks. Run
- * with `npm run test:clicks-routines`.
+ * Standdown covers the routine; New routine opens on the form, which creates
+ * the routine with its brief written, so it starts on, while Describe it
+ * instead opens the box (an example fills it, only employees whose Chat is
+ * ready are offered, and Continue to Chat stages the request as an unsent
+ * draft); a routine made through the API without a brief waits paused until
+ * one save writes it and switches it on; ⌘S saves the brief; the list's last
+ * Run opens in one click; an empty folder deletes without a confirm while a
+ * full one still asks; and the same employee carry-over for New skill. Each
+ * flow counts its clicks. Every way to New routine, and switching between the
+ * form and the box, are covered by `scripts/test-new-routine.ts`. Run with
+ * `npm run test:clicks-routines`.
  */
 import assert from "node:assert/strict";
 import type { Page } from "playwright-core";
@@ -367,8 +369,11 @@ const employeePicker = (page: Page) =>
   page.getByRole("combobox", { name: "AI Employee", exact: true });
 const continueToChat = (page: Page) =>
   page.getByRole("button", { name: "Continue to Chat", exact: true });
-const setUpYourself = (page: Page) =>
-  page.getByRole("button", { name: "Set it up yourself", exact: true });
+const describeInstead = (page: Page) =>
+  page.getByRole("button", { name: "Describe it instead", exact: true });
+const backToTheForm = (page: Page) =>
+  page.getByRole("button", { name: "Back to the form", exact: true });
+const assignedTo = (page: Page) => page.getByRole("combobox", { name: "Assigned to", exact: true });
 const examples = (page: Page) => page.getByRole("group", { name: "Examples", exact: true });
 /** The options a combobox offers, read by opening it. */
 async function optionsOf(page: Page, combobox: ReturnType<typeof employeePicker>) {
@@ -409,7 +414,7 @@ function chatRoutes(): ApiRoute[] {
 }
 
 await app.check(
-  "New routine from one employee's list opens on Describe it, with that employee chosen",
+  "New routine from one employee's list opens on the form, with that employee assigned",
   async () => {
     const s = store();
     const view = await app.open({ path: "/c/acme/routines?employee=sam", routes: routes(s) });
@@ -418,15 +423,19 @@ await app.check(
     // The page's own button (the sidebar's + is checked separately below).
     await view.click(page.getByRole("button", { name: "New routine", exact: true }).last());
     await view.landedOn("/c/acme/routines/new?employee=sam");
-    await requestBox(page).waitFor();
-    // Tell, don't configure: none of the form's fields are on the page yet.
-    for (const label of ["Name", "Assigned to", "What should happen on each run?"]) {
-      assert.equal(await page.getByLabel(label, { exact: true }).count(), 0, label);
-    }
-    assert.equal(await employeePicker(page).inputValue(), "Sam Okafor — Engineer");
-    assert.equal(await continueToChat(page).isDisabled(), true, "nothing to hand over yet");
-    await setUpYourself(page).waitFor();
-    await page.getByText(/then proposes the Routine as an Initiative/).waitFor();
+    await page.getByLabel("Name", { exact: true }).waitFor();
+    // The form, not the box: describing the work waits behind its link.
+    assert.equal(await requestBox(page).count(), 0);
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("input")].some((i) => i.value === "Sam Okafor — Engineer"),
+    );
+    assert.equal(await assignedTo(page).inputValue(), "Sam Okafor — Engineer");
+    assert.equal(
+      await page.getByRole("button", { name: "Create routine", exact: true }).isDisabled(),
+      true,
+      "nothing to create yet",
+    );
+    await describeInstead(page).waitFor();
     assert.equal(view.clicks(), 1, "one click to get here, and the employee is already chosen");
     assert.deepEqual(view.writes, []);
     await page.close();
@@ -437,7 +446,7 @@ await app.check(
   "an example fills the box, and the examples step aside once the person writes their own words",
   async () => {
     const s = store();
-    const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s) });
+    const view = await app.open({ path: "/c/acme/routines/new?describe=1", routes: routes(s) });
     const { page } = view;
     await requestBox(page).waitFor();
     const chips = examples(page).getByRole("button");
@@ -464,12 +473,19 @@ await app.check(
 );
 
 await app.check(
-  "only employees whose Chat is ready can be asked; the form still lists all",
+  "the form lists every employee; only those whose Chat is ready can be asked",
   async () => {
     const s = store();
     s.roster = [ALEX, SAM, NOVA];
     const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s) });
     const { page } = view;
+    await page.getByLabel("Name", { exact: true }).waitFor();
+    assert.deepEqual(await optionsOf(page, assignedTo(page)), [
+      "Alex Rivera — Account manager",
+      "Sam Okafor — Engineer",
+      "Nova Chen — Designer",
+    ]);
+    await view.click(describeInstead(page));
     await requestBox(page).waitFor();
     assert.deepEqual(await optionsOf(page, employeePicker(page)), [
       "Choose an AI Employee",
@@ -481,12 +497,6 @@ await app.check(
       "Choose an AI Employee",
       "two can answer, so the person chooses",
     );
-    await view.click(setUpYourself(page));
-    assert.deepEqual(await optionsOf(page, page.getByRole("combobox", { name: "Assigned to" })), [
-      "Alex Rivera — Account manager",
-      "Sam Okafor — Engineer",
-      "Nova Chen — Designer",
-    ]);
     await page.close();
   },
 );
@@ -494,7 +504,7 @@ await app.check(
 await app.check("with one employee able to answer, they are already chosen", async () => {
   const s = store();
   s.roster = [ALEX, NOVA];
-  const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s) });
+  const view = await app.open({ path: "/c/acme/routines/new?describe=1", routes: routes(s) });
   const { page } = view;
   assert.equal(await employeePicker(page).inputValue(), "Alex Rivera — Account manager");
   await requestBox(page).fill("Every Monday, review open customer commitments.");
@@ -513,6 +523,7 @@ await app.check(
     });
     const { page } = view;
     const request = "Every Friday, collect the week's merged pull requests and post a summary.";
+    await view.click(describeInstead(page));
     await requestBox(page).fill(request);
     await view.click(continueToChat(page));
     await view.landedOn("/c/acme/employees/sam/chat");
@@ -524,18 +535,17 @@ await app.check(
       [],
       "nothing is created or sent: the person reads the draft first",
     );
-    assert.equal(view.clicks(), 1);
+    assert.equal(view.clicks(), 2, "Describe it instead, then Continue to Chat");
     await page.close();
   },
 );
 
 await app.check(
-  "Set it up yourself creates the routine with its brief written, so it starts on",
+  "the form creates the routine with its brief written, so it starts on",
   async () => {
     const s = store();
     const view = await app.open({ path: "/c/acme/routines/new?employee=sam", routes: routes(s) });
     const { page } = view;
-    await view.click(setUpYourself(page));
     const name = page.getByLabel("Name", { exact: true });
     await name.fill("Release notes");
     const create = page.getByRole("button", { name: "Create routine", exact: true });
@@ -562,7 +572,7 @@ await app.check(
     });
     await page.getByRole("switch", { name: "Pause this routine", exact: true }).waitFor();
     assert.equal(await page.getByText("Paused until its brief is saved").count(), 0);
-    assert.equal(view.clicks(), 1, "Set it up yourself, then the form submits from the keyboard");
+    assert.equal(view.clicks(), 0, "the form is already open, and it submits from the keyboard");
     await page.close();
   },
 );
@@ -571,7 +581,7 @@ await app.check("⌘Enter in the box continues to Chat, as the button does", asy
   const s = store();
   s.roster = [ALEX, NOVA];
   const view = await app.open({
-    path: "/c/acme/routines/new",
+    path: "/c/acme/routines/new?describe=1",
     routes: [...chatRoutes(), ...routes(s)],
   });
   const { page } = view;
@@ -608,6 +618,7 @@ await app.check(
     assert.match((await best.textContent()) ?? "", /New routine/);
     await best.click();
     await view.landedOn("/c/acme/routines/new");
+    await view.click(describeInstead(page));
     await requestBox(page).fill("Every Monday, review open customer commitments.");
     await employeePicker(page).click();
     await page.getByRole("option", { name: /^Sam Okafor/ }).click();
@@ -626,7 +637,6 @@ await app.check("a refused create says why beside the form and keeps what was ty
   s.refuseCreate = "A routine with that name already exists for this employee";
   const view = await app.open({ path: "/c/acme/routines/new?employee=sam", routes: routes(s) });
   const { page } = view;
-  await view.click(setUpYourself(page));
   await page.getByLabel("Name", { exact: true }).fill("Weekly report");
   await page
     .getByLabel("What should happen on each run?", { exact: true })
@@ -648,13 +658,13 @@ await app.check("what was typed in one way is still there after a look at the ot
   const s = store();
   const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s) });
   const { page } = view;
-  await requestBox(page).fill("Every morning, tidy the shared inbox.");
-  await view.click(setUpYourself(page));
   await page.getByLabel("Name", { exact: true }).fill("Inbox tidy");
-  await view.click(page.getByRole("button", { name: "Describe it instead", exact: true }));
-  assert.equal(await requestBox(page).inputValue(), "Every morning, tidy the shared inbox.");
-  await view.click(setUpYourself(page));
+  await view.click(describeInstead(page));
+  await requestBox(page).fill("Every morning, tidy the shared inbox.");
+  await view.click(backToTheForm(page));
   assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Inbox tidy");
+  await view.click(describeInstead(page));
+  assert.equal(await requestBox(page).inputValue(), "Every morning, tidy the shared inbox.");
   await page.close();
 });
 
@@ -667,8 +677,9 @@ await app.check(
       routes: routes(s),
     });
     const { page } = view;
-    await view.click(setUpYourself(page));
     const more = page.getByRole("button", { name: /^More options/ });
+    // The folder it was opened from lands with the folders.
+    await page.getByRole("button", { name: /^More options\s*· Folder: Operations$/ }).waitFor();
     assert.equal(await more.getAttribute("aria-expanded"), "false");
     assert.equal(await page.getByRole("combobox", { name: "Folder", exact: true }).count(), 0);
     assert.match((await more.textContent()) ?? "", /Folder: Operations/);
@@ -684,12 +695,12 @@ await app.check(
     await page.getByLabel("Name", { exact: true }).press("Enter");
     await view.landedOn("/c/acme/routines/alex/inbox-tidy");
     assert.equal(view.writes.find((w) => w.method === "POST")?.body.folderId, "ops");
-    assert.equal(view.clicks(), 2);
+    assert.equal(view.clicks(), 1);
     await page.close();
   },
 );
 
-await app.check("with nobody able to answer, the form opens and says why", async () => {
+await app.check("with nobody able to answer, the form says why under it", async () => {
   const s = store();
   s.roster = [
     { ...ALEX, chatReady: false },
@@ -706,7 +717,7 @@ await app.check("with nobody able to answer, the form opens and says why", async
     "/c/acme/employees/sam/settings/model",
   );
   assert.equal(await requestBox(page).count(), 0);
-  assert.equal(await page.getByRole("button", { name: "Describe it instead" }).count(), 0);
+  assert.equal(await describeInstead(page).count(), 0);
   await page.close();
 });
 
@@ -716,7 +727,7 @@ await app.check("Members get a note instead of a form that could only be refused
   const { page } = view;
   await page.getByText("Only owners and admins create Routines", { exact: true }).waitFor();
   assert.equal(await page.getByRole("textbox").count(), 0);
-  assert.equal(await setUpYourself(page).count(), 0);
+  assert.equal(await describeInstead(page).count(), 0);
   assert.deepEqual(view.writes, []);
   await page.close();
 });
@@ -833,14 +844,14 @@ await app.check("phone width: the header with its switch fits", async () => {
   await view.page.close();
 });
 
-await app.check("phone width: Describe it and the form both fit", async () => {
+await app.check("phone width: the form and Describe it both fit", async () => {
   const s = store();
   const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s), touch: true });
-  await requestBox(view.page).waitFor();
-  await noSidewaysScroll(view.page, "Describe it on a phone");
-  await view.click(setUpYourself(view.page));
   await view.page.getByLabel("Name", { exact: true }).waitFor();
   await noSidewaysScroll(view.page, "the form on a phone");
+  await view.click(describeInstead(view.page));
+  await requestBox(view.page).waitFor();
+  await noSidewaysScroll(view.page, "Describe it on a phone");
   await view.page.close();
 });
 

@@ -617,7 +617,7 @@ file and restart a container to change how often a mailbox polls.
 
 | What | Where it is edited | Key |
 | --- | --- | --- |
-| Web tools, mail sync, meetings, browser, agent knobs, containment, the outbound private-host allowlist | **Admin → Runtime** | `runtime.*` (`server/services/runtimeSettings.ts`) |
+| Web tools, mail sync, meetings, Banking's bank sync, browser, agent knobs, containment, the outbound private-host allowlist | **Admin → Runtime** | `runtime.*` (`server/services/runtimeSettings.ts`) |
 | Global SMTP transport | **Admin → Email transport** | `smtp.global` |
 | Browser-facing public URL and custom JavaScript | **Admin → General** | `instance.publicUrl`, `instance.customJavaScript` |
 | OAuth app credentials | **Admin → Integrations** | `oauth.apps` |
