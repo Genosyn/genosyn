@@ -412,6 +412,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Script everything a Member can do with a personal API key — the base URL, the auth header, /api/docs and /api/openapi.json.",
       },
       {
+        path: "/docs/api-cli",
+        title: "API CLI",
+        blurb:
+          "genosyn-api: every API operation from a terminal, a script or an AI agent — login, discovery, calls, output and exit codes.",
+      },
+      {
         path: "/docs/vocabulary",
         title: "Vocabulary",
         blurb: "Words we use, and the words we don't.",

@@ -196,6 +196,23 @@ Main tip is `:main` or `:sha-<short>` — use those to run unreleased code.
 > was whichever build ran most recently, and the CLI shipped dev code to
 > self-hosters. Don't reintroduce it.
 
+## The genosyn-api CLI
+
+There is nothing to publish for it. `npm run build` in `App/` bundles
+`App/cli/` into `dist/cli/genosyn-api.mjs` (`npm run build:cli`), so every App
+image carries the CLI of its own release, stamped with `APP_VERSION`, and every
+install serves it at `/cli/genosyn-api.mjs`. After a release:
+
+```bash
+curl -fsSL https://<an-install>/cli/genosyn-api.mjs -o /tmp/genosyn-api
+node /tmp/genosyn-api --version     # {"cli":"<version>",…}
+```
+
+It is not on npm and not on genosyn.com; the bash `genosyn` CLI that
+genosyn.com serves is the operator's tool and unrelated. Because the CLI reads
+each server's API reference at run time, an older CLI keeps working against a
+newer server — a new operation is a new command without a new CLI.
+
 ## The marketing site
 
 genosyn.com and www.genosyn.com are **custom domains on a Cloudflare Worker**,
@@ -368,3 +385,6 @@ gh api repos/Genosyn/genosyn/commits/main/check-runs --jq '.check_runs[] | "\(.c
   served.
 - [`App/Dockerfile`](App/Dockerfile) /
   [`Home/Dockerfile`](Home/Dockerfile) — what gets built.
+- [`App/cli/build.ts`](App/cli/build.ts) — bundles the `genosyn-api` CLI into
+  the App image; [`App/server/routes/cli.ts`](App/server/routes/cli.ts) serves
+  it. See [The genosyn-api CLI](#the-genosyn-api-cli).
