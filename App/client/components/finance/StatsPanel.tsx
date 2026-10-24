@@ -134,7 +134,7 @@ export function StatsBreakdown({
                   onClick={segment.onSelect}
                   aria-pressed={segment.selected ?? false}
                   className={clsx(
-                    "-mx-1.5 -my-0.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                    "touch-target relative -mx-1.5 -my-0.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                     segment.selected
                       ? "bg-indigo-50 ring-1 ring-inset ring-indigo-200 dark:bg-indigo-500/10 dark:ring-indigo-500/40"
                       : "hover:bg-slate-100 dark:hover:bg-slate-800",
