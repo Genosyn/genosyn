@@ -522,12 +522,14 @@ export function SelfHosting() {
           routines, models, and integrations.
         </LI>
         <LI>
-          <Strong>Migrations</Strong> — expands the Instance Health migrations probe into the full
-          ledger: every schema migration, its state, and whether the database has drifted from the
+          <Strong>Migrations</Strong> (under <Strong>Advanced</Strong> at the bottom of the Admin
+          sidebar, closed until you open it) — expands the Instance Health migrations probe into the
+          full ledger: every schema migration, its state, and whether the database has drifted from the
           code. See <Code>Migrations</Code> below.
         </LI>
         <LI>
-          <Strong>Database</Strong> — a raw SQL console over Genosyn&apos;s own application
+          <Strong>Database</Strong> (also under <Strong>Advanced</Strong>) — a raw SQL console over
+          Genosyn&apos;s own application
           database. See <Code>Database console</Code> below.
         </LI>
         <LI>
@@ -671,7 +673,7 @@ export function SelfHosting() {
 
       <H3 id="db-console">Database console</H3>
       <P>
-        <Code>Admin → Database</Code> is a raw SQL console wired directly to Genosyn&apos;s own
+        <Code>Admin → Advanced → Database</Code> is a raw SQL console wired directly to Genosyn&apos;s own
         application database — the same SQLite or Postgres the app itself runs on. It is meant for
         operators who need to inspect or repair an install directly: check a row the UI doesn&apos;t
         surface, audit what an AI Employee wrote, or fix up data after a botched import. Distinct
@@ -702,7 +704,7 @@ export function SelfHosting() {
 
       <H3 id="migrations">Migrations</H3>
       <P>
-        <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM schema migration —{" "}
+        <Code>Admin → Advanced → Migrations</Code> is a read-only ledger of every TypeORM schema migration —{" "}
         <Code>Total</Code> / <Code>Applied</Code> / <Code>Pending</Code> / <Code>Unknown</Code>{" "}
         tiles over the full list. Nothing runs from here: boot applies pending migrations
         automatically, so this is the detail view behind the Instance Health probe.

@@ -95,35 +95,37 @@ export function SectionRailLinks({
         );
       })}
       {advanced.length > 0 && (
-        <AdvancedRailGroup
-          pages={advanced}
+        <RailAdvancedGroup
+          names={advanced.map((page) => page.navLabel ?? page.label)}
           here={onRailPage(advanced, companySlug, pathname)}
           first={everyday.length === 0 && !continued}
         >
           {advanced.map(link)}
-        </AdvancedRailGroup>
+        </RailAdvancedGroup>
       )}
     </>
   );
 }
 
 /**
- * The closed Advanced toggle and the links under it. Open state is the rail's
- * own: it opens when the route enters the group (adjusted during render, so the
+ * The closed Advanced toggle and the links under it — shared by the catalogued
+ * rails above and the hand-written Admin rail. Open state is the rail's own:
+ * it opens when the route enters the group (adjusted during render, so the
  * active link is there on the first paint) and otherwise stays however it was
  * left while you move around the section.
  */
-function AdvancedRailGroup({
-  pages,
+export function RailAdvancedGroup({
+  names,
   here,
-  first,
+  first = false,
   children,
 }: {
-  pages: SubpageItem[];
+  /** The pages inside, which the toggle's tooltip names. */
+  names: string[];
   /** The page you are on is one of these. */
   here: boolean;
   /** Nothing is drawn above it, so it takes the rail's opening spacing. */
-  first: boolean;
+  first?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(here);
@@ -140,7 +142,7 @@ function AdvancedRailGroup({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        title={pages.map((page) => page.navLabel ?? page.label).join(", ")}
+        title={names.join(", ")}
         data-rail-advanced=""
         className={clsx(
           "flex w-full items-center gap-1 rounded-md px-2 pb-1 text-left",
