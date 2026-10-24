@@ -3,7 +3,6 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import multer from "multer";
-import unzipper from "unzipper";
 import { In } from "typeorm";
 import type { SelectQueryBuilder } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -20,6 +19,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { andWhereTokens, orWhereTokens, scoreLabel, tokenizeQuery } from "./likeSearch.js";
 import { isBinary } from "../lib/binaryBytes.js";
 import { safeFetchBuffer } from "../lib/outboundUrl.js";
+import { readZipFile, ZipReadError } from "../lib/zipFile.js";
 import { companyDir, ensureDir } from "./paths.js";
 import { docxBufferToText } from "./docxRead.js";
 import { looksLikeWordDocument } from "./docxPackage.js";
@@ -244,30 +244,44 @@ export async function pdfBufferToText(buf: Buffer): Promise<string> {
   return out.text ?? "";
 }
 
+/** The reason on an EPUB Resource whose file can't be read as one. */
+const UNREADABLE_EPUB_MESSAGE =
+  "This EPUB can't be read. It may be damaged, or not an EPUB at all. The file is still stored here.";
+
 /**
  * Extract text from an EPUB file on disk. EPUB is a zip of XHTML
  * documents listed in `META-INF/container.xml`; we keep this dependency
  * light by walking every `.xhtml` / `.html` file inside the archive and
  * stripping tags. Good enough for substring search.
+ *
+ * A file that can't be read as a zip — not one, damaged, or gone part-way —
+ * throws {@link UNREADABLE_EPUB_MESSAGE}, the reason {@link extractResourceText}
+ * records.
  */
 export async function epubFileToText(absPath: string): Promise<string> {
-  const dir = await unzipper.Open.file(absPath);
-  const entries = dir.files
-    .filter((f) => /\.(xhtml|html|htm)$/i.test(f.path))
-    .sort((a, b) => a.path.localeCompare(b.path));
-  const parts: string[] = [];
-  for (const entry of entries) {
-    const buf = await entry.buffer();
-    const html = buf.toString("utf8");
-    const { text } = htmlToText(html);
-    if (text.trim().length === 0) continue;
-    parts.push(text.trim());
-    if (parts.join("\n\n").length > RESOURCE_BODY_TEXT_CAP * 2) {
-      // Stop early; the cap below trims to RESOURCE_BODY_TEXT_CAP anyway.
-      break;
-    }
+  try {
+    return await readZipFile(absPath, async (zip) => {
+      const entries = zip.entries
+        .filter((f) => /\.(xhtml|html|htm)$/i.test(f.path))
+        .sort((a, b) => a.path.localeCompare(b.path));
+      const parts: string[] = [];
+      for (const entry of entries) {
+        const buf = await zip.read(entry);
+        const html = buf.toString("utf8");
+        const { text } = htmlToText(html);
+        if (text.trim().length === 0) continue;
+        parts.push(text.trim());
+        if (parts.join("\n\n").length > RESOURCE_BODY_TEXT_CAP * 2) {
+          // Stop early; the cap below trims to RESOURCE_BODY_TEXT_CAP anyway.
+          break;
+        }
+      }
+      return parts.join("\n\n");
+    });
+  } catch (err) {
+    if (err instanceof ZipReadError) throw new Error(UNREADABLE_EPUB_MESSAGE, { cause: err });
+    throw err;
   }
-  return parts.join("\n\n");
 }
 
 export function trimBodyText(text: string): string {

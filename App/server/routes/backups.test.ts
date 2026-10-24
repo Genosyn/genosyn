@@ -20,6 +20,7 @@ import { createDestination, isDeliveryRunning } from "../services/backupDestinat
 import { backupFilePath, isBackupRunning, updateBackupSchedule } from "../services/backups.js";
 import { holdCopies } from "../test/backupCopyGate.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { withDamagedEntry, zipOf } from "../test/zipFixtures.js";
 import { backupDestinationsRouter } from "./backupDestinations.js";
 import { backupsRouter } from "./backups.js";
 
@@ -480,6 +481,31 @@ describe("POST /api/backups/:id/restore", () => {
     const notAZip = await call("POST", `/api/backups/${damaged.id}/restore`);
     assert.equal(notAZip.status, 409);
     assert.match(String(notAZip.body.error), /incomplete or damaged/);
+  });
+
+  test("a backup that can't be read part-way reaches the page as its reason", async () => {
+    // Its directory reads, so it is taken and the restore starts; the entry
+    // inside it does not.
+    const upload = await fetch(`${baseUrl}/api/backups/upload`, {
+      method: "POST",
+      headers: { "content-type": "application/zip" },
+      body: new Uint8Array(
+        withDamagedEntry(await zipOf({ "companies/acme/notes.txt": "from the backup" })),
+      ),
+    });
+    assert.equal(upload.status, 200);
+    const uploaded = (await upload.json()) as { id: string };
+    try {
+      const { status, body } = await call("POST", `/api/backups/${uploaded.id}/restore`);
+      assert.equal(status, 409);
+      assert.match(
+        String(body.error),
+        /^This backup went missing or became unreadable part-way through the restore/,
+      );
+    } finally {
+      // A restore that stops part-way has already closed the database.
+      if (!AppDataSource.isInitialized) await AppDataSource.initialize();
+    }
   });
 
   test("a restore waits for copies under way", async () => {
