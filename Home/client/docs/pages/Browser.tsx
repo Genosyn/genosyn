@@ -488,7 +488,9 @@ export function Browser() {
         <Strong>Browser</Strong> if you need them — a different Chrome binary, forced headless on a
         host that cannot run a virtual display, a locale and timezone matching where your deployment
         egresses from, or <Strong>humanize</Strong> to switch off the character-by-character typing
-        and pointer approach in a trusted environment that wants raw speed. A changed binary path
+        and pointer approach in a trusted environment that wants raw speed. The{" "}
+        <DocLink to="/docs/meetings#auto">Google Meet notetaker</DocLink> types the same way, and
+        Meet refuses a guest that does not, so leave it on if you record calls. A changed binary path
         applies to the next browser launch. Leave them at their defaults and Chrome tells the truth
         about itself while behaving like a person, which is the setting you want. A source-managed
         install on a host with no Chrome falls back to whatever Chromium it finds, and only then

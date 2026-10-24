@@ -5,14 +5,23 @@ import { PassThrough } from "node:stream";
 import { describe, test, type TestContext } from "node:test";
 import type { Locator, Page } from "playwright-core";
 
+import { setHumanInputEnabledForTests } from "../humanInput.js";
 import {
   admissionCutoff,
   createGoogleMeetRecorder,
   disclosedNotetakerName,
   isGoogleMeetConferenceUrl,
   joinGoogleMeetAsGuest,
+  waitForGoogleMeetToEnd,
   type GoogleMeetJoinArgs,
 } from "./googleMeetRecorder.js";
+
+// The lobby suites below exercise the decisions — what to press, when to ask
+// again, what a screen means — on fakes with mocked clocks, where typing a
+// name one jittered keystroke at a time would only stretch every timing
+// assertion. "Google Meet guest input" turns humanised input back on and pins
+// how the request is actually entered.
+setHumanInputEnabledForTests(false);
 
 class FakeFfmpeg extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -191,6 +200,24 @@ describe("Google Meet URL and disclosure boundary", () => {
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/lookup/"), false);
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/lookup/a/b"), false);
     assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/_meet/settings"), false);
+    // Where Meet now serves the pre-join page and the call itself.
+    assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/meet/abc-defg-hij"), true);
+    assert.equal(isGoogleMeetConferenceUrl("https://meet.google.com/meet/landing"), false);
+  });
+
+  test("keeps recording a call that Meet serves from /meet/<code>", async () => {
+    // Admitted guests are moved to `/meet/<code>`. Read as "not a call", that
+    // path ended every recording the moment it began.
+    const page = {
+      isClosed: () => false,
+      url: () => "https://meet.google.com/meet/abc-defg-hij",
+      locator: () => ({ innerText: async () => "Raise hand Turn on captions Leave call" }),
+    } as unknown as Page;
+    const started = Date.now();
+
+    await waitForGoogleMeetToEnd(page, { ...joinArgs(), scheduledEndAt: new Date(started + 1_200) });
+
+    assert.ok(Date.now() - started >= 1_000, "the call was still running");
   });
 
   test("makes the recording role visible and bounds Meet's guest name", () => {
@@ -242,6 +269,7 @@ describe("Google Meet guest lobby", () => {
         if (pattern.includes("turn off camera")) return locator("camera", () => true);
         if (pattern.includes("ask to join")) return locator("ask", () => true);
         if (pattern.includes("leave call")) return locator("leave", () => admitted);
+        if (pattern.includes("raise hand")) return locator("raise", () => admitted);
         return hidden;
       },
       locator: (selector: string) =>
@@ -370,7 +398,10 @@ function fakeLobby(options: {
     [/turn off camera/, "camera"],
     [/ask to join/, "ask"],
     [/join now/, "joinNow"],
-    [/leave call/, "leave"],
+    // "leave" stands for the in-call controls. Admission takes Leave call and
+    // a control the waiting room lacks; "Google Meet guest request
+    // confirmation" covers the waiting room that shows Leave call alone.
+    [/leave call|raise hand/, "leave"],
   ];
 
   const page = {
@@ -559,9 +590,15 @@ describe("Google Meet guest request confirmation", () => {
     body?: string;
     name?: boolean;
     ask?: boolean;
+    /** Meet names the button for the devices the guest brings. */
+    askLabel?: string;
+    /** The pre-join page's other "Ask to …" buttons, which must never be pressed. */
+    otherAsks?: boolean;
     microphone?: boolean;
     camera?: boolean;
     continueWithout?: { role: "button" | "link"; name: string };
+    /** Meet's waiting room, which already offers Leave call. */
+    waitingRoom?: boolean;
     admitted?: boolean;
     url?: string;
   };
@@ -581,7 +618,20 @@ describe("Google Meet guest request confirmation", () => {
     const controls = (): Control[] => [
       ...(screen.name ? [{ key: "name", role: "textbox", name: "Your name" }] : []),
       ...(screen.ask
-        ? [{ key: "ask", role: "button", name: "Ask to join", click: () => ask() }]
+        ? [
+            {
+              key: "ask",
+              role: "button",
+              name: screen.askLabel ?? "Ask to join",
+              click: () => ask(),
+            },
+          ]
+        : []),
+      ...(screen.otherAsks
+        ? [
+            { key: "present", role: "button", name: "Ask to present" },
+            { key: "companion", role: "button", name: "Ask to use Companion mode" },
+          ]
         : []),
       ...(screen.microphone
         ? [
@@ -610,7 +660,15 @@ describe("Google Meet guest request confirmation", () => {
       ...(screen.continueWithout
         ? [{ key: "continue", ...screen.continueWithout, click: () => continueWithout() }]
         : []),
-      ...(screen.admitted ? [{ key: "leave", role: "button", name: "Leave call" }] : []),
+      ...(screen.waitingRoom || screen.admitted
+        ? [{ key: "leave", role: "button", name: "Leave call" }]
+        : []),
+      ...(screen.admitted
+        ? [
+            { key: "raiseHand", role: "button", name: "Raise hand (ctrl + alt + h)" },
+            { key: "captions", role: "button", name: "Turn on captions" },
+          ]
+        : []),
     ];
     const locator = (find: () => Control | undefined, isBody = false) =>
       ({
@@ -719,6 +777,71 @@ describe("Google Meet guest request confirmation", () => {
 
     assert.deepEqual(guest.filled, ["Genosyn (AI notetaker — recording)"]);
     assert.deepEqual(guest.clicked, ["microphone", "camera", "ask"]);
+  });
+
+  test("asks with the button Meet names for a guest that brings no devices", async (t) => {
+    // A notetaker with no microphone or camera is offered "Ask to join without
+    // microphone & camera". Matching "Ask to join" exactly found nothing, and
+    // the notetaker sat on a ready lobby for the whole join window.
+    const guest = guestHarness(t, {
+      name: true,
+      ask: true,
+      askLabel: "Ask to join without microphone & camera",
+      otherAsks: true,
+    });
+    guest.onAsk(() => guest.setScreen({ admitted: true }));
+
+    await guest.run();
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+  });
+
+  test("waits in Meet's waiting room although it already offers Leave call", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() =>
+      guest.setScreen({
+        body: "Please wait until a meeting host brings you into the call",
+        waitingRoom: true,
+      }),
+    );
+    let admittedAt = 0;
+
+    await guest.run(joinArgs(), (elapsed) => {
+      if (elapsed === 30_000) {
+        admittedAt = Date.now();
+        guest.setScreen({ admitted: true });
+      }
+    });
+
+    assert.ok(admittedAt > 0, "the guest waited for the host instead of recording the lobby");
+    assert.deepEqual(guest.clicked, ["ask"]);
+  });
+
+  test("reports a confirmed wait when nobody admits it from Meet's waiting room", async (t) => {
+    const guest = guestHarness(t, { name: true, ask: true });
+    guest.onAsk(() =>
+      guest.setScreen({
+        body: "Please wait until a meeting host brings you into the call",
+        waitingRoom: true,
+      }),
+    );
+
+    await assert.rejects(guest.run(), /confirmed.*waiting.*not admitted/i);
+
+    assert.deepEqual(guest.clicked, ["ask"]);
+  });
+
+  test("says so when Meet never offers a button to ask with", async (t) => {
+    const guest = guestHarness(t, { name: true });
+
+    await assert.rejects(guest.run(), (error: Error) => {
+      assert.match(error.message, /never offered an Ask to join button/);
+      assert.doesNotMatch(error.message, /nobody admitted|host denied|admit the disclosed/i);
+      return true;
+    });
+
+    assert.deepEqual(guest.filled, ["Genosyn (AI notetaker — recording)"]);
+    assert.deepEqual(guest.clicked, []);
   });
 
   for (const role of ["button", "link"] as const) {
@@ -965,7 +1088,7 @@ describe("Google Meet guest request confirmation", () => {
     {
       description: "generic guest rejection",
       body: "You can't join this video call",
-      expected: /blocked.*guest|guest access/i,
+      expected: /blocked the guest notetaker.*before the host saw a request/i,
     },
     {
       description: "explicit host denial",
@@ -1032,6 +1155,84 @@ describe("Google Meet guest request confirmation", () => {
   }
 });
 
+describe("Google Meet guest input", () => {
+  test("types the disclosed name and moves the pointer before asking to join", async () => {
+    // Ask to join sends Google "system info … to confirm you're not a bot". A
+    // name set in one shot, then a click from a pointer that never moved, is
+    // answered with "You can't join this video call" on a call that lets
+    // anyone in; the same lobby typed and clicked like a person is admitted.
+    setHumanInputEnabledForTests(true);
+    try {
+      const typed: string[] = [];
+      const setValues: string[] = [];
+      let pointerMoves = 0;
+      let joinClick: Record<string, unknown> | undefined;
+      let asked = false;
+      let admitted = false;
+      const control = (key: string, visible: () => boolean) =>
+        ({
+          first() {
+            return this;
+          },
+          isVisible: async () => visible(),
+          isEnabled: async () => visible(),
+          focus: async () => undefined,
+          fill: async (value: string) => {
+            if (value) setValues.push(value);
+          },
+          click: async (options?: Record<string, unknown>) => {
+            if (key !== "ask") return;
+            joinClick = options;
+            asked = true;
+          },
+          boundingBox: async () => ({ x: 600, y: 400, width: 240, height: 56 }),
+          innerText: async () => {
+            if (asked) admitted = true;
+            return "";
+          },
+        }) as unknown as Locator;
+      const page = {
+        setDefaultTimeout: () => undefined,
+        goto: async () => null,
+        keyboard: {
+          type: async (text: string) => {
+            typed.push(text);
+          },
+        },
+        mouse: {
+          move: async () => {
+            pointerMoves += 1;
+          },
+        },
+        getByRole: (_role: string, options: { name?: RegExp }) => {
+          const pattern = options.name?.source ?? "";
+          if (pattern.includes("your name")) return control("name", () => !asked);
+          if (pattern.includes("ask to join")) return control("ask", () => !asked);
+          if (pattern.includes("leave call") || pattern.includes("raise hand")) {
+            return control("inCall", () => admitted);
+          }
+          return control("hidden", () => false);
+        },
+        locator: (selector: string) =>
+          selector === "body" ? control("body", () => true) : control("hidden", () => false),
+        url: () => "https://meet.google.com/meet/abc-defg-hij",
+        isClosed: () => false,
+      } as unknown as Page;
+
+      await joinGoogleMeetAsGuest(page, { ...joinArgs(), displayName: "Ann" });
+
+      assert.equal(typed.join(""), "Ann (AI notetaker — recording)");
+      assert.ok(typed.length > 1, "the name arrives one keystroke at a time");
+      assert.deepEqual(setValues, [], "the name is never set without keystrokes");
+      assert.ok(pointerMoves > 0, "the pointer travels to Ask to join");
+      // Asking navigates; waiting for that turned a sent request into a timeout.
+      assert.equal(joinClick?.noWaitAfter, true);
+    } finally {
+      setHumanInputEnabledForTests(false);
+    }
+  });
+});
+
 describe("Google Meet recorder lifecycle", () => {
   test("isolates audio and browser state, records mono Opus, and cleans everything up", async () => {
     const harness = recorderHarness();
@@ -1062,6 +1263,12 @@ describe("Google Meet recorder lifecycle", () => {
         ["pactl", "unload-module", "41"],
       ],
     );
+    // PulseAudio refuses any argument a module does not declare. The null
+    // source is labelled with `description=`; the sink's `source_properties=`
+    // failed every load, and every notetaker joined without a microphone.
+    const silentSource = harness.commands.find(({ args }) => args[1] === "module-null-source");
+    assert.ok(silentSource?.args.includes("description=Genosyn_silent_mic"));
+    assert.ok(!silentSource?.args.some((arg) => arg.startsWith("source_properties=")));
 
     const ffmpeg = harness.ffmpegCommands[0];
     assert.equal(ffmpeg.command, "ffmpeg");
