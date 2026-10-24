@@ -68,6 +68,7 @@ import { SettingsTags } from "./pages/SettingsTags";
 import { SettingsSso } from "./pages/SettingsSso";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
 import { SettingsPhoneNumbers } from "./pages/SettingsPhoneNumbers";
+import { SettingsAiModels } from "./pages/SettingsAiModels";
 import { PhoneNumberDetail } from "./pages/PhoneNumberDetail";
 import { EmployeePhone } from "./pages/EmployeePhone";
 import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
@@ -830,6 +831,8 @@ function CompanyRoutes({
             {/* Company policies (M53b) — rules binding every AI employee. */}
             <Route path="policies" element={<CompanyPolicies />} />
             <Route path="integrations" element={<SettingsIntegrations />} />
+            {/* AI Models — the company's models and which AI Employees use each. */}
+            <Route path="ai-models" element={<SettingsAiModels />} />
             {/* Phone numbers — Twilio numbers given to AI Employees. */}
             <Route path="phone-numbers" element={<SettingsPhoneNumbers />} />
             <Route path="phone-numbers/:numberId" element={<PhoneNumberDetail />} />

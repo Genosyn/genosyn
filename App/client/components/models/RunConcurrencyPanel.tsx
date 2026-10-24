@@ -1,5 +1,6 @@
 import React from "react";
-import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import { api, type AIModel, type Company } from "@/lib/api";
+import { companyModelPath } from "@/lib/companyModels";
 import { errorMessage } from "@/lib/errors";
 import { FormError } from "@/components/ui/FormError";
 import { Select } from "@/components/ui/Select";
@@ -18,20 +19,18 @@ const RUN_CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8];
  */
 export function RunConcurrencyPanel({
   company,
-  emp,
   model,
   canManage,
   onChanged,
 }: {
   company: Pick<Company, "id">;
-  emp: Pick<Employee, "id">;
   model: AIModel;
   canManage: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
+  const base = companyModelPath(company.id, model.id);
   const value = model.maxConcurrentRuns === null ? "default" : String(model.maxConcurrentRuns);
   const choices =
     model.maxConcurrentRuns && !RUN_CONCURRENCY_CHOICES.includes(model.maxConcurrentRuns)

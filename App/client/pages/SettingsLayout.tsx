@@ -28,6 +28,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   tags: "Tags",
   policies: "Policies",
   integrations: "Integrations",
+  "ai-models": "AI Models",
   "phone-numbers": "Phone numbers",
   browsers: "Browsers",
   email: "Email",

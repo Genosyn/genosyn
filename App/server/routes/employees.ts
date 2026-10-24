@@ -134,6 +134,7 @@ employeesRouter.get("/", async (req, res) => {
         ? {
             provider: m.provider,
             model: m.model,
+            authMode: m.authMode,
             status: isModelConnected(m) ? "connected" : "not_connected",
           }
         : null,

@@ -18,7 +18,6 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { createApp } from "../server/app";
 import { AppDataSource } from "../server/db/datasource";
 import { AIEmployee } from "../server/db/entities/AIEmployee";
-import { AIModel } from "../server/db/entities/AIModel";
 import { Company } from "../server/db/entities/Company";
 import { Membership } from "../server/db/entities/Membership";
 import { Routine } from "../server/db/entities/Routine";
@@ -30,6 +29,7 @@ import { setPublicUrl } from "../server/services/publicUrl";
 import { stopRoutineQueue } from "../server/services/routineQueue";
 import { sessionCookieFor, withTestInstanceSecrets } from "../server/test/apiAccess";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
+import { insertEmployeeModel } from "../server/test/modelFixtures.js";
 import { startBrowserFixture } from "./browserFixture";
 import { noSidewaysScroll } from "./appFixture";
 
@@ -62,7 +62,7 @@ const jamie = await insert(AIEmployee, {
   soulBody: "",
 });
 // A self-hosted model: one Run at a time, which is why the queue is long.
-await insert(AIModel, {
+await insertEmployeeModel({
   employeeId: jamie.id,
   provider: "custom",
   model: "Qwen/Qwen3.8-27B",

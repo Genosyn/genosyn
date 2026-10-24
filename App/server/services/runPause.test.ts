@@ -4,7 +4,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";

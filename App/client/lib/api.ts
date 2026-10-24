@@ -295,6 +295,7 @@ export type Employee = {
   model?: {
     provider: Provider;
     model: string;
+    authMode?: AuthMode;
     status: "connected" | "not_connected";
   } | null;
   /** How many models the employee has registered. Present on the list endpoint. */

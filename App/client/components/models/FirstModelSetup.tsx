@@ -1,5 +1,12 @@
 import React from "react";
-import { api, type Company, type Employee, type ReusableModel } from "@/lib/api";
+import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import {
+  attachableModels,
+  companyModelPath,
+  employeeModelPath,
+  sameModelAsLabel,
+  usedByLine,
+} from "@/lib/companyModels";
 import { errorMessage } from "@/lib/errors";
 import { describeModel } from "@/lib/modelSummary";
 import { Button } from "@/components/ui/Button";
@@ -12,15 +19,16 @@ import { CompanyModelOffers } from "@/components/models/CompanyModelOffers";
 /**
  * What an AI Employee with no AI Model sees.
  *
- * When the company already has one connected, the way forward is a single
- * button — "Use the same AI Model as Avery" — because the key is already in the
- * company and pasting it again is the work this screen exists to remove. The
- * copy happens on the server (`POST …/models/reuse`), so the browser only names
- * which model, never holds a credential. Connecting a different one is the
- * quieter second path, and only then does the connect form appear.
+ * When the company already has a model connected, the way forward is a single
+ * button — "Use the same AI Model as Avery" — because the key is already in
+ * the company and pasting it again is the work this screen exists to remove.
+ * It attaches that very model (`POST …/employees/:eid/models/attach`): one set
+ * of keys for everyone on it, and the browser only ever names which model.
+ * Connecting a different one is the quieter second path, and only then does
+ * the connect form appear; the model it connects is the company's too.
  *
- * With nothing to reuse, the form is the whole screen. A Member, who can't put
- * a credential on an employee, is never shown this: `EmployeeModelSection`
+ * With nothing to offer, the form is the whole screen. A Member, who can't
+ * choose an employee's model, is never shown this: `EmployeeModelSection`
  * says an owner or admin connects one instead.
  */
 export function FirstModelSetup({
@@ -32,22 +40,21 @@ export function FirstModelSetup({
   emp: Pick<Employee, "id" | "name">;
   onSaved: () => void;
 }) {
-  // Only an owner or admin can put a credential on an employee, so only they are
-  // offered the shortcut. Anyone else sees the form, as before.
-  const canReuse = company.role !== "member";
-  const [offers, setOffers] = React.useState<ReusableModel[] | null>(canReuse ? null : []);
+  // Only an owner or admin can choose an employee's model, so only they are
+  // offered the company's. Anyone else sees the form, as before.
+  const canAttach = company.role !== "member";
+  const [offers, setOffers] = React.useState<AIModel[] | null>(canAttach ? null : []);
   const [connectingNew, setConnectingNew] = React.useState(false);
-  const [reusing, setReusing] = React.useState<string | null>(null);
+  const [attaching, setAttaching] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
 
   React.useEffect(() => {
-    if (!canReuse) return;
+    if (!canAttach) return;
     let cancelled = false;
     api
-      .get<ReusableModel[]>(`${base}/reusable`)
+      .get<AIModel[]>(companyModelPath(company.id))
       .then((list) => {
-        if (!cancelled) setOffers(list);
+        if (!cancelled) setOffers(attachableModels(list, emp.id));
       })
       // The shortcut is optional. If the list can't be read, the connect form
       // below still does the whole job, so fall back to it rather than block.
@@ -57,18 +64,20 @@ export function FirstModelSetup({
     return () => {
       cancelled = true;
     };
-  }, [base, canReuse]);
+  }, [company.id, emp.id, canAttach]);
 
-  async function reuse(offer: ReusableModel) {
+  async function attach(offer: AIModel) {
     setError(null);
-    setReusing(offer.id);
+    setAttaching(offer.id);
     try {
-      await api.post(`${base}/reuse`, { sourceModelId: offer.id });
+      await api.post(employeeModelPath(company.id, emp.id, undefined, "/attach"), {
+        modelId: offer.id,
+      });
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setReusing(null);
+      setAttaching(null);
     }
   }
 
@@ -91,8 +100,8 @@ export function FirstModelSetup({
               Connect an AI Model for {emp.name}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Pick where {emp.name} thinks, then paste the key. Later hires can reuse it with one
-              click.
+              Pick where {emp.name} thinks, then paste the key. The company keeps it, so later hires
+              can use it with one click.
             </div>
           </div>
           <ModelSetupForm
@@ -120,15 +129,16 @@ export function FirstModelSetup({
               {describeModel(lead)}
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {lead.employeeName} already runs on it
-              {lead.endpointHost ? ` (${lead.endpointHost})` : ""}. {emp.name} would use the same
-              key, so there is nothing to paste and usage is billed to the same account.
+              {lead.employees.length > 0 ? usedByLine(lead) : "Connected in your company"}
+              {lead.customEndpointHost ? ` (${lead.customEndpointHost})` : ""}. {emp.name} would run
+              on the same AI Model and keys, so there is nothing to paste and usage is billed to the
+              same account.
             </div>
           </div>
           <FormError message={error} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => reuse(lead)} loading={reusing === lead.id}>
-              Use the same AI Model as {lead.employeeName}
+            <Button onClick={() => attach(lead)} loading={attaching === lead.id}>
+              {sameModelAsLabel(lead)}
             </Button>
             <Button
               variant="ghost"
@@ -136,7 +146,7 @@ export function FirstModelSetup({
                 setError(null);
                 setConnectingNew(true);
               }}
-              disabled={reusing !== null}
+              disabled={attaching !== null}
             >
               Connect a different model
             </Button>
@@ -172,9 +182,9 @@ export function FirstModelSetup({
         {others.length > 0 && (
           <CompanyModelOffers
             offers={others}
-            reusing={reusing}
+            attaching={attaching}
             error={error}
-            onUse={(offer) => void reuse(offer)}
+            onUse={(offer) => void attach(offer)}
           />
         )}
         <ModelSetupForm

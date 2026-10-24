@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { DecisionPolicy } from "../db/entities/DecisionPolicy.js";

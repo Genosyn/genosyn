@@ -30,7 +30,6 @@ import { build } from "vite";
 import { config } from "../config";
 import { AppDataSource } from "../server/db/datasource";
 import { AIEmployee } from "../server/db/entities/AIEmployee";
-import { AIModel } from "../server/db/entities/AIModel";
 import { ChannelMessage } from "../server/db/entities/ChannelMessage";
 import { Company } from "../server/db/entities/Company";
 import { GroupDiscussion } from "../server/db/entities/GroupDiscussion";
@@ -43,6 +42,7 @@ import { agentRuntime } from "../server/services/agent/runtime";
 import { settleGroupDiscussionsForTests } from "../server/services/groupDiscussions";
 import { attachRealtime } from "../server/services/realtime";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
+import { insertEmployeeModel } from "../server/test/modelFixtures.js";
 import { persistTestSession } from "../server/test/userSession";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,7 +80,7 @@ async function hire(name: string, slug: string, role: string): Promise<AIEmploye
     role,
     soulBody: `You are ${name}.`,
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-opus-5-5",

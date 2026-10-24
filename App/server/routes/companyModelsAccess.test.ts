@@ -164,7 +164,7 @@ test("a Member's session reads an employee's models but not the company's", asyn
 });
 
 test("the API reference documents the company model routes as cookie-only", () => {
-  const document = buildOpenApiDocument(app) as {
+  const document = buildOpenApiDocument(app) as unknown as {
     paths: Record<string, Record<string, { security?: unknown; tags?: string[] }>>;
   };
   const expected: Array<[string, string]> = [

@@ -5,7 +5,6 @@ import type { EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Company } from "../../db/entities/Company.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { Routine } from "../../db/entities/Routine.js";

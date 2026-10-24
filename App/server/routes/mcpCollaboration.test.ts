@@ -7,7 +7,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";

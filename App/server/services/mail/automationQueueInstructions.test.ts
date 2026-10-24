@@ -7,7 +7,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import {
   EmployeeMailAccountGrant,

@@ -34,6 +34,7 @@ import {
   writeApiKeys,
 } from "../server/services/modelApiKeys";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
+import { insertEmployeeModel } from "../server/test/modelFixtures.js";
 import { persistTestSession } from "../server/test/userSession";
 import { startBrowserFixture } from "./browserFixture";
 
@@ -83,7 +84,7 @@ const employee = await insert(AIEmployee, {
   role: "Operations",
   soulBody: "",
 });
-const model = await insert(AIModel, {
+const model = await insertEmployeeModel({
   employeeId: employee.id,
   provider: "anthropic",
   model: "claude-opus-5-5",

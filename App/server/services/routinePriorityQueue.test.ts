@@ -3,7 +3,6 @@ import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";

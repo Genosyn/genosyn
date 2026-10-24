@@ -40,6 +40,7 @@ import { agentRuntime } from "../server/services/agent/runtime";
 import { configWithSubscriptionAccessToken } from "../server/services/codexSubscription";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../server/services/modelApiKeys";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
+import { insertEmployeeModel } from "../server/test/modelFixtures.js";
 import { fakeCodexVerification } from "../server/test/modelVerification";
 import { persistTestSession } from "../server/test/userSession";
 import { startBrowserFixture } from "./browserFixture";
@@ -101,7 +102,7 @@ const grace = await insert(AIEmployee, {
 });
 
 const day = (n: number) => new Date(Date.UTC(2026, 9, n, 9, 0, 0));
-const claude = await insert(AIModel, {
+const claude = await insertEmployeeModel({
   employeeId: ada.id,
   provider: "anthropic",
   model: "claude-opus-5-5",
@@ -116,7 +117,7 @@ const claude = await insert(AIModel, {
   contextWindowSource: "probed",
   createdAt: day(9),
 });
-const qwen = await insert(AIModel, {
+const qwen = await insertEmployeeModel({
   employeeId: ada.id,
   provider: "custom",
   model: "Qwen/Qwen3.8-27B",
@@ -135,7 +136,7 @@ const qwen = await insert(AIModel, {
   maxConcurrentRuns: 2,
   createdAt: day(8),
 });
-const chatgptRow = await insert(AIModel, {
+const chatgptRow = await insertEmployeeModel({
   employeeId: ada.id,
   provider: "openai",
   model: "auto",
@@ -162,7 +163,7 @@ await insert(AIModelKeyHealth, {
 });
 // Grace runs on an OpenAI model of her own — the one Ada can be given in a
 // click — and keeps a Claude model too, which Ada will already run by then.
-await insert(AIModel, {
+await insertEmployeeModel({
   employeeId: grace.id,
   provider: "openai",
   model: "gpt-5.5",
@@ -171,7 +172,7 @@ await insert(AIModel, {
   configJson: writeApiKeys("{}", [newStoredApiKey(GRACE_KEY, company.id)]),
   connectedAt: day(5),
 });
-await insert(AIModel, {
+await insertEmployeeModel({
   employeeId: grace.id,
   provider: "anthropic",
   model: "claude-sonnet-5",

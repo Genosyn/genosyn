@@ -1,6 +1,7 @@
 import React from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
-import { api, type AIModel, type AIModelApiKey, type Company, type Employee } from "@/lib/api";
+import { api, type AIModel, type AIModelApiKey, type Company } from "@/lib/api";
+import { companyModelPath } from "@/lib/companyModels";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
@@ -23,19 +24,17 @@ import { ModelSettingSection } from "./ModelSettingSection";
  */
 export function ApiKeysPanel({
   company,
-  emp,
   model,
   onChanged,
 }: {
   company: Pick<Company, "id" | "role">;
-  emp: Pick<Employee, "id">;
   model: Pick<AIModel, "id" | "provider" | "apiKeys">;
   onChanged: () => void;
 }) {
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
   const keys = model.apiKeys ?? [];
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/keys`;
+  const base = companyModelPath(company.id, model.id, "/keys");
   const [newKey, setNewKey] = React.useState("");
   const [adding, setAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<unknown>(null);

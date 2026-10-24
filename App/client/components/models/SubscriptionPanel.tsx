@@ -4,9 +4,9 @@ import {
   api,
   type AIModel,
   type Company,
-  type Employee,
   type SubscriptionDeviceSession,
 } from "@/lib/api";
+import { companyModelPath } from "@/lib/companyModels";
 import { copyToClipboard } from "@/lib/clipboard";
 import { errorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/Button";
@@ -28,13 +28,11 @@ import { Input } from "@/components/ui/Input";
  */
 export function SubscriptionPanel({
   company,
-  emp,
   model,
   canManage,
   onSaved,
 }: {
   company: Pick<Company, "id">;
-  emp: Pick<Employee, "id">;
   model: AIModel;
   canManage: boolean;
   onSaved: () => void;
@@ -51,7 +49,7 @@ export function SubscriptionPanel({
   const [tokenError, setTokenError] = React.useState<string | null>(null);
   const connected = model.status === "connected";
   const deviceSignInAvailable = model.supportsSubscription && model.subscriptionAvailable;
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/subscription`;
+  const base = companyModelPath(company.id, model.id, "/subscription");
 
   const receiveDeviceSession = React.useCallback(
     (next: SubscriptionDeviceSession) => {
