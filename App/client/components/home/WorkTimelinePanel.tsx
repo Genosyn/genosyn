@@ -195,6 +195,10 @@ export function EmployeeWorkBubble({
       aria-haspopup="dialog"
       title={`${name} · ${role} · ${status}`}
       onClick={onSelect}
+      // Focus brings the whole bubble into the row's view. The browser's own
+      // focus scroll treats a bubble a fraction of a pixel inside the edge as
+      // already visible, which strands the last one off-screen on some widths.
+      onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
       className={clsx(
         "group flex min-h-11 w-36 max-w-full shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition",
         "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:bg-slate-800/60",
