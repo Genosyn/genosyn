@@ -371,7 +371,7 @@ const GROUPS: GroupSpec[] = [
         kind: "boolean",
         path: "humanize",
         label: "Humanize input",
-        help: "Type and click the way a person does. Leave on for sites with anti-bot defenses.",
+        help: "Type and click the way a person does. Leave on for sites with anti-bot defenses. The Google Meet notetaker needs it: Meet refuses a guest that does not.",
       },
       {
         kind: "int",

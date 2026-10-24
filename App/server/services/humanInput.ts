@@ -71,15 +71,20 @@ export type HumanPage = {
   mouse?: HumanMouse;
 };
 
+/**
+ * Declared as methods, not function-typed properties, so a real Playwright
+ * `Locator` satisfies it: its option parameters are narrower than `unknown`,
+ * and only method parameters are compared bivariantly.
+ */
 export type HumanInputTarget = {
-  fill: (value: string, opts?: unknown) => Promise<void>;
-  click: (opts?: unknown) => Promise<void>;
-  focus?: (opts?: unknown) => Promise<void>;
-  hover?: (opts?: unknown) => Promise<void>;
-  pressSequentially?: (text: string, opts?: { delay?: number; timeout?: number }) => Promise<void>;
-  type?: (text: string, opts?: { delay?: number }) => Promise<void>;
-  boundingBox?: () => Promise<BoundingBox | null>;
-  scrollIntoViewIfNeeded?: (opts?: unknown) => Promise<void>;
+  fill(value: string, opts?: unknown): Promise<void>;
+  click(opts?: unknown): Promise<void>;
+  focus?(opts?: unknown): Promise<void>;
+  hover?(opts?: unknown): Promise<void>;
+  pressSequentially?(text: string, opts?: { delay?: number; timeout?: number }): Promise<void>;
+  type?(text: string, opts?: { delay?: number }): Promise<void>;
+  boundingBox?(): Promise<BoundingBox | null>;
+  scrollIntoViewIfNeeded?(opts?: unknown): Promise<void>;
 };
 
 /** A Locator, an ElementHandle, or a page keyboard — anything that presses a key. */
