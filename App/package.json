@@ -54,6 +54,7 @@
     "test:command-palette": "tsx scripts/test-command-palette.ts",
     "test:resources-ai-access": "tsx scripts/test-resources-ai-access.ts",
     "test:routines-ai-access": "tsx scripts/test-routines-ai-access.ts",
+    "test:employee-access": "tsx scripts/test-employee-access.ts",
     "test:mail-sender-name": "tsx scripts/test-mail-sender-name.ts",
     "test:mail-analysis-instructions": "tsx scripts/test-mail-analysis-instructions.ts",
     "test:decision-stack-settings": "tsx scripts/test-decision-stack-settings.ts",
