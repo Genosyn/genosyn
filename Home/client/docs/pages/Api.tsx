@@ -98,8 +98,9 @@ genosyn-api call createRevenueContact name="Ada Lovelace" email=ada@example.com`
         The same keys open the <DocLink to="/docs/mcp-server">MCP server</DocLink>. Point Claude
         Desktop, Claude Code, Cursor or any MCP client at <Code>/api/companies/&lt;id&gt;/mcp</Code>{" "}
         and it can search, describe and call every operation in the reference below that a key can
-        call, by the same <Code>operationId</Code>s and under the same rules.{" "}
-        <Strong>Settings → API keys</Strong> shows the endpoint and each client&apos;s setup.
+        call, by the same <Code>operationId</Code>s and under the same rules — and claude.ai and
+        ChatGPT sign in to it as <DocLink to="/docs/connected-apps">connected apps</DocLink>, with no
+        key. <Strong>Settings → API keys</Strong> shows the endpoint and each client&apos;s setup.
       </P>
 
       <H2 id="reference">The API reference</H2>

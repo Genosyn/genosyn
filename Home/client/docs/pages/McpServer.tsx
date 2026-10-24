@@ -22,43 +22,73 @@ export function McpServer() {
         title="MCP server"
         lead={
           <>
-            Connect Claude Desktop, Claude Code, Cursor or any MCP client to Genosyn. The Genosyn
-            MCP server offers every operation of the <DocLink to="/docs/api">REST API</DocLink> an
-            API key can call — find one, read its inputs, call it — acting as the key&apos;s Member
-            and never more.
+            Connect claude.ai, ChatGPT, Claude Desktop, Claude Code, Cursor or any MCP client to
+            Genosyn. The Genosyn MCP server offers every operation of the{" "}
+            <DocLink to="/docs/api">REST API</DocLink> an API key can call — find one, read its
+            inputs, call it — acting as one Member and never more: you, once you approve an app, or
+            an API key&apos;s Member.
           </>
         }
       />
 
       <H2 id="connect">Connect a client</H2>
+      <P>
+        Open <Strong>Settings → API keys</Strong> in the company you want to connect. Its{" "}
+        <Strong>MCP server</Strong> card shows the <Strong>Endpoint</Strong> — your install&apos;s
+        address followed by the company&apos;s path — and the setup for each client:
+      </P>
+      <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/mcp`}</Pre>
+      <P>
+        claude.ai and ChatGPT take the endpoint alone and sign in to Genosyn, where you approve
+        them. Every other client sends an API key: choose <Strong>Generate key</Strong>, name it
+        after the client so you can revoke one without the others, and the dialog that shows the key
+        ends with <Strong>Connect an MCP client</Strong>, the setup filled in. A key is shown only
+        once, so the card shows the setup with <Code>gen_YOUR_API_KEY</Code> in its place.
+      </P>
+
+      <H3 id="claude-ai">claude.ai</H3>
       <OL>
         <LI>
-          Open <Strong>Settings → API keys</Strong> in the company you want to connect, and choose{" "}
-          <Strong>Generate key</Strong>. Name it after the client — &quot;Claude Desktop&quot;,
-          &quot;Cursor&quot; — so you can revoke one without the others.
+          In claude.ai, open <Strong>Settings → Connectors</Strong> and choose{" "}
+          <Strong>Add custom connector</Strong>. Name it and paste the endpoint as its URL. On a
+          Team or Enterprise plan, an owner of your Claude organization adds it first, under{" "}
+          <Strong>Admin settings → Connectors</Strong>.
         </LI>
         <LI>
-          The dialog that shows the new key ends with <Strong>Connect an MCP client</Strong>. Pick{" "}
-          <Strong>Claude Desktop</Strong>, <Strong>Claude Code</Strong>, <Strong>Cursor</Strong> or{" "}
-          <Strong>Other clients</Strong>, choose <Strong>Copy</Strong>, and paste the setup where it
-          says. The key is already in it.
+          Choose <Strong>Connect</Strong>. Claude sends you to Genosyn: sign in, check the app and
+          the company, and choose <Strong>Allow</Strong>. Back in Claude, the connector also reaches
+          Claude Desktop and the Claude mobile apps.
+        </LI>
+      </OL>
+
+      <H3 id="chatgpt">ChatGPT</H3>
+      <OL>
+        <LI>
+          In ChatGPT, open <Strong>Settings → Apps &amp; Connectors</Strong> and, under{" "}
+          <Strong>Advanced settings</Strong>, turn on <Strong>Developer mode</Strong>.
+        </LI>
+        <LI>
+          Choose <Strong>Create</Strong>, paste the endpoint as the <Strong>MCP server URL</Strong>,
+          and pick <Strong>OAuth</Strong> for authentication.
+        </LI>
+        <LI>
+          ChatGPT sends you to Genosyn: sign in, check the app and the company, and choose{" "}
+          <Strong>Allow</Strong>. Add the connector to a chat from its tools menu.
         </LI>
       </OL>
       <P>
-        The same page keeps an <Strong>MCP server</Strong> card with the <Strong>Endpoint</Strong>{" "}
-        and the same setup for each client, with <Code>gen_YOUR_API_KEY</Code> standing in for a key
-        — a key is only ever shown once. The endpoint is your install&apos;s address followed by the
-        company&apos;s path:
+        Only owners and admins can approve an app; a Member connects a desktop client with an API
+        key instead. <DocLink to="/docs/connected-apps">Connected apps</DocLink> covers what
+        approving gives the app, how long it lasts and how to disconnect it.
       </P>
-      <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/mcp`}</Pre>
 
       <H3 id="claude-desktop">Claude Desktop</H3>
       <P>
-        Claude Desktop reaches a remote server with a key through the <Code>mcp-remote</Code>{" "}
-        bridge. Open <Strong>Settings → Developer → Edit Config</Strong>, add the server to{" "}
-        <Code>claude_desktop_config.json</Code>, and restart Claude Desktop. The bridge runs with{" "}
-        <Code>npx</Code>, so Node.js must be installed. The key travels in an environment variable
-        because a space inside an argument can be mangled on the way to <Code>npx</Code>.
+        A claude.ai connector already reaches Claude Desktop. To connect it with a key instead, use
+        the <Code>mcp-remote</Code> bridge: open <Strong>Settings → Developer → Edit Config</Strong>
+        , add the server to <Code>claude_desktop_config.json</Code>, and restart Claude Desktop. The
+        bridge runs with <Code>npx</Code>, so Node.js must be installed; the key travels in an
+        environment variable because a space in an argument can be mangled on the way.
       </P>
       <Pre lang="json">{`{
   "mcpServers": {
@@ -125,15 +155,12 @@ await client.connect(
     { requestInit: { headers: { Authorization: \`Bearer \${process.env.GENOSYN_KEY}\` } } },
   ),
 );
-const found = await client.callTool({
-  name: "search_operations",
-  arguments: { query: "create a deal" },
-});`}</Pre>
+const found = await client.callTool({ name: "search_operations", arguments: { query: "create a deal" } });`}</Pre>
       <P>
         A client that only starts local (stdio) servers can use the same <Code>mcp-remote</Code>{" "}
-        bridge as Claude Desktop. One that can only sign in with OAuth, rather than send a header,
-        cannot connect yet. For a terminal or a script rather than an MCP client,{" "}
-        <DocLink to="/docs/api-cli">genosyn-api</DocLink> offers the same operations as commands.
+        bridge. One that signs in with OAuth needs only the endpoint, and connects as claude.ai
+        does. For a terminal or a script, <DocLink to="/docs/api-cli">genosyn-api</DocLink> offers
+        the same operations as commands.
       </P>
 
       <H2 id="tools">What the server offers</H2>
@@ -212,11 +239,12 @@ const found = await client.callTool({
 
       <H2 id="authority">What it can and cannot do</H2>
       <P>
-        Every call is sent back through Genosyn&apos;s own API with the same key, so it is checked
-        exactly as a REST request is: it acts as the key&apos;s Member, with their role and Finance
-        access at that moment, only in the company the key was minted for, and every change lands in
+        Every call is sent back through Genosyn&apos;s own API with the same credential, so it is
+        checked exactly as a REST request is: it acts as one Member, with their role and Finance
+        access at that moment, only in the company the key or app is for, and every change lands in
         the <DocLink to="/docs/security">audit log</DocLink> under their name. Demote the Member and
-        the server loses the same powers on the next call; revoke the key and it stops.
+        the server loses the same powers on the next call; revoke the key or disconnect the app and
+        it stops.
       </P>
       <UL>
         <LI>
@@ -265,16 +293,22 @@ const found = await client.callTool({
         it can try to instruct the model reading it. Keep your client asking before{" "}
         <Code>call_write_operation</Code> and <Code>call_delete_operation</Code>, and allow reads
         alone to run without asking. Give each client its own key, from a Member with no more role
-        or Finance access than the work needs, prefer a key that expires, and revoke it at{" "}
-        <Strong>Settings → API keys</Strong> the moment it is no longer used. Serve Genosyn over
-        HTTPS so the key never crosses the network in the clear.
+        or Finance access than the work needs, prefer a key that expires, and revoke a key or
+        disconnect an app at <Strong>Settings → API keys</Strong> the moment it is no longer used.
+        Serve Genosyn over HTTPS so no credential crosses the network in the clear.
       </Callout>
 
       <H2 id="security">How the endpoint is guarded</H2>
       <UL>
         <LI>
-          An API key is the only credential. The server never reads the browser session cookie, so a
-          page you have open elsewhere cannot use your sign-in to reach it.
+          An API key or a connected app&apos;s token is the only credential. The server never reads
+          the browser session cookie, so a page you have open elsewhere cannot use your sign-in to
+          reach it.
+        </LI>
+        <LI>
+          Signing in follows the MCP authorization specification — OAuth 2.1 with PKCE, discovery
+          and dynamic client registration — with opaque tokens stored hashed:{" "}
+          <DocLink to="/docs/connected-apps#how-it-works">how sign-in works</DocLink>.
         </LI>
         <LI>
           A request from a web page on another site is refused: the server accepts no browser{" "}
@@ -301,7 +335,9 @@ const found = await client.callTool({
             def: (
               <>
                 The key is missing, mistyped, revoked or expired — or it was minted for another
-                company than the one in the URL. Check <Strong>Settings → API keys</Strong>.
+                company than the one in the URL. Check <Strong>Settings → API keys</Strong>. For an
+                app that signs in, see{" "}
+                <DocLink to="/docs/connected-apps#troubleshooting">Connected apps</DocLink>.
               </>
             ),
           },
@@ -316,7 +352,12 @@ const found = await client.callTool({
           },
           {
             term: "403 Forbidden",
-            def: <>The key&apos;s Member has left the company.</>,
+            def: (
+              <>
+                The Member has left the company — or, for a connected app, is no longer an owner or
+                admin.
+              </>
+            ),
           },
           {
             term: "406",
