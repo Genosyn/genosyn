@@ -183,8 +183,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         Two things have to be true. The AI Employee needs Browser access on (
         <Strong>Settings → Advanced → Browser</Strong> on the employee), and you have to grant that
         employee this browser: open the browser&apos;s row in <Strong>Settings → Browsers</Strong>{" "}
-        and add it under <Strong>AI Employees allowed to use it</Strong>. Until you do, nothing can
-        reach it.
+        and add it under <Strong>AI Employees allowed to use it</Strong>, or tick it on the
+        employee&apos;s <DocLink to="/docs/employees#access">Settings → Access</DocLink>. Until you
+        do, nothing can reach it. Only you can grant your browser: on anyone else&apos;s Access
+        page it shows as your browser, locked, without saying which employees may use it.
       </P>
       <P>
         Then, in the chat header, the browser picker switches the conversation between{" "}

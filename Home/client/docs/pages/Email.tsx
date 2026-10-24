@@ -662,8 +662,10 @@ export function Email() {
 
       <H2 id="access">Giving AI Employees mailbox access</H2>
       <P>
-        Under <Strong>Email → Settings → AI access</Strong>, an owner or admin grants the employees
-        who should be able to act on the mailbox, at one of three levels:
+        Under <Strong>Email → Settings → AI access</Strong> — or on one employee&apos;s{" "}
+        <DocLink to="/docs/employees#access">Settings → Access</DocLink>, beside everything else it
+        can reach — an owner or admin grants the employees who should be able to act on the
+        mailbox, at one of three levels:
       </P>
       <UL>
         <LI>
