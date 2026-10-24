@@ -385,3 +385,93 @@ describe("GET /:id/catalog", () => {
     assert.deepEqual(asked, []);
   });
 });
+
+describe("PUT /:id — changing the model", () => {
+  /** The connection test passes, and the provider reports `window` for any model. */
+  function stubProvider(t: TestContext, window: number): string[] {
+    stubRuntime(t);
+    const probed: string[] = [];
+    t.mock.method(globalThis, "fetch", (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith(baseUrl)) return realFetch(input, init);
+      probed.push(new URL(url).pathname);
+      return Promise.resolve(
+        Response.json({ id: new URL(url).pathname.split("/").pop(), max_input_tokens: window }),
+      );
+    });
+    return probed;
+  }
+
+  async function change(model: AIModel, to: string) {
+    const response = await realFetch(
+      `${baseUrl}/api/companies/${company.id}/employees/${employee.id}/models/${model.id}`,
+      {
+        method: "PUT",
+        headers: { "x-test-user": actingUser.id, "content-type": "application/json" },
+        body: JSON.stringify({ provider: "anthropic", authMode: "apikey", model: to }),
+      },
+    );
+    return {
+      status: response.status,
+      body: (await response.json()) as {
+        contextWindow: number | null;
+        contextWindowSource: string | null;
+      },
+    };
+  }
+
+  test("asks for the new model's context window at once, instead of leaving it unknown", async (t) => {
+    const probed = stubProvider(t, 400_000);
+    const model = await claude([PRIMARY], {
+      contextWindow: 200_000,
+      contextWindowSource: "probed",
+    });
+    const reply = await change(model, "claude-sonnet-5");
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.contextWindow, 400_000);
+    assert.equal(reply.body.contextWindowSource, "probed");
+    assert.deepEqual(probed, ["/v1/models/claude-sonnet-5"]);
+    assert.equal((await savedModel(model.id)).contextWindow, 400_000);
+  });
+
+  test("a window set by hand for the old model gives way to the new model's", async (t) => {
+    // The number belonged to the model it was typed for; the edit clears it,
+    // and the new model's own window is read in its place.
+    const probed = stubProvider(t, 400_000);
+    const model = await claude([PRIMARY], { contextWindow: 65_536, contextWindowSource: "manual" });
+    const reply = await change(model, "claude-sonnet-5");
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.contextWindow, 400_000);
+    assert.equal(reply.body.contextWindowSource, "probed");
+    assert.deepEqual(probed, ["/v1/models/claude-sonnet-5"]);
+  });
+
+  test("a provider that can't be reached leaves the window unknown, and the change saved", async (t) => {
+    stubRuntime(t);
+    t.mock.method(globalThis, "fetch", (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith(baseUrl)) return realFetch(input, init);
+      return Promise.reject(new TypeError("fetch failed"));
+    });
+    const model = await claude([PRIMARY], {
+      contextWindow: 200_000,
+      contextWindowSource: "probed",
+    });
+    const reply = await change(model, "claude-sonnet-5");
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.contextWindow, null);
+    assert.equal((await savedModel(model.id)).model, "claude-sonnet-5");
+  });
+
+  test("saving the same model asks nothing", async (t) => {
+    const probed = stubProvider(t, 400_000);
+    const model = await claude([PRIMARY], {
+      contextWindow: 200_000,
+      contextWindowSource: "probed",
+    });
+    const reply = await change(model, "claude-opus-5-5");
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.contextWindow, 200_000);
+    assert.deepEqual(probed, []);
+  });
+});

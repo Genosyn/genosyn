@@ -529,6 +529,12 @@ modelsRouter.put(
     }
     const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
     if (!saved) return res.status(404).json({ error: "Model not found" });
+    // A different model has a window of its own, and the edit cleared the old
+    // one: ask for it now rather than leave the card reading "Unknown" until
+    // the three-hourly sweep. Best-effort, and a hand-set window is kept.
+    if ((changedModel || changedAuth) && isModelConnected(saved)) {
+      await refreshContextWindow(saved);
+    }
     // A change of service or sign-in takes the old keys, and their health, with it.
     await pruneKeyHealth(saved);
     await recordAudit({
