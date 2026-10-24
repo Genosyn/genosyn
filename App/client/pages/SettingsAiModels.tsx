@@ -1,6 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Copy, Plus } from "lucide-react";
+import { BrainCircuit, Copy, Lock, Plus } from "lucide-react";
 import { api, type AIModel, type Company } from "../lib/api";
 import {
   companyModelPath,
@@ -48,6 +48,7 @@ export function AiModelsClosed() {
     <>
       <TopBar title="AI Models" />
       <EmptyState
+        icon={<Lock />}
         title="Only owners and admins manage AI Models"
         description="AI Models hold the company's keys, so owners and admins connect them and choose which AI Employees use each. An AI Employee's own Model page shows what it runs on."
       />
@@ -114,6 +115,7 @@ export function CompanyAiModels({ company }: { company: Pick<Company, "id" | "ro
         ) : models.length === 0 ? (
           !adding && (
             <EmptyState
+              icon={<BrainCircuit />}
               title="No AI Models yet"
               description="Connect a Claude or OpenAI key, a ChatGPT sign-in, or a server you run yourself. Then attach it to the AI Employees who should think with it."
               action={addButton}

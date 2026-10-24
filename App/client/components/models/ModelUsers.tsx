@@ -60,7 +60,7 @@ export function ModelUsers({
         {model.employees.map((user) => (
           <li
             key={user.id}
-            className="flex min-w-0 items-center gap-1.5 rounded-full border border-slate-200 py-0.5 pl-0.5 pr-1 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-200"
+            className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-slate-200 py-0.5 pl-0.5 pr-1 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-200"
           >
             <Avatar
               name={user.name}
@@ -68,13 +68,15 @@ export function ModelUsers({
               size="xs"
               src={employeeAvatarUrl(company.id, user.id, user.avatarKey)}
             />
+            {/* A finger-sized target on a phone; the name truncates inside it,
+                since the hit area must not sit on an element that clips. */}
             <Link
               to={`/c/${company.slug}/employees/${user.slug}/settings/model`}
-              className="truncate font-medium hover:underline"
+              className="touch-target relative flex min-w-0 font-medium hover:underline"
             >
-              {user.name}
+              <span className="truncate">{user.name}</span>
             </Link>
-            <span className="text-slate-400 dark:text-slate-500">
+            <span className="shrink-0 text-slate-500 dark:text-slate-400">
               {user.isActive ? "· active" : "· standby"}
             </span>
             {canManage && (
@@ -84,7 +86,7 @@ export function ModelUsers({
                 disabled={detaching !== null}
                 aria-label={`Detach from ${user.name}`}
                 title={`Detach from ${user.name}`}
-                className="grid h-5 w-5 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                className="touch-target relative grid h-5 w-5 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
                 {detaching === user.id ? (
                   <ButtonSpinner size={12} />

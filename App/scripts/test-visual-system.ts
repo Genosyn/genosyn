@@ -380,6 +380,7 @@ try {
     { name: "tasks", path: `${c}/tasks/p/${project.slug}` },
     { name: "settings-company", path: `${c}/settings/company` },
     { name: "settings-members", path: `${c}/settings/members` },
+    { name: "settings-ai-models", path: `${c}/settings/ai-models` },
     { name: "admin", path: `${c}/admin/overview` },
   ].filter((page) => only.length === 0 || only.some((term) => page.name.includes(term)));
 

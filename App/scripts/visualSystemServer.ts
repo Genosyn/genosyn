@@ -102,6 +102,7 @@ await setPublicUrl(origin);
 await import("../server/index.js");
 
 const { AIModel } = await import("../server/db/entities/AIModel.js");
+const { EmployeeModel } = await import("../server/db/entities/EmployeeModel.js");
 const { AIEmployee } = await import("../server/db/entities/AIEmployee.js");
 const { Routine } = await import("../server/db/entities/Routine.js");
 const { Run } = await import("../server/db/entities/Run.js");
@@ -119,33 +120,43 @@ async function seed(companyId: string): Promise<Record<string, number>> {
   });
   assert(employees.length > 0, "seed employees through the API first");
   const models = AppDataSource.getRepository(AIModel);
+  const attachments = AppDataSource.getRepository(EmployeeModel);
+  // One company Claude model every employee runs on, as most companies have:
+  // one key, attached to all of them.
+  const shared = await models.save(
+    models.create({
+      companyId,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      authMode: "apikey",
+      configJson: JSON.stringify({
+        apiKeyEncrypted: encryptSecret("sk-ant-visual-0000000000", companyId),
+      }),
+      connectedAt: new Date(now - (employees.length + 2) * 24 * HOUR),
+      contextWindow: 200_000,
+      contextWindowSource: "probed",
+      maxConcurrentRuns: null,
+    }),
+  );
   for (const [index, employee] of employees.entries()) {
-    await models.save(
-      models.create({
+    await attachments.save(
+      attachments.create({
+        companyId,
         employeeId: employee.id,
-        provider: "anthropic",
-        model: "claude-opus-5-5",
-        authMode: "apikey",
+        modelId: shared.id,
         isActive: true,
-        configJson: JSON.stringify({
-          apiKeyEncrypted: encryptSecret(`sk-ant-visual-${index}-0000000000`, companyId),
-        }),
-        connectedAt: new Date(now - (index + 2) * 24 * HOUR),
-        contextWindow: 200_000,
-        contextWindowSource: "probed",
-        maxConcurrentRuns: null,
+        createdAt: new Date(now - (index + 2) * 24 * HOUR),
       }),
     );
   }
   // The first employee also keeps a second, self-hosted model, as in the
   // Model page people reported.
-  await models.save(
+  const selfHosted = await models.save(
     models.create({
-      employeeId: employees[0].id,
+      companyId,
       provider: "custom",
       model: "Qwen/Qwen3.8-27B",
       authMode: "customEndpoint",
-      isActive: false,
       configJson: JSON.stringify({
         baseURLEncrypted: encryptSecret("http://10.20.30.40:46455/v1", companyId),
       }),
@@ -153,6 +164,15 @@ async function seed(companyId: string): Promise<Record<string, number>> {
       contextWindow: 32_768,
       contextWindowSource: "probed",
       maxConcurrentRuns: 2,
+    }),
+  );
+  await attachments.save(
+    attachments.create({
+      companyId,
+      employeeId: employees[0].id,
+      modelId: selfHosted.id,
+      isActive: false,
+      createdAt: new Date(now - 3 * 24 * HOUR),
     }),
   );
 
