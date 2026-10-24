@@ -120,7 +120,7 @@ export function InvoiceKindChoice({
         >
           <ArrowLeft size={18} />
         </Link>
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">New invoice</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">New invoice</h1>
       </div>
 
       <section aria-labelledby={`${id}-question`} className="max-w-3xl">

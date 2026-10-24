@@ -444,7 +444,7 @@ export default function FinanceInvoiceDetail() {
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{number}</h1>
               <InvoiceStatusBadge status={ds} />
               {isArchived && <ArchivedBadge />}
             </div>

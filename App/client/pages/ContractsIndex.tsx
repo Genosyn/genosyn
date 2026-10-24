@@ -87,7 +87,7 @@ export default function ContractsIndex() {
         <Breadcrumbs items={[{ label: "Customers", to: `/c/${company.slug}/customers` }, { label: "Contracts" }]} />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
           Contracts
         </h1>
         <div className="flex items-center gap-3">

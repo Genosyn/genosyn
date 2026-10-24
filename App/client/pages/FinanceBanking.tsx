@@ -427,7 +427,7 @@ export default function FinanceBanking() {
       </div>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Banking</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Banking</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Your bank accounts and cards, and every transaction on them.
           </p>

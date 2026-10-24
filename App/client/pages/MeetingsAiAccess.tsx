@@ -108,7 +108,7 @@ export default function MeetingsAiAccess() {
       </div>
 
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">AI access</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">AI access</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           Choose which AI Employees may read which calendars. Without a Grant, an employee&apos;s
           meeting tools return nothing — they cannot see the agenda, the recordings, or the

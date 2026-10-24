@@ -118,7 +118,7 @@ export default function FinanceVendorCreditDetail() {
           <Link to={`/c/${company.slug}/finance/vendor-credits`} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{credit.number || "Draft"}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{credit.number || "Draft"}</h1>
           <span className={"inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " + (STATUS_BADGE[credit.status] ?? STATUS_BADGE.draft)}>
             {credit.status}
           </span>

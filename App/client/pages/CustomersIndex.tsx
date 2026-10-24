@@ -307,7 +307,7 @@ function CustomerList({ company }: { company: Company }) {
         <Breadcrumbs items={[{ label: "Customers" }]} />
       </div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Customers</h1>
         {canWrite && (
           <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
             <Plus size={14} /> New customer

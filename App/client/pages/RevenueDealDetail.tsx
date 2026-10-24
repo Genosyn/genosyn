@@ -662,7 +662,7 @@ function InlineTitle({
         title="Click to rename"
         className="group flex items-start gap-2 text-left"
       >
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
           {value}
         </h1>
         <Pencil

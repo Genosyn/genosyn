@@ -236,7 +236,7 @@ export function MarketingCampaignDetailPage() {
             </span>
             <TargetPill target={metrics.target} summary={marketingTargetSummary(metrics.target, currency)} />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-white">
             {campaign.name}
           </h1>
           <p className="mt-1 text-sm text-slate-500">

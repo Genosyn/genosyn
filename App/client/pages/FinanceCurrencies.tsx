@@ -196,7 +196,7 @@ export default function FinanceCurrencies() {
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Currencies" }]}
         />
       </div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+      <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
         Currencies & exchange rates
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">

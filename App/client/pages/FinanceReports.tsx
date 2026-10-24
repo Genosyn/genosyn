@@ -159,7 +159,7 @@ export default function FinanceReports() {
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Reports" }]}
         />
       </div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Reports</h1>
+      <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Reports</h1>
       <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
         Profit and loss, balance sheet, and cash flow, straight from your books. Click any line to
         see the entries behind it.

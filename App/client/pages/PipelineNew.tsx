@@ -106,7 +106,7 @@ export default function PipelineNew({ company }: { company: Company }) {
       />
 
       <header className="mt-4 max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-slate-50">
           Create a pipeline
         </h1>
         <p className="mt-1.5 text-sm leading-6 text-slate-600 dark:text-slate-400">

@@ -116,7 +116,7 @@ export default function MeetingsCalendars() {
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Calendars</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Calendars</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             Each calendar borrows a Google Connection&apos;s credentials. Genosyn mirrors the events
             so an AI Employee can see what is coming up — it never stores a second copy of your

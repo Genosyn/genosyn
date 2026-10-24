@@ -394,7 +394,7 @@ function EstimateForm() {
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             {isEdit ? `Edit ${existing?.number || "estimate"}` : "New estimate"}
           </h1>
         </div>

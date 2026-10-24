@@ -247,7 +247,7 @@ export default function RevenueSignals() {
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Signals</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Signals</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             Your product database already knows who is about to churn and whose trial ends on
             Thursday. A signal is a saved query on a schedule, plus a rule for what to do with the

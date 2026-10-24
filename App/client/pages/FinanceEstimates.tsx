@@ -223,7 +223,7 @@ export default function FinanceEstimates() {
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Estimates</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Estimates</h1>
         {canWrite && (
           <Link to={`/c/${company.slug}/finance/estimates/new`}>
             <Button>

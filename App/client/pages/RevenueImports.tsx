@@ -499,7 +499,7 @@ export default function RevenueImports() {
     <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Imports" }]} />
       <div className="mb-6 mt-5">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
           Revenue imports
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">

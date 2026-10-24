@@ -182,7 +182,7 @@ export default function RevenuePartnershipDetail() {
       </Link>
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{detail.partnership.name}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{detail.partnership.name}</h1>
           <p className="mt-1 text-sm text-slate-500">Partner-specific relationship, contact, and outreach context.</p>
         </div>
         <Button onClick={() => void save()} loading={busy === "save"} disabled={busy !== null}>{busy === "save" ? "Saving…" : "Save changes"}</Button>

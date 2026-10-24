@@ -324,7 +324,7 @@ export default function FinanceTransactions() {
         items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Entry review" }]}
       />
       <div className="mt-5">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Entry review</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Entry review</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
           A sign-off on everything that reaches your books — invoices, bills, payments, and the
           bank and card transactions you categorize on Banking. Check each entry&apos;s category and

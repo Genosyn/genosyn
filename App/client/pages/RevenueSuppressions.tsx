@@ -214,7 +214,7 @@ export default function RevenueSuppressions() {
       </div>
 
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Suppressions</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Suppressions</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           Addresses this company must not email. Checked on every outbound path — there is no way
           to send that bypasses this list.

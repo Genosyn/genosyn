@@ -340,7 +340,7 @@ export default function RevenueContactDetail() {
           </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
                 {contact.name || "Unnamed contact"}
               </h1>
               <LifecycleStagePill stage={contact.lifecycleStage} />

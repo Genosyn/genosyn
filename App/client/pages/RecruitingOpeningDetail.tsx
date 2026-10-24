@@ -194,7 +194,7 @@ function OpeningDetail({ openingId }: { openingId: string }) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{opening.title}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{opening.title}</h1>
             <OpeningStatusPill opening={opening} />
             {opening.visibility !== "public" ? (
               <TonePill tone="neutral">{opening.visibility === "internal" ? "Internal" : "Unlisted"}</TonePill>

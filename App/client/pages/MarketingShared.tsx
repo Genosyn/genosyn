@@ -48,7 +48,7 @@ export function PageHeader({
         <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
           {eyebrow}
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-white">
           {title}
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">{description}</p>

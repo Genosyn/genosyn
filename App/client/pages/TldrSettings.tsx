@@ -248,7 +248,7 @@ export default function TldrSettingsPage() {
             <CalendarClock size={19} />
           </span>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
               TLDR settings
             </h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
