@@ -64,7 +64,7 @@ export async function readZipFile<T>(abs: string, use: (zip: ZipFile) => Promise
   const streams = new Set<fs.ReadStream>();
   /** The first stream failure, which every read from then on fails with. */
   let failure: ZipReadError | null = null;
-  /** Fails each read waiting right now; a failure while none is changes nothing. */
+  /** How to fail each read waiting right now. */
   const waiting = new Set<(err: ZipReadError) => void>();
   const fail = (err: unknown) => {
     failure ??= new ZipReadError(err);
