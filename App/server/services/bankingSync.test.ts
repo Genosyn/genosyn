@@ -162,9 +162,18 @@ function page<T extends { id: string }>(items: T[], url: URL, size: number) {
   return { items: slice, next_cursor: next };
 }
 
+/** A date and time with no offset — the only form Brex's date filters read. */
+const BREX_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
+
+/** A moment as Brex's date filters take it: the UTC date and time, with no offset. */
+function brexDate(at: Date): string {
+  return at.toISOString().slice(0, 23);
+}
+
+/** Brex reads its date filter as UTC; a value it can't read never gets this far. */
 function postedSince<T extends { posted_at_date: string }>(items: T[], url: URL): T[] {
   const from = url.searchParams.get("posted_at_start");
-  return from ? items.filter((item) => Date.parse(item.posted_at_date) >= Date.parse(from)) : items;
+  return from ? items.filter((item) => Date.parse(item.posted_at_date) >= Date.parse(`${from}Z`)) : items;
 }
 
 /** Stand in for api.brex.com, api.stripe.com and api.wise.com, recording every request. */
@@ -177,6 +186,9 @@ function installProviders(worlds: { brex?: BrexWorld; stripe?: StripeWorld; wise
       const brex = worlds.brex;
       const overridden = brex.override?.(url);
       if (overridden) return overridden;
+      // As Brex does: a date with an offset — toISOString()'s `Z` — is refused outright.
+      const since = url.searchParams.get("posted_at_start");
+      if (since !== null && !BREX_DATE_TIME.test(since)) return respond({ message: "Bad request" }, 400);
       if (url.pathname === "/v2/accounts/cash") {
         return respond({
           items: brex.cashAccounts.map((account, index) => ({
@@ -940,7 +952,7 @@ describe("catching up after months without a sync", () => {
 
     const transactionRequests = requests.filter((r) => r.url.pathname.startsWith("/v2/transactions/cash/"));
     const since = transactionRequests[0].url.searchParams.get("posted_at_start");
-    assert.equal(since, new Date(july.getTime() - BANK_SYNC_OVERLAP_MS).toISOString(), "from a week before the last sync that worked");
+    assert.equal(since, brexDate(new Date(july.getTime() - BANK_SYNC_OVERLAP_MS)), "from a week before the last sync that worked");
     assert.ok(transactionRequests.every((r) => r.url.searchParams.get("posted_at_start") === since), "every page asks for the same window");
     assert.equal(transactionRequests.length, 3, "every page of the window is walked");
 
@@ -988,7 +1000,7 @@ describe("catching up after months without a sync", () => {
     const outcome = await syncFeed(bankRef(feed));
     assert.deepEqual(outcome, { status: "synced", kind: "bank", inserted: 1, matched: 0 });
     const since = requests.find((r) => r.url.pathname.startsWith("/v2/transactions/cash/"))!.url.searchParams.get("posted_at_start");
-    assert.equal(since, new Date(july.getTime() - BANK_SYNC_OVERLAP_MS).toISOString());
+    assert.equal(since, brexDate(new Date(july.getTime() - BANK_SYNC_OVERLAP_MS)));
     assert.equal((await linesOn(feed.id)).length, 3);
   });
 
@@ -1015,11 +1027,91 @@ describe("catching up after months without a sync", () => {
     assert.deepEqual(second, { status: "synced", kind: "card", inserted: 1, posted: 1, failed: 0 });
     assert.equal(
       requests[0].url.searchParams.get("posted_at_start"),
-      new Date(synced.lastSyncAt!.getTime() - 7 * DAY).toISOString(),
+      brexDate(new Date(synced.lastSyncAt!.getTime() - 7 * DAY)),
     );
     const rows = await AppDataSource.getRepository(CardTransaction).find({ where: { feedId: feed.id } });
     assert.equal(rows.length, 4);
     assert.ok(rows.every((row) => row.ledgerEntryId && row.needsReview), "each in the books, waiting for review");
+  });
+
+  test("a Brex account and card refused since their first sync in July sync again, and the failure clears", async () => {
+    await books();
+    const brex = await connection("brex", { userToken: BREX_TOKEN });
+    const july = ago(98 * DAY);
+    // How both were left: every sync since July refused for the date it sent.
+    const refused = {
+      lastSyncAt: july,
+      lastSyncAttemptAt: ago(HOUR),
+      lastSyncError: "Brex refused the request",
+      lastSyncErrorKind: "provider_error",
+      syncFailureCount: 6,
+      nextSyncAt: new Date(Date.now() + 2 * HOUR),
+    };
+    const cash = await bankFeed({
+      kind: "brex_cash",
+      name: "Brex Primary",
+      connectionId: brex.id,
+      externalAccountId: "cash_1",
+      ...refused,
+      lastSyncErrorDetail: "Bad request · HTTP 400 · GET /v2/transactions/cash/cash_1",
+    });
+    const card = await cardFeed({
+      connectionId: brex.id,
+      ...refused,
+      lastSyncErrorDetail: "Bad request · HTTP 400 · GET /v2/transactions/card/primary",
+    });
+    const { requests } = installProviders({
+      brex: {
+        cashAccounts: [{ id: "cash_1", balance: 48_212_033 }],
+        cash: { cash_1: [cashTxn("tx_oct", ago(2 * DAY), -12_000), cashTxn("tx_june", ago(130 * DAY), 7_000)] },
+        card: [cardTxn("c_oct", ago(DAY), 4_200), cardTxn("c_aug", ago(60 * DAY), 1_800), cardTxn("c_june", ago(130 * DAY), 900)],
+        pageSize: 100,
+      },
+    });
+
+    // Sync now, as someone would press it on each card.
+    assert.deepEqual(await syncFeed(bankRef(cash)), { status: "synced", kind: "bank", inserted: 1, matched: 0 });
+    assert.deepEqual(await syncFeed(cardRef(card)), { status: "synced", kind: "card", inserted: 2, posted: 2, failed: 0 });
+
+    const dated = requests.filter((r) => r.url.pathname.startsWith("/v2/transactions/"));
+    assert.deepEqual(
+      dated.map((r) => r.url.searchParams.get("posted_at_start")),
+      [brexDate(new Date(july.getTime() - 7 * DAY)), brexDate(new Date(july.getTime() - 7 * DAY))],
+      "both ask Brex for the week before July in the form it reads",
+    );
+    assert.deepEqual((await linesOn(cash.id)).map((line) => line.externalId), ["tx_oct"]);
+    const purchases = await AppDataSource.getRepository(CardTransaction).find({ where: { feedId: card.id } });
+    assert.deepEqual(purchases.map((row) => row.externalId).sort(), ["c_aug", "c_oct"]);
+
+    for (const row of [await reloadBank(cash.id), await reloadCard(card.id)]) {
+      assert.deepEqual(
+        [row.lastSyncError, row.lastSyncErrorDetail, row.lastSyncErrorKind, row.syncFailureCount, row.nextSyncAt],
+        ["", "", "", 0, null],
+      );
+      assert.ok(row.lastSyncAt && row.lastSyncAt.getTime() > Date.now() - MINUTE, "the cursor moved to now");
+    }
+    const [bankStatus, cardStatus] = [
+      feedSyncStatus("bank", await reloadBank(cash.id)),
+      feedSyncStatus("card", await reloadCard(card.id)),
+    ];
+    assert.equal(bankStatus.error, null);
+    assert.equal(cardStatus.error, null);
+  });
+
+  test("the Brex stand-in refuses a date with an offset, as Brex does, so a sync that sent one fails here", async () => {
+    installProviders({
+      brex: { cashAccounts: [], cash: { cash_1: [] }, card: [cardTxn("c1", ago(DAY), 100)], pageSize: 10 },
+    });
+    const at = ago(7 * DAY);
+    for (const path of ["/v2/transactions/card/primary", "/v2/transactions/cash/cash_1"]) {
+      for (const sent of [at.toISOString(), at.toISOString().replace("Z", "+00:00"), "last week"]) {
+        const answer = await fetch(`https://api.brex.com${path}?posted_at_start=${encodeURIComponent(sent)}`);
+        assert.equal(answer.status, 400, `${path} ${sent}`);
+        assert.deepEqual(await answer.json(), { message: "Bad request" });
+      }
+      const read = await fetch(`https://api.brex.com${path}?posted_at_start=${brexDate(at)}`);
+      assert.equal(read.status, 200, path);
+    }
   });
 
   test("Stripe payouts are asked for from a week before the last sync, every page", async () => {

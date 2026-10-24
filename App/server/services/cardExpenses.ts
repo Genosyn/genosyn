@@ -295,7 +295,7 @@ export async function syncCardFeed(feed: CardFeed, now = new Date()): Promise<Ca
     order: { postedAt: "ASC", createdAt: "ASC" },
   });
   const postedAtStart = feed.lastSyncAt
-    ? new Date(feed.lastSyncAt.getTime() - CARD_SYNC_OVERLAP_MS).toISOString()
+    ? new Date(feed.lastSyncAt.getTime() - CARD_SYNC_OVERLAP_MS)
     : undefined;
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
