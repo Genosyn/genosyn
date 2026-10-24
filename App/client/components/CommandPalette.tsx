@@ -778,7 +778,7 @@ function CommandPalette({
 
 function GroupHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-xs font-medium px-2 pb-1 pt-2 text-slate-500 dark:text-slate-400">
+    <div data-palette-group="" className="px-2 pb-1 pt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
       {children}
     </div>
   );
