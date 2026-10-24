@@ -1,7 +1,7 @@
 import type { Role } from "../db/entities/Membership.js";
 import {
   matchesRoutePath,
-  requireApiKeyAuth,
+  requireBearerAuth,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
@@ -19,7 +19,7 @@ import type { DiscoveredRoute } from "./routeDiscovery.js";
  * where being wrong costs the most: a reference that promises an API key works
  * where it is refused wastes an afternoon, and one that hides a guard misleads.
  * So nothing here is declared per route. It recognizes the App's own guards —
- * `requireAuth`, `requireApiKeyAuth`, `requireBrowserSession`, `requireMasterAdmin`,
+ * `requireAuth`, `requireBearerAuth`, `requireBrowserSession`, `requireMasterAdmin`,
  * `requireCompanyMember`, the company-role and Finance gates, and
  * `onRoutePaths(...)` scoping evaluated against the route's own path — in the
  * chain `routeDiscovery.ts` replays, and `apiKeyAccess.test.ts` sends a real
@@ -45,8 +45,9 @@ export type RouteAccess = {
   /** A Bearer API key for the company in the path can call it. */
   apiKey: boolean;
   /**
-   * `requireApiKeyAuth` runs: an API key is the only way in, and a browser
-   * session is never read. Set only when true.
+   * `requireBearerAuth` runs: an API key — or a connected app's OAuth access
+   * token — is the only way in, and a browser session is never read. Set only
+   * when true.
    */
   apiKeyOnly?: true;
   /** Why a browser session is the only way in, when it is. */
@@ -102,7 +103,7 @@ export function accessOf(
     const guard = effectiveGuard(link.handle, link.path);
     if (!guard) continue;
     if (guard === requireAuth) authenticated = true;
-    else if (guard === requireApiKeyAuth) {
+    else if (guard === requireBearerAuth) {
       authenticated = true;
       apiKeyOnly = true;
     } else if (guard === requireBrowserSession) browserSession = true;
@@ -169,7 +170,7 @@ export function accessDescription(access: RouteAccess, path: string): string {
     sentences.push("Needs a signed-in browser session. API keys are refused with 403.");
   } else if (access.apiKeyOnly) {
     sentences.push(
-      "Needs an API key for this company (`Authorization: Bearer gen_…`). A browser session is never read, so a cookie alone is refused with 401.",
+      "Needs an API key for this company (`Authorization: Bearer gen_…`), or the OAuth access token of an app a Member connected to it. A browser session is never read, so a cookie alone is refused with 401.",
     );
   } else {
     sentences.push(

@@ -23,6 +23,7 @@ import {
   invitationPath,
   invitationTokenFromSearch,
 } from "../lib/invitationNavigation";
+import { consentLoginPath, consentPath, consentRequestFromLoginSearch } from "../lib/appConsent";
 
 export default function Login() {
   const [email, setEmail] = React.useState("");
@@ -35,7 +36,10 @@ export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const invitationToken = invitationTokenFromSearch(searchParams.toString());
-  const returnTo = invitationPath(invitationToken);
+  // An app waiting to be approved (claude.ai, ChatGPT) brings the person back
+  // to its consent page; otherwise an invitation, or home.
+  const consentRequest = consentRequestFromLoginSearch(searchParams.toString());
+  const returnTo = consentRequest ? consentPath(consentRequest) : invitationPath(invitationToken);
   // Present on the /login/sso/:companySlug route — the company-SSO entry page.
   const { companySlug } = useParams<{ companySlug: string }>();
   // A failed SSO round-trip lands back here as /login?ssoError=… — surface it
@@ -124,7 +128,12 @@ export default function Login() {
           onBack={() => {
             setTwoFactor(null);
             setError(null);
-            navigate(invitationAuthPath("login", invitationToken), { replace: true });
+            navigate(
+              consentRequest
+                ? consentLoginPath(consentRequest)
+                : invitationAuthPath("login", invitationToken),
+              { replace: true },
+            );
           }}
         />
       </AuthShell>
@@ -148,7 +157,10 @@ export default function Login() {
   }
 
   return (
-    <AuthShell title="Welcome back">
+    <AuthShell
+      title="Welcome back"
+      subtitle={consentRequest ? "Sign in to finish connecting an app to Genosyn." : undefined}
+    >
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error ?? ssoError} />
         {supportsPasskeys && (

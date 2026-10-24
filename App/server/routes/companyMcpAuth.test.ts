@@ -137,7 +137,11 @@ describe("an API key is the one credential", () => {
     const { company } = await ownerWithKey();
     const answer = await send(company.id, { body: INITIALIZE });
     assert.equal(answer.status, 401);
-    assert.equal(answer.headers.get("www-authenticate"), 'Bearer realm="Genosyn"');
+    // Where an MCP client that signs in with OAuth finds out how (RFC 9728 §5.1).
+    assert.equal(
+      answer.headers.get("www-authenticate"),
+      `Bearer realm="Genosyn", resource_metadata="${PUBLIC_URL}/.well-known/oauth-protected-resource/api/companies/${company.id}/mcp"`,
+    );
     assert.match((answer.json as { error: string }).error, /An API key is required/);
   });
 
@@ -163,7 +167,14 @@ describe("an API key is the one credential", () => {
       const answer = await send(company.id, { body: INITIALIZE, headers: { authorization } });
       assert.equal(answer.status, 401, label);
       assert.match((answer.json as { error: string }).error, /not accepted/, label);
-      assert.equal(answer.headers.get("www-authenticate"), 'Bearer realm="Genosyn"', label);
+      const metadata = `resource_metadata="${PUBLIC_URL}/.well-known/oauth-protected-resource/api/companies/${company.id}/mcp"`;
+      assert.equal(
+        answer.headers.get("www-authenticate"),
+        label === "basic"
+          ? `Bearer realm="Genosyn", ${metadata}`
+          : `Bearer realm="Genosyn", ${metadata}, error="invalid_token"`,
+        label,
+      );
     }
     assert.equal((await send(company.id, { token: future.token, body: INITIALIZE })).status, 200);
   });
@@ -491,7 +502,7 @@ describe("the transport", () => {
       ),
       (error: Error & { code?: number }) => {
         assert.equal(error.code, 401);
-        assert.match(error.message, /The API key was not accepted/);
+        assert.match(error.message, /The API key or access token was not accepted/);
         return true;
       },
     );

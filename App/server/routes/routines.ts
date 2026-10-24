@@ -26,6 +26,7 @@ import {
   requireCompanyRoleForMutations,
   onRoutePaths,
   roleAtLeast,
+  usesBearerCredential,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import {
@@ -941,7 +942,7 @@ async function recordingsVisibleToRequester(
   req: Parameters<typeof requireBrowserSession>[0],
   run: Run,
 ): Promise<BrowserRecordingInfo[]> {
-  if (req.apiKey) return [];
+  if (usesBearerCredential(req)) return [];
   const [recordings, sessions] = await Promise.all([
     listBrowserRecordingsForRun(run.id),
     AppDataSource.getRepository(BrowserSession).findBy({ runId: run.id }),

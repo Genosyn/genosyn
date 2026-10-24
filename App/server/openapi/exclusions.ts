@@ -54,6 +54,27 @@ export const NOT_PUBLIC_API: readonly Exclusion[] = [
     reason: "OAuth providers and Genosyn Connect redirecting the browser back after consent.",
   },
   {
+    method: "POST",
+    path: "/api/oauth/register",
+    reason:
+      "OAuth dynamic client registration (RFC 7591) for MCP clients such as claude.ai and ChatGPT, " +
+      "described by /.well-known/oauth-authorization-server rather than this reference.",
+  },
+  {
+    method: "POST",
+    path: "/api/oauth/token",
+    reason:
+      "The OAuth token endpoint MCP clients exchange a code or refresh token at: a form-encoded " +
+      "protocol endpoint described by /.well-known/oauth-authorization-server.",
+  },
+  {
+    method: "POST",
+    path: "/api/oauth/revoke",
+    reason:
+      "OAuth token revocation (RFC 7009) by the MCP client that holds the token, described by " +
+      "/.well-known/oauth-authorization-server.",
+  },
+  {
     method: "GET",
     path: "/api/auth/sso/start",
     reason: "A browser navigation that redirects to the identity provider.",
