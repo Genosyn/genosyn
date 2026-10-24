@@ -54,6 +54,8 @@ import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionT
 import { RepositoryWorkSessionEvent } from "../db/entities/RepositoryWorkSessionEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { CompanyFinanceSettings } from "../db/entities/CompanyFinanceSettings.js";
+import { ConnectedApp } from "../db/entities/ConnectedApp.js";
+import { ConnectedAppToken } from "../db/entities/ConnectedAppToken.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Currency } from "../db/entities/Currency.js";
@@ -349,8 +351,15 @@ export async function deleteCompanyCascade(args: {
     const tagIds = (await m.find(Tag, { where: { companyId }, select: ["id"] })).map(
       (tag) => tag.id,
     );
+    const connectedAppIds = (
+      await m.find(ConnectedApp, { where: { companyId }, select: ["id"] })
+    ).map((app) => app.id);
 
     // ── 2. Leaf rows (references → ids we just collected) ──────────────
+    // A connected app's tokens carry no companyId; they go by the app.
+    if (connectedAppIds.length) {
+      await m.delete(ConnectedAppToken, { connectedAppId: In(connectedAppIds) });
+    }
     if (channelMessageIds.length) {
       await m.delete(MessageReaction, { messageId: In(channelMessageIds) });
     }
@@ -545,6 +554,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(EmailProvider, { companyId });
     await m.delete(AuditEvent, { companyId });
     await m.delete(ApiKey, { companyId });
+    await m.delete(ConnectedApp, { companyId });
     await m.delete(Secret, { companyId });
     await m.delete(VaultItemMemberAccess, { companyId });
     await m.delete(EmployeeVaultGrant, { companyId });

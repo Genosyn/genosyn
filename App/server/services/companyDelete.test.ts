@@ -11,6 +11,8 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { Company } from "../db/entities/Company.js";
+import { ConnectedApp } from "../db/entities/ConnectedApp.js";
+import { ConnectedAppToken } from "../db/entities/ConnectedAppToken.js";
 import { BaseForm } from "../db/entities/BaseForm.js";
 import { BaseFormSubmission } from "../db/entities/BaseFormSubmission.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
@@ -56,6 +58,7 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   AdSpendEvent,
   BaseForm,
   BaseFormSubmission,
+  ConnectedApp,
   CustomerCredit,
   CustomerCreditApplication,
   CustomerRefund,
@@ -244,5 +247,43 @@ describe("company deletion integrity", () => {
     const health = AppDataSource.getRepository(AIModelKeyHealth);
     assert.equal(await health.countBy({ modelId: models[0].id }), 0);
     assert.equal(await health.countBy({ modelId: models[1].id }), 2);
+  });
+
+  test("a connected app's tokens go with its company, and only its company", async () => {
+    const companies = await Promise.all(
+      ["Delete me", "Keep me"].map((name) =>
+        insert(Company, { name, slug: testId("slug"), ownerId: testId("user") }),
+      ),
+    );
+    const apps: ConnectedApp[] = [];
+    for (const company of companies) {
+      const app = await insert(ConnectedApp, {
+        companyId: company.id,
+        userId: testId("member"),
+        oauthClientId: testId("client"),
+        name: "claude.ai",
+        redirectUri: "https://claude.ai/api/mcp/auth_callback",
+        scope: "mcp",
+        resource: `https://genosyn.example/api/companies/${company.id}/mcp`,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      apps.push(app);
+      for (const kind of ["access", "refresh"] as const) {
+        await insert(ConnectedAppToken, {
+          connectedAppId: app.id,
+          kind,
+          tokenHash: testId(`${kind}-hash`).padEnd(64, "0").slice(0, 64),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        });
+      }
+    }
+
+    await deleteCompanyCascade({ companyId: companies[0].id, companySlug: companies[0].slug });
+
+    const tokens = AppDataSource.getRepository(ConnectedAppToken);
+    assert.equal(await AppDataSource.getRepository(ConnectedApp).countBy({ id: apps[0].id }), 0);
+    assert.equal(await tokens.countBy({ connectedAppId: apps[0].id }), 0, "no token outlives its app");
+    assert.equal(await AppDataSource.getRepository(ConnectedApp).countBy({ id: apps[1].id }), 1);
+    assert.equal(await tokens.countBy({ connectedAppId: apps[1].id }), 2);
   });
 });
