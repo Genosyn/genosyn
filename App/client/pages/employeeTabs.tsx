@@ -360,13 +360,13 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
                 aria-expanded={advancedOpen}
                 aria-controls={advancedOpen ? advancedListId : undefined}
                 title={group.items.map((item) => item.label).join(", ")}
-                className="flex w-full items-center gap-1 px-3 pb-1 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                className="text-xs font-medium flex w-full items-center gap-1 px-3 pb-1 text-left text-slate-500 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
               >
                 {group.title}
                 <AdvancedChevron open={advancedOpen} />
               </button>
             ) : (
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="text-xs font-medium px-3 pb-1 text-slate-500 dark:text-slate-400">
                 {group.title}
               </div>
             )}

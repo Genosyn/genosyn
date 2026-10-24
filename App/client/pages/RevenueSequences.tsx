@@ -156,7 +156,7 @@ export const ENROLLMENT_STATUS_PILL: Record<EnrollmentStatus, string> = {
 };
 
 export const PILL_BASE =
-  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
+  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium";
 
 /** Parse the serialized send window, falling back to the server's default. */
 export function parseSendWindow(json: string | null): SendWindow {
@@ -273,7 +273,7 @@ export default function RevenueSequences() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Sequences" }]} />
       </div>

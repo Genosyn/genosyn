@@ -538,7 +538,7 @@ function MultiSelectEditor({
 
   return (
     <div className="flex max-h-64 flex-col overflow-y-auto bg-white py-1 dark:bg-slate-900">
-      <div className="flex items-center justify-between px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium flex items-center justify-between px-3 pb-1 pt-0.5 text-slate-500 dark:text-slate-400">
         <span>Select multiple</span>
         <button
           onClick={onClose}

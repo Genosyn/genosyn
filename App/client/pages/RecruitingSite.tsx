@@ -468,7 +468,7 @@ function SiteSettings() {
               <span className="text-sm text-slate-400">Careers</span>
             </div>
             <div className="px-5 py-6">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: accent }}>
+              <p className="text-xs font-medium" style={{ color: accent }}>
                 Careers at {branding.siteTitle || company.name}
               </p>
               <p className="mt-2 text-lg font-semibold leading-snug tracking-tight text-slate-950">

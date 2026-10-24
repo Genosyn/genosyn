@@ -339,7 +339,7 @@ export default function RevenueDealDetail() {
 
   if (loadError) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <Breadcrumbs
           items={[
             { label: "Revenue" },
@@ -381,7 +381,7 @@ export default function RevenueDealDetail() {
   const owner = principalName(deal.ownerId, deal.ownerEmployeeId);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -1198,7 +1198,7 @@ function Timeline({
         <div className="space-y-5">
           {groups.map((group) => (
             <div key={group.key}>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <h3 className="text-xs mb-2 font-medium text-slate-500 dark:text-slate-400">
                 {group.label}
               </h3>
               <ul className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

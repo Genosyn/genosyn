@@ -36,10 +36,11 @@ export function PageHeader({
   aside?: React.ReactNode;
   /** Below the description: facts about the record — a schedule, an owner. */
   meta?: React.ReactNode;
+  /** Replaces the default `mb-6` below the header, so pass a margin with it. */
   className?: string;
 }) {
   return (
-    <header className={clsx("mb-6", className)}>
+    <header className={className ?? "mb-6"}>
       {breadcrumbs && breadcrumbs.length > 0 && (
         <div className="mb-3">
           <Breadcrumbs items={breadcrumbs} />

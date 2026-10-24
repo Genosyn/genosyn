@@ -1226,7 +1226,7 @@ function TurnBlock({
         bubble put the two halves of one exchange on opposite sides of the
         page. */}
       <div className="border-l-2 border-indigo-300 pl-3 dark:border-indigo-500/50">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500/80 dark:text-indigo-300/80">
+        <div className="text-xs font-medium text-indigo-500/80 dark:text-indigo-300/80">
           Brief {turn.ordinal} · {formatRelative(turn.createdAt)}
         </div>
         <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-200">

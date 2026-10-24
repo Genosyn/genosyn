@@ -223,14 +223,14 @@ export function DiscussionOutcomeCard({
         </header>
         <MessageBody content={outcome.summary} mentionables={mentionables} />
 
-        <h4 className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h4 className="text-xs font-medium mt-3 text-slate-500 dark:text-slate-400">
           Recommendation
         </h4>
         <MessageBody content={outcome.recommendation} mentionables={mentionables} />
 
         {outcome.openQuestions.length > 0 && (
           <>
-            <h4 className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h4 className="text-xs font-medium mt-3 text-slate-500 dark:text-slate-400">
               Open questions
             </h4>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-700 dark:text-slate-200">
@@ -243,7 +243,7 @@ export function DiscussionOutcomeCard({
 
         {outcome.actionItems.length > 0 && (
           <>
-            <h4 className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h4 className="text-xs font-medium mt-3 text-slate-500 dark:text-slate-400">
               Who does what
             </h4>
             <ul className="mt-1 space-y-1" aria-label="Who does what">

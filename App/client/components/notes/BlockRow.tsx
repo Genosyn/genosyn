@@ -435,7 +435,7 @@ function SourceEditor({
     <div className="group/raw relative my-1 min-w-0 flex-1 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-900/40">
       <div
         contentEditable={false}
-        className="flex items-center justify-between px-3 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500"
+        className="text-xs flex items-center justify-between px-3 pt-1.5 font-medium text-slate-500 dark:text-slate-400"
       >
         <span title="Kept exactly as written in the page's Markdown">{label}</span>
         {done && (

@@ -423,7 +423,7 @@ export default function FinanceInvoiceDetail() {
   const foreign = invoice.currency.toUpperCase() !== home.toUpperCase();
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -678,7 +678,7 @@ export default function FinanceInvoiceDetail() {
             <InvoiceIssuerDetails issuer={invoice.issuerSnapshot} companyName={company.name} />
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Bill to
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
@@ -696,13 +696,13 @@ export default function FinanceInvoiceDetail() {
                 <div className="text-slate-500 dark:text-slate-400">{invoice.customer?.email}</div>
               </div>
               <div className="text-right">
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Issued
                 </div>
                 <div className="mt-1 text-slate-700 dark:text-slate-200">
                   {new Date(invoice.issueDate).toISOString().slice(0, 10)}
                 </div>
-                <div className="mt-2 text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium mt-2 text-slate-500 dark:text-slate-400">
                   Due
                 </div>
                 <div className="text-slate-700 dark:text-slate-200">
@@ -775,7 +775,7 @@ export default function FinanceInvoiceDetail() {
               <div className="mt-6 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
                 {invoice.notes && (
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Notes
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -785,7 +785,7 @@ export default function FinanceInvoiceDetail() {
                 )}
                 {(invoice.footer || invoice.issuerSnapshot?.footer) && (
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Footer
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-500 dark:text-slate-400">
@@ -799,7 +799,7 @@ export default function FinanceInvoiceDetail() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Payments
           </h3>
           {invoice.payments.length === 0 ? (
@@ -857,7 +857,7 @@ export default function FinanceInvoiceDetail() {
         </div>
         {(writeOffs.length > 0 || creditApplications.length > 0) && (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Adjustments
             </h3>
             <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">

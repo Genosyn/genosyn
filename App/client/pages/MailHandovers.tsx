@@ -99,7 +99,7 @@ export default function MailHandovers() {
                 </span>
                 <span
                   className={clsx(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
                     STATUS_STYLE[h.status],
                   )}
                 >

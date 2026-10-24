@@ -660,7 +660,7 @@ function StarterLibrary({
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-sm font-semibold">{recipe.name}</h3>
                         {recipe.id === "advance-responsibilities" && (
-                          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 inline-block first-letter:uppercase">
                             Recommended
                           </span>
                         )}

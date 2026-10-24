@@ -511,7 +511,7 @@ export function MarketingCampaignDetailPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[46rem] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
+                  <tr className="text-xs font-medium border-b border-slate-100 text-left text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     <th className="px-5 py-2 font-medium">Period</th>
                     <th className="px-5 py-2 text-right font-medium">Spend</th>
                     <th className="px-5 py-2 text-right font-medium">Impressions</th>
@@ -618,26 +618,26 @@ export function MarketingCampaignDetailPage() {
             <h2 className="font-medium text-slate-900 dark:text-white">Brief</h2>
             <dl className="mt-3 space-y-3 text-sm">
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Audience</dt>
+                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Audience</dt>
                 <dd className="mt-0.5 whitespace-pre-wrap text-slate-700 dark:text-slate-300">
                   {campaign.audience || "Not written yet."}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Offer</dt>
+                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Offer</dt>
                 <dd className="mt-0.5 whitespace-pre-wrap text-slate-700 dark:text-slate-300">
                   {campaign.offer || "Not written yet."}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Operating brief</dt>
+                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Operating brief</dt>
                 <dd className="mt-0.5 whitespace-pre-wrap text-slate-700 dark:text-slate-300">
                   {campaign.brief || "Not written yet."}
                 </dd>
               </div>
               {campaign.landingPageUrl ? (
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">Landing page</dt>
+                  <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Landing page</dt>
                   <dd className="mt-0.5 truncate">
                     <a
                       href={campaign.landingPageUrl}

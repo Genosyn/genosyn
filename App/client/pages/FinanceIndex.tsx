@@ -110,7 +110,7 @@ export default function FinanceIndex() {
   );
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Finance" }]} />
       </div>
@@ -217,7 +217,7 @@ export default function FinanceIndex() {
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
+                          <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200">
                             {inv.number || "DRAFT"}
                           </span>
                           <span className="truncate text-sm text-slate-700 dark:text-slate-200">

@@ -285,7 +285,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
               {view.kind === "folder" ? (
                 <FolderTrail companySlug={company.slug} trail={trail} />
               ) : (
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="text-xs font-medium mb-1 text-slate-500 dark:text-slate-400">
                   Resources
                 </div>
               )}
@@ -429,7 +429,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
           ) : (
             <>
               <div className="mb-3 mt-8 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
                   <Clock size={12} />
                   {filtering
                     ? `${filtered?.length ?? 0} of ${scoped?.length ?? 0}`
@@ -548,7 +548,7 @@ function StatsStrip({
             <span className="block text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {c.value}
             </span>
-            <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <span className="text-xs block font-medium text-slate-500 dark:text-slate-400">
               {c.label}
             </span>
           </span>
@@ -949,7 +949,7 @@ function FolderTrail({ companySlug, trail }: { companySlug: string; trail: Resou
   return (
     <nav
       aria-label="Folder"
-      className="mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+      className="text-xs font-medium mb-1 flex flex-wrap items-center gap-1 text-slate-500 dark:text-slate-400"
     >
       <Link to={resourceFolderHref(companySlug, null)} className="hover:text-slate-800 dark:hover:text-slate-200">
         Resources

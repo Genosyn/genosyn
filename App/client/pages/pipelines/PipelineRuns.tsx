@@ -365,7 +365,7 @@ function DataSection({
 function RunMeta({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
         {label}
       </div>
       <div className={`mt-0.5 text-slate-700 dark:text-slate-300 ${mono ? "font-mono" : ""}`}>

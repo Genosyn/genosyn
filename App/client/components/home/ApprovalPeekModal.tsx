@@ -122,7 +122,7 @@ export function ApprovalPeekModal({
           )}
 
           <div>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <div className="text-xs mb-1 font-medium text-slate-500 dark:text-slate-400">
               What was requested
             </div>
             {/* Plain text, deliberately. This is model-written prose that may

@@ -160,7 +160,7 @@ export function ScoreRing({ score, label, size = 88 }: { score: number | null; l
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-semibold tabular-nums text-slate-950 dark:text-white">{score ?? "—"}</span>
-        <span className="text-[10px] uppercase tracking-wider text-slate-400">of 100</span>
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">of 100</span>
       </div>
       <span className="sr-only">{scoreLabelText(label)}</span>
     </div>
@@ -181,7 +181,7 @@ export function MetricTile({
   return (
     <div className={clsx(cardClass, "p-4")}>
       <div className="flex items-center justify-between text-slate-400">
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
         {icon}
       </div>
       <div className="mt-3 text-2xl font-semibold tabular-nums text-slate-950 dark:text-white">{value}</div>

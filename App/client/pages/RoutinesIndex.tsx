@@ -283,7 +283,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
         : "All routines";
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[
           { label: "Routines", to: `/c/${company.slug}/routines` },

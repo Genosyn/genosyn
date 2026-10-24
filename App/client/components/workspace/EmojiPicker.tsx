@@ -86,7 +86,7 @@ export function EmojiPicker({
           if (visible.length === 0) return null;
           return (
             <div key={cat.label} className="px-2 py-1">
-              <div className="py-1 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="text-xs py-1 font-medium text-slate-500 dark:text-slate-400">
                 {cat.label}
               </div>
               <div className={`grid ${compact ? "grid-cols-6" : "grid-cols-8"} gap-1`}>

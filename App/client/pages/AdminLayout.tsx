@@ -152,7 +152,7 @@ export default function AdminLayout({
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className={isConsole ? "page-shell p-4 sm:p-6" : "page-shell p-8"}>
+      <div className={isConsole ? "page-shell p-4 sm:p-6" : "page-shell p-4 sm:p-8"}>
         <div className="mb-4">
           <Breadcrumbs
             items={[

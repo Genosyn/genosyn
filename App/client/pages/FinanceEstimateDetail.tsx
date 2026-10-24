@@ -368,7 +368,7 @@ export default function FinanceEstimateDetail() {
     : null;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -390,7 +390,7 @@ export default function FinanceEstimateDetail() {
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
           <span
             className={
-              "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+              "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
               STATUS_BADGE[ds]
             }
           >
@@ -627,7 +627,7 @@ export default function FinanceEstimateDetail() {
             <InvoiceIssuerDetails issuer={estimate.issuerSnapshot} companyName={company.name} />
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Prepared for
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
@@ -650,13 +650,13 @@ export default function FinanceEstimateDetail() {
                 )}
               </div>
               <div className="text-right">
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Issued
                 </div>
                 <div className="mt-1 text-slate-700 dark:text-slate-200">
                   {new Date(estimate.issueDate).toISOString().slice(0, 10)}
                 </div>
-                <div className="mt-2 text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium mt-2 text-slate-500 dark:text-slate-400">
                   Valid until
                 </div>
                 <div className="text-slate-700 dark:text-slate-200">
@@ -700,7 +700,7 @@ export default function FinanceEstimateDetail() {
               <div className="mt-6 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
                 {estimate.notes && (
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Notes
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -710,7 +710,7 @@ export default function FinanceEstimateDetail() {
                 )}
                 {(estimate.footer || estimate.issuerSnapshot?.footer) && (
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Footer
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-500 dark:text-slate-400">

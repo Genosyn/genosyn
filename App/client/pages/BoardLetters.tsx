@@ -209,7 +209,7 @@ function LetterRow({ company, letter }: { company: Company; letter: BoardLetterS
       className="group flex items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700 dark:hover:bg-slate-900/60"
     >
       <div className="w-14 shrink-0 text-center">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
           No.
         </div>
         <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-slate-100">

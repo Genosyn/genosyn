@@ -109,7 +109,7 @@ export default function RepositoriesLayout({
           <SidebarLink to={`${repoBase}/ai`} icon={<Bot size={14} />} label="AI work" />
           <SidebarLink to={`${repoBase}/access`} icon={<Users size={14} />} label="AI access" />
           <SidebarLink to={`${repoBase}/settings`} icon={<Settings size={14} />} label="Settings" />
-          <div className="mt-4 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium mt-4 px-2 pb-1 text-slate-500 dark:text-slate-400">
             Other repositories
           </div>
           {rows
@@ -133,7 +133,7 @@ export default function RepositoriesLayout({
             label="All repositories"
           />
           {rows.length > 0 && (
-            <div className="mt-4 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <div className="text-xs font-medium mt-4 px-2 pb-1 text-slate-500 dark:text-slate-400">
               Repositories
             </div>
           )}

@@ -112,7 +112,7 @@ export function ResourceReferencePicker({
       role="listbox"
       aria-label="Product areas and company resources"
     >
-      <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium px-3 py-1.5 text-slate-500 dark:text-slate-400">
         Product areas &amp; resources
       </div>
       {loading && references.length === 0 ? (

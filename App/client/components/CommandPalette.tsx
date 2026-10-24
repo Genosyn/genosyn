@@ -712,7 +712,7 @@ function CommandPalette({
 
 function GroupHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+    <div className="text-xs font-medium px-2 pb-1 pt-2 text-slate-500 dark:text-slate-400">
       {children}
     </div>
   );

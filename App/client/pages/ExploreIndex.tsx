@@ -117,7 +117,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
 
       {/* Data sources */}
       <section className="mb-10">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h2 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
           Data sources
         </h2>
         {connections === null ? (
@@ -156,7 +156,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
                     </span>
                     <span
                       className={
-                        "rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide " +
+                        "rounded px-1.5 py-0.5 text-xs inline-block first-letter:uppercase " +
                         (c.status === "connected"
                           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                           : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300")
@@ -177,7 +177,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
 
       {/* Recent dashboards */}
       <section className="mb-10">
-        <h2 className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h2 className="text-xs font-medium mb-3 flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span>Recent dashboards</span>
         </h2>
         {loading ? (
@@ -227,7 +227,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
 
       {/* Recent charts */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h2 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
           Recent charts
         </h2>
         {loading ? (

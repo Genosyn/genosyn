@@ -926,7 +926,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
       )}
       {focused && (
         <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium mb-1.5 text-slate-500 dark:text-slate-400">
             Narrow your search
           </div>
           <div className="flex flex-wrap gap-1">

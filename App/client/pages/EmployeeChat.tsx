@@ -1455,7 +1455,7 @@ function QueuedMessageStack({
             <Clock size={13} />
           </span>
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+            <div className="text-xs font-medium text-indigo-700 dark:text-indigo-200">
               Up next
             </div>
             <div className="truncate text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
@@ -1476,7 +1476,7 @@ function QueuedMessageStack({
             key={message.id}
             className="group relative rounded-xl border border-indigo-100 bg-white px-3 py-2.5 pr-9 text-sm leading-relaxed text-slate-800 shadow-sm dark:border-indigo-500/20 dark:bg-slate-900 dark:text-slate-100"
           >
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <div className="text-xs mb-1 font-medium text-slate-500 dark:text-slate-400">
               {index === 0 ? "Next message" : `Then · ${index + 1}`}
             </div>
             {message.content && (
@@ -2490,7 +2490,7 @@ function LogSection({
   return (
     <section>
       <div className="mb-1.5 flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {title}
         </h3>
       </div>

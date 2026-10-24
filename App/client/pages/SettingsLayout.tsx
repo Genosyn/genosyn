@@ -77,7 +77,7 @@ export default function SettingsLayout({
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="page-shell p-8">
+      <div className="page-shell px-4 py-6 sm:p-8">
         <div className="mb-4">
           <Breadcrumbs
             items={[{ label: "Settings", to: tabCrumbs.length ? base : undefined }, ...tabCrumbs]}

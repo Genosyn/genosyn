@@ -503,7 +503,7 @@ export default function TldrSettingsPage() {
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Schedule status
               </h2>
               <dl className="mt-3 space-y-3">

@@ -137,7 +137,7 @@ function MentalModel() {
                   <Icon size={17} />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+                  <div className="text-xs font-medium text-indigo-600 dark:text-indigo-300">
                     {item.label}
                   </div>
                   <div className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">

@@ -88,7 +88,7 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
         <div className="page-shell px-10 pt-12 pb-16">
           <div className="mb-8 flex items-start justify-between gap-4">
             <div>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <div className="text-xs font-medium mb-1 text-slate-500 dark:text-slate-400">
                 Repositories
               </div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
@@ -188,7 +188,7 @@ function RepoList({ company, items }: { company: Company; items: Repository[] })
   const navigate = useNavigate();
   return (
     <div className="mt-2">
-      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium mb-3 flex items-center gap-2 text-slate-500 dark:text-slate-400">
         <FolderGit2 size={12} />
         {items.length} {items.length === 1 ? "repository" : "repositories"}
       </div>

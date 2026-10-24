@@ -833,7 +833,7 @@ function AddRuleForm({
     // noValidate: the browser's own check on the required decider would only
     // move focus, silently; `save` says what is missing, inline, instead.
     <form noValidate onSubmit={save} className="flex flex-col gap-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
         Add a rule
       </div>
       <FormError message={error} />

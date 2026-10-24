@@ -246,7 +246,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
             </span>
             <div className="min-w-0 flex-1">
               <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 uppercase tracking-wide dark:bg-slate-800">
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
                   {row.sourceKind}
                 </span>
                 <span className="tabular-nums">{formatBodyLength(row.bodyLength)}</span>

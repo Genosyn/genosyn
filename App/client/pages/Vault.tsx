@@ -278,7 +278,7 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
               {item.title}
             </span>
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
               {vaultItemTypeLabel(item.type)}
             </span>
             {item.vaultSourceId !== null && (

@@ -106,7 +106,7 @@ export function HealthCheckDetail({
                   )}
                 </div>
                 {item.badge && (
-                  <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                  <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                     {item.badge}
                   </span>
                 )}

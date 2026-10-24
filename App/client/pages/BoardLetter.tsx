@@ -272,10 +272,10 @@ function LetterSheet({ company, letter }: { company: Company; letter: BoardLette
           </div>
         </div>
         <div className="text-left sm:text-right">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-slate-600 dark:text-slate-300">
+          <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
             {`Letter to the board · No. ${letter.number}`}
           </div>
-          <div className="mt-1 text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium mt-1 text-slate-500 dark:text-slate-400">
             {letter.monthLabel}
           </div>
         </div>
@@ -345,7 +345,7 @@ function Segment({
 function GoalSection({ figures }: { figures: LetterFigures }) {
   return (
     <section className="space-y-4 border-b border-slate-100 px-5 py-5 sm:px-8 dark:border-slate-800">
-      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400">
         Toward the Goal
       </h2>
       {figures.goals.map((goal) => (
@@ -398,7 +398,7 @@ function FigureSections({ company, figures }: { company: Company; figures: Lette
       )}
       {sections.map((section) => (
         <section key={section.group} className="px-5 py-5 sm:px-8">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400">
             {section.title}
           </h2>
           <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -596,7 +596,7 @@ function EvidenceList({ evidence }: { evidence: LetterEvidence }) {
     <div className="space-y-4">
       {groups.map((group) => (
         <div key={group.title}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
             {group.title}
           </h3>
           <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-300">

@@ -324,7 +324,7 @@ function CatalogCard({
               {connected} connected
             </span>
           )}
-          <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <span className="text-xs ml-auto font-medium text-slate-500 dark:text-slate-400">
             Read-only
           </span>
         </div>
@@ -372,7 +372,7 @@ function SourceRow({
           </span>
           <StatusPill status={source.status} />
           {source.usesApiKey && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
               API key
             </span>
           )}

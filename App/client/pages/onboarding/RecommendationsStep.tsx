@@ -733,7 +733,7 @@ function ContextCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
         <Icon size={13} className="text-indigo-500" /> {label}
       </div>
       <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-700 dark:text-slate-300">

@@ -145,7 +145,7 @@ export const SIGNAL_EVENT_PILL: Record<SignalEventStatus, string> = {
 };
 
 export const SIGNAL_PILL_BASE =
-  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
+  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium";
 
 export function fmtSignalDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -240,7 +240,7 @@ export default function RevenueSignals() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Signals" }]} />
       </div>

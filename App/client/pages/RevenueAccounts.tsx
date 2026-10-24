@@ -74,7 +74,7 @@ export default function RevenueAccounts() {
   useLiveRefetch(["customer", "contact", "deal"], reload);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Accounts" }]} />
       </div>

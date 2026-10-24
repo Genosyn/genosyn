@@ -1151,7 +1151,7 @@ export default function RepositoryFiles() {
       <div className="mt-4 flex min-h-0 flex-col gap-4 lg:h-[calc(100vh-14rem)] lg:min-h-[30rem] lg:flex-row">
         <aside className="flex max-h-80 min-h-0 w-full shrink-0 flex-col rounded-xl border border-slate-200 bg-white lg:max-h-none lg:w-64 dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1.5 dark:border-slate-800">
-            <span className="min-w-0 flex-1 truncate pl-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <span className="text-xs font-medium min-w-0 flex-1 truncate pl-1 text-slate-500 dark:text-slate-400">
               Files
             </span>
             <IconButton
@@ -1359,7 +1359,7 @@ export default function RepositoryFiles() {
         {showChanges && (
           <aside className="flex max-h-[32rem] min-h-0 w-full shrink-0 flex-col rounded-xl border border-slate-200 bg-white lg:max-h-none lg:w-80 dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-              <span className="min-w-0 flex-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <span className="text-xs font-medium min-w-0 flex-1 text-slate-500 dark:text-slate-400">
                 Changes {changes.length > 0 && `· ${changes.length}`}
               </span>
               <IconButton title="Hide the changes panel" onClick={() => setShowChanges(false)}>

@@ -898,7 +898,7 @@ function DraftCard({
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
       <div className="flex items-center gap-2 px-4 py-2.5">
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 inline-block first-letter:uppercase">
           Draft
         </span>
         <div className="min-w-0 flex-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -1264,7 +1264,7 @@ function HandoverCard({
         </span>
         <span
           className={clsx(
-            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            "rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
             statusStyle[handover.status],
           )}
         >

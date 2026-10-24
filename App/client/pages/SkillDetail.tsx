@@ -57,7 +57,7 @@ export default function SkillDetail({ company }: { company: Company }) {
 
   if (loading) {
     return (
-      <div className="page-shell p-6">
+      <div className="page-shell p-4 sm:p-6">
         <Spinner />
       </div>
     );
@@ -85,7 +85,7 @@ export default function SkillDetail({ company }: { company: Company }) {
   const emp = skill.employee;
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[
           { label: "Skills", to: `/c/${company.slug}/skills` },

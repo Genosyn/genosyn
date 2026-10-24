@@ -282,7 +282,7 @@ export default function FinanceRecurringInvoiceDetail() {
   const retrying = ri.status === "active" && ri.latestRun?.status === "pending";
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -311,7 +311,7 @@ export default function FinanceRecurringInvoiceDetail() {
               </h1>
               <span
                 className={
-                  "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                  "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
                   STATUS_BADGE[ri.status]
                 }
               >
@@ -469,7 +469,7 @@ export default function FinanceRecurringInvoiceDetail() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
             Schedule
           </h3>
           <dl className="space-y-2 text-sm">
@@ -490,7 +490,7 @@ export default function FinanceRecurringInvoiceDetail() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
             Billing
           </h3>
           <dl className="space-y-2 text-sm">
@@ -597,7 +597,7 @@ export default function FinanceRecurringInvoiceDetail() {
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {ri.notes && (
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
                 Notes
               </h3>
               <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -607,7 +607,7 @@ export default function FinanceRecurringInvoiceDetail() {
           )}
           {ri.footer && (
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
                 Footer
               </h3>
               <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -665,7 +665,7 @@ function InvoicesSoFar({
   const owed = summary ? hasScheduleTotal(summary.totals, "outstandingCents") : false;
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
         Invoices so far
       </h3>
       {summary === null ? (
@@ -1080,7 +1080,7 @@ function RunAttention({
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">
         {label}
       </dt>
       <dd className="text-right text-sm text-slate-800 dark:text-slate-100">{value}</dd>

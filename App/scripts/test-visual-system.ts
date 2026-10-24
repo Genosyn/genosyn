@@ -343,7 +343,8 @@ try {
   const c = `/c/${company.slug}`;
   const [ava] = employees;
   const triage = routines[0];
-  const PAGES: Array<{ name: string; path: string; signedOut?: boolean }> = [
+  /** `scrollTo` names a heading to bring into view first, for content below the fold. */
+  const PAGES: Array<{ name: string; path: string; signedOut?: boolean; scrollTo?: string }> = [
     { name: "login", path: "/login", signedOut: true },
     { name: "home", path: c },
     { name: "routines", path: `${c}/routines` },
@@ -362,6 +363,11 @@ try {
     { name: "finance-invoices", path: `${c}/finance/invoices` },
     { name: "finance-invoice-new", path: `${c}/finance/invoices/new` },
     { name: "finance-invoice-form", path: `${c}/finance/invoices/new?kind=one-time` },
+    {
+      name: "finance-invoice-lines",
+      path: `${c}/finance/invoices/new?kind=one-time`,
+      scrollTo: "Line items",
+    },
     { name: "finance-banking", path: `${c}/finance/banking` },
     { name: "notes", path: `${c}/notes/${notebook.slug}/${notes[0].slug}` },
     { name: "tasks", path: `${c}/tasks/p/${project.slug}` },
@@ -391,6 +397,12 @@ try {
       try {
         await page.goto(`${origin}${target.path}`, { waitUntil: "domcontentloaded" });
         await settle(page);
+        if (target.scrollTo) {
+          await page
+            .getByRole("heading", { name: target.scrollTo, exact: true })
+            .evaluate((el) => el.scrollIntoView({ block: "start" }));
+          await page.waitForTimeout(200);
+        }
         if (shotsDir) {
           await page.screenshot({ path: path.join(shotsDir, `${target.name}--${mode.name}.png`) });
         }
@@ -624,36 +636,51 @@ async function checkContrast(page: Page, label: string) {
   }
 }
 
+type FocusLook = {
+  outlineStyle: string;
+  outlineWidth: string;
+  outlineColor: string;
+  boxShadow: string;
+  borderColor: string;
+};
+
 /**
  * Tab through the first stops and require a focus indicator on each: an
- * outline or box-shadow that the control does not have at rest, painted at
- * 3:1 or better against the surface around it.
+ * outline, ring or border that the control does not have at rest — on the
+ * control itself, or on the container that marks focus for it
+ * (`focus-within`, a composer's frame) — painted at 3:1 or better against the
+ * surface around it.
  */
 async function checkFocus(page: Page, label: string) {
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     window.scrollTo(0, 0);
+    (window as unknown as { __visualFocus: unknown[] }).__visualFocus = [];
   });
   const stops = 14;
   for (let index = 0; index < stops; index += 1) {
     await page.keyboard.press("Tab");
-    await page.evaluate((stop) => {
+    await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body) return;
-      const s = getComputedStyle(el);
-      el.setAttribute("data-visual-focus", String(stop));
-      el.setAttribute(
-        "data-visual-focused-style",
-        JSON.stringify({
+      const look = (node: Element) => {
+        const s = getComputedStyle(node);
+        return {
           outlineStyle: s.outlineStyle,
           outlineWidth: s.outlineWidth,
           outlineColor: s.outlineColor,
           boxShadow: s.boxShadow,
           borderColor: s.borderColor,
-          backgroundColor: s.backgroundColor,
-        }),
-      );
-    }, index);
+        };
+      };
+      // The control and the two containers nearest to it.
+      const levels: Array<{ node: Element; focused: ReturnType<typeof look> }> = [];
+      for (let node: Element | null = el, depth = 0; node && depth < 3; depth += 1) {
+        levels.push({ node, focused: look(node) });
+        node = node.parentElement;
+      }
+      (window as unknown as { __visualFocus: unknown[] }).__visualFocus.push({ el, levels });
+    });
   }
   // Leave the controls, then compare each with its resting look.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -670,57 +697,71 @@ async function checkFocus(page: Page, label: string) {
       }
       return layers;
     };
-    return Array.from(document.querySelectorAll("[data-visual-focus]")).map((el) => {
-      const focused = JSON.parse(el.getAttribute("data-visual-focused-style") ?? "{}");
-      const s = getComputedStyle(el);
-      const name =
-        el.getAttribute("aria-label") ??
-        (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40) ??
-        "";
-      return {
-        name: `${el.tagName.toLowerCase()} "${name}"`,
-        focused,
-        rest: {
-          outlineStyle: s.outlineStyle,
-          outlineWidth: s.outlineWidth,
-          outlineColor: s.outlineColor,
-          boxShadow: s.boxShadow,
-          borderColor: s.borderColor,
-          backgroundColor: s.backgroundColor,
-        },
-        surface: surface(el.parentElement),
-      };
-    });
+    type Entry = {
+      el: Element;
+      levels: Array<{ node: Element; focused: FocusLook }>;
+    };
+    const entries = (window as unknown as { __visualFocus: Entry[] }).__visualFocus;
+    return entries
+      .filter((entry) => entry.el.isConnected)
+      .map((entry) => {
+        const el = entry.el;
+        const name =
+          el.getAttribute("aria-label") ??
+          (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40) ??
+          "";
+        return {
+          name: `${el.tagName.toLowerCase()} "${name}"`,
+          levels: entry.levels
+            .filter((level) => level.node.isConnected)
+            .map((level) => {
+              const s = getComputedStyle(level.node);
+              return {
+                focused: level.focused,
+                rest: {
+                  outlineStyle: s.outlineStyle,
+                  outlineWidth: s.outlineWidth,
+                  outlineColor: s.outlineColor,
+                  boxShadow: s.boxShadow,
+                  borderColor: s.borderColor,
+                },
+                surface: surface(level.node.parentElement),
+              };
+            }),
+        };
+      });
   });
   for (const result of results) {
-    const surface = flatten(
-      result.surface.map(parseColor).filter((layer): layer is Rgba => Boolean(layer)),
-    );
-    const outline =
-      result.focused.outlineStyle !== "none" &&
-      Number.parseFloat(result.focused.outlineWidth) >= 1 &&
-      (result.focused.outlineStyle !== result.rest.outlineStyle ||
-        result.focused.outlineColor !== result.rest.outlineColor);
-    const ring = result.focused.boxShadow !== "none" && result.focused.boxShadow !== result.rest.boxShadow;
-    const border = result.focused.borderColor !== result.rest.borderColor;
-    if (!outline && !ring && !border) {
-      problem(`${label}: no visible focus indicator on ${result.name}`);
-      continue;
-    }
-    // Strongest indicator colour against the surface around the control.
-    const candidates: string[] = [];
-    if (outline) candidates.push(result.focused.outlineColor);
-    if (ring) {
-      for (const match of result.focused.boxShadow.matchAll(/rgba?\([^)]*\)/g)) candidates.push(match[0]);
-    }
-    if (border) candidates.push(result.focused.borderColor.split(" rgb")[0]);
-    const best = Math.max(
-      ...candidates.map((color) => {
+    let best = 0;
+    let found = false;
+    for (const level of result.levels) {
+      const surface = flatten(
+        level.surface.map(parseColor).filter((layer): layer is Rgba => Boolean(layer)),
+      );
+      const outline =
+        level.focused.outlineStyle !== "none" &&
+        Number.parseFloat(level.focused.outlineWidth) >= 1 &&
+        (level.focused.outlineStyle !== level.rest.outlineStyle ||
+          level.focused.outlineColor !== level.rest.outlineColor);
+      const ring = level.focused.boxShadow !== "none" && level.focused.boxShadow !== level.rest.boxShadow;
+      const border = level.focused.borderColor !== level.rest.borderColor;
+      if (!outline && !ring && !border) continue;
+      found = true;
+      // Strongest indicator colour against the surface around it.
+      const candidates: string[] = [];
+      if (outline) candidates.push(level.focused.outlineColor);
+      if (ring) {
+        for (const match of level.focused.boxShadow.matchAll(/rgba?\([^)]*\)/g)) candidates.push(match[0]);
+      }
+      if (border) candidates.push(level.focused.borderColor.split(" rgb")[0]);
+      for (const color of candidates) {
         const parsed = parseColor(color);
-        return parsed ? contrastRatio(parsed, surface) : 0;
-      }),
-    );
-    if (best + 1e-6 < 3) {
+        if (parsed) best = Math.max(best, contrastRatio(parsed, surface));
+      }
+    }
+    if (!found) {
+      problem(`${label}: no visible focus indicator on ${result.name}`);
+    } else if (best + 1e-6 < 3) {
       problem(`${label}: focus indicator on ${result.name} is only ${formatRatio(best)} against its surface`);
     }
   }

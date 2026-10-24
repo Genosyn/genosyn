@@ -107,7 +107,7 @@ export default function Inbox({ company }: { company: Company }) {
   const isToday = date === today;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar title="Journal" />
       <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
         Everything every AI employee did on {date}
@@ -230,7 +230,7 @@ export default function Inbox({ company }: { company: Company }) {
                             <div className="truncate font-medium text-slate-900 dark:text-slate-100">
                               {e.title}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            <div className="text-xs font-medium flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400">
                               {new Date(e.createdAt).toLocaleTimeString([], {
                                 hour: "numeric",
                                 minute: "2-digit",

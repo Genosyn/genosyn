@@ -295,7 +295,7 @@ export default function TldrsIndex() {
             <div className="mt-5 space-y-8">
               {groups.map(([day, items]) => (
                 <section key={day}>
-                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  <div className="text-xs font-medium mb-2 flex items-center gap-2 text-slate-500 dark:text-slate-400">
                     <CalendarClock size={12} /> {formatDayHeading(day)}
                   </div>
                   <div className="space-y-3">

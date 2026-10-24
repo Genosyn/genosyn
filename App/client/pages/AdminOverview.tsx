@@ -193,7 +193,7 @@ export function AdminOverview() {
 
         {/* Runtime + build facts */}
         <div>
-          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <h2 className="text-xs font-medium mb-2 px-1 text-slate-500 dark:text-slate-400">
             Deployment
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -211,7 +211,7 @@ export function AdminOverview() {
 
         {/* Inventory */}
         <div>
-          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <h2 className="text-xs font-medium mb-2 px-1 text-slate-500 dark:text-slate-400">
             Inventory
           </h2>
           <div className="grid grid-cols-3 gap-3">
@@ -230,7 +230,7 @@ export function AdminOverview() {
 
         {/* Health check roll-up */}
         <div>
-          <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <h2 className="text-xs font-medium mb-2 px-1 text-slate-500 dark:text-slate-400">
             Checks
           </h2>
           <Card>

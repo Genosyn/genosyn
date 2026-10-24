@@ -48,7 +48,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
     : tagged;
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[
           { label: "Skills", to: `/c/${company.slug}/skills` },
@@ -106,7 +106,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
               {/* Column headers are desktop-only; each row restates its own
                   labels once the grid collapses. */}
-              <div className="hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] gap-4 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:grid dark:border-slate-800 dark:text-slate-500">
+              <div className="text-xs font-medium hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] gap-4 border-b border-slate-100 px-4 py-2 text-slate-500 md:grid dark:border-slate-800 dark:text-slate-400">
                 <div>Skill</div>
                 <div>Known by</div>
                 <div>Created</div>

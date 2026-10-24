@@ -113,7 +113,7 @@ export default function Budgets({ company }: { company: Company; me: Me }) {
   );
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar
         title="Budgets"
         right={

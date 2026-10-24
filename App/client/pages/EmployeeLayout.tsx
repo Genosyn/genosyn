@@ -108,7 +108,7 @@ export default function EmployeeLayout({
               currentUserId={currentUserId}
             />
           </div>
-          <div className="page-shell p-8">
+          <div className="page-shell p-4 sm:p-8">
             <Outlet context={ctx} />
           </div>
         </>

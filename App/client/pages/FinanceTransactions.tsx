@@ -714,7 +714,7 @@ function BulkCategoryModal({
             {groups.map((group) =>
               group.list.length === 0 ? null : (
                 <div key={group.label}>
-                  <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                     {group.label}
                   </div>
                   {group.list.map((account) => (

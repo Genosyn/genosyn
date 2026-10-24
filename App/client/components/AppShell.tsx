@@ -671,9 +671,13 @@ export function SidebarLink({
 
 export { Breadcrumbs, type Crumb };
 
-/** A settings page's title row. The page header primitive, for pages that predate it. */
+/**
+ * A page's title row, for pages that predate `PageHeader`: the same title and
+ * phone stacking, with a little less room below because these pages follow it
+ * with their own description or toolbar.
+ */
 export function TopBar({ title, right }: { title: string; right?: React.ReactNode }) {
-  return <PageHeader title={title} actions={right} />;
+  return <PageHeader title={title} actions={right} className="mb-4" />;
 }
 
 export { Link };

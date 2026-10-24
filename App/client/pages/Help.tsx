@@ -362,7 +362,7 @@ export default function Help({ company }: { company: Company }) {
       <div className="flex h-full min-h-0 bg-white dark:bg-slate-950">
         <aside className="hidden w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 lg:flex dark:border-slate-800 dark:bg-slate-950">
           <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Ask an AI Employee
             </div>
             <div className="mt-3 flex flex-col gap-1">
@@ -411,7 +411,7 @@ export default function Help({ company }: { company: Company }) {
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Help conversations
               </div>
               <button

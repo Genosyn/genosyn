@@ -91,8 +91,27 @@ html.dark ::selection {
    a ring with an offset: the 2px gap shows whatever the control sits on, so one
    rule reads on white cards, tinted rows and dark panels alike. A landmark
    focused by script (`tabindex="-1"`: the main pane, a dialog panel) gets
-   none — it is where focus waits, not a control. */
-:where(a, button, input, textarea, select, summary, [role="button"], [role="option"], [role="tab"], [role="switch"], [tabindex]:not([tabindex="-1"])):focus-visible {
+   none — it is where focus waits, not a control.
+
+   `:focus-visible` sits inside `:where()` as well: outside it, the pseudo-class
+   alone scored (0,1,0), tied with a field's own `outline-none`, won on source
+   order, and drew a second box inside composers that mark focus on their
+   container. */
+:where(
+    :is(
+        a,
+        button,
+        input,
+        textarea,
+        select,
+        summary,
+        [role="button"],
+        [role="option"],
+        [role="tab"],
+        [role="switch"],
+        [tabindex]:not([tabindex="-1"])
+      ):focus-visible
+  ) {
   outline: 2px solid rgb(var(--gs-focus));
   outline-offset: 2px;
 }

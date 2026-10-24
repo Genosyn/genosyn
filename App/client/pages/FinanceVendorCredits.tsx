@@ -31,7 +31,7 @@ export default function FinanceVendorCredits() {
   useLiveRefetch("bill", reload);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -84,7 +84,7 @@ export default function FinanceVendorCredits() {
                   <td className="px-4 py-2">
                     <span
                       className={
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                        "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
                         (STATUS_BADGE[c.status] ?? STATUS_BADGE.draft)
                       }
                     >

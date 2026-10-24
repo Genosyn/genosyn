@@ -153,7 +153,7 @@ export default function FinanceCreditNoteDetail() {
   const canApply = canWrite && credit.status === "issued" && credit.openCents > 0;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -177,7 +177,7 @@ export default function FinanceCreditNoteDetail() {
           </h1>
           <span
             className={
-              "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+              "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
               (STATUS_BADGE[credit.status] ?? STATUS_BADGE.draft)
             }
           >
@@ -214,7 +214,7 @@ export default function FinanceCreditNoteDetail() {
             key={label as string}
             className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"
           >
-            <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {label}
             </div>
             <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
@@ -225,7 +225,7 @@ export default function FinanceCreditNoteDetail() {
       </div>
 
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Lines
         </h3>
         <ul className="mt-3 space-y-1 text-sm">
@@ -241,7 +241,7 @@ export default function FinanceCreditNoteDetail() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Applications
         </h3>
         {credit.applications.length === 0 ? (
@@ -285,7 +285,7 @@ export default function FinanceCreditNoteDetail() {
 
       {credit.refunds.length > 0 && (
         <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Refunds
           </h3>
           <ul className="mt-3 space-y-2 text-sm">

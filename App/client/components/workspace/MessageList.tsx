@@ -133,7 +133,7 @@ function NewMessagesDivider() {
   return (
     <div data-unread-divider="" className="flex items-center gap-2 pt-3">
       <span aria-hidden="true" className="h-px flex-1 bg-rose-400 dark:bg-rose-500/60" />
-      <h3 className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
+      <h3 className="shrink-0 text-xs font-medium text-rose-700 dark:text-rose-300">
         New<span className="sr-only"> messages below</span>
       </h3>
       <span aria-hidden="true" className="h-px w-6 bg-rose-400 dark:bg-rose-500/60" />

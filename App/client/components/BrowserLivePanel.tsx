@@ -422,7 +422,7 @@ function CollapsedRail({
     >
       <Monitor size={16} />
       <StatusDot status={status} compact />
-      <span className="rotate-180 text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
+      <span className="text-xs font-medium rotate-180 [writing-mode:vertical-rl]">
         Live
       </span>
     </button>

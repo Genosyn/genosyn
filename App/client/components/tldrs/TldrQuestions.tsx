@@ -1001,7 +1001,7 @@ function Bubble({
         )}
       >
         {message.actionId && (
-          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-300">
+          <div className="mb-1 flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-300">
             <Zap size={10} /> Requested with one click
           </div>
         )}

@@ -321,7 +321,7 @@ export function PipelineCanvas({
                   <div className="truncate text-sm font-semibold">
                     {nodeDisplayName(node, catalog)}
                   </div>
-                  <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-60">
+                  <div className="text-xs font-medium mt-0.5 opacity-60">
                     {PIPELINE_FAMILY_META[family].shortLabel}
                   </div>
                 </div>

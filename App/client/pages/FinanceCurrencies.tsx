@@ -190,7 +190,7 @@ export default function FinanceCurrencies() {
   const loading = !settings || !currencies || !rates || !overview;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Currencies" }]}
@@ -328,7 +328,7 @@ export default function FinanceCurrencies() {
             <TodaysRates overview={overview} />
 
             <div className="border-t border-slate-100 dark:border-slate-800">
-              <h3 className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium px-4 pb-2 pt-4 text-slate-500 dark:text-slate-400">
                 Rates you set
               </h3>
               {rates.length === 0 ? (
@@ -495,7 +495,7 @@ function TodaysRates({ overview }: { overview: ExchangeRateOverview }) {
   if (overview.rates.length === 0) return null;
   return (
     <div>
-      <h3 className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <h3 className="text-xs font-medium px-4 pb-2 pt-4 text-slate-500 dark:text-slate-400">
         Today&apos;s rates
       </h3>
       <div className="overflow-x-auto">

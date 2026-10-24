@@ -34,7 +34,7 @@ export function PipelinePalette({
     <aside className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
       <div className="flex items-start justify-between gap-3 px-1">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Step library
           </div>
           <p className="mt-0.5 text-[11px] leading-4 text-slate-400 dark:text-slate-500">

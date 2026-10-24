@@ -166,7 +166,7 @@ export default function FinancePeriods() {
   ];
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -230,7 +230,7 @@ export default function FinancePeriods() {
                   <td className="px-4 py-2">
                     <span
                       className={
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                        "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
                         (p.status === "closed"
                           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
                           : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300")

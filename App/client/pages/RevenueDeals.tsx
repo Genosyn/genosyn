@@ -477,7 +477,7 @@ export default function RevenueDeals() {
   const showBoardSpinner = board === null && !boardError;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue" }, { label: "Deals" }]} />
       </div>

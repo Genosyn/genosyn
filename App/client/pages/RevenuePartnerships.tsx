@@ -65,7 +65,7 @@ export default function RevenuePartnerships() {
     classifications.find((row) => row.kind === kind && row.value === value)?.label || value || "Not set";
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships" }]} />
       </div>

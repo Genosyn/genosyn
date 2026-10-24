@@ -377,7 +377,7 @@ export function AskAiPanel({ company }: { company: Company }) {
               role="menu"
               className="absolute left-3 right-3 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
             >
-              <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium flex items-center gap-1.5 px-3 py-1.5 text-slate-500 dark:text-slate-400">
                 <History size={11} /> Your conversations
               </div>
               {shown.length === 0 && (

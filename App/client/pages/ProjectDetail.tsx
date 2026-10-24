@@ -1166,7 +1166,7 @@ function TodoRow({
       )}
       {todo.status === "in_review" && (
         <span
-          className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+          className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
           title={todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"}
         >
           <ShieldCheck size={10} />
@@ -1363,7 +1363,7 @@ function BoardCard({
           {stats && <SubtaskCountChip stats={stats} />}
           {isReview && (
             <span
-              className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+              className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
               title={
                 todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"
               }

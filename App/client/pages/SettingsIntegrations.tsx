@@ -674,7 +674,7 @@ function IntegrationsPage({
             {groupedCatalog.map(({ category, entries }) => (
               <div key={category}>
                 <div className="mb-2 flex items-baseline gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     {category}
                   </h3>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500">
@@ -705,7 +705,7 @@ function IntegrationsPage({
                                 {existing} connected
                               </span>
                             )}
-                            <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            <span className="text-xs ml-auto font-medium text-slate-500 dark:text-slate-400">
                               {entry.authMode === "oauth2"
                                 ? entry.oauth?.instanceApp
                                   ? "OAuth · 1-click"
@@ -1217,7 +1217,7 @@ function ChatSurfaceModal({
         {endpoint?.supportsWebhook && (
           <section className="flex flex-col gap-2">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Delivery URL
               </h3>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -1269,7 +1269,7 @@ function ChatSurfaceModal({
 
         <section className="flex flex-col gap-2">
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
               People on {surface}
             </h3>
             <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -1358,7 +1358,7 @@ function AuthModeBadge({ mode }: { mode: IntegrationConnection["authMode"] }) {
               "Browser"
             : "API key";
   return (
-    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300 inline-block first-letter:uppercase">
       {label}
     </span>
   );
@@ -2620,7 +2620,7 @@ function RepoAllowlistModal({
                           {r.owner}/{r.name}
                         </span>
                         {r.private ? (
-                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                             Private
                           </span>
                         ) : null}
@@ -2712,17 +2712,17 @@ function ScopeGroupPicker({
                 <span className="flex items-center gap-1.5 font-medium text-slate-900 dark:text-slate-100">
                   {g.label}
                   {g.workspaceOnly && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                       Workspace only
                     </span>
                   )}
                   {g.required && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                       Required
                     </span>
                   )}
                   {needsOwnClient.includes(g.key) && (
-                    <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                    <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 inline-block first-letter:uppercase">
                       Own OAuth client
                     </span>
                   )}

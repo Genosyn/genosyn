@@ -493,7 +493,7 @@ export default function PublicSigning() {
         <div className="w-full px-4 py-5 sm:px-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {data.sender?.companyName ?? data.envelope.companyName ?? "Document for signature"}
               </div>
               <h1 className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">

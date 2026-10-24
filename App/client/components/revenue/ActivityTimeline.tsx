@@ -276,7 +276,7 @@ export function ActivityTimeline({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       {groups.map((group, gi) => (
         <div key={`${group.key}-${gi}`}>
-          <div className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50/90 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-400">
+          <div className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50/90 px-4 py-1.5 text-xs font-medium text-slate-500 backdrop-blur dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-400 inline-block first-letter:uppercase">
             {group.label}
           </div>
           <ul className="divide-y divide-slate-50 dark:divide-slate-800/60">
@@ -339,7 +339,7 @@ function TimelineRow({
           <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
             {activity.subject || meta.label}
           </span>
-          <span className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
             {meta.label}
           </span>
         </div>

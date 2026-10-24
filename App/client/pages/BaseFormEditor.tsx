@@ -586,7 +586,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
             </div>
 
             <div className="mt-6 rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Responses
               </div>
               <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
@@ -772,7 +772,7 @@ function QuestionCard({
 
         {preview && (
           <div className="mt-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
               Preview
             </div>
             <FormQuestionInput

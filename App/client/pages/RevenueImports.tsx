@@ -496,7 +496,7 @@ export default function RevenueImports() {
       : targetFields.every((field) => !field.required || mapping[field.key]);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Imports" }]} />
       <div className="mb-6 mt-5">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">

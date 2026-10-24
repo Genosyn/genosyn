@@ -1017,6 +1017,45 @@ Think **Linear × Notion**. Clean, quiet, fast.
   so nothing that was set is invisible. Prefer a sensible default to a visible
   choice.
 
+### Visual system
+
+One look everywhere, built from tokens and shared primitives rather than
+per-page styling. `client/lib/designTokens.ts` is the source of truth;
+`tailwind.config.ts` builds the palette from it and `designTokens.test.ts`
+holds every text role to WCAG AA on every surface.
+
+- **Colour.** Slate plus one accent (indigo). Slate 400/500 are theme-aware,
+  so the muted pair `text-slate-500 dark:text-slate-400` and the quietest pair
+  `text-slate-400 dark:text-slate-500` pass AA in both themes; the `-600`
+  steps of emerald, amber, sky, teal, green, orange, cyan and lime are tuned to
+  pass AA as text on white. Surfaces: light — slate-50 page, white cards,
+  slate-100 wells; dark — slate-950 page, slate-900 cards, slate-800 raised.
+  Give a card `dark:bg-slate-900`, not the page's slate-950.
+- **Type.** Inter. Page titles `text-xl sm:text-2xl font-semibold
+  tracking-tight` (use `PageHeader`); section and card titles `text-sm
+  font-semibold`; body `text-sm`; meta `text-xs text-slate-500`. Nothing a
+  person must read below 12px, and no tracked-out uppercase labels — labels,
+  table headers and rail groups are sentence case at `text-xs font-medium`.
+  Numbers use `tabular-nums`.
+- **Status.** Every chip is a `Badge` (`components/ui/Badge.tsx`): 12px,
+  sentence case, a tone that means something (neutral, accent, success,
+  warning, danger, info, ai). Counts use `CountBadge`. Do not hand-roll pills.
+- **Shape.** Cards and panels `rounded-xl border shadow-sm`; controls
+  `rounded-lg`; badges `rounded-md`. Inputs share `fieldClassName()` (a
+  slate-300 edge at rest, an indigo edge on focus).
+- **Focus.** Keyboard focus is the theme's `focus` colour — `outline-focus`
+  / `ring-focus`, 3:1 or better on every surface — never a translucent ring.
+- **Layout.** Headers stack on a phone (`PageHeader` does this); forms cap at
+  `max-w-3xl`; a grid that names columns only from a breakpoint is given a
+  shrinkable single column below it (`styles/index.css`), and wide tables sit
+  in `TableCard`, which scrolls sideways instead of cutting columns off.
+- **Primitives.** Reach for `PageHeader`, `SectionHeader`, `Card`, `Badge`,
+  `TableCard`/`THead`/`TH`/`TR`/`TD`, `EmptyState` (with an icon), `Skeleton`,
+  `SectionRailHeader` and `sidebarLinkClassName()` before writing classes.
+  `npm run test:visual-system` photographs the key pages in light and dark on
+  a desktop and a phone and fails on sideways scroll, clipped content, console
+  errors, invisible focus or text below AA.
+
 ---
 
 ## 9. Testing before you hand off

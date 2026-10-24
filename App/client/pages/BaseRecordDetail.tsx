@@ -139,7 +139,7 @@ export function RecordDetailDrawer({
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3 dark:border-slate-700">
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {table.name}
             </div>
             <h2
@@ -363,7 +363,7 @@ export function RecordFilesSection({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
           <Paperclip size={12} /> Files
           {attachments && attachments.length > 0 && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -491,7 +491,7 @@ export function RecordCommentsSection({
 
   return (
     <div>
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
         <MessageSquare size={12} /> Comments
         {comments && comments.length > 0 && (
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">

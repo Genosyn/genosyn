@@ -570,7 +570,7 @@ function RecurringInvoiceForm() {
   }
 
   return (
-    <form onSubmit={save} className="page-shell p-8">
+    <form onSubmit={save} className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

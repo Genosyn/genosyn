@@ -119,7 +119,7 @@ export default function FinanceAccounts() {
   }, [accounts]);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -161,7 +161,7 @@ export default function FinanceAccounts() {
                 className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
               >
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
-                  <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <h2 className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
                     <span className={"rounded px-1.5 py-0.5 " + TYPE_BADGE[type]}>
                       {ACCOUNT_TYPE_LABEL[type]}
                     </span>
@@ -190,7 +190,7 @@ export default function FinanceAccounts() {
                             a.name
                           )}
                           {a.isSystem && (
-                            <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                               system
                             </span>
                           )}

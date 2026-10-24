@@ -69,7 +69,7 @@ export function BoardLetterCard({
 
       <article className="flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-5">
         <div className="w-10 shrink-0 text-center sm:w-12">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
             No.
           </div>
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-slate-100">

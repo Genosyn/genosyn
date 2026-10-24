@@ -368,7 +368,7 @@ export default function RevenueContacts() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: base }, { label: "Contacts" }]} />
       </div>

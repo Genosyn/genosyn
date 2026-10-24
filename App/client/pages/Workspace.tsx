@@ -1649,7 +1649,7 @@ function NewDMModal({
         <div className="max-h-80 space-y-3 overflow-y-auto">
           {users.length > 0 && (
             <div>
-              <div className="px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium px-1 py-1 text-slate-500 dark:text-slate-400">
                 Teammates
               </div>
               {users.map((u) => (
@@ -1671,7 +1671,7 @@ function NewDMModal({
           )}
           {emps.length > 0 && (
             <div>
-              <div className="px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium px-1 py-1 text-slate-500 dark:text-slate-400">
                 AI employees
               </div>
               {emps.map((e) => (
@@ -2085,7 +2085,7 @@ function ChannelMembersSettings({
   return (
     <div className="space-y-4">
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
           In this channel
         </div>
         <div className="space-y-1">
@@ -2111,7 +2111,7 @@ function ChannelMembersSettings({
       </div>
       {(addableUsers.length > 0 || addableEmployees.length > 0) && (
         <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
             Add people
           </div>
           <div className="space-y-1">

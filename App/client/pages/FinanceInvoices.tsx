@@ -214,7 +214,7 @@ export default function FinanceInvoices() {
   const showBulkBar = canWrite && selection.selectedCount > 0;
 
   return (
-    <div className={"page-shell p-8" + (showBulkBar ? " pb-28" : "")}>
+    <div className={"page-shell p-4 sm:p-8" + (showBulkBar ? " pb-28" : "")}>
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Invoices" }]}
@@ -363,7 +363,7 @@ export default function FinanceInvoices() {
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                       <Link
                         to={`/c/${company.slug}/finance/invoices/${inv.slug}`}
-                        className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                        className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                       >
                         {inv.number || "DRAFT"}
                       </Link>

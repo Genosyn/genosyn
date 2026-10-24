@@ -282,7 +282,7 @@ function SidebarSection({
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between px-2 py-1">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
           {icon}
           {label}
         </span>

@@ -140,7 +140,7 @@ export function RecordHistory({
     >
       <header className="flex items-center gap-2">
         <History size={14} className="text-slate-400 dark:text-slate-500" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {title}
         </h3>
       </header>

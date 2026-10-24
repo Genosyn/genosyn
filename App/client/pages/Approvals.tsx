@@ -109,7 +109,7 @@ export default function Approvals({ company }: { company: Company }) {
 
   if (!canDecide) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <TopBar title="Approvals" />
         <EmptyState
           title="Owner or admin access required"
@@ -120,7 +120,7 @@ export default function Approvals({ company }: { company: Company }) {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar title="Approvals" />
       {loadError ? (
         <FormError message={loadError} />
@@ -134,7 +134,7 @@ export default function Approvals({ company }: { company: Company }) {
       ) : (
         <div className="flex flex-col gap-6">
           <section>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs mb-2 font-medium text-slate-500 dark:text-slate-400">
               Pending ({pending.length})
             </div>
             {pending.length === 0 ? (
@@ -184,7 +184,7 @@ export default function Approvals({ company }: { company: Company }) {
 
           {history.length > 0 && (
             <section>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <div className="text-xs mb-2 font-medium text-slate-500 dark:text-slate-400">
                 History
               </div>
               <ul className="flex flex-col gap-1">
@@ -195,7 +195,7 @@ export default function Approvals({ company }: { company: Company }) {
                       <div className="flex items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-800">
                         <span
                           className={
-                            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                            "rounded border px-1.5 py-0.5 text-xs font-medium inline-block first-letter:uppercase " +
                             STATUS_STYLE[a.status]
                           }
                         >

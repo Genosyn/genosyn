@@ -506,7 +506,7 @@ function ApplicantsBoard({
 
       {view === "board" && showClosed && closed.length > 0 ? (
         <div className="mt-6">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Rejected and withdrawn</h3>
+          <h3 className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">Rejected and withdrawn</h3>
           <ApplicantTable rows={closed} base={base} />
         </div>
       ) : null}

@@ -153,7 +153,7 @@ export default function FinanceReports() {
   const trendConfig = trendSeriesFor(tab);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Reports" }]}
@@ -436,7 +436,7 @@ function ReportTable({
   const priorByAcct = new Map((priorRows ?? []).map((r) => [r.account.id, r.amountCents]));
   return (
     <div className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
-      <div className="bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+      <div className="bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400 inline-block first-letter:uppercase">
         {title}
       </div>
       {rows.length === 0 ? (
@@ -473,7 +473,7 @@ function ReportTable({
         </table>
       )}
       <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/30">
-        <div className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Total {title.toLowerCase()}
         </div>
         <div className="flex gap-12">
@@ -557,7 +557,7 @@ function BalanceSheetView({
           </div>
           <span
             className={
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+              "rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase " +
               (balanced
                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
                 : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300")
@@ -594,7 +594,7 @@ function BSSection({
   const showPrior = priorRows !== undefined;
   return (
     <div className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
-      <div className="bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+      <div className="bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400 inline-block first-letter:uppercase">
         {title}
       </div>
       {rows.length === 0 && !extraRow ? (
@@ -658,7 +658,7 @@ function BSSection({
         </table>
       )}
       <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/30">
-        <div className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Total {title.toLowerCase()}
         </div>
         <div className="flex gap-12">
@@ -747,7 +747,7 @@ function CFSection({
 }) {
   return (
     <div className="border-t border-slate-100 dark:border-slate-800">
-      <div className="bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+      <div className="bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400 inline-block first-letter:uppercase">
         {section.label}
       </div>
       {section.lines.length === 0 ? (

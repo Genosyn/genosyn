@@ -82,7 +82,7 @@ export default function ContractsIndex() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Customers", to: `/c/${company.slug}/customers` }, { label: "Contracts" }]} />
       </div>

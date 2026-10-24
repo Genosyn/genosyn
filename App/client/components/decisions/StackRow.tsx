@@ -205,7 +205,7 @@ export function RowCheckbox({
 export function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="min-w-0">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400">
         {title}
       </h4>
       <div className="mt-1.5 min-w-0 break-words text-sm leading-relaxed text-slate-700 dark:text-slate-200">

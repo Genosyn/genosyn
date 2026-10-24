@@ -370,7 +370,7 @@ function EstimateForm() {
         e.preventDefault();
         void save("view");
       }}
-      className="page-shell p-8"
+      className="page-shell p-4 sm:p-8"
     >
       <div className="mb-6">
         <Breadcrumbs

@@ -80,7 +80,9 @@ export function SettingsCompany() {
   const canAdminister = company.role === "owner" || company.role === "admin";
 
   return (
-    <>
+    // A form reads best at a line length people can scan; the pane is wider
+    // than any of these fields needs.
+    <div className="max-w-3xl">
       <TopBar title="Company" />
       <Card>
         <CardHeader>
@@ -214,7 +216,7 @@ export function SettingsCompany() {
       </Card>
       <CompanyStanddownCard />
       <DangerZoneCard />
-    </>
+    </div>
   );
 }
 
@@ -538,7 +540,7 @@ export function SettingsMembers() {
                         <option value="admin">Admin</option>
                       </Select>
                     ) : (
-                      <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                         {m.role}
                       </span>
                     )}

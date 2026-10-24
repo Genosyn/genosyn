@@ -416,7 +416,7 @@ function GenericInput({ input }: { input: Record<string, unknown> }) {
 
 function DetailLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 flex min-w-0 items-center text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+    <div className="text-xs font-medium mb-1 flex min-w-0 items-center text-slate-500 dark:text-slate-400">
       {children}
     </div>
   );

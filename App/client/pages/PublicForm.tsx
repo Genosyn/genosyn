@@ -211,7 +211,7 @@ export default function PublicForm() {
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950">
             <div className={clsx("h-2", ACCENT[form.color] ?? ACCENT.indigo)} />
             <div className="p-6 sm:p-8">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {form.companyName}
               </div>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl dark:text-slate-100">

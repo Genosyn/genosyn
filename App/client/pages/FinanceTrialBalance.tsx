@@ -532,7 +532,7 @@ function BalancesTable({
               <React.Fragment key={group.type}>
                 <tr className="border-t border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-800/40">
                   <th scope="rowgroup" className="px-4 py-2 text-left font-normal">
-                    <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                    <span className="text-xs font-medium mr-2 text-slate-700 dark:text-slate-200">
                       {ACCOUNT_TYPE_PLURAL[group.type]}
                     </span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">

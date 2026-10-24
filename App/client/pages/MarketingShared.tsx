@@ -137,7 +137,7 @@ export function MetricTile({
   return (
     <div className={`${cardClass} p-4`}>
       <div className="flex items-center justify-between text-slate-400">
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
         {icon}
       </div>
       <div className={`mt-3 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</div>
