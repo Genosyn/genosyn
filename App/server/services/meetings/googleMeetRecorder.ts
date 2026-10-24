@@ -237,13 +237,13 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
           // context. The employee browser's service-worker boundary stays
           // untouched.
           serviceWorkers: "allow",
-          // The microphone is granted only when we have a device that is
-          // silent by construction. Meet blocks the lobby on a `getUserMedia`
-          // it cannot resolve, so denying the permission outright is what put
-          // the notetaker behind a dialog it never dismissed. The camera is
-          // never granted: there is nothing to show, and a denied camera is a
-          // banner rather than a blocker.
-          permissions: silentMicrophone ? ["microphone"] : [],
+          // No microphone and no camera, even with the silent source loaded.
+          // Ask to join sends Google system information "to confirm you're
+          // not a bot": a guest that had granted a microphone was answered
+          // "You can't join this video call", while the same guest bringing
+          // no devices was let into the waiting room. The lobby answers Meet's
+          // devices prompt with "Continue without microphone and camera".
+          permissions: [],
           acceptDownloads: false,
         });
         const maskScript = await dependencies.initScript();
@@ -439,10 +439,10 @@ async function createPulseAudioSink(
  * with a disclosure label on it.
  *
  * So the recorder brings its own capture device: a null source, which produces
- * real, honest silence. Meet's device check passes, nothing is ever
- * contributed to the call, and the microphone stays switched off in the lobby
- * as well — belt and braces, because the guarantee that the bot is inaudible
- * should not rest on one UI click landing.
+ * real, honest silence, and pins Chrome to it. The notetaker grants Meet no
+ * microphone at all (see the context's permissions), so this is the guarantee
+ * beneath that one: whatever Chrome is ever allowed to capture, it is never
+ * the call's own output, and nothing is ever contributed to the call.
  *
  * Best-effort by design. `module-null-source` is not in every PulseAudio
  * build, and a deployment without it is still better served by the

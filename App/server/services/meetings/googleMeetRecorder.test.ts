@@ -1428,10 +1428,12 @@ describe("Google Meet recorder lifecycle", () => {
       (launch.env as Record<string, string>).PULSE_SOURCE,
       `${(launch.env as Record<string, string>).PULSE_SINK}_mic`,
     );
+    // Not even the silent microphone is granted: Google refused the knock of a
+    // guest that had one, and admitted the same guest bringing none.
     assert.deepEqual(harness.getContextOptions(), {
       locale: "en-US",
       serviceWorkers: "allow",
-      permissions: ["microphone"],
+      permissions: [],
       acceptDownloads: false,
     });
   });
