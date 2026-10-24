@@ -4,8 +4,9 @@ import type { EmbedBudget } from "./limits.js";
 
 /**
  * Who a Genosyn MCP request comes from, and how to reach the App on their
- * behalf. Built by the route from the authenticated request (the key, its
- * Member, their standing in the company) and handed to every tool.
+ * behalf. Built by the route from the authenticated request (the API key or
+ * connected app, its Member, their standing in the company) and handed to
+ * every tool.
  *
  * The tools never act on this directly: `authorization` is the exact header
  * the MCP request carried, so each operation they call is authenticated —
@@ -20,8 +21,11 @@ export type CallerContext = {
   member: { id: string; name: string; email: string };
   /** The Member's role and Finance access as the request found them. */
   standing: CallerStanding;
-  apiKey: { id: string; name: string; prefix: string };
-  /** The `Authorization` header to send with every operation: the same API key. */
+  /** The credential the request carried: an API key, or the OAuth token of an app the Member connected. */
+  credential:
+    | { kind: "api_key"; id: string; name: string; prefix: string }
+    | { kind: "connected_app"; id: string; name: string };
+  /** The `Authorization` header to send with every operation: the same credential. */
   authorization: string;
   /**
    * Headers the inner request repeats so the App sees the same caller: host,

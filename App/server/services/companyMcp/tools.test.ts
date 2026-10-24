@@ -216,7 +216,7 @@ describe("what the server tells a client on initialize", () => {
     companyName: "Sunwise",
     member: { id: "u1", name: "Morgan Lee", email: "morgan@example.com" },
     standing: { role, financeAccess },
-    apiKey: { id: "k1", name: "Cursor", prefix: "gen_abcdefgh" },
+    credential: { kind: "api_key", id: "k1", name: "Cursor", prefix: "gen_abcdefgh" },
     authorization: "Bearer gen_x",
     forwardedHeaders: {},
     remote: {},
@@ -239,6 +239,17 @@ describe("what the server tells a client on initialize", () => {
     );
     assert.match(text, /search_operations finds an operation/);
     assert.match(text, /audit log under this Member/);
+  });
+
+  test("an app the Member connected through OAuth is named as theirs", () => {
+    const text = instructionsFor({
+      ...context("admin", "full"),
+      credential: { kind: "connected_app", id: "a1", name: "Claude" },
+    });
+    assert.match(
+      text,
+      /acts as Morgan Lee — an admin of Sunwise with full Finance access — through "Claude", an app they connected\./,
+    );
   });
 
   test("a narrower Member is told how much less they can do", () => {

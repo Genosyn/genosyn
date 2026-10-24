@@ -41,8 +41,12 @@ export function instructionsFor(context: CallerContext): string {
       : context.standing.financeAccess === "read"
         ? "read-only Finance access"
         : "no Finance access";
+  const through =
+    context.credential.kind === "api_key"
+      ? `their API key "${context.credential.name}"`
+      : `"${context.credential.name}", an app they connected`;
   return [
-    `Genosyn is where ${context.companyName} is run with AI Employees. This server acts as ${context.member.name} — ${role} of ${context.companyName} with ${finance} — through their API key "${context.apiKey.name}". It can do what they can through Genosyn's REST API: ${available} of ${catalogue.operations.length} operations, in ${catalogue.areas.length} areas.`,
+    `Genosyn is where ${context.companyName} is run with AI Employees. This server acts as ${context.member.name} — ${role} of ${context.companyName} with ${finance} — through ${through}. It can do what they can through Genosyn's REST API: ${available} of ${catalogue.operations.length} operations, in ${catalogue.areas.length} areas.`,
     "To act: search_operations finds an operation by what you want to do, or lists the areas; describe_operation shows one operation's inputs; call_read_operation, call_write_operation and call_delete_operation call it by its operationId. whoami says whose authority you carry.",
     "Every call runs through Genosyn's own checks: role and Finance limits apply, operations that need a person at a signed-in browser are not offered, and every change is recorded in the audit log under this Member. Read before you change something, and confirm deletions with the person you work for.",
   ].join("\n\n");

@@ -1,7 +1,12 @@
 import { Request, Router } from "express";
 import { z } from "zod";
 import { Role } from "../db/entities/Membership.js";
-import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  usesBearerCredential,
+} from "../middleware/auth.js";
 import { validateParams, validateQuery } from "../middleware/validate.js";
 import { getHomeData } from "../services/home.js";
 import { listHomeRepositoryWork } from "../services/homeRepositoryWork.js";
@@ -23,8 +28,8 @@ homeRouter.get("/home", async (req, res) => {
       companyId: cid,
       userId: req.userId!,
       role: (req as Request & { role: Role }).role,
-      canReadRepositoryWork: !req.apiKey,
-      canReadWorkReviews: !req.apiKey,
+      canReadRepositoryWork: !usesBearerCredential(req),
+      canReadWorkReviews: !usesBearerCredential(req),
     }),
   );
 });

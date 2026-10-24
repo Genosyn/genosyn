@@ -234,6 +234,7 @@ import ExploreChartDetail from "./pages/ExploreChartDetail";
 import ExploreDashboardDetail from "./pages/ExploreDashboardDetail";
 import Help from "./pages/Help";
 import LinkChat from "./pages/LinkChat";
+import OAuthConsent, { OAuthConsentSignIn } from "./pages/OAuthConsent";
 
 type AuthState =
   | { status: "loading" }
@@ -241,7 +242,7 @@ type AuthState =
   | { status: "ready"; me: Me; companies: Company[] };
 
 function isAnonymousPage(pathname: string): boolean {
-  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|sign(?:\/|$)|forms(?:\/|$))/i.test(
+  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|oauth\/consent(?:\/|$)|sign(?:\/|$)|forms(?:\/|$))/i.test(
     pathname,
   );
 }
@@ -319,6 +320,10 @@ export default function App() {
               the address bar and is told what to do, instead of being bounced
               to /login with the token thrown away. */}
             <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
+            {/* An MCP client's sign-in (claude.ai, ChatGPT): explained if it
+              cannot go on, otherwise kept through sign-in so the Member comes
+              back to approve it. */}
+            <Route path="/oauth/consent" element={<OAuthConsentSignIn />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         ) : (
@@ -381,6 +386,7 @@ function AuthedRoutes({
         <Route path="/onboarding" element={<Onboarding onDone={onCompaniesChanged} />} />
         <Route path="/invite/:token" element={<Invite />} />
         <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
+        <Route path="/oauth/consent" element={<OAuthConsent />} />
         <Route
           path="/security"
           element={
@@ -400,6 +406,9 @@ function AuthedRoutes({
         company, so asking the person to pick one first would be asking for
         the one fact the link already knows. */}
       <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
+      {/* Outside `/c/:companySlug` too: the app may have named its company,
+        and otherwise the Member picks it on the page. */}
+      <Route path="/oauth/consent" element={<OAuthConsent />} />
       <Route path="/" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
       {/* Creating the first company refreshes auth while the browser is still
         on `/onboarding`. Preserve that intent across the route-tree swap so

@@ -224,6 +224,7 @@ code, UI copy, commits, and docs.
 | **Folder** (the exclusive, nestable filing tree for Routines and for Resources — `RoutineFolder`, `ResourceFolder`) | Category, Group, Collection, Tag |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
+| **Connected app** (an OAuth client — claude.ai, ChatGPT — a Member approved to use the Genosyn MCP server as them in one company — `ConnectedApp`) | Connection, Integration, OAuth grant, Authorization |
 | **Genosyn Connect** (the hosted sign-in service in `Connect/`; "Connect" for short) | Broker, Proxy, Sign-in provider (in product copy) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
@@ -269,8 +270,9 @@ code, UI copy, commits, and docs.
 has shipped. Do not use "Task" for scheduled AI work, ever.
 
 **"Connection" stays reserved** for one authenticated account inside an
-Integration. A Chrome someone connects from their own machine is a **Member
-browser** (`MemberBrowser`, granted to employees through
+Integration. An app a Member approved through OAuth to use the Genosyn MCP
+server is a **Connected app** (`ConnectedApp`), and a Chrome someone connects
+from their own machine is a **Member browser** (`MemberBrowser`, granted to employees through
 `EmployeeMemberBrowserGrant` like every other resource) — never a "Connection",
 not least because `IntegrationAuthMode` already has a `"browser"` mode meaning
 "a Connection whose credentials the headless browser replays". Two unrelated
@@ -866,6 +868,16 @@ in a Work session instead of leaving them stranded as local commits.
   never reimplement an operation for it, and never let it read the session
   cookie. It is not the per-employee `mcp/connect` endpoint, nor the
   loopback `genosyn` tools an AI Employee runs with.
+- **Clients that sign in instead of sending a key use OAuth.** claude.ai and
+  ChatGPT reach the same endpoint through the MCP authorization spec
+  (`routes/mcpOauth.ts`, `services/mcpOauth/`): discovery, dynamic client
+  registration, PKCE (S256 only), and an owner or admin approving the app at
+  `/oauth/consent`. The result is a **Connected app** whose opaque, hashed
+  tokens are accepted at that company's MCP endpoint and on the server's own
+  in-process calls (`isInProcessRequest`) — never by the REST API from
+  outside — so it is audience-bound without a JWT. It is a bearer credential
+  like a key: a guard that refuses API keys checks `usesBearerCredential(req)`
+  (`middleware/auth.ts`), so it refuses connected apps too.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

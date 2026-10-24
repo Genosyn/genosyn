@@ -90,6 +90,15 @@ trusted-origin check, is in `App/server/index.ts`.
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
      `App/server/services/hostedOauth.ts`.
+   - OAuth for the Genosyn MCP server, so claude.ai and ChatGPT can sign in:
+     the discovery documents under `/.well-known/`, open dynamic client
+     registration (`POST /api/oauth/register`, throttled per address and
+     capped while unused), the authorization endpoint (`GET /oauth/authorize`,
+     which only validates and redirects to the consent page), and the token
+     and revocation endpoints, where client credentials and the PKCE verifier
+     are the proof: `App/server/routes/mcpOauth.ts`,
+     `App/server/services/mcpOauth/`. Approving an app needs an owner's or
+     admin's signed-in browser session at `/api/oauth/consent`.
    - Member-browser pairing (a one-time code exchanged for a bridge token) and
      its WebSocket: `App/server/routes/memberBrowserBridge.ts`,
      `App/server/services/realtime.ts`.
@@ -118,12 +127,16 @@ trusted-origin check, is in `App/server/index.ts`.
    to one Company and act with their user's current role there. They cannot
    manage the account, MFA, invitations, other keys, or instance
    administration. The Genosyn MCP server (`/api/companies/:cid/mcp`,
-   `App/server/routes/companyMcp.ts`) accepts only such a key — it never
-   reads the session cookie — refuses any browser `Origin` but the install's
-   public URL, and replays each tool call through the App's own router with
-   that same key (`App/server/services/companyMcp/dispatch.ts`). Reaching an
-   operation through it that the key could not reach over REST, or another
-   Company's data, is a vulnerability.
+   `App/server/routes/companyMcp.ts`) accepts only such a key, or the OAuth
+   access token of a **connected app** an owner or admin approved for that
+   Company (`App/server/services/mcpOauth/`) — it never reads the session
+   cookie — refuses any browser `Origin` but the install's public URL, and
+   replays each tool call through the App's own router with that same
+   credential (`App/server/services/companyMcp/dispatch.ts`). A connected
+   app's token is accepted at that endpoint and on those in-process replays
+   only (`App/server/middleware/auth.ts`); using one against the REST API
+   directly, reaching an operation through the server that a key could not
+   reach over REST, or another Company's data, is a vulnerability.
 3. **Other Companies on the same install.** Every `:cid` route must scope
    rows to that Company, including IDs that arrive in bodies and queries
    (another Company's Connection, Vault item, Repository, Base, employee,
@@ -153,7 +166,9 @@ trusted-origin check, is in `App/server/index.ts`.
    (`App/server/services/files.ts`, `App/server/services/resourceFiles.ts`,
    `App/server/services/uploads.ts`).
 9. **Bearer credentials**: session cookies, API keys, MCP tokens
-   (`App/server/services/mcpTokens.ts`), browser-session tokens,
+   (`App/server/services/mcpTokens.ts`), connected apps' OAuth authorization
+   codes, access and refresh tokens and client secrets
+   (`App/server/services/mcpOauth/tokens.ts`), browser-session tokens,
    member-browser bridge tokens, webhook, form, and signing tokens, and
    invitation, reset, and verification tokens (`App/server/lib/token.ts`).
 10. **Genosyn Connect on the public internet**:

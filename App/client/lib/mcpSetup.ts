@@ -3,9 +3,11 @@
  * Genosyn MCP server: the endpoint's address, and the setup each client takes,
  * ready to paste.
  *
- * Every client authenticates the same way — an API key as a Bearer token —
- * and differs only in where the URL and that header go: Claude Desktop reaches
- * a remote server through the `mcp-remote` bridge, Claude Code takes one
+ * Web apps — claude.ai and ChatGPT — take the URL alone and sign in: the
+ * person approves them in Genosyn through OAuth, and no key is involved.
+ * Every other client authenticates with an API key as a Bearer token and
+ * differs only in where the URL and that header go: Claude Desktop reaches a
+ * remote server through the `mcp-remote` bridge, Claude Code takes one
  * command, Cursor a JSON entry, and anything else a plain HTTP POST. The setup
  * is built with the company's real endpoint and, right after a key is
  * generated, the real key; otherwise a placeholder stands in for it.
@@ -13,14 +15,25 @@
 
 import { companyApiBaseUrl } from "./apiAccess";
 
-export type McpClientId = "claude-desktop" | "claude-code" | "cursor" | "http";
+export type McpClientId =
+  | "claude-ai"
+  | "chatgpt"
+  | "claude-desktop"
+  | "claude-code"
+  | "cursor"
+  | "http";
 
-export const MCP_CLIENTS: ReadonlyArray<{ id: McpClientId; label: string }> = [
+export const MCP_CLIENTS: ReadonlyArray<{ id: McpClientId; label: string; signsIn?: true }> = [
+  { id: "claude-ai", label: "claude.ai", signsIn: true },
+  { id: "chatgpt", label: "ChatGPT", signsIn: true },
   { id: "claude-desktop", label: "Claude Desktop" },
   { id: "claude-code", label: "Claude Code" },
   { id: "cursor", label: "Cursor" },
   { id: "http", label: "Other clients" },
 ];
+
+/** The clients that take an API key — all a newly generated key is shown with. */
+export const KEY_MCP_CLIENTS = MCP_CLIENTS.filter((client) => !client.signsIn);
 
 /** Stands in for a key in setup shown before one is generated. */
 export const API_KEY_PLACEHOLDER = "gen_YOUR_API_KEY";
@@ -35,12 +48,14 @@ export function companyMcpUrl(origin: string, companyId: string): string {
 
 export type McpClientSetup = {
   /** The language the snippet is in, for its label. */
-  language: "json" | "bash";
+  language: "json" | "bash" | "url";
   /** Where the snippet goes, in a few words. */
   where: string;
   snippet: string;
   /** One more sentence the client needs. */
   note: string;
+  /** The client signs in through OAuth: its setup is the URL alone, with no key. */
+  signsIn: boolean;
 };
 
 /** The setup for one client, with `token` in place of the placeholder when there is one. */
@@ -51,8 +66,25 @@ export function mcpClientSetup(
   const token = options.token?.trim() || API_KEY_PLACEHOLDER;
   const bearer = `Bearer ${token}`;
   switch (client) {
+    case "claude-ai":
+      return {
+        language: "url",
+        where: "claude.ai → Settings → Connectors",
+        snippet: options.url,
+        note: "Choose Add custom connector, paste this URL, then Connect. Genosyn asks you to sign in and approve Claude — no key needed. The connector reaches Claude Desktop and the Claude apps too; on a Team or Enterprise plan, an owner of your Claude organization adds it first.",
+        signsIn: true,
+      };
+    case "chatgpt":
+      return {
+        language: "url",
+        where: "ChatGPT → Settings → Apps & Connectors",
+        snippet: options.url,
+        note: "Turn on Developer mode under Advanced settings, choose Create, paste this URL as the MCP server URL and pick OAuth. Genosyn asks you to sign in and approve ChatGPT — no key needed.",
+        signsIn: true,
+      };
     case "claude-desktop":
       return {
+        signsIn: false,
         language: "json",
         where: "claude_desktop_config.json",
         snippet: json({
@@ -68,6 +100,7 @@ export function mcpClientSetup(
       };
     case "claude-code":
       return {
+        signsIn: false,
         language: "bash",
         where: "your terminal",
         snippet:
@@ -77,6 +110,7 @@ export function mcpClientSetup(
       };
     case "cursor":
       return {
+        signsIn: false,
         language: "json",
         where: "~/.cursor/mcp.json",
         snippet: json({
@@ -88,6 +122,7 @@ export function mcpClientSetup(
       };
     case "http":
       return {
+        signsIn: false,
         language: "bash",
         where: "any Streamable HTTP client",
         snippet:

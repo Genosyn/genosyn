@@ -196,6 +196,10 @@ export function Vocabulary() {
             term: "MCP server",
             def: "A Model Context Protocol server. Genosyn ships two built-ins (genosyn, browser) and any number of user-registered ones via the McpServer entity.",
           },
+          {
+            term: "Connected app",
+            def: "An app such as claude.ai or ChatGPT that a Member approved, through OAuth, to use the Genosyn MCP server as them in one company. Not a Connection, which is an account inside an Integration.",
+          },
         ]}
       />
 

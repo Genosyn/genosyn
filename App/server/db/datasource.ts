@@ -86,6 +86,9 @@ import { Notification } from "./entities/Notification.js";
 import { Team } from "./entities/Team.js";
 import { Handoff } from "./entities/Handoff.js";
 import { ApiKey } from "./entities/ApiKey.js";
+import { OAuthClient } from "./entities/OAuthClient.js";
+import { ConnectedApp } from "./entities/ConnectedApp.js";
+import { ConnectedAppToken } from "./entities/ConnectedAppToken.js";
 import { Resource } from "./entities/Resource.js";
 import { ResourceFolder } from "./entities/ResourceFolder.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
@@ -332,6 +335,11 @@ const entities = [
   Team,
   Handoff,
   ApiKey,
+  // OAuth for the Genosyn MCP server: clients that registered themselves, the
+  // apps a Member approved, and their tokens.
+  OAuthClient,
+  ConnectedApp,
+  ConnectedAppToken,
   Resource,
   ResourceFolder,
   EmployeeResourceGrant,

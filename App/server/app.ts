@@ -94,6 +94,13 @@ import { careersRouter } from "./routes/careers.js";
 import { careersHostGuard } from "./routes/careersSite.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
+import { connectedAppsRouter } from "./routes/connectedApps.js";
+import {
+  oauthAuthorizeRouter,
+  oauthConsentRouter,
+  oauthDiscoveryRouter,
+  oauthServerRouter,
+} from "./routes/mcpOauth.js";
 import { cliRouter } from "./routes/cli.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
@@ -168,6 +175,12 @@ export function createApp(): express.Express {
   // its JSON-RPC body (larger than 1 MB, to carry a file) only after the key
   // checks out. Each tool call goes back through this same app with that key.
   app.use("/api/companies/:cid/mcp", companyMcpRouter);
+  // OAuth for that server, so a client that signs in instead of sending a key
+  // (claude.ai, ChatGPT) can connect: discovery, and the authorization
+  // endpoint, a browser navigation that hands the request to the consent
+  // page. Neither reads a session or a body.
+  app.use("/.well-known", oauthDiscoveryRouter);
+  app.use("/oauth", oauthAuthorizeRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
@@ -175,6 +188,10 @@ export function createApp(): express.Express {
   app.use("/api/forms", publicFormsSecurityHeaders);
   app.use("/forms", publicFormsSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
+  // The OAuth registration, token and revocation endpoints: called by the
+  // clients' own servers with no cookie, so ahead of the session — the client
+  // credentials and the PKCE verifier are the only proof they take.
+  app.use("/api/oauth", oauthServerRouter);
 
   // Recipient signing links are bearer-token authenticated and intentionally
   // session-free. Mount before cookie sessions and the trusted-origin gate so
@@ -276,6 +293,9 @@ export function createApp(): express.Express {
   // session cookie itself. Per-company SSO (M56 Phase B) sits at the even
   // more specific `/api/auth/sso/company/*` and is mounted first for the
   // same reason.
+  // The consent page's own calls: a signed-in Member approving or denying an
+  // app. Below the origin gate, so no other site can answer for them.
+  app.use("/api/oauth/consent", oauthConsentRouter);
   app.use("/api/auth/sso/company", companySsoAuthRouter);
   app.use("/api/auth/sso", ssoRouter);
   app.use("/api/auth", passkeyLoginRouter);
@@ -370,6 +390,7 @@ export function createApp(): express.Express {
   // Per-user programmatic API keys (M14). Bearer tokens minted here
   // authenticate as the calling user, scoped to this company only.
   app.use("/api/companies/:cid", apiKeysRouter);
+  app.use("/api/companies/:cid", connectedAppsRouter);
   // Per-employee models — an employee can register several and keep one
   // active. See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);

@@ -1,7 +1,9 @@
 import type { Request } from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
+import { ConnectedApp } from "../db/entities/ConnectedApp.js";
 import { Membership } from "../db/entities/Membership.js";
+import { mayConnectApps } from "../../shared/connectedApps.js";
 import { User } from "../db/entities/User.js";
 import {
   resolveUserSession,
@@ -11,11 +13,13 @@ import {
 
 export type RealtimeAuthentication =
   | { kind: "session"; identity: UserSessionIdentity }
-  | { kind: "api-key"; keyId: string };
+  | { kind: "api-key"; keyId: string }
+  | { kind: "connected-app"; connectedAppId: string };
 
 /** Capture the exact credential already checked by the HTTP auth middleware. */
 export function realtimeAuthenticationForRequest(req: Request): RealtimeAuthentication {
   if (req.apiKey) return { kind: "api-key", keyId: req.apiKey.id };
+  if (req.connectedApp) return { kind: "connected-app", connectedAppId: req.connectedApp.id };
   const identity = userSessionIdentity(req.session);
   if (!identity) throw new Error("A valid sign-in is required for realtime access");
   return { kind: "session", identity };
@@ -48,6 +52,19 @@ export async function realtimeUserIsAuthorized(
       return false;
     }
     if (!(await AppDataSource.getRepository(User).existsBy({ id: userId }))) return false;
+  } else if (authentication.kind === "connected-app") {
+    const app = await AppDataSource.getRepository(ConnectedApp).findOneBy({
+      id: authentication.connectedAppId,
+      companyId,
+      userId,
+    });
+    if (!app || app.revokedAt || app.expiresAt.getTime() <= Date.now()) return false;
+    if (!(await AppDataSource.getRepository(User).existsBy({ id: userId }))) return false;
+    const membership = await AppDataSource.getRepository(Membership).findOneBy({
+      userId,
+      companyId,
+    });
+    return Boolean(membership && mayConnectApps(membership.role));
   } else {
     return false;
   }

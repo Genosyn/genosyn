@@ -1105,16 +1105,18 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
     ? selfReviewToolError(true, name, req.body ?? {})
     : "This review cannot use external Connections or other work surfaces.";
   if (error) return res.status(403).json({ error });
-  if (
-    !(await isActiveOwnReview({
+  try {
+    const running = await isActiveOwnReview({
       companyId: req.mcpCompany!.id,
       employeeId: req.mcpEmployee!.id,
       routineId: req.mcpRoutineId,
       runId: req.mcpRunId,
-    }))
-  )
-    return res.status(403).json({ error: "This review is no longer running." });
-  return next();
+    });
+    if (!running) return res.status(403).json({ error: "This review is no longer running." });
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 });
 
 // A talking turn — a group discussion turn, or an answer to `ask_colleague` —
