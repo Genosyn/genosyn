@@ -73,6 +73,35 @@ export type BrexCashAccountSummary = {
   availableBalance: BrexMoney;
 };
 
+/**
+ * A moment the way Brex reads a date-time filter such as `posted_at_start`:
+ * the UTC date and time with no offset, `2022-12-12T23:59:59.999` — the
+ * example Brex gives for every date-time filter in its API reference.
+ *
+ * Brex refuses a value that carries an offset, the `Z` that `toISOString()`
+ * ends with included, with a bare 400 "Bad request". Sending `toISOString()`
+ * as it was is how every Brex sync after an account's first came to fail: the
+ * first asks for the whole history and sends no date at all.
+ */
+export function brexDateTime(at: Date): string {
+  return at.toISOString().slice(0, -1);
+}
+
+/** A date and time with no offset, as Brex writes its examples. */
+const WITHOUT_OFFSET = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+
+/**
+ * A date-time an AI Employee passed to a tool, or null when it isn't one.
+ * One written without an offset is UTC, as Brex reads it — never the
+ * server's local time, which is how JavaScript would read it.
+ */
+export function parseBrexDateTimeInput(value: string): Date | null {
+  const text = value.trim();
+  if (!text) return null;
+  const at = new Date(WITHOUT_OFFSET.test(text) ? `${text.replace(" ", "T")}Z` : text);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
 async function brexGet<T>(
   userToken: string,
   path: string,
@@ -169,7 +198,8 @@ export async function getBrexCashTransactionsPage(
   options: {
     cursor?: string;
     limit?: number;
-    postedAtStart?: string;
+    /** Only transactions posted on or after this moment. */
+    postedAtStart?: Date;
   } = {},
 ): Promise<BrexPage<BrexCashTransaction>> {
   return brexGet<BrexPage<BrexCashTransaction>>(
@@ -178,7 +208,7 @@ export async function getBrexCashTransactionsPage(
     {
       cursor: options.cursor,
       limit: options.limit ?? 100,
-      posted_at_start: options.postedAtStart,
+      posted_at_start: options.postedAtStart && brexDateTime(options.postedAtStart),
     },
   );
 }
@@ -188,7 +218,8 @@ export async function getBrexCardTransactionsPage(
   options: {
     cursor?: string;
     limit?: number;
-    postedAtStart?: string;
+    /** Only transactions posted on or after this moment. */
+    postedAtStart?: Date;
   } = {},
 ): Promise<BrexPage<BrexCardTransaction>> {
   return brexGet<BrexPage<BrexCardTransaction>>(
@@ -197,7 +228,7 @@ export async function getBrexCardTransactionsPage(
     {
       cursor: options.cursor,
       limit: options.limit ?? 100,
-      posted_at_start: options.postedAtStart,
+      posted_at_start: options.postedAtStart && brexDateTime(options.postedAtStart),
     },
   );
 }
@@ -317,13 +348,11 @@ export const brexProvider: IntegrationProvider = {
     if (name === "list_cash_transactions") {
       const accountId = typeof input.accountId === "string" ? input.accountId.trim() : "";
       if (!accountId) throw new Error("accountId is required");
-      let postedAtStart: string | undefined;
+      let postedAtStart: Date | undefined;
       if (typeof input.postedAtStart === "string" && input.postedAtStart.trim()) {
-        const parsed = new Date(input.postedAtStart);
-        if (Number.isNaN(parsed.getTime())) {
-          throw new Error("postedAtStart must be an RFC 3339 date-time");
-        }
-        postedAtStart = parsed.toISOString();
+        const parsed = parseBrexDateTimeInput(input.postedAtStart);
+        if (!parsed) throw new Error("postedAtStart must be an RFC 3339 date-time");
+        postedAtStart = parsed;
       }
       return getBrexCashTransactionsPage(cfg.userToken, accountId, {
         limit: clampInt(input.limit, 1, 100, 50),
