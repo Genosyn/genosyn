@@ -6,7 +6,8 @@
  * a Claude model's API keys, a custom endpoint's server, a ChatGPT sign-in.
  * Nothing about one model sits outside its card; the page itself holds only
  * Add an AI Model. Also: changing a model from the list its own keys reach,
- * adding the company's model, removing one, a Member's read-only cards, a
+ * attaching one of the company's models (the same model, never a copy),
+ * detaching one (which never deletes it), a Member's read-only cards, a
  * phone-width screen, dark mode, and the `#advanced` link.
  *
  * Every API call goes to the real router on a private in-memory database. The
@@ -34,13 +35,15 @@ import { Membership } from "../server/db/entities/Membership";
 import { User } from "../server/db/entities/User";
 import { encryptSecret } from "../server/lib/secret";
 import { errorHandler } from "../server/middleware/error";
+import { companyModelsRouter } from "../server/routes/companyModels";
 import { modelsRouter } from "../server/routes/models";
 import { CodexAppServer } from "../server/services/agent/codexAppServer";
 import { agentRuntime } from "../server/services/agent/runtime";
 import { configWithSubscriptionAccessToken } from "../server/services/codexSubscription";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../server/services/modelApiKeys";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
-import { insertEmployeeModel } from "../server/test/modelFixtures.js";
+import { flaggedActiveModel, insertEmployeeModel } from "../server/test/modelFixtures.js";
+import { EmployeeModel } from "../server/db/entities/EmployeeModel";
 import { fakeCodexVerification } from "../server/test/modelVerification";
 import { persistTestSession } from "../server/test/userSession";
 import { startBrowserFixture } from "./browserFixture";
@@ -161,9 +164,9 @@ await insert(AIModelKeyHealth, {
   lastErrorMessage: "Your credit balance is too low to access the Anthropic API.",
   coolDownUntil: new Date(Date.now() + 3 * 60_000),
 });
-// Grace runs on an OpenAI model of her own — the one Ada can be given in a
-// click — and keeps a Claude model too, which Ada will already run by then.
-await insertEmployeeModel({
+// Grace runs on an OpenAI model — the one Ada can be given in a click — and
+// keeps a Claude model too, on a key of its own.
+const graceGpt = await insertEmployeeModel({
   employeeId: grace.id,
   provider: "openai",
   model: "gpt-5.5",
@@ -242,6 +245,7 @@ app.use(async (req, _res, next) => {
   await persistTestSession(req);
   next();
 });
+app.use("/api/companies/:cid/models", companyModelsRouter);
 app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
 app.use(errorHandler);
 const api: Server = await new Promise((resolve) => {
@@ -420,7 +424,7 @@ try {
   const claudeKeys = card(page, CLAUDE).getByRole("region", { name: "API keys" });
   await claudeKeys.waitFor();
   assert.equal(await claudeKeys.getByRole("listitem").count(), 3);
-  for (const setting of ["Model", "Context window", "Concurrent Routine Runs", "Remove from Ada"]) {
+  for (const setting of ["Model", "Context window", "Concurrent Routine Runs", "Detach from Ada"]) {
     await card(page, CLAUDE).getByRole("region", { name: setting, exact: true }).waitFor();
   }
   assert.equal(await card(page, CLAUDE).getByRole("region", { name: "Endpoint" }).count(), 0);
@@ -560,7 +564,7 @@ try {
       "Custom endpoint · Qwen/Qwen3.8-27B",
   );
   await card(page, QWEN).getByText("Active", { exact: true }).waitFor();
-  assert.equal((await savedModel(qwen.id))?.isActive, true);
+  assert.equal((await flaggedActiveModel(ada.id))?.id, qwen.id);
   checks++;
 
   // ── Adding one: the company's model in a click, or the connect form ─────────
@@ -570,38 +574,47 @@ try {
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
   await page.getByRole("button", { name: "Add an AI Model", exact: true }).click();
-  const offers = page.getByRole("listitem").filter({ hasText: "Grace runs on it" });
+  // The company's models Ada doesn't have yet — both of Grace's — and none of her own.
+  const offers = page.getByRole("listitem").filter({ hasText: "Used by Grace" });
   const gptOffer = offers.filter({ hasText: "OpenAI · gpt-5.5" });
   await gptOffer.waitFor();
-  // Grace's Claude model is the one Ada now runs: offering it would only copy it again.
-  assert.equal(await offers.filter({ hasText: "claude-sonnet-5" }).count(), 0);
+  assert.equal(await offers.count(), 2);
+  assert.equal(await offers.filter({ hasText: "Qwen" }).count(), 0);
   await page.getByLabel("API key", { exact: true }).waitFor();
   await page.screenshot({ path: path.join(artifacts, "model-cards-add.png"), fullPage: true });
+  const modelsBefore = await AppDataSource.getRepository(AIModel).count();
   await gptOffer.getByRole("button", { name: "Use this one", exact: true }).click();
   const gptCard = card(page, "OpenAI · gpt-5.5");
   await gptCard.getByText("Active", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0, "the panel closed");
-  const copies = await AppDataSource.getRepository(AIModel).findBy({
-    employeeId: ada.id,
-    model: "gpt-5.5",
-  });
-  assert.equal(copies.length, 1);
-  assert.equal(copies[0].isActive, true);
+  // Ada runs on Grace's very model — attached, not copied — and says who else does.
+  assert.equal(await AppDataSource.getRepository(AIModel).count(), modelsBefore);
+  assert.equal((await flaggedActiveModel(ada.id))?.id, graceGpt.id);
+  assert.equal((await flaggedActiveModel(grace.id))?.id, graceGpt.id);
+  await gptCard.getByText("Also used by Grace", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: /^Advanced/ }).count(), 4);
   await assertNothingOutsideCards(page);
   checks++;
 
-  // ── Removing one, from its own card, after asking ───────────────────────────
+  // ── Detaching one, from its own card, after asking — the model stays ────────
   await openAdvanced(card(page, CHATGPT));
   await card(page, CHATGPT)
-    .getByRole("region", { name: "Remove from Ada", exact: true })
-    .getByRole("button", { name: "Remove" })
+    .getByRole("region", { name: "Detach from Ada", exact: true })
+    .getByRole("button", { name: "Detach" })
     .click();
   const confirm = page.getByRole("dialog");
-  await confirm.getByText("Remove this AI Model from Ada?").waitFor();
-  await confirm.getByRole("button", { name: "Remove", exact: true }).click();
+  await confirm.getByText("Detach this AI Model from Ada?").waitFor();
+  await confirm.getByText(/stays in Settings → AI Models/).waitFor();
+  await confirm.getByRole("button", { name: "Detach", exact: true }).click();
   await card(page, CHATGPT).waitFor({ state: "detached" });
-  assert.equal(await savedModel(chatgptRow.id), null);
+  assert.ok(await savedModel(chatgptRow.id), "detaching never deletes the company's model");
+  assert.equal(
+    await AppDataSource.getRepository(EmployeeModel).countBy({
+      employeeId: ada.id,
+      modelId: chatgptRow.id,
+    }),
+    0,
+  );
   assert.equal(await page.getByRole("button", { name: /^Advanced/ }).count(), 3);
   await page.close();
   checks++;
@@ -631,7 +644,7 @@ try {
   });
   assert.equal(await memberKeys.getByRole("listitem").count(), 3);
   assert.equal(await memberKeys.getByLabel("Add a backup key").count(), 0);
-  for (const name of ["Set manually", "Ask the provider", "Change", "Remove"]) {
+  for (const name of ["Set manually", "Ask the provider", "Change", "Remove", "Detach"]) {
     assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, `${name}`);
   }
   assert.equal(await page.getByRole("combobox", { name: "Concurrent Routine Runs" }).count(), 0);

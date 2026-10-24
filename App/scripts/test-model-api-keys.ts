@@ -1,5 +1,5 @@
 /**
- * Real Chrome over the real models router: an owner adds several backup API
+ * Real Chrome over the real model routers: an owner adds several backup API
  * keys to a Claude AI Model, sees one refused at its test, removes one, moves
  * one up, and reads which key is failing — while a Member only reads. The
  * page is the real model section; every API call goes to the real router on a
@@ -25,6 +25,7 @@ import { Membership } from "../server/db/entities/Membership";
 import { User } from "../server/db/entities/User";
 import { maskSecret } from "../server/lib/secret";
 import { errorHandler } from "../server/middleware/error";
+import { companyModelsRouter } from "../server/routes/companyModels";
 import { modelsRouter } from "../server/routes/models";
 import { agentRuntime } from "../server/services/agent/runtime";
 import {
@@ -123,6 +124,8 @@ app.use(async (req, _res, next) => {
   await persistTestSession(req);
   next();
 });
+// The model and its keys are the company's; the employee's router lists which it uses.
+app.use("/api/companies/:cid/models", companyModelsRouter);
 app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
 app.use(errorHandler);
 const api: Server = await new Promise((resolve) => {

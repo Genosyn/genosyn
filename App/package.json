@@ -45,6 +45,7 @@
     "test:model-setup": "tsx scripts/test-model-setup.ts",
     "test:model-api-keys": "tsx scripts/test-model-api-keys.ts",
     "test:model-cards": "tsx scripts/test-model-cards.ts",
+    "test:company-models": "tsx scripts/test-company-models.ts",
     "test:base-forms-browser": "tsx scripts/test-base-forms-browser.ts",
     "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts",

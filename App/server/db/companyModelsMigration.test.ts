@@ -441,9 +441,7 @@ async function assertEmployeeOwnedAgain(db: Db, id: Ids, spare: string): Promise
   assert.equal(byId.get(id.chatgpt)!.employeeId, id.linus);
   assert.equal(byId.get(id.newer)!.employeeId, id.mira);
   // Grace's share of Ada's Claude becomes her own copy, active, with its health.
-  const gracesCopies = rows.filter(
-    (row) => row.employeeId === id.grace && ![id.copy].includes(row.id),
-  );
+  const gracesCopies = rows.filter((row) => row.employeeId === id.grace && row.id !== id.copy);
   assert.equal(gracesCopies.length, 1);
   const [copy] = gracesCopies;
   assert.equal(copy.configJson, CLAUDE_CONFIG);
