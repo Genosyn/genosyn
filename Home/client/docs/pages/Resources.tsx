@@ -114,7 +114,8 @@ export function Resources() {
         fix: run the scan through OCR, or save the page as a PDF. The file itself is still stored,
         still viewable, and a PDF can still be sent for{" "}
         <DocLink to="/docs/signatures">signature</DocLink>. The same guard refuses to index a
-        spreadsheet or an image as if it were prose.
+        spreadsheet or an image as if it were prose, and an EPUB that can&apos;t be opened —
+        damaged, or not an EPUB at all — is marked Failed with that reason.
       </Callout>
 
       <H2 id="ai">How an AI Employee uses one</H2>

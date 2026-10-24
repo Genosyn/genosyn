@@ -1,4 +1,4 @@
-import { IsNull, Not, type EntityManager } from "typeorm";
+import { MoreThan, type EntityManager } from "typeorm";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -51,7 +51,9 @@ async function existingRun(manager: EntityManager, routineId: string): Promise<R
   const order = { createdAt: "ASC", id: "ASC" } as const;
   const owned = await runs.findOne({
     where: [
-      { routineId, queueActiveEmployeeId: Not(IsNull()) },
+      // A claim is never empty: `> ''` reads the claim index, where
+      // `IS NOT NULL` walked the Routine's whole history.
+      { routineId, queueActiveEmployeeId: MoreThan("") },
       { routineId, status: "running" },
     ],
     order,

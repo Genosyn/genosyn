@@ -21,6 +21,7 @@ import {
   createUserSession,
   resolveUserSession,
   revokeCurrentUserSession,
+  userSessionIdentity,
 } from "../services/userSessions.js";
 
 declare module "express-serve-static-core" {
@@ -78,11 +79,74 @@ export function hashApiToken(body: string): string {
 // on every request. 60 s resolution is plenty for a "last used" UI display.
 const LAST_USED_DEBOUNCE_MS = 60_000;
 
+/**
+ * What one request's guards read from the database, kept for that request.
+ *
+ * About sixty routers are mounted under `/api/companies/:cid`, and each opens
+ * with `requireAuth` and `requireCompanyMember`, so a request meets those
+ * guards once for every router it passes on its way to the one that answers
+ * it. They decide from the same inputs each time — the session cookie or the
+ * `Authorization` header, the company in the URL, the Member — so each read
+ * is made once and kept under exactly those inputs, and every later guard
+ * decides again from the kept answer. A different input is a different entry,
+ * read afresh. Nothing outlives the request, so the next one sees a revoked
+ * key, an ended sign-in or a removed Member at once, and a read that fails is
+ * not kept.
+ */
+const readsByRequest = new WeakMap<Request, Map<string, unknown>>();
+
+async function readOncePerRequest<T>(
+  req: Request,
+  inputs: readonly unknown[],
+  read: () => Promise<T>,
+): Promise<T> {
+  const key = JSON.stringify(inputs);
+  let reads = readsByRequest.get(req);
+  if (reads?.has(key)) return reads.get(key) as T;
+  const value = await read();
+  if (!reads) readsByRequest.set(req, (reads = new Map()));
+  reads.set(key, value);
+  return value;
+}
+
 type BearerPrincipal =
   | { user: User; key: ApiKey; app?: undefined }
   | { user: User; app: ConnectedApp; key?: undefined };
 
-async function tryBearerAuth(
+/** {@link readBearerAuth} once per request: every company router asks. */
+function tryBearerAuth(
+  req: Request,
+  options: { connectedApps: boolean },
+): Promise<BearerPrincipal | null> {
+  return readOncePerRequest(
+    req,
+    [
+      "bearer",
+      req.headers.authorization ?? null,
+      companyIdFromApiPath(req.originalUrl),
+      options.connectedApps,
+    ],
+    () => readBearerAuth(req, options),
+  );
+}
+
+/** The user who sent a session cookie, read once per request like the key. */
+function sessionUser(req: Request): Promise<User | null> {
+  const identity = userSessionIdentity(req.session);
+  return readOncePerRequest(
+    req,
+    [
+      "session",
+      identity?.userId ?? null,
+      identity?.userSessionId ?? null,
+      identity?.sessionVersion ?? null,
+      identity?.expiresAt ?? null,
+    ],
+    () => resolveUserSession(req.session),
+  );
+}
+
+async function readBearerAuth(
   req: Request,
   options: { connectedApps: boolean },
 ): Promise<BearerPrincipal | null> {
@@ -190,7 +254,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Cookie-session path — what the web UI uses.
   const uid = req.session?.userId as string | undefined;
   if (uid) {
-    const user = await resolveUserSession(req.session);
+    let user: User | null;
+    try {
+      user = await sessionUser(req);
+    } catch (error) {
+      // Express 4 drops a rejected promise; hand the failure to the error handler
+      // so the client gets an answer instead of a socket left open.
+      return next(error);
+    }
     if (!user) {
       req.session = null;
       return res.status(401).json({ error: "Unauthorized" });
@@ -202,7 +273,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   // Bearer-token path — programmatic access via API keys, and a connected
   // app's token on the Genosyn MCP server's own calls.
-  const bearer = await tryBearerAuth(req, { connectedApps: false });
+  let bearer: BearerPrincipal | null;
+  try {
+    bearer = await tryBearerAuth(req, { connectedApps: false });
+  } catch (error) {
+    return next(error);
+  }
   if (bearer) {
     authenticateBearer(req, bearer);
     return next();
@@ -299,6 +375,25 @@ export function requireBrowserSession(
   next();
 }
 
+/** A user's Membership of a company, or why `requireCompanyMember` refuses them. */
+type CompanyStanding = Membership | "notMember" | "twoFactorRequired";
+
+async function readCompanyStanding(
+  companyId: string,
+  userId: string,
+  viaBearer: boolean,
+): Promise<CompanyStanding> {
+  const membership = await AppDataSource.getRepository(Membership).findOneBy({ companyId, userId });
+  if (!membership) return "notMember";
+  if (!viaBearer) {
+    const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
+    if (company?.requireTwoFactor && !(await hasTwoFactorMethod(userId))) {
+      return "twoFactorRequired";
+    }
+  }
+  return membership;
+}
+
 export async function requireCompanyMember(
   req: Request,
   res: Response,
@@ -306,7 +401,8 @@ export async function requireCompanyMember(
 ): Promise<void | Response> {
   const companyId = req.params.cid ?? req.params.companyId;
   if (!companyId) return res.status(400).json({ error: "Missing company id" });
-  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  const userId = req.userId;
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   // An ApiKey only unlocks the company it was minted for, even if the
   // owning user is a member of multiple companies — and a connected app the
   // company it was approved for. Reject before we hit the DB so a
@@ -318,29 +414,34 @@ export async function requireCompanyMember(
         : "API key is scoped to a different company",
     });
   }
-  const m = await AppDataSource.getRepository(Membership).findOneBy({
-    companyId,
-    userId: req.userId,
-  });
-  if (!m) return res.status(403).json({ error: "Forbidden" });
+  // A bearer credential was minted from a signed-in session, so the company's
+  // two-factor rule is the session's to meet, as it always was for API keys.
+  const viaBearer = usesBearerCredential(req);
+  let standing: CompanyStanding;
+  try {
+    standing = await readOncePerRequest(req, ["companyMember", companyId, userId, viaBearer], () =>
+      readCompanyStanding(companyId, userId, viaBearer),
+    );
+  } catch (error) {
+    // Express 4 drops a rejected promise; answer through the error handler.
+    return next(error);
+  }
+  if (standing === "notMember") return res.status(403).json({ error: "Forbidden" });
+  if (standing === "twoFactorRequired") {
+    return res.status(403).json({
+      error: "This company requires two-factor authentication. Enable it in Account → Security.",
+    });
+  }
   // Who may connect an app is checked again on every request, so a Member
   // demoted below admin loses their connected apps with the role.
-  if (req.connectedApp && !mayConnectApps(m.role)) {
+  if (req.connectedApp && !mayConnectApps(standing.role)) {
     return res.status(403).json({ error: CONNECT_APPS_ROLE_REQUIRED });
   }
-  if (!usesBearerCredential(req)) {
-    const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
-    if (company?.requireTwoFactor && !(await hasTwoFactorMethod(req.userId))) {
-      return res.status(403).json({
-        error: "This company requires two-factor authentication. Enable it in Account → Security.",
-      });
-    }
-  }
-  req.companyRole = m.role;
-  req.membership = m;
+  req.companyRole = standing.role;
+  req.membership = standing;
   // Backwards compatibility for route code that still reads the old ad-hoc
   // property. New authorization middleware uses the typed companyRole field.
-  (req as Request & { role: Role }).role = m.role;
+  (req as Request & { role: Role }).role = standing.role;
   next();
 }
 
@@ -464,7 +565,14 @@ export async function requireMasterAdmin(
       .json({ error: "Verify your email before using instance administration" });
   }
   if (config.security.multiTenant) {
-    if (!(await hasTwoFactorMethod(req.user.id))) {
+    let enrolled: boolean;
+    try {
+      enrolled = await hasTwoFactorMethod(req.user.id);
+    } catch (error) {
+      // Express 4 drops a rejected promise; answer through the error handler.
+      return next(error);
+    }
+    if (!enrolled) {
       return res.status(403).json({
         error: "Enable two-factor authentication before using instance administration",
         code: "SECOND_FACTOR_ENROLLMENT_REQUIRED",

@@ -13,8 +13,10 @@ export class BackupError extends Error {
   constructor(
     message: string,
     readonly status: 400 | 404 | 409 | 413 = 409,
+    // The error behind the reason, which the operator log keeps.
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "BackupError";
   }
 }
