@@ -6,6 +6,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { ModelSetupError } from "./modelCatalog.js";
 import { addBackupKey, removeApiKey, reorderApiKeys } from "./modelApiKeySetup.js";
@@ -40,7 +41,7 @@ const PRIMARY = "sk-ant-api03-service-primary-key-00001";
 const key = (n: number) => `sk-ant-api03-service-backup-key-${String(n).padStart(5, "0")}`;
 
 async function claudeModel(keys: string[] = [PRIMARY], overrides: Partial<AIModel> = {}) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: "employee",
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -227,7 +228,7 @@ describe("the primary key", () => {
 
   test("a legacy primary becomes a key with an id when replaced", async (t) => {
     stubVerification(t);
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "employee",
       provider: "anthropic",
       model: "claude-opus-5-5",

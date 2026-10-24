@@ -6,6 +6,7 @@ import { AppDataSource } from "../../db/datasource.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { AIModelKeyHealth } from "../../db/entities/AIModelKeyHealth.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../modelApiKeys.js";
 import {
   LAST_USED_WRITE_INTERVAL_MS,
@@ -423,7 +424,7 @@ describe("what a ring remembers about each key", () => {
 
   async function savedModel(count = 2): Promise<AIModel> {
     const stored = plaintexts.slice(0, count).map((key) => newStoredApiKey(key, COMPANY));
-    return insert(AIModel, {
+    return insertEmployeeModel({
       employeeId: "employee",
       provider: "anthropic",
       model: "claude-opus-5-5",
@@ -563,7 +564,7 @@ describe("what a ring remembers about each key", () => {
   });
 
   test("no ring for an AI Model whose keys no longer decrypt", async () => {
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "employee",
       provider: "anthropic",
       model: "claude-opus-5-5",

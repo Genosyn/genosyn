@@ -2,7 +2,6 @@ import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { withSerializedTransaction } from "../../db/transactions.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { Company } from "../../db/entities/Company.js";
 import { EmployeeFinanceGrant } from "../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js";
@@ -15,7 +14,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { RoutineTrigger } from "../../db/entities/RoutineTrigger.js";
-import { effectiveActiveId } from "../models.js";
+import { attachedModelsByEmployee, type AttachedModels } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { recordAudit } from "../audit.js";
 import { nextRunFor } from "../cron.js";
@@ -68,7 +67,7 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
   const employeeIds = roster.map((employee) => employee.id);
   const [models, mailGrants, repositoryGrants, calendarGrants, rules, routines] = employeeIds.length
     ? await Promise.all([
-        AppDataSource.getRepository(AIModel).findBy({ employeeId: In(employeeIds) }),
+        attachedModelsByEmployee(employeeIds),
         AppDataSource.getRepository(EmployeeMailAccountGrant).findBy({
           employeeId: In(employeeIds),
         }),
@@ -79,7 +78,7 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
         AppDataSource.getRepository(MailRule).findBy({ companyId }),
         AppDataSource.getRepository(Routine).findBy({ employeeId: In(employeeIds) }),
       ])
-    : [[], [], [], [], [], []];
+    : [new Map<string, AttachedModels>(), [], [], [], [], []];
   const accountIds = new Set(accounts.map((account) => account.id));
   const repositoryIds = new Set(repositories.map((repository) => repository.id));
   const calendarIds = new Set(calendars.map((calendar) => calendar.id));
@@ -99,8 +98,8 @@ export async function getProactiveOverview(companyId: string): Promise<Proactive
     }),
   );
   const employees = roster.map((employee) => {
-    const brains = models.filter((model) => model.employeeId === employee.id);
-    const active = brains.find((model) => model.id === effectiveActiveId(brains));
+    const { models: brains, activeId } = models.get(employee.id) ?? { models: [], activeId: null };
+    const active = brains.find((model) => model.id === activeId);
     return {
       id: employee.id,
       name: employee.name,

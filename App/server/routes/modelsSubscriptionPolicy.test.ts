@@ -26,6 +26,7 @@ import {
   configWithSubscriptionAccessToken,
 } from "../services/codexSubscription.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { modelsRouter } from "./models.js";
 
 type ExecutionMode = "host" | "disabled";
@@ -163,7 +164,7 @@ async function call<T = Record<string, unknown>>(
 }
 
 async function insertSubscriptionModel(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-5.4",
@@ -240,7 +241,7 @@ describe("verified subscription model edits", () => {
 
   test("explicit model edits verify the requested ID and preserve a concurrently activated sibling", async (t) => {
     const previous = await connectedModel();
-    const sibling = await insert(AIModel, {
+    const sibling = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       authMode: "apikey",

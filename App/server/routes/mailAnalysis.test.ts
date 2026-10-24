@@ -23,6 +23,7 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { GmailMailbox } from "../services/mail/mailbox/gmail.js";
 import { DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS } from "../../shared/mailAnalysisInstructions.js";
 import { mailRouter } from "./mail.js";
@@ -224,7 +225,7 @@ async function connectModel(
   employee: AIEmployee,
   overrides: Partial<AIModel> = {},
 ): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-4.1-mini",

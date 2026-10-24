@@ -6,12 +6,12 @@ import { after, before, beforeEach, test } from "node:test";
 import express from "express";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { employeesRouter } from "./employees.js";
 
@@ -71,7 +71,7 @@ const hire = (name: string) =>
 const connected = JSON.stringify({ apiKeyEncrypted: "test-only-key" });
 
 function model(employeeId: string, isActive: boolean, configJson: string) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "openai",
     model: isActive ? "active" : "spare",

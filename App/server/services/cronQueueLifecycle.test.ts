@@ -3,12 +3,12 @@ import { after, before, beforeEach, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { bootCron, stopCron, tickCron } from "./cron.js";
 import { startRoutineRun } from "./runner.js";
@@ -45,7 +45,7 @@ async function queuedRoutine() {
     slug: "jamie",
     role: "Operations",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "test",

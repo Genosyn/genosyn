@@ -49,6 +49,7 @@ import { oauthConsentRouter } from "../routes/mcpOauth.js";
 import { meetingsRouter } from "../routes/meetings.js";
 import { memberBrowsersRouter } from "../routes/memberBrowsers.js";
 import { modelsRouter } from "../routes/models.js";
+import { companyModelsRouter } from "../routes/companyModels.js";
 import { navigationRouter } from "../routes/navigation.js";
 import { notebooksRouter } from "../routes/notebooks.js";
 import { notesRouter } from "../routes/notes.js";
@@ -147,7 +148,11 @@ export const AREAS: readonly Area[] = [
     name: "Employee chat",
     description: "Direct conversations with an AI Employee and their attachments.",
   },
-  { name: "AI Models", description: "The AI Models an employee runs on, and their credentials." },
+  {
+    name: "AI Models",
+    description:
+      "The company's AI Models and their credentials, and which of them each AI Employee uses. Owners and admins, from a signed-in browser session only.",
+  },
   { name: "Skills", description: "Markdown playbooks attached to AI Employees." },
   { name: "Tool catalogue", description: "The tools an AI Employee can be given." },
   {
@@ -297,6 +302,7 @@ function areaRules(): AreaRule[] {
     },
     { router: employeeSurfaceRouter, area: "Employees" },
     { router: modelsRouter, area: "AI Models" },
+    { router: companyModelsRouter, area: "AI Models" },
     { router: skillsRouter, area: "Skills" },
     { router: toolCatalogueRouter, area: "Tool catalogue" },
     { router: routinesRouter, area: "Routines" },

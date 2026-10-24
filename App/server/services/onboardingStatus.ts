@@ -1,6 +1,5 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
@@ -9,7 +8,7 @@ import {
   MAIL_ACCESS_RANK,
   type MailAccessLevel,
 } from "../db/entities/EmployeeMailAccountGrant.js";
-import { effectiveActiveId } from "./models.js";
+import { attachedModels } from "./models.js";
 import { isModelConnected } from "./providers.js";
 import { hasCompanyDirection } from "./companyDirection.js";
 import { PROACTIVE_RECIPES } from "./proactive/catalogue.js";
@@ -126,8 +125,8 @@ export async function loadOnboardingStatus(
     };
   }
 
-  const [models, routines, skillCount, mailGrants] = await Promise.all([
-    AppDataSource.getRepository(AIModel).find({ where: { employeeId: employee.id } }),
+  const [attached, routines, skillCount, mailGrants] = await Promise.all([
+    attachedModels(employee.id),
     AppDataSource.getRepository(Routine).find({ where: { employeeId: employee.id } }),
     AppDataSource.getRepository(Skill).countBy({ employeeId: employee.id }),
     AppDataSource.getRepository(EmployeeMailAccountGrant).find({
@@ -135,8 +134,7 @@ export async function loadOnboardingStatus(
     }),
   ]);
 
-  const activeId = effectiveActiveId(models);
-  const active = models.find((model) => model.id === activeId) ?? null;
+  const active = attached.models.find((model) => model.id === attached.activeId) ?? null;
   const modelConnected = active !== null && isModelConnected(active);
 
   const scheduled = routines.filter((routine) => routine.enabled && routine.nextRunAt !== null);

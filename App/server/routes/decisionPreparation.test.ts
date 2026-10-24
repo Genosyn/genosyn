@@ -5,7 +5,6 @@ import { after, before, beforeEach, test } from "node:test";
 import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { DecisionPolicy } from "../db/entities/DecisionPolicy.js";
@@ -19,6 +18,7 @@ import { kickoffRoutedDecision, tryRouteDecision } from "../services/decisionRou
 import { decideDecision, listDecisions } from "../services/decisions.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 let server: Server;
@@ -56,7 +56,7 @@ beforeEach(async () => {
     slug: "alex",
     role: "Manager",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: decider.id,
     provider: "anthropic",
     model: "claude-x",

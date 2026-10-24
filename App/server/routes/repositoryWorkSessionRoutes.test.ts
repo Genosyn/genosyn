@@ -24,6 +24,7 @@ import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionT
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { activeModelOf, detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 import { recordAttachmentBytes, ATTACHMENTS_MAX_BYTES } from "../services/uploads.js";
 import { repositoryCheckoutExists } from "../services/repositoryWorkspace.js";
@@ -127,7 +128,7 @@ beforeEach(async () => {
     slug: "ada",
     role: "Engineer",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-test",
@@ -200,7 +201,7 @@ describe("work-session AI Model endpoints", () => {
     ...(modelId === undefined ? {} : { modelId }),
   });
   const addModel = (overrides: Partial<AIModel> = {}) =>
-    insert(AIModel, {
+    insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-second",
@@ -304,7 +305,7 @@ describe("work-session AI Model endpoints", () => {
   });
 
   test("returns an empty model list for an employee without any models", async () => {
-    await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+    await detachAllModels(employee.id);
     const result = await call("GET", candidatesUrl());
     assert.equal(result.status, 200);
     const employees = result.body.employees as Array<{ models: unknown[] }>;
@@ -321,10 +322,7 @@ describe("work-session AI Model endpoints", () => {
   for (const mode of ["explicit", "default"] as const) {
     test(`starts a work session with the ${mode} model id in the response and stored row`, async () => {
       const second = await addModel({ model: "gpt-5.6-sol" });
-      const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
-        employeeId: employee.id,
-        isActive: true,
-      });
+      const active = await activeModelOf(employee.id);
       const expectedId = mode === "explicit" ? second.id : active.id;
       const result = await call("POST", sessionsUrl(), {
         ...startBody(mode === "explicit" ? second.id : undefined),

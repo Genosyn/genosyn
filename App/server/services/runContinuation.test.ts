@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { startRoutineRun } from "./runner.js";
@@ -65,7 +66,7 @@ async function fixture(values: Partial<Routine> = {}) {
     body: "Review all source events.",
     ...values,
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "test",
@@ -298,7 +299,7 @@ test("automatic continuation respects approval, count, time and error boundaries
 
 test("losing the AI Model leaves unfinished continuation work visible as a failure", async () => {
   const { employee, routine } = await fixture();
-  await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+  await detachAllModels(employee.id);
   const parent = await insert(Run, {
     routineId: routine.id,
     startedAt: new Date(),

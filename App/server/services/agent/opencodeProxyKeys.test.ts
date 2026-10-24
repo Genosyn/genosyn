@@ -6,7 +6,8 @@ import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { AIModelKeyHealth } from "../../db/entities/AIModelKeyHealth.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../modelApiKeys.js";
 import { resetKeyHealthMemory } from "../modelKeyHealth.js";
 import { ApiKeyRing, REFUSED_KEY_REST_MS, type ApiKeyFailover } from "./apiKeyRing.js";
@@ -527,7 +528,7 @@ describe("a saved AI Model's keys through the proxy", () => {
       "sk-ant-api03-saved-primary-key-000001",
       "sk-ant-api03-saved-backup-key-0000002",
     ];
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "employee",
       provider: "anthropic",
       model: MODEL_ID,
@@ -574,7 +575,7 @@ describe("a saved AI Model's keys through the proxy", () => {
       "sk-ant-api03-health-primary-key-00001",
       "sk-ant-api03-health-backup-key-000002",
     ];
-    const saved = await insert(AIModel, {
+    const saved = await insertEmployeeModel({
       employeeId: "employee",
       provider: "anthropic",
       model: MODEL_ID,

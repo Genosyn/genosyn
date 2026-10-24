@@ -6,7 +6,6 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
@@ -14,6 +13,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { INTERRUPTED_BEFORE_REPLY } from "./chat.js";
 import {
   claimDurableChatTurn,
@@ -137,7 +137,7 @@ async function fixture() {
     slug: "jamie-mallers",
     role: "Reviewer",
   });
-  const model = await insert(AIModel, {
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "interrupt-test",

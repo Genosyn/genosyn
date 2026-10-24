@@ -11,6 +11,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { fakeCodexVerification } from "../test/modelVerification.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
 import { agentRuntime } from "./agent/runtime.js";
@@ -77,7 +78,7 @@ beforeEach(async () => {
 const CONNECTED_AT = new Date("2026-10-01T10:00:00.000Z");
 
 function claude(keys: string[] = [PRIMARY], overrides: Partial<AIModel> = {}): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -205,7 +206,7 @@ describe("testing an API-key AI Model", () => {
 describe("testing a custom endpoint", () => {
   test("it is asked at the endpoint saved on the card, with its key", async (t) => {
     const calls = answers(t);
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "qwen3-27b",
@@ -233,7 +234,7 @@ describe("testing a custom endpoint", () => {
 
 describe("testing a ChatGPT sign-in", () => {
   async function chatgpt(model = "auto"): Promise<AIModel> {
-    const row = await insert(AIModel, {
+    const row = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model,

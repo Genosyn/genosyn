@@ -6,7 +6,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
@@ -17,6 +16,7 @@ import { Notification } from "../db/entities/Notification.js";
 import { User } from "../db/entities/User.js";
 import { DEFAULT_DECISION_STACK_INSTRUCTIONS } from "../../shared/decisionStackInstructions.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { withAuditContext } from "./audit.js";
 import {
   DECISION_STACK_OFF_MESSAGE,
@@ -286,7 +286,7 @@ describe("a question the instructions let through", () => {
       role: "Head of Ops",
       soulBody: "",
     });
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: decider.id,
       provider: "anthropic",
       model: "claude-x",
@@ -367,7 +367,7 @@ describe("a screen that cannot answer lets the question through", () => {
       called = true;
       return { belongsOnStack: false, reason: "No.", instruction: 1 };
     });
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",
@@ -382,7 +382,7 @@ describe("a screen that cannot answer lets the question through", () => {
   });
 
   test("the real screen, with a connected model, keeps a question off on a cited instruction", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",
@@ -401,7 +401,7 @@ describe("a screen that cannot answer lets the question through", () => {
   });
 
   test("a question that cites an instruction the company never wrote is not kept off", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",

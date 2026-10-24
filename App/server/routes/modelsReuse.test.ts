@@ -25,6 +25,7 @@ import {
 } from "../services/modelApiKeys.js";
 import { listReusableModels, reuseModelForEmployee } from "../services/modelReuse.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { modelsRouter } from "./models.js";
 
@@ -163,7 +164,7 @@ async function apiKeyModel(
   overrides: Partial<AIModel> & { key?: string; companyId?: string } = {},
 ): Promise<AIModel> {
   const { key = SOURCE_KEY, companyId = company.id, ...rest } = overrides;
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-5.4",
@@ -184,7 +185,7 @@ async function customModel(
   employee: AIEmployee,
   overrides: Partial<AIModel> = {},
 ): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "qwen3-27b",
@@ -207,7 +208,7 @@ async function customModel(
 }
 
 async function subscriptionModel(employee: AIEmployee): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-5.4",

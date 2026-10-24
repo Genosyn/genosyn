@@ -28,6 +28,7 @@ import { reactivityRouter } from "./routes/reactivity.js";
 import { routineChecksRouter } from "./routes/routineChecks.js";
 import { standdownsRouter } from "./routes/standdowns.js";
 import { modelsRouter } from "./routes/models.js";
+import { companyModelsRouter } from "./routes/companyModels.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
@@ -391,8 +392,10 @@ export function createApp(): express.Express {
   // authenticate as the calling user, scoped to this company only.
   app.use("/api/companies/:cid", apiKeysRouter);
   app.use("/api/companies/:cid", connectedAppsRouter);
-  // Per-employee models — an employee can register several and keep one
-  // active. See ROADMAP §5.
+  // The company's AI Models (Settings → AI Models) and every route keyed on
+  // one model row; an employee's router below only attaches, detaches and
+  // switches which of them it uses.
+  app.use("/api/companies/:cid/models", companyModelsRouter);
   app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
   // External MCP transport — lets an outside harness connect to this
   // employee's built-in `genosyn` tools over Streamable HTTP, authenticated

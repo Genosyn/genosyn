@@ -17,6 +17,7 @@ import { Run } from "../db/entities/Run.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { CommandRunResult } from "./agent/commandRun.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { createCheck, runChecksForRun } from "./routineChecks.js";
@@ -195,7 +196,7 @@ async function effectCheck(
 }
 
 async function connectModel(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "checks-test",

@@ -6,12 +6,12 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { DEFAULT_DECISION_STACK_INSTRUCTIONS } from "../../shared/decisionStackInstructions.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { raiseDecision } from "./decisionIntake.js";
 import { screenDecision } from "./decisionScreening.js";
@@ -100,7 +100,7 @@ async function loopbackModel(verdict: Record<string, unknown>) {
     server.listen(0, "127.0.0.1", resolve);
   });
   const port = (server.address() as AddressInfo).port;
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     authMode: "customEndpoint",

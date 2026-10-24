@@ -11,6 +11,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId, testId } from "../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
 import { createDecision } from "./decisions.js";
 import {
   ROUTED_DECISION_FUSE_MS,
@@ -62,7 +63,7 @@ beforeEach(async () => {
     role: "Analyst",
     soulBody: "",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: decider.id,
     provider: "anthropic",
     model: "claude-x",
@@ -94,7 +95,7 @@ function addRetiredManagerRule(over: Partial<DecisionPolicy> = {}): Promise<Deci
 }
 
 async function connectModel(employee: AIEmployee): Promise<void> {
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-x",
@@ -162,7 +163,7 @@ describe("resolveDecider", () => {
   });
 
   test("a decider with no AI Model connected cannot serve", async () => {
-    await AppDataSource.getRepository(AIModel).delete({ employeeId: decider.id });
+    await detachAllModels(decider.id);
     await addRule();
     assert.equal(await resolveDecider(companyId, asker.id), null);
   });

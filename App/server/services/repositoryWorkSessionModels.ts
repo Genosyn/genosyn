@@ -4,7 +4,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import type { Repository } from "../db/entities/Repository.js";
-import { effectiveActiveId, resolveChatModel } from "./models.js";
+import { attachedModelsByEmployee, resolveChatModel } from "./models.js";
 import { isModelConnected, PROVIDERS } from "./providers.js";
 import { modelEffortLevels } from "./modelEffort.js";
 
@@ -19,15 +19,11 @@ export async function repositoryWorkSessionCandidates(repo: Repository) {
         order: { createdAt: "ASC" },
       })
     : [];
-  const models = employees.length
-    ? await AppDataSource.getRepository(AIModel).find({
-        where: { employeeId: In(employees.map((employee) => employee.id)) },
-        order: { createdAt: "ASC", id: "ASC" },
-      })
-    : [];
+  const attached = await attachedModelsByEmployee(employees.map((employee) => employee.id));
   return employees.map((employee) => {
-    const choices = models.filter((model) => model.employeeId === employee.id);
-    const activeId = effectiveActiveId(choices);
+    const { models, activeId } = attached.get(employee.id) ?? { models: [], activeId: null };
+    // Oldest attachment first, the order the picker has always listed them in.
+    const choices = [...models].reverse();
     return {
       id: employee.id,
       name: employee.name,

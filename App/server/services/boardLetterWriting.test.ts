@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { LetterEvidence, LetterFigures } from "./boardLetterFigures.js";
 import {
@@ -109,7 +109,7 @@ async function writer(connected = true): Promise<AIEmployee> {
     soulBody: "Tell the board the bad news first.",
   });
   if (connected) {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-test",

@@ -24,6 +24,7 @@ import { EmployeeCalendarGrant } from "../db/entities/EmployeeCalendarGrant.js";
 import { CalendarAccount } from "../db/entities/CalendarAccount.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { initTestDb, resetTestDb, closeTestDb, insert } from "../test/dbHarness.js";
+import { activeModelOf, detachAllModels, insertEmployeeModel, updateModelsOf } from "../test/modelFixtures.js";
 import { errorHandler } from "../middleware/error.js";
 import { proactiveRouter } from "./proactive.js";
 import { proactiveId, installProactiveStarter } from "../services/proactive/setup.js";
@@ -84,7 +85,7 @@ beforeEach(async () => {
     role: "Operations",
     soulBody: "Prepare accurate work. Draft customer replies.",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "test",
@@ -187,12 +188,9 @@ test("overview is scoped and exposes readiness without model credentials or Soul
   assert.ok(!JSON.stringify(view).includes(other.id));
 });
 test("overview distinguishes unattended readiness from a connected Chat fallback", async () => {
-  const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
-    employeeId: employee.id,
-    isActive: true,
-  });
+  const active = await activeModelOf(employee.id);
   await AppDataSource.getRepository(AIModel).update(active.id, { configJson: "{}" });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "connected-fallback",
@@ -352,11 +350,9 @@ for (const reason of [
     if (reason === "no-finance")
       await AppDataSource.getRepository(EmployeeFinanceGrant).delete({ employeeId: employee.id });
     if (reason === "no-model")
-      await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+      await detachAllModels(employee.id);
     if (reason === "inactive-model")
-      await AppDataSource.getRepository(AIModel).update(
-        { employeeId: employee.id },
-        { configJson: "{}" },
+      await updateModelsOf(employee.id, { configJson: "{}" },
       );
     if (reason === "paused-mailbox")
       await AppDataSource.getRepository(MailAccount).update(
@@ -400,7 +396,7 @@ for (const missing of ["model", "grant", "company"] as const) {
         accessLevel: "read",
       });
     if (missing !== "model")
-      await insert(AIModel, {
+      await insertEmployeeModel({
         employeeId: reader.id,
         provider: "openai",
         model: "test",

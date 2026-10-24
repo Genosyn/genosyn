@@ -27,6 +27,7 @@ import {
 } from "../services/modelApiKeys.js";
 import { resetKeyHealthMemory } from "../services/modelKeyHealth.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { modelsRouter } from "./models.js";
 
@@ -200,7 +201,7 @@ async function claudeModel(
 ): Promise<AIModel> {
   const { owner: holder = employee, companyId = company.id, ...rest } = overrides;
   for (const key of keys) SENT.add(key);
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: holder.id,
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -323,7 +324,7 @@ describe("adding backup keys", () => {
 
   test("an older model's primary, saved before keys had ids, gains backups", async (t) => {
     stubVerification(t);
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-opus-5-5",
@@ -351,7 +352,7 @@ describe("adding backup keys", () => {
 
   test("models that don't connect with an API key refuse backup keys", async (t) => {
     const calls = stubVerification(t);
-    const custom = await insert(AIModel, {
+    const custom = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "qwen3",
@@ -364,7 +365,7 @@ describe("adding backup keys", () => {
       }),
       connectedAt: new Date(),
     });
-    const subscription = await insert(AIModel, {
+    const subscription = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-5.4",
@@ -471,7 +472,7 @@ describe("reordering keys", () => {
       apiKeyEncrypted: encryptSecret(PRIMARY, company.id),
       apiKeyPreview: maskSecret(PRIMARY),
     });
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-opus-5-5",
@@ -752,7 +753,7 @@ describe("each key's health in the model's settings", () => {
   });
 
   test("subscription and custom models list no API keys", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-5.4",

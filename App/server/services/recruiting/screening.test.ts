@@ -23,6 +23,7 @@ import {
   type OpeningCriterion,
 } from "../../../shared/recruiting.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import type { EmployeeAgentResult, RestrictedEmployeeAgentParams } from "../agent/runEmployee.js";
 import type { ToolResult } from "../agent/types.js";
 import { withSubscriptionModelLock } from "../codexSubscription.js";
@@ -297,7 +298,7 @@ let opening: RecruitingOpening;
 let application: RecruitingApplication;
 
 async function connectedModel(employeeId: string, name = "claude-test-model"): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "anthropic",
     model: name,

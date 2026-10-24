@@ -11,6 +11,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { recordAudit } from "./audit.js";
 import { stopCron } from "./cron.js";
@@ -100,7 +101,7 @@ async function fixture(values: Partial<Routine> = {}) {
     slug: "jamie",
     role: "Sales",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -676,7 +677,7 @@ describe("the queue and a paused Run", () => {
 describe("a paused Run that cannot go on", () => {
   test("ends unfinished, not skipped, when its employee has no AI Model any more", async () => {
     const { routine } = await fixture();
-    await AppDataSource.getRepository(AIModel).delete({ employeeId: routine.employeeId });
+    await detachAllModels(routine.employeeId);
     const paused = await insert(Run, {
       routineId: routine.id,
       employeeId: routine.employeeId,

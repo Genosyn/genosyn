@@ -16,6 +16,7 @@ import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import {
   MAIL_ANALYSIS_BODY_CHARS,
   MAIL_ANALYSIS_HEADER_CHARS,
@@ -99,7 +100,7 @@ async function connectedModel(
   employeeId: string,
   overrides: Partial<AIModel> = {},
 ): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "openai",
     model: "gpt-test",

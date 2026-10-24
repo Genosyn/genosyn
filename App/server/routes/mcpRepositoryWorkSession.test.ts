@@ -11,7 +11,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
@@ -24,6 +23,7 @@ import { errorHandler } from "../middleware/error.js";
 import { issueMcpToken, markTokenTainted, revokeMcpToken } from "../services/mcpTokens.js";
 import { sessionWorktreePath } from "../services/repositoryWorkSessions.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 // The client's own parser, deliberately. Chat opens this session beside the
 // conversation instead of navigating to it, which only works if the link this
@@ -100,7 +100,7 @@ beforeEach(async () => {
     role: "Engineer",
     soulBody: "",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-test",

@@ -5,7 +5,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { AskAiConversation } from "../../db/entities/AskAiConversation.js";
 import { AskAiMessage } from "../../db/entities/AskAiMessage.js";
 import { Attachment } from "../../db/entities/Attachment.js";
@@ -19,6 +18,7 @@ import { MailThread } from "../../db/entities/MailThread.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { WorkloadLease } from "../../db/entities/WorkloadLease.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import type { AskAiContextRef } from "../../../shared/askAi.js";
 import type { ChatOptions, ChatResult, ChatTurn } from "../chat.js";
 import { companyDir } from "../paths.js";
@@ -1037,7 +1037,7 @@ describe("files and suggestions", () => {
 // ───────────────────────────── models ─────────────────────────────
 
 async function connectedModel(employeeId: string, model: string, isActive = false) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "anthropic",
     model,
@@ -1080,7 +1080,7 @@ describe("models", () => {
     const alex = await employee("alex", "Alex");
     await connectedModel(alex.id, "second");
     await connectedModel(alex.id, "first", true);
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: alex.id,
       provider: "openai",
       model: "unconfigured",

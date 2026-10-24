@@ -11,6 +11,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import {
   forgetModelProbesForTests,
@@ -81,7 +82,7 @@ async function jamieOnLocalModel() {
     slug: "jamie",
     role: "Sales",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",

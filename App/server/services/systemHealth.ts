@@ -9,7 +9,7 @@ import {
 } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
@@ -204,7 +204,7 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
   const approvalRepo = AppDataSource.getRepository(Approval);
   const emailRepo = AppDataSource.getRepository(EmailLog);
   const integrationRepo = AppDataSource.getRepository(IntegrationConnection);
-  const modelRepo = AppDataSource.getRepository(AIModel);
+  const attachmentRepo = AppDataSource.getRepository(EmployeeModel);
 
   const [
     failed,
@@ -299,11 +299,11 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
       itemLimit,
     ),
     empIds.length
-      ? modelRepo.find({
+      ? attachmentRepo.find({
           where: { employeeId: In(empIds) },
           select: ["employeeId"],
         })
-      : Promise.resolve([] as AIModel[]),
+      : Promise.resolve([] as EmployeeModel[]),
     // Runs that finished green and were never actually graded (M58). Before
     // this, a checker outage was indistinguishable from a clean record —
     // `unverified` and a null verdict both read as "nothing wrong", and both
@@ -352,8 +352,8 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
   const [unverifiedRows, unverifiedCount] = unverified;
   const [standdownRows, standdownCount] = activeStanddowns;
 
-  // Employees that own at least one enabled routine but have no AI model row
-  // at all — their routines will silently skip every time they fire.
+  // Employees that own at least one enabled routine but have no AI Model
+  // attached at all — their routines will silently skip every time they fire.
   const empWithModel = new Set(modelRows.map((m) => m.employeeId));
   const empWithEnabledRoutine = new Set(routines.filter((r) => r.enabled).map((r) => r.employeeId));
   const offlineEmpIds = [...empWithEnabledRoutine].filter((id) => !empWithModel.has(id));

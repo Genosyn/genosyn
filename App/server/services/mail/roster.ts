@@ -1,11 +1,12 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
+import type { AIModel } from "../../db/entities/AIModel.js";
 import {
   EmployeeMailAccountGrant,
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
+import { attachedModelsByEmployee } from "../models.js";
 import { isModelConnected } from "../providers.js";
 
 /**
@@ -60,33 +61,28 @@ export async function mailboxRoster(
   const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
     where: { accountId, employeeId: In(ids) },
   });
-  // Any model row counts for `hasModel`: getActiveModel falls back to the
-  // newest row when none is flagged active, so "has a row" is what the chat
-  // seam resolves. The picker is stricter — see `models` below.
-  const models = await AppDataSource.getRepository(AIModel).find({
-    where: { employeeId: In(ids) },
-    order: { createdAt: "DESC" },
-  });
+  // Any attached model counts for `hasModel`: getActiveModel falls back to
+  // the newest attachment when none is flagged active, so "has one attached"
+  // is what the chat seam resolves. The picker is stricter — see `models`.
+  const attached = await attachedModelsByEmployee(ids);
   const grantByEmp = new Map(grants.map((g) => [g.employeeId, g.accessLevel]));
-  const modeled = new Set(models.map((m) => m.employeeId));
+  const modeled = new Set<string>();
   const optionsByEmp = new Map<string, MailboxModelOption[]>();
-  for (const model of models) {
-    if (!isModelConnected(model)) continue;
-    const list = optionsByEmp.get(model.employeeId) ?? [];
-    list.push({
-      id: model.id,
-      provider: model.provider,
-      model: model.model,
-      isActive: model.isActive,
-    });
-    optionsByEmp.set(model.employeeId, list);
-  }
-  // Active first: it is the one a turn runs on unless the human says
-  // otherwise, so it belongs at the top of the picker. Creation order breaks
-  // the tie — and `createdAt` alone would not, since two models registered in
-  // the same second are indistinguishable to a second-precision column.
-  for (const list of optionsByEmp.values()) {
-    list.sort((a, b) => Number(b.isActive) - Number(a.isActive));
+  for (const [employeeId, { models, activeId }] of attached) {
+    if (models.length > 0) modeled.add(employeeId);
+    // Active first: it is the one a turn runs on unless the human says
+    // otherwise, so it belongs at the top of the picker. Most recently
+    // attached breaks the tie.
+    const options = models
+      .filter((model) => isModelConnected(model))
+      .map((model) => ({
+        id: model.id,
+        provider: model.provider,
+        model: model.model,
+        isActive: model.id === activeId,
+      }))
+      .sort((a, b) => Number(b.isActive) - Number(a.isActive));
+    optionsByEmp.set(employeeId, options);
   }
   return employees.map((e) => ({
     id: e.id,

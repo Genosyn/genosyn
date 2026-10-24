@@ -13,7 +13,6 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
@@ -45,6 +44,7 @@ import {
 } from "../services/recruiting/screeningQueue.js";
 import { registerResourceChangeSink } from "../services/resourceEvents.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { recruitingRouter } from "./recruiting.js";
 
@@ -169,7 +169,7 @@ beforeEach(async () => {
     soulBody: "",
   });
   // Connected only so model resolution passes; the screen itself is faked.
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: iris.id,
     provider: "openai",
     model: "gpt-4.1-mini",

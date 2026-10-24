@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { mailboxRoster } from "./roster.js";
 
 /**
@@ -35,7 +35,7 @@ async function fixture() {
 }
 
 async function connectedModel(employeeId: string, model: string, isActive = false) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "anthropic",
     model,
@@ -51,7 +51,7 @@ describe("mailbox roster", () => {
     const { account, employee } = await fixture();
     await connectedModel(employee.id, "claude-secondary");
     await connectedModel(employee.id, "claude-active", true);
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-unconfigured",
@@ -73,7 +73,7 @@ describe("mailbox roster", () => {
 
   test("an employee with no connected model is listed but offers no models", async () => {
     const { account, employee } = await fixture();
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-unconfigured",

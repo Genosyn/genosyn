@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import {
   bootCron,
@@ -316,7 +316,7 @@ test("rescheduling a company with no employees or no Routines does nothing", asy
 
 test("a finished Run re-anchors the schedule on the company's clock, not the server's", async (t) => {
   const { company, employee } = await hire(TOKYO);
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "test",
@@ -372,7 +372,7 @@ test("Initiatives and Proactive starters are first scheduled on the company's cl
     });
     assert.equal(clockIn(TOKYO, created.nextRunAt), "09:00");
 
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "fixture",

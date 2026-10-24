@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { config } from "../../../config.js";
 import { AIModel } from "../../db/entities/AIModel.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { newStoredApiKey, readApiKeys, writeApiKeys } from "../modelApiKeys.js";
 import { resetKeyHealthMemory, restKey } from "../modelKeyHealth.js";
 import { probeContextWindow } from "./contextWindow.js";
@@ -31,7 +32,7 @@ const PRIMARY = "sk-ant-api03-probe-primary-key-000001";
 const BACKUP = "sk-ant-api03-probe-backup-key-0000002";
 
 async function claude(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: "employee",
     provider: "anthropic",
     model: "claude-opus-5-5",

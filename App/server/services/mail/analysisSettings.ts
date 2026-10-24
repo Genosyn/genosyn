@@ -1,6 +1,6 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
+import { findAttachedModel } from "../models.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import {
@@ -130,11 +130,10 @@ export async function updateMailAnalysisSettings(
         "Choose an AI Employee before pinning one of their models.",
       );
     }
-    const model = await AppDataSource.getRepository(AIModel).findOneBy({
-      id: input.modelId,
-      employeeId: modelOwnerId,
-    });
-    if (!model) throw new MailAnalysisSettingsError("That AI Model is not this employee's");
+    const model = await findAttachedModel(modelOwnerId, input.modelId);
+    if (!model) {
+      throw new MailAnalysisSettingsError("That AI Model is not attached to this employee");
+    }
   }
   const instructions =
     input.instructions !== undefined ? parseAnalysisInstructions(input.instructions) : undefined;

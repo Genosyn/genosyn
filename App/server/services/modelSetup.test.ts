@@ -6,6 +6,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import {
   connectApiModel,
@@ -64,7 +65,7 @@ function mockModel(
 }
 
 async function existing(provider: "openai" | "anthropic" = "openai") {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: "employee",
     provider,
     model: "chosen-model",

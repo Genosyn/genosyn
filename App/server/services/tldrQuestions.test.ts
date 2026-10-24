@@ -19,6 +19,7 @@ import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { User } from "../db/entities/User.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { EmployeeWorkloadBusyError } from "./workloadLeases.js";
 import {
   deleteTldrQuestion,
@@ -80,7 +81,7 @@ async function fixture(): Promise<Fixture> {
     role: "Chief of staff",
     soulBody: "Be clear and factual.",
   });
-  const model = await insert(AIModel, {
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-test",

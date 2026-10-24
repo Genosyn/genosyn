@@ -11,7 +11,7 @@ import {
   type ModelCatalog,
 } from "./modelCatalog.js";
 import { isModelConnected } from "./providers.js";
-import { createActiveModel } from "./models.js";
+import { saveNewModel } from "./models.js";
 import {
   decryptApiKey,
   decryptApiKeys,
@@ -98,33 +98,35 @@ export function withOnlyKey(model: AIModel, key: StoredApiKey): AIModel {
   return Object.assign(new AIModel(), model, { configJson: writeApiKeys(model.configJson, [key]) });
 }
 
+/**
+ * Connect a new company AI Model with an API key, and attach it — as their
+ * active model — to the AI Employees named in `attachTo` (none: the company
+ * keeps it for later).
+ */
 export async function connectApiModel(options: {
-  employeeId: string;
   companyId: string;
   provider: ApiModelProvider;
   apiKey: string;
   model?: string;
+  attachTo?: readonly string[];
 }): Promise<AIModel> {
   const modelId =
     options.model || (await discoverApiModels(options.provider, options.apiKey)).recommendedModel;
   const repo = AppDataSource.getRepository(AIModel);
   const model = repo.create({
     id: randomUUID(),
-    employeeId: options.employeeId,
+    companyId: options.companyId,
     provider: options.provider,
     model: modelId,
     authMode: "apikey",
     configJson: "{}",
-    isActive: false,
     connectedAt: null,
   });
   model.configJson = writeApiKeys("{}", [newStoredApiKey(options.apiKey, options.companyId)]);
   await verifyOpenCodeModel(model);
   model.connectedAt = new Date();
-  // Nothing is saved or activated before a real model reply succeeds.
-  const saved = await createActiveModel(model);
-  if (!saved) throw new ModelSetupError("This AI Employee no longer exists.", 409);
-  return saved;
+  // Nothing is saved or attached before a real model reply succeeds.
+  return saveNewModel(model, options.attachTo ?? []);
 }
 
 /** Replace the primary key, keeping the backups; the new key is tested alone. */
@@ -196,7 +198,7 @@ export async function saveVerifiedModel(
   const result = await repo.update(
     {
       id: previous.id,
-      employeeId: previous.employeeId,
+      companyId: previous.companyId,
       provider: previous.provider,
       authMode: previous.authMode,
       model: previous.model,
@@ -219,7 +221,7 @@ export async function saveVerifiedModel(
       409,
     );
   }
-  return repo.findOneByOrFail({ id: candidate.id, employeeId: candidate.employeeId });
+  return repo.findOneByOrFail({ id: candidate.id, companyId: candidate.companyId });
 }
 
 /** Build and test the entire edited credential before replacing the previous working setup. */

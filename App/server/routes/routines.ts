@@ -5,7 +5,6 @@ import cron from "node-cron";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
@@ -37,6 +36,7 @@ import {
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { DEFAULT_ROUTINE_PRIORITY, ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
 import { getGoal } from "../services/goals.js";
+import { isModelAttached } from "../services/models.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import {
   startManualRoutineRun,
@@ -129,8 +129,9 @@ async function uniqueSlug(employeeId: string, base: string): Promise<string> {
   return slug;
 }
 
+/** A Routine may only be pinned to a model attached to its own employee. */
 async function employeeOwnsModel(employeeId: string, modelId: string): Promise<boolean> {
-  return AppDataSource.getRepository(AIModel).existsBy({ id: modelId, employeeId });
+  return isModelAttached(employeeId, modelId);
 }
 
 async function findRoutineByName(
@@ -558,10 +559,10 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
   if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
   if (body.modelId !== undefined) {
-    // A routine may only pin a model its own employee owns — otherwise one
-    // employee's routine could borrow another's credentials.
+    // A routine may only pin a model attached to its own employee — a
+    // company model an admin has not given this employee stays out of reach.
     if (body.modelId !== null && !(await employeeOwnsModel(r.employeeId, body.modelId))) {
-      return res.status(400).json({ error: "That model does not belong to this employee" });
+      return res.status(400).json({ error: "That AI Model is not attached to this employee" });
     }
     r.modelId = body.modelId;
   }

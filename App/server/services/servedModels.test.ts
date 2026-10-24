@@ -9,6 +9,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
 import { connectCustomModel } from "./customModelSetup.js";
@@ -56,7 +57,7 @@ async function employee() {
 
 async function customModel(overrides: Partial<AIModel> = {}) {
   const owner = await employee();
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: owner.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",

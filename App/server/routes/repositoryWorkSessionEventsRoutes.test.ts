@@ -12,7 +12,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
@@ -33,6 +32,7 @@ import {
   unregisterRunningSessionTurn,
 } from "../services/repositoryWorkSessionActivity.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 
 /**
@@ -130,7 +130,7 @@ beforeEach(async () => {
     slug: "ada",
     role: "Engineer",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-test",

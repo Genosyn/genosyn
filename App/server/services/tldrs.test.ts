@@ -15,6 +15,7 @@ import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import {
   collectTldrSources,
   detachEmployeeFromTldrs,
@@ -68,7 +69,7 @@ async function fixture(): Promise<Fixture> {
     role: "Chief of staff",
     soulBody: "Be clear and factual.",
   });
-  const model = await insert(AIModel, {
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-test",

@@ -50,6 +50,7 @@ import { PhoneCall } from "../db/entities/PhoneCall.js";
 import { PhoneMessage } from "../db/entities/PhoneMessage.js";
 import { PhoneNumber } from "../db/entities/PhoneNumber.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { deleteCompanyCascade } from "./companyDelete.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -230,7 +231,7 @@ describe("company deletion integrity", () => {
         slug: testId("avery"),
         role: "Operations",
       });
-      const model = await insert(AIModel, {
+      const model = await insertEmployeeModel({
         employeeId: employee.id,
         provider: "anthropic",
         model: "claude-opus-5-5",

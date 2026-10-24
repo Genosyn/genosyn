@@ -21,7 +21,7 @@ import {
 } from "../attachmentText.js";
 import { CHAT_HARD_TIMEOUT_MS, streamChatWithEmployee, type ChatResult, type ChatTurn } from "../chat.js";
 import { parseSuggestions, type MailSuggestionRecord } from "../mail/suggestions.js";
-import { resolveChatModel } from "../models.js";
+import { attachedModels, attachedModelsByEmployee, resolveChatModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { captureTurnActionsForAuthority, parseActions } from "../turnActions.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "../uploads.js";
@@ -301,28 +301,28 @@ export async function askAiRoster(companyId: string): Promise<AskAiRosterEntry[]
     order: { name: "ASC" },
   });
   if (employees.length === 0) return [];
-  const models = await AppDataSource.getRepository(AIModel).find({
-    where: { employeeId: In(employees.map((e) => e.id)) },
-    order: { createdAt: "DESC" },
+  const attached = await attachedModelsByEmployee(employees.map((e) => e.id));
+  return employees.map((e) => {
+    const { models, activeId } = attached.get(e.id) ?? { models: [], activeId: null };
+    const options: AskAiModelOption[] = models
+      .filter((model) => isModelConnected(model))
+      .map((model) => ({
+        id: model.id,
+        provider: model.provider,
+        model: model.model,
+        isActive: model.id === activeId,
+      }))
+      .sort((a, b) => Number(b.isActive) - Number(a.isActive));
+    return {
+      id: e.id,
+      name: e.name,
+      slug: e.slug,
+      role: e.role,
+      avatarKey: e.avatarKey ?? null,
+      hasModel: models.length > 0,
+      models: options,
+    };
   });
-  const modeled = new Set(models.map((m) => m.employeeId));
-  const options = new Map<string, AskAiModelOption[]>();
-  for (const model of models) {
-    if (!isModelConnected(model)) continue;
-    const list = options.get(model.employeeId) ?? [];
-    list.push({ id: model.id, provider: model.provider, model: model.model, isActive: model.isActive });
-    options.set(model.employeeId, list);
-  }
-  for (const list of options.values()) list.sort((a, b) => Number(b.isActive) - Number(a.isActive));
-  return employees.map((e) => ({
-    id: e.id,
-    name: e.name,
-    slug: e.slug,
-    role: e.role,
-    avatarKey: e.avatarKey ?? null,
-    hasModel: modeled.has(e.id),
-    models: options.get(e.id) ?? [],
-  }));
 }
 
 /** The model an employee last answered on in this conversation, while still usable. */
@@ -337,7 +337,7 @@ export async function lastAskAiModelId(
   });
   const used = rows.map((r) => r.modelId).filter((id): id is string => Boolean(id));
   if (used.length === 0) return null;
-  const models = await AppDataSource.getRepository(AIModel).find({ where: { employeeId } });
+  const { models } = await attachedModels(employeeId);
   const usable = new Set(models.filter(isModelConnected).map((m) => m.id));
   return used.find((id) => usable.has(id)) ?? null;
 }

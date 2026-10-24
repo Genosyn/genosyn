@@ -1,8 +1,8 @@
 import { In, IsNull, Not } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
+import { attachedModels } from "./models.js";
 import { isModelConnected } from "./providers.js";
 
 /**
@@ -16,8 +16,8 @@ import { isModelConnected } from "./providers.js";
  * a different bill. These helpers hand the composer the thread's own model so
  * a past conversation carries on where it left off.
  *
- * A thread's model is only offered while it is still one of this employee's
- * models and still connected. A deleted or disconnected row is skipped in
+ * A thread's model is only offered while it is still attached to this
+ * employee and still connected. A deleted or disconnected row is skipped in
  * favour of the most recent turn that does qualify, and a thread with nothing
  * usable resolves to null so the caller falls back to the active model.
  */
@@ -28,7 +28,7 @@ export async function lastChatModelIds(
   const resolved = new Map<string, string | null>(conversationIds.map((id) => [id, null]));
   if (resolved.size === 0) return resolved;
 
-  const models = await AppDataSource.getRepository(AIModel).find({ where: { employeeId } });
+  const { models } = await attachedModels(employeeId);
   const usable = new Set(
     models.filter((model) => isModelConnected(model)).map((model) => model.id),
   );

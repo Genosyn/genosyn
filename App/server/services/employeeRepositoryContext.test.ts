@@ -10,13 +10,13 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Repository } from "../db/entities/Repository.js";
 import { Routine } from "../db/entities/Routine.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { chatWithEmployee } from "./chat.js";
 import { employeeDir } from "./paths.js";
 import {
@@ -479,7 +479,7 @@ async function actualRemote(guide = "Run npm run verify-repository before commit
     repositoryId: row.id,
     accessLevel: "write",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "guide-test",

@@ -18,6 +18,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { employeesRouter } from "./employees.js";
 
@@ -89,7 +90,7 @@ async function employeeWithModel(name: string) {
     role: "Operations",
     soulBody: "",
   });
-  const model = await insert(AIModel, {
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-opus-5-5",

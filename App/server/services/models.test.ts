@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { AppDataSource } from "../db/datasource.js";
 import { ResourceChangeSubscriber } from "../db/subscribers/resourceChangeSubscriber.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
 import { clearRoutinePins, createActiveModel, resolveChatModel, setActiveModel } from "./models.js";
 
@@ -26,7 +27,7 @@ async function model(args: {
   isActive: boolean;
   createdAt: Date;
 }) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: args.employeeId,
     provider: "openai",
     model: args.name,

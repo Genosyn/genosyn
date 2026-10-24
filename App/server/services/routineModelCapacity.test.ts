@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel, updateModelsOf } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import { queueWaitLine, startRoutineRun } from "./runner.js";
@@ -53,7 +54,7 @@ async function employeeWithModel(
     slug,
     role: "Operations",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -218,9 +219,7 @@ test("raising a model's limit admits a waiting Run without another heartbeat", a
   await dispatchQueuedRoutineRuns();
   assert.equal((await runOf(waitingRoutine)).status, "queued");
 
-  await AppDataSource.getRepository(AIModel).update(
-    { employeeId: employee.id },
-    { maxConcurrentRuns: 2 },
+  await updateModelsOf(employee.id, { maxConcurrentRuns: 2 },
   );
   await dispatchQueuedRoutineRuns();
   assert.equal((await waiting.completion).status, "completed");

@@ -18,6 +18,7 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { mailRouter } from "./mail.js";
 
 type SerializedAiCondition = {
@@ -153,7 +154,7 @@ async function grantAiRuleAccess(target: AIEmployee = employee): Promise<void> {
     accountId: account.id,
     accessLevel: "read",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: target.id,
     provider: "openai",
     model: "gpt-4.1-mini",
@@ -287,7 +288,7 @@ describe("mail rule HTTP API", () => {
     assert.equal(withoutModel.status, 400);
     assert.match(withoutModel.body.error ?? "", /needs a connected AI Model/);
 
-    const disconnectedModel = await insert(AIModel, {
+    const disconnectedModel = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-4.1-mini",

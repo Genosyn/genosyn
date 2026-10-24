@@ -26,6 +26,7 @@ import { getLiveRunSnapshot } from "../services/runner.js";
 import { resetRuntimeSettingsCacheForTests } from "../services/runtimeSettings.js";
 import { stopStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel, updateModelsOf } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { routinesRouter } from "./routines.js";
 
@@ -107,7 +108,7 @@ beforeEach(async (t) => {
     body: "Review remaining conversations.",
     timeoutSec: 3600,
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "test",
@@ -348,16 +349,14 @@ test("revoking administrator authority during preparation prevents starting work
 test("a missing AI Model refuses resumption without creating a child or consuming progress", async () => {
   const repo = AppDataSource.getRepository(Run);
   const original = await repo.findOneByOrFail({ id: source.id });
-  await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+  await detachAllModels(employee.id);
   await assert.rejects(resume, /AI Model/);
   assert.equal(await repo.count(), 1);
   assert.deepEqual(await repo.findOneByOrFail({ id: source.id }), original);
 });
 
 test("a disconnected AI Model refuses resumption before creating a child", async () => {
-  await AppDataSource.getRepository(AIModel).update(
-    { employeeId: employee.id },
-    { connectedAt: null },
+  await updateModelsOf(employee.id, { connectedAt: null },
   );
   const result = await call();
   assert.equal(result.status, 409);

@@ -4,7 +4,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
@@ -13,6 +12,7 @@ import {
   MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH,
 } from "../../../shared/mailAnalysisInstructions.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { analysisInstructionLines, effectiveAnalysisInstructions } from "./analysisAutomation.js";
 import {
   MailAnalysisSettingsError,
@@ -173,7 +173,7 @@ describe("reading the card", () => {
       accountId: account.id,
       accessLevel: "draft",
     });
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: reader.id,
       provider: "openai",
       model: "gpt-test",

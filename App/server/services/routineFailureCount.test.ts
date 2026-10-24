@@ -14,6 +14,7 @@ import { Run } from "../db/entities/Run.js";
 import { Standdown } from "../db/entities/Standdown.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { createCheck } from "./routineChecks.js";
 import { startRoutineRun } from "./runner.js";
 import { waitForRoutineQueueIdle } from "./routineQueue.js";
@@ -124,7 +125,7 @@ afterEach(() => {
 
 /** An employee with a working brain, so Runs actually execute. */
 async function connectModel(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "breaker-test",

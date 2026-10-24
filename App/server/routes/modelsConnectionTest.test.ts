@@ -19,6 +19,7 @@ import { errorHandler } from "../middleware/error.js";
 import { agentRuntime } from "../services/agent/runtime.js";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../services/modelApiKeys.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { modelsRouter } from "./models.js";
 
@@ -143,7 +144,7 @@ function claude(
   overrides: Partial<AIModel> & { holder?: AIEmployee } = {},
 ): Promise<AIModel> {
   const { holder = employee, ...rest } = overrides;
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: holder.id,
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -291,7 +292,7 @@ describe("POST /:id/test", () => {
       await params.registry.resolve("connection_test")!.run({ ok: true });
       return { finalText: "OK", steps: 2, stopReason: "end_turn" };
     });
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "qwen3-27b",
@@ -355,7 +356,7 @@ describe("GET /:id/catalog", () => {
 
   test("a custom endpoint or a ChatGPT sign-in has no key to list models with", async (t) => {
     const asked = stubCatalog(t);
-    const custom = await insert(AIModel, {
+    const custom = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "qwen3-27b",
@@ -368,7 +369,7 @@ describe("GET /:id/catalog", () => {
       }),
       connectedAt: new Date(),
     });
-    const chatgpt = await insert(AIModel, {
+    const chatgpt = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "auto",

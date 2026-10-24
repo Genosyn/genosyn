@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { config } from "../../../config.js";
 import { AIModel } from "../../db/entities/AIModel.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { newStoredApiKey, readApiKeys, writeApiKeys } from "../modelApiKeys.js";
 import { resetKeyHealthMemory, restKey } from "../modelKeyHealth.js";
 import { resolveTranscriptionTarget } from "./transcribe.js";
@@ -31,7 +32,7 @@ const PRIMARY = "sk-proj-transcribe-primary-key-0000001";
 const BACKUP = "sk-proj-transcribe-backup-key-00000002";
 
 async function openai(configJson: string): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: "notetaker",
     provider: "openai",
     model: "gpt-5.4",

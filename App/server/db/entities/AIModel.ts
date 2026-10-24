@@ -105,10 +105,11 @@ export class AIModel {
   contextWindowSource!: ContextWindowSource | null;
 
   /**
-   * How many Routine Runs may use this model's endpoint at once; Runs beyond
-   * it wait in the queue without spending their time budget. Null takes the
-   * default — one at a time for a custom endpoint on this machine or a private
-   * network, no limit otherwise — and 0 means no limit. See
+   * How many Routine Runs may use this model's endpoint at once, counted
+   * across every AI Employee attached to it; Runs beyond it wait in the queue
+   * without spending their time budget. Null takes the default — one at a
+   * time for a custom endpoint on this machine or a private network and for a
+   * ChatGPT sign-in, no limit otherwise — and 0 means no limit. See
    * `services/modelRunCapacity.ts`.
    */
   @Column({ type: "integer", nullable: true })
