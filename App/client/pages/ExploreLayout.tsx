@@ -162,7 +162,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
 
       <div className="flex-1 overflow-y-auto p-2">
         {error && (
-          <div className="mx-1 mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+          <div className="mx-1 mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
             {error}
           </div>
         )}
@@ -231,7 +231,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
                   >
                     <LayoutGrid size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
                     <span className="min-w-0 flex-1 truncate">{d.title}</span>
-                    <span className="ml-1 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="ml-1 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {d.cardCount}
                     </span>
                   </NavLink>
@@ -282,7 +282,7 @@ function SidebarSection({
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between px-2 py-1">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
           {icon}
           {label}
         </span>

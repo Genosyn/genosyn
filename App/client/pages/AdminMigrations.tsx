@@ -232,7 +232,7 @@ export function AdminMigrations() {
               all-clear card here would just be noise. */}
           {report.issues.length > 0 && (
             <div>
-              <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <h2 className="text-xs font-medium mb-2 px-1 text-slate-500 dark:text-slate-400">
                 Issues
               </h2>
               <Card>
@@ -248,7 +248,7 @@ export function AdminMigrations() {
           )}
 
           <div>
-            <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <h2 className="text-xs font-medium mb-2 px-1 text-slate-500 dark:text-slate-400">
               All migrations
             </h2>
             <p className="mb-2 px-1 text-xs text-slate-500 dark:text-slate-400">
@@ -427,7 +427,7 @@ function IssueRow({ issue }: { issue: MigrationIssue }) {
           </h3>
           <span
             className={clsx(
-              "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              "rounded-full px-1.5 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
               style.badge,
             )}
           >
@@ -508,7 +508,7 @@ function MigrationList({ migrations }: { migrations: MigrationEntry[] }) {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500">
+            <div className="text-xs font-medium flex items-center gap-3 border-b border-slate-100 px-4 py-2 text-slate-500 dark:border-slate-800 dark:text-slate-400">
               <span className="min-w-0 flex-1">Migration</span>
               <span className="hidden w-24 shrink-0 text-right sm:block">Authored</span>
               <span className="w-12 shrink-0 text-right" title="Execution order — the rank a migration ran in, not a time">

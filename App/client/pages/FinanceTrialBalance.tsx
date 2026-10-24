@@ -149,7 +149,7 @@ export default function FinanceTrialBalance() {
       </div>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             Trial balance
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
@@ -491,7 +491,7 @@ function BalancesTable({
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+        <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
           <tr>
             <th scope="col" className="px-4 py-2 text-left font-medium">
               Account
@@ -532,7 +532,7 @@ function BalancesTable({
               <React.Fragment key={group.type}>
                 <tr className="border-t border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-800/40">
                   <th scope="rowgroup" className="px-4 py-2 text-left font-normal">
-                    <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                    <span className="text-xs font-medium mr-2 text-slate-700 dark:text-slate-200">
                       {ACCOUNT_TYPE_PLURAL[group.type]}
                     </span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -584,11 +584,11 @@ function BalancesTable({
             </td>
             <td className="px-4 py-3 text-right">
               {balanced ? (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                   <Check size={12} aria-hidden="true" /> Adds up
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                   Off by{" "}
                   {formatMoney(Math.abs(summary.debitCents - summary.creditCents), homeCurrency)}
                 </span>

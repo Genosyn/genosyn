@@ -7,6 +7,7 @@ import { movedUpNote, QUEUE_ORDER_NOTE, queuePlace } from "@/lib/routinePriority
 import { QueuePlaceBadge, RoutinePriorityChip } from "@/components/routines/RoutinePriorityChip";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import {
@@ -297,7 +298,7 @@ export function RoutineActivity({
               <button
                 type="button"
                 onClick={() => setExpanded((value) => !value)}
-                className="mt-3 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                className="touch-target relative mt-3 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 {expanded ? "Show fewer" : `Show all ${today.length} routines`}
               </button>
@@ -390,12 +391,9 @@ function ActivityRow({
           {(waiting || running) && <RoutinePriorityChip priority={priority} />}
           {movedUp && <span className="text-xs text-slate-500 dark:text-slate-400">{movedUp}</span>}
           {standdownTitle && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300"
-              title={standdownTitle}
-            >
-              <OctagonX size={11} aria-hidden="true" /> Stood down
-            </span>
+            <Badge tone="danger" title={standdownTitle} icon={<OctagonX />}>
+              Stood down
+            </Badge>
           )}
           {(run.attempt ?? 1) > 1 && (
             <span className="text-xs text-slate-500 dark:text-slate-400">

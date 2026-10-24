@@ -77,7 +77,7 @@ export function EmployeeHeader({
           {emp.chatReady === false && (
             <Link
               to={`${base}/settings/model`}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30 dark:hover:bg-amber-500/20"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30 dark:hover:bg-amber-500/20"
             >
               <AlertTriangle size={11} aria-hidden="true" /> No AI Model
               <span className="hidden sm:inline"> connected</span>
@@ -136,7 +136,7 @@ function EmployeeTab({
       aria-current={current ? "page" : undefined}
       title={label}
       className={
-        "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition " +
+        "touch-target relative inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition " +
         (current
           ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100"
           : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100")

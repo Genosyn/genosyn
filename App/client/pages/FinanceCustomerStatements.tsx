@@ -65,7 +65,7 @@ export default function FinanceCustomerStatements() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: financeUrl }, { label: "Customer statements" }]}
@@ -73,7 +73,7 @@ export default function FinanceCustomerStatements() {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
           Customer statements
         </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">

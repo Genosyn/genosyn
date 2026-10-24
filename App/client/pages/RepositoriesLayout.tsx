@@ -17,6 +17,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { api, Repository, Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { SectionRailHeader } from "../components/SectionRail";
 
 export type RepositoriesOutletCtx = {
   company: Company;
@@ -74,11 +75,7 @@ export default function RepositoriesLayout({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <FolderGit2 size={14} /> Repositories
-        </div>
-      </div>
+      <SectionRailHeader section="repositories" label="Repositories" />
 
       {repositories === null ? (
         <div className="flex flex-1 items-center justify-center">
@@ -112,7 +109,7 @@ export default function RepositoriesLayout({
           <SidebarLink to={`${repoBase}/ai`} icon={<Bot size={14} />} label="AI work" />
           <SidebarLink to={`${repoBase}/access`} icon={<Users size={14} />} label="AI access" />
           <SidebarLink to={`${repoBase}/settings`} icon={<Settings size={14} />} label="Settings" />
-          <div className="mt-4 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium mt-4 px-2 pb-1 text-slate-500 dark:text-slate-400">
             Other repositories
           </div>
           {rows
@@ -136,7 +133,7 @@ export default function RepositoriesLayout({
             label="All repositories"
           />
           {rows.length > 0 && (
-            <div className="mt-4 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <div className="text-xs font-medium mt-4 px-2 pb-1 text-slate-500 dark:text-slate-400">
               Repositories
             </div>
           )}

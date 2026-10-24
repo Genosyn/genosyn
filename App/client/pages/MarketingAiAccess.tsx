@@ -56,7 +56,7 @@ export function MarketingAiAccessPage() {
       />
 
       <div className={`${cardClass} overflow-hidden`}>
-        <div className="grid grid-cols-[1fr_10rem] gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+        <div className="grid grid-cols-[1fr_10rem] gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-950 inline-block first-letter:uppercase">
           <span>AI Employee</span>
           <span>Marketing access</span>
         </div>

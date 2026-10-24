@@ -568,7 +568,7 @@ export default function MailThreadList() {
           />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
             <Checkbox
               checked={allSelected}
@@ -926,7 +926,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
       )}
       {focused && (
         <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium mb-1.5 text-slate-500 dark:text-slate-400">
             Narrow your search
           </div>
           <div className="flex flex-wrap gap-1">
@@ -1056,7 +1056,7 @@ export function ThreadRow({
           ? "bg-indigo-50/70 dark:bg-indigo-500/10"
           : thread.unread
             ? "bg-indigo-50/30 dark:bg-indigo-500/5"
-            : "hover:bg-slate-50 dark:hover:bg-slate-900",
+            : "hover:bg-slate-50 dark:hover:bg-slate-800/60",
         focused && "ring-1 ring-inset ring-indigo-400/60 dark:ring-indigo-500/40",
       )}
     >
@@ -1077,7 +1077,7 @@ export function ThreadRow({
         aria-label={starred ? "Unstar" : "Star"}
         title={starred ? "Unstar" : "Star"}
         className={clsx(
-          "shrink-0 rounded py-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40",
+          "shrink-0 rounded py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus",
           starred ? "text-amber-400" : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
         )}
       >

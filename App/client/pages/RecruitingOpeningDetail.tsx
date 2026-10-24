@@ -194,7 +194,7 @@ function OpeningDetail({ openingId }: { openingId: string }) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{opening.title}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{opening.title}</h1>
             <OpeningStatusPill opening={opening} />
             {opening.visibility !== "public" ? (
               <TonePill tone="neutral">{opening.visibility === "internal" ? "Internal" : "Unlisted"}</TonePill>
@@ -506,7 +506,7 @@ function ApplicantsBoard({
 
       {view === "board" && showClosed && closed.length > 0 ? (
         <div className="mt-6">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Rejected and withdrawn</h3>
+          <h3 className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">Rejected and withdrawn</h3>
           <ApplicantTable rows={closed} base={base} />
         </div>
       ) : null}
@@ -590,7 +590,7 @@ export function ApplicantTable({ rows, base, showOpening }: { rows: ApplicationS
     <div className={`${cardClass} overflow-hidden`}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2 text-left font-medium">Candidate</th>
               {showOpening ? <th className="hidden px-4 py-2 text-left font-medium md:table-cell">Opening</th> : null}

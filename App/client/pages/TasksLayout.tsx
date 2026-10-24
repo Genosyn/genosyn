@@ -2,7 +2,9 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { FolderKanban, Plus, Search, ShieldCheck } from "lucide-react";
 import { api, Company, Project } from "../lib/api";
-import { ContextualLayout } from "../components/AppShell";
+import { ContextualLayout, sidebarLinkClassName } from "../components/AppShell";
+import { RailIconButton, railHeadingClassName } from "../components/SectionRail";
+import { CountBadge } from "../components/ui/Badge";
 import { Spinner } from "../components/ui/Spinner";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -71,32 +73,21 @@ export default function TasksLayout({ company }: { company: Company }) {
         <NavLink
           to={`/c/${company.slug}/tasks/review`}
           className={({ isActive }) =>
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-            (isActive
-              ? "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-200"
-              : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
+            sidebarLinkClassName(isActive)
           }
         >
           <ShieldCheck size={14} />
           <span className="flex-1 truncate font-medium">Review queue</span>
-          {reviewCount > 0 && (
-            <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
-              {reviewCount}
-            </span>
-          )}
+          {reviewCount > 0 && <CountBadge count={reviewCount} tone="accent" />}
         </NavLink>
       </div>
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <FolderKanban size={14} /> Projects
+      <div className="flex items-center justify-between border-b border-slate-100 py-1.5 pl-4 pr-2 dark:border-slate-800">
+        <div className={`flex items-center gap-1.5 ${railHeadingClassName}`}>
+          <FolderKanban size={13} aria-hidden="true" /> Projects
         </div>
-        <button
-          onClick={() => navigate(`/c/${company.slug}/tasks/new`)}
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          title="New project"
-        >
-          <Plus size={14} />
-        </button>
+        <RailIconButton label="New project" onClick={() => navigate(`/c/${company.slug}/tasks/new`)}>
+          <Plus size={16} />
+        </RailIconButton>
       </div>
       {projects && projects.length > 3 && (
         <div className="relative border-b border-slate-100 px-2 py-2 dark:border-slate-800">
@@ -136,10 +127,7 @@ export default function TasksLayout({ company }: { company: Company }) {
                 <NavLink
                   to={`/c/${company.slug}/tasks/p/${p.slug}`}
                   className={({ isActive }) =>
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-                    (isActive
-                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
+                    sidebarLinkClassName(isActive)
                   }
                 >
                   <span className="flex min-w-0 flex-1 flex-col">

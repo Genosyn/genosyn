@@ -129,11 +129,11 @@ export default function RevenueActivities() {
   const exportUrl = `${baseUrl}/activities/export?${params}`;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Activities" }]} />
       <div className="mt-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             Activity audit
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">

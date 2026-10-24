@@ -74,13 +74,13 @@ export default function RevenueAccounts() {
   useLiveRefetch(["customer", "contact", "deal"], reload);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Accounts" }]} />
       </div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Accounts</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Accounts</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             One company record from first prospect conversation through billing and renewal.
           </p>

@@ -167,7 +167,7 @@ export function TodoDetailBody({
 
       <div className="mt-4">
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Description
           </span>
           {!descEditing && desc && canEdit && (
@@ -216,7 +216,7 @@ export function TodoDetailBody({
       </div>
 
       <div className="mt-6 grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Status
         </span>
         <div>
@@ -226,7 +226,7 @@ export function TodoDetailBody({
             disabled={!canEdit}
           />
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Priority
         </span>
         <div>
@@ -236,7 +236,7 @@ export function TodoDetailBody({
             disabled={!canEdit}
           />
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Assignee
         </span>
         <div>
@@ -248,7 +248,7 @@ export function TodoDetailBody({
             disabled={!canEdit}
           />
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Reviewer
         </span>
         <div>
@@ -261,7 +261,7 @@ export function TodoDetailBody({
             disabled={!canEdit}
           />
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Due date
         </span>
         <div className="flex items-center gap-2">
@@ -285,7 +285,7 @@ export function TodoDetailBody({
             </button>
           )}
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Repeat
         </span>
         <div>
@@ -397,7 +397,7 @@ export function TodoDetailPanel(props: {
           {STATUS_LABEL[todo.status]}
         </span>
         {todo.status === "in_review" && (
-          <span className="flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
+          <span className="flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
             <ShieldCheck size={10} /> Review
           </span>
         )}
@@ -485,7 +485,7 @@ export function SubtasksSection({
   return (
     <div className="mt-6">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="text-xs flex items-center gap-1.5 font-medium text-slate-500 dark:text-slate-400">
           <ListTree size={12} /> Subtasks
         </span>
         {subtasks.length > 0 && (
@@ -865,11 +865,11 @@ export function CommentThread({
 
   return (
     <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-xs mb-2 flex items-center gap-2 font-medium text-slate-500 dark:text-slate-400">
         <MessageSquare size={13} />
         Discussion
         {comments && comments.length > 0 && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {comments.length}
           </span>
         )}
@@ -1067,7 +1067,7 @@ function CommentRow({
         <div className="flex items-center gap-1.5 text-xs">
           <span className="font-medium text-slate-800 dark:text-slate-100">{name}</span>
           {isAi && (
-            <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700">
+            <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-medium text-violet-700 inline-block first-letter:uppercase">
               AI
             </span>
           )}

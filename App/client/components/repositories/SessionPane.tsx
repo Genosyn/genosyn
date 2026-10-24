@@ -651,7 +651,7 @@ export function SessionPane({
                   disabled={acting !== null}
                   aria-busy={acting === "stop" || undefined}
                   title="Stop this turn — committed work is kept"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   {acting === "stop" ? <ButtonSpinner size={11} /> : <Square size={11} />}
                   Stop
@@ -662,7 +662,7 @@ export function SessionPane({
                 an archived session that is still waiting on review must not
                 read as one that was thrown away. */}
               {archived && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <Archive size={10} /> Archived
                 </span>
               )}
@@ -1157,7 +1157,7 @@ function CommitCheckpoints({ commits }: { commits: RepositoryCommit[] }) {
       <ol className="divide-y divide-slate-100 dark:divide-slate-800">
         {visible.map((commit) => (
           <li key={commit.sha} className="flex min-w-0 items-start gap-2.5 px-3 py-2">
-            <code className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <code className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               {commit.shortSha}
             </code>
             <span className="min-w-0 flex-1">
@@ -1226,7 +1226,7 @@ function TurnBlock({
         bubble put the two halves of one exchange on opposite sides of the
         page. */}
       <div className="border-l-2 border-indigo-300 pl-3 dark:border-indigo-500/50">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500/80 dark:text-indigo-300/80">
+        <div className="text-xs font-medium text-indigo-500/80 dark:text-indigo-300/80">
           Brief {turn.ordinal} · {formatRelative(turn.createdAt)}
         </div>
         <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-200">

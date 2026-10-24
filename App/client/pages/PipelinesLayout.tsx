@@ -113,7 +113,7 @@ function PipelinesSidebar({
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Pipelines
             </div>
             <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
@@ -162,7 +162,7 @@ function PipelinesSidebar({
         </div>
       )}
 
-      <div className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium px-3 pb-1 pt-3 text-slate-500 dark:text-slate-400">
         Your pipelines
       </div>
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-4">

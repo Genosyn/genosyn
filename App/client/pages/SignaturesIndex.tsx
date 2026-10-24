@@ -249,7 +249,7 @@ function FirstRequestEmpty({ routeBase }: { routeBase: string }) {
 function Summary({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+      <div className="text-xs flex items-center gap-2 font-medium text-slate-500 dark:text-slate-400">
         {icon} {label}
       </div>
       <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">

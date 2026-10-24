@@ -70,7 +70,7 @@ const REASON_PILL: Record<SuppressionReason, string> = {
 };
 
 const PILL =
-  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
+  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
 
 const PAGE_SIZE = 50;
 
@@ -208,13 +208,13 @@ export default function RevenueSuppressions() {
   const showingTo = Math.min(offset + PAGE_SIZE, total);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Suppressions" }]} />
       </div>
 
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Suppressions</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Suppressions</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           Addresses this company must not email. Checked on every outbound path — there is no way
           to send that bypasses this list.
@@ -338,7 +338,7 @@ export default function RevenueSuppressions() {
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Address</th>
                     <th className="px-4 py-2 text-left font-medium">Reason</th>

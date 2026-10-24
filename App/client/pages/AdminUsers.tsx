@@ -266,12 +266,12 @@ function UserRow({
             {user.name || "Unnamed"}
           </span>
           {isSelf && (
-            <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+            <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 inline-block first-letter:uppercase">
               You
             </span>
           )}
           {user.isMasterAdmin && (
-            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <ShieldCheck size={11} className="shrink-0" /> Master admin
             </span>
           )}
@@ -574,7 +574,7 @@ function SignInChoice({
         "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition",
         selected
           ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-100 dark:border-indigo-600 dark:bg-indigo-500/10 dark:ring-indigo-950"
-          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-900",
+          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-800/60",
       )}
     >
       <input type="radio" name="signIn" checked={selected} onChange={onSelect} className="sr-only" />

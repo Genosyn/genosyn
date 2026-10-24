@@ -1,7 +1,9 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { PageHeader } from "../components/ui/PageHeader";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
@@ -76,17 +78,15 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   return (
     <>
       {crumbs}
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Employees</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Open an AI Employee to chat with them or change their settings.
-          </p>
-        </div>
-        <Button onClick={() => navigate(`/c/${company.slug}/employees/new`)}>
-          <Plus size={14} /> New employee
-        </Button>
-      </div>
+      <PageHeader
+        title="Employees"
+        description="Open an AI Employee to chat with them or change their settings."
+        actions={
+          <Button onClick={() => navigate(`/c/${company.slug}/employees/new`)}>
+            <Plus size={14} /> New employee
+          </Button>
+        }
+      />
       <ul
         aria-label="AI Employees"
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
@@ -113,7 +113,7 @@ export default function EmployeesIndex({ company }: { company: Company }) {
                 {(teamName || employee.chatReady === false) && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {teamName && (
-                      <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      <span className="inline-flex h-5 max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         <span
                           aria-hidden
                           className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400"
@@ -124,9 +124,7 @@ export default function EmployeesIndex({ company }: { company: Company }) {
                     {/* An employee that can't answer yet is worth seeing from the
                         roster, not only after a chat message fails. */}
                     {employee.chatReady === false && (
-                      <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-                        No AI Model connected
-                      </span>
+                      <Badge tone="warning">No AI Model connected</Badge>
                     )}
                   </div>
                 )}

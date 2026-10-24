@@ -12,6 +12,7 @@ import { decisionHeadline } from "../../../shared/decisionSummary";
 import { api, Company, Decision, DecisionSnoozeDuration, DecisionUrgency } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Menu, MenuHeader, MenuItem } from "@/components/ui/Menu";
@@ -31,16 +32,10 @@ import { useDecisionDiscussionOpen } from "@/components/decisions/useDecisionDis
 import { ReviewTimeline } from "@/components/decisions/ReviewTimeline";
 import { formatRelative } from "@/components/decisions/relative";
 
-const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | null> = {
-  high: {
-    label: "Urgent",
-    cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
-  },
+const URGENCY_BADGE: Record<DecisionUrgency, { label: string; tone: BadgeTone } | null> = {
+  high: { label: "Urgent", tone: "danger" },
   normal: null,
-  low: {
-    label: "Low priority",
-    cls: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-  },
+  low: { label: "Low priority", tone: "neutral" },
 };
 
 /** The snooze presets, shared with the stack's bulk bar. */
@@ -208,16 +203,7 @@ export function DecisionCard({
               <span> · routed to {decision.routedToEmployee.name} (AI)</span>
             )}
           </p>
-          {badge && (
-            <span
-              className={clsx(
-                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                badge.cls,
-              )}
-            >
-              {badge.label}
-            </span>
-          )}
+          {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
           <DetailsButton
             size="xs"
             open={detailsOpen}
@@ -287,7 +273,7 @@ export function DecisionCard({
                       key={option.id}
                       htmlFor={optionId}
                       className={clsx(
-                        "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-indigo-500/30",
+                        "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-focus",
                         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
                         optionClass(option.tone, checked),
                       )}

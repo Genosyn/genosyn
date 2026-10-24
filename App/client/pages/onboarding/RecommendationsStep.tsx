@@ -733,7 +733,7 @@ function ContextCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
         <Icon size={13} className="text-indigo-500" /> {label}
       </div>
       <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-700 dark:text-slate-300">
@@ -763,7 +763,7 @@ function RoutineCard({
           ? "border-emerald-200 dark:border-emerald-500/30"
           : selected
             ? "border-indigo-400 ring-2 ring-indigo-100 focus-within:ring-indigo-400 dark:border-indigo-500 dark:ring-indigo-500/30 dark:focus-within:ring-indigo-500"
-            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/30",
+            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:focus-within:border-indigo-500 dark:focus-within:ring-focus",
       )}
     >
       {!ready && (
@@ -822,7 +822,7 @@ function RoutineCard({
           {routine.reasons.map((reason) => (
             <span
               key={reason}
-              className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
             >
               {reason}
             </span>
@@ -877,7 +877,7 @@ function IntegrationCard({
             {integration.connections.map((connection) => (
               <span
                 key={connection.id}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               >
                 <span
                   className={clsx(
@@ -1115,7 +1115,7 @@ function StandingWork({
 
 function StatePill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
       {children}
     </span>
   );

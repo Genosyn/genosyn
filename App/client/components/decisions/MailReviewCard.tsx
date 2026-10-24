@@ -222,7 +222,7 @@ function MailDetails({
             <ol className="mt-2 space-y-2">
               {review.steps.map((step, index) => (
                 <li key={`${step.title}-${index}`} className="flex gap-2">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
                     {index + 1}
                   </span>
                   <div className="min-w-0">

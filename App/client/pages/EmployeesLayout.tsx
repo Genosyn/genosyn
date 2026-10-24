@@ -1,8 +1,9 @@
 import React from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Plus, Users } from "lucide-react";
+import { Plus } from "lucide-react";
 import { api, Company, Employee } from "../lib/api";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { RailIconButton, SectionRailHeader } from "../components/SectionRail";
 import { Spinner } from "../components/ui/Spinner";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { EmployeesContext } from "./employeesContext";
@@ -48,18 +49,18 @@ export default function EmployeesLayout({ company }: { company: Company }) {
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Users size={14} /> Employees
-        </div>
-        <button
-          onClick={() => navigate(`/c/${company.slug}/employees/new`)}
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          title="New employee"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+      <SectionRailHeader
+        section="employees"
+        label="Employees"
+        actions={
+          <RailIconButton
+            label="New employee"
+            onClick={() => navigate(`/c/${company.slug}/employees/new`)}
+          >
+            <Plus size={16} />
+          </RailIconButton>
+        }
+      />
       <div className="flex-1 overflow-y-auto p-2">
         {employees === null ? (
           <div className="flex justify-center p-4">
@@ -101,7 +102,7 @@ export default function EmployeesLayout({ company }: { company: Company }) {
   return (
     <EmployeesContext.Provider value={ctx}>
       <ContextualLayout sidebar={sidebar}>
-        <div className="page-shell p-8">
+        <div className="page-shell p-4 sm:p-8">
           <Outlet />
         </div>
       </ContextualLayout>

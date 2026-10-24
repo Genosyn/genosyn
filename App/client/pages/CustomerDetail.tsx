@@ -652,7 +652,7 @@ function CustomerOverview({ company }: { company: Company }) {
 
   if (error || !customer) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <Breadcrumbs items={[{ label: "Customers", to: customersUrl }, { label: "Not found" }]} />
         <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
           {error ?? "Customer not found."}
@@ -693,7 +693,7 @@ function CustomerOverview({ company }: { company: Company }) {
         <div className="flex min-w-0 items-center gap-3">
           <Link
             to={customersUrl}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
@@ -864,7 +864,7 @@ function CustomerOverview({ company }: { company: Company }) {
               >
                 {label}
                 {count !== undefined && count > 0 && (
-                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                     {count}
                   </span>
                 )}
@@ -1669,7 +1669,7 @@ function DocTable({ head, rows }: { head: string[]; rows: DocRow[] }) {
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               {head.map((h, i) => (
                 <th

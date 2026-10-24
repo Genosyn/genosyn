@@ -1,9 +1,8 @@
 import React from "react";
-import { GitBranch } from "lucide-react";
 import { Outlet } from "react-router-dom";
 import { ContextualLayout } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
-import { SectionRailLinks } from "@/components/SectionRail";
+import { SectionRailHeader, SectionRailLinks } from "@/components/SectionRail";
 import { api, type Company } from "@/lib/api";
 import type { WaitingElsewhere } from "../../shared/navigation";
 
@@ -53,11 +52,7 @@ export default function DecisionsLayout({ company }: { company: Company }) {
   const slug = company.slug;
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <GitBranch size={14} /> Decision stack
-        </div>
-      </div>
+      <SectionRailHeader section="decisions" label="Decision stack" />
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         <SectionRailLinks section="decisions" companySlug={slug} viewer={company} counts={counts} />
       </nav>

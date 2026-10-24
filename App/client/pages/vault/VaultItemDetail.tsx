@@ -367,7 +367,7 @@ export function VaultItemDetail({
           )}
 
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
               Item details
             </h3>
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
@@ -412,7 +412,7 @@ export function VaultItemDetail({
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <KeyRound size={15} className="mt-0.5 shrink-0 text-slate-400" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                         {vaultSecretLabel(detail.type)}
                       </div>
                       {detail.type === "secure_note" && revealedSecret !== null ? (
@@ -468,7 +468,7 @@ export function VaultItemDetail({
 
           {detail.type === "login" && (
             <section>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
                 Sign-in authenticators
               </h3>
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
@@ -477,7 +477,7 @@ export function VaultItemDetail({
                     <div className="flex min-w-0 flex-1 items-start gap-3">
                       <Smartphone size={15} className="mt-0.5 shrink-0 text-slate-400" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                           Authenticator code
                         </div>
                         {detail.hasTotp ? (
@@ -549,7 +549,7 @@ export function VaultItemDetail({
                   <div className="flex items-start gap-3">
                     <Fingerprint size={15} className="mt-0.5 shrink-0 text-slate-400" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                         Software passkeys
                       </div>
                       {(detail.passkeys ?? []).length === 0 ? (
@@ -632,7 +632,7 @@ export function VaultItemDetail({
           <section>
             <div className="mb-3 flex items-center gap-2">
               <ShieldCheck size={15} className="text-slate-400" />
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Access
               </h3>
             </div>
@@ -678,7 +678,7 @@ function DetailRow({
     <div className="flex items-start gap-3 border-t border-slate-100 px-4 py-3 first:border-t-0 dark:border-slate-800">
       <span className="mt-0.5 shrink-0 text-slate-400">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {label}
         </div>
         <div

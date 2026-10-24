@@ -179,7 +179,7 @@ export function CartesianPlot({
         aria-label={`${series.map((item) => item.name).join(", ")} across ${count} ${
           count === 1 ? "row" : "rows"
         }. Use the arrow keys to read each one.`}
-        className="relative min-h-0 flex-1 touch-pan-y rounded-md outline-none [contain-intrinsic-height:12rem] [contain:size] focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+        className="relative min-h-0 flex-1 touch-pan-y rounded-md outline-none [contain-intrinsic-height:12rem] [contain:size] focus-visible:ring-2 focus-visible:ring-focus"
         onPointerMove={(event) => setHovered(indexAt(event.clientX))}
         onPointerDown={(event) => setHovered(indexAt(event.clientX))}
         onPointerLeave={(event) => {

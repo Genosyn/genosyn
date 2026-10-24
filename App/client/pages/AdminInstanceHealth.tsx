@@ -168,7 +168,7 @@ function CheckCard({ check }: { check: InstanceProbe }) {
               </h2>
               <span
                 className={clsx(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  "rounded-full px-1.5 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
                   style.badge,
                 )}
               >

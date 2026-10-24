@@ -191,7 +191,7 @@ export function EmployeeDayModal({
                   )
                     setSelectedDay(event.target.value);
                 }}
-                className="min-w-0 bg-transparent text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-200 dark:[color-scheme:dark]"
+                className="min-w-0 bg-transparent text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-200 dark:[color-scheme:dark]"
               />
             </label>
             <Button

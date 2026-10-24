@@ -1,29 +1,30 @@
 import React from "react";
 import { BrainCircuit, Check, KeyRound, Loader2, LogIn, Server } from "lucide-react";
 import type { AIModel } from "@/lib/api";
+import { Badge } from "@/components/ui/Badge";
 
 /** Connected, or still waiting for its credential. */
 export function ModelStatusBadge({ connected }: { connected: boolean }) {
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-900">
-        <Check size={10} aria-hidden="true" /> Connected
-      </span>
+      <Badge tone="success" icon={<Check />}>
+        Connected
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-900">
-      <Loader2 size={10} className="animate-spin" aria-hidden="true" /> Waiting
-    </span>
+    <Badge tone="warning" icon={<Loader2 className="animate-spin" />}>
+      Waiting
+    </Badge>
   );
 }
 
 /** The model chat and Routines use, when an employee has more than one. */
 export function ModelActiveBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/30">
-      <BrainCircuit size={10} aria-hidden="true" /> Active
-    </span>
+    <Badge tone="accent" icon={<BrainCircuit />}>
+      Active
+    </Badge>
   );
 }
 

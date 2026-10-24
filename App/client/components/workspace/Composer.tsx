@@ -352,10 +352,10 @@ export const ChannelComposer = React.forwardRef<
       <div
         {...dragProps}
         className={
-          "relative flex items-start gap-2 rounded-xl border bg-white p-2 dark:bg-slate-900 " +
+          "relative flex items-start gap-2 rounded-xl border bg-white p-2 shadow-sm transition-colors dark:bg-slate-900 " +
           (dragActive
             ? "border-indigo-500 ring-2 ring-indigo-500/30 "
-            : "border-slate-200 focus-within:border-indigo-400 dark:border-slate-700")
+            : "border-slate-300 focus-within:border-indigo-500 focus-within:ring-[3px] focus-within:ring-indigo-500/15 dark:border-slate-700 dark:focus-within:border-indigo-400")
         }
       >
         {dragActive && (
@@ -372,7 +372,7 @@ export const ChannelComposer = React.forwardRef<
         />
         <button
           onClick={() => fileRef.current?.click()}
-          className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           title="Attach file"
           aria-label="Attach file"
           aria-busy={uploading > 0 || undefined}
@@ -464,13 +464,13 @@ export const ChannelComposer = React.forwardRef<
             }
           }}
           placeholder={compact ? "Reply…" : channel.placeholder || `Message ${channel.label}`}
-          className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
+          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
           rows={1}
         />
         <div className={compact ? "" : "relative"}>
           <button
             onClick={() => setEmojiOpen((o) => !o)}
-            className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="touch-target relative mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="Emoji"
             aria-label="Emoji"
           >
@@ -508,7 +508,7 @@ export const ChannelComposer = React.forwardRef<
                 compact ? "left-2 right-2" : "left-12 w-80"
               }`}
             >
-              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="text-xs font-medium px-3 py-1.5 text-slate-500 dark:text-slate-400">
                 {mentionPrefix === "@" ? "People" : "Resources"}
               </div>
               <div className={`${compact ? "max-h-40" : "max-h-72"} overflow-y-auto pb-1`}>
@@ -545,7 +545,7 @@ export const ChannelComposer = React.forwardRef<
                           {x.label}
                         </span>
                         {x.kind === "ai" && (
-                          <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                          <span className="shrink-0 rounded bg-indigo-50 px-1 text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300 inline-block first-letter:uppercase">
                             AI
                           </span>
                         )}

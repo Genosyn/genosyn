@@ -1,5 +1,6 @@
 import React from "react";
 import { Archive, ArchiveRestore, X } from "lucide-react";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import type { ArchiveAction } from "./useArchiveSelection";
 
@@ -25,7 +26,7 @@ export function FilterTab({
     <button
       onClick={onClick}
       className={
-        "rounded-md px-3 py-1.5 text-xs font-medium transition " +
+        "touch-target relative rounded-md px-3 py-1.5 text-xs font-medium transition " +
         (active
           ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
           : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
@@ -33,7 +34,7 @@ export function FilterTab({
     >
       {label}
       {count !== null && (
-        <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">{count}</span>
+        <span className="ml-1.5 tabular-nums text-slate-500 dark:text-slate-400">{count}</span>
       )}
     </button>
   );
@@ -45,9 +46,9 @@ export function FilterTab({
  */
 export function ArchivedTag() {
   return (
-    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.5 align-middle font-sans text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-      <Archive size={10} aria-hidden="true" /> Archived
-    </span>
+    <Badge icon={<Archive />} className="ml-1.5 align-middle font-sans">
+      Archived
+    </Badge>
   );
 }
 
@@ -112,9 +113,9 @@ export function ArchiveBulkBar({
 /** Beside a detail page's status badge while the record is archived. */
 export function ArchivedBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:bg-slate-700/40 dark:text-slate-300">
-      <Archive size={10} /> Archived
-    </span>
+    <Badge icon={<Archive />} tone="neutral">
+      Archived
+    </Badge>
   );
 }
 

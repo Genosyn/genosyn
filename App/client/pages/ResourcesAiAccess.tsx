@@ -169,7 +169,7 @@ export default function ResourcesAiAccess() {
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {level.label}
                   {level.value === DEFAULT_RESOURCE_LIBRARY_LEVEL && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                       Default
                     </span>
                   )}
@@ -183,7 +183,7 @@ export default function ResourcesAiAccess() {
               {level.hint}
             </p>
             {index > 0 && (
-              <div className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="text-xs mt-2.5 inline-flex items-center gap-1 font-medium text-slate-500 dark:text-slate-400">
                 <Check size={11} /> Includes {RESOURCE_LIBRARY_LEVELS[index - 1].label}
               </div>
             )}
@@ -213,7 +213,7 @@ export default function ResourcesAiAccess() {
             )}
           </div>
           {summary && (
-            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 tabular-nums dark:text-slate-500">
+            <span className="text-xs font-medium text-slate-500 tabular-nums dark:text-slate-400">
               {summary}
             </span>
           )}

@@ -1,9 +1,8 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { Settings as SettingsIcon } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout } from "../components/AppShell";
-import { SectionRailLinks } from "../components/SectionRail";
+import { SectionRailHeader, SectionRailLinks } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/settings/*`. Mirrors EmployeesLayout /
@@ -55,11 +54,7 @@ export default function SettingsLayout({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <SettingsIcon size={14} /> Settings
-        </div>
-      </div>
+      <SectionRailHeader section="settings" label="Settings" />
       <nav className="flex-1 overflow-y-auto p-2">
         <SectionRailLinks section="settings" companySlug={company.slug} viewer={company} />
       </nav>
@@ -82,7 +77,7 @@ export default function SettingsLayout({
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="page-shell p-8">
+      <div className="page-shell px-4 py-6 sm:p-8">
         <div className="mb-4">
           <Breadcrumbs
             items={[{ label: "Settings", to: tabCrumbs.length ? base : undefined }, ...tabCrumbs]}

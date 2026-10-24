@@ -17,12 +17,12 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   loading?: boolean;
 }
 
-// The focus ring is translucent and sits flush against the button rather than
-// on an offset. `ring-offset-*` paints the gap in `--tw-ring-offset-color`,
-// which is white — a bright hairline around every focused button on a dark
-// panel — and one offset colour cannot serve white modals, tinted footers and
-// slate-900 surfaces at once. Each variant tints its own ring instead, so a
-// destructive button no longer answers with the accent colour.
+// Focus is a 2px outline 2px outside the button. An outline's offset is a gap,
+// not paint, so it shows whatever the button sits on — a white modal, a tinted
+// footer, a slate-900 panel — where a ring's offset had to be painted one fixed
+// colour and drew a bright hairline on dark surfaces. The outline is the
+// theme's focus colour (3:1 or better on every surface); a destructive button
+// answers in red rather than the accent.
 //
 // Hover and the unavailable look are kept apart from the resting colours
 // because a loading button sheds both: it is busy, not unavailable, so it
@@ -30,24 +30,26 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 // left resting on it is not offered a hover for a click it will not take.
 const variantClasses: Record<Variant, { rest: string; hover: string; disabled: string }> = {
   primary: {
-    rest: "bg-indigo-600 text-white focus-visible:ring-indigo-500/40 dark:bg-indigo-500",
-    hover: "hover:bg-indigo-700 dark:hover:bg-indigo-600",
-    disabled: "disabled:bg-indigo-400 dark:disabled:bg-indigo-900",
+    // White text on indigo-600 is 6.3:1; the dark hover's indigo-500 is tuned
+    // to 4.6:1 (lib/designTokens.ts).
+    rest: "bg-indigo-600 text-white shadow-sm focus-visible:outline-focus",
+    hover: "hover:bg-indigo-700 dark:hover:bg-indigo-500",
+    disabled: "disabled:opacity-50",
   },
   secondary: {
-    rest: "bg-white text-slate-900 border border-slate-200 focus-visible:ring-indigo-500/40 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-    hover: "hover:bg-slate-50 dark:hover:bg-slate-800",
-    disabled: "disabled:opacity-60",
+    rest: "border border-slate-300 bg-white text-slate-800 shadow-sm focus-visible:outline-focus dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+    hover: "hover:border-slate-400/80 hover:bg-slate-50 dark:hover:border-slate-600 dark:hover:bg-slate-800",
+    disabled: "disabled:opacity-50",
   },
   ghost: {
-    rest: "bg-transparent text-slate-700 focus-visible:ring-indigo-500/40 dark:text-slate-200",
-    hover: "hover:bg-slate-100 dark:hover:bg-slate-800",
-    disabled: "disabled:opacity-60",
+    rest: "bg-transparent text-slate-700 focus-visible:outline-focus dark:text-slate-300",
+    hover: "hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+    disabled: "disabled:opacity-50",
   },
   danger: {
-    rest: "bg-red-600 text-white focus-visible:ring-red-500/50 dark:bg-red-600",
-    hover: "hover:bg-red-700 dark:hover:bg-red-700",
-    disabled: "disabled:bg-red-400",
+    rest: "bg-red-600 text-white shadow-sm focus-visible:outline-red-600 dark:focus-visible:outline-red-400",
+    hover: "hover:bg-red-700",
+    disabled: "disabled:opacity-50",
   },
 };
 
@@ -69,8 +71,8 @@ export function buttonClassName({
 } = {}) {
   const colors = variantClasses[variant];
   return clsx(
-    "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition",
-    "focus-visible:outline-none focus-visible:ring-2",
+    "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors",
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
     colors.rest,
     loading
       ? "cursor-progress"

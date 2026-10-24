@@ -31,6 +31,7 @@ import {
   RunOutcomeVerdict,
   RunStatus,
 } from "@/lib/api";
+import { Badge, type BadgeSize, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
@@ -54,26 +55,25 @@ import {
  * looks `failed` in one place must not look `skipped` in another.
  */
 
-const RUN_STATUS_STYLE: Record<RunStatus, string> = {
-  queued:
-    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-  reviewed:
-    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-  running:
-    "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
-  completed:
-    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
-  failed:
-    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
-  error:
-    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
-  skipped:
-    "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
-  timeout:
-    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
-  interrupted:
-    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
+/**
+ * Failed (the work was not done) and Error (something stopped the Run) stay
+ * apart: rose for the first, amber for the second. Skipped and reviewed are
+ * plain facts.
+ */
+const RUN_STATUS_TONE: Record<RunStatus, BadgeTone> = {
+  queued: "neutral",
+  reviewed: "neutral",
+  running: "info",
+  completed: "success",
+  failed: "danger",
+  error: "warning",
+  skipped: "neutral",
+  timeout: "warning",
+  interrupted: "warning",
 };
+
+/** The two chip sizes callers ask for, on the shared Badge. */
+const BADGE_SIZE: Record<"xs" | "sm", BadgeSize> = { xs: "sm", sm: "md" };
 
 /**
  * Errors are operational problems; Failed means intended work was not done.
@@ -93,18 +93,20 @@ export function RunStatusChip({
 }) {
   const paused = isRunPaused({ status, pauseCount });
   return (
-    <span
+    <Badge
+      tone={RUN_STATUS_TONE[status]}
+      size={BADGE_SIZE[size]}
       title={runStatusHint(status, errorKind, paused)}
-      className={
-        "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
-        (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
-        RUN_STATUS_STYLE[status]
+      icon={
+        status === "running" ? (
+          <Loader2 className="animate-spin" />
+        ) : paused ? (
+          <Play />
+        ) : undefined
       }
     >
-      {status === "running" && <Loader2 size={10} className="animate-spin" />}
-      {paused && <Play size={10} />}
       {runStatusLabel(status, paused)}
-    </span>
+    </Badge>
   );
 }
 
@@ -224,19 +226,20 @@ export function RunReviewNotice({ companySlug }: { companySlug: string }) {
   );
 }
 
-const OUTCOME_STYLE: Record<RunOutcomeVerdict, string> = {
-  achieved:
-    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
-  unclear:
-    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30",
-  off_goal:
-    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
-  // Dashed, and amber rather than slate: `unclear` is a quiet result, this is
-  // a gap. Nothing about this run was graded, and it must not read as one of
-  // the three verdicts a grader can reach.
-  unverified:
-    "border-dashed bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/40",
+const OUTCOME_TONE: Record<RunOutcomeVerdict, BadgeTone> = {
+  achieved: "success",
+  unclear: "neutral",
+  off_goal: "danger",
+  unverified: "warning",
 };
+
+/**
+ * Dashed, and amber rather than slate: `unclear` is a quiet result, this is a
+ * gap. Nothing about this run was graded, and it must not read as one of the
+ * three verdicts a grader can reach.
+ */
+const UNVERIFIED_EDGE =
+  "!ring-0 border border-dashed border-amber-500/60 dark:border-amber-400/50";
 
 const OUTCOME_LABEL: Record<RunOutcomeVerdict, string> = {
   achieved: "achieved",
@@ -275,26 +278,16 @@ export function RunOutcomeChip({
   size?: "xs" | "sm";
 }) {
   return (
-    <span
+    <Badge
+      tone={OUTCOME_TONE[verdict]}
+      size={BADGE_SIZE[size]}
       title={note ?? OUTCOME_HINT[verdict]}
-      className={
-        "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
-        (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
-        OUTCOME_STYLE[verdict]
-      }
+      className={verdict === "unverified" ? UNVERIFIED_EDGE : undefined}
     >
       {OUTCOME_LABEL[verdict]}
-    </span>
+    </Badge>
   );
 }
-
-const CHECKS_STYLE: Record<RunChecksVerdict, string> = {
-  passed:
-    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
-  failed:
-    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
-  not_run: "",
-};
 
 /**
  * The third axis: the outcome verdict is a model reading a transcript, this is
@@ -315,21 +308,18 @@ export function RunChecksChip({
 }) {
   if (verdict === "not_run") return null;
   return (
-    <span
+    <Badge
+      tone={verdict === "passed" ? "success" : "danger"}
+      size={BADGE_SIZE[size]}
       title={
         verdict === "passed"
           ? "Every required Check on this Routine held."
           : "A required Check did not hold, so this run is not green however its transcript reads."
       }
-      className={
-        "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
-        (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
-        CHECKS_STYLE[verdict]
-      }
+      icon={verdict === "passed" ? <CheckCircle2 /> : <XCircle />}
     >
-      {verdict === "passed" ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
       checks {verdict}
-    </span>
+    </Badge>
   );
 }
 
@@ -428,7 +418,7 @@ export function RunLogPane({
           <Loader2 size={14} className="mr-2 animate-spin" /> Loading log…
         </div>
       ) : log === null ? (
-        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+        <div className="flex h-full items-center justify-center text-xs text-slate-300/70">
           {placeholder}
         </div>
       ) : (
@@ -445,7 +435,7 @@ export function RunLogPane({
               [log truncated — first 256KB of {log.size} bytes]
             </div>
           )}
-          {log.content || <span className="text-slate-500">{placeholder}</span>}
+          {log.content || <span className="text-slate-300/70">{placeholder}</span>}
         </pre>
       )}
     </div>
@@ -707,10 +697,10 @@ function RecordingState({
   body: React.ReactNode;
 }) {
   return (
-    <div className="flex max-w-sm flex-col items-center gap-2 px-6 py-10 text-center text-slate-400">
+    <div className="flex max-w-sm flex-col items-center gap-2 px-6 py-10 text-center text-slate-300/70">
       {icon}
       <div className="text-sm font-medium text-slate-200">{title}</div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-xs leading-relaxed text-slate-300">{body}</p>
     </div>
   );
 }
@@ -863,20 +853,18 @@ function RunChecksStripContent({ companyId, runId, reloadKey, className = "" }: 
                 <span className="text-xs font-medium text-slate-800 dark:text-slate-100">
                   {result.name}
                 </span>
-                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  {result.required ? "required" : "advisory"}
-                </span>
-                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <Badge>{result.required ? "required" : "advisory"}</Badge>
+                <Badge capitalize={false} className="font-mono">
                   {result.kind}
-                </span>
+                </Badge>
                 {/* Which round this came from. A run that only went green on
                       the second try should say so — that is the difference
                       between a Routine that works and one that is nursed. */}
-                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   {result.attempt === 0 ? "first pass" : `remediation round ${result.attempt}`}
                 </span>
                 {result.exitCode !== null && (
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
                     exit {result.exitCode}
                   </span>
                 )}
@@ -1236,7 +1224,7 @@ function RunLiveModalContent({
           <dl className="mt-3 grid grid-cols-4 divide-x divide-slate-200 dark:divide-slate-700">
             {metrics.map(({ label, value }) => (
               <div key={label} className="min-w-0 px-2 first:pl-0 last:pr-0 sm:px-5">
-                <dt className="whitespace-nowrap text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <dt className="whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
                   {label}
                 </dt>
                 <dd className="mt-1 text-xs font-medium tabular-nums text-slate-800 sm:text-sm dark:text-slate-100">

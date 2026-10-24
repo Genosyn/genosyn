@@ -307,7 +307,7 @@ function CustomerList({ company }: { company: Company }) {
         <Breadcrumbs items={[{ label: "Customers" }]} />
       </div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Customers</h1>
         {canWrite && (
           <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
             <Plus size={14} /> New customer
@@ -335,7 +335,7 @@ function CustomerList({ company }: { company: Company }) {
               type="button"
               onClick={clearSearch}
               aria-label="Clear customer search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:bg-slate-800 dark:hover:text-slate-200"
             >
               <X size={14} />
             </button>
@@ -417,7 +417,7 @@ function CustomerList({ company }: { company: Company }) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-sm">
                 <caption className="sr-only">Customers</caption>
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Name</th>
                     <th className="px-4 py-2 text-left font-medium">Domain</th>
@@ -439,7 +439,7 @@ function CustomerList({ company }: { company: Company }) {
                           {c.name}
                         </Link>
                         {c.archivedAt && (
-                          <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                             Archived
                           </span>
                         )}
@@ -557,7 +557,7 @@ function RowMenu({
           ref={ref}
           onClick={onClick}
           disabled={disabled}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
           <MoreHorizontal size={16} />

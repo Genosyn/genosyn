@@ -167,7 +167,7 @@ export default function RevenueAccountDetail() {
   const openDeals = deals.filter((deal) => deal.status === "open");
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -185,7 +185,7 @@ export default function RevenueAccountDetail() {
               <Building2 size={20} />
             </span>
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
                 {account.name}
               </h1>
               <p className="mt-0.5 text-sm capitalize text-slate-500">
@@ -306,7 +306,7 @@ export default function RevenueAccountDetail() {
           </div>
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/50 sm:grid-cols-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Headquarters
               </p>
               <p className="mt-1 whitespace-pre-line text-slate-700 dark:text-slate-200">
@@ -314,7 +314,7 @@ export default function RevenueAccountDetail() {
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Parent company
               </p>
               <p className="mt-1 text-slate-700 dark:text-slate-200">
@@ -322,7 +322,7 @@ export default function RevenueAccountDetail() {
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Parent domain
               </p>
               <p className="mt-1 break-all text-slate-700 dark:text-slate-200">

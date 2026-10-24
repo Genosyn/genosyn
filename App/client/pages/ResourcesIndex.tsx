@@ -285,7 +285,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
               {view.kind === "folder" ? (
                 <FolderTrail companySlug={company.slug} trail={trail} />
               ) : (
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="text-xs font-medium mb-1 text-slate-500 dark:text-slate-400">
                   Resources
                 </div>
               )}
@@ -429,7 +429,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
           ) : (
             <>
               <div className="mb-3 mt-8 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
                   <Clock size={12} />
                   {filtering
                     ? `${filtered?.length ?? 0} of ${scoped?.length ?? 0}`
@@ -548,7 +548,7 @@ function StatsStrip({
             <span className="block text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {c.value}
             </span>
-            <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <span className="text-xs block font-medium text-slate-500 dark:text-slate-400">
               {c.label}
             </span>
           </span>
@@ -949,7 +949,7 @@ function FolderTrail({ companySlug, trail }: { companySlug: string; trail: Resou
   return (
     <nav
       aria-label="Folder"
-      className="mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+      className="text-xs font-medium mb-1 flex flex-wrap items-center gap-1 text-slate-500 dark:text-slate-400"
     >
       <Link to={resourceFolderHref(companySlug, null)} className="hover:text-slate-800 dark:hover:text-slate-200">
         Resources
@@ -1103,13 +1103,13 @@ export function SourceKindIcon({ kind, size = 18 }: { kind: ResourceSourceKind; 
 function StatusBadge({ status }: { status: Resource["status"] }) {
   if (status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
         <AlertCircle size={10} /> Failed
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
       <Loader2 size={10} className="animate-spin" /> {status}
     </span>
   );

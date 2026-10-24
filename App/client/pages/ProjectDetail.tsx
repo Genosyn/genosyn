@@ -39,6 +39,7 @@ import {
   TodoStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
@@ -377,47 +378,49 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
-          <div className="min-w-0 flex-1">
+        {/* The title block keeps at least 16rem, so on a phone the view
+            controls drop to their own line instead of crushing the name. */}
+        <div className="flex flex-wrap items-start gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-6 dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0 flex-[1_1_16rem]">
             <Breadcrumbs
               items={[{ label: "Tasks", to: `/c/${company.slug}/tasks` }, { label: project.name }]}
             />
-            <div className="mt-1 flex items-center gap-2">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <Badge capitalize={false} className="font-mono">
                 {project.key}
-              </span>
-              <h1 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
+              </Badge>
+              <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">
                 {project.name}
               </h1>
-              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="whitespace-nowrap text-xs tabular-nums text-slate-500 dark:text-slate-400">
                 {summary.open} open · {summary.done} done
               </span>
               {!canEdit && (
-                <span
-                  className="flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                  title="You have view-only access to this project"
-                >
-                  <Eye size={10} /> View only
-                </span>
+                <Badge icon={<Eye />} title="You have view-only access to this project">
+                  View only
+                </Badge>
               )}
             </div>
             {project.description && (
-              <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">
                 {project.description}
               </p>
             )}
           </div>
-          <ViewToggle value={view} onChange={setView} />
-          <button
-            onClick={() => setShowSettings(true)}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            title="Project settings"
-          >
-            <SettingsIcon size={16} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <ViewToggle value={view} onChange={setView} />
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+              title="Project settings"
+              aria-label="Project settings"
+            >
+              <SettingsIcon size={16} />
+            </button>
+          </div>
         </div>
 
-        <div className="border-b border-slate-200 bg-white px-6 py-1.5 dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-b border-slate-200 bg-white px-4 py-1.5 sm:px-6 dark:border-slate-800 dark:bg-slate-900">
           <AsyncResourceTagPicker
             companyId={company.id}
             resourceType="project"
@@ -574,7 +577,7 @@ function ViewToggle({
           key={v}
           onClick={() => onChange(v)}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
             value === v
               ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
               : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
@@ -805,7 +808,7 @@ function FilterChip({
           ref={ref}
           onClick={onClick}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
             count > 0 || open
               ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-800 dark:text-indigo-300"
               : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
@@ -813,7 +816,7 @@ function FilterChip({
         >
           <span>{label}</span>
           {count > 0 && (
-            <span className="rounded bg-indigo-100 px-1 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+            <span className="rounded bg-indigo-100 px-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
               {count}
             </span>
           )}
@@ -889,38 +892,44 @@ function NewTodoRow({
   }
 
   return (
-    <div className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
-      <form onSubmit={submit} className="flex items-center gap-2 px-6 py-2">
-        <Plus size={14} className="text-slate-400 dark:text-slate-500" />
-        <input
-          ref={inputRef}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add a todo… (c)"
-          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
-        />
-        <StatusPicker value={status} onChange={setStatus} />
-        <PriorityPicker value={priority} onChange={setPriority} />
-        <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-        <AssigneePicker
-          value={assignee}
-          employees={employees}
-          members={members}
-          onChange={setAssignee}
-        />
-        <AssigneePicker
-          value={reviewer}
-          employees={employees}
-          members={members}
-          onChange={setReviewer}
-          role="reviewer"
-          compact
-        />
-        <Button type="submit" size="sm" loading={busy} disabled={!title.trim()}>
-          Add
-        </Button>
+    <div className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {/* The title keeps at least 14rem: on a phone the pickers wrap to the
+          line below rather than squeezing the field to nothing. */}
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-2 sm:px-6">
+        <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-2">
+          <Plus size={14} aria-hidden="true" className="shrink-0 text-slate-400 dark:text-slate-500" />
+          <input
+            ref={inputRef}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Add a todo… (c)"
+            className="h-8 min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPicker value={status} onChange={setStatus} />
+          <PriorityPicker value={priority} onChange={setPriority} />
+          <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+          <AssigneePicker
+            value={assignee}
+            employees={employees}
+            members={members}
+            onChange={setAssignee}
+          />
+          <AssigneePicker
+            value={reviewer}
+            employees={employees}
+            members={members}
+            onChange={setReviewer}
+            role="reviewer"
+            compact
+          />
+          <Button type="submit" size="sm" loading={busy} disabled={!title.trim()}>
+            Add
+          </Button>
+        </div>
       </form>
-      <FormError message={error} className="mx-6 mb-2" />
+      <FormError message={error} className="mx-4 mb-2 sm:mx-6" />
     </div>
   );
 }
@@ -995,7 +1004,7 @@ function ListView({
             <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-6 py-2 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-300">
               <StatusIcon status={status} />
               <span>{STATUS_LABEL[status]}</span>
-              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+              <span className="rounded bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                 {items.length}
               </span>
             </div>
@@ -1120,13 +1129,13 @@ function TodoRow({
               setEditing(true);
             }}
             className={clsx(
-              "truncate text-left text-sm",
+              "touch-target relative inline-flex max-w-full text-left text-sm",
               todo.status === "done" || todo.status === "cancelled"
                 ? "text-slate-400 line-through dark:text-slate-500"
                 : "text-slate-900 dark:text-slate-100",
             )}
           >
-            {todo.title}
+            <span className="truncate">{todo.title}</span>
           </button>
         )}
       </div>
@@ -1149,7 +1158,7 @@ function TodoRow({
       )}
       {todo.recurrence !== "none" && (
         <span
-          className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+          className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
           title={`Repeats ${RECURRENCE_LABEL[todo.recurrence].toLowerCase()}`}
         >
           <Repeat size={10} />
@@ -1158,7 +1167,7 @@ function TodoRow({
       )}
       {todo.status === "in_review" && (
         <span
-          className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+          className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
           title={todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"}
         >
           <ShieldCheck size={10} />
@@ -1190,7 +1199,7 @@ function TodoRow({
             e.stopPropagation();
             onDelete();
           }}
-          className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500"
+          className="touch-target relative rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-500 [@media(hover:none)]:opacity-100"
           title="Delete"
         >
           <Trash2 size={13} />
@@ -1355,7 +1364,7 @@ function BoardCard({
           {stats && <SubtaskCountChip stats={stats} />}
           {isReview && (
             <span
-              className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+              className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
               title={
                 todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"
               }
@@ -1899,7 +1908,7 @@ function ProjectAccessTab({
                           {m.name}
                         </span>
                         {isMe && (
-                          <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                             You
                           </span>
                         )}

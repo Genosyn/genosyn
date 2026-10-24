@@ -648,16 +648,14 @@ function WorkspaceSidebar({
       }
       aria-label="Workspace conversations"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Workspace chat
-        </div>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-100 pl-4 pr-2 dark:border-slate-800">
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Workspace chat</div>
         <button
           type="button"
           onClick={onNewGroupChat}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
         >
-          <Users size={12} /> Group chat
+          <Users size={14} /> Group chat
         </button>
       </div>
       {channels === null ? (
@@ -790,8 +788,9 @@ function SidebarSection({
     <div className="border-b border-slate-100 py-2 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-1">
         <button
-          className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          className="-ml-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
         >
           <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
           {title}
@@ -835,7 +834,7 @@ function ChannelRow({
 }) {
   const unreadBadge =
     unread && unread > 0 ? (
-      <span className="ml-auto rounded-full bg-indigo-600 px-1.5 text-[10px] font-semibold text-white">
+      <span className="ml-auto rounded-full bg-indigo-600 px-1.5 text-xs font-semibold text-white">
         {unread > 99 ? "99+" : unread}
       </span>
     ) : right ? (
@@ -1041,7 +1040,7 @@ function ChannelView({
               type="button"
               onClick={() => setShowDiscuss(true)}
               disabled={Boolean(running)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
               title={
                 running
                   ? "A discussion is already running here"
@@ -1056,7 +1055,7 @@ function ChannelView({
               onClick={() => void archive()}
               disabled={archiving}
               aria-busy={archiving || undefined}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title="Archive direct message"
             >
               {archiving ? <ButtonSpinner size={12} /> : <Archive size={12} />} Archive
@@ -1065,7 +1064,7 @@ function ChannelView({
           {channel.kind !== "dm" && (
             <button
               onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
               aria-label={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
             >
@@ -1086,7 +1085,7 @@ function ChannelView({
           {channel.kind === "dm" && (
             <button
               onClick={() => setShowMembers(true)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
             >
               <AtSign size={12} /> {channel.members.length} member
               {channel.members.length === 1 ? "" : "s"}
@@ -1652,7 +1651,7 @@ function NewDMModal({
         <div className="max-h-80 space-y-3 overflow-y-auto">
           {users.length > 0 && (
             <div>
-              <div className="px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium px-1 py-1 text-slate-500 dark:text-slate-400">
                 Teammates
               </div>
               {users.map((u) => (
@@ -1674,7 +1673,7 @@ function NewDMModal({
           )}
           {emps.length > 0 && (
             <div>
-              <div className="px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium px-1 py-1 text-slate-500 dark:text-slate-400">
                 AI employees
               </div>
               {emps.map((e) => (
@@ -2098,7 +2097,7 @@ function ChannelMembersSettings({
   return (
     <div className="space-y-4">
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
           In this channel
         </div>
         <div className="space-y-1">
@@ -2114,7 +2113,7 @@ function ChannelMembersSettings({
               )}
               <span className="font-medium text-slate-900 dark:text-slate-100">{member.name}</span>
               {member.kind === "ai" && (
-                <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <span className="rounded bg-indigo-50 px-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                   AI
                 </span>
               )}
@@ -2124,7 +2123,7 @@ function ChannelMembersSettings({
       </div>
       {(addableUsers.length > 0 || addableEmployees.length > 0) && (
         <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
             Add people
           </div>
           <div className="space-y-1">

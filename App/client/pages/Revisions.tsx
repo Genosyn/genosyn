@@ -153,7 +153,7 @@ export default function Revisions({ company }: { company: Company; me: Me }) {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar
         title="Revisions"
         right={
@@ -439,7 +439,7 @@ function DiffColumn({
   const visible = lines.filter((l) => (side === "left" ? l.kind !== "added" : l.kind !== "removed"));
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium mb-1 text-slate-500 dark:text-slate-400">
         {title}
       </div>
       <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 py-1 dark:border-slate-800 dark:bg-slate-950/40">

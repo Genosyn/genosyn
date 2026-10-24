@@ -201,7 +201,7 @@ export default function Goals({ company }: { company: Company; me: Me }) {
   );
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar
         title="Goals"
         right={
@@ -382,7 +382,7 @@ function GoalRow({
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {goal.awaitingConfirmation ? (
             <span
-              className="mt-0.5 shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              className="mt-0.5 shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
               title="Still active. An AI employee reported the target met, and the goal settles once a person confirms the number."
             >
               Needs confirmation
@@ -406,9 +406,9 @@ function GoalRow({
                   type="button"
                   onClick={() => onEdit(goal)}
                   aria-label={`Edit ${goal.title}`}
-                  className="truncate text-left text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+                  className="touch-target relative flex min-w-0 text-left text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
                 >
-                  {goal.title}
+                  <span className="truncate">{goal.title}</span>
                 </button>
               ) : (
                 <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -518,7 +518,7 @@ function GoalRow({
                   onClick={onClick}
                   type="button"
                   aria-label={`Actions for ${goal.title}`}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  className="touch-target relative rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                 >
                   <MoreHorizontal size={16} />
                 </button>

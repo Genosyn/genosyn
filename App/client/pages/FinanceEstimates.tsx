@@ -300,14 +300,14 @@ export default function FinanceEstimates() {
   const showBulkBar = canWrite && selection.selectedCount > 0;
 
   return (
-    <div className={"page-shell p-8" + (showBulkBar ? " pb-28" : "")}>
+    <div className={"page-shell p-4 sm:p-8" + (showBulkBar ? " pb-28" : "")}>
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Estimates" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Estimates</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Estimates</h1>
         {canWrite && (
           <Link to={`/c/${company.slug}/finance/estimates/new`}>
             <Button>
@@ -432,7 +432,7 @@ export default function FinanceEstimates() {
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
               <tr>
                 {canWrite && (
                   <th className="w-10 py-2 pl-4 pr-0 text-left font-medium">
@@ -505,7 +505,7 @@ export default function FinanceEstimates() {
                     <td className="px-4 py-3">
                       <span
                         className={
-                          "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                          "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
                           STATUS_BADGE[ds]
                         }
                       >
@@ -590,7 +590,7 @@ function RowMenu({
         <button
           ref={ref}
           onClick={onClick}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
           <MoreHorizontal size={16} />

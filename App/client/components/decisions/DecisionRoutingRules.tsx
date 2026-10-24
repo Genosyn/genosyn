@@ -123,7 +123,7 @@ export function DecisionRoutingRules({
                       <span className="mx-1.5 text-slate-400 dark:text-slate-500">→</span>
                       <span>{decider}</span>
                       {retired && (
-                        <span className="ml-2 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                        <span className="ml-2 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                           was their manager
                         </span>
                       )}
@@ -153,7 +153,7 @@ export function DecisionRoutingRules({
                       </>
                     ) : (
                       !rule.enabled && (
-                        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           off
                         </span>
                       )
@@ -226,7 +226,7 @@ function AddRuleForm({
     // noValidate: the browser's own check on the required decider would only
     // move focus, silently; `save` says what is missing, inline, instead.
     <form noValidate onSubmit={save} className="flex flex-col gap-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
         Add a rule
       </div>
       <FormError message={error} />

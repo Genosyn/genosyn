@@ -90,7 +90,7 @@ export default function FinanceProposals() {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             Proposed entries
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
@@ -256,14 +256,14 @@ function ProposalCard({
             </span>
             <span
               className={
-                "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                "rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase " +
                 badge.className
               }
             >
               {badge.label}
             </span>
             {proposal.proposedByType === "ai" && (
-              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 inline-block first-letter:uppercase">
                 AI
               </span>
             )}
@@ -316,7 +316,7 @@ function ProposalCard({
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="py-1 text-left font-medium">Account</th>
                   <th className="py-1 text-right font-medium">Debit</th>

@@ -268,7 +268,7 @@ export default function RepositoryAi() {
                 AI work
               </h1>
               {attentionCount > 0 && (
-                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                   {attentionCount} need{attentionCount === 1 ? "s" : ""} attention
                 </span>
               )}
@@ -586,7 +586,7 @@ function SessionInbox({
                   return (
                     <section key={group} className="mb-3 last:mb-0">
                       <div className="flex items-center justify-between px-2 pb-1 pt-1">
-                        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                           {SESSION_INBOX_GROUP_LABEL[group]}
                         </h3>
                         <span className="font-mono text-[10px] tabular-nums text-slate-300 dark:text-slate-600">
@@ -877,7 +877,7 @@ export function NewSessionPane({
         <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/20 sm:px-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-300">
+              <div className="flex items-center gap-2 text-xs font-medium text-indigo-500 dark:text-indigo-300">
                 <Sparkles size={13} /> New work session
               </div>
               <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">

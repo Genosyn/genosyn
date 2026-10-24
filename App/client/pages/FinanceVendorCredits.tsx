@@ -31,7 +31,7 @@ export default function FinanceVendorCredits() {
   useLiveRefetch("bill", reload);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -55,7 +55,7 @@ export default function FinanceVendorCredits() {
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
+            <thead className="text-left border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2">Number</th>
                 <th className="px-4 py-2 text-right">Total</th>
@@ -84,7 +84,7 @@ export default function FinanceVendorCredits() {
                   <td className="px-4 py-2">
                     <span
                       className={
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+                        "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
                         (STATUS_BADGE[c.status] ?? STATUS_BADGE.draft)
                       }
                     >

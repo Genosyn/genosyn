@@ -47,6 +47,7 @@ import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { employeeSettingsPage } from "../lib/employeeSettingsNav";
+import { Badge } from "../components/ui/Badge";
 import { employeePageAt } from "../lib/subpages";
 import { browserAdvancedSummary } from "../lib/employeeBrowser";
 import { Button } from "../components/ui/Button";
@@ -162,7 +163,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
               </Button>
               <span className="text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
               {dirty && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                   Unsaved changes
                 </span>
               )}
@@ -356,7 +357,7 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
       <nav
         ref={scroller}
         aria-label="Employee settings"
-        className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
+        className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 md:hidden"
       >
         {groups.flatMap((group) =>
           group.collapsible
@@ -367,7 +368,7 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
                   onClick={() => setAdvancedOpen((open) => !open)}
                   aria-expanded={advancedOpen}
                   title={group.items.map((item) => item.label).join(", ")}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   {group.title}
                   <AdvancedChevron open={advancedOpen} />
@@ -389,13 +390,13 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
                 aria-expanded={advancedOpen}
                 aria-controls={advancedOpen ? advancedListId : undefined}
                 title={group.items.map((item) => item.label).join(", ")}
-                className="flex w-full items-center gap-1 px-3 pb-1 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                className="text-xs font-medium flex w-full items-center gap-1 px-3 pb-1 text-left text-slate-500 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
               >
                 {group.title}
                 <AdvancedChevron open={advancedOpen} />
               </button>
             ) : (
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="text-xs font-medium px-3 pb-1 text-slate-500 dark:text-slate-400">
                 {group.title}
               </div>
             )}
@@ -436,7 +437,7 @@ function SettingsNavItem({ item, pill }: { item: SettingsNavEntry; pill?: boolea
   );
   const className = ({ isActive }: { isActive: boolean }) =>
     (pill
-      ? "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs "
+      ? "flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs "
       : "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ") +
     (isActive && !item.away
       ? pill
@@ -660,7 +661,7 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
                         granted {new Date(waiver.grantedAt).toLocaleDateString()}
                       </span>
                       {waiver.revokedAt && (
-                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
                           Revoked {new Date(waiver.revokedAt).toLocaleDateString()}
                           {waiver.revokedReason ? `: ${waiver.revokedReason}` : ""}
                         </span>
@@ -769,12 +770,12 @@ function EmployeeWakeupsCard({ company, emp }: { company: Company; emp: Employee
                     {new Date(wakeup.at).toLocaleString()}
                   </span>
                   {wakeup.status === "fired" && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       Fired
                     </span>
                   )}
                   {wakeup.status === "cancelled" && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       Cancelled
                     </span>
                   )}
@@ -1382,7 +1383,7 @@ function ToggleSwitch({
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500/40 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
+      <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
       <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
     </label>
   );
@@ -1626,7 +1627,7 @@ function JournalEntryRow({
             <div className="flex items-center gap-2">
               <span
                 className={
-                  "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                  "inline-block rounded-md border px-1.5 py-0.5 text-xs font-medium first-letter:uppercase " +
                   JOURNAL_KIND_STYLE[entry.kind]
                 }
               >
@@ -2058,16 +2059,13 @@ export function McpPage() {
                     <div className="flex items-center gap-2">
                       <Plug size={14} className="text-slate-500 dark:text-slate-400" />
                       <div className="font-medium">{s.name}</div>
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
+                      <Badge capitalize={false} className="font-mono">
                         {s.transport}
-                      </span>
+                      </Badge>
                       {s.guardedTools.length > 0 && (
-                        <span
-                          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-                          title={`Guarded: ${s.guardedTools.join(", ")}`}
-                        >
+                        <Badge tone="warning" title={`Guarded: ${s.guardedTools.join(", ")}`}>
                           {s.guardedTools.length} guarded
-                        </span>
+                        </Badge>
                       )}
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">

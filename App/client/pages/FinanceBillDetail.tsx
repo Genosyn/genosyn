@@ -187,7 +187,7 @@ export default function FinanceBillDetail() {
   const foreign = bill.currency.toUpperCase() !== home.toUpperCase();
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -201,14 +201,14 @@ export default function FinanceBillDetail() {
         <div className="flex items-center gap-3">
           <Link
             to={`/c/${company.slug}/finance/bills`}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{number}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{number}</h1>
           <span
             className={
-              "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
+              "inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " +
               STATUS_BADGE[ds]
             }
           >
@@ -265,7 +265,7 @@ export default function FinanceBillDetail() {
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Vendor
                 </div>
                 <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
@@ -278,13 +278,13 @@ export default function FinanceBillDetail() {
                 )}
               </div>
               <div className="text-right">
-                <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Issued
                 </div>
                 <div className="mt-1 text-slate-700 dark:text-slate-200">
                   {new Date(bill.issueDate).toISOString().slice(0, 10)}
                 </div>
-                <div className="mt-2 text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium mt-2 text-slate-500 dark:text-slate-400">
                   Due
                 </div>
                 <div className="text-slate-700 dark:text-slate-200">
@@ -347,7 +347,7 @@ export default function FinanceBillDetail() {
 
             {bill.notes && (
               <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   Notes
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
@@ -375,7 +375,7 @@ export default function FinanceBillDetail() {
 
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Payments made
             </h3>
             {bill.payments.length === 0 ? (

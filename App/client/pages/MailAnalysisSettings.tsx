@@ -109,7 +109,7 @@ export function MailAnalysisSettingsCard({
 
   if (!data) {
     return (
-      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {loadError ? (
           <FormError message={loadError} />
         ) : (
@@ -133,7 +133,7 @@ export function MailAnalysisSettingsCard({
   });
 
   return (
-    <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start gap-2">
         <Sparkles size={16} className="mt-0.5 text-violet-500 dark:text-violet-300" />
         <div className="min-w-0 flex-1">

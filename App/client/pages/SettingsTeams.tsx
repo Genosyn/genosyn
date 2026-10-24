@@ -152,7 +152,7 @@ export function SettingsTeams() {
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">{t.name}</span>
                         {t.archivedAt && (
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                             Archived
                           </span>
                         )}

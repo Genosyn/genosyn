@@ -1,6 +1,7 @@
 import React from "react";
 import { passwordManagerProps } from "@/lib/passwordManagers";
 import { clsx } from "./clsx";
+import { fieldClassName } from "./Input";
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
   label?: string;
@@ -16,7 +17,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
   const tid = id ?? genId;
   const hintId = `${tid}-hint`;
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       {label && (
         <label htmlFor={tid} className="text-sm font-medium text-slate-700 dark:text-slate-300">
           {label}
@@ -28,13 +29,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
         aria-describedby={hint ? hintId : undefined}
         {...passwordManagerProps(rest)}
         {...rest}
-        className={clsx(
-          "min-h-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm",
-          "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
-          "placeholder:text-slate-400 dark:placeholder:text-slate-500",
-          "focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/25",
-          className,
-        )}
+        className={clsx("min-h-[160px] px-3 py-2 leading-6", fieldClassName(), className)}
       />
       {hint && (
         <p id={hintId} className="text-xs leading-5 text-slate-500 dark:text-slate-400">

@@ -427,7 +427,7 @@ export default function FinanceBanking() {
       </div>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Banking</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Banking</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Your bank accounts and cards, and every transaction on them.
           </p>
@@ -777,7 +777,7 @@ function NoAccounts({
                 <button
                   type="button"
                   onClick={() => onAdd(point.kind)}
-                  className="h-full w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5"
+                  className="h-full w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5"
                 >
                   <span className="text-slate-400 dark:text-slate-500">{point.icon}</span>
                   <span className="mt-2 block text-sm font-medium text-slate-900 dark:text-slate-100">

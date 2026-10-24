@@ -468,7 +468,7 @@ function SiteSettings() {
               <span className="text-sm text-slate-400">Careers</span>
             </div>
             <div className="px-5 py-6">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: accent }}>
+              <p className="text-xs font-medium" style={{ color: accent }}>
                 Careers at {branding.siteTitle || company.name}
               </p>
               <p className="mt-2 text-lg font-semibold leading-snug tracking-tight text-slate-950">
@@ -519,7 +519,7 @@ function SiteSettings() {
                 <p className="text-sm text-slate-700 dark:text-slate-300">Add these two records where you manage DNS for {settings.domain.name}:</p>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                   <table className="w-full text-xs">
-                    <thead className="bg-slate-50 text-left uppercase tracking-wider text-slate-500 dark:bg-slate-800">
+                    <thead className="text-left border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2 font-medium">Type</th>
                         <th className="px-3 py-2 font-medium">Name</th>
@@ -589,7 +589,7 @@ function SiteSettings() {
                       Whatever serves HTTPS for this install must also serve it for {settings.domain.name}. With Caddy, on-demand TLS
                       can ask Genosyn which domains to issue for:
                     </p>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">{`{
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{`{
   on_demand_tls {
     ask http://localhost:8471/api/careers/domains/check
   }

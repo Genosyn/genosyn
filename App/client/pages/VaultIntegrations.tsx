@@ -320,11 +320,11 @@ function CatalogCard({
             {entry.name}
           </span>
           {connected > 0 && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               {connected} connected
             </span>
           )}
-          <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <span className="text-xs ml-auto font-medium text-slate-500 dark:text-slate-400">
             Read-only
           </span>
         </div>
@@ -372,7 +372,7 @@ function SourceRow({
           </span>
           <StatusPill status={source.status} />
           {source.usesApiKey && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
               API key
             </span>
           )}
@@ -433,13 +433,13 @@ function SourceRow({
 function StatusPill({ status }: { status: VaultSource["status"] }) {
   if (status === "connected") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
         <CheckCircle2 size={10} /> Connected
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/40 dark:text-red-300">
+    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950/40 dark:text-red-300">
       <AlertCircle size={10} /> Needs attention
     </span>
   );

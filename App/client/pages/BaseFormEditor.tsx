@@ -524,7 +524,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-4 text-sm font-medium text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5 dark:hover:text-indigo-300"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-4 text-sm font-medium text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5 dark:hover:text-indigo-300"
             >
               <Plus size={15} /> Add question
             </button>
@@ -586,7 +586,7 @@ export default function BaseFormEditor({ company }: { company: Company }) {
             </div>
 
             <div className="mt-6 rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Responses
               </div>
               <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
@@ -690,11 +690,11 @@ function QuestionCard({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold tabular-nums text-slate-400">{index + 1}</span>
           {field ? (
-            <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               {isPublicFormFieldType(field.type) ? formFieldTypeLabel(field.type) : field.type}
             </span>
           ) : (
-            <span className="rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+            <span className="rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
               Missing table field
             </span>
           )}
@@ -772,7 +772,7 @@ function QuestionCard({
 
         {preview && (
           <div className="mt-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
               Preview
             </div>
             <FormQuestionInput

@@ -48,7 +48,7 @@ export function BoardLetterCard({
   const writer = letter.writer.name || "A former AI Employee";
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
           <ScrollText size={15} />
@@ -56,7 +56,7 @@ export function BoardLetterCard({
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
           Letter to the board
         </h2>
-        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-xs font-medium tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {unreadCount}
         </span>
         <Link
@@ -69,7 +69,7 @@ export function BoardLetterCard({
 
       <article className="flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-5">
         <div className="w-10 shrink-0 text-center sm:w-12">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
             No.
           </div>
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-slate-100">
@@ -120,7 +120,7 @@ export function BoardLetterCard({
       {more > 0 && (
         <Link
           to={letters}
-          className="block border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-center text-xs font-medium text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40 dark:text-indigo-400 dark:hover:bg-slate-900"
+          className="block border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-center text-xs font-medium text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40 dark:text-indigo-400 dark:hover:bg-slate-800/60"
         >
           {more} more unread {more === 1 ? "letter" : "letters"}
         </Link>

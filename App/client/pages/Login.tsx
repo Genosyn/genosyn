@@ -226,11 +226,11 @@ export default function Login() {
         <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
           <Link
             to={invitationAuthPath("signup", invitationToken)}
-            className="hover:text-indigo-600"
+            className="touch-target relative hover:text-indigo-600"
           >
             Create account
           </Link>
-          <Link to="/forgot" className="hover:text-indigo-600">
+          <Link to="/forgot" className="touch-target relative hover:text-indigo-600">
             Forgot password
           </Link>
         </div>
@@ -474,10 +474,10 @@ function CompanySsoLinkConfirm({
         {loading ? "Linking…" : "Link and sign in"}
       </Button>
       <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/login" className="hover:text-indigo-600">
+        <Link to="/login" className="touch-target relative hover:text-indigo-600">
           Back to sign in
         </Link>
-        <Link to="/forgot" className="hover:text-indigo-600">
+        <Link to="/forgot" className="touch-target relative hover:text-indigo-600">
           Forgot password
         </Link>
       </div>
@@ -631,16 +631,20 @@ export function AuthShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-full items-center justify-center p-6">
+    // The page is a shade darker than the card in dark mode too, so the card
+    // reads as the one thing to fill in.
+    <div className="flex min-h-full items-center justify-center bg-slate-50 px-4 py-10 sm:p-6 dark:bg-slate-950">
       <div className={clsx("w-full", subtitle ? "max-w-md" : "max-w-sm")}>
         <div className="mb-6 flex flex-col items-center text-center">
           <Logo className="h-8 w-auto text-slate-900 dark:text-slate-100" />
-          <h1 className="mt-5 text-xl font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
+          <h1 className="mt-6 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+            {title}
+          </h1>
           {subtitle && (
             <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{subtitle}</p>
           )}
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:bg-slate-900 dark:border-slate-700">
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7 dark:border-slate-800 dark:bg-slate-900">
           {children}
         </div>
       </div>

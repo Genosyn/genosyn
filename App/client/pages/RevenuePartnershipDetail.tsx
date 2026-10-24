@@ -79,7 +79,7 @@ export default function RevenuePartnershipDetail() {
 
   if (!detail || !draft) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships", to: listUrl }, { label: "Loading…" }]} />
         <div className="mt-16 flex justify-center">{error ? <FormError message={error} /> : <Spinner />}</div>
       </div>
@@ -175,14 +175,14 @@ export default function RevenuePartnershipDetail() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships", to: listUrl }, { label: detail.partnership.name }]} />
       <Link to={listUrl} className="mt-5 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
         <ArrowLeft size={14} /> All partnerships
       </Link>
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{detail.partnership.name}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{detail.partnership.name}</h1>
           <p className="mt-1 text-sm text-slate-500">Partner-specific relationship, contact, and outreach context.</p>
         </div>
         <Button onClick={() => void save()} loading={busy === "save"} disabled={busy !== null}>{busy === "save" ? "Saving…" : "Save changes"}</Button>

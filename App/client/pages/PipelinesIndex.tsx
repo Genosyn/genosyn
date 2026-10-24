@@ -38,7 +38,7 @@ export default function PipelinesIndex({ company }: { company: Company }) {
 
       <header className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-2xl">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-slate-50">
             Pipelines
           </h1>
           <p className="mt-1.5 text-sm leading-6 text-slate-600 dark:text-slate-400">
@@ -126,7 +126,7 @@ function MentalModel() {
     },
   ];
   return (
-    <section className="mt-7 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
+    <section className="mt-7 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
       <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-center">
         {items.map((item, index) => {
           const Icon = item.icon;
@@ -137,7 +137,7 @@ function MentalModel() {
                   <Icon size={17} />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+                  <div className="text-xs font-medium text-indigo-600 dark:text-indigo-300">
                     {item.label}
                   </div>
                   <div className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -164,7 +164,7 @@ function MentalModel() {
 
 function FirstPipeline({ company }: { company: Company }) {
   return (
-    <section className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="p-6 text-center sm:p-9">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
           <Workflow size={22} />
@@ -228,7 +228,7 @@ function PipelineCard({
   return (
     <Link
       to={`/c/${company.slug}/pipelines/${pipeline.slug}`}
-      className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950 dark:hover:border-indigo-700"
+      className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
@@ -305,7 +305,7 @@ function PipelineGridSkeleton() {
       {[0, 1, 2, 3].map((item) => (
         <div
           key={item}
-          className="h-52 animate-pulse rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+          className="h-52 animate-pulse rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
         />
       ))}
     </div>

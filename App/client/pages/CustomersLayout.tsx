@@ -1,9 +1,9 @@
 import React from "react";
 import { Link, Outlet } from "react-router-dom";
-import { Building2, Contact2, FileSignature } from "lucide-react";
+import { Building2, FileSignature } from "lucide-react";
 import { Company } from "../lib/api";
 import { Breadcrumbs, ContextualLayout } from "../components/AppShell";
-import { SectionRailLinks } from "../components/SectionRail";
+import { SectionRailHeader, SectionRailLinks } from "../components/SectionRail";
 import { buttonClassName } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 
@@ -27,11 +27,7 @@ export type CustomersOutletCtx = {
 export default function CustomersLayout({ company }: { company: Company }) {
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Contact2 size={14} /> Customers
-        </div>
-      </div>
+      <SectionRailHeader section="customers" label="Customers" />
       <nav className="flex-1 overflow-y-auto p-2">
         <SectionRailLinks section="customers" companySlug={company.slug} viewer={company} />
       </nav>

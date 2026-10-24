@@ -169,7 +169,7 @@ export function Menu({
             role="menu"
             onMouseDownCapture={markPressInside}
             style={{ top: coords.top, bottom: coords.bottom, left: coords.left, width }}
-            className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:ring-black/20"
           >
             {children(() => setOpen(false))}
           </div>,
@@ -224,7 +224,7 @@ export function MenuSeparator() {
 
 export function MenuHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+    <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
       {children}
     </div>
   );

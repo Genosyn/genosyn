@@ -19,7 +19,7 @@ export default function RoutinesRunning({ company }: { company: Company }) {
   const navigate = useNavigate();
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[{ label: "Routines", to: `/c/${company.slug}/routines` }, { label: "Running" }]}
       />
