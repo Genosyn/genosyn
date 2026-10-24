@@ -1,9 +1,11 @@
 /**
  * Real Chrome coverage for setting up the Genosyn MCP server from Settings →
  * API keys: the endpoint with the company's real id, copied in one click; the
- * setup for Claude Desktop, Claude Code, Cursor and any other client, each
- * shown and copied exactly as the client takes it, with a placeholder for the
- * key; the new-key dialog filling in the real key; and all of it at phone
+ * setup for claude.ai and ChatGPT, which take the endpoint alone and sign in,
+ * and for Claude Desktop, Claude Code, Cursor and any other client, each shown
+ * and copied exactly as the client takes it, with a placeholder for the key;
+ * the new-key dialog filling in the real key for the clients that take one;
+ * the Connected apps list and disconnecting an app; and all of it at phone
  * width without the page scrolling sideways. The API is a deterministic
  * fixture that stores what it is sent. Run with `npm run test:mcp-setup`.
  */
@@ -12,8 +14,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Locator, type Page } from "playwright-core";
+import type { ConnectedApp } from "../client/lib/api";
 import {
   API_KEY_PLACEHOLDER,
+  KEY_MCP_CLIENTS,
   MCP_CLIENTS,
   mcpClientSetup,
   type McpClientId,
@@ -54,6 +58,20 @@ type Key = {
 };
 let keys: Key[] = [];
 const created: Array<Record<string, unknown>> = [];
+let connectedApps: ConnectedApp[] = [
+  {
+    id: "app-1",
+    name: "Claude",
+    redirectOrigin: "https://claude.ai",
+    scope: "mcp",
+    lastUsedAt: "2026-10-23T08:30:00.000Z",
+    expiresAt: "2099-11-22T08:30:00.000Z",
+    revokedAt: null,
+    revokedReason: null,
+    createdAt: "2026-10-20T09:00:00.000Z",
+  },
+];
+const disconnected: string[] = [];
 
 await context.route("**/api/**", async (route) => {
   const request = route.request();
@@ -76,6 +94,18 @@ await context.route("**/api/**", async (route) => {
     keys = [key, ...keys];
     return route.fulfill({ json: { ...key, token: TOKEN } });
   }
+  const apps = `/api/companies/${COMPANY_ID}/connected-apps`;
+  if (pathname === apps && method === "GET") return route.fulfill({ json: connectedApps });
+  if (pathname.startsWith(`${apps}/`) && method === "DELETE") {
+    const id = pathname.slice(apps.length + 1);
+    disconnected.push(id);
+    connectedApps = connectedApps.map((app) =>
+      app.id === id
+        ? { ...app, revokedAt: "2026-10-23T10:00:00.000Z", revokedReason: "member" }
+        : app,
+    );
+    return route.fulfill({ json: connectedApps.find((app) => app.id === id) });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });
@@ -93,13 +123,17 @@ const clipboard = (p: Page) => p.evaluate(() => navigator.clipboard.readText());
  * Walk every client in a setup panel: its tab, the snippet it shows, and the
  * snippet it copies — both exactly what `mcpClientSetup` builds.
  */
-async function checkClients(scope: Locator, token: string | null) {
+async function checkClients(
+  scope: Locator,
+  token: string | null,
+  clients: typeof MCP_CLIENTS = MCP_CLIENTS,
+) {
   const tabs = scope.getByRole("tablist", { name: "MCP client", exact: true });
   assert.deepEqual(
     await tabs.getByRole("tab").allInnerTexts(),
-    MCP_CLIENTS.map((client) => client.label),
+    clients.map((client) => client.label),
   );
-  for (const client of MCP_CLIENTS) {
+  for (const client of clients) {
     const tab = tabs.getByRole("tab", { name: client.label, exact: true });
     await tab.click();
     assert.equal(await tab.getAttribute("aria-selected"), "true", `${client.label} is selected`);
@@ -124,6 +158,10 @@ async function checkClients(scope: Locator, token: string | null) {
       assert.doesNotThrow(() => JSON.parse(copied), `${client.label} copies valid JSON`);
     }
     assert.ok(copied.includes(endpoint), `${client.label} names the endpoint`);
+    if (expected.signsIn) {
+      assert.equal(copied, endpoint, `${client.label} takes the endpoint alone and signs in`);
+      continue;
+    }
     assert.ok(
       copied.includes(`Bearer ${token ?? API_KEY_PLACEHOLDER}`),
       `${client.label} carries the key as a Bearer token`,
@@ -139,9 +177,12 @@ try {
     has: page.getByRole("heading", { name: "MCP server", exact: true }),
   });
   await card.getByText("Endpoint", { exact: true }).waitFor();
-  await card.getByText(endpoint, { exact: true }).waitFor();
+  await card.locator("code").filter({ hasText: endpoint }).waitFor();
   await card
-    .getByText("Streamable HTTP. Send an API key from above as a Bearer token.", { exact: true })
+    .getByText(
+      "Streamable HTTP. claude.ai and ChatGPT sign in with OAuth; other clients send an API key from above as a Bearer token.",
+      { exact: true },
+    )
     .waitFor();
   await card.getByRole("button", { name: "Copy the MCP endpoint", exact: true }).click();
   await card
@@ -150,9 +191,16 @@ try {
     .waitFor();
   assert.equal(await clipboard(page), endpoint);
 
-  // Claude Desktop is the first client shown, before anything is clicked.
-  const desktop = card.getByRole("tab", { name: "Claude Desktop", exact: true });
-  assert.equal(await desktop.getAttribute("aria-selected"), "true");
+  // claude.ai is the first client shown, before anything is clicked: the
+  // endpoint alone, no key to replace.
+  const claudeAi = card.getByRole("tab", { name: "claude.ai", exact: true });
+  assert.equal(await claudeAi.getAttribute("aria-selected"), "true");
+  await card
+    .getByRole("tabpanel", { name: "claude.ai setup", exact: true })
+    .getByText(endpoint, { exact: true })
+    .waitFor();
+  assert.equal(await card.getByText(`Replace ${API_KEY_PLACEHOLDER}`).count(), 0);
+  await card.getByRole("tab", { name: "Claude Desktop", exact: true }).click();
   await card.getByText(`Replace ${API_KEY_PLACEHOLDER} with a key from above.`).waitFor();
   await fs.mkdir(output, { recursive: true });
   await page.screenshot({ path: path.join(output, "mcp-setup-desktop.png"), fullPage: true });
@@ -174,16 +222,29 @@ try {
     "with the real key there is nothing to replace",
   );
   await page.screenshot({ path: path.join(output, "mcp-setup-new-key.png") });
-  await checkClients(dialog, TOKEN);
+  // With a key in hand, only the clients that take one are offered.
+  await checkClients(dialog, TOKEN, KEY_MCP_CLIENTS);
   // The first request the dialog offers is still the REST one.
   assert.match(await dialog.locator("pre").filter({ hasText: "curl -H" }).innerText(), /\/me$/m);
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByText("Claude Desktop", { exact: true }).first().waitFor();
 
+  // Connected apps: Claude, from claude.ai, until it is disconnected.
+  const apps = page.locator("div.rounded-xl", {
+    has: page.getByRole("heading", { name: "Connected apps", exact: true }),
+  });
+  await apps.getByText("Claude", { exact: true }).waitFor();
+  await apps.getByText("claude.ai", { exact: true }).waitFor();
+  await apps.getByRole("button", { name: "Disconnect" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Disconnect" }).click();
+  await apps.getByText("Disconnected", { exact: true }).waitFor();
+  assert.deepEqual(disconnected, ["app-1"]);
+  assert.equal(await apps.getByRole("button", { name: "Disconnect" }).count(), 0);
+
   // At phone width nothing pushes the page sideways: long setup scrolls in its own box.
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
-  const url = page.getByText(endpoint, { exact: true });
+  const url = page.locator("code").filter({ hasText: endpoint });
   const box = await url.boundingBox();
   assert.ok(box, "the endpoint is laid out");
   assert.ok(box.x >= 0 && box.x + box.width <= 390, "the endpoint wraps to fit a phone");
@@ -205,7 +266,7 @@ try {
   assert.deepEqual(errors, [], "the page threw no errors");
   // eslint-disable-next-line no-console
   console.log(
-    "Settings → API keys → MCP server: endpoint, four clients' setup, new-key setup and phone layout verified.",
+    "Settings → API keys → MCP server: endpoint, six clients' setup, new-key setup, connected apps and phone layout verified.",
   );
 } finally {
   await browser.close();

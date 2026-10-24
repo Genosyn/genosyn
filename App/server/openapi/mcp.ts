@@ -10,7 +10,10 @@ import { defaultSecurity, registry } from "./registry.js";
  */
 
 const companyParam = z.object({
-  cid: z.string().uuid().describe("The company id. The API key must be one minted for it."),
+  cid: z
+    .string()
+    .uuid()
+    .describe("The company id. The API key, or the connected app, must be for this company."),
 });
 
 const cidEid = z.object({
@@ -57,6 +60,13 @@ registry.registerPath({
     "App's own router with the same key, so it acts as the key's Member, under the same role, Finance " +
     "and company limits as a REST request, and lands in the audit log the same way. Operations that " +
     "need a signed-in browser are not offered.\n\n" +
+    "A client that signs in instead of sending a key — claude.ai and ChatGPT among them — uses OAuth " +
+    "2.1 with PKCE: a request without a credential is answered 401 with `WWW-Authenticate` naming " +
+    "this endpoint's protected-resource metadata " +
+    "(`/.well-known/oauth-protected-resource/api/companies/{cid}/mcp`), which leads to the " +
+    "authorization server's metadata, dynamic client registration, and a consent screen where an " +
+    "owner or admin approves the app. Its access token works here, for this company, and nowhere " +
+    "else in the API.\n\n" +
     "A request whose `Origin` is not this install's public URL is refused with 403. The body is never " +
     "compressed and may be up to 10 MB, so a file can travel in it — but past 1 MB only as one " +
     "base64 string. Each Member runs up to four operations at once, later calls waiting their " +
@@ -84,11 +94,12 @@ registry.registerPath({
         "The body is not JSON-RPC, or a batch holds more than 20 messages or repeats a request id.",
     },
     401: {
-      description: "No API key, or one that is unknown, revoked, expired or for another company.",
+      description:
+        "No API key or access token, or one that is unknown, revoked, expired or for another company. `WWW-Authenticate` names the protected-resource metadata for signing in with OAuth.",
     },
     403: {
       description:
-        "A browser `Origin` other than this install's, or the key's Member is no longer in the company.",
+        "A browser `Origin` other than this install's, the Member is no longer in the company, or a connected app's Member is no longer an owner or admin.",
     },
     406: { description: "`Accept` rules out JSON." },
     413: {

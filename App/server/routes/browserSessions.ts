@@ -11,6 +11,7 @@ import {
   requireBrowserSession,
   requireCompanyMember,
   requireCompanyRole,
+  usesBearerCredential,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { mintBrowserViewerWsToken } from "../services/realtime.js";
@@ -33,7 +34,7 @@ browserSessionsRouter.use(requireCompanyMember);
 browserSessionsRouter.use(requireBrowserSession);
 browserSessionsRouter.use(requireCompanyRole("admin"));
 browserSessionsRouter.use((req, res, next) => {
-  if (req.apiKey) {
+  if (usesBearerCredential(req)) {
     return res.status(403).json({ error: "A logged-in Member is required" });
   }
   next();
