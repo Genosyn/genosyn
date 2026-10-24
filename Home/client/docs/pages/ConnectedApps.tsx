@@ -109,7 +109,8 @@ export function ConnectedApps() {
         company, each with the address it returns to, when you connected it and when it was last
         used. <Strong>Disconnect</Strong> stops one on its next request; to use it again, connect it
         from the app. The list is yours alone, like your API keys, and connecting or disconnecting
-        an app is recorded in the audit log.
+        an app is recorded in the audit log. Your apps and their tokens are deleted with your
+        account, and every app connected to a company is deleted with the company.
       </P>
 
       <H2 id="how-it-works">How sign-in works</H2>
