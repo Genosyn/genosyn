@@ -235,8 +235,10 @@ export function SelfHosting() {
 
       <H2 id="custom-javascript">Custom JavaScript</H2>
       <P>
-        Open <Code>Admin → General → Custom JavaScript</Code> to add Google Tag Manager, Google
-        Analytics, or another trusted browser script. Paste either raw JavaScript or the complete
+        Open <Code>Admin → General → Advanced → Custom JavaScript</Code> to add Google Tag
+        Manager, Google Analytics, or another trusted browser script. Advanced is closed by
+        default; its line says <em>No custom JavaScript</em>, or that it is on and how many lines
+        it holds. Paste either raw JavaScript or the complete
         vendor snippet with its <Code>&lt;script&gt;</Code> elements; an external script element
         must use HTTPS and include <Code>async</Code>. Select <Strong>Save changes</Strong>. It runs
         on the next eligible signed-in App page load without a restart. Clear the field and save
