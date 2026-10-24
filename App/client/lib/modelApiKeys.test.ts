@@ -7,13 +7,14 @@ import {
   apiKeyHealthLine,
   apiKeyNotes,
   apiKeyState,
+  failingKeysNotice,
   holdsApiKeys,
   isRefused,
   moveApiKey,
   refusalLabel,
   sinceLabel,
 } from "./modelApiKeys.js";
-import { advancedSummary, tuningNotes } from "./modelSummary.js";
+import { modelAdvancedSummary, tuningNotes } from "./modelSummary.js";
 
 const NOW = Date.parse("2026-10-23T12:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -251,7 +252,7 @@ describe("what the model's card and Advanced line say about its keys", () => {
     assert.deepEqual(apiKeyNotes({ ...connected }), [], "no keys reported at all");
   });
 
-  test("the closed Advanced line leads with the keys", () => {
+  test("a card's closed Advanced line leads with the keys", () => {
     const model = {
       ...connected,
       contextWindow: 200_000,
@@ -266,8 +267,109 @@ describe("what the model's card and Advanced line say about its keys", () => {
       "2 concurrent Runs",
     ]);
     assert.equal(
-      advancedSummary([model]),
+      modelAdvancedSummary(model),
       "2 backup API keys · 1 API key failing · Context window set manually · 2 concurrent Runs",
+    );
+  });
+});
+
+describe("the warning a card shows while keys are refused", () => {
+  const connected = {
+    provider: "anthropic" as const,
+    authMode: "apikey" as const,
+    status: "connected" as const,
+  };
+
+  test("nothing while every key works", () => {
+    assert.equal(
+      failingKeysNotice(
+        { ...connected, apiKeys: [key({ id: "1", lastUsedAt: ago(1) }), key({ id: "2" })] },
+        NOW,
+      ),
+      null,
+    );
+  });
+
+  test("some keys refused: work carries on, so it is a warning that says where to fix it", () => {
+    const notice = failingKeysNotice(
+      {
+        ...connected,
+        apiKeys: [
+          key({ id: "1", lastUsedAt: ago(1_000) }),
+          key({ id: "2", lastErrorAt: ago(1_000), restingUntil: ahead(60_000) }),
+          key({ id: "3" }),
+        ],
+      },
+      NOW,
+    );
+    assert.deepEqual(
+      { failing: notice?.failing, total: notice?.total, all: notice?.all },
+      { failing: 1, total: 3, all: false },
+    );
+    assert.equal(
+      notice?.text,
+      "The provider is refusing 1 of 3 API keys. Requests move on to the next key, so work carries on — replace or remove the failing key under Advanced.",
+    );
+    assert.match(
+      failingKeysNotice(
+        {
+          ...connected,
+          apiKeys: [
+            key({ id: "1", lastErrorAt: ago(5) }),
+            key({ id: "2", lastErrorAt: ago(5) }),
+            key({ id: "3" }),
+          ],
+        },
+        NOW,
+      )?.text ?? "",
+      /refusing 2 of 3 API keys.*failing keys under Advanced/,
+    );
+  });
+
+  test("every key refused: the model can't answer at all", () => {
+    const one = failingKeysNotice({ ...connected, apiKeys: [key({ lastErrorAt: ago(5) })] }, NOW);
+    assert.equal(one?.all, true);
+    assert.match(one?.text ?? "", /refusing this AI Model's API key, so it can't answer/);
+    const both = failingKeysNotice(
+      {
+        ...connected,
+        apiKeys: [key({ id: "1", lastErrorAt: ago(5) }), key({ id: "2", lastErrorAt: ago(5) })],
+      },
+      NOW,
+    );
+    assert.equal(both?.all, true);
+    assert.match(both?.text ?? "", /refusing all 2 API keys/);
+  });
+
+  test("a key that recovered after it was refused is not failing", () => {
+    assert.equal(
+      failingKeysNotice(
+        { ...connected, apiKeys: [key({ lastErrorAt: ago(60_000), lastUsedAt: ago(1_000) })] },
+        NOW,
+      ),
+      null,
+    );
+  });
+
+  test("nothing for a model that isn't connected or doesn't take API keys", () => {
+    const refused = [key({ lastErrorAt: ago(5) })];
+    assert.equal(
+      failingKeysNotice({ ...connected, status: "not_connected", apiKeys: refused }, NOW),
+      null,
+    );
+    assert.equal(
+      failingKeysNotice(
+        { provider: "custom", authMode: "customEndpoint", status: "connected", apiKeys: refused },
+        NOW,
+      ),
+      null,
+    );
+    assert.equal(
+      failingKeysNotice(
+        { provider: "openai", authMode: "subscription", status: "connected", apiKeys: refused },
+        NOW,
+      ),
+      null,
     );
   });
 });

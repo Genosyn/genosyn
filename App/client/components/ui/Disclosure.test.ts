@@ -61,4 +61,21 @@ describe("Disclosure", () => {
     assert.match(render({ variant: "card" }), /^<div class="[^"]*shadow-sm[^"]*">/);
     assert.doesNotMatch(render({ variant: "row" }), /^<div class="[^"]*shadow-sm/);
   });
+
+  test("the inset variant is the last section of a card: a hairline, and no box of its own", () => {
+    const closed = render({ variant: "inset" });
+    assert.match(closed, /^<div class="[^"]*border-t[^"]*">/);
+    assert.doesNotMatch(closed, /shadow-sm/);
+    assert.doesNotMatch(closed, /rounded-xl border/);
+    // Closed, its toggle takes the card's bottom corners; open, the content does.
+    assert.match(closed, /<button[^>]*class="[^"]*rounded-b-xl/);
+    assert.doesNotMatch(render({ variant: "inset", defaultOpen: true }), /rounded-b-xl/);
+  });
+
+  test("the inset variant still says what is set inside, closed or open", () => {
+    assert.match(render({ variant: "inset" }), /Approval required · 2 Checks/);
+    const open = render({ variant: "inset", defaultOpen: true });
+    assert.match(open, /Approval required · 2 Checks/);
+    assert.match(open, /The hidden options/);
+  });
 });

@@ -110,14 +110,25 @@ export default function EmployeesIndex({ company }: { company: Company }) {
                 <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                   {employee.role || "No role set"}
                 </div>
-                {teamName && (
-                  <span className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    <span
-                      aria-hidden
-                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400"
-                    />
-                    <span className="truncate">{teamName}</span>
-                  </span>
+                {(teamName || employee.chatReady === false) && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {teamName && (
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400"
+                        />
+                        <span className="truncate">{teamName}</span>
+                      </span>
+                    )}
+                    {/* An employee that can't answer yet is worth seeing from the
+                        roster, not only after a chat message fails. */}
+                    {employee.chatReady === false && (
+                      <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                        No AI Model connected
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </Link>

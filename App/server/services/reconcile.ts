@@ -329,7 +329,7 @@ export async function syncBrexCashTransactions(feed: BankFeed, now = new Date())
   });
   const seen = new Set(existing.map((row) => row.externalId).filter((id): id is string => !!id));
   const postedAtStart = feed.lastSyncAt
-    ? new Date(feed.lastSyncAt.getTime() - BANK_SYNC_OVERLAP_MS).toISOString()
+    ? new Date(feed.lastSyncAt.getTime() - BANK_SYNC_OVERLAP_MS)
     : undefined;
   const seenCursors = new Set<string>();
   const transactionRepo = AppDataSource.getRepository(BankTransaction);

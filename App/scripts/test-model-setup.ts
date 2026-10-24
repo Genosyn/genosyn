@@ -10,7 +10,8 @@ import type { AIModel, ReusableModel } from "../client/lib/api";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, "../output/playwright");
 console.log("Model setup: building fixture screens.");
-const server = await startBrowserFixture("modelSetupHarness.tsx", 18485);
+// Port 0: an ephemeral port, so concurrent suites never collide.
+const server = await startBrowserFixture("modelSetupHarness.tsx", 0);
 console.log("Model setup: fixture server ready; launching Chrome.");
 const browser = await chromium
   .launch({ channel: process.env.GENOSYN_TEST_BROWSER ?? "chrome", headless: true })
@@ -423,11 +424,14 @@ try {
   await page.close();
 
   // Only an owner or admin can put a credential on an employee: a Member is not
-  // offered the shortcut (and the list is never requested for them).
+  // offered the shortcut (and the list is never requested for them), nor a form
+  // the server would refuse — they are told who connects one.
   modelRows = [];
   reusableRequests = 0;
   page = await open("?section&role=member");
-  await page.getByLabel("API key", { exact: true }).waitFor();
+  await page.getByText("Avery has no AI Model yet", { exact: true }).waitFor();
+  await page.getByText("An owner or admin of Company connects one here.", { exact: false }).waitFor();
+  assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: /Use the same AI Model as/ }).count(), 0);
   assert.equal(reusableRequests, 0);
   checks++;
@@ -435,36 +439,37 @@ try {
   reusableRows = [];
   modelRows = [];
 
-  // A connected model is a title and a badge. Everything that tunes, changes or
-  // removes it waits behind one Advanced line, which says what has been changed.
+  // A connected model is one card: its name, a badge, Test connection, and its
+  // own Advanced section, closed, saying what it holds. Adding another model is
+  // the page's own button, outside every card.
   modelRows = [connectedRow()];
   page = await open("?section");
   await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).waitFor();
   await page.getByText("Connected with an API key", { exact: false }).waitFor();
   assert.doesNotMatch(await page.locator("main").innerText(), /ANTHROPIC_API_KEY|OPENAI_API_KEY/);
+  const claudeCard = page.getByRole("group", { name: "Claude (Anthropic) · claude-sonnet-live" });
+  await claudeCard.getByRole("button", { name: "Test connection", exact: true }).waitFor();
+  const claudeAdvanced = claudeCard.getByRole("button", { name: /^Advanced/ });
+  assert.equal(await claudeAdvanced.getAttribute("aria-expanded"), "false");
+  assert.match(await claudeAdvanced.innerText(), /API keys, model, context window and Run limit/);
+  await page.getByRole("button", { name: "Add an AI Model", exact: true }).waitFor();
   assert.equal(
-    await page
-      .getByText("API keys, context window, concurrent Runs, add or remove models", {
-        exact: true,
-      })
-      .isVisible(),
-    true,
+    await claudeCard.getByRole("button", { name: "Add an AI Model", exact: true }).count(),
+    0,
   );
   for (const hidden of [
     page.getByText("Context window", { exact: true }),
     page.getByText("Concurrent Routine Runs", { exact: true }),
-    page.getByRole("button", { name: "Add model", exact: true }),
     page.getByRole("button", { name: "Remove", exact: true }),
   ]) {
     assert.equal(await hidden.first().isVisible(), false);
   }
   checks++;
-  await page.getByText("Advanced", { exact: true }).click();
+  await claudeAdvanced.click();
   for (const shown of [
-    page.getByText("Context window", { exact: true }),
-    page.getByText("Concurrent Routine Runs", { exact: true }),
-    page.getByRole("button", { name: "Add model", exact: true }),
-    page.getByRole("button", { name: "Remove", exact: true }),
+    claudeCard.getByText("Context window", { exact: true }),
+    claudeCard.getByText("Concurrent Routine Runs", { exact: true }),
+    claudeCard.getByRole("button", { name: "Remove", exact: true }),
   ]) {
     await shown.first().waitFor({ state: "visible" });
   }
@@ -489,7 +494,8 @@ try {
   await page.close();
 
   // With several models the active one leads and the others offer Make active
-  // without opening anything; Advanced counts them.
+  // without opening anything; each card keeps its own Advanced, and no line
+  // outside the cards speaks for them all.
   modelRows = [
     connectedRow(),
     connectedRow({
@@ -504,12 +510,19 @@ try {
   page = await open("?section");
   await page.getByText("OpenAI · gpt-live", { exact: true }).first().waitFor();
   await page.getByRole("button", { name: "Make active", exact: true }).waitFor();
-  // One Active badge on screen: the copy under Advanced stays folded away.
+  // One Active badge on screen, on the active card.
   assert.equal(
     await page.getByText("Active", { exact: true }).filter({ visible: true }).count(),
     1,
   );
-  await page.getByText("1 other AI Model", { exact: true }).waitFor({ state: "visible" });
+  assert.equal(await page.getByRole("button", { name: /^Advanced/ }).count(), 2);
+  const gptCard = page.getByRole("group", { name: "OpenAI · gpt-live" });
+  await gptCard.getByRole("button", { name: "Make active", exact: true }).waitFor();
+  assert.match(
+    await gptCard.getByRole("button", { name: /^Advanced/ }).innerText(),
+    /API keys, model, context window and Run limit/,
+  );
+  assert.equal(await page.getByText(/\d+ other AI Models?/).count(), 0);
   checks++;
   await page.close();
   modelRows = [];
@@ -580,16 +593,20 @@ try {
   ];
   page = await open("?section");
   await page.getByText("Custom endpoint · custom-original", { exact: true }).waitFor();
-  // Changing a model is advanced: it sits under the one Advanced line, closed until opened.
+  // Changing the endpoint is advanced: it sits in the card's own Advanced section,
+  // closed until opened, and the form appears only when asked for.
   assert.equal(await page.getByLabel("Base URL", { exact: true }).isVisible(), false);
-  await page.getByText("Advanced", { exact: true }).click();
-  await page.getByText("Change provider, model, or endpoint", { exact: true }).click();
+  const customCard = page.getByRole("group", { name: "Custom endpoint · custom-original" });
+  await customCard.getByRole("button", { name: /^Advanced/ }).click();
+  await customCard.getByText("models.example.test", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Base URL", { exact: true }).count(), 0);
+  await customCard.getByRole("button", { name: "Change endpoint", exact: true }).click();
   assert.equal(await page.getByLabel("Base URL", { exact: true }).count(), 1);
   checks++;
   await page.getByLabel("Base URL", { exact: true }).fill("https://models.example.test/v1");
-  await page.getByLabel("Model id (optional)", { exact: true }).fill("custom-updated");
+  await page.getByLabel("Model ID (optional)", { exact: true }).fill("custom-updated");
   customFailure = true;
-  await page.getByRole("button", { name: "Update endpoint" }).click();
+  await page.getByRole("button", { name: "Save endpoint" }).click();
   await page.getByRole("alert").filter({ hasText: "tool-use test" }).waitFor();
   assert.equal(
     await page.getByText("Custom endpoint · custom-original", { exact: true }).count(),
@@ -597,12 +614,12 @@ try {
   );
   checks++;
   assert.equal(
-    await page.getByLabel("Model id (optional)", { exact: true }).inputValue(),
+    await page.getByLabel("Model ID (optional)", { exact: true }).inputValue(),
     "custom-updated",
   );
   checks++;
   customFailure = false;
-  await page.getByRole("button", { name: "Update endpoint" }).click();
+  await page.getByRole("button", { name: "Save endpoint" }).click();
   await page.getByText("Custom endpoint · custom-updated", { exact: true }).waitFor();
   assert.match(customRequests.at(-1)!.path, /\/custom-model\/custom-endpoint$/);
   checks++;

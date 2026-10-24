@@ -181,6 +181,11 @@ await context.route("**/api/**", async (route) => {
       },
     });
   }
+  // The General page's History card: an empty feed, not a 404 whose long path
+  // would stretch the page.
+  if (/^\/api\/companies\/company\/history\/employee\/[^/]+$/.test(pathname)) {
+    return route.fulfill({ json: { items: [], nextCursor: null } });
+  }
   return route.fulfill({
     status: 404,
     json: { error: `Unhandled ${method} ${pathname}` },
@@ -192,7 +197,30 @@ async function location(): Promise<string> {
 }
 
 async function noHorizontalScroll(): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  if (!fits) {
+    // Say what sticks out, so a failure points at the element to fix.
+    const culprits = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("body *")]
+        // Where the overflow starts: wider than the screen, inside a parent that is not.
+        .filter(
+          (element) =>
+            element.getBoundingClientRect().right > window.innerWidth + 1 &&
+            (element.parentElement?.getBoundingClientRect().right ?? 0) <= window.innerWidth + 1,
+        )
+        .slice(0, 6)
+        .map(
+          (element) =>
+            `${element.tagName.toLowerCase()}.${String(element.className).slice(0, 80)} "${(
+              element.textContent ?? ""
+            )
+              .trim()
+              .slice(0, 40)}"`,
+        ),
+    );
+    console.error(`Wider than the screen:\n${culprits.join("\n")}`);
+  }
+  return fits;
 }
 
 function roster(target: Page = page) {
