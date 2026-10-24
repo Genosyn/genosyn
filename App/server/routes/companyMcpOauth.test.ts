@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import type { RequestListener, Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -30,7 +30,7 @@ import { ConnectedApp } from "../db/entities/ConnectedApp.js";
 import { ConnectedAppToken } from "../db/entities/ConnectedAppToken.js";
 import { Membership } from "../db/entities/Membership.js";
 import { OAuthClient } from "../db/entities/OAuthClient.js";
-import type { User } from "../db/entities/User.js";
+import { User } from "../db/entities/User.js";
 import { requireBearerAuth } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
 import {
@@ -45,6 +45,7 @@ import {
   sweepExpiredConnectedAppTokens,
 } from "../services/mcpOauth/tokens.js";
 import { setPublicUrl } from "../services/publicUrl.js";
+import { deleteUserCascade } from "../services/userDelete.js";
 import {
   createMemberOfNewCompany,
   mintTestApiKey,
@@ -1358,5 +1359,62 @@ describe("housekeeping", () => {
     await pruneUnusedClients();
     assert.equal(await clientsRepo.countBy({ clientId: unused.client_id }), 0);
     assert.equal(await clientsRepo.countBy({ clientId: used.client_id }), 1);
+  });
+
+  test("a deleted Member's apps and their tokens go with them, in every company, and nobody else's", async () => {
+    const owner = await createMemberOfNewCompany("owner");
+    const elsewhere = await createMemberOfNewCompany("owner");
+    // An admin of both companies who owns neither, so the account can be deleted.
+    const leaving = await insert(User, {
+      email: `leaving-${randomUUID()}@example.test`,
+      name: "Leaving admin",
+      passwordHash: "not-a-real-hash",
+      emailVerifiedAt: new Date(),
+      sessionVersion: 0,
+    });
+    for (const company of [owner.company, elsewhere.company]) {
+      await insert(Membership, { companyId: company.id, userId: leaving.id, role: "admin" });
+    }
+    const theirs = [
+      await connectApp({ user: leaving, company: owner.company }),
+      await connectApp({ user: leaving, company: elsewhere.company }),
+    ];
+    const kept = await connectApp(owner);
+
+    await deleteUserCascade({ userId: leaving.id });
+
+    const apps = AppDataSource.getRepository(ConnectedApp);
+    const tokens = AppDataSource.getRepository(ConnectedAppToken);
+    for (const [index, gone] of theirs.entries()) {
+      const company = index === 0 ? owner.company : elsewhere.company;
+      assert.equal(await apps.countBy({ id: gone.appId }), 0);
+      assert.equal(
+        await tokens.countBy({ connectedAppId: gone.appId }),
+        0,
+        "no token outlives its app",
+      );
+      assert.equal((await mcp(company.id, gone.tokens.access_token)).status, 401);
+      assert.equal(
+        (await refresh(gone.registered, gone.tokens.refresh_token)).body.error,
+        "invalid_grant",
+      );
+    }
+    assert.equal(await tokens.countBy({ connectedAppId: kept.appId }), 2);
+    assert.equal((await mcp(owner.company.id, kept.tokens.access_token)).status, 200);
+
+    // Nothing points at the departed Member's registrations any more, so they can be pruned.
+    const clientsRepo = AppDataSource.getRepository(OAuthClient);
+    const old = new Date(Date.now() - 31 * 86_400_000);
+    for (const { registered } of [...theirs, kept]) {
+      await clientsRepo.update(
+        { clientId: registered.client_id },
+        { createdAt: old, lastUsedAt: old },
+      );
+    }
+    await pruneUnusedClients();
+    for (const { registered } of theirs) {
+      assert.equal(await clientsRepo.countBy({ clientId: registered.client_id }), 0);
+    }
+    assert.equal(await clientsRepo.countBy({ clientId: kept.registered.client_id }), 1);
   });
 });

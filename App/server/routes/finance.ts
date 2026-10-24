@@ -145,6 +145,8 @@ import {
   setRecurringInvoicesArchived,
 } from "../services/recurringInvoices.js";
 import { recurringRevenueMetrics } from "../services/recurringInvoiceMetrics.js";
+import { invoiceStats } from "../services/invoiceStats.js";
+import { estimateStats } from "../services/estimateStats.js";
 import { getReportingCurrency } from "../services/revenue/revenueData.js";
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
@@ -1187,6 +1189,14 @@ financeRouter.post("/invoices/bulk", validateBody(invoiceBulkSchema), async (req
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
+});
+
+// The figures the invoice list leads with: what is outstanding and how late,
+// what came in lately, and how long customers take to pay. Registered before
+// `/:slug`, which would otherwise take "stats" for an invoice's slug.
+financeRouter.get("/invoices/stats", validateQuery(z.object({}).strict()), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.json(await invoiceStats(cid));
 });
 
 financeRouter.get("/invoices/:slug", async (req, res) => {
@@ -2389,6 +2399,14 @@ financeRouter.post("/estimates/bulk", validateBody(estimateBulkSchema), async (r
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
+});
+
+// The figures the estimate list leads with: what is open and about to lapse,
+// what was won but not billed, and how the last 90 days of quotes went.
+// Registered before `/:slug`, which would otherwise take "stats" for a slug.
+financeRouter.get("/estimates/stats", validateQuery(z.object({}).strict()), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.json(await estimateStats(cid));
 });
 
 financeRouter.get("/estimates/:slug", async (req, res) => {

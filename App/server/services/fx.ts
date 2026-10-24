@@ -275,6 +275,62 @@ export async function rateOnFile(
 }
 
 /**
+ * Every usable rate on file for `from` → `to` up to `until`, read in one go,
+ * for a caller converting many documents dated across that span. The
+ * function it returns answers for a date exactly as {@link rateOnFile} would
+ * — the latest direct rate on or before it, else the inverse of the opposite
+ * pair's, skipping zeros, and fetched rates while automatic rates are off —
+ * without a query per date. Null where none is that old.
+ */
+export async function rateHistory(
+  companyId: string,
+  from: string,
+  to: string,
+  until: Date,
+): Promise<(date: Date) => number | null> {
+  const f = from.toUpperCase();
+  const t = to.toUpperCase();
+  const repo = AppDataSource.getRepository(ExchangeRate);
+  const automatic = (await automaticRatesOn(companyId)) ? {} : { automatic: false };
+  const usable = (fromCurrency: string, toCurrency: string) =>
+    repo.find({
+      where: {
+        companyId,
+        fromCurrency,
+        toCurrency,
+        date: LessThanOrEqual(until),
+        rate: MoreThan(0),
+        ...automatic,
+      },
+      select: ["id", "date", "rate"],
+      order: { date: "ASC" },
+    });
+  const [direct, inverse] = await Promise.all([usable(f, t), usable(t, f)]);
+  /** The last of `rows`, sorted by date, dated on or before `date`. */
+  const latestBy = (rows: ExchangeRate[], date: Date): ExchangeRate | null => {
+    let low = 0;
+    let high = rows.length - 1;
+    let found: ExchangeRate | null = null;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (rows[mid].date.getTime() <= date.getTime()) {
+        found = rows[mid];
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return found;
+  };
+  return (date) => {
+    const directHit = latestBy(direct, date);
+    if (directHit) return directHit.rate;
+    const inverseHit = latestBy(inverse, date);
+    return inverseHit ? 1 / inverseHit.rate : null;
+  };
+}
+
+/**
  * Look up the rate to convert `from` → `to` on or before `date`.
  * Walks backward from `date` to the most recent matching rate.
  *

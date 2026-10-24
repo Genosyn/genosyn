@@ -729,7 +729,9 @@ export async function hydrateEstimates(
  * Compute the *displayed* status for a UI badge — adds the synthetic
  * "expired" bucket for sent estimates past `validUntil`, and "invoiced"
  * for estimates that have been converted. Stored status is untouched
- * so changing the system clock doesn't corrupt anything.
+ * so changing the system clock doesn't corrupt anything. An accepted
+ * estimate never expires: its validity limited how long the customer had
+ * to accept, and it stays accepted until someone converts it.
  */
 export type DisplayEstimateStatus =
   | EstimateStatus
@@ -741,10 +743,7 @@ export function displayEstimateStatus(
   now: Date = new Date(),
 ): DisplayEstimateStatus {
   if (estimate.invoiceId) return "invoiced";
-  if (
-    (estimate.status === "sent" || estimate.status === "accepted") &&
-    new Date(estimate.validUntil).getTime() < now.getTime()
-  ) {
+  if (estimate.status === "sent" && new Date(estimate.validUntil).getTime() < now.getTime()) {
     return "expired";
   }
   return estimate.status;

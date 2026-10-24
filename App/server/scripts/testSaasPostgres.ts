@@ -1013,24 +1013,45 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
       (await runs.findOneByOrFail({ id: cleaning.id })).queueActiveEmployeeId,
       heldClaim,
     );
+    const previouslyQueued = [sharedOne, sharedTwo].find((run) => run.id !== sharedRunning[0].id)!;
+    const reachedModel = (run: { id: string }) =>
+      admissionStarts.some(({ runId }) => runId === run.id);
     finishAdmission(sharedRunning[0].id);
-    await waitUntil(() => drained.size === 2, "First admission round cleans up in both processes");
+    // Ending the first shared Run frees its Routine, so the other shared Run
+    // may start now rather than next round: when the winning process had
+    // offered the first Run again while its worker waited on the row lock,
+    // that worker offers the queue once more as it ends (`requested` in
+    // routineQueue.ts). The process stays busy until that Run's turn is
+    // answered, so answer it. Only the held cleanup claim keeps a Run queued.
+    let previouslyQueuedFinished = false;
+    await waitUntil(async () => {
+      if (!previouslyQueuedFinished && reachedModel(previouslyQueued)) {
+        const first = await runs.findOneByOrFail({ id: sharedRunning[0].id });
+        assert.equal(first.status, "completed", "The other shared Run waits for the first to end");
+        assert.equal(first.queueActiveEmployeeId, null);
+        previouslyQueuedFinished = true;
+        finishAdmission(previouslyQueued.id);
+      }
+      return drained.size === 2;
+    }, "First admission round cleans up in both processes");
     assert.equal(
       (await runs.findOneByOrFail({ id: sharedRunning[0].id })).queueActiveEmployeeId,
       null,
     );
+    assert.equal((await runs.findOneByOrFail({ id: afterCleanup.id })).status, "queued");
+    assert.equal(reachedModel(afterCleanup), false, "Terminal cleanup still holds its Routine");
     await runs.update(
       { id: cleaning.id, queueActiveEmployeeId: heldClaim },
       { queueActiveEmployeeId: null },
     );
     for (const peer of admissionPeers) peer.child.send("dispatch:2");
+    const deferred = previouslyQueuedFinished ? [afterCleanup] : [previouslyQueued, afterCleanup];
     await waitUntil(
-      () => admissionStarts.length >= 4,
+      () => deferred.every(reachedModel),
       "Deferred Runs start after cleanup releases ownership",
     );
-    const previouslyQueued = [sharedOne, sharedTwo].find((run) => run.id !== sharedRunning[0].id)!;
     const secondRound = await Promise.all(
-      [previouslyQueued, afterCleanup].map((run) => runs.findOneByOrFail({ id: run.id })),
+      deferred.map((run) => runs.findOneByOrFail({ id: run.id })),
     );
     assert.ok(secondRound.every((run) => run.status === "running"));
     for (const run of secondRound) finishAdmission(run.id);

@@ -1,6 +1,7 @@
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
 import type { RoutinePriority } from "../../shared/routinePriority";
+import { dayOf, documentDay } from "../../shared/documentDays";
 export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
 
@@ -5353,9 +5354,17 @@ export function invoiceSettledCents(
   return inv.paidCents + inv.creditedCents + inv.writtenOffCents;
 }
 
+/**
+ * An invoice's displayed status. Settled with no cash against it reads as
+ * written off or credited; a sent one is overdue once its due date has passed
+ * — from the day after it, not at midnight UTC on it — on `today`'s calendar:
+ * the viewer's day unless a page passes the company's, as the Invoices list
+ * does so its tabs agree with the figures above it (`shared/documentDays.ts`).
+ */
 export function displayInvoiceStatus(
   inv: Pick<Invoice, "status" | "dueDate" | "paidCents" | "writtenOffCents" | "creditedCents">,
   now: Date = new Date(),
+  today: string = dayOf(now),
 ): InvoiceStatus | "overdue" | "written_off" | "credited" {
   // Settled with no cash against it ⇒ cleared by a write-off or a credit.
   // Mirrors the server's displayStatus so list and detail agree.
@@ -5363,9 +5372,7 @@ export function displayInvoiceStatus(
     if (inv.writtenOffCents > 0) return "written_off";
     if (inv.creditedCents > 0) return "credited";
   }
-  if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
-    return "overdue";
-  }
+  if (inv.status === "sent" && documentDay(inv.dueDate) < today) return "overdue";
   return inv.status;
 }
 
@@ -5623,17 +5630,20 @@ export function wantsRevisedResend(state: unknown): boolean {
 
 export type DisplayEstimateStatus = EstimateStatus | "expired" | "invoiced";
 
+/**
+ * An estimate's displayed status: invoiced once converted, and expired once a
+ * sent one's valid-until date has passed — it can be accepted all of that day
+ * — on `today`'s calendar, as {@link displayInvoiceStatus} reads a due date.
+ * An accepted estimate never expires: its validity limited how long the
+ * customer had to accept, and it stays accepted until someone converts it.
+ */
 export function displayEstimateStatus(
   est: Pick<Estimate, "status" | "validUntil" | "invoiceId">,
   now: Date = new Date(),
+  today: string = dayOf(now),
 ): DisplayEstimateStatus {
   if (est.invoiceId) return "invoiced";
-  if (
-    (est.status === "sent" || est.status === "accepted") &&
-    new Date(est.validUntil).getTime() < now.getTime()
-  ) {
-    return "expired";
-  }
+  if (est.status === "sent" && documentDay(est.validUntil) < today) return "expired";
   return est.status;
 }
 

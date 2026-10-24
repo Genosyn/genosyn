@@ -100,8 +100,17 @@ export function Meetings() {
 
       <H3 id="transcription">Where transcription runs</H3>
       <P>
-        Transcription has <Strong>no credential of its own</Strong>. It borrows the assigned AI
-        Employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
+        A Google Meet the notetaker joined is transcribed by Meet itself. The notetaker turns on
+        Meet&apos;s live captions, which only it sees, and keeps every line under the name of the
+        person who said it. That transcript needs no speech-to-text model, so a call reaches the
+        customer&apos;s timeline even when none of your AI Models can transcribe. Meet captions
+        in its caption language, English by default; for a call held in another language, set
+        Meet&apos;s caption language to match during the call.
+      </P>
+      <P>
+        Uploaded recordings, and joined calls where no captions appeared, are transcribed instead.
+        That transcription has <Strong>no credential of its own</Strong>. It borrows the assigned
+        AI Employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
       </P>
       <UL>
         <LI>
@@ -161,9 +170,11 @@ export function Meetings() {
         before it passes the request to the host), and waits to
         be admitted for as long as the call is scheduled to run (up to 30 minutes), asking again if
         Google times its first request out — so a host who joins late still gets a notetaker. Then
-        it captures the call audio inside the App container, stores that recording with the
-        meeting, and transcribes it after the call ends. The notetaker does not turn on a camera or
-        present itself as a human attendee.
+        it captures the call audio inside the App container, turns on Meet&apos;s live captions in
+        its own view of the call, and stores the recording with those captions as the
+        meeting&apos;s transcript when the call ends (see{" "}
+        <DocLink to="/docs/meetings#transcription">Where transcription runs</DocLink>). The
+        notetaker does not turn on a camera or present itself as a human attendee.
       </P>
       <P>
         If a join fails while the call is still running — the lobby was not ready, nobody had
