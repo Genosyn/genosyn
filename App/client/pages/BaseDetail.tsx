@@ -497,8 +497,13 @@ export default function BaseDetail({ company }: { company: Company }) {
           </button>
         </div>
 
-        <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-900">
-          <AsyncResourceTagPicker companyId={company.id} resourceType="base" resourceId={base.id} />
+        <div className="border-b border-slate-200 bg-white px-6 py-1.5 dark:border-slate-700 dark:bg-slate-900">
+          <AsyncResourceTagPicker
+            companyId={company.id}
+            resourceType="base"
+            resourceId={base.id}
+            variant="inline"
+          />
         </div>
 
         {/* Grid */}
