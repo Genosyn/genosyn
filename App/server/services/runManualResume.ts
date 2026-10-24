@@ -91,7 +91,9 @@ export async function assertManualResumeSource(run: Run, routine: Routine): Prom
     );
   if (await repo.existsBy({ routineId: routine.id, status: "running" }))
     throw new RunManualResumeError("This Routine already has a Run in progress.");
-  if (await repo.existsBy({ routineId: routine.id, queueActiveEmployeeId: Not(IsNull()) }))
+  // A claim is never empty: `> ''` reads the claim index, where `IS NOT NULL`
+  // walked the Routine's whole history.
+  if (await repo.existsBy({ routineId: routine.id, queueActiveEmployeeId: MoreThan("") }))
     throw new RunManualResumeError("Wait for this Routine's earlier Run cleanup to finish.");
   if (await repo.existsBy({ routineId: routine.id, retryAt: Not(IsNull()) }))
     throw new RunManualResumeError("This Routine already has a follow-up queued or starting.");

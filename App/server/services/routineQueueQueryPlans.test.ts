@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 import type { Logger } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { initTestDb, resetTestDb } from "../test/dbHarness.js";
+import { findInFlightRun } from "./cron.js";
 import { getEmployeeWorkQueue } from "./employeeWorkQueue.js";
 import { getRoutineActivity } from "./routineActivity.js";
+import { findAcceptedManualRoutineRun } from "./routineManualStart.js";
 import { releaseOrphanedQueueSlots } from "./routineQueue.js";
 import { claimedRuns, companyRunQueue, queuedRunsInStartOrder } from "./routineQueueOrder.js";
+import { assertManualResumeSource } from "./runManualResume.js";
 import { refreshStanddowns } from "./standdowns.js";
 
 /**
@@ -26,6 +31,7 @@ import { refreshStanddowns } from "./standdowns.js";
 type Plan = { sql: string; steps: string[] };
 
 let routineHistoryIndex = "";
+let claimIndex = "";
 
 /** Run `work`, then explain every statement it sent against `runs`. */
 async function plansOf(work: () => Promise<unknown>): Promise<Plan[]> {
@@ -73,6 +79,20 @@ function assertBounded(plans: Plan[], label: string) {
         `${label} walks Routine history (${step}):\n${plan.sql}`,
       );
     }
+  }
+}
+
+/** Fails unless every read of `runs` that tests a claim goes through the claim's own index. */
+function assertClaimIndexed(plans: Plan[], label: string) {
+  const claimReads = plans.filter((plan) =>
+    /\bWHERE\b[\s\S]*"queueActiveEmployeeId"/.test(plan.sql),
+  );
+  assert.ok(claimReads.length > 0, `${label} tested no claim`);
+  for (const plan of claimReads) {
+    assert.ok(
+      plan.steps.some((step) => step.includes(claimIndex)),
+      `${label} tests a claim without its index (${plan.steps.join("; ")}):\n${plan.sql}`,
+    );
   }
 }
 
@@ -134,6 +154,11 @@ describe("Routine queue reads on a large Run history", () => {
         AND sql LIKE '%("routineId", "startedAt")%'`,
     )) as { name: string }[];
     routineHistoryIndex = index.name;
+    const [claim] = (await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'runs'
+        AND sql LIKE '%("queueActiveEmployeeId")%'`,
+    )) as { name: string }[];
+    claimIndex = claim.name;
     await refreshStanddowns();
   });
 
@@ -209,5 +234,70 @@ describe("Routine queue reads on a large Run history", () => {
       (plan) => !/COUNT\(\*\)/.test(plan.sql) && !/followUp/i.test(plan.sql),
     );
     assertBounded(queueReads, "getRoutineActivity running and queued");
+  });
+
+  // Each Routine-scoped claim check below wrote `Not(IsNull())`, the shape the
+  // control case above shows walking the Routine's history.
+
+  test("a retry's in-flight check reads the Routine's live Runs, not its history", async () => {
+    const now = new Date("2026-10-23T09:00:00Z");
+    const expected = [
+      ["r1", "w1"],
+      ["r21", "w3"],
+      ["r5", undefined],
+    ] as const;
+    for (const [routineId, runId] of expected) {
+      const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routineId });
+      const { plans, result } = await traced(() => findInFlightRun(routine, now));
+      const label = `findInFlightRun(${routineId})`;
+      assertClaimIndexed(plans, label);
+      // Its other half asks for a Run started since the Routine's timeout
+      // began, which the history index bounds as well as the status one.
+      for (const plan of plans) {
+        for (const step of plan.steps) {
+          assert.doesNotMatch(step, /^SCAN (run|Run|runs)\b/, `${label} scans runs:\n${plan.sql}`);
+          if (step.includes(routineHistoryIndex)) {
+            assert.match(step, /\(routineId=\? AND startedAt>\?\)/, `${label} walks history`);
+          }
+        }
+      }
+      assert.equal(result?.id, runId, routineId);
+    }
+  });
+
+  test("a manual start finds the work it already accepted without walking history", async () => {
+    const expected = [
+      ["r21", "w3"],
+      ["r4", "q1"],
+      ["r5", undefined],
+    ] as const;
+    for (const [routineId, runId] of expected) {
+      const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routineId });
+      const { plans, result } = await traced(() => findAcceptedManualRoutineRun(routine, "c1"));
+      assertBounded(plans, `findAcceptedManualRoutineRun(${routineId})`);
+      assertClaimIndexed(plans, `findAcceptedManualRoutineRun(${routineId})`);
+      assert.equal(result?.id, runId, routineId);
+    }
+  });
+
+  test("a manual resume waits for a claimed Run without walking history", async () => {
+    // r21's failed Run left unfinished work, but w3 still holds its claim.
+    await AppDataSource.query(`
+      INSERT INTO runs (id, routineId, employeeId, startedAt, finishedAt, status, createdAt,
+        logContent, triggerKind, checkpointJson)
+      VALUES ('resume1', 'r21', 'e3', '2026-10-23 05:00:00.000', '2026-10-23 05:30:00.000',
+        'failed', '2026-10-23 05:00:00.000', '', 'schedule',
+        '{"state":"continue","completed":"Half the list.","remaining":"The other half.","resume":"Start at the second half.","progressKey":"list"}')`);
+    const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: "r21" });
+    const run = await AppDataSource.getRepository(Run).findOneByOrFail({ id: "resume1" });
+    const { plans, result } = await traced(() =>
+      assertManualResumeSource(run, routine).then(
+        () => "resumable",
+        (error: Error) => error.message,
+      ),
+    );
+    assert.equal(result, "Wait for this Routine's earlier Run cleanup to finish.");
+    assertBounded(plans, "assertManualResumeSource");
+    assertClaimIndexed(plans, "assertManualResumeSource");
   });
 });
