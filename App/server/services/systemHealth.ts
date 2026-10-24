@@ -4,7 +4,6 @@ import {
   IsNull,
   LessThan,
   MoreThanOrEqual,
-  Not,
   ObjectLiteral,
   Repository,
 } from "typeorm";
@@ -19,6 +18,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Standdown } from "../db/entities/Standdown.js";
 import { findLiveRunFailures } from "./runFailures.js";
+import { anyRetryAt } from "./runRecovery.js";
 
 /**
  * System Health — a company-scoped roll-up of "is anything broken?" signals,
@@ -226,11 +226,13 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
     ),
     // Not windowed: a retry chain with a six-hour backoff can outlive the
     // 24-hour window it started in, and a pending retry stays actionable.
+    // `anyRetryAt()` reads the few Runs owed one through the `retryAt`
+    // index, where `IS NOT NULL` read every Run the Routines ever had.
     routineIds.length
       ? sampleOrCount(
           runRepo,
           {
-            where: { routineId: In(routineIds), retryAt: Not(IsNull()) },
+            where: { routineId: In(routineIds), retryAt: anyRetryAt() },
             order: { retryAt: "ASC" },
           },
           itemLimit,

@@ -8,6 +8,7 @@ import { Run } from "../db/entities/Run.js";
 import { SchedulerLease } from "../db/entities/SchedulerLease.js";
 import { recordAudit } from "./audit.js";
 import { MAX_RUN_CONTINUATIONS, readRunCheckpoint } from "./runContinuation.js";
+import { anyRetryAt } from "./runRecovery.js";
 import { StanddownError, workBlocked } from "./standdowns.js";
 
 // Leave space for the resumed Run and every automatic continuation in the
@@ -91,11 +92,12 @@ export async function assertManualResumeSource(run: Run, routine: Routine): Prom
     );
   if (await repo.existsBy({ routineId: routine.id, status: "running" }))
     throw new RunManualResumeError("This Routine already has a Run in progress.");
-  // A claim is never empty: `> ''` reads the claim index, where `IS NOT NULL`
-  // walked the Routine's whole history.
+  // A claim is never empty, and `anyRetryAt()` spans every due time and
+  // dispatch claim: each reads its own index, where `IS NOT NULL` walked the
+  // Routine's whole history.
   if (await repo.existsBy({ routineId: routine.id, queueActiveEmployeeId: MoreThan("") }))
     throw new RunManualResumeError("Wait for this Routine's earlier Run cleanup to finish.");
-  if (await repo.existsBy({ routineId: routine.id, retryAt: Not(IsNull()) }))
+  if (await repo.existsBy({ routineId: routine.id, retryAt: anyRetryAt() }))
     throw new RunManualResumeError("This Routine already has a follow-up queued or starting.");
   if (
     await repo.existsBy({
