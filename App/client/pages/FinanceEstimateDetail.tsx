@@ -175,7 +175,7 @@ export default function FinanceEstimateDetail() {
         navigate(`/c/${company.slug}/finance/estimates/${result.estimate.slug}`, { replace: true });
       }
       if (result.send.status === "skipped") {
-        void dialog.error("Set one in Settings → Email, then send again.", {
+        void dialog.error("Set one in Settings → Notification email, then send again.", {
           title: "No email transport configured",
         });
       } else if (result.send.status !== "sent") {

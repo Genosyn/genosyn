@@ -7,7 +7,13 @@ import { Route, Routes, StaticRouter } from "react-router-dom";
 import type { Company, Me } from "../lib/api.js";
 import { productIntegrationScope } from "../lib/productIntegrations.js";
 import { SECTION_BY_KEY, type SectionKey } from "../lib/sections.js";
-import { SECTION_SUBPAGES, type SubpageViewer, railSubpages } from "../lib/subpages.js";
+import {
+  SECTION_SUBPAGES,
+  type SubpageViewer,
+  isAdvancedRailPage,
+  onRailPage,
+  railSubpages,
+} from "../lib/subpages.js";
 import AccountLayout from "../pages/AccountLayout.js";
 import CustomersLayout from "../pages/CustomersLayout.js";
 import DecisionsLayout from "../pages/DecisionsLayout.js";
@@ -133,11 +139,39 @@ function aside(html: string): string {
   return match[0];
 }
 
-function expectedLinks(section: SectionKey) {
+/**
+ * The links a rail draws when the browser is at `/c/acme/<at>`: every rail
+ * page, except that the closed Advanced group draws its links only while you
+ * are on one of its pages. Without `at`, the rail as it is when you are not.
+ */
+function expectedLinks(section: SectionKey, at?: string) {
+  const pages = railSubpages(section);
+  const advanced = pages.filter(isAdvancedRailPage);
+  const open = at !== undefined && onRailPage(advanced, "acme", `/c/acme/${at}`);
+  return pages
+    .filter((page) => open || !isAdvancedRailPage(page))
+    .map((page) => ({
+      href: `/c/acme${page.path}`,
+      text: page.navLabel ?? page.label,
+    }));
+}
+
+/** Every rail page, Advanced included — the rail with its Advanced group open. */
+function allRailLinks(section: SectionKey) {
   return railSubpages(section).map((page) => ({
     href: `/c/acme${page.path}`,
     text: page.navLabel ?? page.label,
   }));
+}
+
+/** The Advanced toggle: whether it is open, and the pages its tooltip names. */
+function advancedToggle(html: string): { open: boolean; names: string[] } | null {
+  const match = /<button\b[^>]*data-rail-advanced=""[^>]*>/.exec(html);
+  if (!match) return null;
+  return {
+    open: /aria-expanded="true"/.test(match[0]),
+    names: decode(/title="([^"]*)"/.exec(match[0])?.[1] ?? "").split(", "),
+  };
 }
 
 describe("SectionRailLinks", () => {
@@ -155,12 +189,75 @@ describe("SectionRailLinks", () => {
       );
       assert.deepEqual(
         links(html).map(({ href, text }) => ({ href, text })),
-        expectedLinks(section),
+        expectedLinks(section, section),
         section,
       );
-      // One icon per link.
-      assert.equal((html.match(/<svg\b/g) ?? []).length, railSubpages(section).length, section);
+      // One icon per link, and the Advanced toggle's chevron when there is one.
+      const toggle = advancedToggle(html) ? 1 : 0;
+      assert.equal(
+        (html.match(/<svg\b/g) ?? []).length,
+        expectedLinks(section, section).length + toggle,
+        section,
+      );
     }
+  });
+
+  test("tucks a section's Advanced pages under one closed toggle that names them", () => {
+    for (const section of sections) {
+      const advanced = railSubpages(section).filter(isAdvancedRailPage);
+      const html = renderAt(
+        section,
+        `${section}/*`,
+        h(SectionRailLinks, { section, companySlug: "acme" }),
+      );
+      const toggle = advancedToggle(html);
+      if (advanced.length === 0) {
+        assert.equal(toggle, null, `${section} has no Advanced group`);
+        continue;
+      }
+      assert.ok(toggle, `${section} draws an Advanced toggle`);
+      assert.equal(toggle.open, false, `${section}: closed on the landing page`);
+      assert.deepEqual(
+        toggle.names,
+        advanced.map((page) => page.navLabel ?? page.label),
+        `${section}: its tooltip names what is inside`,
+      );
+      // It comes after every everyday link.
+      const lastLink = html.lastIndexOf("<a ");
+      assert.ok(html.indexOf("data-rail-advanced") > lastLink, `${section}: drawn last`);
+    }
+    // Settings and Revenue are the rails that keep one today.
+    assert.ok(railSubpages("settings").some(isAdvancedRailPage));
+    assert.ok(railSubpages("revenue").some(isAdvancedRailPage));
+  });
+
+  test("opens the Advanced group by itself on one of its pages, with that page lit", () => {
+    for (const [section, at, current] of [
+      ["settings", "settings/tags", "Tags"],
+      ["settings", "settings/audit", "Audit log"],
+      ["revenue", "revenue/setup", "Setup"],
+      ["revenue", "revenue/imports", "Imports"],
+    ] as const) {
+      const html = renderAt(at, `${section}/*`, h(SectionRailLinks, { section, companySlug: "acme" }));
+      assert.equal(advancedToggle(html)?.open, true, at);
+      assert.deepEqual(
+        links(html).map(({ href, text }) => ({ href, text })),
+        allRailLinks(section),
+        `${at}: every link is drawn`,
+      );
+      assert.deepEqual(
+        links(html).filter((l) => l.current).map((l) => l.text),
+        [current],
+        at,
+      );
+    }
+    // A page beneath an Advanced page keeps the group open too.
+    const nested = renderAt(
+      "revenue/setup/stages",
+      "revenue/*",
+      h(SectionRailLinks, { section: "revenue", companySlug: "acme" }),
+    );
+    assert.equal(advancedToggle(nested)?.open, true);
   });
 
   test("draws each group heading once, opening the rail tighter than later ones", () => {
@@ -186,7 +283,52 @@ describe("SectionRailLinks", () => {
       "settings/*",
       h(SectionRailLinks, { section: "settings", companySlug: "acme" }),
     );
-    assert.deepEqual(headings(settings), [{ text: "Company", spacing: "pt-2" }]);
+    // The company and its people, what it connects, what a developer scripts
+    // it with; Advanced is a toggle, not a heading.
+    assert.deepEqual(headings(settings), [
+      { text: "Company", spacing: "pt-2" },
+      { text: "Connections", spacing: "pt-3" },
+      { text: "Developers", spacing: "pt-3" },
+    ]);
+    assert.deepEqual(
+      links(settings).map((l) => l.text),
+      [
+        "Company",
+        "Members",
+        "Teams",
+        "Policies",
+        "Usage",
+        "Integrations",
+        "Phone numbers",
+        "Browsers",
+        "Notification email",
+        "API keys",
+        "Environment secrets",
+      ],
+    );
+    assert.deepEqual(advancedToggle(settings), {
+      open: false,
+      names: ["Tags", "Single sign-on", "Audit log", "System Health"],
+    });
+
+    const revenue = renderAt(
+      "revenue",
+      "revenue/*",
+      h(SectionRailLinks, { section: "revenue", companySlug: "acme" }),
+    );
+    assert.deepEqual(headings(revenue), [{ text: "Outreach", spacing: "pt-3" }]);
+    assert.deepEqual(
+      links(revenue).map((l) => l.text),
+      ["Insights", "Follow-ups", "Deals", "Accounts", "Contacts", "Partnerships", "Sequences", "Signals"],
+    );
+    assert.deepEqual(advancedToggle(revenue)?.names, [
+      "Activities",
+      "Suppressions",
+      "Imports",
+      "Data quality",
+      "AI access",
+      "Setup",
+    ]);
   });
 
   test("spaces the first heading like a later one when the rail continues another list", () => {
@@ -308,7 +450,7 @@ describe("SectionRailLinks", () => {
   });
 
   test("leaves the admin-only Settings pages out for a Member, keeping the rest in order", () => {
-    const everything = expectedLinks("settings");
+    const everything = allRailLinks("settings");
     for (const text of ADMIN_ONLY_SETTINGS) {
       assert.ok(
         everything.some((l) => l.text === text),
@@ -323,14 +465,33 @@ describe("SectionRailLinks", () => {
       );
       assert.deepEqual(
         links(html).map(({ href, text }) => ({ href, text })),
-        everything.filter((l) => !ADMIN_ONLY_SETTINGS.includes(l.text)),
+        expectedLinks("settings", "settings/members").filter(
+          (l) => !ADMIN_ONLY_SETTINGS.includes(l.text),
+        ),
         viewer.financeAccess,
       );
-      // The group keeps its heading, and the opening spacing, while a link remains.
-      assert.deepEqual(headings(html), [{ text: "Company", spacing: "pt-2" }]);
+      // Each group keeps its heading, and the opening spacing, while a link remains.
+      assert.deepEqual(headings(html), [
+        { text: "Company", spacing: "pt-2" },
+        { text: "Connections", spacing: "pt-3" },
+        { text: "Developers", spacing: "pt-3" },
+      ]);
       assert.deepEqual(
         links(html).filter((l) => l.current).map((l) => l.text),
         ["Members"],
+      );
+      // The Advanced toggle names only what a Member can open.
+      assert.deepEqual(advancedToggle(html)?.names, ["Tags", "System Health"]);
+      // On one of those pages it opens, without the admin-only ones.
+      const open = renderAt(
+        "settings/system-health",
+        "settings/*",
+        h(SectionRailLinks, { section: "settings", companySlug: "acme", viewer }),
+      );
+      assert.equal(advancedToggle(open)?.open, true);
+      assert.deepEqual(
+        links(open).map((l) => l.text).slice(-2),
+        ["Tags", "System Health"],
       );
     }
   });
@@ -394,7 +555,7 @@ describe("section layouts draw their rails from the catalogue", () => {
   test("renders exactly the catalogue's rail, plus the product Integrations link", () => {
     for (const [section, at, layout] of LAYOUTS) {
       const rail = links(aside(renderAt(at, routeFor(section), layout(company))));
-      const expected = expectedLinks(section);
+      const expected = expectedLinks(section, at);
       if (productIntegrationScope(section)) {
         expected.push({ href: `/c/acme/${section}/integrations`, text: "Integrations" });
       }
@@ -414,10 +575,20 @@ describe("section layouts draw their rails from the catalogue", () => {
     );
     assert.deepEqual(
       links(aside(settings)).map(({ href, text }) => ({ href, text })),
-      expectedLinks("settings"),
+      expectedLinks("settings", "settings/members"),
     );
     assert.equal(links(aside(settings)).filter((l) => l.current).length, 1);
     assert.match(settings, /aria-label="Breadcrumb"[\s\S]*Settings[\s\S]*Members/);
+    // Notification email's breadcrumb says what the page is for.
+    const email = renderAt(
+      "settings/email/providers",
+      "settings/*",
+      h(SettingsLayout, { company, me, onCompaniesChanged: () => {} }),
+    );
+    assert.match(
+      email,
+      /aria-label="Breadcrumb"[\s\S]*Settings[\s\S]*Notification email[\s\S]*Providers/,
+    );
 
     const account = renderAt(
       "account/security",
@@ -501,9 +672,11 @@ describe("section layouts draw their rails from the catalogue", () => {
       );
     assert.deepEqual(
       rail(member),
-      expectedLinks("settings").filter((l) => !ADMIN_ONLY_SETTINGS.includes(l.text)),
+      expectedLinks("settings", "settings/members").filter(
+        (l) => !ADMIN_ONLY_SETTINGS.includes(l.text),
+      ),
     );
-    assert.deepEqual(rail(admin), expectedLinks("settings"));
+    assert.deepEqual(rail(admin), expectedLinks("settings", "settings/members"));
   });
 
   test("closes Finance to a Member without finance access, wherever they land", () => {

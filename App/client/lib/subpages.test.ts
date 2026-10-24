@@ -12,6 +12,7 @@ import {
 } from "./sections.js";
 import { MATCH_SCORE } from "./searchText.js";
 import {
+  ADVANCED_NAV_GROUP,
   PALETTE_SUBPAGES,
   PRODUCT_INTEGRATION_SUBPAGES,
   SECTION_SUBPAGES,
@@ -21,7 +22,9 @@ import {
   canOpenSubpage,
   canWriteFinance,
   effectiveFinanceAccess,
+  isAdvancedRailPage,
   isCurrentSubpage,
+  onRailPage,
   pagesLead,
   railSubpages,
   searchSubpages,
@@ -125,6 +128,61 @@ describe("subpage catalogue", () => {
         seen.push(group);
       }
     }
+  });
+
+  test("keeps each rail's Advanced group last, so the toggle closes the rail", () => {
+    for (const section of Object.keys(SECTION_SUBPAGES) as SectionKey[]) {
+      const rail = railSubpages(section);
+      const first = rail.findIndex(isAdvancedRailPage);
+      if (first === -1) continue;
+      assert.ok(
+        rail.slice(first).every(isAdvancedRailPage),
+        `${section}: nothing follows its Advanced group`,
+      );
+      assert.ok(first > 0, `${section}: the rail leads with something before Advanced`);
+    }
+  });
+
+  test("tucks the pages people visit now and then under Settings' and Revenue's Advanced", () => {
+    const advanced = (section: SectionKey) =>
+      railSubpages(section)
+        .filter(isAdvancedRailPage)
+        .map((p) => p.path);
+    assert.deepEqual(advanced("settings"), [
+      "/settings/tags",
+      "/settings/sso",
+      "/settings/audit",
+      "/settings/system-health",
+    ]);
+    // API keys stays in view under Developers: the CLI, the MCP server and the
+    // API reference all send people to Settings → API keys.
+    assert.equal(subpageAt("/settings/api-keys").navGroup, "Developers");
+    assert.deepEqual(advanced("revenue"), [
+      "/revenue/activities",
+      "/revenue/suppressions",
+      "/revenue/imports",
+      "/revenue/data-quality",
+      "/revenue/ai-access",
+      "/revenue/setup",
+    ]);
+    // Tucked away is not hidden: the palette still offers every one of them.
+    for (const path of [...advanced("settings"), ...advanced("revenue")]) {
+      assert.ok(PALETTE_SUBPAGES.some((p) => p.path === path), path);
+    }
+    assert.equal(isAdvancedRailPage({ navGroup: ADVANCED_NAV_GROUP }), true);
+    assert.equal(isAdvancedRailPage({ navGroup: "Company" }), false);
+    assert.equal(isAdvancedRailPage({}), false);
+  });
+
+  test("says the browser is on a rail page when it is the page or beneath it", () => {
+    const pages = [{ path: "/settings/api-keys" }, { path: "/revenue/setup" }];
+    assert.equal(onRailPage(pages, "acme", "/c/acme/settings/api-keys"), true);
+    assert.equal(onRailPage(pages, "acme", "/c/acme/revenue/setup/stages"), true);
+    assert.equal(onRailPage(pages, "acme", "/c/acme/settings/api-keys-old"), false, "a prefix of a word is not beneath");
+    assert.equal(onRailPage(pages, "acme", "/c/acme/settings"), false);
+    assert.equal(onRailPage(pages, "globex", "/c/acme/settings/api-keys"), false, "another company");
+    assert.equal(onRailPage([{ path: "/mail?view=sent" }], "acme", "/c/acme/mail"), true, "a filter view is its page");
+    assert.equal(onRailPage([], "acme", "/c/acme/settings/api-keys"), false);
   });
 
   test("returns only rail links from railSubpages, in catalogue order", () => {

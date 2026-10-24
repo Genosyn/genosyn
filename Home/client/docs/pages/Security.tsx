@@ -184,7 +184,7 @@ export function Security() {
         Each company can sign its Members in through its own identity provider, separately from the
         install-wide SSO a master admin configures at <Code>Admin → SSO</Code> (see{" "}
         <DocLink to="/docs/self-hosting#sso">Configuration</DocLink>). A company owner or admin
-        opens <Strong>Settings → Single sign-on</Strong>, picks <Strong>Google</Strong> or{" "}
+        opens <Strong>Settings → Advanced → Single sign-on</Strong>, picks <Strong>Google</Strong> or{" "}
         <Strong>Custom OpenID Connect</Strong> (Okta, Keycloak, Microsoft Entra ID, Auth0, or
         anything OIDC-compliant), then:
       </P>
@@ -332,7 +332,7 @@ export function Security() {
       <P>
         Every company keeps an append-only record of changes made by Members, AI Employees, the
         scheduler, webhooks, and the system. Company owners and admins read it at{" "}
-        <Strong>Settings → Audit log</Strong>, newest first; expand an event to see its recorded
+        <Strong>Settings → Advanced → Audit log</Strong>, newest first; expand an event to see its recorded
         details, and follow <Strong>in a routine run</Strong> to open the Run an AI Employee made
         the change from.
       </P>

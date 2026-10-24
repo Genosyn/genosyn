@@ -376,10 +376,10 @@ export function SelfHosting() {
         the server console. That console fallback is deliberate and useful: on a brand-new install
         the bootstrap master admin&apos;s own verification link prints there, which is how you claim
         the first operator account before any mail server exists. When a global transport is
-        configured, adding a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
+        configured, adding a company SMTP provider at <Code>Settings → Notification email</Code> pre-fills the
         host, port, encryption, username, and sender address from it — you only enter the password.
         Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at{" "}
-        <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
+        <Code>Settings → Notification email → Logs</Code>. Member-role accounts cannot read recipient addresses,
         subjects, delivery errors, or body previews. Bearer links such as company invitations are
         redacted from the stored preview.
       </P>
@@ -514,7 +514,7 @@ export function SelfHosting() {
           <Strong>Instance Health</Strong> — live probes of the deployment substrate: database
           connectivity and round-trip latency, pending schema migrations, a writable data directory,
           the backup story, and the email + Web Push transports. This is distinct from a
-          company&apos;s <Code>Settings → System Health</Code>, which watches that company&apos;s
+          company&apos;s <Code>Settings → Advanced → System Health</Code>, which watches that company&apos;s
           routines, models, and integrations.
         </LI>
         <LI>
@@ -656,7 +656,7 @@ export function SelfHosting() {
       </P>
       <P>
         Companies can also sign their Members in through their own identity provider, with their
-        own login URL, at <Strong>Settings → Single sign-on</Strong> — see{" "}
+        own login URL, at <Strong>Settings → Advanced → Single sign-on</Strong> — see{" "}
         <DocLink to="/docs/security#company-sso">Company single sign-on</DocLink>. A master admin
         allows that first with <Strong>Let companies use their own identity provider</Strong>{" "}
         under <Strong>Company single sign-on</Strong> on the same page. It is off by default:

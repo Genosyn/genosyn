@@ -25,7 +25,7 @@ import type { AdminOutletCtx } from "./AdminLayout";
  * company has no email provider of its own. This page is the only source: what
  * is saved here is stored encrypted in the database and applies with no
  * restart, and clearing it leaves system emails logging to the server console.
- * Distinct from a company's own Settings → Email.
+ * Distinct from a company's own Settings → Notification email.
  */
 
 const FIELD_CLASS =

@@ -606,7 +606,7 @@ exists to prevent.
   via REST). Falls back to the install-wide global SMTP transport — configured
   at **Admin → Email transport**, stored encrypted in `AppSetting` — for
   system-level sends, then to the console. Every transactional send appends an
-  `EmailLog` row; company-scoped rows are visible at Settings → Email Logs
+  `EmailLog` row; company-scoped rows are visible at Settings → Notification email → Logs
   (system sends — welcome, password reset, global SMTP test — carry a null
   `companyId` and are logged but not surfaced anywhere yet).
 - **Email (the company's inbox):** the `Mail*` subsystem is **separate** and

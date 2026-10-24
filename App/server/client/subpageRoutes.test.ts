@@ -284,7 +284,7 @@ describe("subpage catalogue ↔ client router", () => {
       ...allPages.map((p) => routePath(p.path)),
     ]);
     // A default tab is reached through the entry that opens its parent:
-    // Settings → Email lands on Email providers.
+    // Settings → Notification email lands on its providers.
     for (const r of routes) if (r.redirectTarget && covered.has(r.fullPath)) covered.add(r.redirectTarget);
 
     const unlisted = [...routable].filter((fullPath) => {

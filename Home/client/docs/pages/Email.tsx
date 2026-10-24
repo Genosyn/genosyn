@@ -31,7 +31,7 @@ export function Email() {
 
       <Callout kind="info" title="Different from the email that Genosyn sends.">
         This is your inbox. It is unrelated to the transactional email Genosyn sends for password
-        resets and invoices (Settings → Email), which stays exactly as it was.
+        resets and invoices (Settings → Notification email), which stays exactly as it was.
       </Callout>
 
       <H2 id="connect">Connecting a mailbox</H2>

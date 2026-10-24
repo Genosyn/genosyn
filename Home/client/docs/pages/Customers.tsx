@@ -102,7 +102,7 @@ export function Customers() {
         it starts and every six hours. A customer it pairs with another says so at the top of its
         page, with <Strong>Merge into</Strong> the other customer, or <Strong>Not a duplicate</Strong>{" "}
         to stop suggesting that pair; the same suggestions appear in{" "}
-        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Data quality</DocLink>. Saving a
+        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Advanced → Data quality</DocLink>. Saving a
         domain another active customer already uses names that customer, and offers to open it or,
         when editing, to merge this customer into it.
       </P>
@@ -111,7 +111,7 @@ export function Customers() {
         all — keeps its domain as history without blocking the customer that has it now. A merged
         duplicate&apos;s page says which customer it was merged into and links there; it cannot be
         unarchived, but the merge can be undone from{" "}
-        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Data quality</DocLink>. Merging
+        <DocLink to="/docs/revenue-data-quality#merge">Revenue → Advanced → Data quality</DocLink>. Merging
         needs Full finance access; Read-only access shows the suggestions but not the buttons.
       </P>
       <P>

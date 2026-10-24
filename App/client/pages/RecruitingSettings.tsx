@@ -199,7 +199,7 @@ function SettingsBody() {
             </div>
             <p className="mt-0.5 max-w-3xl text-xs text-slate-500">
               {sender.delivers ? (
-                <>Applicant emails go out through {sender.source === "company_provider" ? "the company's email provider" : "the install's email transport"}, and every one is listed at Settings → Email Logs.</>
+                <>Applicant emails go out through {sender.source === "company_provider" ? "the company's email provider" : "the install's email transport"}, and every one is listed at Settings → Notification email → Logs.</>
               ) : (
                 <>
                   Emails are written to the server log instead of sent until you{" "}

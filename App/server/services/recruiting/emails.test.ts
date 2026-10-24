@@ -46,7 +46,7 @@ import { installCareersUrl } from "./urls.js";
  * in the raw text. The rejection email goes out only when a person (or an AI
  * Employee with hire access) chooses it, and is never capped.
  *
- * Every send is logged at Settings → Email Logs with purpose `recruiting` and
+ * Every send is logged at Settings → Notification email → Logs with purpose `recruiting` and
  * lands on the Application's timeline (`events.ts`) as `email_sent`,
  * `email_failed` or `email_skipped`. With no provider configured, `sendEmail`
  * takes its console branch and the outcome is `skipped`; where a test needs a
@@ -57,7 +57,7 @@ import { installCareersUrl } from "./urls.js";
 const COMPANY = { name: "Acme Robotics", slug: "acme" };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NO_PROVIDER_NOTE =
-  "No email provider is set up, so the email was written to the server log instead of sent. Add one at Settings → Email.";
+  "No email provider is set up, so the email was written to the server log instead of sent. Add one at Settings → Notification email.";
 const CAPPED_NOTE = `This address already received ${CONFIRMATIONS_PER_ADDRESS_PER_DAY} confirmations today, so no confirmation was sent for this application.`;
 
 const realFetch = globalThis.fetch;

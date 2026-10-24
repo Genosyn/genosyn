@@ -306,7 +306,7 @@ export function Recruiting() {
         <Code>{"{{company_name}}"}</Code> and <Code>{"{{opening_url}}"}</Code> filled in. They go
         out through your company&apos;s email provider, or the install&apos;s if you have none (see{" "}
         <DocLink to="/docs/email">Email</DocLink>), and appear in{" "}
-        <Strong>Settings → Email logs</Strong>. The application&apos;s timeline says whether the
+        <Strong>Settings → Notification email → Logs</Strong>. The application&apos;s timeline says whether the
         confirmation was sent.
       </P>
 
@@ -361,7 +361,7 @@ export function Recruiting() {
         </LI>
         <LI>
           Deleting the company deletes its Openings, applications, resumes and Scorecards. Every
-          change to Recruiting settings is in <Strong>Settings → Audit log</Strong>.
+          change to Recruiting settings is in <Strong>Settings → Advanced → Audit log</Strong>.
         </LI>
       </UL>
 

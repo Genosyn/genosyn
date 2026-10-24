@@ -43,7 +43,7 @@ export function Tags() {
 
       <H2 id="manage">Manage the company catalog</H2>
       <P>
-        Go to <Strong>Settings → Tags</Strong> to create, rename, or delete company tags. Renaming
+        Go to <Strong>Settings → Advanced → Tags</Strong> to create, rename, or delete company tags. Renaming
         or changing a color updates every attached resource. New tags created here use the color you
         choose; tags created inline receive a color automatically and can be adjusted later.
         Deleting a tag removes only the label and its assignments — it never deletes the resources

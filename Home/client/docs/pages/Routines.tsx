@@ -1369,7 +1369,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="system-health">System Health</H2>
       <P>
-        <Strong>Settings → System Health</Strong> (also a card on the Home page) rolls up everything
+        <Strong>Settings → Advanced → System Health</Strong> (also a card on the Home page) rolls up everything
         that might be quietly broken for the company, over a 24-hour window:
       </P>
       <UL>

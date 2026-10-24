@@ -187,6 +187,15 @@ const FINANCE_FULL: SubpageAccess = { finance: "full" };
 const ADMIN: SubpageAccess = { admin: true };
 
 /**
+ * The rail group a section keeps for the pages people visit now and then. The
+ * rail draws it last, closed, as a single "Advanced" toggle whose tooltip
+ * names what is inside, and opens it on its own when you land on one of its
+ * pages — the same shape as an AI Employee's Settings rail. The palette and
+ * `G` chords reach these pages exactly as before: tucked away is not hidden.
+ */
+export const ADVANCED_NAV_GROUP = "Advanced";
+
+/**
  * Per-section pages, in rail order. Pages reached only from a button (create
  * forms) or drawn by the rail itself carry `rail: false`.
  */
@@ -603,42 +612,44 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Handshake,
       keywords: ["partners", "affiliates", "resellers"],
     },
+    // The automation an AI Employee runs for sales, under its own heading.
     {
       label: "Sequences",
       path: "/revenue/sequences",
       icon: Send,
+      navGroup: "Outreach",
       keywords: ["outbound", "outreach", "cadences", "drip campaigns"],
     },
     {
       label: "Signals",
       path: "/revenue/signals",
       icon: Radar,
+      navGroup: "Outreach",
       keywords: ["product signals", "usage triggers", "intent"],
     },
+    // Records, imports, access and setup: visited now and then, so the rail
+    // keeps them under its closed Advanced group.
     {
       label: "Activity audit",
       navLabel: "Activities",
       path: "/revenue/activities",
       icon: ClipboardList,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["activity", "timeline", "logged calls", "notes"],
     },
     {
       label: "Suppressions",
       path: "/revenue/suppressions",
       icon: Ban,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["unsubscribes", "do not email", "opt out", "blocklist"],
-    },
-    {
-      label: "AI access",
-      path: "/revenue/ai-access",
-      icon: Bot,
-      keywords: ["revenue grants", "ai employee access", "permissions"],
     },
     {
       label: "Revenue imports",
       navLabel: "Imports",
       path: "/revenue/imports",
       icon: Import,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["import contacts", "csv import", "upload"],
     },
     {
@@ -646,13 +657,22 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       navLabel: "Data quality",
       path: "/revenue/data-quality",
       icon: ShieldCheck,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["duplicates", "dedupe", "cleanup", "data hygiene"],
+    },
+    {
+      label: "AI access",
+      path: "/revenue/ai-access",
+      icon: Bot,
+      navGroup: ADVANCED_NAV_GROUP,
+      keywords: ["revenue grants", "ai employee access", "permissions"],
     },
     {
       label: "Revenue setup",
       navLabel: "Setup",
       path: "/revenue/setup",
       icon: Settings2,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["deal stages", "pipeline stages", "custom fields", "classifications"],
     },
   ],
@@ -991,13 +1011,24 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["recruiting grants", "ai employee access", "permissions"],
     },
   ],
+  // Grouped by what someone came to do: the company and its people, the
+  // accounts it connects, what a developer scripts it with, and — closed
+  // until asked for — the pages opened now and then.
   settings: [
     {
       label: "Company",
       path: "/settings/company",
       icon: Building2,
       navGroup: "Company",
-      keywords: ["company name", "mission", "vision", "slug", "require two-factor"],
+      keywords: [
+        "company name",
+        "mission",
+        "vision",
+        "slug",
+        "web address",
+        "require two-factor",
+        "time zone",
+      ],
     },
     {
       label: "Members",
@@ -1014,13 +1045,6 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["departments", "groups"],
     },
     {
-      label: "Tags",
-      path: "/settings/tags",
-      icon: Tags,
-      navGroup: "Company",
-      keywords: ["labels", "tag colors"],
-    },
-    {
       label: "Policies",
       path: "/settings/policies",
       icon: Scale,
@@ -1028,10 +1052,18 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["company policies", "rules", "guardrails", "blocked domains"],
     },
     {
+      label: "Usage",
+      path: "/settings/usage",
+      access: ADMIN,
+      icon: BarChart3,
+      navGroup: "Company",
+      keywords: ["costs", "spend", "tokens", "runs"],
+    },
+    {
       label: "Integrations",
       path: "/settings/integrations",
       icon: Plug,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["connections", "connectors", "oauth", "integration catalog"],
     },
     {
@@ -1039,22 +1071,34 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/phone-numbers",
       access: ADMIN,
       icon: Phone,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["twilio", "sms", "texts", "calls", "phone", "otp", "verification codes"],
     },
     {
       label: "Browsers",
       path: "/settings/browsers",
       icon: Laptop,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["member browsers", "chrome", "browser bridge", "pairing code"],
     },
+    // How Genosyn itself emails people (invitations, alerts) — not the
+    // company's inbox, which is the Email section. The old rail label "Email"
+    // sent people looking for their inbox here.
     {
-      label: "Email",
+      label: "Notification email",
       path: "/settings/email",
       icon: Mail,
-      navGroup: "Company",
-      keywords: ["email providers", "smtp", "sendgrid", "mailgun", "resend", "postmark"],
+      navGroup: "Connections",
+      keywords: [
+        "email",
+        "email providers",
+        "outgoing email",
+        "smtp",
+        "sendgrid",
+        "mailgun",
+        "resend",
+        "postmark",
+      ],
     },
     {
       label: "Email logs",
@@ -1065,17 +1109,10 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["sent emails", "email activity", "delivery log"],
     },
     {
-      label: "Environment secrets",
-      path: "/settings/secrets",
-      icon: KeyRound,
-      navGroup: "Company",
-      keywords: ["env vars", "environment variables", "developer tokens"],
-    },
-    {
       label: "API keys",
       path: "/settings/api-keys",
       icon: TerminalSquare,
-      navGroup: "Company",
+      navGroup: "Developers",
       // The same page sets up the Genosyn MCP server, which these keys open.
       keywords: [
         "api tokens",
@@ -1089,19 +1126,25 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       ],
     },
     {
-      label: "Usage",
-      path: "/settings/usage",
-      access: ADMIN,
-      icon: BarChart3,
-      navGroup: "Company",
-      keywords: ["costs", "spend", "tokens", "runs"],
+      label: "Environment secrets",
+      path: "/settings/secrets",
+      icon: KeyRound,
+      navGroup: "Developers",
+      keywords: ["env vars", "environment variables", "developer tokens"],
+    },
+    {
+      label: "Tags",
+      path: "/settings/tags",
+      icon: Tags,
+      navGroup: ADVANCED_NAV_GROUP,
+      keywords: ["labels", "tag colors"],
     },
     {
       label: "Single sign-on",
       path: "/settings/sso",
       access: ADMIN,
       icon: KeyRound,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["sso", "oidc", "google sign-in", "saml"],
     },
     {
@@ -1109,14 +1152,14 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/audit",
       access: ADMIN,
       icon: ScrollText,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["audit trail", "history", "who changed"],
     },
     {
       label: "System Health",
       path: "/settings/system-health",
       icon: Activity,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["health", "status", "probes", "diagnostics"],
     },
   ],
@@ -1181,6 +1224,27 @@ export const SECTION_SUBPAGES: Readonly<Partial<Record<SectionKey, readonly Subp
 /** The links a section's rail draws from this catalogue, in order. */
 export function railSubpages(section: SectionKey): SubpageItem[] {
   return (SECTION_SUBPAGES[section] ?? []).filter((page) => page.rail);
+}
+
+/** True for a page the rail tucks under its closed Advanced group. */
+export function isAdvancedRailPage(page: Pick<SubpageItem, "navGroup">): boolean {
+  return page.navGroup === ADVANCED_NAV_GROUP;
+}
+
+/**
+ * True when `pathname` (a full `/c/<slug>/…` path, query-less) is one of the
+ * `pages`, or beneath one: a nested page keeps its rail entry, so it keeps the
+ * Advanced group open too.
+ */
+export function onRailPage(
+  pages: ReadonlyArray<Pick<SubpageItem, "path">>,
+  companySlug: string,
+  pathname: string,
+): boolean {
+  return pages.some((page) => {
+    const path = `/c/${companySlug}${page.path.split("?")[0]}`;
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
 }
 
 /**

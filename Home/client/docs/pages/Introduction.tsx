@@ -224,6 +224,20 @@ export function Introduction() {
         and admins can open it, rather than failing to load.
       </P>
       <P>
+        <Strong>Each sidebar leads with what you come for.</Strong> Pages you open now and then sit
+        under <Strong>Advanced</Strong> at the bottom of their section&apos;s sidebar, closed until
+        you open it: Settings keeps <Strong>Tags</Strong>, <Strong>Single sign-on</Strong>,{" "}
+        <Strong>Audit log</Strong> and <Strong>System Health</Strong> there, and Revenue keeps{" "}
+        <Strong>Activities</Strong>, <Strong>Suppressions</Strong>, <Strong>Imports</Strong>,{" "}
+        <Strong>Data quality</Strong>, <Strong>AI access</Strong> and <Strong>Setup</Strong>.
+        Hovering it names what is inside, it opens by itself whenever you are on one of those
+        pages, and the palette finds each of them as before. Settings groups the rest under{" "}
+        <Strong>Company</Strong>, <Strong>Connections</Strong> and <Strong>Developers</Strong>;{" "}
+        <Strong>Notification email</Strong>, under Connections, is how Genosyn emails people on the
+        company&apos;s behalf, not your inbox, which is the{" "}
+        <DocLink to="/docs/email">Email</DocLink> section.
+      </P>
+      <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. A few pages use a symbol instead; master admins open Admin with <Code>G =</Code>.
