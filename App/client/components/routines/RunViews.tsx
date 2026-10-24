@@ -418,7 +418,7 @@ export function RunLogPane({
           <Loader2 size={14} className="mr-2 animate-spin" /> Loading log…
         </div>
       ) : log === null ? (
-        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+        <div className="flex h-full items-center justify-center text-xs text-slate-300/70">
           {placeholder}
         </div>
       ) : (
@@ -435,7 +435,7 @@ export function RunLogPane({
               [log truncated — first 256KB of {log.size} bytes]
             </div>
           )}
-          {log.content || <span className="text-slate-500">{placeholder}</span>}
+          {log.content || <span className="text-slate-300/70">{placeholder}</span>}
         </pre>
       )}
     </div>
@@ -697,10 +697,10 @@ function RecordingState({
   body: React.ReactNode;
 }) {
   return (
-    <div className="flex max-w-sm flex-col items-center gap-2 px-6 py-10 text-center text-slate-400">
+    <div className="flex max-w-sm flex-col items-center gap-2 px-6 py-10 text-center text-slate-300/70">
       {icon}
       <div className="text-sm font-medium text-slate-200">{title}</div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-xs leading-relaxed text-slate-300">{body}</p>
     </div>
   );
 }
