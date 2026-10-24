@@ -43,6 +43,7 @@ import { EmployeeModelSection } from "./employeeTabs";
 import { CompanyStep } from "@/pages/onboarding/CompanyStep";
 import { Note } from "@/pages/onboarding/OnboardingFrame";
 import { hasCompanyDirection } from "@/lib/onboardingFlow";
+import { employeePageAt, employeePagePath } from "@/lib/subpages";
 import {
   defaultAnswers,
   defaultMission,
@@ -102,6 +103,9 @@ type ResumableStep = "model" | "launch";
  *     never reaches the browser) and the Launch step says so in one line.
  *     Otherwise this step connects one.
  *  3. Launch — choose the Routines and Integrations that make the role useful.
+ *
+ * Finishing opens the new employee's Settings → Access, with a note saying
+ * that granting access is the next step: a new hire reaches nothing until then.
  *
  * "Customize the Soul first" is the longer path for someone who wants to write
  * the constitution before the employee starts: after the AI Model it adds
@@ -373,9 +377,15 @@ export default function EmployeeNew({
     navigate(`/c/${companySlug}/employees`);
   }
 
+  /**
+   * A new hire reaches nothing until it is granted something, so the hire
+   * ends on its Access page — with a note saying so, and Chat one click away.
+   */
   function finish() {
     if (!emp) return;
-    navigate(`/c/${companySlug}/employees/${emp.slug}`);
+    navigate(
+      `/c/${companySlug}${employeePagePath(employeePageAt("/settings/access"), emp.slug)}?welcome=1`,
+    );
   }
 
   if (!directionSet) {
@@ -518,7 +528,7 @@ export default function EmployeeNew({
             templateId={selected}
             onBack={launchBack}
             onContinue={finish}
-            continueLabel={`Finish — meet ${emp.name}`}
+            continueLabel={`Next: choose what ${emp.name} can reach`}
           />
         </>
       )}

@@ -5,6 +5,7 @@ export type OnboardingStep =
   | "employee"
   | "recommendations"
   | "email"
+  | "access"
   | "first_request"
   | "done";
 
@@ -27,7 +28,9 @@ export function resolveOnboardingStep(
   company: CompanyDirection,
 ): OnboardingStep {
   if (!hasCompanyDirection(company) || raw === "intro" || raw === "company") return "company";
-  if (["employee", "recommendations", "email", "first_request", "done"].includes(raw ?? "")) {
+  if (
+    ["employee", "recommendations", "email", "access", "first_request", "done"].includes(raw ?? "")
+  ) {
     return raw as OnboardingStep;
   }
   return "employee";

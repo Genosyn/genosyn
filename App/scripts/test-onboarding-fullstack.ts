@@ -314,6 +314,10 @@ try {
   // A starter Routine is graded: its Runs carry a definition of done.
   assert(routines.every((routine) => routine.acceptanceCriteria.trim().length > 0));
   await page.getByRole("button", { name: "Skip email for now", exact: true }).click();
+  // Granting access is the step after email; nothing has to be ticked to go on.
+  await page.getByRole("heading", { name: "Choose what Avery QA can reach", exact: true }).waitFor();
+  await page.locator('li[data-access-label="Finance"]').waitFor();
+  await page.getByRole("button", { name: "Finish setup", exact: true }).click();
   await page
     .getByRole("heading", { name: `Avery QA has joined ${companyName}`, exact: true })
     .waitFor();

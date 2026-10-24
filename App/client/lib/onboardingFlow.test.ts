@@ -31,6 +31,7 @@ test("every onboarding deep link requires company direction", () => {
     "employee",
     "recommendations",
     "email",
+    "access",
     "first_request",
     "done",
     "unknown",
@@ -59,8 +60,20 @@ test("legacy intro links and the Company back button open editable direction", (
 });
 
 test("valid employee and later-step bookmarks remain resumable", () => {
-  for (const step of ["employee", "recommendations", "email", "first_request", "done"] as const) {
+  for (const step of [
+    "employee",
+    "recommendations",
+    "email",
+    "access",
+    "first_request",
+    "done",
+  ] as const) {
     assert.equal(resolveOnboardingStep(step, complete), step);
     assert.equal(resolveOnboardingStep(step, withGoal), step);
   }
+});
+
+test("granting access is its own step, reachable by a bookmark once there is direction", () => {
+  assert.equal(resolveOnboardingStep("access", complete), "access");
+  assert.equal(resolveOnboardingStep("access", { mission: "", vision: "" }), "company");
 });

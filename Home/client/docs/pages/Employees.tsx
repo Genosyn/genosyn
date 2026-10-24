@@ -173,6 +173,14 @@ export function Employees() {
           still needs an explicit Grant.
         </LI>
         <LI>
+          <Strong>Grant access.</Strong> Press <Strong>Next: choose what {"{name}"} can reach</Strong>{" "}
+          and the hire ends on the new employee&apos;s <Strong>Settings → Access</Strong>, with a
+          note saying that is the next step — a new hire reaches nothing until it is granted
+          something. Tick what the job needs and grant it in one go, or choose{" "}
+          <Strong>Done — meet {"{name}"}</Strong> to go to Chat. See{" "}
+          <DocLink to="/docs/employees#access">Access</DocLink>.
+        </LI>
+        <LI>
           <Strong>Fire.</Strong> Deleting an employee removes their DB rows, including the encrypted
           credential row for every model they held. There&apos;s no shared key to revoke.
         </LI>
@@ -233,7 +241,7 @@ export function Employees() {
         Everything you configure or inspect about an employee lives under Settings. The rail keeps
         the everyday panes up front, grouped as <Strong>Employee</Strong> (General, Soul, Model),{" "}
         <Strong>Work</Strong> (links to this employee&apos;s Skills and Routines), and{" "}
-        <Strong>Access</Strong> (Connections, Autonomy). Everything you visit now and then sits
+        <Strong>Access</Strong> (Access, Connections, Autonomy). Everything you visit now and then sits
         under <Strong>Advanced</Strong>: Memory, Journal, Handoffs, Phone, MCP, Browser, and a link
         to Integrations. It starts closed and opens by itself whenever you are on one of those
         pages. Each page leads with its basics; anything rarely changed sits behind that
@@ -350,8 +358,14 @@ export function Employees() {
           <Code>⌘/Ctrl+Enter</Code> submits it.
         </LI>
         <LI>
-          <Strong>Settings → Connections.</Strong> The list of{" "}
-          <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
+          <Strong>Settings → Access.</Strong> Everything the company has that this employee could
+          be granted, what it holds of each, and a way to grant, change or revoke many at once —
+          see <DocLink to="/docs/employees#access">Access</DocLink> below.
+        </LI>
+        <LI>
+          <Strong>Settings → Connections.</Strong> The{" "}
+          <DocLink to="/docs/integrations">Connection Grants</DocLink> this employee holds, with
+          each account&apos;s status.
         </LI>
         <LI>
           <Strong>Settings → Autonomy.</Strong> <Strong>Stand down</Strong> first — a revocable
@@ -392,6 +406,73 @@ export function Employees() {
         everyone else&apos;s copies working; rotate the key at the provider to change it for
         everyone who holds one.
       </Callout>
+
+      <H2 id="access">Access</H2>
+      <P>
+        An AI Employee reaches only what it has been granted. <Strong>Settings → Access</Strong>{" "}
+        lists everything the company has that it could be granted, grouped by kind —{" "}
+        <Strong>Connections</Strong>, <Strong>Mailboxes</Strong>, <Strong>Calendars</Strong>,{" "}
+        <Strong>Repositories</Strong>, <Strong>Notes and notebooks</Strong>, <Strong>Bases</Strong>,{" "}
+        <Strong>Charts and dashboards</Strong>, <Strong>Resources</Strong> (the library-wide level
+        and each Resource), <Strong>Vault items</Strong>, <Strong>Member browsers</Strong>,{" "}
+        <Strong>Routines</Strong>, and the <Strong>Company sections</Strong>: Finance, Revenue,
+        Marketing, Recruiting and Document signing. Kinds the company has none of yet share one line
+        at the end, linking to where to add them. Every row links to the thing itself and says what
+        the employee holds:
+      </P>
+      <KeyList
+        rows={[
+          { term: "A level", def: "The Grant and its level, in the words of its own section — Draft, Can edit, Invoicing." },
+          {
+            term: "· default",
+            def: "Routines and the Resources library: every AI Employee holds Read + write until someone narrows it.",
+          },
+          {
+            term: "via notebook / via note",
+            def: "A page reached through its notebook's Grant or a parent page's, which covers every page beneath it.",
+          },
+          { term: "No access", def: "Nothing reaches it." },
+          {
+            term: "Not shown to you",
+            def: "You may not see who holds this one: Finance without Finance access, a Vault item you cannot share, another Member's browser.",
+          },
+        ]}
+      />
+      <P>
+        Search finds a row by its name, its second line or its kind; <Strong>Has access</Strong> and{" "}
+        <Strong>No access</Strong> split the list; <Strong>Every kind</Strong> narrows it to one
+        group. Each kind lists its first 250 rows plus every one the employee holds; a search reaches
+        the rest.
+      </P>
+      <P>
+        Tick rows of any kinds — a group&apos;s own box ticks all of it, and{" "}
+        <Strong>Select all … shown</Strong> ticks everything the filters show — then choose{" "}
+        <Strong>Grant</Strong>, <Strong>Change level</Strong> or <Strong>Revoke</Strong> from the bar
+        at the bottom. The confirmation says, kind by kind, what will happen. A Grant starts each
+        kind at its own default level (a mailbox at Draft, a note at Can edit, Finance at Read only);
+        open <Strong>Advanced</Strong> to choose another. Rows already as asked are left alone and
+        audit nothing, so asking twice changes nothing.
+      </P>
+      <Callout kind="info" title="Every Grant still follows its own section's rules.">
+        Each change is made through the same route as the section&apos;s own AI access panel, with
+        your own sign-in, so it is decided and audited exactly as it would be there. Only owners
+        and admins grant Connections, mailboxes, calendars, Repositories, Routines, the Resources
+        library and the company sections; any Member grants notes, Bases, charts and Resources. A
+        Vault item is shared by whoever added it, or an owner or admin. A{" "}
+        <DocLink to="/docs/member-browsers">Member browser</DocLink> runs on a person&apos;s own
+        computer, so only that person can grant it — everyone else sees it locked, with that reason.
+        A row you cannot change says why, its box stays disabled, and if a change is refused anyway
+        the confirmation names that row and the reason while the rest go through. API keys and
+        connected apps cannot list or change Connections, Repositories, Vault items or Member
+        browsers. No AI Employee can reach this page or grant itself anything.
+      </Callout>
+      <P>
+        The first-company guide has an <Strong>Access</Strong> step after Email with the same list,
+        and its summary counts the Grants. Press <Code>⌘K</Code> and type <Strong>access</Strong>{" "}
+        (or an employee&apos;s name and <Strong>access</Strong>) to jump to any employee&apos;s
+        page. The sections&apos; own panels — a mailbox&apos;s AI access, a note&apos;s Share,
+        Finance → AI access — keep working and show the same Grants.
+      </P>
 
       <H2 id="work-timeline">The work timeline</H2>
       <P>
