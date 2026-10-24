@@ -164,7 +164,7 @@ export function Introduction() {
         A letter to the board works the same way, and also leaves once you open it.
         Use <Strong>Mark all as read</Strong> on <Strong>Needs your attention</Strong> to clear your
         unread notifications together; they remain available in the bell&apos;s history, which the{" "}
-        <Strong>Unread notifications</Strong> counter and <Strong>Bell has history</Strong> open in
+        <Strong>Unread notifications</Strong> counter and <Strong>All notifications</Strong> open in
         place (<Code>Esc</Code> closes the bell). An Approval or a review there opens straight into
         its Approve and Reject, or <Strong>Approve &amp; mark done</Strong> and{" "}
         <Strong>Push back</Strong>; every notification opens in the company it came from. So the page

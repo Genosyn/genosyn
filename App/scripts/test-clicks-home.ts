@@ -3,7 +3,7 @@
  * notification written with a bare section path ("/goals") opens inside its
  * own company instead of the first company's Home; an approval or a review
  * notification on Home opens straight into the peek where it is decided; the
- * "Unread notifications" tile and "Bell has history" open the bell; Esc
+ * "Unread notifications" tile and "All notifications" open the bell; Esc
  * closes the bell and hands focus back; dismissing the last Active decision
  * leaves focus on the page; "Ask a question" on a TLDR puts the cursor in the
  * box; a Revision or Initiative confirm opens with its note focused and
@@ -189,7 +189,7 @@ await app.check(
 );
 
 await app.check(
-  "Home: the Unread notifications tile and Bell has history open the bell, focus on its first row",
+  "Home: the Unread notifications tile and All notifications open the bell, focus on its first row",
   async () => {
     const view = await app.open({
       path: "/c/acme",
@@ -207,8 +207,8 @@ await app.check(
     await waitForFocus(firstRow, "the first notification has focus");
     assert.equal(await view.location(), "/c/acme", "still on Home");
     await page.keyboard.press("Escape");
-    await view.click(page.getByRole("link", { name: "Bell has history" }));
-    await waitForFocus(firstRow, "Bell has history opens it the same way");
+    await view.click(page.getByRole("link", { name: "All notifications" }));
+    await waitForFocus(firstRow, "All notifications opens it the same way");
     assert.equal(view.clicks(), 2);
     await page.close();
   },

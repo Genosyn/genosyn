@@ -1721,7 +1721,7 @@ function AttentionCard({
         </button>
       }
       linkTo={`/c/${company.slug}`}
-      linkLabel="Bell has history"
+      linkLabel="All notifications"
       onLinkClick={openBellInPlace}
     >
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">

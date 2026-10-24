@@ -32,7 +32,7 @@ import { companyNotificationLink } from "../../shared/notificationLink";
 
 /**
  * Opens the bell from elsewhere on the page — Home's "Unread notifications"
- * tile and its "Bell has history" link — with focus on the first row.
+ * tile and its "All notifications" link — with focus on the first row.
  */
 export const OPEN_NOTIFICATIONS_EVENT = "genosyn:open-notifications";
 
