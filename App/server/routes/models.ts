@@ -17,10 +17,12 @@ import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services
 import { discoverApiModels, ModelSetupError } from "../services/modelCatalog.js";
 import {
   connectApiModel,
+  discoverStoredApiModels,
   replaceApiKey,
   verifyModelEdit,
   editApiModel,
 } from "../services/modelSetup.js";
+import { testModelConnection } from "../services/modelConnectionTest.js";
 import { addBackupKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
 import {
   LEGACY_PRIMARY_KEY_ID,
@@ -71,6 +73,9 @@ import {
  * `services/modelReuse.ts`). `/:id/keys` adds, removes and reorders an
  * API-key model's backup keys — as many as the owner wants — each shown only
  * as a preview with its health (see `services/modelApiKeySetup.ts`).
+ * `POST /:id/test` asks a connected model for one real reply and changes
+ * nothing (`services/modelConnectionTest.ts`); `GET /:id/catalog` lists the
+ * models an API-key model's own keys can reach, for changing its model.
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -989,6 +994,54 @@ modelsRouter.post("/:id/refresh", async (req, res) => {
   if (nowConnected) await refreshContextWindow(m);
   res.json(await publicModel(m, ctx.emp));
 });
+
+// POST /api/companies/:cid/employees/:eid/models/:id/test
+//
+// Test connection: ask the AI Model for one small, harmless reply through the
+// runtime its work uses, and change nothing (see `services/modelConnectionTest.ts`).
+// Admin only, like every write here — the reply spends a little of the account's
+// allowance. Answers with how long the model took and the model as it now
+// reads, since the test's requests update each key's health.
+modelsRouter.post("/:id/test", validateParams(modelItemParamsSchema), async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  let elapsedMs: number;
+  try {
+    ({ elapsedMs } = await testModelConnection(ctx.m));
+  } catch (error) {
+    if (!(error instanceof ModelSetupError)) throw error;
+    return res.status(error.status).json(error.responseBody());
+  }
+  const current = await AppDataSource.getRepository(AIModel).findOneBy({
+    id: ctx.m.id,
+    employeeId: ctx.emp.id,
+  });
+  res.json({ ok: true, elapsedMs, model: await publicModel(current ?? ctx.m, ctx.emp) });
+});
+
+// GET /api/companies/:cid/employees/:eid/models/:id/catalog
+//
+// The models a connected Claude or OpenAI AI Model's own API keys can reach, so
+// changing which model it runs is a pick from a list with no key pasted again
+// (see `discoverStoredApiModels`). Admins only: they are the ones who can
+// change the model, and the list is read with the company's key.
+modelsRouter.get(
+  "/:id/catalog",
+  validateParams(modelItemParamsSchema),
+  requireCompanyRole("admin"),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    try {
+      res.json(await discoverStoredApiModels(ctx.m));
+    } catch (error) {
+      if (!(error instanceof ModelSetupError)) throw error;
+      res.status(error.status).json(error.responseBody());
+    }
+  },
+);
 
 // PUT /api/companies/:cid/employees/:eid/models/:id/context-window
 //
