@@ -4,7 +4,7 @@ import test from "node:test";
 import { chromium } from "playwright-core";
 import type { Page } from "playwright-core";
 
-import { joinGoogleMeetAsGuest } from "./googleMeetRecorder.js";
+import { captureGoogleMeetCaptions, joinGoogleMeetAsGuest } from "./googleMeetRecorder.js";
 
 const conferenceUrl = "https://meet.google.com/abc-defg-hij";
 const executablePath = [
@@ -185,3 +185,72 @@ test(
     }
   },
 );
+
+/**
+ * Meet's captions as they render: a Captions region holding one child per
+ * turn (a header with the speaker's name, then text Meet rewrites in place)
+ * and, in the same region, the jump-to-latest control.
+ */
+const captionsFixture = `<!doctype html><html lang="en"><body>
+  <button id="cc" aria-label="Turn on captions">closed_caption_off</button>
+  <script>
+    const cc = document.querySelector("#cc");
+    cc.onclick = () => {
+      cc.setAttribute("aria-label", "Turn off captions");
+      const region = document.createElement("div");
+      region.setAttribute("role", "region");
+      region.setAttribute("aria-label", "Captions");
+      document.body.appendChild(region);
+      const jump = document.createElement("div");
+      jump.innerHTML = '<button aria-label="Jump to most recent captions">arrow_downward</button>';
+      region.appendChild(jump);
+      const turn = (speaker) => {
+        const entry = document.createElement("div");
+        entry.innerHTML = '<div><img alt=""><div><span></span></div></div><div></div>';
+        entry.querySelector("span").textContent = speaker;
+        region.insertBefore(entry, jump);
+        return entry.lastElementChild;
+      };
+      const pat = turn("Pat Lee");
+      pat.textContent = "We need";
+      setTimeout(() => { pat.textContent = "We need SSO before we sign."; }, 900);
+      setTimeout(() => {
+        const sam = turn("Sam Rivera");
+        sam.textContent = "I'll send pricing";
+        setTimeout(() => sam.append(" on Friday."), 900);
+      }, 1600);
+      setTimeout(() => pat.parentElement.remove(), 3200);
+    };
+  </script></body></html>`;
+
+test("Chromium reads Meet's captions as one final line per turn", { timeout: 60_000 }, async (t) => {
+  if (!executablePath) {
+    t.skip("No Chromium executable is available for the Google Meet captions test");
+    return;
+  }
+  const browser = await chromium.launch({ headless: true, executablePath });
+  try {
+    const context = await browser.newContext({ serviceWorkers: "block" });
+    const page = await context.newPage();
+    await serveFixture(page, captionsFixture);
+    await page.goto(conferenceUrl);
+
+    const capture = captureGoogleMeetCaptions(page, Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 4_500));
+    const captions = await capture.stop();
+
+    assert.equal(await page.locator("#cc").getAttribute("aria-label"), "Turn off captions");
+    assert.deepEqual(
+      captions.map(({ speaker, text }) => ({ speaker, text })),
+      [
+        // Revised in place, then scrolled away: its last reading survives.
+        { speaker: "Pat Lee", text: "We need SSO before we sign." },
+        { speaker: "Sam Rivera", text: "I'll send pricing on Friday." },
+      ],
+    );
+    assert.ok(captions[0].startMs <= captions[1].startMs);
+    assert.ok(captions[1].endMs >= captions[1].startMs);
+  } finally {
+    await browser.close();
+  }
+});

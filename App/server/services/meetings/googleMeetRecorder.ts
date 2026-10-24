@@ -12,7 +12,7 @@ import {
   loadChromiumLauncher,
 } from "../browserProfile.js";
 import { humanClick, humanFill } from "../humanInput.js";
-import { registerMeetingRecorder } from "./recorder.js";
+import { registerMeetingRecorder, type MeetingCaption } from "./recorder.js";
 
 /**
  * A meeting code, at the root or under `/meet/`. Meet now serves its pre-join
@@ -56,6 +56,16 @@ export type GoogleMeetRecording = {
   bytes: Buffer;
   mime: "audio/webm";
   durationMs: number;
+  /** Meet's own live captions, read while recording. Empty when none appeared. */
+  captions: MeetingCaption[];
+};
+
+/**
+ * A running read of Meet's captions. `stop` never rejects, and `fast` bounds
+ * it for a shutdown's short grace window.
+ */
+export type GoogleMeetCaptionCapture = {
+  stop(fast?: boolean): Promise<MeetingCaption[]>;
 };
 
 type CommandResult = { stdout: string; stderr: string };
@@ -71,6 +81,7 @@ type GoogleMeetRecorderDependencies = {
   spawnProcess(command: string, args: string[]): ChildProcessWithoutNullStreams;
   joinGuest(page: Page, args: GoogleMeetJoinArgs): Promise<void>;
   waitForEnd(page: Page, args: GoogleMeetJoinArgs): Promise<void>;
+  captureCaptions(page: Page, admittedAt: number): GoogleMeetCaptionCapture;
   now(): number;
   randomToken(): string;
   maxRecordingBytes(): number;
@@ -86,6 +97,7 @@ const defaultDependencies: GoogleMeetRecorderDependencies = {
   spawnProcess: (command, args) => spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] }),
   joinGuest: joinGoogleMeetAsGuest,
   waitForEnd: waitForGoogleMeetToEnd,
+  captureCaptions: (page, admittedAt) => captureGoogleMeetCaptions(page, admittedAt),
   now: Date.now,
   randomToken: () => randomUUID().slice(0, 8),
   // A function, not a getter and not a value. The cap is an operator-editable
@@ -169,6 +181,8 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
       let context: BrowserContext | null = null;
       let joinedAt = 0;
       let recordingBytes: Buffer | null = null;
+      let captionCapture: GoogleMeetCaptionCapture | null = null;
+      let captions: MeetingCaption[] = [];
       let primaryError: unknown = null;
       const cleanupErrors: Error[] = [];
 
@@ -223,13 +237,13 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
           // context. The employee browser's service-worker boundary stays
           // untouched.
           serviceWorkers: "allow",
-          // The microphone is granted only when we have a device that is
-          // silent by construction. Meet blocks the lobby on a `getUserMedia`
-          // it cannot resolve, so denying the permission outright is what put
-          // the notetaker behind a dialog it never dismissed. The camera is
-          // never granted: there is nothing to show, and a denied camera is a
-          // banner rather than a blocker.
-          permissions: silentMicrophone ? ["microphone"] : [],
+          // No microphone and no camera, even with the silent source loaded.
+          // Ask to join sends Google system information "to confirm you're
+          // not a bot": a guest that had granted a microphone was answered
+          // "You can't join this video call", while the same guest bringing
+          // no devices was let into the waiting room. The lobby answers Meet's
+          // devices prompt with "Continue without microphone and camera".
+          permissions: [],
           acceptDownloads: false,
         });
         const maskScript = await dependencies.initScript();
@@ -248,6 +262,7 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
         }
         joinedAt = dependencies.now();
         await args.onJoined();
+        captionCapture = dependencies.captureCaptions(page, joinedAt);
 
         await Promise.race([
           dependencies.waitForEnd(page, args),
@@ -267,6 +282,8 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
             cleanupErrors.push(actionError("finish the Google Meet WebM recording", err));
           }
         }
+        // Then the captions, while the page they are read from is still open.
+        if (captionCapture) captions = await captionCapture.stop(args.signal.aborted);
         const browserCloseTimeout = args.signal.aborted ? 750 : 10_000;
         if (context) {
           try {
@@ -349,6 +366,7 @@ export function createGoogleMeetRecorder(overrides: Partial<GoogleMeetRecorderDe
         bytes: recordingBytes,
         mime: "audio/webm",
         durationMs: joinedAt === 0 ? 0 : Math.max(0, dependencies.now() - joinedAt),
+        captions,
       };
     },
   };
@@ -421,10 +439,10 @@ async function createPulseAudioSink(
  * with a disclosure label on it.
  *
  * So the recorder brings its own capture device: a null source, which produces
- * real, honest silence. Meet's device check passes, nothing is ever
- * contributed to the call, and the microphone stays switched off in the lobby
- * as well — belt and braces, because the guarantee that the bot is inaudible
- * should not rest on one UI click landing.
+ * real, honest silence, and pins Chrome to it. The notetaker grants Meet no
+ * microphone at all (see the context's permissions), so this is the guarantee
+ * beneath that one: whatever Chrome is ever allowed to capture, it is never
+ * the call's own output, and nothing is ever contributed to the call.
  *
  * Best-effort by design. `module-null-source` is not in every PulseAudio
  * build, and a deployment without it is still better served by the
@@ -993,10 +1011,14 @@ export async function waitForGoogleMeetToEnd(page: Page, args: GoogleMeetJoinArg
     if (remaining <= 0) return;
 
     const body = await bodyText(page);
+    // Captions put what people say on the page, and "the meeting has ended"
+    // is something people say. Meet's own end screens count only once the
+    // call controls have gone with them.
     if (
       /you left the meeting|meeting has ended|you were removed from the meeting|return to home screen/i.test(
         body,
-      )
+      ) &&
+      !(await isInGoogleMeetCall(page))
     ) {
       return;
     }
@@ -1009,6 +1031,143 @@ export async function waitForGoogleMeetToEnd(page: Page, args: GoogleMeetJoinArg
 
     await delayUntil(Math.min(MEETING_POLL_MS, remaining), args.signal);
   }
+}
+
+/** How often the captions on screen are read. */
+const CAPTION_POLL_MS = 1_000;
+/** Pressing Turn on captions is retried this many times, then left alone. */
+const CAPTION_ENABLE_ATTEMPTS = 10;
+/**
+ * How long stopping may wait for a read in flight and then a last one. A page
+ * that stopped answering must not hold the recorder — and its audio — open.
+ */
+const CAPTION_STOP_WAIT_MS = 2_000;
+const CAPTION_FAST_STOP_WAIT_MS = 500;
+
+type VisibleCaption = { id: number; speaker: string; text: string };
+
+/**
+ * Keep Meet's live captions as the call's transcript.
+ *
+ * Meet transcribes every speaker itself, names them, and shows the result to
+ * anyone who turns captions on. Reading that is what lets a recorded call
+ * reach a customer's timeline on an install whose AI Models have no
+ * speech-to-text at all, and it attributes every line to the person who said
+ * it, which one mixed audio track cannot. The captions are the notetaker's own
+ * view: turning them on shows nothing to anybody else in the call.
+ *
+ * Meet revises a line in place as recognition settles, so each entry keeps
+ * its latest reading; an entry that scrolls away keeps the last one it had.
+ */
+export function captureGoogleMeetCaptions(
+  page: Page,
+  admittedAt: number,
+  now: () => number = Date.now,
+): GoogleMeetCaptionCapture {
+  const entries = new Map<
+    number,
+    { speaker: string; text: string; firstSeenAt: number; changedAt: number }
+  >();
+  let stopped = false;
+  let wake: () => void = () => undefined;
+
+  async function read(): Promise<void> {
+    const visible = await page.evaluate(readGoogleMeetCaptions).catch(() => [] as VisibleCaption[]);
+    const at = now();
+    for (const caption of visible) {
+      const known = entries.get(caption.id);
+      if (!known) {
+        entries.set(caption.id, { ...caption, firstSeenAt: at, changedAt: at });
+      } else if (known.text !== caption.text) {
+        known.text = caption.text;
+        known.speaker = caption.speaker || known.speaker;
+        known.changedAt = at;
+      }
+    }
+  }
+
+  const running = (async () => {
+    let enabled = false;
+    for (let pass = 0; !stopped; pass += 1) {
+      if (!enabled && pass < CAPTION_ENABLE_ATTEMPTS) enabled = await enableGoogleMeetCaptions(page);
+      await read();
+      if (stopped) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, CAPTION_POLL_MS);
+        wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    }
+  })().catch(() => undefined);
+
+  return {
+    async stop(fast = false) {
+      stopped = true;
+      wake();
+      const waitMs = fast ? CAPTION_FAST_STOP_WAIT_MS : CAPTION_STOP_WAIT_MS;
+      await promiseWithTimeout(running, waitMs, "").catch(() => undefined);
+      // Meet settles the last words after they are spoken; take its final
+      // reading of them.
+      await promiseWithTimeout(read(), waitMs, "").catch(() => undefined);
+      return [...entries.values()]
+        .filter((entry) => entry.text !== "")
+        .sort((a, b) => a.firstSeenAt - b.firstSeenAt)
+        .map((entry) => {
+          const startMs = Math.max(0, entry.firstSeenAt - admittedAt);
+          return {
+            startMs,
+            endMs: Math.max(startMs, entry.changedAt - admittedAt),
+            speaker: entry.speaker,
+            text: entry.text,
+          };
+        });
+    },
+  };
+}
+
+/** Turn captions on, reporting whether they are on afterwards. Never throws. */
+async function enableGoogleMeetCaptions(page: Page): Promise<boolean> {
+  const turnOff = page.getByRole("button", { name: /^turn off captions\b/i }).first();
+  if (await turnOff.isVisible().catch(() => false)) return true;
+  const turnOn = await firstVisible([page.getByRole("button", { name: /^turn on captions\b/i })]);
+  if (!turnOn || !(await attempt(() => humanClick(page, turnOn)))) return false;
+  return turnOff.isVisible().catch(() => false);
+}
+
+/**
+ * Runs in the page. Meet renders each turn as a child of its Captions region:
+ * a header with the speaker's name, then a block of text it rewrites as the
+ * speaker goes on. The jump-to-latest control lives in the same region and is
+ * the one child with a button. Each entry keeps its id for as long as Meet
+ * keeps the element, which is what makes a revision an update, not a repeat.
+ */
+function readGoogleMeetCaptions(): VisibleCaption[] {
+  const store = window as unknown as {
+    __genosynCaptionIds?: WeakMap<Element, number>;
+    __genosynCaptionNext?: number;
+  };
+  const ids = (store.__genosynCaptionIds ??= new WeakMap<Element, number>());
+  const region = document.querySelector('[role="region"][aria-label="Captions"]');
+  if (!region) return [];
+  const visible: VisibleCaption[] = [];
+  for (const entry of Array.from(region.children)) {
+    if (!(entry instanceof HTMLElement) || entry.children.length < 2) continue;
+    if (entry.querySelector("button")) continue;
+    const header = entry.firstElementChild as HTMLElement;
+    const body = entry.lastElementChild as HTMLElement;
+    const text = body.innerText.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    let id = ids.get(entry);
+    if (id === undefined) {
+      id = (store.__genosynCaptionNext ?? 0) + 1;
+      store.__genosynCaptionNext = id;
+      ids.set(entry, id);
+    }
+    visible.push({ id, speaker: header.innerText.replace(/\s+/g, " ").trim(), text });
+  }
+  return visible;
 }
 
 /** The first of these that is on screen right now, or null. One pass only —
