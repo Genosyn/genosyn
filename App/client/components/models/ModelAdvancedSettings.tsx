@@ -162,6 +162,7 @@ function ModelChoiceSection({ company, emp, model, canManage, onChanged }: Props
               onChanged();
             }}
             submitLabel="Save"
+            catalogFromSavedKeys={connected}
           />
         </div>
       )}

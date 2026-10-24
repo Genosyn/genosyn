@@ -63,6 +63,16 @@ export function ModelCard({
   const keyNotice = failingKeysNotice(model);
   const headingId = React.useId();
 
+  // A test's result speaks for the model it tested: once the card shows a
+  // different model or endpoint, the old answer would mislead.
+  const identity = `${model.provider}|${model.authMode}|${model.model}|${model.customEndpointHost ?? ""}`;
+  const [testedIdentity, setTestedIdentity] = React.useState(identity);
+  if (testedIdentity !== identity) {
+    setTestedIdentity(identity);
+    setTestPassed(null);
+    setTestError(null);
+  }
+
   async function activate() {
     setActivating(true);
     try {

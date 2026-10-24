@@ -31,6 +31,7 @@ export function ModelSetupForm({
   emp,
   onSaved,
   submitLabel,
+  catalogFromSavedKeys = false,
 }: {
   mode: "create" | "edit";
   editModelId?: string;
@@ -39,6 +40,12 @@ export function ModelSetupForm({
   emp: Pick<Employee, "id">;
   onSaved: () => void;
   submitLabel: string;
+  /**
+   * Editing a connected API-key model: list the models its saved keys reach,
+   * so changing the model needs no key typed. A model with no key yet has
+   * nothing to ask with.
+   */
+  catalogFromSavedKeys?: boolean;
 }) {
   const [provider, setProvider] = React.useState(initial.provider);
   const [authMode, setAuthMode] = React.useState(initial.authMode);
@@ -74,6 +81,7 @@ export function ModelSetupForm({
   // is typed, the list comes from the keys the model already holds, so nothing
   // has to be pasted again (`GET …/models/:id/catalog`).
   const usesStoredKeys =
+    catalogFromSavedKeys &&
     mode === "edit" &&
     Boolean(editModelId) &&
     isApiKey &&
@@ -187,7 +195,7 @@ export function ModelSetupForm({
         }
       />
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        {needsKey
+        {needsKey || !catalogFromSavedKeys
           ? "We find the available models and test a real reply before connecting. Your key is stored encrypted. The small test uses your API account."
           : "Leave this blank to keep the saved keys. We test the model you pick with them before saving."}
         {keyPage && needsKey && (

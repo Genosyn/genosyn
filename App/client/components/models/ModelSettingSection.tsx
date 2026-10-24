@@ -35,7 +35,9 @@ export function ModelSettingSection({
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</div>
           )}
         </div>
-        {aside && <div className="flex shrink-0 flex-wrap items-center gap-1">{aside}</div>}
+        {aside && (
+          <div className="flex max-w-full shrink-0 flex-wrap items-center gap-1">{aside}</div>
+        )}
       </div>
       {children && <div className="mt-3">{children}</div>}
     </section>
