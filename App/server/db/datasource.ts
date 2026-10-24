@@ -13,6 +13,7 @@ import { Membership } from "./entities/Membership.js";
 import { Invitation } from "./entities/Invitation.js";
 import { AIModel } from "./entities/AIModel.js";
 import { AIModelKeyHealth } from "./entities/AIModelKeyHealth.js";
+import { EmployeeModel } from "./entities/EmployeeModel.js";
 import { AIEmployee } from "./entities/AIEmployee.js";
 import { Skill } from "./entities/Skill.js";
 import { Routine } from "./entities/Routine.js";
@@ -251,6 +252,7 @@ const entities = [
   AIModel,
   // How each of an AI Model's API keys has been doing (backup-key failover).
   AIModelKeyHealth,
+  EmployeeModel,
   AIEmployee,
   Skill,
   Routine,

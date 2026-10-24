@@ -7,15 +7,25 @@ export type AuthMode = "apikey" | "subscription" | "customEndpoint";
 export type ContextWindowSource = "probed" | "manual";
 
 /**
- * An AIModel is one of the brains an AI Employee can run on. An employee can
- * register several (`employeeId` is indexed, not unique) and flip exactly one
- * to active at a time via `isActive` — the runner and non-interactive chat
- * seams use the active row, while dedicated employee Chat may select another
- * employee-owned row per turn. API-key and custom models run through the
- * pinned OpenCode runtime. OpenAI subscription models run through the pinned
- * official Codex app-server with the same Genosyn tool registry. Credentials
- * are always encrypted in `configJson`; a managed ChatGPT session is
- * materialized only into a private temporary `CODEX_HOME` for login/a turn.
+ * An AIModel is one of the company's AI Models: a brain any number of its AI
+ * Employees can run on. It belongs to the company (`companyId`), and holds
+ * one set of credentials, backup keys (whose health is `AIModelKeyHealth`),
+ * context window and concurrent-Run setting for every employee using it.
+ *
+ * Employees use a model through `EmployeeModel` rows: one per employee the
+ * model is attached to, exactly one of each employee's rows active — the
+ * brain its Routines and non-interactive work use, while employee Chat may
+ * pick another attached model per turn (`services/models.ts`). Detaching a
+ * model from an employee never deletes it; removing it from the company is
+ * refused while anyone still uses it.
+ *
+ * API-key and custom models run through the pinned OpenCode runtime. OpenAI
+ * subscription models run through the pinned official Codex app-server with
+ * the same Genosyn tool registry, one turn at a time across every employee
+ * on the model (`withSubscriptionModelLock` is keyed by this row's id).
+ * Credentials are always encrypted in `configJson`, with the company's scope;
+ * a managed ChatGPT session is materialized only into a private temporary
+ * `CODEX_HOME` for login or a turn.
  *
  * `provider` names the model backend:
  *   - `anthropic` → the Anthropic Messages API (Claude), authMode `apikey`
@@ -23,11 +33,6 @@ export type ContextWindowSource = "probed" | "manual";
  *                   (`subscription`, trusted self-hosted installs only)
  *   - `custom`    → any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp,
  *                   LM Studio, a gateway), authMode `customEndpoint`
- *
- * `isActive` invariant: at most one row per employee is `true`. The model
- * service maintains it on every create / switch / delete; reads fall back to
- * the most-recently-created row when no row is flagged (covers rows that
- * predate this column, which migrate in as `false`).
  *
  * configJson shape:
  *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview, apiKeyId?, apiKeyAddedAt?,
@@ -44,13 +49,14 @@ export type ContextWindowSource = "probed" | "manual";
  * All `*Encrypted` fields are AES-256-GCM via `lib/secret.ts`.
  */
 @Entity("ai_models")
-@Index(["employeeId"])
+@Index(["companyId"])
 export class AIModel {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
+  /** The company that owns the model and every credential on it. */
   @Column({ type: "varchar" })
-  employeeId!: string;
+  companyId!: string;
 
   @Column({ type: "varchar" })
   provider!: Provider;
@@ -60,14 +66,6 @@ export class AIModel {
 
   @Column({ type: "varchar", default: "apikey" })
   authMode!: AuthMode;
-
-  /**
-   * The active brain for this employee. At most one row per employee is true.
-   * The newest-added model is made active by default; the operator can switch
-   * any time.
-   */
-  @Column({ type: "boolean", default: false })
-  isActive!: boolean;
 
   /** JSON blob of encrypted credentials; see the shapes above. */
   @Column({ type: "text", default: "{}" })
