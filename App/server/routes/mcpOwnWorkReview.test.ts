@@ -28,6 +28,7 @@ import { WORK_REVIEW_PACKET_MAX_CHARS } from "../services/proactive/reviewPacket
 import type { getOwnWorkReview } from "../services/proactive/workReview.js";
 import { workSummaryLogLine } from "../services/runWorkSummary.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { failNextRead } from "../test/failedReads.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 type Origin = NonNullable<Parameters<typeof issueMcpToken>[2]>;
@@ -420,6 +421,17 @@ test("finishing the Run or removing its review policy invalidates the already is
   await AppDataSource.getRepository(Routine).update(reviewRoutine.id, { selfReviewOnly: false });
   assert.equal((await tool("get_own_work_review")).status, 403);
   assert.equal(await AppDataSource.getRepository(RevisionProposal).count(), 0);
+});
+
+test("a storage failure while checking the review is still running answers, and the next call recovers", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  // The token's own lookup reads no Run, so the first Run read is the check's.
+  failNextRead(t, "runs");
+  assert.deepEqual(await tool("get_own_work_review"), {
+    status: 500,
+    body: { error: "Internal server error" },
+  });
+  assert.equal((await tool("get_own_work_review")).status, 200);
 });
 
 test("a review creates its bound tracking record and can update it without copying private state to Journals", async () => {
