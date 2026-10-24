@@ -65,7 +65,9 @@ export function WorkspaceChat() {
         </LI>
         <LI>
           Open <Strong>Settings</Strong> in a public or private channel to change its name or topic,
-          see its current Members and AI Employees, add people, and manage its incoming webhook.
+          see its current Members and AI Employees, add people, and — under{" "}
+          <Strong>Advanced</Strong>, whose closed line says <em>Incoming webhook on</em> or{" "}
+          <em>off</em> — manage its incoming webhook.
           Press Enter in the name (or <Code>⌘/Ctrl+Enter</Code> in the topic), or select{" "}
           <Strong>Save changes</Strong>, and the dialog closes with the new name in the header.
           Members and webhook changes apply as you make them.
@@ -229,8 +231,9 @@ export function WorkspaceChat() {
 
       <H2 id="incoming-webhooks">Connect Slack-compatible incoming webhooks</H2>
       <P>
-        Open a public or private channel, choose <Strong>Settings</Strong>, then enable{" "}
-        <Strong>Incoming webhook</Strong>. Copy the generated URL into any service that can send to
+        Open a public or private channel, choose <Strong>Settings</Strong>, open{" "}
+        <Strong>Advanced</Strong>, then select <Strong>Enable incoming webhook</Strong>. Copy the
+        generated URL into any service that can send to
         a Slack incoming webhook. Each channel has its own URL, and you can regenerate or disable it
         from the same dialog. This is Slack&apos;s <em>payload format</em> and nothing more — to
         make an AI Employee reachable from a real Slack workspace, see{" "}
