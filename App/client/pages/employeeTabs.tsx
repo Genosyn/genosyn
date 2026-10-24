@@ -1,9 +1,4 @@
-import { AdvancedDisclosure } from "@/components/models/AdvancedDisclosure";
-import { ApiKeysPanel } from "@/components/models/ApiKeysPanel";
-import { FirstModelSetup } from "@/components/models/FirstModelSetup";
-import { ModelSetupForm as ModelForm } from "@/components/models/ModelSetupForm";
-import { activeFirst, advancedSummary, describeModel } from "@/lib/modelSummary";
-import { apiKeyConnectionLine, holdsApiKeys } from "@/lib/modelApiKeys";
+import { EmployeeModelSection } from "@/components/models/EmployeeModelSection";
 import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
@@ -21,7 +16,6 @@ import {
   ExternalLink,
   Globe,
   Handshake,
-  Loader2,
   BookText,
   Phone,
   Plug,
@@ -29,33 +23,30 @@ import {
   Plus,
   Sparkles,
   Trash2,
-  Unplug,
   UserRound,
   Wrench,
   X,
 } from "lucide-react";
 import {
   api,
-  AIModel,
   AutonomyOverview,
   AutonomyWaiver,
   AutonomyWaiverKind,
   Company,
   Employee,
   EmployeeWakeup,
-  Provider,
   JournalEntry as JournalEntryT,
   JournalKind,
   MemoryItem,
   McpServer,
   McpTransport,
-  SubscriptionDeviceSession,
   Team,
 } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
-import { errorDetail, errorMessage } from "../lib/errors";
+import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { employeeSettingsPage } from "../lib/employeeSettingsNav";
+import { browserAdvancedSummary } from "../lib/employeeBrowser";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -68,7 +59,8 @@ import { StanddownBanner, StanddownControl } from "../components/StanddownBanner
 import { Modal } from "../components/ui/Modal";
 import { useDialog } from "../components/ui/Dialog";
 import { Select } from "../components/ui/Select";
-import { FormError, FormSuccess } from "../components/ui/FormError";
+import { FormError } from "../components/ui/FormError";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 import { RecordHistory } from "../components/RecordHistory";
@@ -85,25 +77,44 @@ function useCtx(): EmployeeOutletCtx {
   return useOutletContext<EmployeeOutletCtx>();
 }
 
+/** Owners and admins change an employee; a Member reads it. The server says the same. */
+function canEditEmployee(company: Company): boolean {
+  return company.role === "owner" || company.role === "admin";
+}
+
+/** The line a Member sees where an owner would find the controls. */
+function ReadOnlyNote({ emp }: { emp: Employee }) {
+  return (
+    <p className="text-xs text-slate-500 dark:text-slate-400">
+      Only owners and admins can change {emp.name}&apos;s settings.
+    </p>
+  );
+}
+
 /**
  * SoulCard — the Soul editor, rendered by the Soul page under employee
  * Settings alongside everything else you configure about them. Round-trips
- * the Soul body against
- * `AIEmployee.soulBody` via `/api/.../employees/:eid/soul`.
+ * the Soul body against `AIEmployee.soulBody` via `/api/.../employees/:eid/soul`.
+ * The page title already says "Soul", so the card opens with what a Soul is
+ * rather than its name again. A Member reads it; only owners and admins save.
  */
 function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const [content, setContent] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const canEdit = canEditEmployee(company);
 
   React.useEffect(() => {
+    setLoadError(null);
     api
       .get<{ content: string }>(`/api/companies/${company.id}/employees/${emp.id}/soul`)
       .then((r) => {
         setContent(r.content);
         setSaved(r.content);
-      });
+      })
+      .catch((err) => setLoadError(errorMessage(err, "Could not load the Soul")));
   }, [company.id, emp.id]);
 
   const dirty = content !== null && saved !== null && content !== saved;
@@ -125,33 +136,42 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Soul</span>
-              {dirty && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                  Unsaved
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {emp.name}&apos;s constitution — the markdown {emp.name} reads before every task.
-            </div>
-          </div>
-        </div>
-        {content === null ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Who {emp.name} is and how they work, in plain words. {emp.name} reads it before every chat
+          and Routine Run.
+        </p>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : content === null ? (
           <Spinner />
-        ) : (
+        ) : canEdit ? (
           <>
-            <MarkdownEditor value={content} onChange={setContent} rows={16} onSave={save} />
+            <MarkdownEditor
+              value={content}
+              onChange={setContent}
+              rows={16}
+              onSave={save}
+              aria-label="Soul"
+            />
             <FormError message={error} />
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <Button onClick={save} loading={saving} disabled={!dirty}>
                 {saving ? "Saving…" : "Save Soul"}
               </Button>
               <span className="text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
+              {dirty && (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                  Unsaved changes
+                </span>
+              )}
             </div>
+          </>
+        ) : (
+          <>
+            <div className="max-h-[32rem] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+              {content || "No Soul written yet."}
+            </div>
+            <ReadOnlyNote emp={emp} />
           </>
         )}
       </CardBody>
@@ -444,12 +464,14 @@ export function SoulSettingsPage() {
  */
 export function GeneralSettingsPage() {
   const { company, emp } = useCtx();
+  const canEdit = canEditEmployee(company);
   return (
     <>
       <TopBar title="General" />
       <div className="flex flex-col gap-4">
-        <EmployeeAvatarCard company={company} emp={emp} />
+        {!canEdit && <ReadOnlyNote emp={emp} />}
         <EmployeeBasicsCard company={company} emp={emp} />
+        <EmployeeAvatarCard company={company} emp={emp} />
         <EmployeeTeamCard company={company} emp={emp} />
         <RecordHistory
           companyId={company.id}
@@ -459,7 +481,7 @@ export function GeneralSettingsPage() {
           noun="this employee"
           milestones={[{ label: "Employee hired", at: emp.createdAt, covers: ["create"] }]}
         />
-        <EmployeeDangerZoneCard company={company} emp={emp} />
+        {canEdit && <EmployeeDangerZoneCard company={company} emp={emp} />}
       </div>
     </>
   );
@@ -475,14 +497,19 @@ export function BrowserSettingsPage() {
   );
 }
 
+/**
+ * What this employee does on its own, and the stop for all of it. The stop
+ * leads: when someone opens this page in a hurry it is the thing they came
+ * for, and it is the reason the pane sits outside the rail's Advanced group.
+ */
 export function AutonomySettingsPage() {
   const { company, emp } = useCtx();
   return (
     <>
       <TopBar title="Autonomy" />
       <div className="flex flex-col gap-4">
-        <EmployeeAutonomyCard company={company} emp={emp} />
         <EmployeeStanddownCard company={company} emp={emp} />
+        <EmployeeAutonomyCard company={company} emp={emp} />
         <EmployeeWakeupsCard company={company} emp={emp} />
       </div>
     </>
@@ -505,10 +532,9 @@ function EmployeeStanddownCard({ company, emp }: { company: Company; emp: Employ
             Stand {emp.name} down
           </div>
           <div className="mt-0.5 max-w-xl text-xs text-slate-500 dark:text-slate-400">
-            A revocable stop on everything they do: Routines stop firing, Wakeups and Triggers defer
-            rather than pile up, Runs in flight are interrupted, and chat with them is refused — a
-            stop somebody can route around by opening a chat window is not a stop. Nothing is
-            deleted and no configuration changes; an admin returns them to work when it is safe.
+            Stops everything {emp.name} is doing, at once: work in progress is interrupted, Routines
+            stop firing, Wakeups and Triggers wait, and chat with {emp.name} is refused. Nothing is
+            deleted or changed; an admin returns {emp.name} to work when it is safe.
           </div>
         </div>
         <StanddownControl company={company} scope="employee" scopeId={emp.id} label={emp.name} />
@@ -587,10 +613,13 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Autonomy</div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Earned autonomy
+          </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            The gates {emp.name} has earned out of, and the track record behind them. Waivers are
-            proposed by the eligibility sweep, approved from the Approvals inbox, and revoked here.
+            The human checks {emp.name} has earned the right to skip, and the record behind them.
+            Steady, clean work earns a waiver, which an owner or admin approves under Approvals in
+            the Decision stack. Revoking one here brings the check back at once.
           </div>
         </div>
         {loadError ? (
@@ -601,15 +630,14 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
           <>
             <div className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
               Last {overview.stats.windowDays} days: {overview.stats.terminalRuns}{" "}
-              {overview.stats.terminalRuns === 1 ? "run" : "runs"} · {overview.stats.failed} failed
+              {overview.stats.terminalRuns === 1 ? "Run" : "Runs"} · {overview.stats.failed} failed
               · {overview.stats.offGoal} off-goal · {overview.stats.browserApprovalsApproved}{" "}
               browser {overview.stats.browserApprovalsApproved === 1 ? "approval" : "approvals"}{" "}
               granted
             </div>
             {overview.waivers.length === 0 ? (
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                No waivers. Consistently clean work earns promotion proposals in the Approvals
-                inbox.
+                No waivers yet: {emp.name} asks a person at every check.
               </p>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -838,6 +866,7 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
  * removed, so the PATCH carries `teamId` alone.
  */
 function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee }) {
+  const canEdit = canEditEmployee(company);
   const [teams, setTeams] = React.useState<Team[] | null>(null);
   const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
   const [saving, setSaving] = React.useState(false);
@@ -885,8 +914,8 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
         <div>
           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Team</div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            The team this employee belongs to, shown on their card in the Employees list. Create
-            and rename teams in Settings → Teams.
+            The team this employee belongs to, shown on their card in the Employees list. Create and
+            rename teams in Settings → Teams.
           </div>
         </div>
         <div className="flex flex-col gap-3">
@@ -906,7 +935,7 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={teamId}
               onChange={(e) => void choose(e.target.value)}
-              disabled={!teams || saving}
+              disabled={!teams || saving || !canEdit}
             >
               <option value="">— No team —</option>
               {(teams ?? []).map((t) => (
@@ -923,6 +952,7 @@ function EmployeeTeamCard({ company, emp }: { company: Company; emp: Employee })
 }
 
 function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee }) {
+  const canEdit = canEditEmployee(company);
   const [avatarKey, setAvatarKey] = React.useState<string | null>(emp.avatarKey ?? null);
   const [uploading, setUploading] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
@@ -985,8 +1015,8 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
             Profile picture
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Shown on their chat header, the employee list, and workspace chat. PNG, JPEG, GIF, or
-            WebP up to 5&nbsp;MB.
+            Shown on their chat header, the employee list, and workspace chat.
+            {canEdit && <> PNG, JPEG, GIF, or WebP up to 5&nbsp;MB.</>}
           </div>
         </div>
         <FormError message={error} />
@@ -997,7 +1027,7 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
             size="xl"
             src={employeeAvatarUrl(company.id, emp.id, avatarKey)}
           />
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={canEdit ? "flex flex-wrap items-center gap-2" : "hidden"}>
             <input
               ref={fileRef}
               type="file"
@@ -1036,6 +1066,7 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
 
 function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee }) {
   const navigate = useNavigate();
+  const canEdit = canEditEmployee(company);
   const [name, setName] = React.useState(emp.name);
   const [role, setRole] = React.useState(emp.role);
   const [slug, setSlug] = React.useState(emp.slug);
@@ -1085,45 +1116,50 @@ function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee 
     }
   }
 
+  const address = `/c/${company.slug}/employees/${normalizedSlug || "…"}`;
+
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div>
           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Basics</div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Renaming the slug updates the URL for this employee and renames its directory under{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-              data/companies/{company.slug}/employees/
-            </code>
-            .
+            How {emp.name} is named across Genosyn — in chat, the Employees list and every Run.
           </div>
         </div>
         <form className="flex flex-col gap-3" onSubmit={submit}>
           <FormError message={error} />
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} />
-          <div>
-            <Input
-              label="Slug"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              onBlur={() => setSlug((s) => normalizeSlug(s))}
-              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-              title="Lowercase letters, digits, and single dashes"
-              required
-            />
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              URL:{" "}
-              <code className="font-mono">
-                /c/{company.slug}/employees/{normalizedSlug || "…"}
-              </code>
-            </p>
-          </div>
-          <div className="flex justify-end pt-1">
-            <Button type="submit" loading={saving} disabled={!dirty}>
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </div>
+          <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-3">
+            <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} />
+          </fieldset>
+          {/* The address is set once, at hire, and rarely worth changing: it is
+              in every link to this employee and names its working folder. */}
+          <Disclosure title="Advanced" summary={`Address: ${address}`}>
+            <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-1">
+              <Input
+                label="Slug"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                onBlur={() => setSlug((s) => normalizeSlug(s))}
+                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                title="Lowercase letters, digits, and single dashes"
+                required
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                The last part of {emp.name}&apos;s address,{" "}
+                <code className="break-all font-mono">{address}</code>. Changing it breaks links
+                people saved, and renames {emp.name}&apos;s working folder on the server.
+              </p>
+            </fieldset>
+          </Disclosure>
+          {canEdit && (
+            <div className="flex justify-end pt-1">
+              <Button type="submit" loading={saving} disabled={!dirty}>
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          )}
         </form>
       </CardBody>
     </Card>
@@ -1138,13 +1174,15 @@ function normalizeSlug(raw: string): string {
 }
 
 /**
- * Per-employee toggle for the built-in `browser` MCP server, plus the two
- * shaping settings: an allow list of host globs and an approval gate that
- * blocks form submits until a human says yes. Off by default — operator
- * opts in per employee, then narrows further with the allow list /
- * approval mode.
+ * Whether this employee may use a web browser, said plainly, with the switch
+ * beside it. Off by default. Where it may browse (the allow list) and whether
+ * it asks a person before submitting a form sit behind one Advanced
+ * disclosure, whose closed line always says both — the approval is a human
+ * gate, so folding it away never hides it. Only owners and admins change any
+ * of it; a Member reads the same card.
  */
 function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Employee }) {
+  const canEdit = canEditEmployee(company);
   const [enabled, setEnabled] = React.useState<boolean>(!!emp.browserEnabled);
   const [allowedHosts, setAllowedHosts] = React.useState<string>(emp.browserAllowedHosts ?? "");
   const [approval, setApproval] = React.useState<boolean>(!!emp.browserApprovalRequired);
@@ -1153,6 +1191,7 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
   const [savingHosts, setSavingHosts] = React.useState(false);
   const [hostsError, setHostsError] = React.useState<string | null>(null);
   const dialog = useDialog();
+  const hostsId = React.useId();
 
   React.useEffect(() => {
     setEnabled(!!emp.browserEnabled);
@@ -1189,7 +1228,7 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
       });
     } catch (err) {
       setApproval(!next);
-      void dialog.error(err, { title: "Couldn’t update approval mode" });
+      void dialog.error(err, { title: "Couldn’t update the approval setting" });
     } finally {
       setSavingApproval(false);
     }
@@ -1204,7 +1243,7 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
         browserAllowedHosts: allowedHosts,
       });
     } catch (err) {
-      setHostsError(errorMessage(err, "Could not save the allow list"));
+      setHostsError(errorMessage(err, "Could not save the allowed websites"));
     } finally {
       setSavingHosts(false);
     }
@@ -1212,124 +1251,138 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
 
   return (
     <Card>
-      <CardBody className="flex flex-col gap-3">
+      <CardBody className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
             <div className="mt-0.5 rounded-md bg-slate-100 p-1.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              <Globe size={16} />
+              <Globe size={16} aria-hidden="true" />
             </div>
             <div className="min-w-0">
               <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                 Browser access
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Wire a headless Chromium into this employee&apos;s tools. Adds{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  browser_open
-                </code>
-                ,{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  browser_click
-                </code>
-                ,{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  browser_fill
-                </code>
-                , and screenshot tools so the employee can read and interact with web pages. Off by
-                default — narrow further with the allow list and approval mode below.
+                Let {emp.name} open web pages in Genosyn&apos;s own Chrome — to read them, click,
+                fill in forms and take screenshots — in chat and in Routines. Off by default.
               </p>
             </div>
           </div>
-          <label className="relative inline-flex shrink-0 cursor-pointer items-center">
-            <input
-              type="checkbox"
-              className="peer sr-only"
-              checked={enabled}
-              disabled={savingToggle}
-              onChange={(e) => toggle(e.target.checked)}
-            />
-            <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
-            <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
-          </label>
+          <ToggleSwitch
+            label="Browser access"
+            checked={enabled}
+            disabled={savingToggle || !canEdit}
+            onChange={(next) => void toggle(next)}
+          />
         </div>
 
         {enabled && (
-          <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-                Allow list
-              </label>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                One host pattern per line.{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  mail.google.com
-                </code>{" "}
-                matches that exact host;{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  *.github.com
-                </code>{" "}
-                matches the domain and every subdomain. Lines starting with{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  #
-                </code>{" "}
-                are comments. Leave blank for no restriction.
-              </p>
-              <textarea
-                rows={4}
-                value={allowedHosts}
-                onChange={(e) => setAllowedHosts(e.target.value)}
-                placeholder="# Examples:&#10;mail.google.com&#10;*.github.com"
-                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
-              />
-              <FormError message={hostsError} className="mt-2" />
-              <div className="mt-2 flex justify-end">
-                <Button
-                  variant="secondary"
-                  loading={savingHosts}
-                  disabled={!hostsDirty}
-                  onClick={saveHosts}
+          <Disclosure title="Advanced" summary={browserAdvancedSummary(allowedHosts, approval)}>
+            <div className="flex flex-col gap-4">
+              <div>
+                <label
+                  htmlFor={hostsId}
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-200"
                 >
-                  {savingHosts ? "Saving…" : "Save allow list"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex items-start justify-between gap-4 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Require approval for form submits
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Calls to{" "}
+                  Allowed websites
+                </label>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  One per line. Leave it empty to allow any website.{" "}
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                    browser_submit
+                    mail.google.com
                   </code>{" "}
-                  queue an Approval row instead of firing immediately. The employee resumes via{" "}
+                  allows exactly that site;{" "}
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                    browser_resume
+                    *.github.com
                   </code>{" "}
-                  once a human approves.
+                  allows the domain and every subdomain. A line starting with{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                    #
+                  </code>{" "}
+                  is a note.
                 </p>
-              </div>
-              <label className="relative inline-flex shrink-0 cursor-pointer items-center">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  checked={approval}
-                  disabled={savingApproval}
-                  onChange={(e) => toggleApproval(e.target.checked)}
+                <textarea
+                  id={hostsId}
+                  rows={4}
+                  value={allowedHosts}
+                  readOnly={!canEdit}
+                  onChange={(e) => setAllowedHosts(e.target.value)}
+                  placeholder="# Examples:&#10;mail.google.com&#10;*.github.com"
+                  className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
                 />
-                <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
-                <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
-              </label>
+                <FormError message={hostsError} className="mt-2" />
+                {canEdit && (
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      variant="secondary"
+                      loading={savingHosts}
+                      disabled={!hostsDirty}
+                      onClick={saveHosts}
+                    >
+                      {savingHosts ? "Saving…" : "Save allowed websites"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-start justify-between gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Ask before submitting forms
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Before {emp.name} submits a form on a website, it waits for a person to approve
+                    that submission under Approvals, then carries on.
+                  </p>
+                </div>
+                <ToggleSwitch
+                  label="Ask before submitting forms"
+                  checked={approval}
+                  disabled={savingApproval || !canEdit}
+                  onChange={(next) => void toggleApproval(next)}
+                />
+              </div>
             </div>
-          </div>
+          </Disclosure>
         )}
+        {!canEdit && <ReadOnlyNote emp={emp} />}
       </CardBody>
     </Card>
   );
 }
 
+/** An on/off switch: a checkbox with the switch role and its own accessible name. */
+function ToggleSwitch({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="relative inline-flex shrink-0 cursor-pointer items-center has-[:disabled]:cursor-not-allowed">
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label={label}
+        className="peer sr-only"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500/40 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
+      <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+    </label>
+  );
+}
+
+/**
+ * Settings → Model: the employee's AI Models, each a self-contained card with
+ * its own Advanced section (`components/models/EmployeeModelSection.tsx`).
+ */
 export function ModelSettingsPage() {
   const { company, emp } = useCtx();
   return (
@@ -1340,1167 +1393,32 @@ export function ModelSettingsPage() {
   );
 }
 
-/**
- * Renders the full per-employee model surface — which is deliberately small. It
- * says what the employee thinks with and whether that is connected, and nothing
- * more until you ask: a new employee is first offered the company's existing AI
- * Model (`FirstModelSetup`), and everything that tunes, replaces, adds or removes
- * a model sits behind one Advanced disclosure. An employee can still hold
- * several models and keep exactly one active; the others are listed under the
- * active one with Make active. Exported so the hire wizard and onboarding can
- * drop it in as a step without duplicating the state machine.
- */
-export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
-  const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
-
-  const reload = React.useCallback(async () => {
-    try {
-      const list = await api.get<AIModel[]>(
-        `/api/companies/${company.id}/employees/${emp.id}/models`,
-      );
-      setModels(list);
-      setLoadError(null);
-    } catch (error) {
-      setLoadError(errorMessage(error));
-    }
-  }, [company.id, emp.id]);
-
-  React.useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  useLiveRefetch("employee", reload, emp.id);
-
-  if (loadError)
-    return (
-      <div className="space-y-3">
-        <FormError message={loadError} />
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setLoadError(null);
-            void reload();
-          }}
-        >
-          Try loading AI Models again
-        </Button>
-      </div>
-    );
-  if (models === undefined) return <Spinner />;
-
-  // No models yet — the company's own if it has one, otherwise the connect form.
-  if (models.length === 0) {
-    return <FirstModelSetup company={company} emp={emp} onSaved={reload} />;
-  }
-
-  const ordered = activeFirst(models);
-  const several = ordered.length > 1;
-  return (
-    <div className="flex flex-col gap-4">
-      {several && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {ordered.length} AI Models registered — the active one is the default for chat and
-          Routines.
-        </p>
-      )}
-      {ordered.map((m) => (
-        <ModelCard
-          key={m.id}
-          company={company}
-          emp={emp}
-          model={m}
-          several={several}
-          onChanged={reload}
-        />
-      ))}
-      <ModelAdvanced company={company} emp={emp} models={ordered} onChanged={reload} />
-    </div>
-  );
-}
-
-/**
- * Remove one model, asking first when it holds a credential. The card's Cancel
- * (a model that never finished connecting) and Advanced's Remove share it.
- */
-function useRemoveModel({
-  company,
-  emp,
-  model,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onChanged: () => void;
-}) {
-  const dialog = useDialog();
-  const [removing, setRemoving] = React.useState(false);
-
-  async function remove() {
-    if (model.status === "connected") {
-      const ok = await dialog.confirm({
-        title: `Remove this model?`,
-        message: `${emp.name}'s stored credentials for ${describeModel(model)} will be removed. You can reconnect any time.`,
-        confirmLabel: "Remove",
-        variant: "danger",
-      });
-      if (!ok) return;
-    }
-    setRemoving(true);
-    try {
-      await api.del(`/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`);
-      onChanged();
-    } catch (err) {
-      void dialog.error(err, { title: "Couldn’t remove the model" });
-    } finally {
-      setRemoving(false);
-    }
-  }
-
-  return { removing, remove };
-}
-
-/** What a model's card says about how it is connected, in plain words. */
-function modelSubtitle(model: AIModel): string {
-  if (model.status === "connected") {
-    if (model.authMode === "customEndpoint") {
-      return model.customEndpointHost
-        ? `Pointed at ${model.customEndpointHost}`
-        : "Custom endpoint configured";
-    }
-    if (model.authMode === "subscription") {
-      return model.subscriptionCredentialKind === "accessToken"
-        ? "Connected with a Business or Enterprise access token"
-        : "Connected to a ChatGPT subscription";
-    }
-    return apiKeyConnectionLine(model.apiKeys?.length ?? 1);
-  }
-  if (model.authMode === "customEndpoint") {
-    return "Enter the server's base URL and model id below to connect.";
-  }
-  if (model.authMode === "subscription") {
-    return model.subscriptionAvailable
-      ? "Sign in with ChatGPT below to connect."
-      : (model.subscriptionUnavailableReason ??
-          "ChatGPT subscription sign-in is unavailable on this install.");
-  }
-  return "No API key on file yet — paste one below to connect.";
-}
-
-/**
- * One model in the employee's roster, said plainly: the service and model it
- * runs on, whether it is connected, and — only while it still needs finishing —
- * the panel that connects it. A connected model has nothing more to do here;
- * its tuning, changing and removing live under Advanced. With several models
- * the active one is ringed and badged, and any other connected one offers
- * Make active.
- */
-function ModelCard({
-  company,
-  emp,
-  model,
-  several,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  several: boolean;
-  onChanged: () => void;
-}) {
-  const dialog = useDialog();
-  const connected = model.status === "connected";
-  const [activating, setActivating] = React.useState(false);
-  const { removing, remove } = useRemoveModel({ company, emp, model, onChanged });
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
-
-  async function activate() {
-    setActivating(true);
-    try {
-      await api.post(`${base}/${model.id}/activate`);
-      onChanged();
-    } catch (err) {
-      void dialog.error(err, { title: "Couldn’t switch the active model" });
-    } finally {
-      setActivating(false);
-    }
-  }
-
-  return (
-    <Card
-      className={
-        several && model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined
-      }
-    >
-      <CardBody className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {describeModel(model)}
-              </span>
-              <StatusBadge connected={connected} />
-              {several && model.isActive && <ActiveBadge />}
-            </div>
-            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {modelSubtitle(model)}
-              {model.connectedAt && connected && (
-                <> · connected {new Date(model.connectedAt).toLocaleString()}</>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {connected && several && !model.isActive && (
-              <Button size="sm" variant="ghost" onClick={activate} loading={activating}>
-                <Check size={14} />
-                Make active
-              </Button>
-            )}
-            {!connected && (
-              <Button size="sm" variant="ghost" onClick={remove} loading={removing}>
-                <Unplug size={14} /> Cancel
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {!connected && model.authMode === "apikey" && (
-          <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
-        )}
-        {!connected && model.authMode === "subscription" && (
-          <SubscriptionPanel company={company} emp={emp} model={model} onSaved={onChanged} />
-        )}
-        {!connected && model.authMode === "customEndpoint" && (
-          <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
-/**
- * The one Advanced disclosure under the model cards: each model's API keys,
- * context window, Run limit, endpoint or sign-in and way to change or remove
- * it, and Add model. Closed unless opened; its closed line names whatever has
- * been moved off its default, and any key the provider is refusing (see
- * `advancedSummary`).
- */
-function ModelAdvanced({
-  company,
-  emp,
-  models,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  models: AIModel[];
-  onChanged: () => void;
-}) {
-  const [adding, setAdding] = React.useState(false);
-  return (
-    <AdvancedDisclosure
-      summary={advancedSummary(models)}
-      hint="API keys, context window, concurrent Runs, add or remove models"
-    >
-      {models.map((m) => (
-        <ModelSettings
-          key={m.id}
-          company={company}
-          emp={emp}
-          model={m}
-          titled={models.length > 1}
-          onChanged={onChanged}
-        />
-      ))}
-      {adding ? (
-        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              Add a model
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-              Cancel
-            </Button>
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            The model you add becomes active right away. You can switch back any time.
-          </div>
-          <ModelForm
-            mode="create"
-            initial={{ provider: "anthropic", model: "", authMode: "apikey" }}
-            company={company}
-            emp={emp}
-            onSaved={() => {
-              setAdding(false);
-              onChanged();
-            }}
-            submitLabel="Add model"
-          />
-        </div>
-      ) : (
-        <div>
-          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-            <Plus size={14} /> Add model
-          </Button>
-        </div>
-      )}
-    </AdvancedDisclosure>
-  );
-}
-
-/**
- * Everything Advanced holds for one model. A connected model's own connection
- * (its endpoint, or its ChatGPT sign-in) is here once there is nothing left to
- * finish on the card; a model still waiting keeps that on its card instead.
- * `titled` names the model when there is more than one to tell apart.
- */
-function ModelSettings({
-  company,
-  emp,
-  model,
-  titled,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  titled: boolean;
-  onChanged: () => void;
-}) {
-  const connected = model.status === "connected";
-  const tunable = connected && model.authMode !== "subscription";
-  const { removing, remove } = useRemoveModel({ company, emp, model, onChanged });
-  return (
-    <div
-      className={
-        titled
-          ? "flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
-          : "flex flex-col gap-3"
-      }
-    >
-      {titled && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            {describeModel(model)}
-          </span>
-          {model.isActive && <ActiveBadge />}
-        </div>
-      )}
-
-      {connected && model.authMode === "subscription" && (
-        <SubscriptionPanel company={company} emp={emp} model={model} onSaved={onChanged} />
-      )}
-      {connected && model.authMode === "customEndpoint" && (
-        <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
-          <div className="mb-3 text-xs font-medium text-slate-700 dark:text-slate-200">
-            Endpoint
-          </div>
-          <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
-        </div>
-      )}
-      {connected && holdsApiKeys(model) && (
-        <ApiKeysPanel company={company} emp={emp} model={model} onChanged={onChanged} />
-      )}
-      {tunable && (
-        <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
-      )}
-      {tunable && (
-        <RunConcurrencyPanel company={company} emp={emp} model={model} onChanged={onChanged} />
-      )}
-
-      <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
-        <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
-          Change provider, model, or endpoint
-        </summary>
-        <div className="mt-3">
-          <ModelForm
-            mode="edit"
-            editModelId={model.id}
-            initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
-            company={company}
-            emp={emp}
-            onSaved={onChanged}
-            submitLabel="Save changes"
-          />
-        </div>
-      </details>
-
-      {connected && (
-        <div>
-          <Button size="sm" variant="ghost" onClick={remove} loading={removing}>
-            <Unplug size={14} /> Remove
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The model's context window, and the affordances to fix it when we don't know.
- *
- * It lives under the model's Advanced disclosure: for nearly everyone the number
- * is found on its own, or simply isn't reported, and never needs a thought. It
- * is still load-bearing, not trivia — a run budgets against it to decide when to
- * drop older tool results, so while it is unknown a long routine can only
- * discover it has overrun once the provider rejects a turn. That is why a window
- * set by hand, and an unknown one on a server you run yourself, are named on the
- * closed Advanced line (`advancedSummary`) rather than hidden with the rest.
- *
- * Plenty of servers genuinely don't report one — plain Ollama, OpenAI's own API
- * — so "unknown" is a normal resting state, not an error to shout about. We
- * offer a retry only when there's someone to ask, and otherwise let the operator
- * type the number in.
- *
- * The server also re-asks every three hours, which is worth saying out loud: it
- * turns "Ask the provider" from the only way back to the truth into a shortcut
- * for operators who just changed something and don't want to wait.
- */
-function ContextWindowPanel({
-  company,
-  emp,
-  model,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onChanged: () => void;
-}) {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(String(model.contextWindow ?? ""));
-  const [busy, setBusy] = React.useState<null | "probe" | "save" | "clear">(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState<string | null>(null);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
-
-  async function probe() {
-    setError(null);
-    setNotice(null);
-    setBusy("probe");
-    try {
-      const updated = await api.post<AIModel>(`${base}/refresh`);
-      // Neither outcome shows on its own: a probe that came back empty leaves
-      // the reading below at "Unknown", and one that confirms the number
-      // already there re-renders it identically.
-      if (!updated.contextWindow) {
-        setError("The endpoint still doesn’t report a context window — set it by hand below.");
-      } else {
-        setNotice(`Context window: ${updated.contextWindow.toLocaleString()} tokens`);
-      }
-      onChanged();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function save(next: number | null) {
-    setError(null);
-    setNotice(null);
-    setBusy(next === null ? "clear" : "save");
-    try {
-      await api.put(`${base}/context-window`, { contextWindow: next });
-      setEditing(false);
-      onChanged();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const parsed = Number(draft.trim());
-  const draftValid = /^\d+$/.test(draft.trim()) && parsed >= 1024 && parsed <= 20_000_000;
-
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
-            Context window
-          </div>
-          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            {model.contextWindow ? (
-              <>
-                <span className="tabular-nums text-slate-700 dark:text-slate-200">
-                  {model.contextWindow.toLocaleString()}
-                </span>{" "}
-                tokens ·{" "}
-                {model.contextWindowSource === "manual"
-                  ? "set by hand"
-                  : "reported by the provider"}
-              </>
-            ) : (
-              <>
-                Unknown — runs on this model {"can't"} budget their context, and will only notice an
-                over-long prompt once the provider rejects it.
-              </>
-            )}
-          </div>
-          {model.contextWindowProbeable && model.contextWindowSource !== "manual" && (
-            <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-              Rechecked automatically every 3 hours, so a re-launched server{"'"}s new limit lands
-              on its own.
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {model.contextWindowProbeable && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={probe}
-              loading={busy === "probe"}
-              disabled={busy !== null}
-            >
-              <Plug size={14} />
-              Ask the provider
-            </Button>
-          )}
-          {!editing && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setDraft(String(model.contextWindow ?? ""));
-                setEditing(true);
-              }}
-              disabled={busy !== null}
-            >
-              <Edit3 size={14} /> Set manually
-            </Button>
-          )}
-          {model.contextWindowSource === "manual" && !editing && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => save(null)}
-              loading={busy === "clear"}
-              disabled={busy !== null}
-            >
-              <X size={14} /> Clear
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <FormError message={error} className="mt-2" />
-      <FormSuccess message={notice} className="mt-2" />
-
-      {editing && (
-        <form
-          className="mt-3 flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (draftValid) save(parsed);
-          }}
-        >
-          <div className="w-44">
-            <Input
-              label="Tokens"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="65536"
-              inputMode="numeric"
-              autoFocus
-            />
-          </div>
-          <Button
-            type="submit"
-            size="sm"
-            loading={busy === "save"}
-            disabled={busy !== null || !draftValid}
-          >
-            {busy === "save" ? "Saving…" : "Save"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => setEditing(false)}
-            disabled={busy !== null}
-          >
-            Cancel
-          </Button>
-          <p className="w-full text-xs text-slate-500 dark:text-slate-400">
-            Whatever the server was launched with — vLLM{"'"}s <code>--max-model-len</code>,
-            llama.cpp{"'"}s <code>-c</code>, or the model{"'"}s documented limit. A number set here
-            wins over anything the provider reports.
-          </p>
-        </form>
-      )}
-    </div>
-  );
-}
-
-const RUN_CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8];
-
-/**
- * How many Routine Runs may use this model at once.
- *
- * A local model server is usually one GPU: Runs served in parallel slow each
- * other down, and each one's time limit keeps running while it waits for the
- * model. Runs beyond this limit wait in the queue instead and start, with
- * their whole time limit, when another finishes. The limit is shared by every
- * AI Employee that points at the same endpoint.
- */
-function RunConcurrencyPanel({
-  company,
-  emp,
-  model,
-  onChanged,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
-  const value = model.maxConcurrentRuns === null ? "default" : String(model.maxConcurrentRuns);
-  const choices =
-    model.maxConcurrentRuns && !RUN_CONCURRENCY_CHOICES.includes(model.maxConcurrentRuns)
-      ? [...RUN_CONCURRENCY_CHOICES, model.maxConcurrentRuns].sort((a, b) => a - b)
-      : RUN_CONCURRENCY_CHOICES;
-
-  async function save(next: string) {
-    setError(null);
-    setBusy(true);
-    try {
-      await api.put(`${base}/run-concurrency`, {
-        maxConcurrentRuns: next === "default" ? null : Number(next),
-      });
-      onChanged();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const limit = model.effectiveMaxConcurrentRuns;
-  const source =
-    model.concurrencySource === "local-default"
-      ? "default for a model server on this machine or a private network"
-      : model.concurrencySource === "configured"
-        ? "set by hand"
-        : "default for a hosted model";
-
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
-            Concurrent Routine Runs
-          </div>
-          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            <span className="tabular-nums text-slate-700 dark:text-slate-200">
-              {limit === null ? "No limit" : `${limit} at a time`}
-            </span>{" "}
-            · {source}
-          </div>
-          <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-            Routines beyond the limit wait in the queue and start when a Run on this model
-            finishes; their time limit starts then. Lower it when a local model slows down under
-            parallel work.
-          </div>
-        </div>
-        <div className="w-36 shrink-0">
-          <Select
-            aria-label="Concurrent Routine Runs"
-            value={value}
-            disabled={busy}
-            onChange={(e) => save(e.target.value)}
-          >
-            <option value="default">Default</option>
-            {choices.map((n) => (
-              <option key={n} value={String(n)}>
-                {n} at a time
-              </option>
-            ))}
-            <option value="0">No limit</option>
-          </Select>
-        </div>
-      </div>
-      <FormError message={error} className="mt-2" />
-    </div>
-  );
-}
-
-function StatusBadge({ connected }: { connected: boolean }) {
-  if (connected) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
-        <Check size={10} /> Connected
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300">
-      <Loader2 size={10} className="animate-spin" /> Waiting
-    </span>
-  );
-}
-
-function ActiveBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300">
-      <BrainCircuit size={10} /> Active
-    </span>
-  );
-}
-
-function apiKeyPlaceholder(p: Provider): string {
-  return p === "openai" ? "sk-…" : "sk-ant-…";
-}
-
-/**
- * OpenAI subscription authentication. The normal path starts the server-side
- * device flow and polls its short-lived session while the member signs in in a
- * separate tab. Business and Enterprise installations can instead supply a
- * directly issued access token through the advanced form.
- */
-function SubscriptionPanel({
-  company,
-  emp,
-  model,
-  onSaved,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onSaved: () => void;
-}) {
-  const dialog = useDialog();
-  const [deviceSession, setDeviceSession] = React.useState<SubscriptionDeviceSession | null>(null);
-  const [starting, setStarting] = React.useState(false);
-  const [cancelling, setCancelling] = React.useState(false);
-  const [pollError, setPollError] = React.useState<string | null>(null);
-  const [signInError, setSignInError] = React.useState<string | null>(null);
-  const [codeCopied, setCodeCopied] = React.useState(false);
-  const [accessToken, setAccessToken] = React.useState("");
-  const [savingToken, setSavingToken] = React.useState(false);
-  const [tokenError, setTokenError] = React.useState<string | null>(null);
-  const connected = model.status === "connected";
-  const deviceSignInAvailable = model.supportsSubscription && model.subscriptionAvailable;
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/subscription`;
-
-  const receiveDeviceSession = React.useCallback(
-    (next: SubscriptionDeviceSession) => {
-      setDeviceSession(next);
-      setPollError(null);
-      if (next.status === "succeeded") {
-        onSaved();
-      }
-    },
-    [onSaved],
-  );
-
-  const deviceSessionId = deviceSession?.id;
-  const deviceSessionStatus = deviceSession?.status;
-
-  React.useEffect(() => {
-    if (!deviceSessionId || deviceSessionStatus !== "running") return;
-
-    let stopped = false;
-    let timer: number | undefined;
-    const poll = async () => {
-      try {
-        const next = await api.get<SubscriptionDeviceSession>(`${base}/device/${deviceSessionId}`);
-        if (stopped) return;
-        receiveDeviceSession(next);
-        if (next.status === "running") {
-          timer = window.setTimeout(poll, 1_500);
-        }
-      } catch (err) {
-        if (stopped) return;
-        setPollError((err as Error).message);
-        timer = window.setTimeout(poll, 2_500);
-      }
-    };
-
-    timer = window.setTimeout(poll, 1_000);
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [base, deviceSessionId, deviceSessionStatus, receiveDeviceSession]);
-
-  async function startDeviceSignIn() {
-    setStarting(true);
-    setPollError(null);
-    setSignInError(null);
-    setCodeCopied(false);
-    try {
-      const session = await api.post<SubscriptionDeviceSession>(`${base}/device`);
-      receiveDeviceSession(session);
-    } catch (err) {
-      setSignInError(errorMessage(err));
-    } finally {
-      setStarting(false);
-    }
-  }
-
-  async function cancelDeviceSignIn() {
-    if (!deviceSession || deviceSession.status !== "running") return;
-    setCancelling(true);
-    setSignInError(null);
-    try {
-      await api.del(`${base}/device/${deviceSession.id}`);
-      setDeviceSession((current) =>
-        current ? { ...current, status: "cancelled", error: null } : current,
-      );
-      setPollError(null);
-    } catch (err) {
-      setSignInError(errorMessage(err));
-    } finally {
-      setCancelling(false);
-    }
-  }
-
-  async function saveAccessToken(e: React.FormEvent) {
-    e.preventDefault();
-    setTokenError(null);
-    setSavingToken(true);
-    try {
-      await api.post(`${base}/access-token`, { accessToken });
-      setAccessToken("");
-      setDeviceSession(null);
-      onSaved();
-    } catch (err) {
-      setTokenError(errorMessage(err));
-    } finally {
-      setSavingToken(false);
-    }
-  }
-
-  const deviceRunning = deviceSession?.status === "running";
-
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-      <div>
-        <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
-          ChatGPT subscription
-        </div>
-        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          {connected
-            ? "Connected. Sign in again below whenever you need to replace the stored subscription credentials."
-            : "Connect the ChatGPT account this AI Employee should use."}
-        </div>
-      </div>
-
-      {!deviceSignInAvailable && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          Browser sign-in is unavailable:{" "}
-          {model.subscriptionUnavailableReason ??
-            "this Genosyn install does not support ChatGPT device sign-in."}
-        </div>
-      )}
-
-      {!model.subscriptionShellAvailable && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-          Shell commands are disabled on this install. Subscription work remains available with the
-          employee&apos;s granted company tools.
-        </div>
-      )}
-
-      {deviceRunning && (
-        <div
-          className="flex flex-col gap-3 rounded-md bg-slate-50 p-3 dark:bg-slate-900"
-          aria-live="polite"
-        >
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-200">
-            <Loader2 size={14} className="animate-spin" />
-            Waiting for you to finish signing in
-          </div>
-          {deviceSession.loginUrl && (
-            <a
-              className="inline-flex w-fit items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
-              href={deviceSession.loginUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open ChatGPT sign-in <ExternalLink size={13} />
-            </a>
-          )}
-          {deviceSession.userCode && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">One-time code</span>
-              <code className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-semibold tracking-wider text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
-                {deviceSession.userCode}
-              </code>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const copied = await copyToClipboard(deviceSession.userCode ?? "");
-                  if (!copied) {
-                    void dialog.error("Copy it by hand from the field beside this button.", {
-                      title: "Couldn’t copy the code",
-                    });
-                    return;
-                  }
-                  setCodeCopied(true);
-                  window.setTimeout(() => setCodeCopied(false), 1500);
-                }}
-              >
-                {codeCopied ? <Check size={13} /> : <Copy size={13} />}
-                {codeCopied ? "Copied" : "Copy"}
-              </Button>
-            </div>
-          )}
-          {pollError && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">
-              Could not check sign-in status ({pollError}). Retrying…
-            </div>
-          )}
-        </div>
-      )}
-
-      {deviceSession?.status === "failed" && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {deviceSession.error ?? "ChatGPT sign-in failed. Start a new sign-in to try again."}
-        </div>
-      )}
-      {deviceSession?.status === "cancelled" && (
-        <div className="text-xs text-slate-500 dark:text-slate-400">Sign-in was cancelled.</div>
-      )}
-      {deviceSession?.status === "succeeded" && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-          ChatGPT subscription connected.
-        </div>
-      )}
-
-      <FormError message={signInError} />
-
-      <div className="flex flex-wrap gap-2">
-        {deviceSignInAvailable && !deviceRunning && (
-          <Button type="button" size="sm" onClick={startDeviceSignIn} loading={starting}>
-            {starting
-              ? "Starting…"
-              : connected || deviceSession?.status === "succeeded"
-                ? "Reconnect with ChatGPT"
-                : "Sign in with ChatGPT"}
-          </Button>
-        )}
-        {deviceRunning && (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={cancelDeviceSignIn}
-            loading={cancelling}
-          >
-            {cancelling ? "Cancelling…" : "Cancel sign-in"}
-          </Button>
-        )}
-      </div>
-
-      {model.subscriptionAvailable && (
-        <details className="border-t border-slate-200 pt-3 dark:border-slate-700">
-          <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
-            Advanced: Business or Enterprise access token
-          </summary>
-          <form className="mt-3 flex flex-col gap-2" onSubmit={saveAccessToken}>
-            <Input
-              label="Access token"
-              type="password"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              placeholder={
-                model.subscriptionCredentialKind === "accessToken"
-                  ? "•••••••• (replace existing token)"
-                  : "Paste an access token"
-              }
-              autoComplete="off"
-              required
-            />
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Use this only when your OpenAI Business or Enterprise setup issues a direct access
-              token. It is stored encrypted at rest.
-            </div>
-            <FormError message={tokenError} />
-            <div>
-              <Button
-                type="submit"
-                size="sm"
-                loading={savingToken}
-                disabled={accessToken.trim().length === 0}
-              >
-                {savingToken
-                  ? "Testing connection…"
-                  : model.subscriptionCredentialKind === "accessToken"
-                    ? "Replace access token"
-                    : "Save access token"}
-              </Button>
-            </div>
-          </form>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function ApiKeyPanel({
-  company,
-  emp,
-  model,
-  onSaved,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onSaved: () => void;
-}) {
-  const [key, setKey] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<unknown>(null);
-  return (
-    <form
-      className="flex flex-col gap-2"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setError(null);
-        setSaving(true);
-        try {
-          await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/apikey`,
-            { apiKey: key },
-          );
-          setKey("");
-          onSaved();
-        } catch (err) {
-          setError(err);
-        } finally {
-          setSaving(false);
-        }
-      }}
-    >
-      <Input
-        label="API key"
-        type="password"
-        value={key}
-        onChange={(e) => setKey(e.target.value)}
-        placeholder={apiKeyPlaceholder(model.provider)}
-        required
-      />
-      <div className="text-xs text-slate-500 dark:text-slate-400">
-        Stored encrypted at rest. Removed on disconnect.
-      </div>
-      <FormError message={error ? errorMessage(error) : null} detail={errorDetail(error)} />
-      <div>
-        <Button type="submit" loading={saving} disabled={key.length === 0}>
-          {saving ? "Testing connection…" : "Connect AI Model"}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/**
- * Form for the customEndpoint auth mode. Three fields: base URL, model id,
- * optional API key. Base URL is the load-bearing signal: until it's saved the
- * model row stays in "Waiting" status even though provider + auth are set.
- */
-function CustomEndpointPanel({
-  company,
-  emp,
-  model,
-  onSaved,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onSaved: () => void;
-}) {
-  const [baseURL, setBaseURL] = React.useState("");
-  const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
-  const [apiKey, setApiKey] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<unknown>(null);
-  const connected = model.status === "connected";
-  return (
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setError(null);
-        setSaving(true);
-        try {
-          await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/custom-endpoint`,
-            {
-              baseURL,
-              modelId,
-              ...(apiKey ? { apiKey } : {}),
-            },
-          );
-          setApiKey("");
-          onSaved();
-        } catch (err) {
-          setError(err);
-        } finally {
-          setSaving(false);
-        }
-      }}
-    >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Input
-          label="Base URL"
-          value={baseURL}
-          onChange={(e) => setBaseURL(e.target.value)}
-          placeholder={baseUrlPlaceholder(model.provider)}
-          required
-        />
-        <Input
-          label="Model id (optional)"
-          value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
-          placeholder="Blank: the model the server serves"
-        />
-      </div>
-      <Input
-        label={`API key (optional — most local servers ignore this)`}
-        type="password"
-        value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
-        placeholder={
-          model.customEndpointHasApiKey
-            ? "•••••••• (replace to update)"
-            : "leave blank if not needed"
-        }
-      />
-      <div className="text-xs text-slate-500 dark:text-slate-400">
-        Point this employee at a self-hosted OpenAI-compatible server. Base URL + key are stored
-        encrypted at rest. Leave the model id blank on a server that serves one model, such as
-        vLLM: Genosyn uses that model, and follows it if the server is restarted with another.
-      </div>
-      <FormError message={error ? errorMessage(error) : null} detail={errorDetail(error)} />
-      <div>
-        <Button type="submit" loading={saving} disabled={baseURL.length === 0}>
-          {saving ? "Testing connection…" : connected ? "Update endpoint" : "Save & connect"}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function baseUrlPlaceholder(_provider: Provider): string {
-  // Ollama's port is the easiest sanity check; vLLM and llama-server are also
-  // documented in /docs. host.docker.internal reaches the host from the container.
-  return "http://host.docker.internal:11434/v1";
-}
+// The hire wizard, onboarding and the browser harnesses import it from here.
+export { EmployeeModelSection };
 
 const JOURNAL_KIND_STYLE: Record<JournalKind, string> = {
-  run: "bg-sky-50 text-sky-700 border-sky-200",
-  note: "bg-slate-50 text-slate-700 border-slate-200",
-  system: "bg-violet-50 text-violet-700 border-violet-200",
+  run: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
+  note: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+  system:
+    "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
 };
+
+const JOURNAL_KIND_LABEL: Record<JournalKind, string> = {
+  run: "Run",
+  note: "Note",
+  system: "System",
+};
+
+/** "Oct 9, 2026, 2:05 PM" — when, to the minute; seconds are noise here. */
+function entryTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /**
  * Per-employee journal. Auto-emits a row for every routine run; humans add
@@ -2599,17 +1517,17 @@ export function JournalPage() {
       <Card>
         <CardBody>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            A daily diary of what this employee did. Routine runs land here automatically.
-            <strong className="text-slate-700 dark:text-slate-200">
-              {" "}
-              The last 7 days are auto-injected into every chat and routine run
+            {emp.name}&apos;s own diary of what they did. Routine Runs add an entry on their own,
+            and{" "}
+            <strong className="font-medium text-slate-700 dark:text-slate-200">
+              {emp.name} rereads the last 7 days before every chat and Routine Run
             </strong>{" "}
-            — they&apos;re how the employee remembers what happened yesterday.
+            — it is how they remember what happened yesterday. Add a note for them here.
           </p>
           <form onSubmit={addNote} className="mt-3 flex flex-col gap-2">
             <Input
               label="Add note"
-              placeholder="What should this employee remember?"
+              placeholder={`What should ${emp.name} know about today?`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -2703,7 +1621,7 @@ function JournalEntryRow({
                   JOURNAL_KIND_STYLE[entry.kind]
                 }
               >
-                {entry.kind}
+                {JOURNAL_KIND_LABEL[entry.kind]}
               </span>
               {editing ? (
                 <input
@@ -2738,7 +1656,7 @@ function JournalEntryRow({
               )
             )}
             <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-              {new Date(entry.createdAt).toLocaleString()}
+              {entryTime(entry.createdAt)}
             </div>
             {editing && (
               <div className="mt-2 flex gap-1.5">
@@ -2849,7 +1767,7 @@ export function MemoryPage() {
   async function remove(id: string) {
     const ok = await dialog.confirm({
       title: "Delete this memory?",
-      message: "The employee will stop recalling this fact on their next spawn.",
+      message: `${emp.name} stops recalling this from their next chat or Run.`,
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -2871,14 +1789,12 @@ export function MemoryPage() {
       <Card>
         <CardBody>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Durable facts and preferences this employee should recall in
-            <strong className="text-slate-700 dark:text-slate-200">
-              {" "}
-              every conversation and routine run
+            Short facts and preferences {emp.name} keeps in mind in{" "}
+            <strong className="font-medium text-slate-700 dark:text-slate-200">
+              every chat and Routine Run
             </strong>
-            . Unlike the free-form Soul, each memory item is a single short fact you can add, edit,
-            or delete without touching the others. {emp.name} can also curate these themselves via
-            MCP tools.
+            . Each is one fact you can add, edit or delete on its own — unlike the Soul, which is
+            one document. {emp.name} adds and updates memories too, as they work.
           </p>
           <form onSubmit={add} className="mt-3 flex flex-col gap-2">
             <Input
@@ -3005,9 +1921,9 @@ function MemoryRow({
               )
             )}
             <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-              Added {new Date(item.createdAt).toLocaleString()}
+              Added {entryTime(item.createdAt)}
               {item.updatedAt && item.updatedAt !== item.createdAt && (
-                <> · updated {new Date(item.updatedAt).toLocaleString()}</>
+                <> · updated {entryTime(item.updatedAt)}</>
               )}
             </div>
             {editing && (
@@ -3049,12 +1965,13 @@ function MemoryRow({
 }
 
 /**
- * Per-employee MCP (Model Context Protocol) server list. Adding a server
- * writes its config into `.mcp.json` at the employee's workspace root on
- * the next spawn, so tools show up natively to the model.
+ * Per-employee MCP (Model Context Protocol) servers: extra tools this employee
+ * can use, from a server the company runs or trusts, from its next chat or
+ * Run. Owners and admins add and remove them; a Member reads the list.
  */
 export function McpPage() {
   const { company, emp } = useCtx();
+  const canEdit = canEditEmployee(company);
   const [servers, setServers] = React.useState<McpServer[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
@@ -3082,8 +1999,8 @@ export function McpPage() {
 
   async function remove(id: string) {
     const ok = await dialog.confirm({
-      title: "Delete MCP server?",
-      message: "This server will no longer be materialized into .mcp.json for this employee.",
+      title: "Remove this MCP server?",
+      message: `${emp.name} stops using its tools from their next chat or Run.`,
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -3103,11 +2020,12 @@ export function McpPage() {
     <>
       <TopBar
         title="MCP servers"
-        right={<Button onClick={() => setAdding(true)}>Add server</Button>}
+        right={canEdit ? <Button onClick={() => setAdding(true)}>Add server</Button> : undefined}
       />
-      <div className="mb-3">
-        <ExternalMcpPanel company={company} emp={emp} />
-      </div>
+      <p className="-mt-3 mb-4 text-sm text-slate-500 dark:text-slate-400">
+        Extra tools for {emp.name} from MCP servers — services that speak the Model Context
+        Protocol. {emp.name} can use them in chats and Routine Runs.
+      </p>
       {loadError ? (
         <FormError message={loadError} />
       ) : servers === null ? (
@@ -3115,7 +2033,11 @@ export function McpPage() {
       ) : servers.length === 0 ? (
         <EmptyState
           title="No MCP servers yet"
-          description="Attach tools via the Model Context Protocol so this employee can use them from any provider CLI."
+          description={
+            canEdit
+              ? `Add a server to give ${emp.name} its tools.`
+              : `An owner or admin can add a server to give ${emp.name} its tools.`
+          }
         />
       ) : (
         <ul className="flex flex-col gap-2">
@@ -3145,21 +2067,26 @@ export function McpPage() {
                         : s.url}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => remove(s.id)}
-                    loading={deletingId === s.id}
-                    aria-label="Delete MCP server"
-                  >
-                    <Trash2 size={12} />
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => remove(s.id)}
+                      loading={deletingId === s.id}
+                      aria-label={`Remove MCP server ${s.name}`}
+                    >
+                      <Trash2 size={12} />
+                    </Button>
+                  )}
                 </CardBody>
               </Card>
             </li>
           ))}
         </ul>
       )}
+      <div className="mt-4">
+        <ExternalMcpPanel company={company} emp={emp} />
+      </div>
       {adding && (
         <NewMcpModal
           company={company}

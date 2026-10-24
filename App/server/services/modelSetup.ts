@@ -151,7 +151,10 @@ export async function replaceApiKey(
  * one reported. Listing models stores nothing.
  */
 export async function discoverStoredApiModels(model: AIModel): Promise<ModelCatalog> {
-  if (model.authMode !== "apikey" || (model.provider !== "anthropic" && model.provider !== "openai")) {
+  if (
+    model.authMode !== "apikey" ||
+    (model.provider !== "anthropic" && model.provider !== "openai")
+  ) {
     throw new ModelSetupError(
       "Only a Claude or OpenAI AI Model connected with an API key lists its models here.",
       400,

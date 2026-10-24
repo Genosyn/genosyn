@@ -14,7 +14,10 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import { fakeCodexVerification } from "../test/modelVerification.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
 import { agentRuntime } from "./agent/runtime.js";
-import { configWithSubscriptionAccessToken, withSubscriptionModelLock } from "./codexSubscription.js";
+import {
+  configWithSubscriptionAccessToken,
+  withSubscriptionModelLock,
+} from "./codexSubscription.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
 import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "./modelApiKeys.js";
 import { ModelSetupError } from "./modelCatalog.js";
@@ -170,7 +173,10 @@ describe("testing an API-key AI Model", () => {
       throw Object.assign(new Error("request failed"), { status: 402 });
     });
     const model = await claude();
-    await assert.rejects(testModelConnection(await saved(model.id)), /billing, quota, or a rate limit/);
+    await assert.rejects(
+      testModelConnection(await saved(model.id)),
+      /billing, quota, or a rate limit/,
+    );
   });
 
   test("a model that replies but never uses the test tool does not pass", async (t) => {

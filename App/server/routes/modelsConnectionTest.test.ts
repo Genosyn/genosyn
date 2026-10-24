@@ -190,8 +190,16 @@ function stubCatalog(t: TestContext, refused: string[] = []): string[] {
     return Promise.resolve(
       Response.json({
         data: [
-          { id: "claude-opus-5-5", display_name: "Claude Opus 5.5", created_at: "2026-09-01T00:00:00Z" },
-          { id: "claude-sonnet-5", display_name: "Claude Sonnet 5", created_at: "2026-08-01T00:00:00Z" },
+          {
+            id: "claude-opus-5-5",
+            display_name: "Claude Opus 5.5",
+            created_at: "2026-09-01T00:00:00Z",
+          },
+          {
+            id: "claude-sonnet-5",
+            display_name: "Claude Sonnet 5",
+            created_at: "2026-08-01T00:00:00Z",
+          },
         ],
         has_more: false,
         last_id: "claude-sonnet-5",

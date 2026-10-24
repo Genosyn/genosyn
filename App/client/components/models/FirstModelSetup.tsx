@@ -7,6 +7,7 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { FormError } from "@/components/ui/FormError";
 import { Spinner } from "@/components/ui/Spinner";
 import { ModelSetupForm } from "@/components/models/ModelSetupForm";
+import { CompanyModelOffers } from "@/components/models/CompanyModelOffers";
 
 /**
  * What an AI Employee with no AI Model sees.
@@ -18,8 +19,9 @@ import { ModelSetupForm } from "@/components/models/ModelSetupForm";
  * which model, never holds a credential. Connecting a different one is the
  * quieter second path, and only then does the connect form appear.
  *
- * With nothing to reuse, or for a Member who could not use it, the form is the
- * whole screen, as it always was.
+ * With nothing to reuse, the form is the whole screen. A Member, who can't put
+ * a credential on an employee, is never shown this: `EmployeeModelSection`
+ * says an owner or admin connects one instead.
  */
 export function FirstModelSetup({
   company,
@@ -168,36 +170,12 @@ export function FirstModelSetup({
           </Button>
         </div>
         {others.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Already connected in your company
-            </div>
-            {others.map((offer) => (
-              <div
-                key={offer.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-slate-900 dark:text-slate-100">
-                    {describeModel(offer)}
-                  </div>
-                  <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-                    {offer.employeeName} runs on it
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => reuse(offer)}
-                  loading={reusing === offer.id}
-                  disabled={reusing !== null}
-                >
-                  Use this one
-                </Button>
-              </div>
-            ))}
-            <FormError message={error} />
-          </div>
+          <CompanyModelOffers
+            offers={others}
+            reusing={reusing}
+            error={error}
+            onUse={(offer) => void reuse(offer)}
+          />
         )}
         <ModelSetupForm
           mode="create"

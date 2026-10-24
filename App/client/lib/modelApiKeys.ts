@@ -133,6 +133,42 @@ export function apiKeyConnectionLine(keyCount: number): string {
 }
 
 /**
+ * The warning a model card shows, outside its Advanced section, while the
+ * provider is refusing some of its keys — the one thing in there an owner
+ * should not have to go looking for. Null while every key works.
+ *
+ * Some keys refused is a warning: requests move on to the next key and work
+ * carries on. Every key refused means the AI Model cannot answer at all.
+ */
+export function failingKeysNotice(
+  model: Pick<AIModel, "provider" | "authMode" | "status"> & { apiKeys?: readonly Health[] },
+  now = Date.now(),
+): { failing: number; total: number; all: boolean; text: string } | null {
+  if (model.status !== "connected" || !holdsApiKeys(model)) return null;
+  const keys = model.apiKeys ?? [];
+  const failing = keys.filter((key) => isRefused(key, now)).length;
+  if (failing === 0) return null;
+  const total = keys.length;
+  if (failing === total) {
+    return {
+      failing,
+      total,
+      all: true,
+      text:
+        total === 1
+          ? "The provider is refusing this AI Model's API key, so it can't answer. Add a working key under Advanced."
+          : `The provider is refusing all ${total} API keys, so this AI Model can't answer. Add a working key under Advanced.`,
+    };
+  }
+  return {
+    failing,
+    total,
+    all: false,
+    text: `The provider is refusing ${failing} of ${total} API keys. Requests move on to the next key, so work carries on — replace or remove the failing ${failing === 1 ? "key" : "keys"} under Advanced.`,
+  };
+}
+
+/**
  * What the closed Advanced line says about a model's keys: how many backups
  * it holds and how many keys are failing, e.g. "2 backup API keys · 1 API key
  * failing". Empty with a single working key, which is the default.
