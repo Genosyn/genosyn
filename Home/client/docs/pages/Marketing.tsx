@@ -339,8 +339,9 @@ export function Marketing() {
           matches exactly).
         </LI>
         <LI>
-          Turn on <Strong>Require approval for form submits</Strong> — every submit queues a Browser
-          approval showing exactly what&apos;s about to be clicked.
+          Turn on <Strong>Ask before submitting forms</Strong>, under <Strong>Advanced</Strong> on
+          the employee&apos;s Browser page — every submit queues a Browser approval showing exactly
+          what&apos;s about to be clicked.
         </LI>
         <LI>
           Log in once via <Strong>live view → Take over</Strong>: you type the credentials and the

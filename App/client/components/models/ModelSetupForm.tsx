@@ -31,6 +31,7 @@ export function ModelSetupForm({
   emp,
   onSaved,
   submitLabel,
+  catalogFromSavedKeys = false,
 }: {
   mode: "create" | "edit";
   editModelId?: string;
@@ -39,6 +40,12 @@ export function ModelSetupForm({
   emp: Pick<Employee, "id">;
   onSaved: () => void;
   submitLabel: string;
+  /**
+   * Editing a connected API-key model: list the models its saved keys reach,
+   * so changing the model needs no key typed. A model with no key yet has
+   * nothing to ask with.
+   */
+  catalogFromSavedKeys?: boolean;
 }) {
   const [provider, setProvider] = React.useState(initial.provider);
   const [authMode, setAuthMode] = React.useState(initial.authMode);
@@ -69,6 +76,39 @@ export function ModelSetupForm({
     setDiscovering(false);
     setError(null);
   }
+
+  // Changing a connected model's model is a pick from a list: until a new key
+  // is typed, the list comes from the keys the model already holds, so nothing
+  // has to be pasted again (`GET …/models/:id/catalog`).
+  const usesStoredKeys =
+    catalogFromSavedKeys &&
+    mode === "edit" &&
+    Boolean(editModelId) &&
+    isApiKey &&
+    provider === initial.provider &&
+    authMode === initial.authMode &&
+    !apiKey.trim();
+
+  React.useEffect(() => {
+    if (!usesStoredKeys || !editModelId) return;
+    const version = ++requestVersion.current;
+    let stopped = false;
+    setDiscovering(true);
+    api
+      .get<ModelCatalog>(`${base}/${editModelId}/catalog`)
+      .then((result) => {
+        if (!stopped && version === requestVersion.current) setCatalog(result);
+      })
+      .catch((err: unknown) => {
+        if (!stopped && version === requestVersion.current) setDiscoveryError(message(err));
+      })
+      .finally(() => {
+        if (!stopped && version === requestVersion.current) setDiscovering(false);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [base, editModelId, usesStoredKeys, refresh]);
 
   React.useEffect(() => {
     if (!isApiKey || !apiKey.trim()) return;
@@ -135,6 +175,108 @@ export function ModelSetupForm({
     }
   }
 
+  const keyField = (
+    <>
+      <Input
+        label={needsKey ? "API key" : "Replace primary API key (optional)"}
+        type="password"
+        autoComplete="off"
+        // Connecting a model is pasting a key: start there, not on the
+        // provider list above it (editing leaves focus alone).
+        autoFocus={mode === "create"}
+        value={apiKey}
+        onChange={(e) => {
+          clearDiscovery();
+          setApiKey(e.target.value);
+        }}
+        required={needsKey}
+        placeholder={
+          provider === "anthropic" ? "Paste your Anthropic API key" : "Paste your OpenAI API key"
+        }
+      />
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        {needsKey || !catalogFromSavedKeys
+          ? "We find the available models and test a real reply before connecting. Your key is stored encrypted. The small test uses your API account."
+          : "Leave this blank to keep the saved keys. We test the model you pick with them before saving."}
+        {keyPage && needsKey && (
+          <>
+            {" "}
+            <a
+              href={keyPage.href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              {keyPage.label} <ExternalLink size={11} />
+            </a>
+          </>
+        )}
+      </p>
+    </>
+  );
+
+  const current = mode === "edit" ? initial.model : null;
+  const modelPicker = (
+    <>
+      {discovering && (
+        <p role="status" className="text-xs text-slate-500 dark:text-slate-400">
+          Finding available models…
+        </p>
+      )}
+      {catalog && (
+        <Select label="Model" value={modelStr} onChange={(e) => setModelStr(e.target.value)}>
+          <option value="">
+            Recommended:{" "}
+            {catalog.models.find((m) => m.id === catalog.recommendedModel)?.label ||
+              catalog.recommendedModel}
+          </option>
+          {modelStr && !catalog.models.some((m) => m.id === modelStr) && (
+            <option value={modelStr}>
+              {modelStr} ({modelStr === current ? "current" : "your choice"})
+            </option>
+          )}
+          {catalog.models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.id === current ? `${m.label} (current)` : m.label}
+            </option>
+          ))}
+        </Select>
+      )}
+      {catalog && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Recommended from the newest compatible models your account can access.
+        </p>
+      )}
+      {discoveryError && (
+        <div className="space-y-2">
+          <FormError message={discoveryError} />
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              clearDiscovery();
+              setRefresh((n) => n + 1);
+            }}
+          >
+            Try loading models again
+          </Button>
+        </div>
+      )}
+      <details className="text-xs text-slate-600 dark:text-slate-300">
+        <summary className="cursor-pointer">Choose a model ID manually</summary>
+        <div className="mt-3">
+          <Input
+            label="Model ID (optional)"
+            value={modelStr}
+            onChange={(e) => setModelStr(e.target.value)}
+            placeholder="Leave blank to choose automatically"
+          />
+        </div>
+      </details>
+    </>
+  );
+
   return (
     <form className="flex flex-col gap-4" onSubmit={submit}>
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
@@ -179,102 +321,20 @@ export function ModelSetupForm({
           )}
         </div>
         {mode === "edit" && initial.provider !== "custom" && (
-          <p className="text-xs text-slate-500">
-            Use Add model to connect a custom endpoint or start a new ChatGPT sign-in.
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            To use a custom endpoint or a ChatGPT sign-in instead, add another AI Model.
           </p>
         )}
-        {isApiKey && (
+        {isApiKey && mode === "edit" && (
           <>
-            <Input
-              label={needsKey ? "API key" : "Replace primary API key (optional)"}
-              type="password"
-              autoComplete="off"
-              // Connecting a model is pasting a key: start there, not on the
-              // provider list above it (editing leaves focus alone).
-              autoFocus={mode === "create"}
-              value={apiKey}
-              onChange={(e) => {
-                clearDiscovery();
-                setApiKey(e.target.value);
-              }}
-              required={needsKey}
-              placeholder={
-                provider === "anthropic"
-                  ? "Paste your Anthropic API key"
-                  : "Paste your OpenAI API key"
-              }
-            />
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              We find the available models and test a real reply before connecting. Your key is
-              stored encrypted. The small test uses your API account.
-              {keyPage && (
-                <>
-                  {" "}
-                  <a
-                    href={keyPage.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                  >
-                    {keyPage.label} <ExternalLink size={11} />
-                  </a>
-                </>
-              )}
-            </p>
-            {discovering && (
-              <p role="status" className="text-xs text-slate-500">
-                Finding available models…
-              </p>
-            )}
-            {catalog && (
-              <Select label="Model" value={modelStr} onChange={(e) => setModelStr(e.target.value)}>
-                <option value="">
-                  Recommended:{" "}
-                  {catalog.models.find((m) => m.id === catalog.recommendedModel)?.label ||
-                    catalog.recommendedModel}
-                </option>
-                {modelStr && !catalog.models.some((m) => m.id === modelStr) && (
-                  <option value={modelStr}>{modelStr} (your choice)</option>
-                )}
-                {catalog.models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-            {catalog && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Recommended from the newest compatible models your account can access.
-              </p>
-            )}
-            {discoveryError && (
-              <div className="space-y-2">
-                <FormError message={discoveryError} />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    clearDiscovery();
-                    setRefresh((n) => n + 1);
-                  }}
-                >
-                  Try loading models again
-                </Button>
-              </div>
-            )}
-            <details className="text-xs text-slate-600 dark:text-slate-300">
-              <summary className="cursor-pointer">Choose a model ID manually</summary>
-              <div className="mt-3">
-                <Input
-                  label="Model ID (optional)"
-                  value={modelStr}
-                  onChange={(e) => setModelStr(e.target.value)}
-                  placeholder="Leave blank to choose automatically"
-                />
-              </div>
-            </details>
+            {modelPicker}
+            {keyField}
+          </>
+        )}
+        {isApiKey && mode === "create" && (
+          <>
+            {keyField}
+            {modelPicker}
           </>
         )}
         {authMode === "subscription" && (
@@ -298,8 +358,8 @@ export function ModelSetupForm({
           </>
         )}
         {editingExistingCustom && (
-          <p className="text-xs text-slate-500">
-            Use the endpoint form above to change this custom model or its credentials.
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Change a custom endpoint&apos;s model or credentials from its Endpoint setting.
           </p>
         )}
         {isCustom && !editingExistingCustom && (
