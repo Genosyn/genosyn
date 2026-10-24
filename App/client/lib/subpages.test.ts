@@ -13,20 +13,27 @@ import {
 import { MATCH_SCORE } from "./searchText.js";
 import {
   ADVANCED_NAV_GROUP,
+  EMPLOYEE_PAGES,
   PALETTE_SUBPAGES,
   PRODUCT_INTEGRATION_SUBPAGES,
   SECTION_SUBPAGES,
   SUBPAGE_RESULT_LIMIT,
   type SubpageItem,
   type SubpageViewer,
+  canOpenEmployeePage,
   canOpenSubpage,
   canWriteFinance,
+  currentEmployeeSlug,
+  employeePageAt,
+  employeePagePath,
   effectiveFinanceAccess,
   isAdvancedRailPage,
   isCurrentSubpage,
   onRailPage,
   pagesLead,
+  queryNamesEmployeePage,
   railSubpages,
+  searchEmployeePages,
   searchSubpages,
   subpageAt,
 } from "./subpages.js";
@@ -868,5 +875,92 @@ describe("Routines in the catalogue", () => {
       paths(palette("resources ai access").pages).includes("/routines/ai-access"),
       false,
     );
+  });
+});
+
+describe("pages inside one AI Employee", () => {
+  const ROSTER = [
+    { slug: "ada", name: "Ada Lovelace" },
+    { slug: "grace", name: "Grace Hopper" },
+    { slug: "linus", name: "Linus" },
+  ];
+  const labels = (matches: { page: SubpageItem }[]) => matches.map((m) => m.page.label);
+
+  test("catalogues Access under each employee's Settings, open to every Member", () => {
+    const access = employeePageAt("/settings/access");
+    assert.equal(access.label, "Access");
+    assert.equal(access.access, undefined);
+    for (const viewer of Object.values(VIEWERS)) assert.equal(canOpenEmployeePage(access, viewer), true);
+    assert.throws(() => employeePageAt("/settings/nowhere"), /No employee page is catalogued/);
+    assert.equal(new Set(EMPLOYEE_PAGES.map((p) => p.id)).size, EMPLOYEE_PAGES.length);
+  });
+
+  test("gates an employee page the way a section page is gated", () => {
+    const adminOnly = { ...employeePageAt("/settings/access"), access: { admin: true as const } };
+    assert.equal(canOpenEmployeePage(adminOnly, MEMBER_FULL), false);
+    assert.equal(canOpenEmployeePage(adminOnly, ADMIN), true);
+    assert.deepEqual(searchEmployeePages([adminOnly], ROSTER, "access", { viewer: MEMBER_FULL }), []);
+  });
+
+  test("builds each employee's path, encoding the slug", () => {
+    const access = employeePageAt("/settings/access");
+    assert.equal(employeePagePath(access, "ada"), "/employees/ada/settings/access");
+    assert.equal(employeePagePath(access, "a b"), "/employees/a%20b/settings/access");
+  });
+
+  test("knows which employee the browser is on, from after the company's prefix", () => {
+    assert.equal(currentEmployeeSlug("/c/acme/employees/ada/chat", "acme"), "ada");
+    assert.equal(currentEmployeeSlug("/c/acme/employees/ada/settings/soul", "acme"), "ada");
+    assert.equal(currentEmployeeSlug("/c/acme/employees/new", "acme"), null);
+    assert.equal(currentEmployeeSlug("/c/acme/employees", "acme"), null);
+    assert.equal(currentEmployeeSlug("/c/acme/routines", "acme"), null);
+    // A company slug that looks like a path segment is only read as a prefix.
+    assert.equal(currentEmployeeSlug("/c/employees/employees/ada/chat", "employees"), "ada");
+  });
+
+  test("loads the roster only for a query that names an employee page", () => {
+    for (const query of ["access", "Access", "ada access", "grants", "bulk grant", "revoke access"]) {
+      assert.equal(queryNamesEmployeePage(EMPLOYEE_PAGES, query), true, query);
+    }
+    for (const query of ["", "  ", "invoices", "ada"]) {
+      assert.equal(queryNamesEmployeePage(EMPLOYEE_PAGES, query), false, query);
+    }
+  });
+
+  test('"access" offers the current employee first, then everyone else a step below', () => {
+    const matches = searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "access", {
+      viewer: MEMBER_NONE,
+      currentSlug: "grace",
+    });
+    assert.deepEqual(labels(matches), ["Access — Grace Hopper", "Access — Ada Lovelace", "Access — Linus"]);
+    assert.equal(matches[0].page.path, "/employees/grace/settings/access");
+    assert.ok(matches[0].score > matches[1].score);
+    assert.ok(matches.every((m) => m.page.section === "employees"));
+  });
+
+  test("with no employee on screen, everyone ranks alike, in roster order", () => {
+    const matches = searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "access", { viewer: OWNER });
+    assert.deepEqual(labels(matches), ["Access — Ada Lovelace", "Access — Grace Hopper", "Access — Linus"]);
+    assert.equal(new Set(matches.map((m) => m.score)).size, 1);
+  });
+
+  test("a name narrows it to that employee, in either order and by any word of the name", () => {
+    for (const query of ["ada access", "access ada", "lovelace access", "Ada grants"]) {
+      assert.deepEqual(
+        labels(searchEmployeePages(EMPLOYEE_PAGES, ROSTER, query, { viewer: OWNER })),
+        ["Access — Ada Lovelace"],
+        query,
+      );
+    }
+    // A word that names nobody leaves nothing — not every employee.
+    assert.deepEqual(searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "zed access", { viewer: OWNER }), []);
+    // Only an employee's name and no page is the entity search's job.
+    assert.deepEqual(searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "ada", { viewer: OWNER }), []);
+  });
+
+  test("never lists more than asked, and nothing for an empty query", () => {
+    assert.equal(searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "access", { viewer: OWNER, limit: 2 }).length, 2);
+    assert.deepEqual(searchEmployeePages(EMPLOYEE_PAGES, ROSTER, "  ", { viewer: OWNER }), []);
+    assert.deepEqual(searchEmployeePages(EMPLOYEE_PAGES, [], "access", { viewer: OWNER }), []);
   });
 });
