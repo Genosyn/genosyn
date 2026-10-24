@@ -21,7 +21,7 @@ import { openingPublicUrl } from "./urls.js";
  * Both are the company's own templates (Recruiting → Settings), filled with a
  * fixed set of placeholders; no model writes them. They go out through the
  * company's email provider like every other transactional email, are logged
- * at Settings → Email Logs with the purpose `recruiting`, and land on the
+ * at Settings → Notification email → Logs with the purpose `recruiting`, and land on the
  * Application's timeline whether they were sent, failed, or not sent.
  *
  * A public form that emails whatever address is typed into it can be turned
@@ -185,7 +185,7 @@ async function deliver(args: {
       application: args.application,
       kind: "email_skipped",
       actor: args.actor,
-      body: "No email provider is set up, so the email was written to the server log instead of sent. Add one at Settings → Email.",
+      body: "No email provider is set up, so the email was written to the server log instead of sent. Add one at Settings → Notification email.",
       meta,
     });
   }

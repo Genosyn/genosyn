@@ -89,6 +89,7 @@ import TldrSettingsPage from "./pages/TldrSettings";
 import BoardLettersPage from "./pages/BoardLetters";
 import BoardLetterPage from "./pages/BoardLetter";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
+import { EmployeeAccessPage } from "./pages/EmployeeAccess";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
@@ -521,6 +522,7 @@ function CompanyRoutes({
             <Route path="settings" element={<SettingsPage />}>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPage />} />
+              <Route path="access" element={<EmployeeAccessPage />} />
               <Route path="soul" element={<SoulSettingsPage />} />
               <Route path="model" element={<ModelSettingsPage />} />
               <Route path="memory" element={<MemoryPage />} />

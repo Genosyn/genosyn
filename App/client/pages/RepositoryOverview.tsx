@@ -292,11 +292,12 @@ export default function RepositoryOverview() {
         </div>
       </div>
 
-      <div className="mt-5 max-w-2xl">
+      <div className="mt-4">
         <AsyncResourceTagPicker
           companyId={company.id}
           resourceType="repository"
           resourceId={currentRepo.id}
+          variant="inline"
         />
       </div>
 

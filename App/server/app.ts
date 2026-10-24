@@ -30,6 +30,7 @@ import { standdownsRouter } from "./routes/standdowns.js";
 import { modelsRouter } from "./routes/models.js";
 import { companyModelsRouter } from "./routes/companyModels.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
+import { employeeAccessRouter } from "./routes/employeeAccess.js";
 import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { decisionsRouter } from "./routes/decisions.js";
@@ -319,6 +320,9 @@ export function createApp(): express.Express {
   // employees CRUD router because these talk to the runner seam + fs, not
   // just the DB.
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
+  // One employee's Access page: everything grantable, and many Grants at once,
+  // each replayed through its kind's own route.
+  app.use("/api/companies/:cid/employees", employeeAccessRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", toolCatalogueRouter);
   // Ask AI — the top-nav chat window. Its own router, mounted ahead of the
@@ -479,8 +483,8 @@ export function createApp(): express.Express {
   app.use("/api/companies/:cid", exploreRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
-  // Postmark) and the append-only delivery log used by Settings → Email
-  // and Settings → Email Logs.
+  // Postmark) and the append-only delivery log used by Settings → Notification email
+  // and its Logs tab.
   app.use("/api/companies/:cid/email/providers", emailProvidersRouter);
   app.use("/api/companies/:cid/email/logs", emailLogsRouter);
 

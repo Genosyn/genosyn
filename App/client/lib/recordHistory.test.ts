@@ -48,6 +48,14 @@ describe("history values", () => {
     assert.equal(formatHistoryValue("pdfAttached", true), "yes");
   });
 
+  test("reads a Routine's cron expression as its schedule", () => {
+    assert.equal(humanizeKey("cronExpr"), "schedule");
+    assert.equal(formatHistoryValue("cronExpr", "0 9 * * 1-5"), "Every weekday at 9:00 AM");
+    assert.equal(formatHistoryValue("cronExpr", null), "none");
+    // Other strings are left as written.
+    assert.equal(formatHistoryValue("name", "0 9 * * 1-5"), "0 9 * * 1-5");
+  });
+
   test("groups under Today and Yesterday", () => {
     const now = new Date("2026-10-13T15:00:00").getTime();
     assert.equal(historyDayLabel(new Date("2026-10-13T09:00:00").toISOString(), now), "Today");

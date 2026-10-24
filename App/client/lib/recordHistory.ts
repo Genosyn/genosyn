@@ -1,4 +1,5 @@
 import { api, type AuditActorKind } from "./api";
+import { describeCronExpr } from "./scheduleBuilder";
 
 /**
  * Client side of a record's History (`server/services/recordHistory.ts`):
@@ -206,8 +207,18 @@ export function describeHistoryAction(action: string, targetType: string, noun: 
   return words(segments.join(" "));
 }
 
-/** "dueDate" → "due date", "amountCents" → "amount". */
+/**
+ * Fields whose stored name is jargon to the person reading the feed. A
+ * Routine's `cronExpr` is its schedule, and its value reads as one too
+ * (`formatHistoryValue`).
+ */
+const KEY_LABELS: Record<string, string> = {
+  cronExpr: "schedule",
+};
+
+/** "dueDate" → "due date", "amountCents" → "amount", "cronExpr" → "schedule". */
 export function humanizeKey(key: string): string {
+  if (KEY_LABELS[key]) return KEY_LABELS[key];
   return key
     .replace(/Cents$/, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -222,6 +233,8 @@ export function formatHistoryValue(
   currency?: string,
 ): string {
   if (value === null) return "none";
+  // "0 9 * * 1-5" → "Every weekday at 9:00 AM", the way the schedule is shown elsewhere.
+  if (key === "cronExpr" && typeof value === "string") return describeCronExpr(value);
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (typeof value === "number" && /Cents$/.test(key)) {
     const amount = value / 100;

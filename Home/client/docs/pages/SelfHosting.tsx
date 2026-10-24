@@ -235,8 +235,10 @@ export function SelfHosting() {
 
       <H2 id="custom-javascript">Custom JavaScript</H2>
       <P>
-        Open <Code>Admin → General → Custom JavaScript</Code> to add Google Tag Manager, Google
-        Analytics, or another trusted browser script. Paste either raw JavaScript or the complete
+        Open <Code>Admin → General → Advanced → Custom JavaScript</Code> to add Google Tag
+        Manager, Google Analytics, or another trusted browser script. Advanced is closed by
+        default; its line says <em>No custom JavaScript</em>, or that it is on and how many lines
+        it holds. Paste either raw JavaScript or the complete
         vendor snippet with its <Code>&lt;script&gt;</Code> elements; an external script element
         must use HTTPS and include <Code>async</Code>. Select <Strong>Save changes</Strong>. It runs
         on the next eligible signed-in App page load without a restart. Clear the field and save
@@ -363,9 +365,11 @@ export function SelfHosting() {
       <P>
         System-level sends (password resets, invites, welcomes) and any company without its own
         provider fall back to a single <Strong>global SMTP transport</Strong>. Configure it in the
-        app at <Code>Admin → Email transport</Code>: fill in the host, port, encryption, username,
-        password, from name, and from address, then use <Code>Send test</Code> to confirm
-        deliverability. The settings are stored in the database and take effect immediately — no
+        app at <Code>Admin → Email transport</Code>: fill in the host, username, password, and from
+        address — the port, TLS mode, and from name sit under <Strong>Advanced</Strong>, whose
+        closed line reads <em>Port 587 · TLS by port · From “Genosyn”</em> until you change them —
+        then use <Code>Send test</Code> to confirm deliverability. The settings are stored in the
+        database and take effect immediately — no
         restart. Until it&apos;s configured, the <Code>Admin → Overview</Code> and{" "}
         <Code>Instance Health</Code> dashboards flag Email transport with a warning, because those
         system emails only log to the server console and never reach a mailbox.
@@ -376,10 +380,10 @@ export function SelfHosting() {
         the server console. That console fallback is deliberate and useful: on a brand-new install
         the bootstrap master admin&apos;s own verification link prints there, which is how you claim
         the first operator account before any mail server exists. When a global transport is
-        configured, adding a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
+        configured, adding a company SMTP provider at <Code>Settings → Notification email</Code> pre-fills the
         host, port, encryption, username, and sender address from it — you only enter the password.
         Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at{" "}
-        <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
+        <Code>Settings → Notification email → Logs</Code>. Member-role accounts cannot read recipient addresses,
         subjects, delivery errors, or body previews. Bearer links such as company invitations are
         redacted from the stored preview.
       </P>
@@ -514,16 +518,18 @@ export function SelfHosting() {
           <Strong>Instance Health</Strong> — live probes of the deployment substrate: database
           connectivity and round-trip latency, pending schema migrations, a writable data directory,
           the backup story, and the email + Web Push transports. This is distinct from a
-          company&apos;s <Code>Settings → System Health</Code>, which watches that company&apos;s
+          company&apos;s <Code>Settings → Advanced → System Health</Code>, which watches that company&apos;s
           routines, models, and integrations.
         </LI>
         <LI>
-          <Strong>Migrations</Strong> — expands the Instance Health migrations probe into the full
-          ledger: every schema migration, its state, and whether the database has drifted from the
+          <Strong>Migrations</Strong> (under <Strong>Advanced</Strong> at the bottom of the Admin
+          sidebar, closed until you open it) — expands the Instance Health migrations probe into the
+          full ledger: every schema migration, its state, and whether the database has drifted from the
           code. See <Code>Migrations</Code> below.
         </LI>
         <LI>
-          <Strong>Database</Strong> — a raw SQL console over Genosyn&apos;s own application
+          <Strong>Database</Strong> (also under <Strong>Advanced</Strong>) — a raw SQL console over
+          Genosyn&apos;s own application
           database. See <Code>Database console</Code> below.
         </LI>
         <LI>
@@ -656,7 +662,7 @@ export function SelfHosting() {
       </P>
       <P>
         Companies can also sign their Members in through their own identity provider, with their
-        own login URL, at <Strong>Settings → Single sign-on</Strong> — see{" "}
+        own login URL, at <Strong>Settings → Advanced → Single sign-on</Strong> — see{" "}
         <DocLink to="/docs/security#company-sso">Company single sign-on</DocLink>. A master admin
         allows that first with <Strong>Let companies use their own identity provider</Strong>{" "}
         under <Strong>Company single sign-on</Strong> on the same page. It is off by default:
@@ -667,7 +673,7 @@ export function SelfHosting() {
 
       <H3 id="db-console">Database console</H3>
       <P>
-        <Code>Admin → Database</Code> is a raw SQL console wired directly to Genosyn&apos;s own
+        <Code>Admin → Advanced → Database</Code> is a raw SQL console wired directly to Genosyn&apos;s own
         application database — the same SQLite or Postgres the app itself runs on. It is meant for
         operators who need to inspect or repair an install directly: check a row the UI doesn&apos;t
         surface, audit what an AI Employee wrote, or fix up data after a botched import. Distinct
@@ -698,7 +704,7 @@ export function SelfHosting() {
 
       <H3 id="migrations">Migrations</H3>
       <P>
-        <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM schema migration —{" "}
+        <Code>Admin → Advanced → Migrations</Code> is a read-only ledger of every TypeORM schema migration —{" "}
         <Code>Total</Code> / <Code>Applied</Code> / <Code>Pending</Code> / <Code>Unknown</Code>{" "}
         tiles over the full list. Nothing runs from here: boot applies pending migrations
         automatically, so this is the detail view behind the Instance Health probe.

@@ -388,11 +388,12 @@ export default function PipelineDetail({ company }: { company: Company }) {
               placeholder="Add a short purpose so others know when to use this pipeline"
               className="mt-1.5 min-h-7 w-full resize-none bg-transparent text-sm leading-5 text-slate-500 outline-none placeholder:text-slate-400 dark:text-slate-400 dark:placeholder:text-slate-600"
             />
-            <div className="mt-2 max-w-xl">
+            <div className="mt-2">
               <AsyncResourceTagPicker
                 companyId={company.id}
                 resourceType="pipeline"
                 resourceId={pipeline.id}
+                variant="inline"
               />
             </div>
           </div>

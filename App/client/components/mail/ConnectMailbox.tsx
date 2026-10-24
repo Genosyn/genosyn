@@ -10,7 +10,9 @@ import {
   type MailboxConnectPlan,
 } from "../../lib/mail";
 import { MAX_SENDER_NAME_LENGTH, normalizeSenderName } from "../../../shared/mailSenderName";
+import { describeMailServers } from "../../lib/mailServerSummary";
 import { Button } from "../ui/Button";
+import { Disclosure } from "../ui/Disclosure";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
@@ -86,7 +88,6 @@ export function ConnectMailboxForm({
   const [password, setPassword] = React.useState("");
   const [senderName, setSenderName] = React.useState("");
   const senderNameHintId = React.useId();
-  const [advanced, setAdvanced] = React.useState(false);
   const [imapHost, setImapHost] = React.useState("");
   const [imapPort, setImapPort] = React.useState("");
   const [smtpHost, setSmtpHost] = React.useState("");
@@ -328,14 +329,19 @@ export function ConnectMailboxForm({
               address.
             </p>
           </div>
-          <button
-            type="button"
-            className="text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-            onClick={() => setAdvanced((v) => !v)}
+          {/* Usually right, so collapsed — but its line shows the servers
+              worked out from the address, so a wrong guess is visible. */}
+          <Disclosure
+            title="Server settings"
+            summary={describeMailServers({
+              imapHost,
+              imapPort,
+              smtpHost,
+              smtpPort,
+              username,
+              email: plan.email,
+            })}
           >
-            {advanced ? "Hide server settings" : "Server settings"}
-          </button>
-          {advanced && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input
                 label="IMAP server"
@@ -367,7 +373,7 @@ export function ConnectMailboxForm({
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>
-          )}
+          </Disclosure>
           <FormError message={error} />
           <div className="flex items-center gap-2">
             <Button type="submit" loading={busy} disabled={!password}>

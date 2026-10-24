@@ -2237,7 +2237,7 @@ try {
       await header.getByText("2", { exact: true }).waitFor();
       const action = header.getByRole("button", { name: "Mark all as read", exact: true });
       await action.waitFor();
-      await header.getByRole("link", { name: "Bell has history", exact: false }).waitFor();
+      await header.getByRole("link", { name: "All notifications", exact: false }).waitFor();
       await fits(fixture.page);
       await fixture.page.screenshot({
         path: path.join(output, "home-notifications-mark-all-mobile.png"),

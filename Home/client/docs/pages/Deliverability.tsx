@@ -41,7 +41,7 @@ export function Deliverability() {
       <H2 id="suppression">The suppression list</H2>
       <P>
         A <Strong>Suppression</Strong> is an address this company must never email. The list lives
-        at <Code>Revenue → Suppressions</Code>, searchable and filterable by reason.
+        at <Code>Revenue → Advanced → Suppressions</Code>, searchable and filterable by reason.
       </P>
       <KeyList
         rows={[

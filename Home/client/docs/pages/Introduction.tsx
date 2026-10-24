@@ -164,7 +164,7 @@ export function Introduction() {
         A letter to the board works the same way, and also leaves once you open it.
         Use <Strong>Mark all as read</Strong> on <Strong>Needs your attention</Strong> to clear your
         unread notifications together; they remain available in the bell&apos;s history, which the{" "}
-        <Strong>Unread notifications</Strong> counter and <Strong>Bell has history</Strong> open in
+        <Strong>Unread notifications</Strong> counter and <Strong>All notifications</Strong> open in
         place (<Code>Esc</Code> closes the bell). An Approval or a review there opens straight into
         its Approve and Reject, or <Strong>Approve &amp; mark done</Strong> and{" "}
         <Strong>Push back</Strong>; every notification opens in the company it came from. So the page
@@ -222,6 +222,20 @@ export function Introduction() {
         admin set for you on Settings → Members. A bookmark or a shared link can still lead a Member
         to Usage, Single sign-on, the Audit log, or the Email logs; each then says that only owners
         and admins can open it, rather than failing to load.
+      </P>
+      <P>
+        <Strong>Each sidebar leads with what you come for.</Strong> Pages you open now and then sit
+        under <Strong>Advanced</Strong> at the bottom of their section&apos;s sidebar, closed until
+        you open it: Settings keeps <Strong>Tags</Strong>, <Strong>Single sign-on</Strong>,{" "}
+        <Strong>Audit log</Strong> and <Strong>System Health</Strong> there, and Revenue keeps{" "}
+        <Strong>Activities</Strong>, <Strong>Suppressions</Strong>, <Strong>Imports</Strong>,{" "}
+        <Strong>Data quality</Strong>, <Strong>AI access</Strong> and <Strong>Setup</Strong>.
+        Hovering it names what is inside, it opens by itself whenever you are on one of those
+        pages, and the palette finds each of them as before. Settings groups the rest under{" "}
+        <Strong>Company</Strong>, <Strong>Connections</Strong> and <Strong>Developers</Strong>;{" "}
+        <Strong>Notification email</Strong>, under Connections, is how Genosyn emails people on the
+        company&apos;s behalf, not your inbox, which is the{" "}
+        <DocLink to="/docs/email">Email</DocLink> section.
       </P>
       <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}

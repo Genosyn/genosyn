@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   Building2,
+  KeyRound,
   Mail,
   RefreshCw,
   Rocket,
@@ -20,6 +21,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { buildGoalPayload } from "../lib/goalSentence";
 import { AuthShell } from "./Login";
+import { AccessStep } from "./onboarding/AccessStep";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
 import { FirstRequestStep } from "./onboarding/FirstRequestStep";
@@ -51,6 +53,7 @@ const STEPS: Array<{
     icon: Rocket,
   },
   { id: "email", label: "Email", hint: "Optional mailbox access", icon: Mail },
+  { id: "access", label: "Access", hint: "What they can reach", icon: KeyRound },
 ];
 
 /**
@@ -300,6 +303,13 @@ export function CompanyOnboarding({
               company={company}
               employee={selectedEmployee as Employee}
               onBack={() => updateLocation("recommendations")}
+              onContinue={() => updateLocation("access")}
+            />
+          ) : step === "access" ? (
+            <AccessStep
+              company={company}
+              employee={selectedEmployee as Employee}
+              onBack={() => updateLocation("email")}
               onContinue={() => updateLocation("done")}
             />
           ) : step === "first_request" ? (
@@ -349,7 +359,7 @@ function StepRail({
         )}
       </p>
 
-      <ol className="mx-auto hidden max-w-3xl grid-cols-4 sm:grid" aria-label="Setup progress">
+      <ol className="mx-auto hidden max-w-3xl grid-cols-5 sm:grid" aria-label="Setup progress">
         {STEPS.map((step, index) => {
           const Icon = step.icon;
           const complete = index < completeThrough;

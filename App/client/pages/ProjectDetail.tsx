@@ -417,11 +417,12 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
           </button>
         </div>
 
-        <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-b border-slate-200 bg-white px-6 py-1.5 dark:border-slate-700 dark:bg-slate-900">
           <AsyncResourceTagPicker
             companyId={company.id}
             resourceType="project"
             resourceId={project.id}
+            variant="inline"
           />
         </div>
 

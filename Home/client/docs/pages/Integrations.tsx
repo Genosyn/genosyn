@@ -128,8 +128,10 @@ export function Integrations() {
         To use your own app instead — for products Connect does not offer, your own consent
         screen, or your own API quota — or for other OAuth integrations, register an app{" "}
         <Strong>once for the whole install</Strong>. Open{" "}
-        <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
-        the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
+        <Strong>Admin → Integrations</Strong>, where each provider is one line saying{" "}
+        <em>Registered</em> or <em>Not registered</em>. Open a provider, copy the redirect URI it
+        shows into the provider&apos;s console, paste back the Client ID and Client Secret, and
+        select <Strong>Register</Strong>. From then on,
         every company on the instance connects that provider by clicking it and approving on the
         provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
         Google Workspace Connection becomes: click <Strong>Google Workspace</Strong>, tick the products it may
@@ -364,10 +366,14 @@ export function Integrations() {
       <UL>
         <LI>
           <Strong>Add a grant</Strong> at the employee&apos;s{" "}
-          <Strong>Settings → Connections</Strong>. The MCP tool list updates on the next run.
+          <Strong>Settings → Connections</Strong>, or tick several Connections — alongside
+          mailboxes, notes, Vault items and the rest — on its{" "}
+          <DocLink to="/docs/employees#access">Settings → Access</DocLink> and grant them in one
+          go. The MCP tool list updates on the next run.
         </LI>
         <LI>
-          <Strong>Revoke a grant</Strong> the same place. The next routine won&apos;t see the tools.
+          <Strong>Revoke a grant</Strong> in either place. The next routine won&apos;t see the
+          tools.
         </LI>
         <LI>
           <Strong>Delete a Connection</Strong> at the company level. All dependent grants disappear

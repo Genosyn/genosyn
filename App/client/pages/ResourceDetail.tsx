@@ -387,8 +387,9 @@ export default function ResourceDetail({ company }: { company: Company }) {
             )}
           </div>
 
-          <div className="mb-6 max-w-xl">
+          <div className="mb-6">
             <ResourceTagPicker
+              variant="inline"
               companyId={company.id}
               resourceType="resource"
               resourceId={row.id}

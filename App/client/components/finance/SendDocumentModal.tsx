@@ -204,7 +204,7 @@ export function SendDocumentModal({
           });
         }
       } else if (result.send.status === "skipped") {
-        void dialog.error("Set one in Settings → Email, then send again.", {
+        void dialog.error("Set one in Settings → Notification email, then send again.", {
           title: "No email transport configured",
         });
       } else {

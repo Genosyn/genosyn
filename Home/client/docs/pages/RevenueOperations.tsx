@@ -106,7 +106,7 @@ export function RevenueOperations() {
 
       <H2 id="custom-fields">Typed custom fields</H2>
       <P>
-        Open <Code>Revenue → Setup</Code> to add company-specific fields to contacts, accounts,
+        Open <Code>Revenue → Advanced → Setup</Code> to add company-specific fields to contacts, accounts,
         deals, or partnerships. Fields can be text, number, date, yes/no, URL, single select, or
         multi-select. Mark a field required when every record must carry it.
       </P>
@@ -134,7 +134,7 @@ export function RevenueOperations() {
 
       <H2 id="controlled-values">Controlled classifications</H2>
       <P>
-        <Code>Revenue → Setup</Code> also owns the controlled lists for deal source, buying
+        <Code>Revenue → Advanced → Setup</Code> also owns the controlled lists for deal source, buying
         committee role, partnership type, and partnership status. Each option has a stable machine
         value and an editable label. Deal source includes <Strong>Self-Serve Upgrade</Strong> by
         default. Archive an option to remove it from pickers without changing historical records.
@@ -177,7 +177,7 @@ export function RevenueOperations() {
 
       <H2 id="activity-audit">Company-wide activity audit</H2>
       <P>
-        Open <Code>Revenue → Activities</Code> to search activity subjects and bodies across the
+        Open <Code>Revenue → Advanced → Activities</Code> to search activity subjects and bodies across the
         company, filter by kind and date range, inspect a row by its ID, or export the filtered
         history as CSV. Contact and Deal pages remain the fastest way to understand one
         relationship; Activities is the audit and cleanup surface.
@@ -204,7 +204,7 @@ export function RevenueOperations() {
 
       <H2 id="imports">Base and file migration</H2>
       <P>
-        Open <Code>Revenue → Imports</Code> to move data from a Genosyn Base or upload a{" "}
+        Open <Code>Revenue → Advanced → Imports</Code> to move data from a Genosyn Base or upload a{" "}
         <Code>.csv</Code>, <Code>.json</Code>, <Code>.jsonl</Code>, or <Code>.ndjson</Code> file
         directly. Genosyn inspects the source first and shows its fields and row count before any
         mapping or write. Use <Strong>Linked Account + Contact + Deal</Strong> when each legacy row
@@ -265,7 +265,7 @@ export function RevenueOperations() {
       </P>
       <Callout kind="warn" title="Controlled values must exist before import.">
         Deal sources and partnership type/status are validated through the lists in{" "}
-        <Code>Revenue → Setup</Code>. Source labels such as <Code>Inbound</Code> and{" "}
+        <Code>Revenue → Advanced → Setup</Code>. Source labels such as <Code>Inbound</Code> and{" "}
         <Code>Self-Serve Upgrade</Code> resolve to those native classifications. Add any other
         values first or the dry run will tell you which rows cannot be created.
       </Callout>
@@ -273,7 +273,7 @@ export function RevenueOperations() {
       <H2 id="ai-native">AI-native operation</H2>
       <P>
         Grant an AI Employee Revenue access from{" "}
-        <DocLink to="/docs/revenue#ai-access">Revenue → AI access</DocLink>. Its granular tools can
+        <DocLink to="/docs/revenue#ai-access">Revenue → Advanced → AI access</DocLink>. Its granular tools can
         administer custom-field definitions, classifications and Deal Stages; own and update
         Accounts, Contacts, Deals, and Partnerships; preview and merge every core record type with
         explicit conflict choices; resolve tombstone redirects; archive, restore, bulk triage,

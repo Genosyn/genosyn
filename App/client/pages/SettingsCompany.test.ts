@@ -137,3 +137,67 @@ describe("Settings → Company time zone", () => {
     assert.match(html, /Mission/);
   });
 });
+
+describe("Settings → Company Advanced", () => {
+  /**
+   * The page's Advanced toggle button's own markup — not the Settings rail's
+   * Advanced group beside it, which carries `data-rail-advanced`.
+   */
+  function advancedToggle(html: string): string | null {
+    for (const match of html.matchAll(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>/g)) {
+      if (/>Advanced</.test(match[0]) && !/data-rail-advanced/.test(match[0])) return match[0];
+    }
+    return null;
+  }
+
+  /** The panel the toggle controls, from its opening tag on. */
+  function advancedPanel(html: string): string | null {
+    const id = /aria-controls="([^"]+)"/.exec(advancedToggle(html) ?? "")?.[1];
+    if (!id) return null;
+    const at = html.indexOf(`id="${id}"`);
+    return at === -1 ? null : html.slice(html.lastIndexOf("<div", at));
+  }
+
+  test("tucks the web address and two-factor rule under one closed Advanced disclosure", () => {
+    for (const role of ["owner", "admin"] as const) {
+      const html = renderCompany({ ...owner, role });
+      const toggle = advancedToggle(html);
+      assert.ok(toggle, `${role}: there is an Advanced disclosure`);
+      assert.match(toggle!, /aria-expanded="false"/, `${role}: closed by default`);
+      const panel = advancedPanel(html);
+      assert.ok(panel, `${role}: its panel is mounted, so the line can report it`);
+      assert.match(panel!, /^<div[^>]*hidden=""/, `${role}: and hidden until opened`);
+      assert.match(panel!, />Web address<\/label>/);
+      assert.match(panel!, /Require two-factor authentication/);
+    }
+  });
+
+  test("says what is set inside on its closed line", () => {
+    assert.match(
+      advancedToggle(renderCompany(owner)) ?? "",
+      /Web address \/c\/acme · Two-factor sign-in optional/,
+    );
+    assert.match(
+      advancedToggle(renderCompany({ ...owner, requireTwoFactor: true })) ?? "",
+      /Web address \/c\/acme · Two-factor sign-in required/,
+    );
+  });
+
+  test("keeps the basics up front, with no Slug label or data-directory note", () => {
+    const html = renderCompany(owner);
+    const panelAt = html.indexOf(advancedPanel(html) ?? "\u0000");
+    for (const label of ["Name", "Mission", "Vision", "Time zone"]) {
+      const at = html.search(new RegExp(`>${label}</label>`));
+      assert.ok(at !== -1 && at < panelAt, `${label} sits before Advanced`);
+    }
+    assert.doesNotMatch(html, />Slug<\/label>/);
+    assert.doesNotMatch(html, /data\/companies\//);
+  });
+
+  test("leaves Advanced out for a plain Member, who can change neither", () => {
+    const html = renderCompany({ ...owner, role: "member" });
+    assert.equal(advancedToggle(html), null);
+    assert.doesNotMatch(html, /Web address/);
+    assert.doesNotMatch(html, /Require two-factor authentication/);
+  });
+});

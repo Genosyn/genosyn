@@ -219,6 +219,30 @@ await context.route("**/api/**", async (route) => {
     });
   }
   if (pathname.endsWith("/mail/accounts")) return route.fulfill({ json: { accounts: [] } });
+  // The Access step and the summary's Grant count read one employee's listing.
+  if (/\/employees\/[^/]+\/access$/.test(pathname) && method === "GET") {
+    const section = (kind: string, label: string) => ({
+      key: kind,
+      kind,
+      resourceId: null,
+      label,
+      detail: null,
+      href: null,
+      grant: null,
+      inherited: null,
+      hidden: false,
+      canChange: true,
+      reason: null,
+    });
+    return route.fulfill({
+      json: {
+        employee: { id: hire.id, name: hire.name, slug: hire.slug },
+        items: [section("finance", "Finance"), section("revenue", "Revenue")],
+        kinds: [],
+        limit: 250,
+      },
+    });
+  }
   if (pathname.endsWith("/onboarding-status"))
     return route.fulfill({
       json: {
@@ -342,7 +366,7 @@ try {
   await visible("Suggested Routines");
   assert.ok(
     await page
-      .getByRole("button", { name: "Step 1 of 4: Company — completed, go back", exact: true })
+      .getByRole("button", { name: "Step 1 of 5: Company — completed, go back", exact: true })
       .locator("span")
       .first()
       .evaluate((dot) => {
@@ -420,6 +444,11 @@ try {
   await page.getByRole("button", { name: "Schedule 1 Routine and continue" }).click();
   await visible("Connect email");
   await page.getByRole("button", { name: "Skip email for now" }).click();
+  // Granting access is the step after email: the employee's whole Access list.
+  await visible("Choose what Avery can reach");
+  await page.locator('li[data-access-label="Finance"]').waitFor();
+  checks++;
+  await page.getByRole("button", { name: "Finish setup", exact: true }).click();
   await visible("Review your setup");
   await page.getByText(/They will start once an AI Model is connected\./).waitFor();
   checks++;
@@ -433,7 +462,7 @@ try {
   await visible("Not connected. You can add a mailbox later from Email → Integrations.");
   await screenshot("onboarding-summary.png");
 
-  for (const step of ["employee", "recommendations", "email", "done"]) {
+  for (const step of ["employee", "recommendations", "email", "access", "done"]) {
     reset(true);
     await open(`step=${step}`);
     await visible("What is your company's Goal?");
