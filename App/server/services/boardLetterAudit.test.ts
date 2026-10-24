@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import { auditBoardLetter } from "./boardLetterAudit.js";
 import type { LetterContext } from "./boardLetterWriting.js";
@@ -91,7 +91,7 @@ async function people(connected = true) {
       soulBody: "",
     });
     if (withModel) {
-      await insert(AIModel, {
+      await insertEmployeeModel({
         employeeId: employee.id,
         provider: "openai",
         model: "gpt-test",

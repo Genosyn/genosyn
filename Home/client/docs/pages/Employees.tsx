@@ -73,8 +73,8 @@ export function Employees() {
             term: "model",
             def: (
               <>
-                One or more <Code>AIModel</Code> brains, one active at a time. See{" "}
-                <DocLink to="/docs/models">AI Models</DocLink>.
+                One or more of the company&apos;s <Code>AIModel</Code> brains attached to it, one
+                active at a time. See <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),
           },
@@ -139,11 +139,11 @@ export function Employees() {
           freezes; you can rename freely afterward.
         </LI>
         <LI>
-          <Strong>Attach a model.</Strong> If another AI Employee already runs on an API key or
-          custom endpoint, hiring connects the new employee to a copy of that{" "}
-          <DocLink to="/docs/models#reuse-model">AI Model</DocLink> automatically — nothing to
-          paste — and the next screen says <Strong>Uses the same AI Model as</Strong> that
-          employee, with a link to <Strong>Settings → Model</Strong> to change it. Otherwise the
+          <Strong>Attach a model.</Strong> If the company already has a connected{" "}
+          <DocLink to="/docs/models#company-models">AI Model</DocLink>, hiring attaches it to the new
+          employee automatically — the one most of the team runs on, the same model and keys,
+          nothing to paste — and the next screen says <Strong>Uses the same AI Model as</Strong>{" "}
+          whoever runs on it, with a link to <Strong>Settings → Model</Strong> to change it. Otherwise the
           next screen connects one: Anthropic takes an API key; OpenAI takes an API key or eligible
           ChatGPT subscription access; Custom takes an OpenAI-compatible endpoint. If none is
           connected when you choose <Strong>Choose Routines</Strong> (<Strong>Continue</Strong> on
@@ -181,8 +181,10 @@ export function Employees() {
           <DocLink to="/docs/employees#access">Access</DocLink>.
         </LI>
         <LI>
-          <Strong>Fire.</Strong> Deleting an employee removes their DB rows, including the encrypted
-          credential row for every model they held. There&apos;s no shared key to revoke.
+          <Strong>Fire.</Strong> Deleting an employee removes their DB rows and detaches every AI
+          Model attached to them. The models themselves are the company&apos;s: they stay in{" "}
+          <Strong>Settings → AI Models</Strong> with their keys, for whoever uses them next, or for
+          you to remove.
         </LI>
       </OL>
 
@@ -317,11 +319,13 @@ export function Employees() {
           they work, read before every chat and Routine Run. Markdown, ⌘S to save.
         </LI>
         <LI>
-          <Strong>Settings → Model.</Strong> The AI Models this employee thinks with, one card each:
-          its status, <Strong>Test connection</Strong>, <Strong>Make active</Strong>, and its own{" "}
-          <Strong>Advanced</Strong> section for its keys, model, endpoint or sign-in, context window,
-          concurrent Runs and Remove. <Strong>Add an AI Model</Strong> sits under the cards — see{" "}
-          <DocLink to="/docs/models#advanced">AI Models</DocLink>.
+          <Strong>Settings → Model.</Strong> The company AI Models attached to this employee, one
+          card each: its status, who else uses it, <Strong>Test connection</Strong>,{" "}
+          <Strong>Make active</Strong>, and its own <Strong>Advanced</Strong> section for its keys,
+          model, endpoint or sign-in, context window, concurrent Runs and{" "}
+          <Strong>Detach</Strong>. <Strong>Add an AI Model</Strong> sits under the cards and offers
+          the company&apos;s other models first — see{" "}
+          <DocLink to="/docs/models#employee-models">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → Advanced → Memory.</Strong> Durable facts and preferences injected
@@ -395,16 +399,15 @@ export function Employees() {
         </LI>
       </UL>
 
-      <Callout kind="info" title="Models are employee-owned, on purpose.">
-        Each employee owns their own provider credentials, stored encrypted (AES-256-GCM) in the
-        database — even when they register several models, every API key, endpoint credential, or
-        OpenAI subscription credential belongs to that one employee. There&apos;s no shared
-        company-wide model credential: when a new hire{" "}
-        <DocLink to="/docs/models#reuse-model">reuses the company&apos;s AI Model</DocLink>,
-        Genosyn copies the encrypted credential onto them on the server, and the copy is a row of
-        its own. Firing an employee deletes all of their encrypted credential rows and leaves
-        everyone else&apos;s copies working; rotate the key at the provider to change it for
-        everyone who holds one.
+      <Callout kind="info" title="Models belong to the company.">
+        Every AI Model — its API keys, endpoint credential or OpenAI subscription credential, stored
+        encrypted (AES-256-GCM) in the database — is the company&apos;s, listed in{" "}
+        <DocLink to="/docs/models#company-models">Settings → AI Models</DocLink>, and attached to the
+        employees that use it. Several employees can share one model: one set of keys to rotate, one
+        Run limit, one health record per key. Detaching a model, or firing an employee, ends that
+        employee&apos;s use of it at once and leaves everyone else&apos;s; only an owner or admin
+        removing the model from the company deletes its credentials. No AI Employee can attach,
+        detach or switch a model — choosing an employee&apos;s brain is a person&apos;s decision.
       </Callout>
 
       <H2 id="access">Access</H2>

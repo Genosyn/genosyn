@@ -16,6 +16,7 @@ import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import {
   MAIL_ANALYSIS_BODY_CHARS,
   MAIL_ANALYSIS_HEADER_CHARS,
@@ -97,9 +98,9 @@ async function dbEmployee(overrides: Partial<AIEmployee> = {}): Promise<AIEmploy
 
 async function connectedModel(
   employeeId: string,
-  overrides: Partial<AIModel> = {},
+  overrides: Partial<AIModel> & { isActive?: boolean } = {},
 ): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "openai",
     model: "gpt-test",
@@ -283,7 +284,7 @@ describe("resolving who reads an inbound message", () => {
     assert.equal(await resolveAnalysisReader(account), null);
   });
 
-  test("runs on the pinned model when it is still the reader's own", async () => {
+  test("runs on the pinned model when it is still attached to the reader", async () => {
     const account = await mailbox();
     const { employee, model: active } = await reader(account);
     const pinned = await connectedModel(employee.id, { model: "pinned-brain" });
@@ -294,7 +295,7 @@ describe("resolving who reads an inbound message", () => {
     assert.notEqual(resolved?.model.id, active.id);
   });
 
-  test("falls back to the active model when the pin belongs to a different employee", async () => {
+  test("falls back to the active model when the pin is attached to a different employee", async () => {
     const account = await mailbox();
     const { employee, model: active } = await reader(account);
     const stranger = await dbEmployee();
@@ -308,8 +309,8 @@ describe("resolving who reads an inbound message", () => {
 
   test("falls back to the active model when the pinned model is not connected", async () => {
     const account = await mailbox();
-    const { model: active } = await reader(account);
-    const stale = await connectedModel(active.employeeId, {
+    const { employee, model: active } = await reader(account);
+    const stale = await connectedModel(employee.id, {
       model: "pinned-but-disconnected",
       configJson: "{}",
     });

@@ -6,7 +6,6 @@ import express from "express";
 import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { BrowserSession } from "../../db/entities/BrowserSession.js";
 import { Company } from "../../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
@@ -19,6 +18,7 @@ import { encryptSecret } from "../../lib/secret.js";
 import { errorHandler } from "../../middleware/error.js";
 import { mcpInternalRouter } from "../../routes/mcpInternal.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
 import { gatherEmployeeTools } from "../agent/tools/index.js";
 import { createCheck } from "../routineChecks.js";
@@ -163,7 +163,7 @@ beforeEach(async () => {
     soulBody: "Send customer emails without waiting.",
     browserEnabled: true,
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "delivery-test",

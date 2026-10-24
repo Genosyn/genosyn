@@ -830,9 +830,30 @@ in a Work session instead of leaving them stranded as local commits.
   use host execution without Linux namespaces or extra security options.
   Subscription auth remains available in this trusted deployment. Horizontally
   scaled installs must use API-key models until the coordination primitives are
-  ready. Subscription turns serialize on the per-model lock and do not expose
+  ready. Subscription turns serialize on the per-model lock — across every AI
+  Employee the model is attached to — and do not expose
   `delegate_parallel_work`; a delegated copy would otherwise wait on the lock
-  held by its parent.
+  held by its parent. A subscription model admits one Routine Run at a time by
+  default (`services/modelRunCapacity.ts`), so a Run waits in the queue rather
+  than on the lock.
+- **AI Models belong to the company** (`AIModel.companyId`). An
+  `EmployeeModel` row attaches one to an AI Employee, and each employee keeps
+  exactly one attached model active. Every runtime path resolves an
+  employee's model through `services/models.ts` (`getActiveModel`,
+  `resolveChatModel`, `resolveRoutineModel`, `attachedModelsByEmployee`) —
+  never by reading `ai_models` for an employee — so a detached model stops
+  answering for that employee everywhere at once. One model shared by several
+  employees is one set of credentials, backup keys and key health, and one
+  Run limit (`modelRunCapacity` keys by the row, or the endpoint). Routes
+  keyed on a model row live in `routes/companyModels.ts` (Settings → AI
+  Models); `routes/models.ts` only lists, attaches, switches and detaches an
+  employee's. Detaching never deletes a model; removing one from the company is
+  refused while anyone uses it unless it is detached from everyone first, and
+  exact duplicates (same service, model, endpoint and keys, compared by keyed
+  fingerprints — `services/modelDuplicates.ts`) are offered for merging,
+  never merged silently. All of it is owners and admins from a signed-in
+  browser: no API key, Genosyn MCP client or AI Employee tool attaches,
+  detaches, switches or removes a model.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs stay stable).

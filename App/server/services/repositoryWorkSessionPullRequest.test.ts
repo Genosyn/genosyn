@@ -7,7 +7,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
@@ -22,6 +21,7 @@ import {
   type ForgeEndpoint,
 } from "../integrations/providers/forge/client.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { encryptConnectionConfig } from "./integrations.js";
 import { encryptRepoSecret } from "./repositories.js";
 import type { ForgePullRequest } from "./repositoryForge.js";
@@ -135,7 +135,7 @@ beforeEach(async () => {
     slug: "ada",
     role: "Engineer",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-test",

@@ -6,6 +6,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { lastChatModelId, lastChatModelIds } from "./conversationModels.js";
 
 before(initTestDb);
@@ -21,7 +22,7 @@ async function model(args: {
   connected?: boolean;
   isActive?: boolean;
 }): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: args.employeeId ?? EMPLOYEE,
     provider: "openai",
     model: args.name,

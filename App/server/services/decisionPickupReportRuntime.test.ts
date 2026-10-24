@@ -3,7 +3,6 @@ import { after, before, beforeEach, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -11,6 +10,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { createDecision, decideDecision } from "./decisions.js";
 import { kickoffDecision } from "./decisionKickoff.js";
@@ -48,7 +48,7 @@ beforeEach(async () => {
     role: "Sales",
     soulBody: "",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "pickup-test",

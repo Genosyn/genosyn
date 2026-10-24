@@ -109,6 +109,21 @@ export function decryptSecretWithStrongKeys(blob: string): string {
   );
 }
 
+/**
+ * A keyed fingerprint of a secret, for telling whether two stored secrets are
+ * the same without comparing their plaintext or keeping it: HMAC-SHA256 under
+ * a key derived from the instance's encryption secret and `scope`. It means
+ * nothing outside this install, and nothing across scopes. Compare it in
+ * memory and throw it away — never store, log or return it.
+ */
+export function fingerprintSecret(plaintext: string, scope: string): string {
+  const { encryptionSecret } = getEffectiveInstanceSecrets();
+  return crypto
+    .createHmac("sha256", scopedKey(encryptionSecret, `fingerprint:${scope}`))
+    .update(plaintext, "utf8")
+    .digest("base64url");
+}
+
 /** Mask for display: `sk-...abc123` → `sk-…c123`. */
 export function maskSecret(secret: string): string {
   if (secret.length <= 8) return "••••";

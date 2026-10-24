@@ -57,11 +57,14 @@ type Mapping = {
 const REGISTRY: Record<string, Mapping> = {
   // ── AI substrate ─────────────────────────────────────────────────────────
   AIEmployee: { kind: "employee", company: "direct" },
-  AIModel: {
-    kind: "employee",
-    company: { fk: "employeeId", parent: "AIEmployee" },
-    scopeFk: "employeeId",
-  },
+  // A company AI Model can be any number of employees' brain, so a change to
+  // it or to who uses it refreshes every page about employees, unscoped: each
+  // employee sharing a model lists the others on it, and every employee page
+  // offers the company's models. Scoping an attachment to its employee would
+  // also be wrong in a burst — a scoped frame coalesced with an unscoped one
+  // reaches only the scoped employee's page.
+  AIModel: { kind: "employee", company: "direct" },
+  EmployeeModel: { kind: "employee", company: "direct" },
   Skill: { kind: "skill", company: { fk: "employeeId", parent: "AIEmployee" } },
   Routine: { kind: "routine", company: { fk: "employeeId", parent: "AIEmployee" } },
   // Folders ride the "routine" kind rather than one of their own: every page

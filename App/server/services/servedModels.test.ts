@@ -9,6 +9,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
 import { connectCustomModel } from "./customModelSetup.js";
@@ -56,7 +57,7 @@ async function employee() {
 
 async function customModel(overrides: Partial<AIModel> = {}) {
   const owner = await employee();
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: owner.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -147,7 +148,7 @@ test("connecting with a blank Model id saves the model the server serves", async
     return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   const saved = await connectCustomModel({
-    employeeId: owner.id,
+    attachTo: [owner.id],
     companyId: owner.companyId,
     baseURL,
     modelId: "  ",
@@ -158,7 +159,7 @@ test("connecting with a blank Model id saves the model the server serves", async
     { id: "qwen2.5-coder:32b", object: "model" },
   ];
   await assert.rejects(
-    connectCustomModel({ employeeId: owner.id, companyId: owner.companyId, baseURL }),
+    connectCustomModel({ attachTo: [owner.id], companyId: owner.companyId, baseURL }),
     /Enter the Model id to use/,
   );
 });

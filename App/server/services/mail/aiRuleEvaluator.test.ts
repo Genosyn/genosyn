@@ -15,6 +15,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import {
   AI_RULE_BODY_CHARS,
@@ -113,8 +114,11 @@ async function dbEmployee(suffix = "default", companyId = COMPANY_ID): Promise<A
   });
 }
 
-async function connectedModel(employeeId: string, values: Partial<AIModel> = {}): Promise<AIModel> {
-  return insert(AIModel, {
+async function connectedModel(
+  employeeId: string,
+  values: Partial<AIModel> & { isActive?: boolean } = {},
+): Promise<AIModel> {
+  return insertEmployeeModel({
     employeeId,
     provider: "openai",
     model: "gpt-test",

@@ -21,12 +21,19 @@ import { withSchedulerLease } from "./schedulerLeases.js";
  * So a model may declare how many Runs it serves at once. A Run beyond that
  * stays `queued`: its time budget starts only when it is claimed (see
  * `routineQueue.ts`), and it starts as soon as a slot frees. The limit counts
- * Runs per **endpoint**, not per `AIModel` row — every AI Employee holds its
- * own row, and three employees pointed at the same Ollama share one GPU.
+ * Runs per **endpoint**, not per AI Employee: an AI Model belongs to the
+ * company, so every employee attached to it shares its slots, and two company
+ * models pointed at the same Ollama share one GPU as well.
+ *
+ * A ChatGPT sign-in takes one turn at a time across every employee on it (the
+ * per-model lock in `codexSubscription.ts`), so by default it admits one Run at
+ * a time too: a second Run would only wait on the lock with its clock running,
+ * where in the queue it waits for free.
  *
  * `AIModel.maxConcurrentRuns`:
  *   - `null` — the default: one Run at a time for a custom endpoint on this
- *     machine or a private network, no limit for anything else;
+ *     machine or a private network and for a ChatGPT sign-in, no limit for
+ *     anything else;
  *   - `0`    — no limit;
  *   - `n`    — at most `n` Runs at once.
  */
@@ -34,6 +41,8 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 export const MAX_MODEL_CONCURRENT_RUNS = 64;
 /** A local model server serves one agent loop at a time well. */
 export const LOCAL_MODEL_DEFAULT_CONCURRENT_RUNS = 1;
+/** A ChatGPT sign-in runs one turn at a time, whichever employee asks. */
+export const SUBSCRIPTION_DEFAULT_CONCURRENT_RUNS = 1;
 const SLOT_LEASE_MS = 120_000;
 
 export type ModelRunCapacity = {
@@ -42,7 +51,7 @@ export type ModelRunCapacity = {
   /** Null when this model admits any number of Runs. */
   limit: number | null;
   /** Where the limit came from, for the UI's explanation. */
-  source: "configured" | "local-default" | "unlimited";
+  source: "configured" | "local-default" | "subscription-default" | "unlimited";
 };
 
 /**
@@ -70,7 +79,11 @@ function hashKey(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
-/** The endpoint identity and effective concurrent-Run limit for one model row. */
+/**
+ * The endpoint identity and effective concurrent-Run limit for one model row —
+ * keyed by the shared row, or by the endpoint for a custom model, so every AI
+ * Employee attached to the model counts against the same slots.
+ */
 export function modelRunCapacity(
   model: Pick<AIModel, "id" | "provider" | "authMode" | "configJson" | "maxConcurrentRuns">,
 ): ModelRunCapacity {
@@ -94,9 +107,11 @@ export function modelRunCapacity(
       ? { key, limit: Math.min(configured, MAX_MODEL_CONCURRENT_RUNS), source: "configured" }
       : { key, limit: null, source: "configured" };
   }
-  return local
-    ? { key, limit: LOCAL_MODEL_DEFAULT_CONCURRENT_RUNS, source: "local-default" }
-    : { key, limit: null, source: "unlimited" };
+  if (local) return { key, limit: LOCAL_MODEL_DEFAULT_CONCURRENT_RUNS, source: "local-default" };
+  if (model.authMode === "subscription") {
+    return { key, limit: SUBSCRIPTION_DEFAULT_CONCURRENT_RUNS, source: "subscription-default" };
+  }
+  return { key, limit: null, source: "unlimited" };
 }
 
 /** In-process holders per endpoint; the whole truth on single-process SQLite. */

@@ -19,6 +19,7 @@ import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { agentRuntime } from "../agent/runtime.js";
 import { analyzeInboundMessage } from "./analysis.js";
 import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQueue.js";
@@ -119,7 +120,7 @@ async function reader(
     accountId: account.id,
     accessLevel,
   });
-  const saved = await insert(AIModel, {
+  const saved = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-test",

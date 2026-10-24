@@ -18,7 +18,6 @@ import {
 } from "../../shared/recruiting.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
@@ -39,6 +38,7 @@ import { setScreeningAutoKickForTests } from "../services/recruiting/screeningQu
 import { registerResourceChangeSink } from "../services/resourceEvents.js";
 import { placeStanddown, stopStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { recruitingRouter } from "./recruiting.js";
 
@@ -152,7 +152,7 @@ beforeEach(async () => {
     soulBody: "",
   });
   // A connected model only so model resolution passes; the criteria runner is faked.
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: iris.id,
     provider: "openai",
     model: "gpt-4.1-mini",

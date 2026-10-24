@@ -48,7 +48,7 @@ async function editKeys(
   return withSerializedTransaction(async (manager) => {
     const repo = manager.getRepository(AIModel);
     const current = await repo.findOne({
-      where: { id: model.id, employeeId: model.employeeId },
+      where: { id: model.id, companyId: model.companyId },
       ...(AppDataSource.options.type === "postgres"
         ? { lock: { mode: "pessimistic_write" as const } }
         : {}),

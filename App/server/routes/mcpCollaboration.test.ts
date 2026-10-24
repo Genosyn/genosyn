@@ -7,7 +7,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
@@ -25,6 +24,7 @@ import { setColleagueConsultRunnerForTests } from "../services/colleagueConsult.
 import { isTokenTainted, issueMcpToken, markTokenTainted, revokeMcpToken } from "../services/mcpTokens.js";
 import { placeStanddown, stopStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 /**
@@ -95,7 +95,7 @@ beforeEach(async () => {
     soulBody: "",
   });
   for (const e of [ada, ben]) {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: e.id,
       provider: "anthropic",
       model: "claude-sonnet-4",
@@ -331,7 +331,7 @@ describe("ask_colleague", () => {
     assert.equal(stood.status, 409);
     assert.match(stood.body.error, /Ben is stood down.*Audit/);
     stopStanddowns();
-    await AppDataSource.getRepository(AIModel).delete({ employeeId: ben.id });
+    await detachAllModels(ben.id);
     const noModel = await call(token(ada), "/tools/ask_colleague", { colleague: "ben", question: "Hi" });
     assert.equal(noModel.status, 409);
     assert.match(noModel.body.error, /no AI Model connected/);

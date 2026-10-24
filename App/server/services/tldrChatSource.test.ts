@@ -6,13 +6,13 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { User } from "../db/entities/User.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { streamChatWithEmployee } from "./chat.js";
 import { createTldrChatSource } from "./tldrChatSource.js";
 
@@ -370,7 +370,7 @@ describe("TLDR direct-chat source", () => {
     try {
       const { company, employee, owner } = await fixture();
       const row = await tldr(company.id, employee.id);
-      await insert(AIModel, {
+      await insertEmployeeModel({
         employeeId: employee.id,
         provider: "custom",
         model: "tldr-chat-test",

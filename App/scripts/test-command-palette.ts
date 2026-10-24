@@ -267,6 +267,12 @@ try {
   // ── admin-only pages are offered to owners… ──
   await search(owner, "usage");
   assert.equal((await snapshot(owner)).rows[0]?.label, "Usage");
+  // The company's AI Models answer to what people call them.
+  await search(owner, "llm");
+  assert.deepEqual(
+    (await snapshot(owner)).rows.map((r) => `${r.label} · ${r.context}`),
+    ["AI Models · Settings"],
+  );
   await owner.keyboard.press("Escape");
   await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
   await owner.close();
@@ -287,6 +293,9 @@ try {
   );
   await search(member, "zzzz");
   await member.getByText("No matches for “zzzz”").waitFor();
+  // AI Models hold the company's keys: owners and admins only.
+  await search(member, "llm");
+  await member.getByText("No matches for “llm”").waitFor();
   await search(member, "members");
   assert.equal((await snapshot(member)).rows[0]?.label, "Members", "a Member's own pages remain");
   await member.close();

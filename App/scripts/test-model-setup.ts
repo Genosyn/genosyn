@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright-core";
 import { startBrowserFixture } from "./browserFixture";
-import type { AIModel, ReusableModel } from "../client/lib/api";
+import type { AIModel } from "../client/lib/api";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, "../output/playwright");
@@ -25,12 +25,12 @@ let discoveryFailure = false;
 let connectFailure = false;
 let listFailure = false;
 let customFailure = false;
-let reuseFailure = false;
+let attachFailure = false;
+// The employee's own models (its Model page) and the company's (Settings → AI Models).
 let modelRows: AIModel[] = [];
-// What the company already runs on, as the server would offer it to this employee.
-let reusableRows: ReusableModel[] = [];
-let reusableRequests = 0;
-const reuseRequests: Array<Record<string, unknown>> = [];
+let companyRows: AIModel[] = [];
+let companyListRequests = 0;
+const attachRequests: Array<Record<string, unknown>> = [];
 const customRequests: Array<{ path: string; body: Record<string, unknown> }> = [];
 let holdDiscovery = false;
 const discoveryGate: { release?: () => void } = {};
@@ -43,11 +43,12 @@ let currentPage: Page | null = null;
 function connectedRow(overrides: Partial<AIModel> = {}): AIModel {
   return {
     id: "claude-model",
-    employeeId: "employee",
+    companyId: "company",
     provider: "anthropic",
     model: "claude-sonnet-live",
     authMode: "apikey",
     isActive: true,
+    createdAt: "2026-09-09T12:00:00Z",
     connectedAt: "2026-09-09T12:00:00Z",
     status: "connected",
     apiKeyMasked: "sk-…••••",
@@ -82,6 +83,10 @@ function connectedRow(overrides: Partial<AIModel> = {}): AIModel {
     maxConcurrentRuns: null,
     effectiveMaxConcurrentRuns: null,
     concurrencySource: "unlimited",
+    employees: [
+      { id: "employee", name: "Avery", slug: "avery", avatarKey: null, isActive: true },
+    ],
+    duplicateIds: [],
     ...overrides,
   };
 }
@@ -142,21 +147,36 @@ await context.route("**/api/**", async (route) => {
     }
     return route.fulfill({ json: { id: "custom-model", status: "connected" } });
   }
-  if (pathname.endsWith("/models/reusable")) {
-    reusableRequests++;
-    return route.fulfill({ json: reusableRows });
+  // The company's own list: what Settings → AI Models shows, and what an
+  // employee's Add an AI Model offers.
+  if (pathname === "/api/companies/company/models" && route.request().method() === "GET") {
+    companyListRequests++;
+    return route.fulfill({ json: companyRows });
   }
-  if (pathname.endsWith("/models/reuse")) {
+  if (pathname.endsWith("/employees/employee/models/attach")) {
     const body = route.request().postDataJSON() as Record<string, unknown>;
-    reuseRequests.push(body);
-    if (reuseFailure)
+    attachRequests.push(body);
+    if (attachFailure)
       return route.fulfill({
         status: 400,
-        json: { error: "Casey is signed in with ChatGPT, and a ChatGPT sign-in can't be shared." },
+        json: {
+          error:
+            "This AI Model isn't connected yet. Finish connecting it before attaching it to AI Employees.",
+        },
       });
-    const offer = reusableRows.find((row) => row.id === body.sourceModelId)!;
-    modelRows = [connectedRow({ provider: offer.provider, model: offer.model })];
-    return route.fulfill({ json: { id: "claude-model", status: "connected" } });
+    const offer = companyRows.find((row) => row.id === body.modelId)!;
+    modelRows = [
+      connectedRow({
+        id: offer.id,
+        provider: offer.provider,
+        model: offer.model,
+        employees: [
+          ...offer.employees,
+          { id: "employee", name: "Avery", slug: "avery", avatarKey: null, isActive: true },
+        ],
+      }),
+    ];
+    return route.fulfill({ json: modelRows[0] });
   }
   if (pathname.endsWith("/models") && route.request().method() === "GET")
     return route.fulfill(
@@ -341,8 +361,8 @@ try {
   checks++;
   await page.close();
 
-  // With nothing to reuse, an employee with no AI Model gets the connect form, with
-  // no claim that every employee must paste their own key.
+  // With nothing in the company yet, an employee with no AI Model gets the
+  // connect form, with no claim that every employee must paste their own key.
   page = await open("?section");
   await page.getByLabel("API key", { exact: true }).waitFor();
   assert.equal(
@@ -353,37 +373,36 @@ try {
   checks++;
   await page.close();
 
-  // A company that already has an AI Model leads with it. The key is copied on the
-  // server, so the screen never asks for one; connecting a different model is the
-  // quieter path, and the other models the company has are listed there.
-  reusableRows = [
-    {
+  // A company that already has an AI Model leads with it. Using it attaches the
+  // very same model — its keys stay where they are — so the screen never asks
+  // for one; connecting a different model is the quieter path, and the other
+  // models the company has are listed there.
+  companyRows = [
+    connectedRow({
       id: "source-model",
-      employeeId: "casey",
-      employeeName: "Casey",
-      provider: "anthropic",
-      model: "claude-sonnet-live",
-      authMode: "apikey",
-      endpointHost: null,
-      isActive: true,
-    },
-    {
+      isActive: false,
+      employees: [{ id: "casey", name: "Casey", slug: "casey", avatarKey: null, isActive: true }],
+    }),
+    connectedRow({
       id: "endpoint-model",
-      employeeId: "sam",
-      employeeName: "Sam",
+      // Older than Casey's: with as many users each, the newest leads.
+      createdAt: "2026-09-01T12:00:00Z",
       provider: "custom",
       model: "qwen3-27b",
       authMode: "customEndpoint",
-      endpointHost: "gpu-box.internal:8000",
-      isActive: true,
-    },
+      isActive: false,
+      apiKeys: [],
+      customEndpointHost: "gpu-box.internal:8000",
+      customEndpointModelId: "qwen3-27b",
+      employees: [{ id: "sam", name: "Sam", slug: "sam", avatarKey: null, isActive: true }],
+    }),
   ];
   page = await open("?section");
-  const reuseButton = page.getByRole("button", {
+  const useCompanyModel = page.getByRole("button", {
     name: "Use the same AI Model as Casey",
     exact: true,
   });
-  await reuseButton.waitFor();
+  await useCompanyModel.waitFor();
   await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
   assert.equal(
@@ -394,27 +413,29 @@ try {
   await page.setViewportSize({ width: 375, height: 812 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   checks++;
-  await page.screenshot({ path: path.join(artifacts, "model-reuse-mobile.png"), fullPage: true });
+  await page.screenshot({ path: path.join(artifacts, "model-attach-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1200, height: 900 });
   await page.getByRole("button", { name: "Connect a different model", exact: true }).click();
   await page.getByLabel("API key", { exact: true }).waitFor();
-  assert.equal(await reuseButton.count(), 0);
+  assert.equal(await useCompanyModel.count(), 0);
   await page.getByText("Custom endpoint · qwen3-27b", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Use this one", exact: true }).count(), 1);
   checks++;
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await reuseButton.waitFor();
+  await useCompanyModel.waitFor();
   checks++;
-  reuseFailure = true;
-  await reuseButton.click();
-  await page.getByRole("alert").filter({ hasText: "can't be shared" }).waitFor();
-  assert.equal(await reuseButton.isEnabled(), true);
+  attachFailure = true;
+  await useCompanyModel.click();
+  await page.getByRole("alert").filter({ hasText: "isn't connected yet" }).waitFor();
+  assert.equal(await useCompanyModel.isEnabled(), true);
   assert.deepEqual(modelRows, []);
   checks++;
-  reuseFailure = false;
-  await reuseButton.click();
+  attachFailure = false;
+  await useCompanyModel.click();
   await page.getByText("Connected with an API key", { exact: false }).waitFor();
-  assert.deepEqual(reuseRequests.at(-1), { sourceModelId: "source-model" });
+  assert.deepEqual(attachRequests.at(-1), { modelId: "source-model" });
+  // The card says who else runs on the model it now shares.
+  await page.getByText("Also used by Casey", { exact: true }).waitFor();
   assert.equal(
     await page.getByText("Claude (Anthropic) · claude-sonnet-live", { exact: true }).count(),
     1,
@@ -423,20 +444,20 @@ try {
   checks++;
   await page.close();
 
-  // Only an owner or admin can put a credential on an employee: a Member is not
-  // offered the shortcut (and the list is never requested for them), nor a form
-  // the server would refuse — they are told who connects one.
+  // Only an owner or admin can choose an employee's model: a Member is not
+  // offered the shortcut (and the company's list is never requested for them),
+  // nor a form the server would refuse — they are told who connects one.
   modelRows = [];
-  reusableRequests = 0;
+  companyListRequests = 0;
   page = await open("?section&role=member");
   await page.getByText("Avery has no AI Model yet", { exact: true }).waitFor();
   await page.getByText("An owner or admin of Company connects one here.", { exact: false }).waitFor();
   assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: /Use the same AI Model as/ }).count(), 0);
-  assert.equal(reusableRequests, 0);
+  assert.equal(companyListRequests, 0);
   checks++;
   await page.close();
-  reusableRows = [];
+  companyRows = [];
   modelRows = [];
 
   // A connected model is one card: its name, a badge, Test connection, and its
@@ -460,7 +481,7 @@ try {
   for (const hidden of [
     page.getByText("Context window", { exact: true }),
     page.getByText("Concurrent Routine Runs", { exact: true }),
-    page.getByRole("button", { name: "Remove", exact: true }),
+    page.getByRole("button", { name: "Detach", exact: true }),
   ]) {
     assert.equal(await hidden.first().isVisible(), false);
   }
@@ -469,7 +490,7 @@ try {
   for (const shown of [
     claudeCard.getByText("Context window", { exact: true }),
     claudeCard.getByText("Concurrent Routine Runs", { exact: true }),
-    claudeCard.getByRole("button", { name: "Remove", exact: true }),
+    claudeCard.getByRole("button", { name: "Detach", exact: true }),
   ]) {
     await shown.first().waitFor({ state: "visible" });
   }
@@ -551,10 +572,12 @@ try {
   await page.getByRole("status").filter({ hasText: "AI Model connected" }).waitFor();
   assert.match(customRequests.at(-1)!.path, /\/connect-custom$/);
   checks++;
+  // A model connected from an employee's page is attached to that employee.
   assert.deepEqual(customRequests.at(-1)!.body, {
     baseURL: "https://models.example.test/v1",
     modelId: "custom-first",
     apiKey: "custom-test-key",
+    employeeIds: ["employee"],
   });
   checks++;
   await page.close();
@@ -563,11 +586,12 @@ try {
   modelRows = [
     {
       id: "custom-model",
-      employeeId: "employee",
+      companyId: "company",
       provider: "custom",
       model: "custom-original",
       authMode: "customEndpoint",
       isActive: true,
+      createdAt: "2026-09-09T12:00:00Z",
       status: "connected",
       connectedAt: "2026-09-09T12:00:00Z",
       apiKeyMasked: null,
@@ -589,6 +613,10 @@ try {
       maxConcurrentRuns: null,
       effectiveMaxConcurrentRuns: null,
       concurrencySource: "unlimited",
+      employees: [
+        { id: "employee", name: "Avery", slug: "avery", avatarKey: null, isActive: true },
+      ],
+      duplicateIds: [],
     },
   ];
   page = await open("?section");

@@ -7,7 +7,6 @@ import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { Company } from "../db/entities/Company.js";
@@ -22,6 +21,7 @@ import {
 } from "../services/groupDiscussions.js";
 import { resolveOutcome } from "../services/groupDiscussionPrompts.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
 import { workspaceRouter } from "./workspace.js";
 import { workspaceDiscussionsRouter } from "./workspaceDiscussions.js";
@@ -135,7 +135,7 @@ afterEach(async () => {
 
 async function hire(co: Company, name: string, slug: string): Promise<AIEmployee> {
   const e = await insert(AIEmployee, { companyId: co.id, name, slug, role: `${name}'s role`, soulBody: "" });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: e.id,
     provider: "anthropic",
     model: "claude-sonnet-4",

@@ -7,7 +7,6 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
@@ -16,6 +15,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { getChannelWebhookSettings } from "./channelWebhooks.js";
 import { setGroupDiscussionDepsForTests, settleGroupDiscussionsForTests } from "./groupDiscussions.js";
@@ -385,7 +385,7 @@ describe("the AI @mention chain guard", () => {
 
 describe("taint through a channel", () => {
   test("a reply to a tainted message is tainted, and to a clean one is not", async (t) => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: ben.id,
       provider: "anthropic",
       model: "claude-sonnet-4",

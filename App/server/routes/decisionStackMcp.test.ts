@@ -10,7 +10,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
@@ -31,6 +30,7 @@ import { DECISION_STACK_OFF_MESSAGE, KEPT_OFF_STACK_NOTE, raiseDecision } from "
 import { setDecisionScreenRunnerForTests } from "../services/decisionScreening.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { decisionsRouter } from "./decisions.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -167,7 +167,7 @@ async function setStack(patch: Partial<Pick<Company, "decisionStackEnabled" | "d
 }
 
 async function connectModel(employeeId = employee.id) {
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId,
     provider: "anthropic",
     model: "claude-test",
@@ -301,7 +301,7 @@ describe("what off never touches", () => {
       role: "Head of Ops",
       soulBody: "",
     });
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: decider.id,
       provider: "anthropic",
       model: "claude-x",

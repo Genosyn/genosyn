@@ -6,7 +6,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
@@ -18,6 +17,7 @@ import { Tldr } from "../db/entities/Tldr.js";
 import { User } from "../db/entities/User.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { streamChatWithEmployee } from "./chat.js";
 import {
   createDecisionChatSource,
@@ -570,7 +570,7 @@ async function withModel(
   const previousAllowlist = [...config.security.outboundPrivateHostAllowlist];
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
   try {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: f.employee.id,
       provider: "custom",
       model: "decision-chat-test",

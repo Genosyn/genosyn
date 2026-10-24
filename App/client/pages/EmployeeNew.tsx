@@ -28,7 +28,9 @@ import {
   Workflow,
 } from "lucide-react";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle";
-import { api, AIModel, Company, Employee, EmployeeTemplate, ReusableModel } from "../lib/api";
+import { api, AIModel, Company, Employee, EmployeeTemplate } from "../lib/api";
+import { attachableModels, companyModelPath, employeeModelPath, nameList } from "../lib/companyModels";
+import { describeModel } from "../lib/modelSummary";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -97,11 +99,10 @@ type ResumableStep = "model" | "launch";
  *  1. Role — pick a starting role, or type your own, and name them. Hiring
  *     creates the AI Employee with the template's Soul and Skills, exactly as
  *     the wizard always has.
- *  2. AI Model — only when the company has none to reuse. If another AI Employee
- *     already runs on an API key or custom endpoint, the new hire is connected
- *     to a copy of it on the spot (the credential is copied on the server and
- *     never reaches the browser) and the Launch step says so in one line.
- *     Otherwise this step connects one.
+ *  2. AI Model — only when the company has none to give. If the company already
+ *     has a connected AI Model, the new hire is attached to it on the spot —
+ *     the very same model and keys, the one most of the team runs on — and
+ *     the Launch step says so in one line. Otherwise this step connects one.
  *  3. Launch — choose the Routines and Integrations that make the role useful.
  *
  * Finishing opens the new employee's Settings → Access, with a note saying
@@ -253,27 +254,31 @@ export default function EmployeeNew({
 
   /**
    * Give a new hire the company's AI Model when it has one to give. Never
-   * throws: reuse is a shortcut, and the AI Model step offers the same choice
-   * (and the connect form) if the shortcut is not there or fails.
+   * throws: the shortcut is optional, and the AI Model step offers the same
+   * choice (and the connect form) if it is not there or fails.
    */
   async function connectCompanyModel(
     created: Employee,
   ): Promise<{ reusedFrom: string | null; notice: string | null }> {
-    const modelsBase = `/api/companies/${company.id}/employees/${created.id}/models`;
-    let offer: ReusableModel | undefined;
+    let offer: AIModel | undefined;
     try {
-      [offer] = await api.get<ReusableModel[]>(`${modelsBase}/reusable`);
+      [offer] = attachableModels(await api.get<AIModel[]>(companyModelPath(company.id)), created.id);
     } catch {
       return { reusedFrom: null, notice: null };
     }
     if (!offer) return { reusedFrom: null, notice: null };
+    const source = offer.employees.length
+      ? `the same AI Model as ${nameList(offer.employees.map((user) => user.name))}`
+      : `the company's ${describeModel(offer)}`;
     try {
-      await api.post(`${modelsBase}/reuse`, { sourceModelId: offer.id });
-      return { reusedFrom: offer.employeeName, notice: null };
+      await api.post(employeeModelPath(company.id, created.id, undefined, "/attach"), {
+        modelId: offer.id,
+      });
+      return { reusedFrom: source, notice: null };
     } catch (err) {
       return {
         reusedFrom: null,
-        notice: `${created.name} couldn't use ${offer.employeeName}'s AI Model: ${errorMessage(err)}`,
+        notice: `${created.name} couldn't use the company's AI Model: ${errorMessage(err)}`,
       };
     }
   }
@@ -511,7 +516,7 @@ export default function EmployeeNew({
                 className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"
               />
               <span>
-                Uses the same AI Model as {reusedFrom} — change it in{" "}
+                Uses {reusedFrom} — change it in{" "}
                 <Link
                   to={`/c/${companySlug}/employees/${emp.slug}/settings/model`}
                   className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
@@ -798,7 +803,7 @@ function RoleStep({
 // ─── Step 2: AI Model ───────────────────────────────────────────────────────
 
 /**
- * Only reached when the company had no AI Model to reuse. Continue means "the AI
+ * Only reached when the company had no AI Model to give. Continue means "the AI
  * Model is ready", so it checks; going on without one is the separate, named
  * choice offered only once that check has failed. The two lead to different
  * places — an employee that can answer, and one that cannot until someone

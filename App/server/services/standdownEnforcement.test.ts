@@ -3,13 +3,13 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineTrigger } from "../db/entities/RoutineTrigger.js";
 import { Run } from "../db/entities/Run.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { streamChatWithEmployee, type ChatResult } from "./chat.js";
 import { bootCron, dispatchDueRetries, stopCron } from "./cron.js";
 import { dispatchTriggerEvent } from "./routineTriggers.js";
@@ -236,7 +236,7 @@ describe("dispatchDueWakeups under a Standdown", () => {
     // A wakeup with no AI Model behind it lands in the journal instead of a
     // session, which would make "did it fire?" unobservable at the seam this
     // test is about.
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "wakeup-stub",

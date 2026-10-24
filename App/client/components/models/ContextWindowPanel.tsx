@@ -1,6 +1,7 @@
 import React from "react";
 import { Edit3, Plug, X } from "lucide-react";
-import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import { api, type AIModel, type Company } from "@/lib/api";
+import { companyModelPath } from "@/lib/companyModels";
 import { errorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/Button";
 import { FormError, FormSuccess } from "@/components/ui/FormError";
@@ -26,13 +27,11 @@ import { ModelSettingSection } from "./ModelSettingSection";
  */
 export function ContextWindowPanel({
   company,
-  emp,
   model,
   canManage,
   onChanged,
 }: {
   company: Pick<Company, "id">;
-  emp: Pick<Employee, "id">;
   model: AIModel;
   canManage: boolean;
   onChanged: () => void;
@@ -42,7 +41,7 @@ export function ContextWindowPanel({
   const [busy, setBusy] = React.useState<null | "probe" | "save" | "clear">(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
+  const base = companyModelPath(company.id, model.id);
 
   async function probe() {
     setError(null);

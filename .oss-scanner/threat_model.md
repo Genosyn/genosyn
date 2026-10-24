@@ -243,6 +243,13 @@ trusted-origin check, is in `App/server/index.ts`.
 - **A Vault item shared company-wide** can be revealed by any Member of that
   Company. Private items, per-item access, and AI Employee Grants are the
   boundary, and company-wide visibility never gives an AI Employee access.
+- **An AI Model is the company's, and shared.** Its credentials sit on one
+  `AIModel` row that any number of the company's AI Employees run on, through
+  `EmployeeModel` attachments owners and admins make from a signed-in browser
+  (`App/server/routes/companyModels.ts`). One employee running on a model
+  another also uses is not a finding. Reaching a model of another company, or
+  attaching, detaching or removing one without owner or admin authority — by
+  API key, MCP client or AI Employee tool — would be.
 - **A mailbox's suggested AI buttons** run only when a Member presses them,
   with that Member's authority.
 - **Genosyn Connect cannot authenticate installs**, so anyone may start a

@@ -23,6 +23,7 @@ import {
   type OpeningCriterion,
 } from "../../../shared/recruiting.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import type { EmployeeAgentResult, RestrictedEmployeeAgentParams } from "../agent/runEmployee.js";
 import type { ToolResult } from "../agent/types.js";
 import { withSubscriptionModelLock } from "../codexSubscription.js";
@@ -273,7 +274,7 @@ function runtime(
 function runnerArgs(application: BlindedApplication, signal = new AbortController().signal): ScreenRunnerArgs {
   return {
     ...systemArgs(),
-    model: { id: "model-1", employeeId: "emp-1", model: "claude-test-model" } as AIModel,
+    model: { id: "model-1", companyId: "company-1", model: "claude-test-model" } as AIModel,
     application,
     signal,
   };
@@ -297,7 +298,7 @@ let opening: RecruitingOpening;
 let application: RecruitingApplication;
 
 async function connectedModel(employeeId: string, name = "claude-test-model"): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId,
     provider: "anthropic",
     model: name,

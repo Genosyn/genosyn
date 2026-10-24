@@ -1,8 +1,15 @@
 import React from "react";
-import { Edit3, Trash2 } from "lucide-react";
+import { Edit3, Trash2, Unlink } from "lucide-react";
 import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import {
+  companyModelPath,
+  detachPrompt,
+  employeeModelPath,
+  removalPrompt,
+  sharedWithLine,
+} from "@/lib/companyModels";
 import { holdsApiKeys } from "@/lib/modelApiKeys";
-import { describeModel, modelName } from "@/lib/modelSummary";
+import { modelName } from "@/lib/modelSummary";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { ApiKeysPanel } from "./ApiKeysPanel";
@@ -15,8 +22,11 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
 
 type Props = {
   company: Pick<Company, "id" | "role">;
-  emp: Pick<Employee, "id" | "name">;
+  /** The AI Employee whose Model page this is; absent in Settings → AI Models. */
+  emp?: Pick<Employee, "id" | "name">;
   model: AIModel;
+  /** Every company model, in Settings → AI Models, so removing one can say who it strands. */
+  companyModels?: readonly AIModel[];
   canManage: boolean;
   onChanged: () => void;
 };
@@ -26,45 +36,71 @@ type Props = {
  * settings and nothing about any other:
  *
  *   - an API-key model: its API keys (backups included), its model, context
- *     window, concurrent Runs, and Remove;
+ *     window, concurrent Runs;
  *   - a custom endpoint: the endpoint (server, model it serves, key), context
- *     window, concurrent Runs, and Remove;
- *   - a ChatGPT sign-in: the sign-in, its model, and Remove — Codex manages its
- *     context and Runs, so it has neither control;
+ *     window, concurrent Runs;
+ *   - a ChatGPT sign-in: the sign-in and its model — Codex manages its context
+ *     and Runs, so it has neither control;
  *   - a model still waiting to connect: changing its service or model, for an
  *     owner who picked the wrong one. Finishing the connection stays on the
  *     card, where it is the next thing to do.
  *
- * A Member reads the same settings with no control to change them.
+ * The model is the company's, so a setting changed here changes for every AI
+ * Employee on it — the section says so when anyone else shares it. Last comes
+ * the way out: on an employee's page, detaching it from that employee; in
+ * Settings → AI Models, removing it from the company. A Member reads the same
+ * settings with no control to change them.
  */
-export function ModelAdvancedSettings({ company, emp, model, canManage, onChanged }: Props) {
+export function ModelAdvancedSettings({
+  company,
+  emp,
+  model,
+  companyModels,
+  canManage,
+  onChanged,
+}: Props) {
   const connected = model.status === "connected";
   const tunable = connected && model.authMode !== "subscription";
+  const shared = emp ? sharedWithLine(model, emp.id) : null;
+
+  const exit =
+    canManage &&
+    (emp ? (
+      <DetachSection company={company} emp={emp} model={model} onChanged={onChanged} />
+    ) : (
+      <RemoveSection
+        company={company}
+        model={model}
+        companyModels={companyModels ?? [model]}
+        onChanged={onChanged}
+      />
+    ));
 
   if (!connected) {
+    // On an employee's page a model still waiting to connect is cancelled from
+    // its card; the company's page removes it here.
     return (
       <ModelSettingList>
-        <ModelChoiceSection
-          company={company}
-          emp={emp}
-          model={model}
-          canManage={canManage}
-          onChanged={onChanged}
-        />
+        <ModelChoiceSection company={company} model={model} canManage={canManage} onChanged={onChanged} />
+        {!emp && exit}
       </ModelSettingList>
     );
   }
 
   return (
     <ModelSettingList>
+      {shared && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {shared}. A change here changes it for them too.
+        </p>
+      )}
       {holdsApiKeys(model) && (
-        <ApiKeysPanel company={company} emp={emp} model={model} onChanged={onChanged} />
+        <ApiKeysPanel company={company} model={model} onChanged={onChanged} />
       )}
       {model.authMode === "subscription" && (
         <ModelSettingSection title="ChatGPT sign-in">
           <SubscriptionPanel
             company={company}
-            emp={emp}
             model={model}
             canManage={canManage}
             onSaved={onChanged}
@@ -72,26 +108,13 @@ export function ModelAdvancedSettings({ company, emp, model, canManage, onChange
         </ModelSettingSection>
       )}
       {model.authMode === "customEndpoint" ? (
-        <EndpointSection
-          company={company}
-          emp={emp}
-          model={model}
-          canManage={canManage}
-          onChanged={onChanged}
-        />
+        <EndpointSection company={company} model={model} canManage={canManage} onChanged={onChanged} />
       ) : (
-        <ModelChoiceSection
-          company={company}
-          emp={emp}
-          model={model}
-          canManage={canManage}
-          onChanged={onChanged}
-        />
+        <ModelChoiceSection company={company} model={model} canManage={canManage} onChanged={onChanged} />
       )}
       {tunable && (
         <ContextWindowPanel
           company={company}
-          emp={emp}
           model={model}
           canManage={canManage}
           onChanged={onChanged}
@@ -100,25 +123,29 @@ export function ModelAdvancedSettings({ company, emp, model, canManage, onChange
       {tunable && (
         <RunConcurrencyPanel
           company={company}
-          emp={emp}
           model={model}
           canManage={canManage}
           onChanged={onChanged}
         />
       )}
-      {canManage && (
-        <RemoveSection company={company} emp={emp} model={model} onChanged={onChanged} />
-      )}
+      {exit}
     </ModelSettingList>
   );
 }
+
+type SettingProps = {
+  company: Pick<Company, "id" | "role">;
+  model: AIModel;
+  canManage: boolean;
+  onChanged: () => void;
+};
 
 /**
  * Which model it runs, and — for an owner — changing it: a pick from the
  * models its own keys can reach, or another service with a new key. A ChatGPT
  * sign-in changes its model ID with the sign-in it already has.
  */
-function ModelChoiceSection({ company, emp, model, canManage, onChanged }: Props) {
+function ModelChoiceSection({ company, model, canManage, onChanged }: SettingProps) {
   const [changing, setChanging] = React.useState(false);
   const connected = model.status === "connected";
   return (
@@ -156,7 +183,6 @@ function ModelChoiceSection({ company, emp, model, canManage, onChanged }: Props
             editModelId={model.id}
             initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
             company={company}
-            emp={emp}
             onSaved={() => {
               setChanging(false);
               onChanged();
@@ -174,7 +200,7 @@ function ModelChoiceSection({ company, emp, model, canManage, onChanged }: Props
  * A custom endpoint: the server it reaches, the model that server serves, and
  * whether a key is saved — the URL and key themselves never reach the browser.
  */
-function EndpointSection({ company, emp, model, canManage, onChanged }: Props) {
+function EndpointSection({ company, model, canManage, onChanged }: SettingProps) {
   const [changing, setChanging] = React.useState(false);
   return (
     <ModelSettingSection
@@ -222,7 +248,6 @@ function EndpointSection({ company, emp, model, canManage, onChanged }: Props) {
           </div>
           <CustomEndpointPanel
             company={company}
-            emp={emp}
             model={model}
             onSaved={() => {
               setChanging(false);
@@ -235,16 +260,81 @@ function EndpointSection({ company, emp, model, canManage, onChanged }: Props) {
   );
 }
 
-/** Taking this model off the employee, asking first. */
-function RemoveSection({ company, emp, model, onChanged }: Omit<Props, "canManage">) {
-  const { removing, remove } = useRemoveModel({ company, emp, model, onChanged });
+/** Taking this model off one employee, asking first. The model stays in the company. */
+function DetachSection({
+  company,
+  emp,
+  model,
+  onChanged,
+}: {
+  company: Pick<Company, "id">;
+  emp: Pick<Employee, "id" | "name">;
+  model: AIModel;
+  onChanged: () => void;
+}) {
+  const { detaching, detach } = useDetachModel({ company, emp, model, onChanged });
   return (
     <ModelSettingSection
-      title={`Remove from ${emp.name}`}
+      title={`Detach from ${emp.name}`}
       description={
         model.isActive
-          ? `${emp.name} stops using it. If ${emp.name} has another AI Model, the most recently added one becomes active.`
-          : `${emp.name} stops using it. Nothing else changes.`
+          ? `${emp.name} stops using it, and the AI Model stays in Settings → AI Models. If ${emp.name} has another AI Model, the most recently added one becomes active.`
+          : `${emp.name} stops using it, and the AI Model stays in Settings → AI Models. Nothing else changes.`
+      }
+      aside={
+        <Button size="sm" variant="secondary" onClick={detach} loading={detaching}>
+          <Unlink size={14} /> Detach
+        </Button>
+      }
+    />
+  );
+}
+
+/** Removing the model from the company — guarded while anyone uses it. */
+function RemoveSection({
+  company,
+  model,
+  companyModels,
+  onChanged,
+}: {
+  company: Pick<Company, "id">;
+  model: AIModel;
+  companyModels: readonly AIModel[];
+  onChanged: () => void;
+}) {
+  const dialog = useDialog();
+  const [removing, setRemoving] = React.useState(false);
+  const inUse = model.employees.length > 0;
+
+  async function remove() {
+    const prompt = removalPrompt(companyModels, model);
+    const ok = await dialog.confirm({
+      title: prompt.title,
+      message: prompt.message,
+      confirmLabel: prompt.confirmLabel,
+      variant: "danger",
+    });
+    if (!ok) return;
+    setRemoving(true);
+    try {
+      await api.del(
+        companyModelPath(company.id, model.id, prompt.detach ? "?detach=true" : ""),
+      );
+      onChanged();
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t remove the AI Model" });
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <ModelSettingSection
+      title="Remove from the company"
+      description={
+        inUse
+          ? "Its keys are deleted, and every AI Employee using it is detached from it first. You're asked before anything changes."
+          : "Its keys are deleted. You can connect it again any time."
       }
       aside={
         <Button size="sm" variant="secondary" onClick={remove} loading={removing}>
@@ -256,11 +346,12 @@ function RemoveSection({ company, emp, model, onChanged }: Omit<Props, "canManag
 }
 
 /**
- * Remove one model, asking first when it holds a credential. A card's Cancel
- * (a model that never finished connecting) and its Advanced Remove share it.
+ * Detach one model from one employee, asking first when it is connected. A
+ * card's Cancel on a model that never finished connecting and only this
+ * employee has goes further and removes it: there is nothing in it to keep.
  * Routines pinned to it go back to the employee's active model.
  */
-export function useRemoveModel({
+export function useDetachModel({
   company,
   emp,
   model,
@@ -272,28 +363,32 @@ export function useRemoveModel({
   onChanged: () => void;
 }) {
   const dialog = useDialog();
-  const [removing, setRemoving] = React.useState(false);
+  const [detaching, setDetaching] = React.useState(false);
+  const abandoned =
+    model.status !== "connected" && model.employees.every((user) => user.id === emp.id);
 
-  async function remove() {
+  async function detach() {
     if (model.status === "connected") {
+      const prompt = detachPrompt(model, emp);
       const ok = await dialog.confirm({
-        title: `Remove this AI Model from ${emp.name}?`,
-        message: `${emp.name} stops using ${describeModel(model)}, and the credentials saved with it here are deleted. AI Employees that use their own copy keep it. You can connect it again any time.`,
-        confirmLabel: "Remove",
+        title: prompt.title,
+        message: prompt.message,
+        confirmLabel: prompt.confirmLabel,
         variant: "danger",
       });
       if (!ok) return;
     }
-    setRemoving(true);
+    setDetaching(true);
     try {
-      await api.del(`/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`);
+      if (abandoned) await api.del(companyModelPath(company.id, model.id, "?detach=true"));
+      else await api.del(employeeModelPath(company.id, emp.id, model.id));
       onChanged();
     } catch (err) {
-      void dialog.error(err, { title: "Couldn’t remove the AI Model" });
+      void dialog.error(err, { title: "Couldn’t detach the AI Model" });
     } finally {
-      setRemoving(false);
+      setDetaching(false);
     }
   }
 
-  return { removing, remove };
+  return { detaching, detach };
 }

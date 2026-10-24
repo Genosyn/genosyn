@@ -3,7 +3,6 @@ import { after, before, beforeEach, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -12,6 +11,7 @@ import { Standdown } from "../db/entities/Standdown.js";
 import { Workstream } from "../db/entities/Workstream.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { saveRunCheckpoint } from "./runContinuation.js";
@@ -50,7 +50,7 @@ async function fixture() {
     cronExpr: "0 9 * * *",
     body: "Review the daily Deal window.",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "test",

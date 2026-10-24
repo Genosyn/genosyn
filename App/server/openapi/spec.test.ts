@@ -555,7 +555,10 @@ test("browser-only actions are cookieAuth only, and everyday ones take a key", (
     // Credential custody.
     ["get", "/api/companies/{cid}/vault/items", cookieOnly],
     ["post", "/api/companies/{cid}/integrations/connections", cookieOnly],
-    ["post", "/api/companies/{cid}/employees/{eid}/models", cookieOnly],
+    ["post", "/api/companies/{cid}/models/connect", cookieOnly],
+    ["get", "/api/companies/{cid}/models", cookieOnly],
+    ["post", "/api/companies/{cid}/models/{id}/attach", cookieOnly],
+    ["post", "/api/companies/{cid}/employees/{eid}/models/attach", cookieOnly],
     // Instance administration.
     ["get", "/api/admin/users", cookieOnly],
     // Everyday company work.

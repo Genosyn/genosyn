@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { config } from "../../../config.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { encryptSecret } from "../../lib/secret.js";
-import { closeTestDb, initTestDb, insert } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { CodexAppServer } from "./codexAppServer.js";
 import { assertCodexThreadPosture, runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
@@ -68,7 +68,7 @@ test("unlimited subscription shutdown refuses a queued tool request delivered af
   mutableConfig.agent.codingTools.executionMode = "disabled";
   try {
     await initTestDb();
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "test-employee",
       provider: "openai",
       model: expected.model,
@@ -168,7 +168,7 @@ test("subscription turns exceed 100 tool calls only with an unlimited step polic
   mutableConfig.agent.codingTools.executionMode = "disabled";
   try {
     await initTestDb();
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "test-employee",
       provider: "openai",
       model: expected.model,
@@ -281,7 +281,7 @@ test("subscription tool results carry a Run's time check as a separate item", as
   mutableConfig.agent.codingTools.executionMode = "disabled";
   try {
     await initTestDb();
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: "test-employee",
       provider: "openai",
       model: expected.model,

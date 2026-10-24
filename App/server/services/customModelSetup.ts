@@ -6,19 +6,26 @@ import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL, readCustomEndpoint } from "./customEndpoint.js";
 import { ModelSetupError } from "./modelCatalog.js";
 import { saveVerifiedModel, verifyOpenCodeModel } from "./modelSetup.js";
-import { createActiveModel } from "./models.js";
+import { saveNewModel } from "./models.js";
 import { soleServedModel } from "./servedModels.js";
 
 export type CustomModelSetup = {
-  employeeId: string;
   companyId: string;
   baseURL: string;
   /** Blank uses the model the server serves, when it serves exactly one. */
   modelId?: string;
   apiKey?: string;
+  /**
+   * AI Employees a new model is attached to, as their active model. Ignored
+   * when changing an existing model's endpoint.
+   */
+  attachTo?: readonly string[];
 };
 
-/** Validate the target and its tool API before saving any credential or active-model change. */
+/**
+ * Validate the target and its tool API before saving any credential or
+ * attaching a new model to anyone.
+ */
 export async function connectCustomModel(
   options: CustomModelSetup,
   previous?: AIModel,
@@ -52,13 +59,12 @@ export async function connectCustomModel(
     ? Object.assign(new AIModel(), previous)
     : repo.create({
         id: randomUUID(),
-        employeeId: options.employeeId,
+        companyId: options.companyId,
         provider: "custom",
         authMode: "customEndpoint",
         model: modelId,
         configJson: "{}",
         connectedAt: null,
-        isActive: false,
       });
   const oldTarget = previous ? readCustomEndpoint(previous) : null;
   const config = JSON.parse(candidate.configJson || "{}") as Record<string, unknown>;
@@ -85,7 +91,5 @@ export async function connectCustomModel(
   if (previous) {
     return saveVerifiedModel(previous, candidate, { resetContext: changedTarget });
   }
-  const saved = await createActiveModel(candidate);
-  if (!saved) throw new ModelSetupError("This AI Employee no longer exists.", 409);
-  return saved;
+  return saveNewModel(candidate, options.attachTo ?? []);
 }

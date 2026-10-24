@@ -3,7 +3,6 @@ import { after, afterEach, before, beforeEach, describe, test } from "node:test"
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BoardLetter } from "../db/entities/BoardLetter.js";
 import { BoardLetterSettings } from "../db/entities/BoardLetterSettings.js";
@@ -15,6 +14,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import { deliverBoardLetter } from "./boardLetterNotice.js";
 import {
@@ -96,7 +96,7 @@ async function fixture(): Promise<Fixture> {
       soulBody: `${name} tells the truth.`,
     });
     if (connected) {
-      await insert(AIModel, {
+      await insertEmployeeModel({
         employeeId: row.id,
         provider: "openai",
         model: "gpt-test",

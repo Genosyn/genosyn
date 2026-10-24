@@ -16,7 +16,7 @@ import type { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
-import { getActiveModel } from "../models.js";
+import { findAttachedModel, getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { broadcastToCompany } from "../realtime.js";
 import { attachmentNames, jsonBoundedString } from "./promptBounds.js";
@@ -447,19 +447,16 @@ export async function resolveAnalysisReader(
 }
 
 /**
- * The pinned model when it still belongs to this employee and still answers,
- * otherwise their active one. A pin that has gone stale must not take the
- * mailbox dark — the employee's own brain is the right fallback.
+ * The pinned model when it is still attached to this employee and still
+ * answers, otherwise their active one. A pin that has gone stale must not take
+ * the mailbox dark — the employee's own brain is the right fallback.
  */
 async function resolveAnalysisModel(
   account: MailAccount,
   employeeId: string,
 ): Promise<AIModel | null> {
   if (account.aiAnalysisModelId) {
-    const pinned = await AppDataSource.getRepository(AIModel).findOneBy({
-      id: account.aiAnalysisModelId,
-      employeeId,
-    });
+    const pinned = await findAttachedModel(employeeId, account.aiAnalysisModelId);
     if (pinned && isModelConnected(pinned)) return pinned;
   }
   const active = await getActiveModel(employeeId);

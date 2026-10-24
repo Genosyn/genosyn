@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { chatWithEmployee } from "./chat.js";
 import { WakeupError, cancelWakeup, dispatchDueWakeups, scheduleWakeup } from "./wakeups.js";
 
@@ -112,7 +112,7 @@ describe("dispatchDueWakeups", () => {
   }
 
   test("legacy proactive wakeups cannot shed the source review and delivery restrictions", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",
@@ -163,7 +163,7 @@ describe("dispatchDueWakeups", () => {
   });
 
   test("with a model the session is briefed with the note, once, and reports back", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",
@@ -192,7 +192,7 @@ describe("dispatchDueWakeups", () => {
   });
 
   test("a session failure lands as the outcome, never silence", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-x",

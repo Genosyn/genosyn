@@ -3,13 +3,13 @@ import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { HIGH_PRIORITY_HEAD_START_MS } from "../../shared/routinePriority.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { activeModelOf, insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { stopCron } from "./cron.js";
 import {
@@ -82,7 +82,7 @@ async function employeeOn(
     slug,
     role: "Go to Market",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -423,7 +423,7 @@ test("a slot that frees while a pass is under way goes to the Run ahead, not the
   const high = await waitingRun(await routineFor(jamie, "Ahead", { priority: "high" }), 1);
   await waitingRun(await routineFor(jamie, "Behind"), 2);
   const capacity = modelRunCapacity(
-    await AppDataSource.getRepository(AIModel).findOneByOrFail({ employeeId: jamie.id }),
+    await activeModelOf(jamie.id),
   );
   // The pass finds the model full for the High Run and notes why it waits;
   // right then the busy Run finishes and frees the slot, before the pass

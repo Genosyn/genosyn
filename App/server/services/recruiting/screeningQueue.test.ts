@@ -13,6 +13,7 @@ import { RecruitingScorecard } from "../../db/entities/RecruitingScorecard.js";
 import { RecruitingSettings } from "../../db/entities/RecruitingSettings.js";
 import type { OpeningCriterion } from "../../../shared/recruiting.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { withSubscriptionModelLock } from "../codexSubscription.js";
 import { liftStanddown, placeStanddown, stopStanddowns } from "../standdowns.js";
 import {
@@ -99,7 +100,7 @@ async function seed(): Promise<void> {
     slug: "rita-reviewer",
     role: "Talent partner",
   });
-  model = await insert(AIModel, {
+  model = await insertEmployeeModel({
     employeeId: screener.id,
     provider: "anthropic",
     model: "claude-test-model",

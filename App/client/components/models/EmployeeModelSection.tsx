@@ -1,6 +1,7 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
 import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import { employeeModelPath } from "@/lib/companyModels";
 import { errorMessage } from "@/lib/errors";
 import { activeFirst, canManageModels, modelListLine } from "@/lib/modelSummary";
 import { useLiveRefetch } from "@/components/CompanySocket";
@@ -24,9 +25,13 @@ import { ModelCard } from "./ModelCard";
  * page itself holds only the line saying which one is active and the button
  * that adds another.
  *
- * An employee with none is first offered the company's existing AI Model
- * (`FirstModelSetup`). Owners and admins change models; a Member reads the same
- * cards with nothing to press, and is told who connects one when there is none.
+ * Every model is the company's (Settings → AI Models); this page is which of
+ * them the employee uses. A card shows who else shares its model, because a
+ * setting changed in it changes for them too, and the way off a card detaches
+ * the model from this employee without deleting it. An employee with none is
+ * first offered the company's existing AI Model (`FirstModelSetup`). Owners
+ * and admins change models; a Member reads the same cards with nothing to
+ * press, and is told who connects one when there is none.
  *
  * `#advanced` in the address opens the active model's Advanced section, for
  * links that come for its settings — the chat's context-window badge.
@@ -35,7 +40,7 @@ export function EmployeeModelSection({
   company,
   emp,
 }: {
-  company: Pick<Company, "id" | "name" | "role">;
+  company: Pick<Company, "id" | "name" | "role" | "slug">;
   emp: Pick<Employee, "id" | "name">;
 }) {
   const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
@@ -46,9 +51,7 @@ export function EmployeeModelSection({
 
   const reload = React.useCallback(async () => {
     try {
-      const list = await api.get<AIModel[]>(
-        `/api/companies/${company.id}/employees/${emp.id}/models`,
-      );
+      const list = await api.get<AIModel[]>(employeeModelPath(company.id, emp.id));
       setModels(list);
       setLoadError(null);
     } catch (error) {
@@ -115,7 +118,6 @@ export function EmployeeModelSection({
           <AddModelPanel
             company={company}
             emp={emp}
-            held={ordered}
             onCancel={() => setAdding(false)}
             onAdded={() => {
               setAdding(false);

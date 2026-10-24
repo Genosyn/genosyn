@@ -7,7 +7,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import {
   EmployeeMailAccountGrant,
@@ -21,6 +20,7 @@ import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel, updateModelsOf } from "../../test/modelFixtures.js";
 import { FakeMailbox } from "../../test/fakeMailbox.js";
 import { agentRuntime } from "../agent/runtime.js";
 import { refreshStanddowns } from "../standdowns.js";
@@ -91,7 +91,7 @@ async function world(
     accountId: account.id,
     accessLevel: options.accessLevel ?? "draft",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: reader.id,
     provider: "openai",
     model: "gpt-test",
@@ -620,9 +620,7 @@ describe("through the real model runtime", () => {
     config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
 
     try {
-      await AppDataSource.getRepository(AIModel).update(
-        { employeeId: w.reader.id },
-        {
+      await updateModelsOf(w.reader.id, {
           provider: "custom",
           authMode: "customEndpoint",
           model: "mail-instructions-test",

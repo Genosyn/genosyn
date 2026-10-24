@@ -13,6 +13,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { decryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
 import type { PublicSubscriptionDeviceSession } from "./codexSubscription.js";
 
@@ -120,7 +121,7 @@ beforeEach(async () => {
 });
 
 async function insertSubscriptionModel(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: `employee-${randomUUID()}`,
     provider: "openai",
     model: "gpt-5.4",

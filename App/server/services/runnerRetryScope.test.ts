@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import { startRoutineRun } from "./runner.js";
@@ -35,7 +35,7 @@ async function fixture() {
     slug: "jamie",
     role: "Sales",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "retry-test",

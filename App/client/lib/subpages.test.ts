@@ -375,6 +375,7 @@ describe("subpage visibility", () => {
       "/recruiting/settings",
       "/recruiting/site",
       "/routines/new",
+      "/settings/ai-models",
       "/settings/audit",
       "/settings/email/logs",
       "/settings/phone-numbers",

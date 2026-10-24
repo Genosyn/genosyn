@@ -16,6 +16,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
@@ -26,6 +27,8 @@ import {
   configWithSubscriptionAccessToken,
 } from "../services/codexSubscription.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { flaggedActiveModel, insertEmployeeModel } from "../test/modelFixtures.js";
+import { companyModelsRouter } from "./companyModels.js";
 import { modelsRouter } from "./models.js";
 
 type ExecutionMode = "host" | "disabled";
@@ -87,6 +90,7 @@ before(async () => {
     await persistTestSession(req);
     next();
   });
+  app.use("/api/companies/:cid/models", companyModelsRouter);
   app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
@@ -148,7 +152,7 @@ async function call<T = Record<string, unknown>>(
   body?: unknown,
 ): Promise<ApiResponse<T>> {
   const response = await fetch(
-    `${baseUrl}/api/companies/${company.id}/employees/${employee.id}/models${path}`,
+    `${baseUrl}/api/companies/${company.id}/models${path}`,
     {
       method,
       headers: {
@@ -163,7 +167,7 @@ async function call<T = Record<string, unknown>>(
 }
 
 async function insertSubscriptionModel(): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-5.4",
@@ -212,7 +216,7 @@ describe("verified subscription model edits", () => {
     const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id });
     assert.equal(saved.configJson, previous.configJson);
     assert.ok(saved.connectedAt! > previous.connectedAt!);
-    assert.equal(saved.isActive, true);
+    assert.equal((await flaggedActiveModel(employee.id))?.id, previous.id);
     await assert.rejects(fs.access(authRoot));
   });
 
@@ -240,7 +244,7 @@ describe("verified subscription model edits", () => {
 
   test("explicit model edits verify the requested ID and preserve a concurrently activated sibling", async (t) => {
     const previous = await connectedModel();
-    const sibling = await insert(AIModel, {
+    const sibling = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       authMode: "apikey",
@@ -250,8 +254,9 @@ describe("verified subscription model edits", () => {
     });
     let requested = "";
     t.mock.method(CodexAppServer, "start", async (options: CodexStartOptions) => {
-      await AppDataSource.getRepository(AIModel).update({ id: previous.id }, { isActive: false });
-      await AppDataSource.getRepository(AIModel).update({ id: sibling.id }, { isActive: true });
+      const attachments = AppDataSource.getRepository(EmployeeModel);
+      await attachments.update({ employeeId: employee.id, modelId: previous.id }, { isActive: false });
+      await attachments.update({ employeeId: employee.id, modelId: sibling.id }, { isActive: true });
       const server = fakeCodexVerification(options.cwd);
       const request = server.request.bind(server);
       t.mock.method(server, "request", async (...args: Parameters<CodexAppServer["request"]>) => {
@@ -271,14 +276,8 @@ describe("verified subscription model edits", () => {
     assert.equal(response.status, 200, JSON.stringify(response.body));
     assert.equal(requested, "gpt-my-choice");
     assert.equal(response.body.model, "gpt-my-choice");
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: previous.id })).isActive,
-      false,
-    );
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: sibling.id })).isActive,
-      true,
-    );
+    // The edit changed the model, never which model the employee uses.
+    assert.equal((await flaggedActiveModel(employee.id))?.id, sibling.id);
   });
 
   test("a failed reply keeps the previous selected model and working credential", async (t) => {

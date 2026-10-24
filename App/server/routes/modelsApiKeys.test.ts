@@ -27,12 +27,16 @@ import {
 } from "../services/modelApiKeys.js";
 import { resetKeyHealthMemory } from "../services/modelKeyHealth.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
+import { companyModelsRouter } from "./companyModels.js";
 import { modelsRouter } from "./models.js";
 
 /**
- * Backup API keys on an AI Model, through the real models router: adding,
- * reordering and removing keys, who may, and that no key ever comes back.
+ * Backup API keys on an AI Model, through the real company models router:
+ * adding, reordering and removing keys, who may, and that no key ever comes
+ * back. A model belongs to the company, so its keys are reached by the model
+ * alone, never through an employee.
  */
 
 type PublicKey = {
@@ -92,6 +96,7 @@ before(async () => {
     await persistTestSession(req);
     next();
   });
+  app.use("/api/companies/:cid/models", companyModelsRouter);
   app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
@@ -170,10 +175,10 @@ async function call<T = PublicModel>(
   body?: unknown,
   options: { employee?: AIEmployee; companyId?: string } = {},
 ): Promise<ApiResponse<T>> {
+  // The company's models; an employee's own list when one is named.
+  const scope = options.employee ? `/employees/${options.employee.id}` : "";
   const response = await realFetch(
-    `${baseUrl}/api/companies/${options.companyId ?? company.id}/employees/${
-      (options.employee ?? employee).id
-    }/models${path}`,
+    `${baseUrl}/api/companies/${options.companyId ?? company.id}${scope}/models${path}`,
     {
       method,
       headers: {
@@ -196,11 +201,11 @@ const addKey = (modelId: string, apiKey: string) => {
 /** An Anthropic model connected with `keys`, the first as the primary. */
 async function claudeModel(
   keys: string[] = [PRIMARY],
-  overrides: Partial<AIModel> & { owner?: AIEmployee; companyId?: string } = {},
+  overrides: Partial<AIModel> & { owner?: AIEmployee; companyId?: string; isActive?: boolean } = {},
 ): Promise<AIModel> {
   const { owner: holder = employee, companyId = company.id, ...rest } = overrides;
   for (const key of keys) SENT.add(key);
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: holder.id,
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -323,7 +328,7 @@ describe("adding backup keys", () => {
 
   test("an older model's primary, saved before keys had ids, gains backups", async (t) => {
     stubVerification(t);
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-opus-5-5",
@@ -351,7 +356,7 @@ describe("adding backup keys", () => {
 
   test("models that don't connect with an API key refuse backup keys", async (t) => {
     const calls = stubVerification(t);
-    const custom = await insert(AIModel, {
+    const custom = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "qwen3",
@@ -364,7 +369,7 @@ describe("adding backup keys", () => {
       }),
       connectedAt: new Date(),
     });
-    const subscription = await insert(AIModel, {
+    const subscription = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-5.4",
@@ -471,7 +476,7 @@ describe("reordering keys", () => {
       apiKeyEncrypted: encryptSecret(PRIMARY, company.id),
       apiKeyPreview: maskSecret(PRIMARY),
     });
-    const model = await insert(AIModel, {
+    const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "anthropic",
       model: "claude-opus-5-5",
@@ -642,9 +647,12 @@ describe("who can see and change keys", () => {
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const ids = readApiKeys(model.configJson).map((key) => key.id);
     await actAs("member");
-    const listed = await call<PublicModel[]>("GET", "");
+    // A Member reads them on the employee's Model page; the company's list of
+    // AI Models is for owners and admins.
+    const listed = await call<PublicModel[]>("GET", "", undefined, { employee });
     assert.equal(listed.status, 200);
     assert.equal(listed.body[0].apiKeys.length, 2);
+    assert.equal((await call("GET", "")).status, 403);
     assert.equal((await addKey(model.id, backupKey(2))).status, 403);
     assert.equal(
       (await call("POST", `/${model.id}/keys/reorder`, { orderedIds: [ids[1], ids[0]] })).status,
@@ -683,18 +691,16 @@ describe("who can see and change keys", () => {
       companyId: globex.id,
     });
     const [, backup] = readApiKeys(theirs.configJson);
-    // Their model id under our employee, and their employee under our company.
+    // Their model id under our company.
     assert.equal((await addKey(theirs.id, backupKey(2))).status, 404);
     assert.equal((await call("DELETE", `/${theirs.id}/keys/${backup.id}`)).status, 404);
     assert.equal(
-      (
-        await call(
-          "POST",
-          `/${theirs.id}/keys/reorder`,
-          { orderedIds: [backup.id] },
-          { employee: mallory },
-        )
-      ).status,
+      (await call("POST", `/${theirs.id}/keys/reorder`, { orderedIds: [backup.id] })).status,
+      404,
+    );
+    // Nor through their employee: an employee of another company is not found here.
+    assert.equal(
+      (await call("GET", "", undefined, { employee: mallory })).status,
       404,
     );
     assert.deepEqual(await savedKeys(theirs.id), [PRIMARY, backupKey(1)]);
@@ -743,7 +749,9 @@ describe("each key's health in the model's settings", () => {
       keyId: readApiKeys(other.configJson)[0].id,
       lastUsedAt: new Date(),
     });
-    assert.equal((await call("DELETE", `/${model.id}`)).status, 200);
+    // Removing a model someone uses is refused until it is detached from them.
+    assert.equal((await call("DELETE", `/${model.id}`)).status, 409);
+    assert.equal((await call("DELETE", `/${model.id}?detach=true`)).status, 200);
     const left = await AppDataSource.getRepository(AIModelKeyHealth).find();
     assert.deepEqual(
       left.map((row) => row.modelId),
@@ -752,7 +760,7 @@ describe("each key's health in the model's settings", () => {
   });
 
   test("subscription and custom models list no API keys", async () => {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-5.4",

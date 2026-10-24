@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { companyModelPath } from "@/lib/companyModels";
 import { errorDetail } from "@/lib/errors";
 
 type ModelCatalog = { models: Array<{ id: string; label: string }>; recommendedModel: string };
@@ -22,7 +23,15 @@ const API_KEY_PAGES: Partial<Record<Provider, { label: string; href: string }>> 
   openai: { label: "Get an OpenAI key", href: "https://platform.openai.com/api-keys" },
 };
 
-/** One submit connects API models; an optional choice follows live account discovery. */
+/**
+ * Connect a new company AI Model, or change one. One submit connects an API
+ * model; an optional choice follows live account discovery.
+ *
+ * Every model belongs to the company. Made from an AI Employee's Model page
+ * (`emp`), the new model is attached to that employee as its active one; made
+ * from Settings → AI Models it waits there to be attached. Changing a model
+ * changes it for every employee using it.
+ */
 export function ModelSetupForm({
   mode,
   editModelId,
@@ -37,8 +46,9 @@ export function ModelSetupForm({
   editModelId?: string;
   initial: { provider: Provider; model: string; authMode: AuthMode };
   company: Pick<Company, "id">;
-  emp: Pick<Employee, "id">;
-  onSaved: () => void;
+  /** The AI Employee a new model is for; it becomes that employee's active model. */
+  emp?: Pick<Employee, "id">;
+  onSaved: (model: AIModel) => void;
   submitLabel: string;
   /**
    * Editing a connected API-key model: list the models its saved keys reach,
@@ -61,7 +71,9 @@ export function ModelSetupForm({
   const [saving, setSaving] = React.useState(false);
   const [refresh, setRefresh] = React.useState(0);
   const requestVersion = React.useRef(0);
-  const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
+  const base = companyModelPath(company.id);
+  // A new model goes to the employee it was made for, if any.
+  const attachTo = emp ? { employeeIds: [emp.id] } : {};
   const isCustom = provider === "custom";
   const editingExistingCustom = mode === "edit" && isCustom && initial.provider === "custom";
   const isApiKey = !isCustom && authMode === "apikey";
@@ -140,19 +152,22 @@ export function ModelSetupForm({
     setError(null);
     setSaving(true);
     try {
+      let saved: AIModel;
       if (isApiKey && mode === "create") {
-        await api.post<AIModel>(`${base}/connect`, {
+        saved = await api.post<AIModel>(`${base}/connect`, {
           provider,
           apiKey: apiKey.trim(),
           ...(modelStr || catalog?.recommendedModel
             ? { model: modelStr || catalog?.recommendedModel }
             : {}),
+          ...attachTo,
         });
       } else if (isCustom) {
-        await api.post<AIModel>(`${base}/connect-custom`, {
+        saved = await api.post<AIModel>(`${base}/connect-custom`, {
           baseURL,
           modelId: customModelId,
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          ...attachTo,
         });
       } else {
         const selectedModel =
@@ -163,11 +178,13 @@ export function ModelSetupForm({
           model: selectedModel,
           ...(isApiKey && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         };
-        if (mode === "create") await api.post<AIModel>(base, payload);
-        else await api.put<AIModel>(`${base}/${editModelId}`, payload);
+        saved =
+          mode === "create"
+            ? await api.post<AIModel>(base, { ...payload, ...attachTo })
+            : await api.put<AIModel>(`${base}/${editModelId}`, payload);
       }
       setApiKey("");
-      onSaved();
+      onSaved(saved);
     } catch (err) {
       setError(err);
     } finally {

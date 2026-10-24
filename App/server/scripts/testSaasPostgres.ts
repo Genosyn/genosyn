@@ -672,14 +672,14 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
         role: "Operations",
       }),
     );
+    const { saveNewModel } = await import("../services/models.js");
     const models = AppDataSource.getRepository(AIModel);
-    await models.save(
+    await saveNewModel(
       models.create({
-        employeeId: queueEmployee.id,
+        companyId: formsCompany.id,
         provider: "custom",
         model: "postgres-queue-test",
         authMode: "customEndpoint",
-        isActive: true,
         connectedAt: new Date(),
         // Cross-process dispatch, not model capacity, is under test here.
         maxConcurrentRuns: 0,
@@ -688,6 +688,7 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
           modelId: "postgres-queue-test",
         }),
       }),
+      [queueEmployee.id],
     );
     const routines = AppDataSource.getRepository(Routine);
     const runs = AppDataSource.getRepository(Run);
@@ -793,19 +794,19 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
         role: "Operations",
       }),
     );
-    await models.save(
+    await saveNewModel(
       models.create({
-        employeeId: capacityEmployee.id,
+        companyId: formsCompany.id,
         provider: "custom",
         model: "postgres-capacity-test",
         authMode: "customEndpoint",
-        isActive: true,
         connectedAt: new Date(),
         configJson: JSON.stringify({
           baseURLEncrypted: encryptSecret("http://127.0.0.1:19998/v1"),
           modelId: "postgres-capacity-test",
         }),
       }),
+      [capacityEmployee.id],
     );
     const capacityRuns: InstanceType<typeof Run>[] = [];
     for (let index = 0; index < 3; index++) {

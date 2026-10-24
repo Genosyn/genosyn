@@ -7,7 +7,6 @@ import { after, afterEach, before, beforeEach, describe, test, type TestContext 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { GroupDiscussion } from "../db/entities/GroupDiscussion.js";
@@ -15,6 +14,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Skill } from "../db/entities/Skill.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { askColleague } from "./colleagueConsult.js";
 import { COLLABORATION_READ_TOOLS } from "./collaborationScope.js";
@@ -80,7 +80,7 @@ beforeEach(async () => {
     soulBody: "BEN-SOUL: Count everything.",
   });
   for (const e of [ada, ben]) {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: e.id,
       provider: "anthropic",
       model: "claude-sonnet-4",

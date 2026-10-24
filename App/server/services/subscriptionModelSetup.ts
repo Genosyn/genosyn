@@ -20,7 +20,7 @@ export async function editSubscriptionModel(
       let server: CodexAppServer | null = null;
       try {
         if (
-          lease.model.employeeId !== previous.employeeId ||
+          lease.model.companyId !== previous.companyId ||
           lease.model.model !== previous.model
         ) {
           throw new ModelSetupError(
@@ -41,7 +41,7 @@ export async function editSubscriptionModel(
         const updated = await AppDataSource.getRepository(AIModel).update(
           {
             id: previous.id,
-            employeeId: previous.employeeId,
+            companyId: previous.companyId,
             provider: "openai",
             authMode: "subscription",
             model: lease.model.model,

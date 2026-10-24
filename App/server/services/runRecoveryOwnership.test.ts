@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -12,6 +11,7 @@ import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { config } from "../../config.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { dispatchDueRetries } from "./cron.js";
 import { reconcileOrphanedRuns } from "./runRecovery.js";
@@ -315,7 +315,7 @@ async function fixture() {
     slug: "jamie",
     role: "Operations",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "ownership-test",

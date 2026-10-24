@@ -3,7 +3,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { Decision } from "../db/entities/Decision.js";
@@ -13,6 +12,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { ChatResult, chatWithEmployee } from "./chat.js";
 import { createDecision, decideDecision } from "./decisions.js";
 import { kickoffDecision } from "./decisionKickoff.js";
@@ -54,7 +54,7 @@ beforeEach(async () => {
 
 /** An employee with a brain — without one, every pickup degrades to `skipped`. */
 async function giveModel(): Promise<void> {
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-sonnet-4",

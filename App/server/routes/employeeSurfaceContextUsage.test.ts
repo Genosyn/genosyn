@@ -17,6 +17,7 @@ import { User } from "../db/entities/User.js";
 import { encryptSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { employeeSurfaceRouter } from "./employeeSurface.js";
 
 /**
@@ -305,7 +306,7 @@ describe("context usage on the chat stream", () => {
     const address = upstream!.address() as AddressInfo;
     previousAllowlist = [...config.security.outboundPrivateHostAllowlist];
     config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
-    return insert(AIModel, {
+    return insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
       model: "stream-gauge",

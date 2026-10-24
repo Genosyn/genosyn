@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
@@ -70,7 +70,7 @@ async function localEmployee() {
     slug: "jamie",
     role: "Community",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -393,7 +393,7 @@ test("a handoff holds no slot once its hold has run out or on another model", as
     slug: "robin",
     role: "Community",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: other.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",

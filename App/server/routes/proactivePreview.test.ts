@@ -7,7 +7,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -18,6 +17,7 @@ import { reconcileProactiveDefaults } from "../services/proactive/defaults.js";
 import type { ProactiveDefaultsPreview } from "../services/proactive/preview.js";
 import { ensureDefaultTldrSchedule, updateTldrSettings } from "../services/tldrs.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { proactiveRouter } from "./proactive.js";
 
 let server: Server;
@@ -61,7 +61,7 @@ async function hire(name: string, withModel = true, id?: string): Promise<AIEmpl
     soulBody: `# ${name}`,
   });
   if (withModel) {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "test",

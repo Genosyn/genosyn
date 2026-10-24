@@ -3,7 +3,8 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { AIModel } from "../../db/entities/AIModel.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { sweepContextWindows } from "./contextWindowRefresh.js";
 
@@ -21,7 +22,7 @@ async function customModel(
     modelId: "Qwen/Qwen3.8-27B",
   },
 ) {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: "employee-context-window",
     provider: "custom",
     model: endpoint?.modelId ?? "Qwen/Qwen3.8-27B",
@@ -94,7 +95,7 @@ describe("context window sweep", () => {
 
   test("skips models with no credential and providers with nothing to ask", async () => {
     const unconfigured = await customModel({}, null);
-    const openai = await insert(AIModel, {
+    const openai = await insertEmployeeModel({
       employeeId: "employee-context-window",
       provider: "openai",
       model: "gpt-5",

@@ -5,7 +5,6 @@ import type { EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Company } from "../../db/entities/Company.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { Routine } from "../../db/entities/Routine.js";
@@ -13,6 +12,7 @@ import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeFinanceGrant } from "../../db/entities/EmployeeFinanceGrant.js";
 import { initTestDb, resetTestDb, closeTestDb, insert } from "../../test/dbHarness.js";
+import { detachAllModels, insertEmployeeModel } from "../../test/modelFixtures.js";
 import { initializeProactiveDefaults, readProactiveDefaults } from "./defaultsState.js";
 import { proactiveScope } from "./scopes.js";
 import { proactiveId, installProactiveStarter, setProactiveAutomaticSetup } from "./setup.js";
@@ -39,7 +39,7 @@ async function worker() {
     slug: randomUUID(),
     role: "Sales",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: row.id,
     provider: "openai",
     model: "fixture",
@@ -119,7 +119,7 @@ test("simultaneous workers claim one mailbox responsibility atomically", async (
 for (const scenario of [
   {
     name: "AI Model is disconnected",
-    revoke: () => AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id }),
+    revoke: () => detachAllModels(employee.id),
     message: /Connect an active AI Model/,
   },
   {

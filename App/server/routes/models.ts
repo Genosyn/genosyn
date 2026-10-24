@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
@@ -9,73 +8,36 @@ import {
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
-  requireCompanyRole,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
-import { PROVIDERS, isModelConnected } from "../services/providers.js";
-import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
-import { discoverApiModels, ModelSetupError } from "../services/modelCatalog.js";
+import { ModelSetupError } from "../services/modelCatalog.js";
 import {
-  connectApiModel,
-  discoverStoredApiModels,
-  replaceApiKey,
-  verifyModelEdit,
-  editApiModel,
-} from "../services/modelSetup.js";
-import { testModelConnection } from "../services/modelConnectionTest.js";
-import { addBackupKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
-import {
-  LEGACY_PRIMARY_KEY_ID,
-  publicApiKeys,
-  readApiKeys,
-  type PublicApiKey,
-} from "../services/modelApiKeys.js";
-import {
-  deleteKeyHealth,
-  keyRestingUntil,
-  listKeyHealth,
-  pruneKeyHealth,
-} from "../services/modelKeyHealth.js";
-import type { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
-import { previewBaseURL } from "../services/customEndpoint.js";
-import { connectCustomModel } from "../services/customModelSetup.js";
-import { listReusableModels, reuseModelForEmployee } from "../services/modelReuse.js";
-import { editSubscriptionModel } from "../services/subscriptionModelSetup.js";
-import { canProbeContextWindow } from "../services/agent/contextWindow.js";
-import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
-import { recordAudit } from "../services/audit.js";
-import { codingRuntimeAvailability } from "../services/agent/codingAvailability.js";
-import { MAX_MODEL_CONCURRENT_RUNS, modelRunCapacity } from "../services/modelRunCapacity.js";
-import { dispatchQueuedRoutineRuns } from "../services/routineQueue.js";
-import {
-  cancelSubscriptionDeviceLogin,
-  cancelSubscriptionDeviceLoginsForModel,
-  getSubscriptionDeviceLogin,
-  saveSubscriptionAccessToken,
-  startSubscriptionDeviceLogin,
-  SubscriptionCredentialConflictError,
-  subscriptionCredentialKind,
-  subscriptionUnavailableReason,
-} from "../services/codexSubscription.js";
+  attachModel,
+  attachedModels,
+  detachModel,
+  findAttachedModel,
+  modelUsers,
+  setActiveModel,
+} from "../services/models.js";
+import { healthByModel, toPublicModel } from "../services/modelViews.js";
+import { auditEmployeeModel } from "./companyModels.js";
 
 /**
- * Per-employee Model routes, mounted at
+ * One AI Employee's AI Models, mounted at
  * `/api/companies/:cid/employees/:eid/models`.
  *
- * An employee can register several models and keep exactly one active. A model
- * is a direct connection to a model API — Anthropic (Claude), OpenAI (GPT), or a
- * custom OpenAI-compatible endpoint. OpenAI models can also use a ChatGPT
- * subscription through the pinned official Codex app-server on trusted
- * self-hosted installs. Every credential remains encrypted in `configJson`.
- * `POST /:id/activate` flips the default model used by the runner and chat.
- * `GET /reusable` and `POST /reuse` let a new employee use an AI Model another
- * employee in the company already runs on, copied on the server (see
- * `services/modelReuse.ts`). `/:id/keys` adds, removes and reorders an
- * API-key model's backup keys — as many as the owner wants — each shown only
- * as a preview with its health (see `services/modelApiKeySetup.ts`).
- * `POST /:id/test` asks a connected model for one real reply and changes
- * nothing (`services/modelConnectionTest.ts`); `GET /:id/catalog` lists the
- * models an API-key model's own keys can reach, for changing its model.
+ * AI Models belong to the company (`routes/companyModels.ts`, Settings → AI
+ * Models). This router is only which of them this employee uses: the list,
+ * with the active one marked and who else shares each; `POST /attach` puts a
+ * company model on the employee; `POST /:id/activate` switches which attached
+ * model its Routines and chat use; `DELETE /:id` detaches one — the model, its
+ * keys and every other employee's use of it stay. Everything about the model
+ * itself — its keys, sign-in, endpoint, Test connection — is a company route
+ * keyed on the model.
+ *
+ * Any Member reads the list; owners and admins change it, from a signed-in
+ * browser only — no API key, Genosyn MCP client or AI Employee tool chooses
+ * an employee's brain.
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -83,76 +45,12 @@ modelsRouter.use(requireCompanyMember);
 modelsRouter.use(requireBrowserSession);
 modelsRouter.use(requireCompanyRoleForMutations("admin"));
 
-const providerSchema = z.enum(["anthropic", "openai", "custom"]);
-const authModeSchema = z.enum(["apikey", "subscription", "customEndpoint"]);
-const modelItemParamsSchema = z.object({
-  cid: z.string().uuid(),
-  eid: z.string().uuid(),
-  id: z.string().uuid(),
-});
-const deviceSessionParamsSchema = modelItemParamsSchema.extend({
-  sessionId: z.string().uuid(),
-});
-
-type PublicModel = {
-  id: string;
-  employeeId: string;
-  provider: "anthropic" | "openai" | "custom";
-  model: string;
-  authMode: "apikey" | "subscription" | "customEndpoint";
-  /** True if this is the default brain for Routines and employee Chat. */
-  isActive: boolean;
-  connectedAt: string | null;
-  status: "not_connected" | "connected";
-  apiKeyMasked: string | null;
-  /**
-   * An API-key model's keys in the order requests try them — the primary,
-   * then every backup — each as a masked preview with its health. Empty for
-   * subscription and custom-endpoint models.
-   */
-  apiKeys: PublicApiKey[];
-  /** Env var the provider conventionally reads (informational), or null. */
-  apiKeyEnv: string | null;
-  /** Does this provider connect with a plain API key? */
-  supportsApiKey: boolean;
-  /** Does this provider support the official consumer-subscription runtime? */
-  supportsSubscription: boolean;
-  /** Is subscription auth allowed by this install's security mode? */
-  subscriptionAvailable: boolean;
-  subscriptionUnavailableReason: string | null;
-  /** Which encrypted subscription credential is present, without its value. */
-  subscriptionCredentialKind: "chatgptSession" | "accessToken" | null;
-  /** Whether subscription turns may safely receive the bash coding tool. */
-  subscriptionShellAvailable: boolean;
-  /** Does this provider connect via a custom OpenAI-compatible endpoint? */
-  supportsCustomEndpoint: boolean;
-  /** Host-only preview of the configured base URL — `null` when unset. */
-  customEndpointHost: string | null;
-  /** The raw model id stored on configJson — `null` when unset. */
-  customEndpointModelId: string | null;
-  /** True if a custom-endpoint API key is on file (we never echo the plaintext). */
-  customEndpointHasApiKey: boolean;
-  /**
-   * Context window in tokens as reported by the provider, or null when it
-   * doesn't say (OpenAI) or we couldn't reach it. Null means unknown.
-   */
-  contextWindow: number | null;
-  /** Whether the window above was probed or typed in. Null when unknown. */
-  contextWindowSource: "probed" | "manual" | null;
-  /** Can we ask this provider for the window at all? Drives the UI's affordances. */
-  contextWindowProbeable: boolean;
-  /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
-  maxConcurrentRuns: number | null;
-  /** The limit Routine Runs actually get; null means no limit. */
-  effectiveMaxConcurrentRuns: number | null;
-  /** Why that limit applies: an explicit setting, the local-server default, or none. */
-  concurrencySource: "configured" | "local-default" | "unlimited";
-};
+const collectionParamsSchema = z.object({ cid: z.string().uuid(), eid: z.string().uuid() });
+const itemParamsSchema = collectionParamsSchema.extend({ id: z.string().uuid() });
 
 type CoEmp = { co: Company; emp: AIEmployee };
-type LoadError = { error: string };
 
-async function loadContext(cid: string, eid: string): Promise<CoEmp | LoadError> {
+async function loadContext(cid: string, eid: string): Promise<CoEmp | { error: string }> {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
   if (!co) return { error: "Company not found" };
   const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -163,1022 +61,101 @@ async function loadContext(cid: string, eid: string): Promise<CoEmp | LoadError>
   return { co, emp };
 }
 
-async function loadModelContext(
-  cid: string,
-  eid: string,
-  modelId: string,
-): Promise<(CoEmp & { m: AIModel }) | LoadError> {
-  const ctx = await loadContext(cid, eid);
-  if ("error" in ctx) return ctx;
-  const m = await AppDataSource.getRepository(AIModel).findOneBy({
-    id: modelId,
-    employeeId: ctx.emp.id,
-  });
-  if (!m) return { error: "Model not found" };
-  return { co: ctx.co, emp: ctx.emp, m };
-}
-
-function toPublic(
-  m: AIModel,
-  isActive: boolean,
-  health: readonly AIModelKeyHealth[] = [],
-): PublicModel {
-  const cfg = safeParseConfig(m.configJson);
-  const apiKeyEncrypted =
-    typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
-  const customEndpointHost =
-    typeof cfg.baseURLPreview === "string" ? (cfg.baseURLPreview as string) : null;
-  const customEndpointModelId = typeof cfg.modelId === "string" ? (cfg.modelId as string) : null;
-  const spec = PROVIDERS[m.provider];
-  const connected = isModelConnected(m);
-  const unavailable = spec.supportsSubscription ? subscriptionUnavailableReason() : null;
-  const capacity = modelRunCapacity(m);
-  return {
-    id: m.id,
-    employeeId: m.employeeId,
-    provider: m.provider,
-    model: m.model,
-    authMode: m.authMode,
-    isActive,
-    connectedAt: m.connectedAt?.toISOString() ?? null,
-    status: connected ? "connected" : "not_connected",
-    apiKeyMasked: apiKeyEncrypted ? "sk-…••••" : null,
-    apiKeys: publicApiKeys(m, health, {
-      restingUntil: (keyId) => keyRestingUntil(m.id, keyId),
+/** The employee's attached models for the wire, newest attachment first. */
+async function employeeModelList(co: Company, emp: AIEmployee) {
+  const { models, activeId } = await attachedModels(emp.id);
+  const [health, users] = await Promise.all([healthByModel(models), modelUsers(co.id)]);
+  return models.map((m) =>
+    toPublicModel(m, {
+      isActive: m.id === activeId,
+      health: health.get(m.id),
+      employees: users.get(m.id) ?? [],
     }),
-    apiKeyEnv: spec.apiKeyEnv,
-    supportsApiKey: spec.supportsApiKey,
-    supportsSubscription: spec.supportsSubscription,
-    subscriptionAvailable: spec.supportsSubscription && unavailable === null,
-    subscriptionUnavailableReason: unavailable,
-    subscriptionCredentialKind: subscriptionCredentialKind(m),
-    subscriptionShellAvailable:
-      spec.supportsSubscription && unavailable === null && codingRuntimeAvailability().available,
-    supportsCustomEndpoint: spec.supportsCustomEndpoint,
-    customEndpointHost,
-    customEndpointModelId,
-    customEndpointHasApiKey: m.authMode === "customEndpoint" && Boolean(apiKeyEncrypted),
-    contextWindow: m.contextWindow ?? null,
-    contextWindowSource: m.contextWindowSource ?? null,
-    contextWindowProbeable: canProbeContextWindow(m),
-    maxConcurrentRuns: m.maxConcurrentRuns ?? null,
-    effectiveMaxConcurrentRuns: capacity.limit,
-    concurrencySource: capacity.source,
-  };
+  );
 }
 
-/** Shape a single model for the wire, computing its `isActive` live. */
-async function publicModel(m: AIModel, emp: AIEmployee): Promise<PublicModel> {
-  const all = await AppDataSource.getRepository(AIModel).find({
-    where: { employeeId: emp.id },
-  });
-  const activeId = effectiveActiveId(all);
-  return toPublic(m, m.id === activeId, await listKeyHealth([m.id]));
+/** One attached model as the employee's list shows it. */
+async function employeeModelView(co: Company, emp: AIEmployee, modelId: string) {
+  return (await employeeModelList(co, emp)).find((m) => m.id === modelId) ?? null;
 }
 
-/** Each model's key health, by model id. */
-async function healthByModel(models: AIModel[]): Promise<Map<string, AIModelKeyHealth[]>> {
-  const byModel = new Map<string, AIModelKeyHealth[]>();
-  for (const row of await listKeyHealth(models.map((m) => m.id))) {
-    const rows = byModel.get(row.modelId);
-    if (rows) rows.push(row);
-    else byModel.set(row.modelId, [row]);
-  }
-  return byModel;
-}
-
-function safeParseConfig(s: string): Record<string, unknown> {
-  try {
-    const v = JSON.parse(s);
-    return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-/** The provider ↔ authMode compatibility check. */
-function unsupportedAuthError(
-  provider: z.infer<typeof providerSchema>,
-  authMode: z.infer<typeof authModeSchema>,
-): string | null {
-  const spec = PROVIDERS[provider];
-  if (authMode === "apikey" && !spec.supportsApiKey) {
-    return `${provider} connects via a custom endpoint, not an API key.`;
-  }
-  if (authMode === "subscription" && !spec.supportsSubscription) {
-    return provider === "anthropic"
-      ? "Anthropic does not allow third-party products to use Claude consumer subscriptions. Use an Anthropic Console API key."
-      : `${provider} does not support subscription authentication.`;
-  }
-  if (authMode === "subscription") {
-    const unavailable = subscriptionUnavailableReason();
-    if (unavailable) return unavailable;
-  }
-  if (authMode === "customEndpoint" && !spec.supportsCustomEndpoint) {
-    return `${provider} connects with an API key, not a custom endpoint.`;
-  }
-  return null;
-}
-
-// ---------- Collection routes ----------
-
-// GET /api/companies/:cid/employees/:eid/models — list every model, newest first.
-modelsRouter.get("/", async (req, res) => {
+// GET /api/companies/:cid/employees/:eid/models — the employee's attached
+// models, newest attachment first, the active one marked.
+modelsRouter.get("/", validateParams(collectionParamsSchema), async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const all = await AppDataSource.getRepository(AIModel).find({
-    where: { employeeId: ctx.emp.id },
-    order: { createdAt: "DESC" },
-  });
-  const activeId = effectiveActiveId(all);
-  const health = await healthByModel(all);
-  res.json(all.map((m) => toPublic(m, m.id === activeId, health.get(m.id))));
+  res.json(await employeeModelList(ctx.co, ctx.emp));
 });
 
-const modelCollectionParamsSchema = z.object({ cid: z.string().uuid(), eid: z.string().uuid() });
-const discoverSchema = z.object({
-  provider: z.enum(["anthropic", "openai"]),
-  apiKey: z.string().trim().min(1).max(500),
-});
-const connectSchema = discoverSchema.extend({
-  model: z.string().trim().min(1).max(120).optional(),
-});
+// POST /api/companies/:cid/employees/:eid/models/attach — put one of the
+// company's connected AI Models on this employee, as its active model unless
+// `makeActive` is false. Replaces copying another employee's model: the
+// employee runs on the same model, keys and all, so there is nothing to paste
+// and nothing to keep in step.
+const attachSchema = z
+  .object({ modelId: z.string().uuid(), makeActive: z.boolean().optional() })
+  .strict();
 
-// No credential is stored while the member previews their available models.
 modelsRouter.post(
-  "/discover",
-  validateParams(modelCollectionParamsSchema),
-  validateBody(discoverSchema),
+  "/attach",
+  validateParams(collectionParamsSchema),
+  validateBody(attachSchema),
   async (req, res) => {
     const p = req.params as Record<string, string>;
     const ctx = await loadContext(p.cid, p.eid);
     if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const body = req.body as z.infer<typeof discoverSchema>;
+    const body = req.body as z.infer<typeof attachSchema>;
+    let result: Awaited<ReturnType<typeof attachModel>>;
     try {
-      res.json(await discoverApiModels(body.provider, body.apiKey));
+      result = await attachModel({
+        companyId: ctx.co.id,
+        modelId: body.modelId,
+        employeeIds: [ctx.emp.id],
+        makeActive: body.makeActive,
+      });
     } catch (error) {
       if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json(error.responseBody());
+      return res.status(error.status).json(error.responseBody());
     }
-  },
-);
-
-// Discover, verify, and save together: a failed test leaves the employee unchanged.
-modelsRouter.post(
-  "/connect",
-  validateParams(modelCollectionParamsSchema),
-  validateBody(connectSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadContext(p.cid, p.eid);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    try {
-      const model = await connectApiModel({
-        ...(req.body as z.infer<typeof connectSchema>),
-        employeeId: ctx.emp.id,
-        companyId: ctx.co.id,
-      });
-      await refreshContextWindow(model);
-      await recordAudit({
-        companyId: ctx.co.id,
-        actorUserId: req.userId ?? null,
-        action: "model.configure",
-        targetType: "employee",
-        targetId: ctx.emp.id,
-        targetLabel: ctx.emp.name,
-        metadata: {
-          provider: model.provider,
-          model: model.model,
-          authMode: model.authMode,
-          verified: true,
-        },
-      });
-      res.json(await publicModel(model, ctx.emp));
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json(error.responseBody());
+    if (result.attached.length > 0) {
+      await auditEmployeeModel(req, ctx.co.id, ctx.emp, result.model, "model.attach");
+    } else if (body.makeActive !== false) {
+      await auditEmployeeModel(req, ctx.co.id, ctx.emp, result.model, "model.activate");
     }
-  },
-);
-
-// GET /api/companies/:cid/employees/:eid/models/reusable
-//
-// The AI Models other AI Employees in this company already run on, so the UI can
-// offer "use the same AI Model as Avery" instead of asking for the key again.
-// Provider, model and the owning employee only — never a credential, a
-// ciphertext or an endpoint URL. The employee's own models are left out.
-modelsRouter.get("/reusable", validateParams(modelCollectionParamsSchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  res.json(await listReusableModels(ctx.co.id, { excludeEmployeeId: ctx.emp.id }));
-});
-
-// POST /api/companies/:cid/employees/:eid/models/reuse
-//
-// Connect this employee with a copy of another AI Employee's AI Model from the
-// same company and make it their active one. The copy happens on the server, so
-// the credential never reaches the browser; a ChatGPT subscription is refused
-// because a sign-in belongs to one employee. Admin only, like every other way of
-// putting a credential on an employee.
-const reuseSchema = z.object({ sourceModelId: z.string().uuid() }).strict();
-
-modelsRouter.post(
-  "/reuse",
-  requireCompanyRole("admin"),
-  validateParams(modelCollectionParamsSchema),
-  validateBody(reuseSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadContext(p.cid, p.eid);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    try {
-      const { model } = await reuseModelForEmployee({
-        companyId: ctx.co.id,
-        employee: ctx.emp,
-        sourceModelId: (req.body as z.infer<typeof reuseSchema>).sourceModelId,
-        actorUserId: req.userId ?? null,
-      });
-      res.json(await publicModel(model, ctx.emp));
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json(error.responseBody());
-    }
-  },
-);
-
-// POST /api/companies/:cid/employees/:eid/models — add a model.
-// The newest model becomes active by default; the operator can switch any time.
-const createSchema = z.object({
-  provider: providerSchema,
-  model: z.string().trim().min(1).max(120),
-  authMode: authModeSchema,
-});
-
-modelsRouter.post("/", validateBody(createSchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const body = req.body as z.infer<typeof createSchema>;
-  const unsupported = unsupportedAuthError(body.provider, body.authMode);
-  if (unsupported) return res.status(400).json({ error: unsupported });
-
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = repo.create({
-    employeeId: ctx.emp.id,
-    provider: body.provider,
-    model: body.model,
-    authMode: body.authMode,
-    configJson: "{}",
-    connectedAt: null,
-    isActive: false,
-  });
-  await repo.save(m);
-  // Newest-added model is active by default (clears the flag on its siblings).
-  await setActiveModel(ctx.emp.id, m.id);
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.configure",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: { provider: m.provider, model: m.model, authMode: m.authMode },
-  });
-  res.json(await publicModel(m, ctx.emp));
-});
-
-// ---------- Item routes ----------
-
-// PUT /api/companies/:cid/employees/:eid/models/:id — change provider/model/auth.
-const updateSchema = createSchema.extend({ apiKey: z.string().trim().min(1).max(500).optional() });
-
-modelsRouter.put(
-  "/:id",
-  validateParams(modelItemParamsSchema),
-  validateBody(updateSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const body = req.body as z.infer<typeof updateSchema>;
-    const unsupported = unsupportedAuthError(body.provider, body.authMode);
-    if (unsupported) return res.status(400).json({ error: unsupported });
-
-    const repo = AppDataSource.getRepository(AIModel);
-    await cancelSubscriptionDeviceLoginsForModel(ctx.m.id);
-    const m = await repo.findOneBy({ id: ctx.m.id, employeeId: ctx.emp.id });
-    if (!m) return res.status(404).json({ error: "Model not found" });
-    const changedAuth = m.authMode !== body.authMode || m.provider !== body.provider;
-    const changedModel = m.model !== body.model;
-    if (body.authMode !== "apikey" && !changedAuth && changedModel) {
-      try {
-        await verifyModelEdit(m, body.model);
-      } catch (error) {
-        if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json(error.responseBody());
-      }
-    }
-    // If provider or auth mode switched, any prior credentials are invalid.
-    if (body.authMode === "subscription" && !changedAuth && changedModel && isModelConnected(m)) {
-      try {
-        await editSubscriptionModel(m, body.model);
-      } catch (error) {
-        if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json(error.responseBody());
-      }
-    } else if (body.authMode === "apikey" && (changedAuth || changedModel || body.apiKey)) {
-      try {
-        await editApiModel(m, {
-          provider: body.provider as "anthropic" | "openai",
-          model: body.model,
-          apiKey: body.apiKey,
-          companyId: ctx.co.id,
-        });
-      } catch (error) {
-        if (!(error instanceof ModelSetupError)) throw error;
-        return res.status(error.status).json(error.responseBody());
-      }
-    } else if (changedAuth) {
-      await repo.update(
-        { id: m.id, employeeId: ctx.emp.id },
-        {
-          provider: body.provider,
-          model: body.model,
-          authMode: body.authMode,
-          configJson: "{}",
-          connectedAt: null,
-          contextWindow: null,
-          contextWindowSource: null,
-        },
-      );
-    } else {
-      // Partial update is load-bearing for managed ChatGPT auth: a concurrent
-      // refresh may rotate its token, and saving this stale entity would restore
-      // the invalid pre-refresh configJson.
-      await repo.update(
-        { id: m.id, employeeId: ctx.emp.id },
-        {
-          provider: body.provider,
-          model: body.model,
-          authMode: body.authMode,
-          ...(changedModel ? { contextWindow: null, contextWindowSource: null } : {}),
-        },
-      );
-    }
-    const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
-    if (!saved) return res.status(404).json({ error: "Model not found" });
-    // A different model has a window of its own, and the edit cleared the old
-    // one: ask for it now rather than leave the card reading "Unknown" until
-    // the three-hourly sweep. Best-effort, and a hand-set window is kept.
-    if ((changedModel || changedAuth) && isModelConnected(saved)) {
-      await refreshContextWindow(saved);
-    }
-    // A change of service or sign-in takes the old keys, and their health, with it.
-    await pruneKeyHealth(saved);
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.configure",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: saved.provider,
-        model: saved.model,
-        authMode: saved.authMode,
-      },
-    });
-    res.json(await publicModel(saved, ctx.emp));
+    res.json(await employeeModelView(ctx.co, ctx.emp, result.model.id));
   },
 );
 
 // POST /api/companies/:cid/employees/:eid/models/:id/activate — switch brain.
-modelsRouter.post("/:id/activate", async (req, res) => {
+modelsRouter.post("/:id/activate", validateParams(itemParamsSchema), async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  await setActiveModel(ctx.emp.id, ctx.m.id);
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.activate",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: { provider: ctx.m.provider, model: ctx.m.model },
-  });
-  res.json(await publicModel(ctx.m, ctx.emp));
-});
-
-// POST /api/companies/:cid/employees/:eid/models/:id/apikey — set API key
-const apiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) });
-
-modelsRouter.post(
-  "/:id/apikey",
-  validateParams(modelItemParamsSchema),
-  validateBody(apiKeySchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const m = ctx.m;
-    if (m.authMode !== "apikey") {
-      return res.status(400).json({ error: "Model is not in apikey mode" });
-    }
-    if (!PROVIDERS[m.provider].supportsApiKey) {
-      return res.status(400).json({ error: `${m.provider} doesn't connect with an API key` });
-    }
-    const { apiKey } = req.body as z.infer<typeof apiKeySchema>;
-    let verified: AIModel;
-    try {
-      verified = await replaceApiKey(m, apiKey, ctx.co.id);
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json(error.responseBody());
-    }
-    // First moment we can ask the provider anything — find out how much room the
-    // model actually has.
-    await refreshContextWindow(verified);
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.apikey.set",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: { provider: m.provider },
-    });
-    res.json(await publicModel(verified, ctx.emp));
-  },
-);
-
-// ---------- Backup API keys ----------
-//
-// An Anthropic or OpenAI model connected with an API key holds its primary key
-// and any number of backup keys, tried in order when the provider refuses the
-// key a request went out on (see `services/agent/apiKeyRing.ts`). Only
-// previews leave the server; admins edit them like every other credential.
-
-/** A key's id: a UUID, or `primary` for a primary saved before backup keys. */
-const apiKeyIdSchema = z.union([z.literal(LEGACY_PRIMARY_KEY_ID), z.string().uuid()]);
-const apiKeyItemParamsSchema = modelItemParamsSchema.extend({ keyId: apiKeyIdSchema });
-const addApiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) }).strict();
-const reorderApiKeysSchema = z
-  .object({
-    orderedIds: z
-      .array(apiKeyIdSchema)
-      .min(1)
-      .refine((ids) => new Set(ids).size === ids.length, "Each key may appear only once."),
-  })
-  .strict();
-
-// POST /api/companies/:cid/employees/:eid/models/:id/keys — test a key, add it as a backup.
-modelsRouter.post(
-  "/:id/keys",
-  validateParams(modelItemParamsSchema),
-  validateBody(addApiKeySchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    let added: Awaited<ReturnType<typeof addBackupKey>>;
-    try {
-      added = await addBackupKey(
-        ctx.m,
-        (req.body as z.infer<typeof addApiKeySchema>).apiKey,
-        ctx.co.id,
-      );
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json(error.responseBody());
-    }
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.apikey.add",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: added.model.provider,
-        model: added.model.model,
-        keyId: added.key.id,
-        keyPreview: added.key.apiKeyPreview,
-        keyCount: readApiKeys(added.model.configJson).length,
-      },
-    });
-    res.json(await publicModel(added.model, ctx.emp));
-  },
-);
-
-// POST /api/companies/:cid/employees/:eid/models/:id/keys/reorder — the first is the primary.
-modelsRouter.post(
-  "/:id/keys/reorder",
-  validateParams(modelItemParamsSchema),
-  validateBody(reorderApiKeysSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    let saved: AIModel;
-    try {
-      saved = await reorderApiKeys(
-        ctx.m,
-        (req.body as z.infer<typeof reorderApiKeysSchema>).orderedIds,
-      );
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json(error.responseBody());
-    }
-    const keys = readApiKeys(saved.configJson);
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.apikey.reorder",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: saved.provider,
-        model: saved.model,
-        orderedKeyIds: keys.map((key) => key.id),
-        orderedPreviews: keys.map((key) => key.apiKeyPreview),
-      },
-    });
-    res.json(await publicModel(saved, ctx.emp));
-  },
-);
-
-// DELETE /api/companies/:cid/employees/:eid/models/:id/keys/:keyId — the next key moves up.
-modelsRouter.delete(
-  "/:id/keys/:keyId",
-  validateParams(apiKeyItemParamsSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    let removed: Awaited<ReturnType<typeof removeApiKey>>;
-    try {
-      removed = await removeApiKey(ctx.m, p.keyId);
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json(error.responseBody());
-    }
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.apikey.remove",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: removed.model.provider,
-        model: removed.model.model,
-        keyId: removed.key.id,
-        keyPreview: removed.key.apiKeyPreview,
-        keyCount: readApiKeys(removed.model.configJson).length,
-      },
-    });
-    res.json(await publicModel(removed.model, ctx.emp));
-  },
-);
-
-// POST /api/companies/:cid/employees/:eid/models/:id/subscription/device
-//
-// Start OpenAI's managed device-code flow inside an isolated temporary
-// CODEX_HOME. Poll the returned session id below; the service encrypts the
-// completed managed session into this model row and deletes the temporary dir.
-modelsRouter.post(
-  "/:id/subscription/device",
-  validateParams(modelItemParamsSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    if (ctx.m.provider !== "openai" || ctx.m.authMode !== "subscription") {
-      return res.status(400).json({
-        error: "Only OpenAI AI Models in subscription mode can sign in with ChatGPT.",
-      });
-    }
-    const unavailable = subscriptionUnavailableReason();
-    if (unavailable) return res.status(400).json({ error: unavailable });
-    try {
-      const session = await startSubscriptionDeviceLogin(ctx.m.id, {
-        companyId: ctx.co.id,
-        actorUserId: req.userId!,
-      });
-      await recordAudit({
-        companyId: ctx.co.id,
-        actorUserId: req.userId ?? null,
-        action: "model.subscription.login.start",
-        targetType: "employee",
-        targetId: ctx.emp.id,
-        targetLabel: ctx.emp.name,
-        metadata: { provider: "openai", model: ctx.m.model },
-      });
-      res.json(session);
-    } catch (error) {
-      res.status(502).json({
-        error:
-          error instanceof Error ? error.message : "Could not start ChatGPT subscription sign-in.",
-      });
-    }
-  },
-);
-
-// GET /:id/subscription/device/:sessionId — poll the short-lived login state.
-modelsRouter.get(
-  "/:id/subscription/device/:sessionId",
-  validateParams(deviceSessionParamsSchema),
-  requireCompanyRole("admin"),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const session = getSubscriptionDeviceLogin(ctx.m.id, p.sessionId);
-    if (!session) {
-      return res.status(404).json({ error: "Subscription sign-in session not found" });
-    }
-    res.json(session);
-  },
-);
-
-// DELETE /:id/subscription/device/:sessionId — cancel a pending login.
-modelsRouter.delete(
-  "/:id/subscription/device/:sessionId",
-  validateParams(deviceSessionParamsSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const session = await cancelSubscriptionDeviceLogin(ctx.m.id, p.sessionId);
-    if (!session) {
-      return res.status(404).json({ error: "Subscription sign-in session not found" });
-    }
-    res.json(session);
-  },
-);
-
-// POST /:id/subscription/access-token
-//
-// Trusted Business/Enterprise automation may receive a supported Codex access
-// token. It is injected as CODEX_ACCESS_TOKEN only into the one short-lived
-// app-server process; unlike the internal chatgptAuthTokens RPC, no external
-// token fields are handed to an unstable protocol method.
-const subscriptionAccessTokenSchema = z.object({
-  accessToken: z.string().trim().min(20).max(16_384),
-});
-
-modelsRouter.post(
-  "/:id/subscription/access-token",
-  validateParams(modelItemParamsSchema),
-  validateBody(subscriptionAccessTokenSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const m = ctx.m;
-    if (m.provider !== "openai" || m.authMode !== "subscription") {
-      return res.status(400).json({
-        error: "Only OpenAI AI Models in subscription mode accept a Codex access token.",
-      });
-    }
-    const unavailable = subscriptionUnavailableReason();
-    if (unavailable) return res.status(400).json({ error: unavailable });
-
-    const { accessToken } = req.body as z.infer<typeof subscriptionAccessTokenSchema>;
-    let saved: AIModel;
-    try {
-      saved = await saveSubscriptionAccessToken(m.id, accessToken);
-    } catch (error) {
-      if (error instanceof ModelSetupError)
-        return res.status(error.status).json(error.responseBody());
-      if (!(error instanceof SubscriptionCredentialConflictError)) throw error;
-      return res.status(409).json({
-        error: error.message,
-      });
-    }
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.subscription.accessToken.set",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: { provider: "openai", model: m.model },
-    });
-    res.json(await publicModel(saved, ctx.emp));
-  },
-);
-
-// POST /api/companies/:cid/employees/:eid/models/:id/custom-endpoint
-//
-// Save (or update) a custom OpenAI-compatible endpoint. The model must be in
-// customEndpoint authMode (provider "custom"). The base URL is required; the API
-// key is optional (most local LLMs don't enforce one). `modelId` is the model
-// name the upstream server exposes; we store it as the model row's `model` too
-// so the in-process client passes it straight through. Left blank, it is the
-// model the server serves, when it serves exactly one.
-const customEndpointSchema = z.object({
-  baseURL: z
-    .string()
-    .trim()
-    .min(1)
-    .max(500)
-    .refine((s) => {
-      try {
-        const u = new URL(s);
-        return u.protocol === "http:" || u.protocol === "https:";
-      } catch {
-        return false;
-      }
-    }, "baseURL must be an http(s) URL"),
-  modelId: z.string().trim().max(200).optional(),
-  apiKey: z.string().trim().min(1).max(500).optional(),
-});
-
-modelsRouter.post(
-  "/connect-custom",
-  validateParams(modelCollectionParamsSchema),
-  validateBody(customEndpointSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadContext(p.cid, p.eid);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    try {
-      const model = await connectCustomModel({
-        ...(req.body as z.infer<typeof customEndpointSchema>),
-        employeeId: ctx.emp.id,
-        companyId: ctx.co.id,
-      });
-      await refreshContextWindow(model);
-      await recordAudit({
-        companyId: ctx.co.id,
-        actorUserId: req.userId ?? null,
-        action: "model.customEndpoint.set",
-        targetType: "employee",
-        targetId: ctx.emp.id,
-        targetLabel: ctx.emp.name,
-        metadata: { provider: "custom", modelId: model.model, verified: true },
-      });
-      res.json(await publicModel(model, ctx.emp));
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json(error.responseBody());
-    }
-  },
-);
-
-modelsRouter.post(
-  "/:id/custom-endpoint",
-  validateParams(modelItemParamsSchema),
-  validateBody(customEndpointSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const m = ctx.m;
-    if (m.authMode !== "customEndpoint") {
-      return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
-    }
-    if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
-      return res.status(400).json({
-        error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
-      });
-    }
-    const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
-    let verified: AIModel;
-    try {
-      verified = await connectCustomModel(
-        { baseURL, modelId, apiKey, employeeId: ctx.emp.id, companyId: ctx.co.id },
-        m,
-      );
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      return res.status(error.status).json(error.responseBody());
-    }
-    await refreshContextWindow(verified);
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.customEndpoint.set",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: m.provider,
-        host: previewBaseURL(baseURL),
-        modelId: verified.model,
-        hasApiKey: Boolean(apiKey),
-      },
-    });
-    res.json(await publicModel(verified, ctx.emp));
-  },
-);
-
-// POST /api/companies/:cid/employees/:eid/models/:id/refresh
-// Recompute connection status. Cheap; kept for the client to reconcile after a
-// save without threading the fresh row through every path.
-modelsRouter.post("/:id/refresh", async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const m = ctx.m;
-  const nowConnected = isModelConnected(m);
-  if (nowConnected && !m.connectedAt) {
-    m.connectedAt = new Date();
-    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { connectedAt: m.connectedAt });
+  const model = await findAttachedModel(ctx.emp.id, p.id);
+  if (!model || !(await setActiveModel(ctx.co.id, ctx.emp.id, model.id))) {
+    return res.status(404).json({ error: "Model not found" });
   }
-  if (!nowConnected && m.connectedAt) {
-    m.connectedAt = null;
-    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { connectedAt: null });
-  }
-  // Also the operator's retry path when the probe missed at save time (endpoint
-  // still booting, GPU host asleep) — cheap enough to just re-ask.
-  if (nowConnected) await refreshContextWindow(m);
-  res.json(await publicModel(m, ctx.emp));
+  await auditEmployeeModel(req, ctx.co.id, ctx.emp, model, "model.activate");
+  res.json(await employeeModelView(ctx.co, ctx.emp, model.id));
 });
 
-// POST /api/companies/:cid/employees/:eid/models/:id/test
-//
-// Test connection: ask the AI Model for one small, harmless reply through the
-// runtime its work uses, and change nothing (see `services/modelConnectionTest.ts`).
-// Admin only, like every write here — the reply spends a little of the account's
-// allowance. Answers with how long the model took and the model as it now
-// reads, since the test's requests update each key's health.
-modelsRouter.post("/:id/test", validateParams(modelItemParamsSchema), async (req, res) => {
+// DELETE /api/companies/:cid/employees/:eid/models/:id — detach one model from
+// this employee. The model stays in the company with its keys, and anyone else
+// using it keeps it; if it was the active one, the employee's most recently
+// attached other model takes over, and Routines pinned to it go back to that.
+modelsRouter.delete("/:id", validateParams(itemParamsSchema), async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  let elapsedMs: number;
+  const model = await findAttachedModel(ctx.emp.id, p.id);
+  if (!model) return res.status(404).json({ error: "Model not found" });
   try {
-    ({ elapsedMs } = await testModelConnection(ctx.m));
+    await detachModel({ companyId: ctx.co.id, modelId: model.id, employeeIds: [ctx.emp.id] });
   } catch (error) {
     if (!(error instanceof ModelSetupError)) throw error;
     return res.status(error.status).json(error.responseBody());
   }
-  const current = await AppDataSource.getRepository(AIModel).findOneBy({
-    id: ctx.m.id,
-    employeeId: ctx.emp.id,
-  });
-  res.json({ ok: true, elapsedMs, model: await publicModel(current ?? ctx.m, ctx.emp) });
-});
-
-// GET /api/companies/:cid/employees/:eid/models/:id/catalog
-//
-// The models a connected Claude or OpenAI AI Model's own API keys can reach, so
-// changing which model it runs is a pick from a list with no key pasted again
-// (see `discoverStoredApiModels`). Admins only: they are the ones who can
-// change the model, and the list is read with the company's key.
-modelsRouter.get(
-  "/:id/catalog",
-  validateParams(modelItemParamsSchema),
-  requireCompanyRole("admin"),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    try {
-      res.json(await discoverStoredApiModels(ctx.m));
-    } catch (error) {
-      if (!(error instanceof ModelSetupError)) throw error;
-      res.status(error.status).json(error.responseBody());
-    }
-  },
-);
-
-// PUT /api/companies/:cid/employees/:eid/models/:id/context-window
-//
-// Set the model's context window by hand, or clear it back to whatever the
-// provider reports. Needed because "unknown" is a normal outcome, not a failure:
-// plain Ollama and OpenAI's own API report no window at all, and until one is
-// known the agent loop has no budget to keep a long run inside — it can only
-// react once the provider has already rejected a turn.
-//
-// The bounds mirror the probe's plausibility check, for the same reason: a wrong
-// number here poisons every run on this model, so reject nonsense at the edge.
-const contextWindowSchema = z.object({
-  contextWindow: z.number().int().min(1_024).max(20_000_000).nullable(),
-});
-
-modelsRouter.put("/:id/context-window", validateBody(contextWindowSchema), async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const m = ctx.m;
-  if (m.authMode === "subscription") {
-    return res.status(400).json({
-      error: "OpenAI Codex manages context for subscription models.",
-    });
-  }
-  const { contextWindow } = req.body as z.infer<typeof contextWindowSchema>;
-
-  if (contextWindow === null) {
-    // Clearing hands the field back to the probe rather than just blanking it,
-    // so an operator who set a number by mistake lands on the real one.
-    m.contextWindow = null;
-    m.contextWindowSource = null;
-    await AppDataSource.getRepository(AIModel).save(m);
-    if (isModelConnected(m)) await refreshContextWindow(m);
-  } else {
-    m.contextWindow = contextWindow;
-    m.contextWindowSource = "manual";
-    await AppDataSource.getRepository(AIModel).save(m);
-  }
-
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.configure",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: {
-      provider: m.provider,
-      model: m.model,
-      contextWindow: m.contextWindow,
-      contextWindowSource: m.contextWindowSource,
-    },
-  });
-  res.json(await publicModel(m, ctx.emp));
-});
-
-// PUT /api/companies/:cid/employees/:eid/models/:id/run-concurrency
-//
-// How many Routine Runs may use this model's endpoint at once. A local model
-// server slows every Run it serves in parallel, and a Run's clock keeps
-// ticking while it waits for the GPU; Runs beyond the limit wait in the queue
-// instead, with their time limit starting only when they do. Null restores
-// the default (one at a time for a local endpoint), 0 removes the limit.
-const runConcurrencySchema = z
-  .object({
-    maxConcurrentRuns: z.number().int().min(0).max(MAX_MODEL_CONCURRENT_RUNS).nullable(),
-  })
-  .strict();
-
-modelsRouter.put(
-  "/:id/run-concurrency",
-  validateBody(runConcurrencySchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const { maxConcurrentRuns } = req.body as z.infer<typeof runConcurrencySchema>;
-    const m = ctx.m;
-    m.maxConcurrentRuns = maxConcurrentRuns;
-    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { maxConcurrentRuns });
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.configure",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: m.provider,
-        model: m.model,
-        maxConcurrentRuns,
-        effectiveMaxConcurrentRuns: modelRunCapacity(m).limit,
-      },
-    });
-    // A higher limit admits waiting Runs now rather than at the next heartbeat.
-    void dispatchQueuedRoutineRuns();
-    res.json(await publicModel(m, ctx.emp));
-  },
-);
-
-// DELETE /api/companies/:cid/employees/:eid/models/:id — remove one model
-modelsRouter.delete("/:id", async (req, res) => {
-  const p = req.params as Record<string, string>;
-  const ctx = await loadModelContext(p.cid, p.eid, p.id);
-  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = ctx.m;
-  await cancelSubscriptionDeviceLoginsForModel(m.id);
-  const remaining = (await repo.find({ where: { employeeId: ctx.emp.id } })).filter(
-    (r) => r.id !== m.id,
-  );
-  await repo.delete({ id: m.id });
-  await deleteKeyHealth([m.id]);
-  // Routines pinned to this model revert to inheriting the active one, so the
-  // pin never outlives the row it names.
-  await clearRoutinePins(m.id, ctx.co.id);
-  // If we removed the active brain, promote the most-recently-added survivor so
-  // the employee always has a defined active model.
-  if (remaining.length > 0 && !remaining.some((r) => r.isActive)) {
-    const promote = effectiveActiveId(remaining);
-    if (promote) await setActiveModel(ctx.emp.id, promote);
-  }
-  await recordAudit({
-    companyId: ctx.co.id,
-    actorUserId: req.userId ?? null,
-    action: "model.disconnect",
-    targetType: "employee",
-    targetId: ctx.emp.id,
-    targetLabel: ctx.emp.name,
-    metadata: { provider: m.provider },
-  });
+  await auditEmployeeModel(req, ctx.co.id, ctx.emp, model, "model.detach");
   res.json({ ok: true });
 });

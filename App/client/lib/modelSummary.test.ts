@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AIModel, ReusableModel } from "./api.js";
 import {
   activeFirst,
   answeredInLine,
@@ -13,7 +12,6 @@ import {
   modelListLine,
   modelName,
   modelService,
-  offersNotHeld,
   runLimitNote,
   testPassedLine,
   tuningNotes,
@@ -330,77 +328,5 @@ describe("the page's own words", () => {
     assert.equal(answeredInLine(Number.NaN), "answered in under a second");
     assert.equal(answeredInLine(-5), "answered in under a second");
     assert.equal(testPassedLine(2_449), "Working — the model answered in 2.4 s.");
-  });
-});
-
-describe("the company's models offered when adding one", () => {
-  const offer = (values: Partial<ReusableModel>): ReusableModel => ({
-    id: "offer",
-    employeeId: "casey",
-    employeeName: "Casey",
-    provider: "anthropic",
-    model: "claude-opus-5-5",
-    authMode: "apikey",
-    endpointHost: null,
-    isActive: true,
-    ...values,
-  });
-  const held = (
-    values: Partial<AIModel>,
-  ): Pick<
-    AIModel,
-    "provider" | "authMode" | "model" | "customEndpointModelId" | "customEndpointHost"
-  > => ({
-    provider: "anthropic",
-    authMode: "apikey",
-    model: "claude-opus-5-5",
-    customEndpointModelId: null,
-    customEndpointHost: null,
-    ...values,
-  });
-
-  test("leaves out a model this employee already runs", () => {
-    const claude = offer({ id: "claude" });
-    const gpt = offer({ id: "gpt", provider: "openai", model: "gpt-5" });
-    assert.deepEqual(
-      offersNotHeld([claude, gpt], [held({})]).map((entry) => entry.id),
-      ["gpt"],
-    );
-  });
-
-  test("keeps another model from the same service", () => {
-    assert.equal(offersNotHeld([offer({ model: "claude-sonnet-5" })], [held({})]).length, 1);
-  });
-
-  test("tells custom endpoints apart by their server, and matches case-insensitively", () => {
-    const sameServer = offer({
-      id: "same",
-      provider: "custom",
-      authMode: "customEndpoint",
-      model: "Qwen/Qwen3-27B",
-      endpointHost: "GPU-box.internal:8000",
-    });
-    const otherServer = offer({
-      id: "other",
-      provider: "custom",
-      authMode: "customEndpoint",
-      model: "Qwen/Qwen3-27B",
-      endpointHost: "other-box.internal:8000",
-    });
-    const mine = held({
-      provider: "custom",
-      authMode: "customEndpoint",
-      model: "qwen3",
-      customEndpointModelId: "qwen/qwen3-27b",
-      customEndpointHost: "gpu-box.internal:8000",
-    });
-    assert.deepEqual(
-      offersNotHeld([sameServer, otherServer], [mine]).map((entry) => entry.id),
-      ["other"],
-    );
-  });
-
-  test("offers everything to an employee with no models", () => {
-    assert.equal(offersNotHeld([offer({})], []).length, 1);
   });
 });

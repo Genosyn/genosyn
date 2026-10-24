@@ -1,5 +1,6 @@
 import React from "react";
-import { api, type AIModel, type Company, type Employee } from "@/lib/api";
+import { api, type AIModel, type Company } from "@/lib/api";
+import { companyModelPath } from "@/lib/companyModels";
 import { errorDetail, errorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
@@ -7,7 +8,6 @@ import { Input } from "@/components/ui/Input";
 
 type PanelProps = {
   company: Pick<Company, "id">;
-  emp: Pick<Employee, "id">;
   model: AIModel;
   onSaved: () => void;
 };
@@ -16,7 +16,7 @@ type PanelProps = {
  * The API key a Claude or OpenAI model is still waiting for. Saving tests a
  * real reply first, so a key that does not work is never stored.
  */
-export function ApiKeyPanel({ company, emp, model, onSaved }: PanelProps) {
+export function ApiKeyPanel({ company, model, onSaved }: PanelProps) {
   const [key, setKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
@@ -28,10 +28,7 @@ export function ApiKeyPanel({ company, emp, model, onSaved }: PanelProps) {
         setError(null);
         setSaving(true);
         try {
-          await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/apikey`,
-            { apiKey: key },
-          );
+          await api.post(companyModelPath(company.id, model.id, "/apikey"), { apiKey: key });
           setKey("");
           onSaved();
         } catch (err) {
@@ -72,7 +69,7 @@ export function ApiKeyPanel({ company, emp, model, onSaved }: PanelProps) {
  * left blank is saved as no key. The test runs before anything is replaced: a
  * failed one leaves the working endpoint as it was.
  */
-export function CustomEndpointPanel({ company, emp, model, onSaved }: PanelProps) {
+export function CustomEndpointPanel({ company, model, onSaved }: PanelProps) {
   const [baseURL, setBaseURL] = React.useState("");
   const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
   const [apiKey, setApiKey] = React.useState("");
@@ -88,10 +85,11 @@ export function CustomEndpointPanel({ company, emp, model, onSaved }: PanelProps
         setError(null);
         setSaving(true);
         try {
-          await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/custom-endpoint`,
-            { baseURL, modelId, ...(apiKey ? { apiKey } : {}) },
-          );
+          await api.post(companyModelPath(company.id, model.id, "/custom-endpoint"), {
+            baseURL,
+            modelId,
+            ...(apiKey ? { apiKey } : {}),
+          });
           setApiKey("");
           onSaved();
         } catch (err) {

@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { AIModel } from "../../db/entities/AIModel.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { Company } from "../../db/entities/Company.js";
 import { EmployeeCalendarGrant } from "../../db/entities/EmployeeCalendarGrant.js";
@@ -22,6 +21,7 @@ import { RoutineTrigger } from "../../db/entities/RoutineTrigger.js";
 import { Run } from "../../db/entities/Run.js";
 import { Standdown } from "../../db/entities/Standdown.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { enqueueInboundAutomation, waitForMailAutomation } from "../mail/automationQueue.js";
 import { refreshStanddowns } from "../standdowns.js";
 import {
@@ -55,7 +55,7 @@ async function worker(companyId: string, account?: MailAccount, businessGrants =
     slug: randomUUID(),
     role: "Customer operations",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "fixture",

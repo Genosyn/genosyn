@@ -14,9 +14,10 @@ import {
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
 import { deleteKeyHealth } from "./modelKeyHealth.js";
+import { AIModel } from "../db/entities/AIModel.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Account } from "../db/entities/Account.js";
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
@@ -442,15 +443,17 @@ export async function deleteCompanyCascade(args: {
       await m.delete(EmployeeDashboardGrant, { employeeId: In(employeeIds) });
       await m.delete(McpServer, { employeeId: In(employeeIds) });
       await m.delete(JournalEntry, { employeeId: In(employeeIds) });
-      const modelIds = (
-        await m.find(AIModel, { where: { employeeId: In(employeeIds) }, select: ["id"] })
-      ).map((model) => model.id);
-      await deleteKeyHealth(modelIds, m);
-      await m.delete(AIModel, { employeeId: In(employeeIds) });
       await m.delete(Conversation, { employeeId: In(employeeIds) });
     }
 
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
+    // The company's AI Models, their attachments, and their keys' health.
+    const modelIds = (await m.find(AIModel, { where: { companyId }, select: ["id"] })).map(
+      (model) => model.id,
+    );
+    await deleteKeyHealth(modelIds, m);
+    await m.delete(EmployeeModel, { companyId });
+    await m.delete(AIModel, { companyId });
     await m.delete(ParallelWorkerResult, { companyId });
     await m.delete(TldrQuestionAction, { companyId });
     await m.delete(TldrQuestionMessage, { companyId });

@@ -173,7 +173,7 @@ await context.route("**/api/**", async (route) => {
       ? error("Starting roles unavailable.")
       : route.fulfill({ json: [template] });
   // The Model section offers the company's other AI Models before the form.
-  if (pathname.endsWith("/models/reusable")) return route.fulfill({ json: [] });
+  // An employee's models, and the company's: none yet in either.
   if (pathname.endsWith("/models")) return route.fulfill({ json: [] });
   if (pathname === "/api/model-providers") return route.fulfill({ json: [] });
   if (

@@ -23,6 +23,7 @@ import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { GmailMailbox } from "../services/mail/mailbox/gmail.js";
 import { DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS } from "../../shared/mailAnalysisInstructions.js";
 import { mailRouter } from "./mail.js";
@@ -224,7 +225,7 @@ async function connectModel(
   employee: AIEmployee,
   overrides: Partial<AIModel> = {},
 ): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-4.1-mini",
@@ -529,14 +530,14 @@ describe("inbound mail analysis HTTP API", () => {
 
     const foreignModelOnRow = await call<ApiError>("PATCH", path, { modelId: rexModel.id });
     assert.equal(foreignModelOnRow.status, 400, JSON.stringify(foreignModelOnRow.body));
-    assert.equal(foreignModelOnRow.body.error, "That AI Model is not this employee's");
+    assert.equal(foreignModelOnRow.body.error, "That AI Model is not attached to this employee");
 
     const foreignModelInBody = await call<ApiError>("PATCH", path, {
       employeeId: ada.id,
       modelId: rexModel.id,
     });
     assert.equal(foreignModelInBody.status, 400, JSON.stringify(foreignModelInBody.body));
-    assert.equal(foreignModelInBody.body.error, "That AI Model is not this employee's");
+    assert.equal(foreignModelInBody.body.error, "That AI Model is not attached to this employee");
 
     const settings = await call<AnalysisSettings>("GET", path);
     assert.equal(settings.body.employeeId, ada.id);

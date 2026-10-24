@@ -12,6 +12,7 @@ import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import {
   actionRunnableBy,
@@ -72,7 +73,7 @@ async function fixture(): Promise<Fixture> {
     role: "Chief of staff",
     soulBody: "Be clear.",
   });
-  const model = await insert(AIModel, {
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-test",

@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { attachExistingModel, insertEmployeeModel, updateModelsOf } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import { queueWaitLine, startRoutineRun } from "./runner.js";
@@ -53,7 +54,7 @@ async function employeeWithModel(
     slug,
     role: "Operations",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "custom",
     model: "Qwen/Qwen3.8-27B",
@@ -174,6 +175,57 @@ test("AI Employees pointed at one model server share its limit", async (t) => {
   assert.equal((await second.completion).status, "completed");
 });
 
+test("one company model attached to two AI Employees serves its limit across both", async (t) => {
+  const co = await company();
+  const alex = await employeeWithModel(co, "alex", { maxConcurrentRuns: null });
+  const sam = await insert(AIEmployee, {
+    companyId: co.id,
+    name: "sam",
+    slug: "sam",
+    role: "Operations",
+  });
+  // Sam runs on Alex's model itself — the company's one row, not a copy.
+  const [shared] = await AppDataSource.getRepository(AIModel).find();
+  await attachExistingModel({ employeeId: sam.id, modelId: shared.id, isActive: true });
+  assert.equal(await AppDataSource.getRepository(AIModel).count(), 1);
+  const model = blockFirstTurn(t);
+
+  const first = await startRoutineRun(await routineFor(alex, "alex-shared"));
+  await reachesModel(model.firstStarted.promise, first.completion);
+  const samRoutine = await routineFor(sam, "sam-shared");
+  const second = await startRoutineRun(samRoutine);
+  await dispatchQueuedRoutineRuns();
+  const waiting = await runOf(samRoutine);
+  assert.equal(waiting.status, "queued", "Sam waits for the slot Alex holds on their one model");
+  assert.match(waiting.logContent, /1 Run is already using it, and it serves 1 at a time/);
+
+  model.release.resolve();
+  assert.equal((await first.completion).status, "completed");
+  assert.equal((await second.completion).status, "completed");
+  assert.equal(model.started.length, 2);
+});
+
+test("raising a shared model's limit admits every employee's waiting Runs", async (t) => {
+  const co = await company();
+  const alex = await employeeWithModel(co, "alex", { maxConcurrentRuns: 1 });
+  const sam = await insert(AIEmployee, { companyId: co.id, name: "sam", slug: "sam", role: "Ops" });
+  const [shared] = await AppDataSource.getRepository(AIModel).find();
+  await attachExistingModel({ employeeId: sam.id, modelId: shared.id, isActive: true });
+  const model = blockFirstTurn(t);
+  const first = await startRoutineRun(await routineFor(alex, "alex-first"));
+  await reachesModel(model.firstStarted.promise, first.completion);
+  const samRoutine = await routineFor(sam, "sam-second");
+  const second = await startRoutineRun(samRoutine);
+  await dispatchQueuedRoutineRuns();
+  assert.equal((await runOf(samRoutine)).status, "queued");
+
+  await AppDataSource.getRepository(AIModel).update({ id: shared.id }, { maxConcurrentRuns: 2 });
+  await dispatchQueuedRoutineRuns();
+  assert.equal((await second.completion).status, "completed");
+  model.release.resolve();
+  assert.equal((await first.completion).status, "completed");
+});
+
 test("a model with no limit, or a separate server, runs Routines side by side", async (t) => {
   const co = await company();
   const unlimited = await employeeWithModel(co, "unlimited", { maxConcurrentRuns: 0 });
@@ -218,9 +270,7 @@ test("raising a model's limit admits a waiting Run without another heartbeat", a
   await dispatchQueuedRoutineRuns();
   assert.equal((await runOf(waitingRoutine)).status, "queued");
 
-  await AppDataSource.getRepository(AIModel).update(
-    { employeeId: employee.id },
-    { maxConcurrentRuns: 2 },
+  await updateModelsOf(employee.id, { maxConcurrentRuns: 2 },
   );
   await dispatchQueuedRoutineRuns();
   assert.equal((await waiting.completion).status, "completed");

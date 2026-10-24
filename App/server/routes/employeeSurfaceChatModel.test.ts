@@ -16,6 +16,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { employeeSurfaceRouter } from "./employeeSurface.js";
 
 /**
@@ -85,7 +86,7 @@ async function model(args: {
   isActive?: boolean;
   connected?: boolean;
 }): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: args.name,
@@ -252,7 +253,7 @@ describe("conversation lastModelId", () => {
       role: "Writer",
       soulBody: "",
     });
-    const foreign = await insert(AIModel, {
+    const foreign = await insertEmployeeModel({
       employeeId: stranger.id,
       provider: "openai",
       model: "gpt-foreign",

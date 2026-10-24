@@ -3,7 +3,7 @@
  * connecting an AI Model starts in the API key field; the Proactive starter
  * and Ask dialogs arrive with the only AI Employee (and the only mailbox)
  * already chosen; Enter renames a Skill; hiring is a role and one button, with the
- * company's AI Model reused, and switching roles replaces the name the last one
+ * company's AI Model attached, and switching roles replaces the name the last one
  * filled in but never one the Member typed; and
  * ⌘/Ctrl+Enter submits a Journal entry, a Memory and a handoff close-out from
  * their text boxes. Each flow counts its clicks. (Picking a Team saves on the
@@ -252,12 +252,13 @@ const AVA: Employee = {
 
 /** A connected API-key model, with every field the Model page reads. */
 const CONNECTED_MODEL = {
-  id: "reused",
-  employeeId: "ava",
+  id: "source-model",
+  companyId: "company",
   provider: "openai",
   model: "gpt-live",
   authMode: "apikey",
   isActive: true,
+  createdAt: "2026-10-09T08:00:00.000Z",
   connectedAt: "2026-10-09T08:00:00.000Z",
   status: "connected",
   apiKeyMasked: "sk-…••••",
@@ -291,6 +292,8 @@ const CONNECTED_MODEL = {
   maxConcurrentRuns: null,
   effectiveMaxConcurrentRuns: null,
   concurrencySource: "unlimited",
+  employees: [{ id: "ava", name: "Ava", slug: "ava", avatarKey: null, isActive: true }],
+  duplicateIds: [],
 };
 
 /** What the launch plan fetches once an employee is hired. */
@@ -308,17 +311,18 @@ const LAUNCH_PLAN = {
 };
 
 /** The routes a hire touches after the employee row exists. */
-function hireRoutes(options: { reusable: unknown[]; connected?: { value: boolean } }): ApiRoute[] {
+function hireRoutes(options: { offers: unknown[]; connected?: { value: boolean } }): ApiRoute[] {
   return [
     ["GET", "/api/employee-templates", () => HIRE_TEMPLATES],
     ["POST", `${API}/employees`, ({ body }) => ({ ...AVA, ...body })],
-    ["GET", `${API}/employees/ava/models/reusable`, () => options.reusable],
+    // The company's AI Models; a hire is attached to the one most of them use.
+    ["GET", `${API}/models`, () => options.offers],
     [
       "POST",
-      `${API}/employees/ava/models/reuse`,
+      `${API}/employees/ava/models/attach`,
       () => {
         if (options.connected) options.connected.value = true;
-        return { id: "reused", status: "connected" };
+        return CONNECTED_MODEL;
       },
     ],
     [
@@ -336,7 +340,7 @@ await app.check(
   async () => {
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: hireRoutes({ reusable: [] }),
+      routes: hireRoutes({ offers: [] }),
     });
     const { page } = view;
     const name = page.getByLabel("Name", { exact: true });
@@ -416,7 +420,7 @@ await app.check(
   async () => {
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: hireRoutes({ reusable: [] }),
+      routes: hireRoutes({ offers: [] }),
     });
     const { page } = view;
     await page.getByLabel("Role", { exact: true }).fill("Analyst");
@@ -432,21 +436,20 @@ await app.check(
 );
 
 await app.check(
-  "hire: pick a role and press Hire — the company's AI Model is reused, and the page says so",
+  "hire: pick a role and press Hire — the company's AI Model is attached, and the page says so",
   async () => {
     const offer = {
-      id: "source-model",
-      employeeId: "ada",
-      employeeName: "Ada Lovelace",
+      ...CONNECTED_MODEL,
       provider: "anthropic",
       model: "claude-sonnet-live",
-      authMode: "apikey",
-      endpointHost: null,
-      isActive: true,
+      isActive: false,
+      employees: [
+        { id: "ada", name: "Ada Lovelace", slug: "ada", avatarKey: null, isActive: true },
+      ],
     };
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: hireRoutes({ reusable: [offer] }),
+      routes: hireRoutes({ offers: [offer] }),
     });
     const { page } = view;
     await view.click(page.getByRole("button", { name: /Sales rep/ }));
@@ -459,11 +462,11 @@ await app.check(
       "Hire created the employee",
     );
     assert.deepEqual(hire.body, { name: "Ava", role: "Sales rep", templateId: "t-sales" });
-    const reuse = await view.waitForWrite(
-      (w) => w.path === `${API}/employees/ava/models/reuse`,
-      "the company's AI Model was reused",
+    const attach = await view.waitForWrite(
+      (w) => w.path === `${API}/employees/ava/models/attach`,
+      "the company's AI Model was attached",
     );
-    assert.deepEqual(reuse.body, { sourceModelId: "source-model" });
+    assert.deepEqual(attach.body, { modelId: "source-model" });
     assert.equal(
       await page.getByRole("link", { name: "Settings → Model" }).getAttribute("href"),
       "/c/acme/employees/ava/settings/model",
@@ -471,26 +474,26 @@ await app.check(
     assert.equal(
       await page.getByText("Connect an AI Model for Ava", { exact: false }).count(),
       0,
-      "no model step when one was reused",
+      "no model step when one was attached",
     );
     await page.close();
   },
 );
 
 await app.check(
-  "hire: with no AI Model to reuse the model step comes next, and going without one is its own choice",
+  "hire: with no AI Model in the company the model step comes next, and going without one is its own choice",
   async () => {
     const connected = { value: false };
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: hireRoutes({ reusable: [], connected }),
+      routes: hireRoutes({ offers: [], connected }),
     });
     const { page } = view;
     await page.getByRole("button", { name: /Sales rep/ }).click();
     await page.getByRole("button", { name: "Hire Ava", exact: true }).click();
     await page.getByText("Connect an AI Model for Ava", { exact: false }).waitFor();
     assert.equal(
-      view.writes.some((w) => w.path.endsWith("/models/reuse")),
+      view.writes.some((w) => w.path.endsWith("/models/attach")),
       false,
     );
     // Continue means the AI Model is ready: with none, it says so instead of moving on.
@@ -512,7 +515,7 @@ await app.check(
     const connected = { value: true };
     const view = await app.open({
       path: "/c/acme/employees/new",
-      routes: hireRoutes({ reusable: [], connected }),
+      routes: hireRoutes({ offers: [], connected }),
     });
     const { page } = view;
     await page.getByRole("button", { name: /Sales rep/ }).click();
@@ -533,16 +536,13 @@ await app.check(
       path: "/c/acme/employees/new",
       routes: [
         ...hireRoutes({
-          reusable: [
+          offers: [
             {
-              id: "source-model",
-              employeeId: "ada",
-              employeeName: "Ada Lovelace",
-              provider: "openai",
-              model: "gpt-live",
-              authMode: "apikey",
-              endpointHost: null,
-              isActive: true,
+              ...CONNECTED_MODEL,
+              isActive: false,
+              employees: [
+                { id: "ada", name: "Ada Lovelace", slug: "ada", avatarKey: null, isActive: true },
+              ],
             },
           ],
         }),

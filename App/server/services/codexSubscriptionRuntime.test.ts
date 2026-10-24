@@ -10,7 +10,8 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { decryptSecret } from "../lib/secret.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { CodexAppServer } from "./agent/codexAppServer.js";
 import { runCodexSubscriptionTurn } from "./agent/codexRuntime.js";
 import { residentOnlyRegistry } from "./agent/tools/toolRegistry.js";
@@ -85,7 +86,7 @@ beforeEach(async (t) => {
 });
 
 async function insertSubscriptionModel(configJson = "{}"): Promise<AIModel> {
-  return insert(AIModel, {
+  return insertEmployeeModel({
     employeeId: `employee-${randomUUID()}`,
     provider: "openai",
     model: "gpt-5.4",

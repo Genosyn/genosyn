@@ -3,7 +3,6 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Tldr } from "../db/entities/Tldr.js";
@@ -11,6 +10,7 @@ import { TldrQuestion } from "../db/entities/TldrQuestion.js";
 import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import type { TldrQuestionTurnArgs } from "./tldrQuestions.js";
 import {
   answerStandingQuestions,
@@ -49,7 +49,7 @@ async function fixture(): Promise<Fixture> {
     role: "Chief of staff",
     soulBody: "Be clear.",
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "openai",
     model: "gpt-test",

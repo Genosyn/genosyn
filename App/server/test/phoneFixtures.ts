@@ -1,9 +1,9 @@
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { PhoneNumber } from "../db/entities/PhoneNumber.js";
 import { insert, testId } from "./dbHarness.js";
+import { insertEmployeeModel } from "./modelFixtures.js";
 import { encryptConnectionConfig } from "../services/integrations.js";
 
 /**
@@ -41,7 +41,7 @@ export async function phoneFixture(
     soulBody: "SECRET SOUL",
   });
   if (opts.model !== false) {
-    await insert(AIModel, {
+    await insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
       model: "gpt-test",

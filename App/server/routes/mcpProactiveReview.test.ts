@@ -7,7 +7,6 @@ import express from "express";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -36,6 +35,7 @@ import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { PROACTIVE_REVIEW_TOOLS } from "../services/proactive/workReviewPolicy.js";
 import { refreshStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 type Origin = NonNullable<Parameters<typeof issueMcpToken>[2]>;
@@ -515,7 +515,7 @@ test("a review Decision stays human-only and answering it cannot start a pickup 
     deciderEmployeeId: decider.id,
     enabled: true,
   });
-  await insert(AIModel, {
+  await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
     model: "claude-sonnet-4",

@@ -9,7 +9,6 @@ import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -43,7 +42,7 @@ import {
 import { toSlug } from "../lib/slug.js";
 import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
-import { effectiveActiveId } from "../services/models.js";
+import { attachedModelsByEmployee, deleteEmployeeAttachments } from "../services/models.js";
 import { removeDir, soulTemplate, skillTemplate } from "../services/files.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { unassignPhoneNumbersForEmployee } from "../services/phone/numbers.js";
@@ -55,7 +54,6 @@ import {
   revokeDisabledBrowserSessionsForEmployee,
 } from "../services/browserAccess.js";
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
-import { deleteKeyHealth } from "../services/modelKeyHealth.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
 import { detachEmployeeFromTldrs, ensureDefaultTldrSchedule } from "../services/tldrs.js";
 import { detachEmployeeFromBoardLetters } from "../services/boardLetters.js";
@@ -126,16 +124,9 @@ employeesRouter.get("/", async (req, res) => {
   // Include a lightweight summary of the *active* model per employee so the
   // dashboard can show connection chips from a single roundtrip. Keep it
   // minimal — the full model list lives at /employees/:eid/models.
-  const models = await AppDataSource.getRepository(AIModel).find();
-  const byEmp = new Map<string, AIModel[]>();
-  for (const m of models) {
-    const list = byEmp.get(m.employeeId);
-    if (list) list.push(m);
-    else byEmp.set(m.employeeId, [m]);
-  }
+  const attached = await attachedModelsByEmployee(emps.map((e) => e.id));
   const rows = emps.map((e) => {
-    const list = byEmp.get(e.id) ?? [];
-    const activeId = effectiveActiveId(list);
+    const { models: list, activeId } = attached.get(e.id) ?? { models: [], activeId: null };
     const m = list.find((x) => x.id === activeId) ?? null;
     return {
       ...e,
@@ -143,6 +134,7 @@ employeesRouter.get("/", async (req, res) => {
         ? {
             provider: m.provider,
             model: m.model,
+            authMode: m.authMode,
             status: isModelConnected(m) ? "connected" : "not_connected",
           }
         : null,
@@ -472,14 +464,9 @@ employeesRouter.delete("/:eid", async (req, res) => {
   }
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
-  const modelIds = (
-    await AppDataSource.getRepository(AIModel).find({
-      where: { employeeId: emp.id },
-      select: { id: true },
-    })
-  ).map((model) => model.id);
-  await deleteKeyHealth(modelIds);
-  await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });
+  // Its AI Models are the company's: letting the employee go detaches them,
+  // and their keys stay in Settings → AI Models for whoever uses them next.
+  await deleteEmployeeAttachments([emp.id]);
   await AppDataSource.getRepository(McpServer).delete({ employeeId: emp.id });
   await deleteEmployeeConversations(emp.id);
   await archiveEmployeeDirectMessages(emp.id);
