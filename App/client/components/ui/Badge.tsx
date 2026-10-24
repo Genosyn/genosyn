@@ -91,6 +91,7 @@ export function Badge({
   dot = false,
   capitalize = true,
   className,
+  title,
   children,
   ...rest
 }: BadgeProps) {
@@ -102,7 +103,12 @@ export function Badge({
           {icon}
         </span>
       )}
-      <span className={clsx("min-w-0 truncate", capitalize && "inline-block first-letter:uppercase")}>
+      {/* The title sits on the words, the element a reader (and a test)
+          finds by its text. */}
+      <span
+        title={title}
+        className={clsx("min-w-0 truncate", capitalize && "inline-block first-letter:uppercase")}
+      >
         {children}
       </span>
     </span>

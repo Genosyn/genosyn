@@ -65,7 +65,8 @@ describe("Badge", () => {
 
   test("passes a title and other attributes through", () => {
     const html = render({ title: "Waiting to start", "aria-label": "Queued" }, "pending");
-    assert.match(html, /title="Waiting to start"/);
+    // The title rides on the words, which is what a lookup by text finds.
+    assert.match(html, /<span title="Waiting to start" class="[^"]*">pending<\/span>/);
     assert.match(html, /aria-label="Queued"/);
   });
 
