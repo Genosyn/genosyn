@@ -1402,8 +1402,8 @@ export type ConversationSummary = {
   updatedAt: string;
   lastMessageAt: string | null;
   /**
-   * AI Model this thread last ran a turn on, while that model still belongs to
-   * the employee and is connected. The chat composer reopens the thread on it
+   * AI Model this thread last ran a turn on, while that model is still attached
+   * to the employee and connected. The chat composer reopens the thread on it
    * so a past conversation keeps the brain it was held with; null means fall
    * back to the employee's active model.
    */

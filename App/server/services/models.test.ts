@@ -695,6 +695,46 @@ describe("live sync", () => {
     assert.ok(events.some((e) => e.companyId === companyId && e.kind === "routine"));
   });
 
+  /**
+   * Grace's Model page lists everyone else on her model, so attaching it to
+   * Ada has to refresh Grace's page as well as Ada's: every model and
+   * attachment frame is company-wide, never scoped to the one employee it
+   * touched (a scoped page refetches only for its own id or an unscoped frame).
+   */
+  test("attaching a shared model refreshes every employee's page, not only the one attached", async () => {
+    const companyId = testCompanyId();
+    const ada = await employee(companyId, "Ada");
+    const grace = await employee(companyId, "Grace");
+    const shared = await companyModel(companyId, "shared");
+    await attachModel({ companyId, modelId: shared.id, employeeIds: [grace.id] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const frames: Array<{ companyId: string; kind: string; scopes: string[] }> = [];
+    registerResourceChangeSink((id, kind, scopes) => frames.push({ companyId: id, kind, scopes }));
+
+    await attachModel({ companyId, modelId: shared.id, employeeIds: [ada.id] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(
+      frames.filter((frame) => frame.companyId === companyId),
+      [{ companyId, kind: "employee", scopes: [] }],
+    );
+  });
+
+  test("saving a company model itself refreshes every employee's page", async () => {
+    const companyId = testCompanyId();
+    const shared = await companyModel(companyId, "shared");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const frames: Array<{ companyId: string; kind: string; scopes: string[] }> = [];
+    registerResourceChangeSink((id, kind, scopes) => frames.push({ companyId: id, kind, scopes }));
+
+    shared.maxConcurrentRuns = 2;
+    await AppDataSource.getRepository(AIModel).save(shared);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(
+      frames.filter((frame) => frame.companyId === companyId),
+      [{ companyId, kind: "employee", scopes: [] }],
+    );
+  });
+
   test("a detach with no pins announces no routine change", async () => {
     const companyId = testCompanyId();
     const ada = await employee(companyId, "Ada");
