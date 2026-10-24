@@ -114,7 +114,10 @@ async function dbEmployee(suffix = "default", companyId = COMPANY_ID): Promise<A
   });
 }
 
-async function connectedModel(employeeId: string, values: Partial<AIModel> = {}): Promise<AIModel> {
+async function connectedModel(
+  employeeId: string,
+  values: Partial<AIModel> & { isActive?: boolean } = {},
+): Promise<AIModel> {
   return insertEmployeeModel({
     employeeId,
     provider: "openai",

@@ -4,9 +4,15 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { insertEmployeeModel } from "../test/modelFixtures.js";
+import {
+  attachedModelIds,
+  flaggedActiveModel,
+  insertEmployeeModel,
+  modelsOf,
+} from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
 import {
   connectApiModel,
@@ -83,18 +89,17 @@ for (const provider of ["openai", "anthropic"] as const) {
     const sibling = await existing();
     const calls = mockModel(t, provider);
     const saved = await connectApiModel({
-      employeeId: "employee",
+      attachTo: ["employee"],
       companyId: "company",
       provider,
       apiKey: "secret-key",
     });
     assert.equal(saved.model, provider === "openai" ? "gpt-live-default" : "claude-live-default");
     assert.ok(saved.connectedAt instanceof Date);
-    assert.equal(saved.isActive, true);
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: sibling.id })).isActive,
-      false,
-    );
+    // The new model is the employee's active one; the one it had stays attached.
+    assert.equal((await flaggedActiveModel("employee"))?.id, saved.id);
+    assert.deepEqual(await attachedModelIds("employee"), [sibling.id, saved.id]);
+    assert.equal(saved.companyId, "company");
     assert.equal(decryptSecret(JSON.parse(saved.configJson).apiKeyEncrypted), "secret-key");
     assert.ok(!saved.configJson.includes("secret-key"));
     assert.equal(calls.length, 1);
@@ -110,7 +115,7 @@ for (const provider of ["openai", "anthropic"] as const) {
 test("an explicit model bypasses catalog permission and is never replaced", async (t) => {
   const calls = mockModel(t, "openai");
   const model = await connectApiModel({
-    employeeId: "employee",
+    attachTo: ["employee"],
     companyId: "company",
     provider: "openai",
     apiKey: "key",
@@ -126,7 +131,7 @@ for (const status of [401, 403, 404, 429, 500]) {
     mockModel(t, "openai", { status });
     await assert.rejects(
       connectApiModel({
-        employeeId: "employee",
+        attachTo: ["employee"],
         companyId: "company",
         provider: "openai",
         apiKey: "secret-key-DO-NOT-ECHO",
@@ -139,10 +144,7 @@ for (const status of [401, 403, 404, 429, 500]) {
       },
     );
     assert.equal(await AppDataSource.getRepository(AIModel).count(), 1);
-    assert.equal(
-      (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: sibling.id })).isActive,
-      true,
-    );
+    assert.equal((await flaggedActiveModel("employee"))?.id, sibling.id);
   });
 }
 
@@ -250,7 +252,7 @@ test("concurrent first API connections leave exactly one active model", async (t
   await Promise.all(
     ["gpt-first", "gpt-second"].map((model) =>
       connectApiModel({
-        employeeId: "employee",
+        attachTo: ["employee"],
         companyId: "company",
         provider: "openai",
         apiKey: "key",
@@ -258,9 +260,15 @@ test("concurrent first API connections leave exactly one active model", async (t
       }),
     ),
   );
-  const models = await AppDataSource.getRepository(AIModel).findBy({ employeeId: "employee" });
+  const models = await modelsOf("employee");
   assert.equal(models.length, 2);
-  assert.equal(models.filter((model) => model.isActive).length, 1);
+  assert.equal(
+    await AppDataSource.getRepository(EmployeeModel).countBy({
+      employeeId: "employee",
+      isActive: true,
+    }),
+    1,
+  );
   assert.ok(models.every((model) => model.connectedAt !== null));
 });
 
@@ -272,7 +280,7 @@ test("an employee deleted during verification cannot leave an orphan model", asy
   });
   await assert.rejects(
     connectApiModel({
-      employeeId: "employee",
+      attachTo: ["employee"],
       companyId: "company",
       provider: "openai",
       apiKey: "key",

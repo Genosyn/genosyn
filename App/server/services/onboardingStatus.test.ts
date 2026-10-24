@@ -6,9 +6,11 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Goal } from "../db/entities/Goal.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { loadOnboardingStatus } from "./onboardingStatus.js";
 
 let company: Company;
@@ -35,6 +37,7 @@ beforeEach(async () => {
     Goal,
     Routine,
     Skill,
+    EmployeeModel,
     AIModel,
     AIEmployee,
     Company,
@@ -71,17 +74,14 @@ async function hire(name: string, createdAt?: Date): Promise<AIEmployee> {
 }
 
 async function connectModel(employeeId: string, apiKeyEncrypted: string | null): Promise<AIModel> {
-  const repo = AppDataSource.getRepository(AIModel);
-  return repo.save(
-    repo.create({
-      employeeId,
-      provider: "anthropic",
-      model: "claude-opus-4-6",
-      authMode: "apikey",
-      isActive: true,
-      configJson: JSON.stringify(apiKeyEncrypted ? { apiKeyEncrypted } : {}),
-    }),
-  );
+  return insertEmployeeModel({
+    employeeId,
+    provider: "anthropic",
+    model: "claude-opus-4-6",
+    authMode: "apikey",
+    isActive: true,
+    configJson: JSON.stringify(apiKeyEncrypted ? { apiKeyEncrypted } : {}),
+  });
 }
 
 test("a company with direction and no AI Employees resumes at hiring", async () => {

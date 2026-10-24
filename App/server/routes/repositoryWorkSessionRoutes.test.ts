@@ -24,7 +24,12 @@ import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionT
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { activeModelOf, detachAllModels, insertEmployeeModel } from "../test/modelFixtures.js";
+import {
+  activeModelOf,
+  detachAllModels,
+  insertEmployeeModel,
+  type EmployeeModelFixture,
+} from "../test/modelFixtures.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 import { recordAttachmentBytes, ATTACHMENTS_MAX_BYTES } from "../services/uploads.js";
 import { repositoryCheckoutExists } from "../services/repositoryWorkspace.js";
@@ -200,7 +205,7 @@ describe("work-session AI Model endpoints", () => {
     instruction: "Update the plan",
     ...(modelId === undefined ? {} : { modelId }),
   });
-  const addModel = (overrides: Partial<AIModel> = {}) =>
+  const addModel = (overrides: Partial<EmployeeModelFixture> = {}) =>
     insertEmployeeModel({
       employeeId: employee.id,
       provider: "openai",
@@ -212,9 +217,7 @@ describe("work-session AI Model endpoints", () => {
     });
 
   test("lists all granted employee models with safe metadata, defaults and connection state", async () => {
-    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
-      employeeId: employee.id,
-    });
+    const active = await activeModelOf(employee.id);
     const disconnected = await addModel({ configJson: "{}" });
     const custom = await addModel({
       provider: "custom",
@@ -375,9 +378,7 @@ describe("work-session AI Model endpoints", () => {
   });
 
   test("rejects a disconnected explicit or default model without creating rows", async () => {
-    const active = await AppDataSource.getRepository(AIModel).findOneByOrFail({
-      employeeId: employee.id,
-    });
+    const active = await activeModelOf(employee.id);
     await AppDataSource.getRepository(AIModel).update(active.id, { configJson: "{}" });
     for (const modelId of [undefined, active.id]) {
       const result = await call("POST", sessionsUrl(), startBody(modelId));

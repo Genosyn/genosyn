@@ -274,7 +274,7 @@ function runtime(
 function runnerArgs(application: BlindedApplication, signal = new AbortController().signal): ScreenRunnerArgs {
   return {
     ...systemArgs(),
-    model: { id: "model-1", employeeId: "emp-1", model: "claude-test-model" } as AIModel,
+    model: { id: "model-1", companyId: "company-1", model: "claude-test-model" } as AIModel,
     application,
     signal,
   };

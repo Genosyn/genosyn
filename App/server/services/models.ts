@@ -235,6 +235,19 @@ export async function promoteSurvivor(
   if (promote) await flipActive(manager, employeeId, promote);
 }
 
+let lastAttachedAt = 0;
+
+/**
+ * When an attachment is made, to the millisecond and never twice the same in
+ * this process. The column's own default is SQLite's `datetime('now')`, whole
+ * seconds, which would make two models attached in one second tie for "the
+ * most recently attached".
+ */
+function attachedNow(): Date {
+  lastAttachedAt = Math.max(Date.now(), lastAttachedAt + 1);
+  return new Date(lastAttachedAt);
+}
+
 /**
  * Save a new company AI Model and attach it to `attachTo`, making it each
  * one's active model — the newest model an employee gets is the one it uses,
@@ -261,6 +274,7 @@ export async function saveNewModel(
         employeeId: employee.id,
         modelId: row.id,
         isActive: true,
+        createdAt: attachedNow(),
       });
     }
     return row;
@@ -327,7 +341,13 @@ export async function attachModel(options: {
         if (makeActive && !current.isActive) await flipActive(manager, employee.id, model.id);
         continue;
       }
-      await repo.insert({ companyId, employeeId: employee.id, modelId: model.id, isActive: false });
+      await repo.insert({
+        companyId,
+        employeeId: employee.id,
+        modelId: model.id,
+        isActive: false,
+        createdAt: attachedNow(),
+      });
       if (makeActive || own.length === 0) await flipActive(manager, employee.id, model.id);
       attached.push(employee);
     }

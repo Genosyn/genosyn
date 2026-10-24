@@ -26,8 +26,6 @@ export type EmployeeModelFixture = Partial<Omit<AIModel, "companyId">> & {
   attachedAt?: Date;
 };
 
-export type AttachedModelFixture = AIModel & { employeeId: string; isActive: boolean };
-
 let lastAttachedAt = 0;
 
 function attachmentTime(requested: Date | undefined): Date {
@@ -52,9 +50,7 @@ async function companyOf(employeeId: string, explicit?: string): Promise<string>
 }
 
 /** Save a company AI Model attached to one employee. */
-export async function insertEmployeeModel(
-  values: EmployeeModelFixture,
-): Promise<AttachedModelFixture> {
+export async function insertEmployeeModel(values: EmployeeModelFixture): Promise<AIModel> {
   const { employeeId, isActive = false, companyId: explicit, attachedAt, ...model } = values;
   const companyId = await companyOf(employeeId, explicit);
   const models = AppDataSource.getRepository(AIModel);
@@ -66,7 +62,7 @@ export async function insertEmployeeModel(
     isActive,
     attachedAt: attachedAt ?? model.createdAt,
   });
-  return Object.assign(saved, { employeeId, isActive });
+  return saved;
 }
 
 /** Attach an existing company model to another employee, as the service would. */

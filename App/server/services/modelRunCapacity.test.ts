@@ -114,9 +114,9 @@ test("an explicit setting wins: zero removes the limit and large values are capp
   );
 });
 
-test("rows of different employees that reach the same server share one capacity key", () => {
-  const a = customModel("http://GPU.lan:8000/v1/", { employeeId: "alex" });
-  const b = customModel("http://gpu.lan:8000/v1", { employeeId: "sam" });
+test("two company models that reach the same server share one capacity key", () => {
+  const a = customModel("http://GPU.lan:8000/v1/", { id: "model-alex" });
+  const b = customModel("http://gpu.lan:8000/v1", { id: "model-sam" });
   const otherModel = customModel("http://gpu.lan:8000/v1", {
     configJson: JSON.stringify({
       baseURLEncrypted: encryptSecret("http://gpu.lan:8000/v1"),

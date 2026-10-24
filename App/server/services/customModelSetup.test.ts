@@ -4,7 +4,9 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { flaggedActiveModel, modelsOf } from "../test/modelFixtures.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
 import { connectCustomModel } from "./customModelSetup.js";
 import { agentRuntime } from "./agent/runtime.js";
@@ -37,7 +39,7 @@ after(async () => {
   security.outboundPrivateHostAllowlist = originalHosts;
 });
 const setup = {
-  employeeId: "employee",
+  attachTo: ["employee"],
   companyId: "company",
   baseURL: "https://8.8.8.8/v1",
   modelId: "local-model",
@@ -61,7 +63,8 @@ test("custom setup verifies through OpenCode with only its connection tool befor
     return reply(params);
   });
   const saved = await connectCustomModel(setup);
-  assert.equal(saved.isActive, true);
+  assert.equal(saved.companyId, "company");
+  assert.equal((await flaggedActiveModel("employee"))?.id, saved.id);
   assert.ok(saved.connectedAt);
   assert.doesNotMatch(saved.configJson, /private-custom-key|https:/);
   assert.deepEqual(readCustomEndpoint(saved), {
@@ -140,9 +143,15 @@ test("concurrent first custom connections leave exactly one active model", async
   await Promise.all(
     ["first", "second"].map((modelId) => connectCustomModel({ ...setup, modelId })),
   );
-  const models = await AppDataSource.getRepository(AIModel).findBy({ employeeId: "employee" });
+  const models = await modelsOf("employee");
   assert.equal(models.length, 2);
-  assert.equal(models.filter((model) => model.isActive).length, 1);
+  assert.equal(
+    await AppDataSource.getRepository(EmployeeModel).countBy({
+      employeeId: "employee",
+      isActive: true,
+    }),
+    1,
+  );
 });
 
 test("custom probe still enforces private-address and embedded-credential SSRF restrictions", async (t) => {

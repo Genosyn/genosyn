@@ -21,7 +21,7 @@ import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../services/model
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
-import { modelsRouter } from "./models.js";
+import { companyModelsRouter } from "./companyModels.js";
 
 /**
  * Test connection and the model list for changing a model, through the real
@@ -29,7 +29,12 @@ import { modelsRouter } from "./models.js";
  * or lets a key out.
  */
 
-type PublicModel = { id: string; apiKeys: Array<{ preview: string }>; status: string };
+type PublicModel = {
+  id: string;
+  apiKeys: Array<{ preview: string }>;
+  status: string;
+  employees: Array<{ name: string }>;
+};
 type TestReply = { ok: true; elapsedMs: number; model: PublicModel };
 type Catalog = { models: Array<{ id: string; label: string }>; recommendedModel: string };
 type ApiResponse<T> = { status: number; body: T; text: string };
@@ -69,7 +74,7 @@ before(async () => {
     await persistTestSession(req);
     next();
   });
-  app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
+  app.use("/api/companies/:cid/models", companyModelsRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
@@ -125,10 +130,10 @@ async function actAs(role: Role): Promise<void> {
 async function call<T>(
   method: string,
   path: string,
-  options: { employee?: AIEmployee } = {},
+  options: { companyId?: string } = {},
 ): Promise<ApiResponse<T>> {
   const response = await realFetch(
-    `${baseUrl}/api/companies/${company.id}/employees/${(options.employee ?? employee).id}/models${path}`,
+    `${baseUrl}/api/companies/${options.companyId ?? company.id}/models${path}`,
     { method, headers: { "x-test-user": actingUser.id } },
   );
   const text = await response.text();
@@ -141,7 +146,7 @@ async function call<T>(
 
 function claude(
   keys: string[] = [PRIMARY],
-  overrides: Partial<AIModel> & { holder?: AIEmployee } = {},
+  overrides: Partial<AIModel> & { holder?: AIEmployee; isActive?: boolean } = {},
 ): Promise<AIModel> {
   const { holder = employee, ...rest } = overrides;
   return insertEmployeeModel({
@@ -270,10 +275,15 @@ describe("POST /:id/test", () => {
     assert.equal(calls.length, 0);
   });
 
-  test("another AI Employee's model, or one that does not exist, is not found", async (t) => {
+  test("another company's model, or one that does not exist, is not found", async (t) => {
     const calls = stubRuntime(t);
+    const globex = await insert(Company, {
+      name: "Globex",
+      slug: `globex-${randomUUID()}`,
+      ownerId: actingUser.id,
+    });
     const other = await insert(AIEmployee, {
-      companyId: company.id,
+      companyId: globex.id,
       name: "Casey",
       slug: `casey-${randomUUID()}`,
       role: "Sales",
@@ -283,6 +293,25 @@ describe("POST /:id/test", () => {
     assert.equal((await call("POST", `/${theirs.id}/test`)).status, 404);
     assert.equal((await call("POST", `/${randomUUID()}/test`)).status, 404);
     assert.equal(calls.length, 0);
+  });
+
+  test("a model another AI Employee shares is tested once, for everyone on it", async (t) => {
+    const calls = stubRuntime(t);
+    const other = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Casey",
+      slug: `casey-${randomUUID()}`,
+      role: "Sales",
+      soulBody: "",
+    });
+    const shared = await claude([PRIMARY], { holder: other });
+    const reply = await call<TestReply>("POST", `/${shared.id}/test`);
+    assert.equal(reply.status, 200);
+    assert.deepEqual(
+      reply.body.model.employees.map((user) => user.name),
+      ["Casey"],
+    );
+    assert.deepEqual(calls, [[PRIMARY]]);
   });
 
   test("a custom endpoint is tested at its saved endpoint", async (t) => {
@@ -405,7 +434,7 @@ describe("PUT /:id — changing the model", () => {
 
   async function change(model: AIModel, to: string) {
     const response = await realFetch(
-      `${baseUrl}/api/companies/${company.id}/employees/${employee.id}/models/${model.id}`,
+      `${baseUrl}/api/companies/${company.id}/models/${model.id}`,
       {
         method: "PUT",
         headers: { "x-test-user": actingUser.id, "content-type": "application/json" },

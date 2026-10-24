@@ -148,7 +148,7 @@ test("connecting with a blank Model id saves the model the server serves", async
     return { finalText: "OK", steps: 2, stopReason: "end_turn" };
   });
   const saved = await connectCustomModel({
-    employeeId: owner.id,
+    attachTo: [owner.id],
     companyId: owner.companyId,
     baseURL,
     modelId: "  ",
@@ -159,7 +159,7 @@ test("connecting with a blank Model id saves the model the server serves", async
     { id: "qwen2.5-coder:32b", object: "model" },
   ];
   await assert.rejects(
-    connectCustomModel({ employeeId: owner.id, companyId: owner.companyId, baseURL }),
+    connectCustomModel({ attachTo: [owner.id], companyId: owner.companyId, baseURL }),
     /Enter the Model id to use/,
   );
 });
