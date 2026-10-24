@@ -30,7 +30,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
             {c.to && !last ? (
               <Link
                 to={c.to}
-                className="rounded px-1 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                className="touch-target relative rounded px-1 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
               >
                 {c.label}
               </Link>

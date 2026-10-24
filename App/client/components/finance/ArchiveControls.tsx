@@ -26,7 +26,7 @@ export function FilterTab({
     <button
       onClick={onClick}
       className={
-        "rounded-md px-3 py-1.5 text-xs font-medium transition " +
+        "touch-target relative rounded-md px-3 py-1.5 text-xs font-medium transition " +
         (active
           ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
           : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
@@ -34,7 +34,7 @@ export function FilterTab({
     >
       {label}
       {count !== null && (
-        <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">{count}</span>
+        <span className="ml-1.5 tabular-nums text-slate-500 dark:text-slate-400">{count}</span>
       )}
     </button>
   );

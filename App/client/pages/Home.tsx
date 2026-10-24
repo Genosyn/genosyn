@@ -906,7 +906,7 @@ function ActiveDecisions({
         )}
         <Link
           to={href}
-          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
+          className="touch-target relative ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
         >
           All decisions <ChevronRight size={12} />
         </Link>
@@ -1246,7 +1246,7 @@ function FailedRoutinesAlert({
         </span>
         <Link
           to={`/c/${company.slug}/tldrs/journal`}
-          className="ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
+          className="touch-target relative ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
         >
           Journal <ChevronRight size={12} />
         </Link>
@@ -1306,7 +1306,7 @@ function FailedRoutinesAlert({
                 aria-busy={(busy?.runId === r.runId && busy.action === "retry") || undefined}
                 title="Retry"
                 aria-label={`Retry ${r.routineName}`}
-                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                className="flex min-w-8 shrink-0 items-center justify-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
               >
                 {busy?.runId === r.runId && busy.action === "retry" ? (
                   <ButtonSpinner size={14} />
@@ -1407,7 +1407,7 @@ function HomeTldrPanel({
                   <button
                     type="button"
                     onClick={() => onDismiss(item)}
-                    className="-mr-1 inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    className="touch-target relative -mr-1 inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                     aria-label={`Dismiss ${item.title || "TLDR"}`}
                   >
                     <X size={13} /> Dismiss
@@ -1486,7 +1486,7 @@ function HomeCard({
           <Link
             to={linkTo}
             onClick={onLinkClick}
-            className="flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
+            className="touch-target relative flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
           >
             {linkLabel} <ChevronRight size={12} />
           </Link>
@@ -2373,7 +2373,7 @@ function SystemHealthCard({
               <button
                 type="button"
                 onClick={() => dismiss(c.id, c.count)}
-                className="mr-2 shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                className="touch-target relative mr-2 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                 title="Dismiss"
                 aria-label={`Dismiss ${c.title}`}
               >

@@ -390,7 +390,7 @@ function EstimateForm() {
                 ? `/c/${company.slug}/finance/estimates/${estimateSlug}`
                 : `/c/${company.slug}/finance/estimates`
             }
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>

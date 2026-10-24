@@ -305,7 +305,7 @@ export function StatusPicker({
           }}
           title={`Status: ${STATUS_LABEL[value]}`}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md text-left text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
             disabled
               ? "cursor-default"
@@ -366,7 +366,7 @@ export function PriorityPicker({
           }}
           title={`Priority: ${PRIORITY_LABEL[value]}`}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md text-left text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
             disabled
               ? "cursor-default"
@@ -464,7 +464,7 @@ export function AssigneePicker({
           }}
           title={current ? `${currentPrefix}: ${current.name}` : unsetTitle}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
             disabled
               ? "cursor-default"
@@ -615,7 +615,7 @@ export function RecurrencePicker({
           }}
           title={active ? `Repeats ${RECURRENCE_LABEL[value].toLowerCase()}` : "Does not repeat"}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md text-left text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
             disabled
               ? clsx(
@@ -701,7 +701,7 @@ export function ParentChip({
         e.stopPropagation();
         onOpen();
       }}
-      className="flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+      className="touch-target relative flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
       title={`Sub-task of ${project.key}-${parent.number}: ${parent.title}`}
     >
       <CornerDownRight size={10} />
@@ -716,7 +716,7 @@ export function SubtaskCountChip({ stats }: { stats: ChildStats }) {
   return (
     <span
       className={clsx(
-        "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+        "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums",
         allDone
           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
           : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",

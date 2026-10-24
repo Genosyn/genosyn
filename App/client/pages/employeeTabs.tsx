@@ -359,7 +359,7 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
                   onClick={() => setAdvancedOpen((open) => !open)}
                   aria-expanded={advancedOpen}
                   title={group.items.map((item) => item.label).join(", ")}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   {group.title}
                   <AdvancedChevron open={advancedOpen} />
@@ -428,7 +428,7 @@ function SettingsNavItem({ item, pill }: { item: SettingsNavEntry; pill?: boolea
   );
   const className = ({ isActive }: { isActive: boolean }) =>
     (pill
-      ? "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs "
+      ? "flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs "
       : "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ") +
     (isActive && !item.away
       ? pill

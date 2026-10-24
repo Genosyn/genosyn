@@ -116,7 +116,7 @@ export function InvoiceKindChoice({
         <Link
           to={`${financeBase}/invoices`}
           aria-label="Back to invoices"
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <ArrowLeft size={18} />
         </Link>

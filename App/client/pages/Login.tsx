@@ -226,11 +226,11 @@ export default function Login() {
         <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
           <Link
             to={invitationAuthPath("signup", invitationToken)}
-            className="hover:text-indigo-600"
+            className="touch-target relative hover:text-indigo-600"
           >
             Create account
           </Link>
-          <Link to="/forgot" className="hover:text-indigo-600">
+          <Link to="/forgot" className="touch-target relative hover:text-indigo-600">
             Forgot password
           </Link>
         </div>
@@ -474,10 +474,10 @@ function CompanySsoLinkConfirm({
         {loading ? "Linking…" : "Link and sign in"}
       </Button>
       <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/login" className="hover:text-indigo-600">
+        <Link to="/login" className="touch-target relative hover:text-indigo-600">
           Back to sign in
         </Link>
-        <Link to="/forgot" className="hover:text-indigo-600">
+        <Link to="/forgot" className="touch-target relative hover:text-indigo-600">
           Forgot password
         </Link>
       </div>

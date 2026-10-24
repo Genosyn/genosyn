@@ -342,7 +342,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             {canManage && (
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <label className="touch-target relative flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                 <EnabledToggle
                   enabled={enabled}
                   label={enabled ? "Pause this routine" : "Resume this routine"}
@@ -678,7 +678,7 @@ function OverviewTab({
             {(runs?.length ?? 0) > 0 && (
               <button
                 onClick={onSeeRuns}
-                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                className="touch-target relative text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 See all
               </button>

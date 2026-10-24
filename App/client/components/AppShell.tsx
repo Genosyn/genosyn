@@ -171,7 +171,7 @@ function AskAiButton() {
       type="button"
       onClick={askAi.toggle}
       className={
-        "flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium sm:px-2.5 " +
+        "flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-sm font-medium sm:px-2.5 " +
         (askAi.open
           ? "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200"
           : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800")
@@ -252,7 +252,7 @@ function TopNav({
       )}
       <Link
         to={`/c/${current.slug}`}
-        className="flex shrink-0 items-center gap-2 text-slate-900 dark:text-slate-100"
+        className="flex h-8 min-w-8 shrink-0 items-center justify-center gap-2 rounded-md text-slate-900 dark:text-slate-100"
       >
         {/* Phones get the bare mark; the full wordmark would eat half the bar. */}
         <LogoMark className="h-7 w-7 sm:hidden" />
@@ -269,7 +269,7 @@ function TopNav({
             setUserOpen(false);
             setCompanyOpen((d) => !d);
           }}
-          className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+          className="flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
           aria-expanded={companyOpen}
           aria-haspopup="menu"
         >
@@ -441,7 +441,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
   return (
     <button
       onClick={palette.open}
-      className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+      className="flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
       title={`Search sections and pages (${PALETTE_SHORTCUT})`}
     >
       <span className={"flex h-5 w-5 items-center justify-center rounded " + current.iconBg}>

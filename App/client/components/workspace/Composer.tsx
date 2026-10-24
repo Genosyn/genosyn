@@ -372,7 +372,7 @@ export const ChannelComposer = React.forwardRef<
         />
         <button
           onClick={() => fileRef.current?.click()}
-          className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           title="Attach file"
           aria-label="Attach file"
           aria-busy={uploading > 0 || undefined}
@@ -464,13 +464,13 @@ export const ChannelComposer = React.forwardRef<
             }
           }}
           placeholder={compact ? "Reply…" : channel.placeholder || `Message ${channel.label}`}
-          className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
+          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
           rows={1}
         />
         <div className={compact ? "" : "relative"}>
           <button
             onClick={() => setEmojiOpen((o) => !o)}
-            className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="touch-target relative mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="Emoji"
             aria-label="Emoji"
           >

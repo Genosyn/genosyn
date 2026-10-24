@@ -186,7 +186,7 @@ export default function FinanceIndex() {
               </h2>
               <Link
                 to={`/c/${company.slug}/finance/invoices`}
-                className="flex items-center gap-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                className="touch-target relative flex items-center gap-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 See all <ArrowRight size={12} />
               </Link>

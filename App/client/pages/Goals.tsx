@@ -406,9 +406,9 @@ function GoalRow({
                   type="button"
                   onClick={() => onEdit(goal)}
                   aria-label={`Edit ${goal.title}`}
-                  className="truncate text-left text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+                  className="touch-target relative flex min-w-0 text-left text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
                 >
-                  {goal.title}
+                  <span className="truncate">{goal.title}</span>
                 </button>
               ) : (
                 <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -518,7 +518,7 @@ function GoalRow({
                   onClick={onClick}
                   type="button"
                   aria-label={`Actions for ${goal.title}`}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  className="touch-target relative rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                 >
                   <MoreHorizontal size={16} />
                 </button>

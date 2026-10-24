@@ -1038,7 +1038,7 @@ function ChannelView({
               type="button"
               onClick={() => setShowDiscuss(true)}
               disabled={Boolean(running)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
               title={
                 running
                   ? "A discussion is already running here"
@@ -1053,7 +1053,7 @@ function ChannelView({
               onClick={() => void archive()}
               disabled={archiving}
               aria-busy={archiving || undefined}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title="Archive direct message"
             >
               {archiving ? <ButtonSpinner size={12} /> : <Archive size={12} />} Archive
@@ -1062,7 +1062,7 @@ function ChannelView({
           {channel.kind !== "dm" && (
             <button
               onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
               aria-label={channel.kind === "group" ? "Group chat settings" : "Channel settings"}
             >
@@ -1083,7 +1083,7 @@ function ChannelView({
           {channel.kind === "dm" && (
             <button
               onClick={() => setShowMembers(true)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="touch-target relative flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
             >
               <AtSign size={12} /> {channel.members.length} member
               {channel.members.length === 1 ? "" : "s"}

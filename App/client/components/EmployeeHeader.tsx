@@ -136,7 +136,7 @@ function EmployeeTab({
       aria-current={current ? "page" : undefined}
       title={label}
       className={
-        "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition " +
+        "touch-target relative inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition " +
         (current
           ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100"
           : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100")

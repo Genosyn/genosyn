@@ -151,7 +151,7 @@ function Gutter({
         title="Drag to move · Click to open the block menu"
         aria-label="Drag to move, or click for block options"
         data-block-grip={block.id}
-        className="flex h-6 w-[18px] cursor-grab touch-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+        className="touch-target relative flex h-6 w-[18px] cursor-grab touch-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
       >
         <GripVertical size={16} />
       </button>

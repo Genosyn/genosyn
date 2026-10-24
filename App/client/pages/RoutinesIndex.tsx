@@ -403,7 +403,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
                 onClick={() => setHealth(key)}
                 aria-pressed={health === key}
                 className={
-                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition " +
+                  "touch-target relative flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition " +
                   (health === key
                     ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800")
@@ -684,9 +684,9 @@ function RoutineRow({
             {to ? (
               <Link
                 to={to}
-                className="max-w-full truncate font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
+                className="touch-target relative flex min-w-0 max-w-full font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
               >
-                {r.name}
+                <span className="truncate">{r.name}</span>
               </Link>
             ) : (
               <span className="truncate font-medium text-slate-900 dark:text-slate-100">
@@ -731,7 +731,7 @@ function RoutineRow({
         {r.employee ? (
           <Link
             to={`/c/${company.slug}/employees/${r.employee.slug}`}
-            className="flex min-w-0 items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
+            className="touch-target relative flex min-w-0 items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
           >
             <Avatar
               name={r.employee.name}
@@ -805,7 +805,7 @@ function RoutineRow({
             return to ? (
               <Link
                 to={`${to}?run=${encodeURIComponent(r.lastRun.id)}`}
-                className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                className="touch-target relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <span className="sr-only">Open the last Run of {r.name}: </span>
                 {lastRun}
@@ -843,7 +843,7 @@ function RoutineRow({
         {to && (
           <Link
             to={to}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="touch-target relative rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="Open routine"
             aria-label={`Open ${r.name}`}
           >

@@ -1836,7 +1836,7 @@ function Composer({
           }}
           rows={1}
           placeholder={isResponding ? `Add a follow-up for ${empName}…` : `Message ${empName}…`}
-          className="flex-1 resize-none self-center bg-transparent px-1 py-1 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+          className="min-h-8 flex-1 resize-none self-center bg-transparent px-1 py-1 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           style={{ maxHeight: 200 }}
         />
         {/* With a reply running and nothing typed, the one button stops it —
@@ -1951,7 +1951,7 @@ function Composer({
                 aria-label="AI Model for this message"
                 value={selectedModelId}
                 onChange={(event) => onModelChange(event.target.value)}
-                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
+                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 outline-none max-sm:min-h-8 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>

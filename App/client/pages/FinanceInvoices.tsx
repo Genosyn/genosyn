@@ -363,7 +363,7 @@ export default function FinanceInvoices() {
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                       <Link
                         to={`/c/${company.slug}/finance/invoices/${inv.slug}`}
-                        className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                        className="touch-target relative font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                       >
                         {inv.number || "DRAFT"}
                       </Link>
@@ -479,7 +479,7 @@ function RowMenu({
         <button
           ref={ref}
           onClick={onClick}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
           <MoreHorizontal size={16} />

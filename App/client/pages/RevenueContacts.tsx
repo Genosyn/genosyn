@@ -403,7 +403,7 @@ export default function RevenueContacts() {
               className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-indigo-500/25"
             />
           </div>
-          <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <label className="touch-target relative flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
               checked={showArchived}
@@ -626,7 +626,7 @@ function StageChip({
       onClick={onClick}
       aria-pressed={active}
       className={
-        "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+        "touch-target relative rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
         (active
           ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800")
@@ -658,7 +658,7 @@ function RowMenu({
         <button
           ref={ref}
           onClick={onClick}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
           <MoreHorizontal size={16} />

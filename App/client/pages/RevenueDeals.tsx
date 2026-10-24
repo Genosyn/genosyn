@@ -722,7 +722,7 @@ function ViewTab({
       onClick={onClick}
       aria-pressed={active}
       className={
-        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition " +
+        "touch-target relative inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition " +
         (active
           ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
           : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
@@ -867,9 +867,9 @@ function DealCard({
       <Link
         to={`${dealsPath}/${deal.id}`}
         onClick={(e) => e.stopPropagation()}
-        className="line-clamp-2 text-sm font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
+        className="touch-target relative block text-sm font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
       >
-        {deal.title}
+        <span className="line-clamp-2">{deal.title}</span>
       </Link>
       <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
         {account ?? "No account yet"}

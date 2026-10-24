@@ -35,25 +35,40 @@ export function Checkbox({
   }, [indeterminate, checked]);
 
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      disabled={disabled}
-      title={title}
-      aria-label={label}
-      onChange={onChange}
-      // Rows are usually clickable themselves; ticking a box must not also
-      // open whatever is underneath it.
-      onClick={(event) => event.stopPropagation()}
-      className={clsx(
-        // A native box, tinted with the accent. The global focus outline
-        // (styles/index.css) draws its keyboard focus.
-        "h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600",
-        "disabled:cursor-not-allowed disabled:opacity-40",
-        "dark:border-slate-600 dark:bg-slate-900 dark:accent-indigo-500",
-        className,
-      )}
-    />
+    // A finger-sized target around the 16px box (`touch-target`, on touch
+    // screens) that takes no more room. Not a <label>: callers often sit the
+    // box inside their own label, and labels must not nest.
+    <span
+      className="touch-target relative inline-flex shrink-0"
+      onClick={(event) => {
+        // Rows are usually clickable themselves; ticking a box must not also
+        // open whatever is underneath it.
+        event.stopPropagation();
+        if (event.target === ref.current || disabled) return;
+        // A press beside the box, inside its target: tick the box, once —
+        // and not again through a label the box sits in.
+        event.preventDefault();
+        ref.current?.click();
+      }}
+    >
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        title={title}
+        aria-label={label}
+        onChange={onChange}
+        onClick={(event) => event.stopPropagation()}
+        className={clsx(
+          // A native box, tinted with the accent. The global focus outline
+          // (styles/index.css) draws its keyboard focus.
+          "h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600",
+          "disabled:cursor-not-allowed disabled:opacity-40",
+          "dark:border-slate-600 dark:bg-slate-900 dark:accent-indigo-500",
+          className,
+        )}
+      />
+    </span>
   );
 }

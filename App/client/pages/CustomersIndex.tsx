@@ -557,7 +557,7 @@ function RowMenu({
           ref={ref}
           onClick={onClick}
           disabled={disabled}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
           <MoreHorizontal size={16} />

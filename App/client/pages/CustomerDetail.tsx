@@ -693,7 +693,7 @@ function CustomerOverview({ company }: { company: Company }) {
         <div className="flex min-w-0 items-center gap-3">
           <Link
             to={customersUrl}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>

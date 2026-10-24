@@ -1045,6 +1045,12 @@ holds every text role to WCAG AA on every surface.
   slate-300 edge at rest, an indigo edge on focus).
 - **Focus.** Keyboard focus is the theme's `focus` colour — `outline-focus`
   / `ring-focus`, 3:1 or better on every surface — never a translucent ring.
+- **Touch.** On a phone everything a finger presses is at least 32×32px. Size
+  shell and toolbar controls `h-8` (`min-w-8` when icon-only); give a smaller
+  link or icon button in a dense row `touch-target relative`, an invisible
+  32px hit area on touch screens that moves nothing (it must not sit on an
+  element that clips, such as `truncate` — truncate an inner span instead).
+  `Checkbox` already has one.
 - **Layout.** Headers stack on a phone (`PageHeader` does this); forms cap at
   `max-w-3xl`; a grid that names columns only from a breakpoint is given a
   shrinkable single column below it (`styles/index.css`), and wide tables sit
@@ -1054,7 +1060,7 @@ holds every text role to WCAG AA on every surface.
   `SectionRailHeader` and `sidebarLinkClassName()` before writing classes.
   `npm run test:visual-system` photographs the key pages in light and dark on
   a desktop and a phone and fails on sideways scroll, clipped content, console
-  errors, invisible focus or text below AA.
+  errors, invisible focus, text below AA or phone targets under 32px.
 
 ---
 

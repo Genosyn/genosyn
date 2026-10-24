@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 
@@ -195,5 +198,55 @@ describe("tailwind.config.ts", () => {
     assert.match(css, /\.bg-slate-500\\\/10 \{[^}]*background-color: rgb\(var\(--gs-slate-500\) \/ 0\.1\)/);
     assert.match(css, /\.text-emerald-600 \{[^}]*rgb\(4 128 92/);
     assert.match(css, /\.outline-focus \{[^}]*outline-color: rgb\(var\(--gs-focus\) \/ 1\)/);
+  });
+});
+
+describe("styles/index.css", () => {
+  const stylesheet = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../styles/index.css"),
+    "utf8",
+  );
+  const compile = async (markup: string) => {
+    const result = await postcss([
+      tailwindcss({ ...tailwindConfig, content: [{ raw: markup, extension: "html" }] }),
+    ]).process(stylesheet, { from: undefined });
+    return result.css.replace(/\s+/g, " ");
+  };
+
+  test("touch-target gives a small control a 32px hit area on touch screens only", async () => {
+    const css = await compile('<a class="touch-target relative">See all</a>');
+    const rule = /@media \(pointer: coarse\), \(max-width: 639px\) \{ \.touch-target::after \{([^}]*)\}/.exec(css);
+    assert.ok(rule, "the hit area sits behind a touch-or-phone media query");
+    const body = rule[1];
+    assert.match(body, /content: "";/);
+    assert.match(body, /position: absolute;/);
+    assert.match(body, /min-width: 2rem;/);
+    assert.match(body, /min-height: 2rem;/);
+    assert.match(body, /transform: translate\(-50%, -50%\);/, "centred on the control");
+    assert.doesNotMatch(body, /background|border|padding/, "invisible and takes no room");
+  });
+
+  test("the hit area is only emitted where a page asks for it", async () => {
+    const css = await compile('<a class="relative">See all</a>');
+    assert.ok(!css.includes(".touch-target"));
+  });
+
+  test("the fallback focus outline and phone grid stay at zero specificity", async () => {
+    const css = (await compile('<div class="grid gap-4 md:grid-cols-2"><button>Go</button></div>'))
+      .replace(/\(\s+/g, "(")
+      .replace(/\s+\)/g, ")");
+    assert.ok(css.includes(":where(:is(a, button,"), "the focus selector list sits inside :where()");
+    assert.ok(
+      css.includes(
+        '[tabindex]:not([tabindex="-1"])):focus-visible) { outline: 2px solid rgb(var(--gs-focus)); outline-offset: 2px; }',
+      ),
+      ":focus-visible is inside :where() too, and the outline reads the theme's focus colour",
+    );
+    assert.ok(
+      css.includes(
+        ':where(.grid:not([class^="grid-cols-"]):not([class*=" grid-cols-"])) { grid-template-columns: minmax(0, 1fr); }',
+      ),
+      "a grid without base columns is one shrinkable column",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router-dom";
 import { Breadcrumbs } from "./Breadcrumbs.js";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle, cardClassName } from "./Card.js";
+import { Checkbox } from "./Checkbox.js";
 import { EmptyState } from "./EmptyState.js";
 import { fieldClassName } from "./Input.js";
 import { Skeleton, SkeletonList } from "./Skeleton.js";
@@ -154,5 +155,29 @@ describe("Breadcrumbs", () => {
 
   test("renders nothing for an empty trail", () => {
     assert.equal(render(h(Breadcrumbs, { items: [] })), "");
+  });
+
+  test("a crumb link is finger-sized on touch screens without growing", () => {
+    const out = render(h(Breadcrumbs, { items: [{ label: "Finance", to: "/f" }, { label: "New" }] }));
+    assert.match(out, /<a class="touch-target relative [^"]*py-0\.5/);
+  });
+});
+
+describe("Checkbox", () => {
+  const box = (props: Partial<React.ComponentProps<typeof Checkbox>> = {}) =>
+    html(h(Checkbox, { checked: false, label: "Select invoice INV-1", onChange: () => undefined, ...props }));
+
+  test("sits in a finger-sized target that takes no more room than the box", () => {
+    const out = box();
+    assert.match(out, /^<span class="touch-target relative inline-flex shrink-0"><input /);
+    assert.match(out, /<\/span>$/);
+    assert.match(out, /class="h-4 w-4 /, "the box itself stays 16px");
+  });
+
+  test("the box keeps its name and state; the target is not a label", () => {
+    const out = box({ checked: true, className: "mt-0.5" });
+    assert.match(out, /<input type="checkbox" aria-label="Select invoice INV-1"[^>]* checked=""/);
+    assert.match(out, /mt-0\.5/, "callers still place the box");
+    assert.doesNotMatch(out, /<label/, "a box often sits inside its caller's own label");
   });
 });

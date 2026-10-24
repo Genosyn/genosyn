@@ -8,13 +8,16 @@
  *   - a visible focus indicator wherever the keyboard lands, distinct from the
  *     control's resting look and at least 3:1 against what surrounds it;
  *   - every visible piece of text at WCAG AA against what is painted behind it
- *     (4.5:1, or 3:1 for large text).
+ *     (4.5:1, or 3:1 for large text);
+ *   - on a phone, everything a finger presses at least 32×32px — counting the
+ *     label it sits in and a `touch-target` hit area (styles/index.css).
  *
  *   npm run build:client && npm run test:visual-system
  *   npm run test:visual-system -- --shots=../output/visual   one PNG per page and mode
  *   npm run test:visual-system -- --client=/some/dist/client photograph another build
  *   npm run test:visual-system -- --report                   list problems, never fail
  *   npm run test:visual-system -- --only=finance,routines    pages whose name matches
+ *   npm run test:visual-system -- --modes=phone              modes whose name matches
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -43,6 +46,7 @@ const only = (flag("only") ?? "")
   .split(",")
   .map((term) => term.trim())
   .filter(Boolean);
+const modeFilter = flag("modes") ?? "";
 
 type Mode = {
   name: string;
@@ -56,7 +60,7 @@ const MODES: Mode[] = [
   { name: "desktop-dark", width: 1440, height: 900, scheme: "dark", phone: false },
   { name: "phone-light", width: 390, height: 844, scheme: "light", phone: true },
   { name: "phone-dark", width: 390, height: 844, scheme: "dark", phone: true },
-];
+].filter((mode) => !modeFilter || mode.name.includes(modeFilter));
 
 await fs.mkdir(output, { recursive: true });
 if (shotsDir) await fs.mkdir(shotsDir, { recursive: true });
@@ -409,7 +413,8 @@ try {
         const before = problems.length;
         await checkOverflow(page, label);
         await checkContrast(page, label);
-        if (!mode.phone) await checkFocus(page, label);
+        if (mode.phone) await checkTargets(page, label);
+        else await checkFocus(page, label);
         for (const error of consoleErrors) problem(`${label}: console error — ${error}`);
         if (problems.length === before) {
           passed += 1;
@@ -633,6 +638,126 @@ async function checkContrast(page: Page, label: string) {
   if (unique.length) {
     problem(`${label}: ${unique.length} text runs below WCAG AA`);
     for (const failure of unique.slice(0, reportOnly ? 40 : 12)) console.error(`      ${failure}`);
+  }
+}
+
+/**
+ * On a phone, everything a finger presses is at least 32×32px: buttons, links,
+ * tabs, switches, fields. A link inside a sentence is exempt (WCAG's inline
+ * exception), and a control inside its label is measured by the label, which
+ * is what the finger actually hits.
+ */
+async function checkTargets(page: Page, label: string) {
+  const small = await page.evaluate((minimum) => {
+    const selector = [
+      "button",
+      "a[href]",
+      "summary",
+      "select",
+      "textarea",
+      "input:not([type='hidden'])",
+      "[role='button']",
+      "[role='tab']",
+      "[role='switch']",
+      "[role='checkbox']",
+      "[role='menuitem']",
+      "[role='option']",
+      "[role='link']",
+    ].join(", ");
+    const clips = (s: CSSStyleDeclaration) => s.overflowX !== "visible" || s.overflowY !== "visible";
+    // A box, grown by an absolutely positioned ::after on a positioned box
+    // (`touch-target`) and cut back by anything that clips that.
+    const hitArea = (node: Element) => {
+      const own = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      const after = getComputedStyle(node, "::after");
+      if (
+        after.content === "none" ||
+        after.content === "normal" ||
+        after.position !== "absolute" ||
+        style.position === "static" ||
+        clips(style)
+      ) {
+        return { width: own.width, height: own.height };
+      }
+      const cx = own.left + own.width / 2;
+      const cy = own.top + own.height / 2;
+      const w = Math.max(own.width, Number.parseFloat(after.minWidth) || 0);
+      const h = Math.max(own.height, Number.parseFloat(after.minHeight) || 0);
+      let area = { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
+      // Hidden overflow cuts the area at that box. A scroller does not: the
+      // area is part of what scrolls, and past a scroller on an axis, outer
+      // boxes no longer decide what can be reached on that axis.
+      const cuts = (value: string) => value === "hidden" || value === "clip";
+      const scrolls = (value: string) => value === "auto" || value === "scroll";
+      let freeX = false;
+      let freeY = false;
+      for (let cur = node.parentElement; cur && cur !== document.body; cur = cur.parentElement) {
+        const s = getComputedStyle(cur);
+        const box = cur.getBoundingClientRect();
+        if (!freeX && cuts(s.overflowX)) {
+          area = { ...area, left: Math.max(area.left, box.left), right: Math.min(area.right, box.right) };
+        }
+        if (!freeY && cuts(s.overflowY)) {
+          area = { ...area, top: Math.max(area.top, box.top), bottom: Math.min(area.bottom, box.bottom) };
+        }
+        if (scrolls(s.overflowX)) freeX = true;
+        if (scrolls(s.overflowY)) freeY = true;
+        if (freeX && freeY) break;
+      }
+      return { width: area.right - area.left, height: area.bottom - area.top };
+    };
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+      if (el.closest("[aria-hidden='true'], [inert], [hidden]")) continue;
+      if ((el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true") continue;
+      const style = getComputedStyle(el);
+      if (style.visibility !== "visible" || style.display === "none") continue;
+      // Visually hidden: a skip link, or the real input behind a styled switch.
+      if (style.clip === "rect(0px, 0px, 0px, 0px)" || style.clipPath === "inset(50%)") continue;
+      const own = el.getBoundingClientRect();
+      if (own.width < 1 || own.height < 1) continue;
+      // What a finger can press: the control, the label it sits in, and a
+      // `touch-target` wrapper that passes presses on to it — each with its
+      // invisible hit area, if it has one.
+      const presses = [el, el.closest("label"), el.parentElement?.closest(".touch-target")];
+      let width = 0;
+      let height = 0;
+      for (const node of presses) {
+        if (!node || (node !== el && !node.contains(el))) continue;
+        const area = hitArea(node);
+        width = Math.max(width, area.width);
+        height = Math.max(height, area.height);
+      }
+      if (width >= minimum - 0.5 && height >= minimum - 0.5) continue;
+      if (style.display === "inline") {
+        const words = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+        const sentence = (el.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (sentence.length > words.length + 1) continue;
+      }
+      const name = (
+        el.getAttribute("aria-label") ??
+        el.getAttribute("title") ??
+        (el.textContent ?? "").replace(/\s+/g, " ").trim()
+      ).slice(0, 30);
+      const cls =
+        typeof el.className === "string"
+          ? el.className
+              .split(/\s+/)
+              .filter((token) => /^(h|w|size|p|px|py|min-h|min-w)-/.test(token))
+              .slice(0, 5)
+              .join(".")
+          : "";
+      out.push(
+        `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""} "${name}" ${Math.round(width)}×${Math.round(height)}`,
+      );
+    }
+    return out;
+  }, 32);
+  const unique = [...new Set(small)];
+  if (unique.length) {
+    problem(`${label}: ${unique.length} touch targets under 32×32px`);
+    for (const line of unique.slice(0, reportOnly ? 60 : 12)) console.error(`      ${line}`);
   }
 }
 

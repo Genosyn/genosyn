@@ -298,7 +298,7 @@ export function RoutineActivity({
               <button
                 type="button"
                 onClick={() => setExpanded((value) => !value)}
-                className="mt-3 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                className="touch-target relative mt-3 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 {expanded ? "Show fewer" : `Show all ${today.length} routines`}
               </button>

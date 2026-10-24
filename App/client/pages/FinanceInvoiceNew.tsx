@@ -507,7 +507,7 @@ function InvoiceForm() {
                 : `/c/${company.slug}/finance/invoices`
             }
             aria-label={isEdit ? "Back to the invoice" : "Back to invoices"}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
@@ -777,7 +777,7 @@ function InvoiceForm() {
             <button
               type="button"
               onClick={addLine}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
+              className="touch-target relative inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
             >
               <Plus size={12} /> Add line
             </button>

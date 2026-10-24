@@ -576,7 +576,7 @@ function ViewToggle({
           key={v}
           onClick={() => onChange(v)}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
             value === v
               ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
               : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
@@ -807,7 +807,7 @@ function FilterChip({
           ref={ref}
           onClick={onClick}
           className={clsx(
-            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
+            "touch-target relative flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
             count > 0 || open
               ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-800 dark:text-indigo-300"
               : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
@@ -1128,13 +1128,13 @@ function TodoRow({
               setEditing(true);
             }}
             className={clsx(
-              "truncate text-left text-sm",
+              "touch-target relative inline-flex max-w-full text-left text-sm",
               todo.status === "done" || todo.status === "cancelled"
                 ? "text-slate-400 line-through dark:text-slate-500"
                 : "text-slate-900 dark:text-slate-100",
             )}
           >
-            {todo.title}
+            <span className="truncate">{todo.title}</span>
           </button>
         )}
       </div>
@@ -1198,7 +1198,7 @@ function TodoRow({
             e.stopPropagation();
             onDelete();
           }}
-          className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500"
+          className="touch-target relative rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-500 [@media(hover:none)]:opacity-100"
           title="Delete"
         >
           <Trash2 size={13} />
