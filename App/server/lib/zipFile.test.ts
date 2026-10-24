@@ -4,9 +4,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { withDamagedEntry, zipOf } from "../test/zipFixtures.js";
 import { readZipFile, ZipReadError } from "./zipFile.js";
+
+const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("readZipFile", () => {
   let dir = "";
@@ -137,4 +140,22 @@ describe("readZipFile", () => {
     );
     assert.equal(openFiles(), before, "a read left a file open");
   });
+});
+
+function sources(dir: string): string[] {
+  return fs.readdirSync(dir).flatMap((name) => {
+    const full = path.join(dir, name);
+    if (fs.statSync(full).isDirectory()) return name === "node_modules" ? [] : sources(full);
+    return /\.(?:ts|tsx|mjs)$/.test(name) ? [full] : [];
+  });
+}
+
+test("unzipper is imported only here, and by Microsoft Ads for a report it holds in memory", () => {
+  // An archive in memory has no file underneath to fail; one on disk is read
+  // through readZipFile, so that nothing it opens can stop the App.
+  const importers = sources(serverDir)
+    .filter((file) => /^import\b[^;]*\bfrom "unzipper";/m.test(fs.readFileSync(file, "utf8")))
+    .map((file) => path.relative(serverDir, file).split(path.sep).join("/"))
+    .sort();
+  assert.deepEqual(importers, ["integrations/providers/microsoft-ads.ts", "lib/zipFile.ts"]);
 });
