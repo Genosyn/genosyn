@@ -320,8 +320,10 @@ export function Security() {
       <H2 id="company-policy">Require 2FA for a company</H2>
       <P>
         An owner or admin with a valid browser session who already has 2FA can open{" "}
-        <Strong>Settings → Company</Strong> and turn on{" "}
-        <Strong>Require two-factor authentication</Strong>. Members without a method must enroll one
+        <Strong>Settings → Company → Advanced</Strong> and turn on{" "}
+        <Strong>Require two-factor authentication</Strong>, then <Strong>Save</Strong>. The closed
+        Advanced line reads <em>Two-factor sign-in required</em> while it is on. Members without a
+        method must enroll one
         under <Strong>Account → Security</Strong> before they can access or join that company.
         Genosyn then prevents them from removing their final method.
       </P>
