@@ -3,7 +3,12 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import {
+  onRoutePaths,
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+} from "../middleware/auth.js";
 import {
   addChannelMembers,
   archiveChannel,
@@ -49,15 +54,40 @@ export const workspaceRouter = Router({ mergeParams: true });
 workspaceRouter.use(requireAuth);
 workspaceRouter.use(requireCompanyMember);
 
-// Middleware that hydrates `req.company` from the URL param for routes that
-// need the slug (uploads use it to compute the on-disk target dir).
-workspaceRouter.use(async (req, res, next) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  (req as unknown as { company: Company }).company = co;
-  next();
-});
+/**
+ * The paths this router serves. `workspaceCompanyLoad.test.ts` fails when one
+ * of its routes falls outside them.
+ */
+const WORKSPACE_PATHS = [
+  "/directory",
+  "/mentionables",
+  "/ws-token",
+  "/channels",
+  "/dms",
+  "/messages",
+  "/attachments",
+];
+
+// Hydrate `req.company` from the URL param: every route here answers for that
+// company, and uploads use its slug to compute the on-disk target dir. Scoped
+// to this router's own paths, so the group chat and discussion routes mounted
+// after it at the same place skip the read, apart from those nested under a
+// channel.
+workspaceRouter.use(
+  onRoutePaths(WORKSPACE_PATHS, async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    let co: Company | null;
+    try {
+      co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    } catch (error) {
+      // Express 4 drops a rejected promise; answer through the error handler.
+      return next(error);
+    }
+    if (!co) return res.status(404).json({ error: "Company not found" });
+    (req as unknown as { company: Company }).company = co;
+    next();
+  }),
+);
 
 function companyOf(req: { company?: Company }): Company {
   if (!req.company) throw new Error("Company context missing");
