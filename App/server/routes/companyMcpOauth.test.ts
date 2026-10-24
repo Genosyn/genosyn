@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
 
 import express from "express";
+import type { Logger } from "typeorm";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   UnauthorizedError,
@@ -1099,6 +1100,42 @@ describe("what the token reaches", () => {
     const result = described.body.result as CallToolResult;
     assert.equal(result.isError, true);
     assert.match(textOf(result), /signed-in browser|browser session/);
+  });
+
+  test("a tool's call reads the app's token once, however many routers it passes", async () => {
+    const member = await createMemberOfNewCompany("owner");
+    const { tokens } = await connectApp(member);
+    // Used a moment ago, so the call does not also record the use.
+    await mcp(member.company.id, tokens.access_token);
+    const reads: Record<string, number> = {};
+    const capture: Logger = {
+      logQuery: (sql) => {
+        const table = /^\s*SELECT\b[\s\S]*?\bFROM "([a-z_]+)"/i.exec(sql)?.[1];
+        if (table) reads[table] = (reads[table] ?? 0) + 1;
+      },
+      logQueryError: () => undefined,
+      logQuerySlow: () => undefined,
+      logSchemaBuild: () => undefined,
+      logMigration: () => undefined,
+      log: () => undefined,
+    };
+    const original = AppDataSource.logger;
+    Object.assign(AppDataSource, { logger: capture });
+    try {
+      const answer = await requestInProcess(app as unknown as RequestListener, {
+        method: "GET",
+        path: `/api/companies/${member.company.id}/revenue/stages`,
+        headers: { authorization: `Bearer ${tokens.access_token}`, host: "127.0.0.1" },
+        timeoutMs: 10_000,
+        maxResponseBytes: 100_000,
+      });
+      assert.equal(answer.status, 200, answer.body.toString());
+    } finally {
+      Object.assign(AppDataSource, { logger: original });
+    }
+    assert.equal(reads.connected_app_tokens, 1);
+    assert.equal(reads.connected_apps, 1);
+    assert.equal(reads.memberships, 1);
   });
 
   test("a browser page from another site is still refused, and a cookie alone never opens it", async () => {
