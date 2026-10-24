@@ -91,7 +91,8 @@ export function Introduction() {
         <LI>
           <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You bring an Anthropic /
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
-          access for OpenAI, then point each employee at the model you choose. OpenCode is
+          access for OpenAI once, in Settings → AI Models, and attach it to as many employees as
+          you like. OpenCode is
           bundled, so there is no separate runtime to install. Claude subscription credentials
           are not supported; see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.

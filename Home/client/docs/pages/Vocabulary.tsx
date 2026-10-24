@@ -134,10 +134,11 @@ export function Vocabulary() {
             term: "AI Model",
             def: (
               <>
-                A brain an AI Employee runs on — an Anthropic or OpenAI API connection, a custom
+                A brain AI Employees run on — an Anthropic or OpenAI API connection, a custom
                 OpenAI-compatible endpoint, or an OpenAI subscription connection through the
-                official Codex app-server. An employee can hold several and
-                keep one active. See <DocLink to="/docs/models">AI Models</DocLink>.
+                official Codex app-server. It belongs to the company and is attached to any number
+                of employees; an employee can have several attached and keeps one active. See{" "}
+                <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),
           },

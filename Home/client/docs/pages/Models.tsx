@@ -21,25 +21,97 @@ export function Models() {
         title="AI Models"
         lead={
           <>
-            Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
-            and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
-            an API key — plus as many <a href="#backup-keys">backup keys</a> as you like — point
-            at your own OpenAI-compatible endpoint, or use eligible ChatGPT subscription access for
-            OpenAI. A new hire can use the AI Model the company already has connected, so a key is
-            pasted once. OpenCode runs API-key and custom models, with
-            host coding access enabled by default. Switch the active model any time without losing
-            the others&apos; credentials.
+            <Strong>AI Models</Strong> are your AI Employees&apos; brains, and they belong to the
+            company. Connect a model once — Anthropic or OpenAI with an API key, plus as many{" "}
+            <a href="#backup-keys">backup keys</a> as you like, your own OpenAI-compatible
+            endpoint, or eligible ChatGPT subscription access for OpenAI — and attach it to as many
+            AI Employees as you like: they share one set of keys and settings. Each employee can
+            have several attached and keeps exactly one <Strong>active</Strong>. OpenCode runs
+            API-key and custom models, with host coding access enabled by default.
           </>
         }
       />
 
+      <H2 id="company-models">The company&apos;s AI Models</H2>
+      <P>
+        <Strong>Settings → AI Models</Strong> (or <Code>⌘K</Code>, then <Strong>AI Models</Strong>)
+        lists every AI Model the company has, newest first. Each is one card: the service and model
+        in plain words, whether it is <Strong>Connected</Strong> and how, and{" "}
+        <Strong>Used by</Strong> — every AI Employee it is attached to, marked{" "}
+        <Strong>active</Strong> where it is the model that employee&apos;s chat and Routines use,
+        or <Strong>standby</Strong>. From the page:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Add an AI Model</Strong> connects a new one. It waits on the page, used by nobody,
+          until you attach it.
+        </LI>
+        <LI>
+          <Strong>Attach to AI Employees</Strong> on a card lists every employee not on it yet, with
+          what each runs on now. Tick any number and select <Strong>Attach</Strong>: each switches
+          to this AI Model, and <Strong>Make active</Strong> on their own Model page switches back.
+          Only a connected model can be attached.
+        </LI>
+        <LI>
+          The <Strong>×</Strong> beside an employee&apos;s name detaches the model from them, after
+          asking. Detaching never deletes the model: it stays here with its keys, and everyone else
+          keeps using it. An employee whose active model it was switches to its most recently
+          attached other one, and its Routines pinned to the model go back to that.
+        </LI>
+        <LI>
+          <Strong>Test connection</Strong>, the model&apos;s keys and settings, and{" "}
+          <Strong>Remove from the company</Strong> are on the card as on an employee&apos;s page —
+          see <a href="#advanced">Each AI Model&apos;s card</a>.
+        </LI>
+      </UL>
+      <P>
+        Owners and admins manage this page; a Member who opens it is told so, and still sees what
+        each employee runs on from that employee&apos;s Model page. Only someone signed in to the
+        app can attach, detach or remove a model: API keys, so the{" "}
+        <DocLink to="/docs/api-cli">genosyn-api CLI</DocLink> and the{" "}
+        <DocLink to="/docs/mcp-server">Genosyn MCP server</DocLink>, can&apos;t, and no AI Employee
+        has a tool that chooses its own model or another&apos;s. Every attach, detach and change is
+        in the <DocLink to="/docs/security#audit-log">audit log</DocLink>.
+      </P>
+
+      <H3 id="sharing">One model, many AI Employees</H3>
+      <P>
+        Every AI Employee attached to a model runs on that same model — not a copy. So a backup key
+        added once serves all of them, a key the provider refuses rests for all of them, a change of
+        model changes it for all of them, and a key rotated at the provider needs updating in one
+        place. Usage lands on the account the key bills. On an employee&apos;s Model page a shared
+        model&apos;s card says <Strong>Also used by</Strong> whoever else runs on it, and its{" "}
+        <Strong>Advanced</Strong> section repeats that a change there changes it for them too. Its{" "}
+        <a href="#concurrent-runs">Run limit</a> counts every employee&apos;s Runs together.
+      </P>
+      <P>
+        A ChatGPT sign-in can be shared too. It takes one turn at a time whichever employee asks, so
+        its employees take turns: a Routine Run waits in the queue rather than on the sign-in, and
+        it serves one Run at a time unless you change that.
+      </P>
+
+      <H3 id="duplicates">Copies of the same model</H3>
+      <P>
+        Before AI Models belonged to the company, each employee kept its own, and the same key was
+        often pasted — or copied — for several of them. Upgrading turns each of those into a
+        company model attached to its employee, keeping its keys, their health, its settings and
+        which one was active; nothing is merged on its own. When two or more company models are
+        exactly the same — the same service, model, endpoint and keys in the same order — Settings
+        → AI Models says so above the cards: <Strong>2 copies of … with the same keys</Strong>.{" "}
+        <Strong>Merge into one</Strong> moves everyone on a copy to the oldest one, which keeps its
+        settings, carries each key&apos;s health across, points Routine, mailbox and Work session
+        pins at it, and removes the other copies. Keys are compared without ever being shown or
+        logged. A ChatGPT sign-in is never offered for merging: two sign-ins are two sessions.
+      </P>
+
       <H2 id="connect-model">Connect an AI Model</H2>
       <OL>
         <LI>
-          Open an AI Employee, then go to <Strong>Settings → Model</Strong>. An employee with no AI
-          Model shows the connect form. If the company already has one, the page leads with{" "}
-          <Strong>Use the same AI Model as</Strong> that employee instead — see{" "}
-          <a href="#reuse-model">Use the company&apos;s AI Model</a>.
+          Open <Strong>Settings → AI Models</Strong> and select <Strong>Add an AI Model</Strong>, or
+          open an AI Employee and go to <Strong>Settings → Model</Strong>. An employee with no AI
+          Model shows the connect form; if the company already has one, the page leads with{" "}
+          <Strong>Use the same AI Model as</Strong> whoever runs on it instead — see{" "}
+          <a href="#employee-models">An employee&apos;s AI Models</a>.
         </LI>
         <LI>
           Choose your <Strong>AI Model service</Strong>.
@@ -56,57 +128,40 @@ export function Models() {
           then select <Strong>Sign in with ChatGPT</Strong> on its card. Genosyn tests a reply after
           sign-in.
         </LI>
-        <LI>
-          To give an employee who already has one another AI Model, select{" "}
-          <Strong>Add an AI Model</Strong> under their cards. It lists the AI Models your company
-          already runs on, each with <Strong>Use this one</Strong>, above the same connect form.
-          Use <Strong>Make active</Strong> on a card to switch between connected AI Models.
-        </LI>
       </OL>
       <P>
-        Owners and admins connect, test, change and remove AI Models. Other Members see the same
-        cards and settings without the controls, and an employee with none says that an owner or
-        admin connects one.
+        A model connected from an employee&apos;s page is the company&apos;s too: it appears in
+        Settings → AI Models, attached to that employee, ready for others. Owners and admins
+        connect, test, change and remove AI Models. Other Members see an employee&apos;s cards and
+        settings without the controls, and an employee with none says that an owner or admin
+        connects one.
       </P>
 
-      <H2 id="reuse-model">Use the company&apos;s AI Model</H2>
+      <H2 id="employee-models">An employee&apos;s AI Models</H2>
       <P>
-        An API key is a company&apos;s, not an employee&apos;s, so you should not have to paste it
-        again for every hire. When another AI Employee in the company has a connected API-key or
-        custom-endpoint AI Model, a new employee can use the same one:
+        An AI Employee&apos;s <Strong>Settings → Model</Strong> shows the company models attached to
+        it, the active one first. To give it another, select <Strong>Add an AI Model</Strong> under
+        its cards: the company&apos;s other connected models are listed first under{" "}
+        <Strong>Already in your company</Strong>, the one most of the company runs on leading, each
+        with <Strong>Use this one</Strong>, above the connect form for a new one. Whatever you add
+        becomes the employee&apos;s active model; <Strong>Make active</Strong> on a card switches
+        back. Nothing is copied and no key is pasted — the employee runs on the same model.
       </P>
       <UL>
         <LI>
-          <Strong>When you hire.</Strong> <Strong>Hire {"{name}"}</Strong> connects the new
-          employee automatically and the next screen says{" "}
-          <Strong>Uses the same AI Model as</Strong> that employee, with a link to{" "}
-          <Strong>Settings → Model</Strong> to change it. With nothing to
-          reuse, the next screen connects one instead.
+          <Strong>When you hire.</Strong> <Strong>Hire {"{name}"}</Strong> attaches the company&apos;s
+          AI Model to the new employee — the one most of the team runs on — and the next screen says
+          so, with a link to <Strong>Settings → Model</Strong> to change it. With no model in the
+          company yet, the next screen connects one instead.
         </LI>
         <LI>
-          <Strong>From Settings → Model.</Strong> An employee with no AI Model sees the model in
-          plain words — for example <Strong>Claude (Anthropic) · claude-sonnet-4-5</Strong> — and
-          one button, <Strong>Use the same AI Model as</Strong> an employee who already runs on it.
-          <Strong> Connect a different model</Strong> shows the connect form, and lists any other
-          AI Models the company has under <Strong>Already connected in your company</Strong>, each
-          with <Strong>Use this one</Strong>.
+          <Strong>An employee with none.</Strong> Its page shows the company&apos;s model in plain
+          words — for example <Strong>Claude (Anthropic) · claude-sonnet-4-5</Strong>, used by Avery
+          — and one button, <Strong>Use the same AI Model as Avery</Strong>.{" "}
+          <Strong>Connect a different model</Strong> shows the connect form and the company&apos;s
+          other models.
         </LI>
       </UL>
-      <P>
-        Genosyn copies the encrypted credential on the server; it never reaches your browser, so
-        there is no key to paste or reveal. Its backup keys come along in the same order. The copy
-        belongs to the new employee. Removing it, or
-        firing either employee, does not touch the other, and each can later move to a different
-        model on their own. What they share is the account the provider bills, so usage lands on
-        the same bill. Rotate the key at the provider to change it for everyone who holds a copy.
-      </P>
-      <P>
-        Only owners and admins can reuse an AI Model, and only within the same company. Genosyn
-        records it in the <DocLink to="/docs/security#audit-log">audit log</DocLink> as a model
-        configuration that names the employee it was copied from. A ChatGPT sign-in cannot be
-        shared, because a sign-in belongs to one employee: connect each with their own, or give the
-        company an API key.
-      </P>
 
       <H2 id="advanced">Each AI Model&apos;s card</H2>
       <P>
@@ -122,7 +177,9 @@ export function Models() {
           <Strong>View details</Strong>. It spends a little of the account&apos;s allowance.
         </LI>
         <LI>
-          <Strong>Make active</Strong>, on every connected model that isn&apos;t the active one.
+          On an employee&apos;s page, <Strong>Make active</Strong> on every connected model that
+          isn&apos;t the active one, and <Strong>Also used by</Strong> for a shared model. In
+          Settings → AI Models, who uses it and <Strong>Attach to AI Employees</Strong>.
         </LI>
       </UL>
       <P>
@@ -145,7 +202,9 @@ export function Models() {
           Codex manages its context and Runs.
         </LI>
         <LI>
-          Last, <Strong>Remove from</Strong> the employee.
+          Last, on an employee&apos;s page, <Strong>Detach from</Strong> the employee; in Settings →
+          AI Models, <Strong>Remove from the company</Strong> — see{" "}
+          <a href="#removing-a-model">Removing a model</a>.
         </LI>
       </UL>
       <P>
@@ -392,9 +451,9 @@ export function Models() {
         directory afterward. The app-server itself gets a separate empty scratch directory. This is
         credential lifecycle management; default host execution does not isolate processes from one
         another. Cleanup retries, and startup removes stale Genosyn Codex directories left by a
-        prior crash. Removing a model (or firing the employee) deletes that employee&apos;s
-        encrypted row, so their access dies with it; a copy another employee made by{" "}
-        <a href="#reuse-model">reusing the AI Model</a> is its own row.
+        prior crash. A model&apos;s credentials belong to the company and live on its one row:
+        detaching it from an employee, or letting an employee go, ends that employee&apos;s use of
+        it at once, and removing it from the company deletes the row and its keys.
       </Callout>
 
       <H2 id="context-window">Context window</H2>
@@ -423,9 +482,10 @@ export function Models() {
         the queue and start when one finishes, in queue order —{" "}
         <DocLink to="/docs/routines#priority">High priority</DocLink> Routines first; their time
         limit starts then. A <Code>Custom</Code>{" "}
-        endpoint on this machine or a private network defaults to one at a time, and everything
-        else to no limit. Employees that point at the same endpoint share its limit. See{" "}
-        <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
+        endpoint on this machine or a private network defaults to one at a time, a ChatGPT sign-in
+        to one at a time, and everything else to no limit. The limit is the model&apos;s, so every
+        AI Employee attached to it shares it, and models that point at the same endpoint share it
+        too. See <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
       </P>
 
       <H2 id="built-in-tools">Built-in agent tools</H2>
@@ -495,12 +555,14 @@ export function Models() {
 
       <H2 id="multiple-models">Multiple models &amp; the active one</H2>
       <P>
-        An employee can hold several models side by side — say an <Code>Anthropic</Code> key for
-        everyday work and an <Code>OpenAI</Code> subscription model for a second opinion. Exactly
-        one is <Strong>active</Strong> at a time; the active model is the default brain for employee
-        Chat and the model inherited by Routines and other AI surfaces. The most recently added
-        model becomes active automatically — hit <Strong>Make active</Strong> on any other to
-        switch, instantly and as often as you like.
+        An employee can have several company models attached side by side — say an{" "}
+        <Code>Anthropic</Code> key for everyday work and an <Code>OpenAI</Code> subscription model
+        for a second opinion. Exactly one is <Strong>active</Strong> for that employee; the active
+        model is the default brain for employee Chat and the model inherited by Routines and other
+        AI surfaces. Which model is active is each employee&apos;s own: the same model can be one
+        employee&apos;s active model and another&apos;s standby. The most recently attached model
+        becomes active automatically — hit <Strong>Make active</Strong> on any other to switch,
+        instantly and as often as you like.
       </P>
       <P>
         Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card names
@@ -521,7 +583,7 @@ export function Models() {
         picker back on the model that thread last answered on, not on whatever is active now — so a
         long conversation carries on with the same brain, context window, and billing you started it
         with. A brand-new thread starts on the active model, and so does a thread whose model has
-        since been deleted or disconnected.
+        since been detached, removed or disconnected.
       </P>
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
@@ -554,13 +616,20 @@ export function Models() {
         a Browser or company MCP connection.
       </P>
 
-      <H3 id="removing-a-model">Removing a model</H3>
+      <H3 id="removing-a-model">Detaching and removing a model</H3>
       <P>
-        <Strong>Remove</Strong>, the last setting in a card&apos;s <Strong>Advanced</Strong>{" "}
-        section, deletes that AIModel row along with its encrypted credentials. A copy another employee made when they
-        reused the model is a separate row and is not touched. If you remove the active model, the
-        most recently added survivor is promoted to active. No data on Soul, Skills, Routines, or
-        past Runs is affected.
+        <Strong>Detach</Strong>, the last setting in a card&apos;s <Strong>Advanced</Strong> section
+        on an employee&apos;s page, takes the model off that employee only. The model stays in
+        Settings → AI Models with its keys, and anyone else using it carries on. If it was the
+        active model, the employee&apos;s most recently attached other model takes over, and Routines
+        pinned to it go back to that. Letting an AI Employee go detaches its models the same way.
+      </P>
+      <P>
+        <Strong>Remove from the company</Strong>, in Settings → AI Models, deletes the model and its
+        encrypted keys. A model nobody uses goes after one question. While any AI Employee uses it,
+        the dialog names them and who would be left with no AI Model at all, and the only way on is{" "}
+        <Strong>Detach and remove</Strong>, which detaches it from everyone first. No data on Soul,
+        Skills, Routines, or past Runs is affected.
       </P>
     </>
   );

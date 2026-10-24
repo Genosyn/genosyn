@@ -108,7 +108,9 @@ export function GettingStarted() {
           <Strong>API key</Strong> field opens the key page for the service you selected. Genosyn
           discovers the models available to the connected account and selects a suitable default.
           You can review the choice. Connecting automatically tests a real response so an invalid
-          key, unavailable model, or unusable account is reported immediately.
+          key, unavailable model, or unusable account is reported immediately. The model is the
+          company&apos;s: the next AI Employee you hire is attached to it automatically, and{" "}
+          <Strong>Settings → AI Models</Strong> lists it with everyone who uses it.
         </LI>
         <LI>
           When the model is ready, choose <Strong>Choose Routines</Strong>.

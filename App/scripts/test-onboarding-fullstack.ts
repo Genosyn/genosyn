@@ -354,8 +354,9 @@ try {
     >(`${employeeBase}/models`);
     assert.equal(localModel.effectiveMaxConcurrentRuns, 1);
     assert.equal(localModel.concurrencySource, "local-default");
+    // The model is the company's: its settings live on the company's model route.
     const unlimited = await page.request.put(
-      `${origin}${employeeBase}/models/${localModel.id}/run-concurrency`,
+      `${origin}/api/companies/${company.id}/models/${localModel.id}/run-concurrency`,
       { data: { maxConcurrentRuns: 0 } },
     );
     assert.equal(unlimited.status(), 200, await unlimited.text());

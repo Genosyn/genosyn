@@ -205,6 +205,8 @@ jobs:
         run: npm run test:model-setup
       - name: Test adding, ordering, and removing an AI Model's backup API keys
         run: npm run test:model-api-keys
+      - name: Test the company's AI Models, attached to several AI Employees
+        run: npm run test:company-models
       - name: Test Gmail OAuth-only setup
         run: npm run test:mail-connect
       - name: Test hosted Gmail connection dialogs
