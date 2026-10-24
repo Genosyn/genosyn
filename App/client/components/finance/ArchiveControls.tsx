@@ -39,6 +39,18 @@ export function FilterTab({
   );
 }
 
+/**
+ * Beside an archived row's number where a list mixes archived rows in — the
+ * invoices behind a figure that counts filed ones, such as cash received.
+ */
+export function ArchivedTag() {
+  return (
+    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.5 align-middle font-sans text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+      <Archive size={10} aria-hidden="true" /> Archived
+    </span>
+  );
+}
+
 /** The Archived tab's label. */
 export function ArchivedTabLabel() {
   return (

@@ -31,9 +31,11 @@ export class Company {
    * read in, so "every weekday at 9" means 9 AM there. Empty means *server
    * time* — the process's own clock, which is what every Routine used before
    * this column existed — so an existing company behaves exactly as it did
-   * until someone picks a zone. Only Routines follow it; Pipelines, recurring
-   * invoices and Revenue Signals keep their own clocks. Names are validated at
-   * the API (`lib/timeZone.ts`), never trusted from a client.
+   * until someone picks a zone. Of the schedules only Routines follow it;
+   * Pipelines, recurring invoices and Revenue Signals keep their own clocks.
+   * Finance's invoice and estimate figures count days on it too
+   * (`shared/documentDays.ts`). Names are validated at the API
+   * (`lib/timeZone.ts`), never trusted from a client.
    */
   @Column({ type: "varchar", default: "" })
   timezone!: string;

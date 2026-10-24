@@ -168,7 +168,7 @@ function renderCustomers(company: Company, at = "customers"): string {
 type AdminOnlyPage = {
   /** Catalogue path, which is also where the page is mounted. */
   path: string;
-  /** The heading above the page: its own, or Email's for the logs tab. */
+  /** The heading above the page: its own, or Notification email's for the logs tab. */
   heading: string;
   /** The note a Member gets in place of the page. */
   note: string;
@@ -198,7 +198,7 @@ const ADMIN_ONLY_SETTINGS: AdminOnlyPage[] = [
   },
   {
     path: "/settings/email/logs",
-    heading: "Email",
+    heading: "Notification email",
     note: "Only owners and admins read the email logs",
     own: "Recipient, subject, or error",
   },
