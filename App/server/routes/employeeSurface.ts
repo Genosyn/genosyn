@@ -49,15 +49,25 @@ employeeSurfaceRouter.use(
 
 // Hydrate `req.company` from the URL `cid` so the multer destination
 // callback (which runs before any handler) can compute the per-company
-// attachments dir. Same shape as the workspace router.
-employeeSurfaceRouter.use(async (req, res, next) => {
-  const cid = (req.params as Record<string, string>).cid;
-  if (!cid) return next();
-  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  (req as unknown as { company: Company }).company = co;
-  next();
-});
+// attachments dir. Scoped to the upload: the other routes here load the
+// company with their employee, and the routers mounted after this one at
+// `/api/companies/:cid/employees` have no use for it.
+employeeSurfaceRouter.use(
+  onRoutePaths([/^\/[^/]+\/chat-attachments$/], async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    if (!cid) return next();
+    let co: Company | null;
+    try {
+      co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    } catch (error) {
+      // Express 4 drops a rejected promise; answer through the error handler.
+      return next(error);
+    }
+    if (!co) return res.status(404).json({ error: "Company not found" });
+    (req as unknown as { company: Company }).company = co;
+    next();
+  }),
+);
 
 async function loadEmpAndCompany(
   cid: string,
