@@ -23,6 +23,12 @@ import { replaceTranscript } from "./store.js";
 import { shouldAutoRecord } from "./store.js";
 
 /**
+ * One line of a conference's own live captions: who spoke, what they said,
+ * and when, in milliseconds from the moment the recorder was admitted.
+ */
+export type MeetingCaption = { startMs: number; endMs: number; speaker: string; text: string };
+
+/**
  * How a meeting gets its audio.
  *
  * The driver owns the conference-specific browser work. This service owns the
@@ -34,7 +40,11 @@ export type MeetingRecorder = {
   readonly id: "notetaker";
   /** Can this recorder join the given conference URL right now? */
   canJoin(conferenceUrl: string): boolean;
-  /** Join and record. Storage remains Genosyn's responsibility. */
+  /**
+   * Join and record. Storage remains Genosyn's responsibility. `captions` is
+   * the conference's own transcript of the call, when the driver could read
+   * one; it stands in for speech-to-text.
+   */
   join(args: {
     companyId: string;
     meetingId: string;
@@ -43,7 +53,7 @@ export type MeetingRecorder = {
     scheduledEndAt: Date | null;
     signal: AbortSignal;
     onJoined: () => Promise<void>;
-  }): Promise<{ bytes: Buffer; mime: string; durationMs: number }>;
+  }): Promise<{ bytes: Buffer; mime: string; durationMs: number; captions?: MeetingCaption[] }>;
 };
 
 let recorder: MeetingRecorder | null = null;
@@ -718,27 +728,42 @@ async function runClaimedNotetaker(
       recordingPath = "";
       return;
     }
-    const finalUpdate = AppDataSource.getRepository(Meeting)
-      .createQueryBuilder()
-      .update()
-      .set({
-        recordingPath,
-        recordingMime: mime,
-        recordingBytes: result.bytes.length,
-        recordingSource: "notetaker",
-        durationMs: Math.max(0, Math.trunc(result.durationMs)),
-        status: "processing",
-        statusMessage: "",
-        transcriptState: "queued",
-        transcriptError: "",
-        startedAt: joinedAt ?? current.startedAt ?? new Date(),
-        endedAt: new Date(),
-      })
-      .where("id = :id", { id: current.id })
-      .andWhere("companyId = :companyId", { companyId: current.companyId })
-      .andWhere("status IN (:...statuses)", { statuses: ["joining", "recording"] });
-    const stored = await fenceMeetingUpdate(finalUpdate, active).execute();
-    if ((stored.affected ?? 0) !== 1) {
+    // The conference's own captions are a transcript already, with speakers.
+    // They are published with the recording, in one transaction, so the
+    // processing pass never sees a captioned call as one left to transcribe.
+    const captions = (result.captions ?? []).filter((caption) => caption.text.trim() !== "");
+    const stored = await AppDataSource.transaction(async (manager) => {
+      const finalUpdate = manager
+        .getRepository(Meeting)
+        .createQueryBuilder()
+        .update()
+        .set({
+          recordingPath,
+          recordingMime: mime,
+          recordingBytes: result.bytes.length,
+          recordingSource: "notetaker",
+          durationMs: Math.max(0, Math.trunc(result.durationMs)),
+          status: "processing",
+          statusMessage: "",
+          transcriptState: captions.length > 0 ? "ready" : "queued",
+          transcriptError: "",
+          startedAt: joinedAt ?? current.startedAt ?? new Date(),
+          endedAt: new Date(),
+        })
+        .where("id = :id", { id: current.id })
+        .andWhere("companyId = :companyId", { companyId: current.companyId })
+        .andWhere("status IN (:...statuses)", { statuses: ["joining", "recording"] });
+      const published = await fenceMeetingUpdate(finalUpdate, active).execute();
+      if ((published.affected ?? 0) !== 1) return false;
+      if (captions.length > 0) {
+        await replaceTranscript(
+          { companyId: current.companyId, meetingId: current.id, segments: captions },
+          manager,
+        );
+      }
+      return true;
+    });
+    if (!stored) {
       deleteRecording(recordingPath);
       return;
     }

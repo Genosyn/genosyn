@@ -356,6 +356,204 @@ registry.registerPath({
   },
 });
 
+const statsDocuments = z
+  .object({
+    count: z.number().int().describe("How many documents the figure counts."),
+    amountCents: z
+      .number()
+      .int()
+      .describe("What they come to in the home currency, in minor units."),
+    ids: z
+      .array(z.string().uuid())
+      .describe("The documents themselves, for a list to filter to exactly these."),
+  })
+  .openapi("FinanceStatsDocuments");
+const statsCustomer = statsDocuments
+  .extend({ id: z.string().uuid(), name: z.string(), slug: z.string() })
+  .openapi("FinanceStatsCustomer");
+const statsClock = {
+  currency: z.string().describe("The company's home currency. Every amount is in it."),
+  timeZone: z
+    .string()
+    .describe(
+      "The IANA time zone day boundaries were read in: the company's, or the server's when it has none.",
+    ),
+  today: z.string().describe("Today in that time zone, as YYYY-MM-DD."),
+};
+const invoiceStatsResponse = z
+  .object({
+    ...statsClock,
+    issuedInvoices: z.number().int().describe("Invoices ever issued and not voided."),
+    outstanding: statsDocuments
+      .extend({ customers: z.number().int().describe("Distinct customers who owe it.") })
+      .describe(
+        "What issued invoices still have due after payments, credit applied, and write-offs, tax included, each at the rate it locked when issued.",
+      ),
+    ageing: z
+      .array(
+        statsDocuments.extend({ bucket: z.enum(["current", "1-30", "31-60", "61-90", "90+"]) }),
+      )
+      .describe(
+        "Outstanding by days past the due date, every band in order. current is not yet due; an invoice is overdue from the day after its due date.",
+      ),
+    overdue: statsDocuments
+      .extend({
+        oldest: z
+          .object({
+            id: z.string().uuid(),
+            number: z.string(),
+            slug: z.string(),
+            daysLate: z.number().int(),
+          })
+          .nullable()
+          .describe("The invoice overdue longest, or null with nothing overdue."),
+      })
+      .describe("Outstanding invoices past their due date."),
+    dueSoon: statsDocuments
+      .extend({ days: z.number().int() })
+      .describe("Outstanding invoices due today or within the next `days` days."),
+    paid: statsDocuments
+      .extend({
+        days: z.number().int(),
+        previousCents: z
+          .number()
+          .int()
+          .describe("What came in over the same number of days just before."),
+        previousCount: z.number().int(),
+      })
+      .describe(
+        "Payments dated within the last `days` days, today included, at the rate each payment locked; count and ids are the invoices they paid, archived ones included.",
+      ),
+    daysToPay: z
+      .object({
+        days: z.number().int(),
+        averageDays: z
+          .number()
+          .nullable()
+          .describe("Average days from issue date to last payment, or null with none."),
+        count: z.number().int(),
+        ids: z.array(z.string().uuid()),
+      })
+      .describe("Invoices paid in full whose last payment is dated within the last `days` days."),
+    largestCustomer: statsCustomer
+      .nullable()
+      .describe("The customer who owes the most, or null with nothing outstanding."),
+    converted: z
+      .array(z.string())
+      .describe("Other currencies counted, each document at its own locked rate."),
+    unconverted: z
+      .array(z.object({ currency: z.string(), invoices: z.number().int() }))
+      .describe("Currencies with no rate into the home currency, left out of every figure."),
+  })
+  .openapi("FinanceInvoiceStats");
+const estimateStatsResponse = z
+  .object({
+    ...statsClock,
+    issuedEstimates: z.number().int().describe("Estimates ever issued and not voided."),
+    open: statsDocuments
+      .extend({ customers: z.number().int() })
+      .describe(
+        "Sent estimates within their valid-until date that are not yet accepted, declined, or invoiced, tax included. Archived estimates are left out.",
+      ),
+    expiringSoon: statsDocuments
+      .extend({
+        days: z.number().int(),
+        firstValidUntil: z.string().nullable().describe("The soonest valid-until date, YYYY-MM-DD."),
+      })
+      .describe("Open estimates valid until today or within the next `days` days."),
+    acceptedNotInvoiced: statsDocuments
+      .extend({
+        oldestDaysWaiting: z
+          .number()
+          .int()
+          .nullable()
+          .describe("Days since the longest-waiting one was accepted."),
+      })
+      .describe(
+        "Accepted estimates not yet converted to an invoice. An accepted estimate never expires. Archived estimates are left out.",
+      ),
+    recent: z
+      .object({
+        days: z.number().int(),
+        outcomes: z
+          .array(
+            statsDocuments.extend({
+              outcome: z.enum(["invoiced", "accepted", "open", "expired", "declined"]),
+            }),
+          )
+          .describe(
+            "Estimates issued within the last `days` days by where each stands now, every outcome in order. A converted estimate counts as invoiced; an archived one counts only once decided.",
+          ),
+        acceptance: z
+          .object({
+            accepted: z.number().int().describe("Accepted or invoiced."),
+            decided: z.number().int().describe("Accepted, invoiced, declined, or expired."),
+            ids: z.array(z.string().uuid()),
+          })
+          .describe("The acceptance rate is accepted over decided; open estimates don't count."),
+        lost: statsDocuments
+          .extend({ declined: z.number().int(), expired: z.number().int() })
+          .describe("Declined or expired."),
+      })
+      .describe("How the estimates issued within the last `days` days went."),
+    largestCustomer: statsCustomer
+      .nullable()
+      .describe("The customer with the most open, or null with nothing open."),
+    converted: z
+      .array(z.string())
+      .describe("Other currencies counted, each estimate at the rate on file for its issue date."),
+    unconverted: z
+      .array(z.object({ currency: z.string(), estimates: z.number().int() }))
+      .describe("Currencies with no rate into the home currency, left out of every figure."),
+  })
+  .openapi("FinanceEstimateStats");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/invoices/stats",
+  operationId: "getInvoiceStats",
+  summary: "Sum up the company's invoices",
+  description:
+    "Requires Read Finance access. The figures Finance → Invoices leads with, in the home currency: what issued invoices still have due after payments, credit, and write-offs, tax included, aged by days past the due date; what is overdue and what falls due in the next 30 days; payments dated in the last 30 days against the 30 before; and the average days from issue to last payment for invoices paid in full in the last 90 days. Each invoice converts at the rate it locked when issued and each payment at the rate it locked the day it was paid. Days are calendar days in the company's time zone: an invoice is overdue from the day after its due date. Drafts and voided invoices count nowhere. Every figure carries the ids of the invoices it counts.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: { params: companyParams },
+  responses: {
+    200: {
+      description: "The invoice figures",
+      content: { "application/json": { schema: invoiceStatsResponse } },
+    },
+    ...errors,
+    400: {
+      description: "The request named a query parameter; this operation takes none",
+      content: { "application/json": { schema: errorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/estimates/stats",
+  operationId: "getEstimateStats",
+  summary: "Sum up the company's estimates",
+  description:
+    "Requires Read Finance access. The figures Finance → Estimates leads with, in the home currency: the open estimates (sent, within their valid-until date, and not yet accepted, declined, or invoiced), tax included; those expiring in the next 14 days; accepted estimates not yet invoiced; and the estimates issued in the last 90 days by where each stands now, with the acceptance rate of those decided and the declined or expired ones. An estimate in another currency converts at the rate on file for its issue date, or the latest rate when none is that old. Days are calendar days in the company's time zone. Drafts and voided estimates count nowhere; archived ones count only in the 90-day figures, once decided. Every figure carries the ids of the estimates it counts.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: { params: companyParams },
+  responses: {
+    200: {
+      description: "The estimate figures",
+      content: { "application/json": { schema: estimateStatsResponse } },
+    },
+    ...errors,
+    400: {
+      description: "The request named a query parameter; this operation takes none",
+      content: { "application/json": { schema: errorResponse } },
+    },
+  },
+});
+
 registry.registerPath({
   method: "post",
   path: "/api/companies/{cid}/invoices/bulk",

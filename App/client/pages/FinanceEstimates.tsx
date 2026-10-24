@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -20,6 +20,14 @@ import {
   formatMoney,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import {
+  companyToday,
+  estimateStatsView,
+  parseEstimateStatsView,
+  rowsInView,
+  type EstimateStats,
+  type EstimateStatsViewKey,
+} from "../lib/financeStats";
 import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -29,7 +37,14 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
-import { ArchiveBulkBar, ArchivedTabLabel, FilterTab } from "../components/finance/ArchiveControls";
+import {
+  ArchiveBulkBar,
+  ArchivedTabLabel,
+  ArchivedTag,
+  FilterTab,
+} from "../components/finance/ArchiveControls";
+import { EstimateStatsPanel } from "../components/finance/EstimateStatsPanel";
+import { StatsUnavailable, StatsViewBar } from "../components/finance/StatsPanel";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -57,12 +72,21 @@ const STATUS_BADGE: Record<DisplayEstimateStatus, string> = {
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
+/** Beside the disabled tick box of an archived estimate a figure shows. */
+const ALREADY_ARCHIVED_HINT = "Already archived — restore it from the Archived tab";
+
 /**
  * Estimate (Quotation) list with status-tab filter. Mirrors the
  * Invoices list — click any row to open the detail page, and a read-only
  * Member gets neither New estimate, the row checkboxes, nor the all-writes
  * row menu. Archived estimates leave the status tabs for their own view;
  * select rows to archive or restore them together.
+ *
+ * Once anything has been issued, the list leads with its figures
+ * (`EstimateStatsPanel`): what is open, how recent quotes went, what is about
+ * to lapse, and what was won but not billed. A click on a figure filters the
+ * list to exactly the estimates it counts, kept in the address as `?show=`;
+ * any status tab, or Show all, ends it.
  */
 export default function FinanceEstimates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -70,22 +94,79 @@ export default function FinanceEstimates() {
   const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
+  const [stats, setStats] = React.useState<EstimateStats | null>(null);
+  const [statsFailed, setStatsFailed] = React.useState(false);
+  const [retryingStats, setRetryingStats] = React.useState(false);
+
+  // The figures stand apart from the list: if they fail, the list still
+  // loads, and they say so in their own place. A refetch that fails keeps the
+  // figures already on screen.
+  const loadStats = React.useCallback(
+    () =>
+      api
+        .get<EstimateStats>(`/api/companies/${company.id}/estimates/stats`)
+        .then((next) => {
+          setStats(next);
+          setStatsFailed(false);
+        })
+        .catch(() => setStatsFailed(true)),
+    [company.id],
+  );
+
+  async function retryStats() {
+    setRetryingStats(true);
+    try {
+      await loadStats();
+    } finally {
+      setRetryingStats(false);
+    }
+  }
 
   const reload = React.useCallback(async () => {
-    // Archived rows come too: they fill the Archived view and its count.
-    const list = await api.get<EstimateListItem[]>(
-      `/api/companies/${company.id}/estimates?archived=true`,
-    );
+    const [list] = await Promise.all([
+      // Archived rows come too: they fill the Archived view and its count.
+      api.get<EstimateListItem[]>(`/api/companies/${company.id}/estimates?archived=true`),
+      // Settles either way, so the figures land with the list rather than
+      // pushing it down a moment later.
+      loadStats(),
+    ]);
     setEstimates(list);
-  }, [company.id]);
+  }, [company.id, loadStats]);
 
   React.useEffect(() => {
     reload().catch(() => setEstimates([]));
   }, [reload]);
 
   useLiveRefetch("estimate", reload);
+  // A renamed customer, a new exchange rate or home currency changes the
+  // figures, not the list.
+  useLiveRefetch(["customer", "currency", "financesettings"], loadStats);
+
+  const viewKey = parseEstimateStatsView(searchParams.get("show"));
+  const view = stats && viewKey ? estimateStatsView(stats, viewKey) : null;
+  // The day the figures were counted on, so the tabs and badges below agree
+  // with them; the company's clock stands in until they arrive.
+  const today = stats?.today ?? companyToday(company.timezone);
+
+  function showView(key: EstimateStatsViewKey | null) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (key) next.set("show", key);
+        else next.delete("show");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function chooseFilter(key: StatusFilter) {
+    setFilter(key);
+    if (viewKey) showView(null);
+  }
 
   async function deleteDraft(est: EstimateListItem) {
     const ok = await dialog.confirm({
@@ -163,11 +244,12 @@ export default function FinanceEstimates() {
 
   const filtered = React.useMemo(() => {
     if (!estimates) return null;
+    if (view) return rowsInView(estimates, view);
     if (filter === "archived") return estimates.filter((est) => est.archivedAt);
     const active = estimates.filter((est) => !est.archivedAt);
     if (filter === "all") return active;
-    return active.filter((est) => displayEstimateStatus(est) === filter);
-  }, [estimates, filter]);
+    return active.filter((est) => displayEstimateStatus(est, undefined, today) === filter);
+  }, [estimates, filter, view, today]);
 
   const counts = React.useMemo(() => {
     const c: Record<StatusFilter, number> = {
@@ -187,16 +269,18 @@ export default function FinanceEstimates() {
         continue;
       }
       c.all += 1;
-      c[displayEstimateStatus(est)] += 1;
+      c[displayEstimateStatus(est, undefined, today)] += 1;
     }
     return c;
-  }, [estimates]);
+  }, [estimates, today]);
 
   const rows = React.useMemo(() => filtered ?? [], [filtered]);
   const selection = useArchiveSelection({
     rows,
-    canSelect: () => true,
-    view: filter,
+    // A figure's view only ever archives: the archived estimates it shows
+    // stay where they are, restored from the Archived tab.
+    canSelect: (est) => !view || !est.archivedAt,
+    view: view ? `stats:${view.key}` : filter,
     bulkUrl: `/api/companies/${company.id}/estimates/bulk`,
     noun: { one: "estimate", many: "estimates" },
     onChanged: (ids, action) => {
@@ -211,7 +295,7 @@ export default function FinanceEstimates() {
         (current) => current?.map((item) => (item.id === est.id ? est : item)) ?? current,
       ),
   });
-  const bulkAction: EstimateBulkAction = filter === "archived" ? "restore" : "archive";
+  const bulkAction: EstimateBulkAction = !view && filter === "archived" ? "restore" : "archive";
 
   const showBulkBar = canWrite && selection.selectedCount > 0;
 
@@ -233,31 +317,69 @@ export default function FinanceEstimates() {
         )}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
-        {FILTERS.map((f) => (
-          <FilterTab
-            key={f.key}
-            active={filter === f.key}
-            label={f.label}
-            count={estimates ? counts[f.key] : null}
-            onClick={() => setFilter(f.key)}
-          />
-        ))}
-        {/* Kept together so the divider never ends a wrapped line; on a phone,
-            where the tabs wrap anyway, it is dropped. */}
-        <span className="flex items-center">
-          <span
-            aria-hidden
-            className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
-          />
-          <FilterTab
-            active={filter === "archived"}
-            label={<ArchivedTabLabel />}
-            count={estimates ? counts.archived : null}
-            onClick={() => setFilter("archived")}
-          />
-        </span>
-      </div>
+      {/* With nothing issued yet, the figures would be a row of zeros — and
+          failing to load them would be no loss worth a note. */}
+      {estimates &&
+        (stats
+          ? stats.issuedEstimates > 0
+          : statsFailed &&
+            estimates.some((est) => est.status !== "draft" && est.status !== "void")) && (
+        <div className="mb-6">
+          {stats ? (
+            <EstimateStatsPanel
+              stats={stats}
+              companySlug={company.slug}
+              view={view?.key ?? null}
+              onView={showView}
+            />
+          ) : (
+            <StatsUnavailable
+              what="the estimate figures"
+              retrying={retryingStats}
+              onRetry={() => void retryStats()}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Held back until the first load, so the figures above can't arrive
+          and push the tabs down. */}
+      {estimates && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          {FILTERS.map((f) => (
+            <FilterTab
+              key={f.key}
+              active={!view && filter === f.key}
+              label={f.label}
+              count={counts[f.key]}
+              onClick={() => chooseFilter(f.key)}
+            />
+          ))}
+          {/* Kept together so the divider never ends a wrapped line; on a phone,
+              where the tabs wrap anyway, it is dropped. */}
+          <span className="flex items-center">
+            <span
+              aria-hidden
+              className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
+            />
+            <FilterTab
+              active={!view && filter === "archived"}
+              label={<ArchivedTabLabel />}
+              count={counts.archived}
+              onClick={() => chooseFilter("archived")}
+            />
+          </span>
+        </div>
+      )}
+
+      {view && filtered && (
+        <StatsViewBar
+          label={view.label}
+          count={filtered.length}
+          noun={{ one: "estimate", many: "estimates" }}
+          onClear={() => showView(null)}
+        />
+      )}
 
       {filtered === null ? (
         <div className="flex justify-center p-16">
@@ -266,9 +388,24 @@ export default function FinanceEstimates() {
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-            {filter === "archived" ? "Nothing archived" : "No estimates in this view"}
+            {view
+              ? "No estimates behind this figure"
+              : filter === "archived"
+                ? "Nothing archived"
+                : "No estimates in this view"}
           </h3>
-          {filter === "archived" ? (
+          {view ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              They may have changed since the figures were counted.{" "}
+              <button
+                type="button"
+                onClick={() => showView(null)}
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Show all estimates
+              </button>
+            </p>
+          ) : filter === "archived" ? (
             <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
               Archived estimates wait here, out of the other tabs and customer pages. They keep
               their number, status, and PDF, and you can restore them at any time.
@@ -302,6 +439,10 @@ export default function FinanceEstimates() {
                     <Checkbox
                       checked={selection.allSelected}
                       indeterminate={selection.selectedCount > 0}
+                      disabled={!selection.anySelectable}
+                      title={
+                        selection.anySelectable ? undefined : "Nothing in view can be archived"
+                      }
                       onChange={selection.toggleAll}
                       label={
                         selection.allSelected ? "Clear selection" : "Select every estimate in view"
@@ -320,8 +461,10 @@ export default function FinanceEstimates() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filtered.map((est) => {
-                const ds = displayEstimateStatus(est);
+                const ds = displayEstimateStatus(est, undefined, today);
                 const isSelected = selection.selectedIds.has(est.id);
+                // In a figure's view an archived estimate is shown, not acted on.
+                const filedInView = !!view && !!est.archivedAt;
                 return (
                   <tr
                     key={est.id}
@@ -335,6 +478,8 @@ export default function FinanceEstimates() {
                       <td className="w-10 py-3 pl-4 pr-0">
                         <Checkbox
                           checked={isSelected}
+                          disabled={filedInView}
+                          title={filedInView ? ALREADY_ARCHIVED_HINT : undefined}
                           onChange={(event) =>
                             selection.toggleOne(est, (event.nativeEvent as MouseEvent).shiftKey)
                           }
@@ -342,13 +487,14 @@ export default function FinanceEstimates() {
                         />
                       </td>
                     )}
-                    <td className="px-4 py-3 font-mono text-xs">
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                       <Link
                         to={`/c/${company.slug}/finance/estimates/${est.slug}`}
                         className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                       >
                         {est.number || "DRAFT"}
                       </Link>
+                      {filedInView && <ArchivedTag />}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                       {est.customer?.name ?? "—"}

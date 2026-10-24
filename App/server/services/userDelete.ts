@@ -1,3 +1,5 @@
+import { In } from "typeorm";
+
 import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { AppDataSource } from "../db/datasource.js";
 
@@ -19,6 +21,8 @@ import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Repository } from "../db/entities/Repository.js";
 import { Company } from "../db/entities/Company.js";
+import { ConnectedApp } from "../db/entities/ConnectedApp.js";
+import { ConnectedAppToken } from "../db/entities/ConnectedAppToken.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Contact } from "../db/entities/Contact.js";
 import { Deal } from "../db/entities/Deal.js";
@@ -105,8 +109,9 @@ export async function findOwnedCompanies(userId: string): Promise<OwnedCompany[]
  *
  * Two kinds of reference, handled differently:
  *
- *  - **Account-scoped rows** (memberships, API keys, notifications, channel
- *    membership, reactions) belong *to* the user — they are deleted.
+ *  - **Account-scoped rows** (memberships, API keys, connected apps and their
+ *    tokens, notifications, channel membership, reactions) belong *to* the
+ *    user — they are deleted.
  *  - **Authored content** (chat messages, todos, journal notes, comments,
  *    finance docs, …) is preserved; we only NULL the author/creator pointer
  *    so history survives and renders as "unknown user". Every such column is
@@ -143,6 +148,15 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.delete(ParallelWorkerResult, { requesterUserId: userId });
     const memberships = (await m.delete(Membership, { userId })).affected ?? 0;
     const apiKeys = (await m.delete(ApiKey, { userId })).affected ?? 0;
+    // A connected app acts as its Member, like an API key, so it goes with
+    // them. Its tokens carry no userId; they go by the app, first.
+    const connectedAppIds = (await m.find(ConnectedApp, { where: { userId }, select: ["id"] })).map(
+      (app) => app.id,
+    );
+    if (connectedAppIds.length) {
+      await m.delete(ConnectedAppToken, { connectedAppId: In(connectedAppIds) });
+    }
+    await m.delete(ConnectedApp, { userId });
     const notifications = (await m.delete(Notification, { userId })).affected ?? 0;
     const channelMembers = (await m.delete(ChannelMember, { userId })).affected ?? 0;
     const reactions = (await m.delete(MessageReaction, { userId })).affected ?? 0;

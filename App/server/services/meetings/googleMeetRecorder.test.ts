@@ -8,6 +8,7 @@ import type { Locator, Page } from "playwright-core";
 import { setHumanInputEnabledForTests } from "../humanInput.js";
 import {
   admissionCutoff,
+  captureGoogleMeetCaptions,
   createGoogleMeetRecorder,
   disclosedNotetakerName,
   isGoogleMeetConferenceUrl,
@@ -15,6 +16,7 @@ import {
   waitForGoogleMeetToEnd,
   type GoogleMeetJoinArgs,
 } from "./googleMeetRecorder.js";
+import type { MeetingCaption } from "./recorder.js";
 
 // The lobby suites below exercise the decisions — what to press, when to ask
 // again, what a screen means — on fakes with mocked clocks, where typing a
@@ -78,6 +80,8 @@ type RecorderHarnessOptions = {
   readMaxRecordingBytes?: () => number;
   /** Refuse `module-null-source`, the way a PulseAudio build without it would. */
   noSilentSource?: boolean;
+  /** What reading Meet's captions during the call produced. */
+  captions?: MeetingCaption[];
 };
 
 function recorderHarness(options: RecorderHarnessOptions = {}) {
@@ -85,7 +89,13 @@ function recorderHarness(options: RecorderHarnessOptions = {}) {
   const ffmpegCommands: Array<{ command: string; args: string[] }> = [];
   const ffmpeg = options.ffmpeg ?? new FakeFfmpeg();
   const page = { kind: "dedicated-meet-page" };
-  const lifecycle = { contextClosed: 0, browserClosed: 0 };
+  const lifecycle = {
+    contextClosed: 0,
+    browserClosed: 0,
+    /** When the caption read began, and whether it ended before the page closed. */
+    captionsStartedAt: null as number | null,
+    captionsStoppedWhileOpen: null as boolean | null,
+  };
   const warnings: string[] = [];
   let launchOptions: Record<string, unknown> | null = null;
   let contextOptions: Record<string, unknown> | null = null;
@@ -143,6 +153,15 @@ function recorderHarness(options: RecorderHarnessOptions = {}) {
     waitForEnd: async () => {
       if (options.waitForEnd) await options.waitForEnd();
       now = 4_000;
+    },
+    captureCaptions: (_page, admittedAt) => {
+      lifecycle.captionsStartedAt = admittedAt;
+      return {
+        stop: async () => {
+          lifecycle.captionsStoppedWhileOpen = lifecycle.contextClosed === 0;
+          return options.captions ?? [];
+        },
+      };
     },
     now: () => now,
     randomToken: () => "fixed123",
@@ -1233,6 +1252,123 @@ describe("Google Meet guest input", () => {
   });
 });
 
+describe("Google Meet captions", () => {
+  type Frame = Array<{ id: number; speaker: string; text: string }>;
+
+  /** A call whose captions region shows `frames`, one per read, once turned on. */
+  function captionedCall(frames: Frame[], options: { on?: boolean; hang?: boolean } = {}) {
+    let on = options.on ?? false;
+    let reads = 0;
+    const clicks: string[] = [];
+    const button = (name: string, visible: () => boolean, press?: () => void) =>
+      ({
+        first() {
+          return this;
+        },
+        isVisible: async () => visible(),
+        click: async () => {
+          clicks.push(name);
+          press?.();
+        },
+        fill: async () => undefined,
+      }) as unknown as Locator;
+    const page = {
+      getByRole: (_role: string, roleOptions: { name?: RegExp }) => {
+        const pattern = roleOptions.name?.source ?? "";
+        if (pattern.includes("turn off captions")) return button("off", () => on);
+        if (pattern.includes("turn on captions")) {
+          return button(
+            "on",
+            () => !on,
+            () => {
+              on = true;
+            },
+          );
+        }
+        return button("hidden", () => false);
+      },
+      evaluate: async () => {
+        if (options.hang) return new Promise(() => undefined);
+        const frame = frames[Math.min(reads, frames.length - 1)] ?? [];
+        reads += 1;
+        return on ? frame : [];
+      },
+    } as unknown as Page;
+    return { page, clicks };
+  }
+
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 25; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  test("turns captions on and keeps each line's final wording", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let clock = 10_000;
+    const call = captionedCall([
+      [{ id: 1, speaker: "Pat Lee", text: "We need" }],
+      [{ id: 1, speaker: "Pat Lee", text: "We need SSO before we sign" }],
+      [
+        { id: 1, speaker: "Pat Lee", text: "We need SSO before we sign." },
+        { id: 2, speaker: "Sam Rivera", text: "I'll send pricing Friday." },
+      ],
+      // Pat's line has scrolled away; it keeps what it last said. Meet has
+      // revised Sam's as recognition settled.
+      [{ id: 2, speaker: "Sam Rivera", text: "I'll send the pricing on Friday." }],
+    ]);
+
+    const capture = captureGoogleMeetCaptions(call.page, 10_000, () => clock);
+    for (let pass = 0; pass < 4; pass += 1) {
+      await settle();
+      clock += 1_000;
+      t.mock.timers.tick(1_000);
+    }
+    await settle();
+    const captions = await capture.stop();
+
+    assert.deepEqual(call.clicks, ["on"]);
+    assert.deepEqual(captions, [
+      { startMs: 0, endMs: 2_000, speaker: "Pat Lee", text: "We need SSO before we sign." },
+      {
+        startMs: 2_000,
+        endMs: 3_000,
+        speaker: "Sam Rivera",
+        text: "I'll send the pricing on Friday.",
+      },
+    ]);
+  });
+
+  test("leaves captions alone when they are already on", async () => {
+    const call = captionedCall([[{ id: 1, speaker: "Pat Lee", text: "Hello." }]], { on: true });
+
+    const capture = captureGoogleMeetCaptions(call.page, 0, () => 500);
+    await settle();
+    const captions = await capture.stop();
+
+    assert.deepEqual(call.clicks, []);
+    assert.deepEqual(captions.map((caption) => caption.text), ["Hello."]);
+  });
+
+  test("a page that stops answering cannot hold the recorder open", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const call = captionedCall([], { on: true, hang: true });
+    const capture = captureGoogleMeetCaptions(call.page, 0);
+    await settle();
+    let captions: MeetingCaption[] | null = null;
+
+    const stopping = capture.stop(true).then((read) => {
+      captions = read;
+    });
+    // Half a second for the read in flight, half a second for a last one.
+    for (let wait = 0; wait < 2; wait += 1) {
+      await settle();
+      t.mock.timers.tick(500);
+    }
+    await stopping;
+
+    assert.deepEqual(captions, []);
+  });
+});
+
 describe("Google Meet recorder lifecycle", () => {
   test("isolates audio and browser state, records mono Opus, and cleans everything up", async () => {
     const harness = recorderHarness();
@@ -1249,6 +1385,7 @@ describe("Google Meet recorder lifecycle", () => {
       bytes: Buffer.from("webm-opus-audio"),
       mime: "audio/webm",
       durationMs: 3_000,
+      captions: [],
     });
     assert.equal(harness.lifecycle.contextClosed, 1);
     assert.equal(harness.lifecycle.browserClosed, 1);
@@ -1291,12 +1428,29 @@ describe("Google Meet recorder lifecycle", () => {
       (launch.env as Record<string, string>).PULSE_SOURCE,
       `${(launch.env as Record<string, string>).PULSE_SINK}_mic`,
     );
+    // Not even the silent microphone is granted: Google refused the knock of a
+    // guest that had one, and admitted the same guest bringing none.
     assert.deepEqual(harness.getContextOptions(), {
       locale: "en-US",
       serviceWorkers: "allow",
-      permissions: ["microphone"],
+      permissions: [],
       acceptDownloads: false,
     });
+  });
+
+  test("reads Meet's captions from admission and returns them with the audio", async () => {
+    const said: MeetingCaption[] = [
+      { startMs: 0, endMs: 1_500, speaker: "Pat Lee", text: "We need SSO before we sign." },
+    ];
+    const harness = recorderHarness({ captions: said });
+
+    const result = await harness.recorder.join(joinArgs());
+
+    assert.deepEqual(result.captions, said);
+    assert.equal(harness.lifecycle.captionsStartedAt, 1_000, "captions are timed from admission");
+    // The page is the only place the captions exist; closing it first loses
+    // the last words of the call.
+    assert.equal(harness.lifecycle.captionsStoppedWhileOpen, true);
   });
 
   test("returns a finalised partial recording when aborted after admission", async () => {

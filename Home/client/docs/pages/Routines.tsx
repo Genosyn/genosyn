@@ -485,9 +485,13 @@ export function Routines() {
           next run is worked out again on the new clock.
         </LI>
         <LI>
-          It applies to Routines only. <DocLink to="/docs/pipelines">Pipeline</DocLink> schedules,
-          recurring invoices, and <DocLink to="/docs/signals">Revenue Signals</DocLink> keep reading
-          server time.
+          Of the schedules, it applies to Routines only.{" "}
+          <DocLink to="/docs/pipelines">Pipeline</DocLink> schedules, recurring invoices, and{" "}
+          <DocLink to="/docs/signals">Revenue Signals</DocLink> keep reading server time. Finance
+          counts days on it for the{" "}
+          <DocLink to="/docs/finance#invoices-figures">invoice</DocLink> and{" "}
+          <DocLink to="/docs/finance#estimates-figures">estimate</DocLink> figures and the
+          overdue and expired statuses beside them.
         </LI>
       </UL>
 
