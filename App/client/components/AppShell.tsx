@@ -22,6 +22,8 @@ import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
+import { Breadcrumbs, type Crumb } from "./ui/Breadcrumbs";
+import { PageHeader } from "./ui/PageHeader";
 import { ButtonSpinner } from "./ui/Spinner";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
@@ -412,7 +414,7 @@ function TopNav({
                   {loggingOut ? <ButtonSpinner size={14} /> : <LogOut size={14} />} Log out
                 </button>
                 <div
-                  className="border-t border-slate-100 px-3 py-2 text-[11px] tabular-nums text-slate-400 dark:border-slate-700 dark:text-slate-500"
+                  className="border-t border-slate-100 px-3 py-2 text-xs tabular-nums text-slate-500 dark:border-slate-700 dark:text-slate-400"
                   title="Genosyn version · build commit"
                 >
                   v{__APP_VERSION__} · <span className="font-mono">{__APP_COMMIT__}</span>
@@ -449,7 +451,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
       {/* The shortcut hint is the affordance on pointer-and-keyboard screens;
           below sm there's no room and probably no keyboard, so fall back to
           the chevron that says "this opens something". */}
-      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] font-medium text-slate-400 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500">
+      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[11px] font-medium text-slate-500 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
         {PALETTE_SHORTCUT}
       </kbd>
       <ChevronDown size={14} className="shrink-0 text-slate-400 sm:hidden" />
@@ -620,11 +622,27 @@ export function ContextualLayout({
       <main
         id="main-content"
         tabIndex={-1}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900"
+        // Dark mode: the page is slate-950, so slate-900 cards read as raised
+        // rather than as holes in a slate-900 page.
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950"
       >
         {children}
       </main>
     </>
+  );
+}
+
+/**
+ * A rail link's look, for the rails that draw their own links (a roster, a
+ * folder tree) as well as `SidebarLink`: 32px rows, the accent tint on the
+ * page you are on.
+ */
+export function sidebarLinkClassName(isActive: boolean): string {
+  return (
+    "flex min-h-[2rem] items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors " +
+    (isActive
+      ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200"
+      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-slate-100")
   );
 }
 
@@ -643,12 +661,7 @@ export function SidebarLink({
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-        (isActive
-          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-          : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
-      }
+      className={({ isActive }) => sidebarLinkClassName(isActive)}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -656,57 +669,11 @@ export function SidebarLink({
   );
 }
 
-/**
- * Breadcrumb trail. The last item is rendered as the current page (no link).
- * Earlier items should include a `to` so users can navigate back up. Used at
- * the top of most main panes so "where am I?" is always one glance away.
- */
-export type Crumb = { label: React.ReactNode; to?: string };
-export function Breadcrumbs({ items }: { items: Crumb[] }) {
-  if (items.length === 0) return null;
-  return (
-    <nav
-      aria-label="Breadcrumb"
-      className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"
-    >
-      {items.map((c, i) => {
-        const last = i === items.length - 1;
-        return (
-          <React.Fragment key={i}>
-            {i > 0 && <ChevronRight size={12} className="text-slate-300 dark:text-slate-600" />}
-            {c.to && !last ? (
-              <Link
-                to={c.to}
-                className="rounded px-1 py-0.5 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-              >
-                {c.label}
-              </Link>
-            ) : (
-              <span
-                className={
-                  last
-                    ? "px-1 py-0.5 font-medium text-slate-700 dark:text-slate-200"
-                    : "px-1 py-0.5"
-                }
-                aria-current={last ? "page" : undefined}
-              >
-                {c.label}
-              </span>
-            )}
-          </React.Fragment>
-        );
-      })}
-    </nav>
-  );
-}
+export { Breadcrumbs, type Crumb };
 
+/** A settings page's title row. The page header primitive, for pages that predate it. */
 export function TopBar({ title, right }: { title: string; right?: React.ReactNode }) {
-  return (
-    <div className="mb-6 flex items-center justify-between">
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
-      {right}
-    </div>
-  );
+  return <PageHeader title={title} actions={right} />;
 }
 
 export { Link };

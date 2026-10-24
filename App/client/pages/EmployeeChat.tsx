@@ -894,10 +894,8 @@ function ConversationList({
 
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950 md:flex">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3 dark:border-slate-800">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Conversations
-        </div>
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 pl-3 pr-2 dark:border-slate-800">
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Conversations</div>
         <button
           onClick={onNew}
           disabled={creating}
@@ -956,7 +954,7 @@ function ConversationList({
         <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-800">
           <button
             onClick={toggleArchived}
-            className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             aria-expanded={archivedOpen}
           >
             {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

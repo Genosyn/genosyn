@@ -316,7 +316,7 @@ export function DetailsEditor({
                     key={visibility}
                     className={clsx(
                       // The radio itself is hidden, so the card carries its keyboard focus.
-                      "cursor-pointer rounded-lg border p-3 focus-within:ring-2 focus-within:ring-indigo-500/40",
+                      "cursor-pointer rounded-lg border p-3 focus-within:ring-2 focus-within:ring-focus",
                       draft.visibility === visibility
                         ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-500/10"
                         : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/50",

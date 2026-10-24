@@ -763,7 +763,7 @@ function RoutineCard({
           ? "border-emerald-200 dark:border-emerald-500/30"
           : selected
             ? "border-indigo-400 ring-2 ring-indigo-100 focus-within:ring-indigo-400 dark:border-indigo-500 dark:ring-indigo-500/30 dark:focus-within:ring-indigo-500"
-            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/30",
+            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:focus-within:border-indigo-500 dark:focus-within:ring-focus",
       )}
     >
       {!ready && (

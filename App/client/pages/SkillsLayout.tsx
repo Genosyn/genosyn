@@ -3,7 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Users, Wrench } from "lucide-react";
 import { api, Company, Employee, SkillWithMeta } from "../lib/api";
 import { newSkillPath } from "../lib/newItemPath";
-import { ContextualLayout } from "../components/AppShell";
+import { ContextualLayout, sidebarLinkClassName } from "../components/AppShell";
+import { RailIconButton, SectionRailHeader, railHeadingClassName } from "../components/SectionRail";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -96,30 +97,26 @@ function Sidebar({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Wrench size={14} /> Skills
-        </div>
-        <button
-          onClick={() =>
-            onNew(newSkillPath(company.slug, { employee: onIndex ? activeEmployee : null }))
-          }
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          title="New skill"
-          aria-label="New skill"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+      <SectionRailHeader
+        section="skills"
+        label="Skills"
+        actions={
+          <RailIconButton
+            label="New skill"
+            onClick={() =>
+              onNew(newSkillPath(company.slug, { employee: onIndex ? activeEmployee : null }))
+            }
+          >
+            <Plus size={16} />
+          </RailIconButton>
+        }
+      />
       <div className="flex-1 overflow-y-auto p-2">
         <NavLink
           to={base}
           end
           className={
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-            (onIndex && !activeEmployee
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+            sidebarLinkClassName(onIndex && !activeEmployee)
           }
         >
           <Wrench size={14} className="shrink-0" />
@@ -133,8 +130,8 @@ function Sidebar({
 
         {withSkills.length > 0 && (
           <>
-            <div className="flex items-center gap-2 px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              <Users size={12} /> Known by
+            <div className={`flex items-center gap-1.5 pb-1 pl-2.5 pt-4 ${railHeadingClassName}`}>
+              <Users size={13} aria-hidden="true" /> Known by
             </div>
             {withSkills.map((e) => {
               const active = onIndex && activeEmployee === e.slug;
@@ -143,10 +140,7 @@ function Sidebar({
                   key={e.id}
                   to={`${base}?employee=${e.slug}`}
                   className={
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-                    (active
-                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                    sidebarLinkClassName(active)
                   }
                 >
                   <Avatar

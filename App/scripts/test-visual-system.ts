@@ -116,7 +116,7 @@ try {
     headless: true,
   });
 
-  async function newContext(mode: Mode, storageState?: string): Promise<BrowserContext> {
+  const newContext = async (mode: Mode, storageState?: string): Promise<BrowserContext> => {
     const context = await browser!.newContext({
       viewport: { width: mode.width, height: mode.height },
       colorScheme: mode.scheme,
@@ -148,7 +148,7 @@ try {
       return local || font ? route.continue() : route.abort();
     });
     return context;
-  }
+  };
 
   /* ── Sign in, then seed a company through the API ─────────────────────── */
 
@@ -161,11 +161,15 @@ try {
   await signInPage.waitForURL((url) => url.pathname !== "/login");
   const storageState = path.join(testRoot, "storage.json");
   const http = signIn.request;
-  async function call<T>(method: "GET" | "POST" | "PUT", route: string, data?: unknown): Promise<T> {
+  const call = async <T>(
+    method: "GET" | "POST" | "PUT",
+    route: string,
+    data?: unknown,
+  ): Promise<T> => {
     const response = await http.fetch(`${origin}${route}`, { method, data });
     assert.ok(response.ok(), `${method} ${route}: ${response.status()} ${await response.text()}`);
     return (await response.json()) as T;
-  }
+  };
 
   const company = await call<{ id: string; slug: string }>("POST", "/api/companies", {
     name: "Northwind Provisions",
@@ -483,15 +487,30 @@ async function checkOverflow(page: Page, label: string) {
       const past = Math.round(Math.max(rect.right - width, -rect.left));
       return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""} "${text}" (${past}px past the edge)`;
     };
+    // A pane that scrolls vertically scrolls sideways too once its content is
+    // too wide (`overflow-y: auto` makes x auto as well). Unless the classes
+    // ask for sideways scrolling, that is a page sliding left and right.
+    const panes = Array.from(document.body.querySelectorAll("*")).filter((el) => {
+      const s = getComputedStyle(el);
+      if (!/(auto|scroll)/.test(s.overflowY) || !/(auto|scroll)/.test(s.overflowX)) return false;
+      const cls = typeof el.className === "string" ? el.className : "";
+      if (/(^|\s)overflow-(x-)?(auto|scroll)(\s|$)/.test(cls)) return false;
+      return el.scrollWidth > el.clientWidth + 1 && el.getBoundingClientRect().width > 0;
+    });
     return {
       document: doc.scrollWidth - doc.clientWidth,
       main: main ? main.scrollWidth - main.clientWidth : 0,
       clipped: outermost.slice(0, 3).map(describe),
       clippedCount: outermost.length,
+      panes: panes.slice(0, 3).map((el) => `${describe(el)} scrolls ${el.scrollWidth - el.clientWidth}px sideways`),
     };
   });
   if (overflow.document > 0) problem(`${label}: the page scrolls sideways by ${overflow.document}px`);
   if (overflow.main > 1) problem(`${label}: the main pane scrolls sideways by ${overflow.main}px`);
+  if (overflow.panes.length > 0) {
+    problem(`${label}: a scrolling pane slides sideways`);
+    for (const line of overflow.panes) console.error(`      ${line}`);
+  }
   if (overflow.clippedCount > 0) {
     problem(`${label}: ${overflow.clippedCount} element(s) cut off at the side of the screen`);
     for (const line of overflow.clipped) console.error(`      ${line}`);

@@ -931,7 +931,7 @@ function TransactionReviewModal({
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
         <table className="w-full min-w-[720px] text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="px-3 py-2 text-left font-medium">Line</th>
               <th className="px-3 py-2 text-left font-medium">Category</th>

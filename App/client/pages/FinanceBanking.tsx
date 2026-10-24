@@ -777,7 +777,7 @@ function NoAccounts({
                 <button
                   type="button"
                   onClick={() => onAdd(point.kind)}
-                  className="h-full w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5"
+                  className="h-full w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-500/5"
                 >
                   <span className="text-slate-400 dark:text-slate-500">{point.icon}</span>
                   <span className="mt-2 block text-sm font-medium text-slate-900 dark:text-slate-100">

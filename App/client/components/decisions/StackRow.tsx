@@ -116,7 +116,7 @@ export function DetailsButton({
       aria-expanded={open}
       aria-controls={controls}
       className={clsx(
-        "inline-flex shrink-0 items-center gap-1 rounded-lg font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+        "inline-flex shrink-0 items-center gap-1 rounded-lg font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
         size === "xs" ? "-my-1 h-7 px-1.5 text-xs" : "h-8 px-2 text-sm",
       )}
     >
@@ -138,7 +138,7 @@ export function CloseRowButton({ label, onClose }: { label: string; onClose: () 
       onClick={onClose}
       aria-label={label}
       title="Close"
-      className="-mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+      className="-mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:bg-slate-800 dark:hover:text-slate-200"
     >
       <X size={15} />
     </button>

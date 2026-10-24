@@ -143,7 +143,7 @@ export function MailReviewTimeline({
                 type="button"
                 onClick={() => setShowEarlier((value) => !value)}
                 aria-expanded={showEarlier}
-                className="mb-4 ml-10 inline-flex items-center gap-1.5 rounded text-xs font-medium text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-indigo-400 dark:hover:text-indigo-300"
+                className="mb-4 ml-10 inline-flex items-center gap-1.5 rounded text-xs font-medium text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-focus dark:text-indigo-400 dark:hover:text-indigo-300"
               >
                 {showEarlier ? (
                   <ChevronUp size={13} aria-hidden="true" />
@@ -235,7 +235,7 @@ function TimelineEvent({
           {href ? (
             <Link
               to={href}
-              className="group/link inline-flex min-w-0 items-center gap-1 rounded text-xs font-medium text-slate-800 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-200 dark:hover:text-indigo-300"
+              className="group/link inline-flex min-w-0 items-center gap-1 rounded text-xs font-medium text-slate-800 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-200 dark:hover:text-indigo-300"
             >
               <span className="min-w-0 break-words">{event.title}</span>
               <ArrowUpRight

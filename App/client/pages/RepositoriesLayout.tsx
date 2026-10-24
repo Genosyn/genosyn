@@ -17,6 +17,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { api, Repository, Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { SectionRailHeader } from "../components/SectionRail";
 
 export type RepositoriesOutletCtx = {
   company: Company;
@@ -74,11 +75,7 @@ export default function RepositoriesLayout({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <FolderGit2 size={14} /> Repositories
-        </div>
-      </div>
+      <SectionRailHeader section="repositories" label="Repositories" />
 
       {repositories === null ? (
         <div className="flex flex-1 items-center justify-center">

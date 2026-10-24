@@ -56,7 +56,7 @@ export function BoardLetterCard({
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
           Letter to the board
         </h2>
-        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-xs font-medium tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {unreadCount}
         </span>
         <Link

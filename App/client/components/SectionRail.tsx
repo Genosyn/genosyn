@@ -2,7 +2,11 @@ import React from "react";
 import { SECTION_BY_KEY, type SectionKey } from "../lib/sections";
 import { canOpenSubpage, railSubpages, type SubpageViewer } from "../lib/subpages";
 import { SidebarLink } from "./AppShell";
+import { CountBadge } from "./ui/Badge";
 import { clsx } from "./ui/clsx";
+
+/** A group heading inside a rail — "Folders", "Assigned to" — in sentence case. */
+export const railHeadingClassName = "text-xs font-medium text-slate-500 dark:text-slate-400";
 
 /**
  * A section rail's page links, drawn from the subpage catalogue in
@@ -51,7 +55,7 @@ export function SectionRailLinks({
                 className={clsx(
                   "px-2 pb-1",
                   index === 0 && !continued ? "pt-2" : "pt-3",
-                  "text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500",
+                  "text-xs font-medium text-slate-500 dark:text-slate-400",
                 )}
               >
                 {heading}
@@ -79,12 +83,63 @@ function RailLabel({ text, count }: { text: string; count: number | null | undef
   return (
     <span className="flex items-center justify-between gap-2">
       <span className="truncate">{text}</span>
-      <span
-        className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-        aria-label={`${count} waiting`}
-      >
-        {count}
-      </span>
+      <CountBadge count={count} aria-label={`${count} waiting`} />
     </span>
+  );
+}
+
+/**
+ * The top of a section's rail: the section's icon tile and name, as the top
+ * nav's section pill draws them, with room for the rail's own actions (a "New"
+ * button, a folder button) on the right.
+ */
+export function SectionRailHeader({
+  section,
+  label,
+  actions,
+}: {
+  section: SectionKey;
+  /** Defaults to the section's own name. */
+  label?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  const item = SECTION_BY_KEY[section];
+  const Icon = item.icon;
+  return (
+    <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3 dark:border-slate-800">
+      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <span
+          aria-hidden="true"
+          className={clsx("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", item.iconBg)}
+        >
+          <Icon size={14} />
+        </span>
+        <span className="truncate">{label ?? item.label}</span>
+      </div>
+      {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
+    </div>
+  );
+}
+
+/** A small icon button for a rail header — "New folder", "New routine". */
+export function RailIconButton({
+  label,
+  className,
+  children,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      {...rest}
+      className={clsx(
+        "flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }

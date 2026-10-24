@@ -335,7 +335,7 @@ function CustomerList({ company }: { company: Company }) {
               type="button"
               onClick={clearSearch}
               aria-label="Clear customer search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:bg-slate-800 dark:hover:text-slate-200"
             >
               <X size={14} />
             </button>
@@ -417,7 +417,7 @@ function CustomerList({ company }: { company: Company }) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-sm">
                 <caption className="sr-only">Customers</caption>
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Name</th>
                     <th className="px-4 py-2 text-left font-medium">Domain</th>

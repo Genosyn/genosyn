@@ -401,7 +401,7 @@ export function ChannelPeekModal({
             role="log"
             tabIndex={0}
             aria-label={`Messages in ${channel.label}`}
-            className="h-full overflow-y-auto overscroll-contain px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:px-3"
+            className="h-full overflow-y-auto overscroll-contain px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:px-3"
             onScroll={(event) => {
               const el = event.currentTarget;
               pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_SLACK_PX;

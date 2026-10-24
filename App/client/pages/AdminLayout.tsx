@@ -11,13 +11,13 @@ import {
   Mail,
   Plug2,
   Settings,
-  ServerCog,
   SlidersHorizontal,
   UserPlus,
   Users,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
+import { SectionRailHeader } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/admin/*`. The Admin section holds surfaces that
@@ -66,13 +66,9 @@ export default function AdminLayout({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <ServerCog size={14} /> Admin
-        </div>
-      </div>
+      <SectionRailHeader section="admin" label="Admin" />
       <nav className="flex-1 overflow-y-auto p-2">
-        <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="px-2 pb-1 pt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
           Instance
         </div>
         <SidebarLink
@@ -123,7 +119,7 @@ export default function AdminLayout({
         <SidebarLink to={`${base}/sso`} icon={<KeyRound size={14} />} label="SSO" />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
 
-        <div className="px-2 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="px-2 pb-1 pt-4 text-xs font-medium text-slate-500 dark:text-slate-400">
           Directory
         </div>
         <SidebarLink to={`${base}/users`} icon={<Users size={14} />} label="Users" />

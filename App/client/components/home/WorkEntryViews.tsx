@@ -84,7 +84,7 @@ export function WorkStatePill({ state, label }: { state: EmployeeWorkState; labe
   return (
     <span
       className={clsx(
-        "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
+        "inline-flex h-6 w-fit items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 ring-inset",
         WORK_STATE_PILL[state],
       )}
     >
@@ -107,12 +107,12 @@ function WorkKindChip({ entry }: { entry: WorkEntry }) {
   return (
     <span
       className={clsx(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset",
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium leading-none ring-1 ring-inset [&>svg]:h-3 [&>svg]:w-3",
         meta.tone,
       )}
     >
       {workEmailAnalysisPhase(entry) ? <Mail size={13} /> : WORK_KIND_ICON[entry.kind]}
-      {workEntryKindLabel(entry)}
+      <span className="inline-block first-letter:uppercase">{workEntryKindLabel(entry)}</span>
     </span>
   );
 }

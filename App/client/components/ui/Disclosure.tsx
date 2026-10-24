@@ -73,7 +73,9 @@ export function Disclosure({
       aria-controls={rendered ? panelId : undefined}
       className={clsx(
         "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
-        "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800/60",
+        // An inset ring: the toggle is as wide as its card, so an outline
+        // outside it would be clipped by whatever holds the card.
+        "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus dark:hover:bg-slate-800/60",
         card
           ? open
             ? "rounded-t-xl"
@@ -107,7 +109,10 @@ export function Disclosure({
       <ChevronDown
         size={16}
         aria-hidden="true"
-        className={clsx("shrink-0 text-slate-400 transition-transform", open && "rotate-180")}
+        className={clsx(
+          "shrink-0 text-slate-400 transition-transform dark:text-slate-500",
+          open && "rotate-180",
+        )}
       />
     </button>
   );

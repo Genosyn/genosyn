@@ -247,7 +247,7 @@ function TrendPlot({
         tabIndex={0}
         role="group"
         aria-label={`${title}, month by month. Use the arrow keys to step through the months.`}
-        className="relative h-[16.5rem] touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+        className="relative h-[16.5rem] touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onPointerMove={(event) => setActive(indexAt(event.clientX))}
         onPointerDown={(event) => setActive(indexAt(event.clientX))}
         onPointerLeave={(event) => {

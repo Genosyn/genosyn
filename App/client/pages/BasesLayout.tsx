@@ -9,7 +9,6 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
-  Database,
   Edit3,
   Plus,
   Search,
@@ -24,6 +23,7 @@ import {
   Company,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { RailIconButton, SectionRailHeader } from "../components/SectionRail";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { BaseIcon, baseAccent } from "../components/BaseIcons";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -248,18 +248,15 @@ export default function BasesLayout({ company }: { company: Company }) {
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Database size={14} /> Bases
-        </div>
-        <button
-          onClick={() => navigate(`/c/${company.slug}/bases/new`)}
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          title="New base"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+      <SectionRailHeader
+        section="bases"
+        label="Bases"
+        actions={
+          <RailIconButton label="New base" onClick={() => navigate(`/c/${company.slug}/bases/new`)}>
+            <Plus size={16} />
+          </RailIconButton>
+        }
+      />
       {bases && bases.length > 3 && (
         <div className="relative border-b border-slate-100 px-2 py-2 dark:border-slate-800">
           <Search

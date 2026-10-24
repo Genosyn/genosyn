@@ -181,7 +181,7 @@ export function AiAccessLevelPicker<L extends string>({
           aria-expanded={open}
           className={clsx(
             "inline-flex items-center gap-2 rounded-lg border bg-white font-medium text-slate-700 shadow-sm transition-colors",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus",
             "disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-900 dark:text-slate-200",
             size === "md" ? "h-10 px-3 text-sm" : "h-8 px-2.5 text-xs",
             open

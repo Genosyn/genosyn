@@ -1,5 +1,6 @@
 import React from "react";
 import { Archive, ArchiveRestore, X } from "lucide-react";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import type { ArchiveAction } from "./useArchiveSelection";
 
@@ -100,9 +101,9 @@ export function ArchiveBulkBar({
 /** Beside a detail page's status badge while the record is archived. */
 export function ArchivedBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:bg-slate-700/40 dark:text-slate-300">
-      <Archive size={10} /> Archived
-    </span>
+    <Badge icon={<Archive />} tone="neutral">
+      Archived
+    </Badge>
   );
 }
 

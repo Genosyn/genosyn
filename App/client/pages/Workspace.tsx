@@ -646,16 +646,14 @@ function WorkspaceSidebar({
       }
       aria-label="Workspace conversations"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Workspace chat
-        </div>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-100 pl-4 pr-2 dark:border-slate-800">
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Workspace chat</div>
         <button
           type="button"
           onClick={onNewGroupChat}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
         >
-          <Users size={12} /> Group chat
+          <Users size={14} /> Group chat
         </button>
       </div>
       {channels === null ? (
@@ -788,8 +786,9 @@ function SidebarSection({
     <div className="border-b border-slate-100 py-2 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-1">
         <button
-          className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          className="-ml-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
         >
           <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
           {title}

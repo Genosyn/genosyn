@@ -313,9 +313,9 @@ function BillForm() {
           <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
             Line items
           </h2>
-          <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[36rem] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Expense account</th>
                   <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>

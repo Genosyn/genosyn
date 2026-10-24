@@ -564,7 +564,7 @@ export default function MailThreadView() {
                 aria-expanded={handoverDetailsOpen}
                 aria-controls="mail-handover-details"
                 onClick={() => setHandoverDetailsOpen((open) => !open)}
-                className="inline-flex items-center gap-1.5 rounded py-1 text-xs font-medium text-slate-500 outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:text-indigo-300"
+                className="inline-flex items-center gap-1.5 rounded py-1 text-xs font-medium text-slate-500 outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-400 dark:hover:text-indigo-300"
               >
                 <ChevronDown
                   size={13}
@@ -1252,7 +1252,7 @@ function HandoverCard({
     <div
       id={`handover-${handover.id}`}
       tabIndex={-1}
-      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-800 dark:bg-slate-950"
+      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-800 dark:bg-slate-950"
     >
       <div className="flex items-center gap-2 text-sm">
         <Bot size={14} className="shrink-0 text-slate-400" />

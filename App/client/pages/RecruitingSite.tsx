@@ -519,7 +519,7 @@ function SiteSettings() {
                 <p className="text-sm text-slate-700 dark:text-slate-300">Add these two records where you manage DNS for {settings.domain.name}:</p>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                   <table className="w-full text-xs">
-                    <thead className="bg-slate-50 text-left uppercase tracking-wider text-slate-500 dark:bg-slate-800">
+                    <thead className="text-left border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2 font-medium">Type</th>
                         <th className="px-3 py-2 font-medium">Name</th>

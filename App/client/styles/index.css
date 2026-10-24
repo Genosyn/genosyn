@@ -18,6 +18,9 @@ body {
     Helvetica Neue,
     Arial,
     sans-serif;
+  /* Inter's contextual alternates keep arrows and dashes aligned with the
+     cap height; tabular figures stay opt-in (`tabular-nums`) for data. */
+  font-feature-settings: "calt", "kern";
   background-color: #f8fafc; /* slate-50 */
   color: #0f172a; /* slate-900 */
 }
@@ -30,6 +33,19 @@ html.dark body {
 html.dark ::selection {
   background-color: #4f46e5; /* indigo-600 */
   color: white;
+}
+
+@layer base {
+  /* A grid that only names columns from a breakpoint up (`grid gap-4
+     md:grid-cols-2`) is one implicit `auto` column below it, and an `auto`
+     track can never be narrower than its widest child's content: one long
+     timestamp row pushed every card on the page past the edge of a phone.
+     A shrinkable single column instead lets each card wrap or truncate its
+     own content. `:where()` keeps this at zero specificity, so any
+     `grid-cols-*` utility — base or responsive — still wins outright. */
+  :where(.grid:not([class^="grid-cols-"]):not([class*=" grid-cols-"])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @layer components {
@@ -69,19 +85,16 @@ html.dark ::selection {
    follows the browser's input-modality heuristic.
 
    `:where()` holds this at zero specificity so a primitive that draws its own
-   ring — Button, Input, Select, Textarea — wins outright. `html.dark` has to
-   be wrapped too: unwrapped it scored higher than Tailwind's
-   `focus-visible:outline-none`, repainted the transparent outline that utility
-   emits, and gave every focused control in dark mode a second ring sitting
-   2px outside its first one. */
-:where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #4f46e5;
+   ring — Button, Input, Select, Textarea — wins outright. The colour is the
+   theme's `--gs-focus` (indigo-600 light, indigo-400 dark; see
+   lib/designTokens.ts), 3:1 or better on every surface. An outline rather than
+   a ring with an offset: the 2px gap shows whatever the control sits on, so one
+   rule reads on white cards, tinted rows and dark panels alike. A landmark
+   focused by script (`tabindex="-1"`: the main pane, a dialog panel) gets
+   none — it is where focus waits, not a control. */
+:where(a, button, input, textarea, select, summary, [role="button"], [role="option"], [role="tab"], [role="switch"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid rgb(var(--gs-focus));
   outline-offset: 2px;
-}
-
-:where(html.dark)
-  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #818cf8;
 }
 
 @keyframes chatDot {

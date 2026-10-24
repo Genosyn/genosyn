@@ -20,8 +20,12 @@ import { errorMessage } from "../lib/errors";
 import { ComposeInput, MailAccount, MailCounts, MailLabelInfo, mailApi } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
-import { ContextualLayout } from "../components/AppShell";
-import { SectionRailLinks } from "../components/SectionRail";
+import { ContextualLayout, sidebarLinkClassName } from "../components/AppShell";
+import {
+  SectionRailHeader,
+  SectionRailLinks,
+  railHeadingClassName,
+} from "../components/SectionRail";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { ConnectMailboxForm } from "../components/mail/ConnectMailbox";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -404,17 +408,15 @@ export default function MailLayout({ company }: { company: Company }) {
 
   const sidebar = (
     <div className="flex h-full flex-col">
+      <SectionRailHeader section="mail" label="Email" />
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Mail size={14} /> Email
-        </div>
         <Menu
           width={240}
           trigger={({ ref, onClick }) => (
             <button
               ref={ref}
               onClick={onClick}
-              className="flex w-full items-center gap-2 rounded-md border border-slate-200 px-2.5 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="flex h-9 w-full items-center gap-2 rounded-lg border border-slate-300 px-2.5 text-left text-sm text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <span className="min-w-0 flex-1 truncate">{account.address}</span>
               <ChevronDown size={14} className="shrink-0 text-slate-400" />
@@ -486,9 +488,7 @@ export default function MailLayout({ company }: { company: Company }) {
         <FolderLink base={base} view="trash" icon={<Trash2 size={14} />} label="Trash" />
         {userLabels.length > 0 && (
           <>
-            <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Labels
-            </div>
+            <div className={`px-2 pb-1 pt-3 ${railHeadingClassName}`}>Labels</div>
             {userLabels.map((l) => (
               <LabelLink key={l.id} base={base} label={l} />
             ))}
@@ -564,10 +564,7 @@ function FolderLink({
     <Link
       to={view === "inbox" ? base : `${base}?view=${view}`}
       className={
-        "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-        (isActive
-          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-          : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+        sidebarLinkClassName(isActive)
       }
     >
       {icon}
@@ -590,10 +587,7 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
     <Link
       to={`${base}?label=${encodeURIComponent(label.gmailLabelId)}`}
       className={
-        "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-        (isActive
-          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-          : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+        sidebarLinkClassName(isActive)
       }
     >
       <Tag size={14} style={label.color ? { color: label.color } : undefined} />
@@ -624,14 +618,14 @@ function MailOnboarding({
   onConnected: () => Promise<void>;
 }) {
   return (
-    <div className="mx-auto max-w-2xl px-6 py-16">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        <Mail size={14} /> Email
+    <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-16">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">
+        <Mail size={20} aria-hidden="true" />
       </div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+      <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-50">
         Bring your inbox into Genosyn
       </h1>
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
         Connect a mailbox to read and answer mail here, hand threads to AI employees, and run rules
         on everything that arrives. Changes sync both ways. Gmail, Outlook, Fastmail, iCloud, your
         own mail server — anything that speaks IMAP.

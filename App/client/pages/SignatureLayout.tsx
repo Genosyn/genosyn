@@ -1,7 +1,6 @@
-import { FileSignature } from "lucide-react";
 import { Outlet } from "react-router-dom";
 import { ContextualLayout } from "@/components/AppShell";
-import { SectionRailLinks } from "@/components/SectionRail";
+import { SectionRailHeader, SectionRailLinks } from "@/components/SectionRail";
 import type { Company } from "@/lib/api";
 
 export type SignatureOutletContext = { company: Company };
@@ -10,11 +9,7 @@ export type SignatureOutletContext = { company: Company };
 export default function SignatureLayout({ company }: { company: Company }) {
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <FileSignature size={14} /> Signatures
-        </div>
-      </div>
+      <SectionRailHeader section="signatures" label="Signatures" />
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         <SectionRailLinks section="signatures" companySlug={company.slug} viewer={company} />
       </nav>

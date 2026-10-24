@@ -1077,7 +1077,7 @@ export function ThreadRow({
         aria-label={starred ? "Unstar" : "Star"}
         title={starred ? "Unstar" : "Star"}
         className={clsx(
-          "shrink-0 rounded py-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40",
+          "shrink-0 rounded py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus",
           starred ? "text-amber-400" : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
         )}
       >

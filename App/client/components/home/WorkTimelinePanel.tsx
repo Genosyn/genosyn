@@ -197,7 +197,7 @@ export function EmployeeWorkBubble({
       onClick={onSelect}
       className={clsx(
         "group flex min-h-11 w-36 max-w-full shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition",
-        "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-800/60",
+        "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:bg-slate-800/60",
       )}
     >
       <span
@@ -215,10 +215,10 @@ export function EmployeeWorkBubble({
         />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[11px] font-semibold text-slate-900 dark:text-slate-100">
+        <span className="block truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
           {name}
         </span>
-        <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">
+        <span className="block truncate text-[11px] leading-4 text-slate-500 dark:text-slate-400">
           {status}
         </span>
       </span>

@@ -47,9 +47,11 @@ export function Checkbox({
       // open whatever is underneath it.
       onClick={(event) => event.stopPropagation()}
       className={clsx(
-        "h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-indigo-600",
-        "focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-40",
-        "dark:border-slate-600 dark:bg-slate-900",
+        // A native box, tinted with the accent. The global focus outline
+        // (styles/index.css) draws its keyboard focus.
+        "h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600",
+        "disabled:cursor-not-allowed disabled:opacity-40",
+        "dark:border-slate-600 dark:bg-slate-900 dark:accent-indigo-500",
         className,
       )}
     />

@@ -150,7 +150,7 @@ function TreePanel({
           <>
             {recents.length > 0 && notes.length > 3 && (
               <section aria-label="Recently edited" className="mb-3">
-                <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                   <Clock size={11} /> Recent
                 </div>
                 {recents.map((note) => (
@@ -160,7 +160,7 @@ function TreePanel({
             )}
             <section aria-label="Notebooks">
               <div className="group/head flex items-center justify-between px-2 pb-1 pt-1">
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Notebooks</span>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Notebooks</span>
                 <button
                   type="button"
                   onClick={() => void createNotebook()}
@@ -321,7 +321,7 @@ function QuickFind({
         }}
         aria-label="Search pages"
         placeholder="Search pages"
-        className="w-full rounded-md border border-transparent bg-slate-100/80 py-1.5 pl-7 pr-7 text-sm text-slate-700 placeholder:text-slate-400 hover:bg-slate-100 focus:border-slate-300 focus:bg-white focus:outline-none dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:bg-slate-800 dark:focus:border-slate-600 dark:focus:bg-slate-900"
+        className="w-full rounded-lg border border-transparent bg-slate-100/80 py-1.5 pl-7 pr-7 text-sm text-slate-700 placeholder:text-slate-400 hover:bg-slate-100 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-indigo-500/20 dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:bg-slate-800 dark:focus:border-indigo-400 dark:focus:bg-slate-900"
       />
       {query && (
         <button

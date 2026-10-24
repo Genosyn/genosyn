@@ -124,7 +124,7 @@ function ChartLane({
         type="button"
         onClick={() => onOpenEmployee(employee)}
         title={`Open ${employee.name}'s day`}
-        className="flex w-32 shrink-0 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/40 sm:w-40 dark:hover:bg-slate-800/50"
+        className="flex w-32 shrink-0 items-center gap-2 px-2.5 py-2 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:w-40 dark:hover:bg-slate-800/50"
       >
         <span aria-hidden="true" className="relative">
           <Avatar
@@ -174,7 +174,7 @@ function ChartLane({
                 aria-label={workNarrativeText(tile.entry, { nowIso })}
                 style={{ left: `${tile.leftPct}%`, width: `${tile.widthPct}%` }}
                 className={clsx(
-                  "absolute inset-y-0 rounded-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
+                  "absolute inset-y-0 rounded-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                   WORK_KIND_TILE[tile.entry.kind],
                   // A moment has no length, so its tile is a marker sized for
                   // the pointer rather than a bar claiming a duration.

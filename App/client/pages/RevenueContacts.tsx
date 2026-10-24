@@ -16,6 +16,7 @@ import { customerOptionLabel } from "../lib/customerLabel";
 import type { RevenueAccount } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { Badge, type BadgeTone } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -107,34 +108,19 @@ const STAGE_LABELS: Record<ContactLifecycleStage, string> = {
   unqualified: "Unqualified",
 };
 
-const STAGE_PILL: Record<ContactLifecycleStage, string> = {
-  subscriber:
-    "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
-  lead: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25",
-  qualified:
-    "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/25",
-  opportunity:
-    "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/25",
-  customer:
-    "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25",
-  churned:
-    "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/25",
-  unqualified:
-    "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25",
+const STAGE_TONE: Record<ContactLifecycleStage, BadgeTone> = {
+  subscriber: "neutral",
+  lead: "info",
+  qualified: "accent",
+  opportunity: "ai",
+  customer: "success",
+  churned: "danger",
+  unqualified: "warning",
 };
 
-/** Lifecycle-stage pill. Exported so the contact detail renders the same chip. */
+/** Lifecycle-stage badge. Exported so the contact detail renders the same chip. */
 export function LifecycleStagePill({ stage }: { stage: ContactLifecycleStage }) {
-  return (
-    <span
-      className={
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset " +
-        (STAGE_PILL[stage] ?? STAGE_PILL.lead)
-      }
-    >
-      {STAGE_LABELS[stage] ?? stage}
-    </span>
-  );
+  return <Badge tone={STAGE_TONE[stage] ?? STAGE_TONE.lead}>{STAGE_LABELS[stage] ?? stage}</Badge>;
 }
 
 /**
@@ -148,52 +134,20 @@ export function ContactFlagPills({
   contact: RevenueContact;
   showArchived?: boolean;
 }) {
-  const flags: { key: string; label: string; className: string }[] = [];
-  if (contact.doNotContact) {
-    flags.push({
-      key: "dnc",
-      label: "do not contact",
-      className:
-        "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/25",
-    });
-  }
-  if (contact.unsubscribedAt) {
-    flags.push({
-      key: "unsub",
-      label: "unsubscribed",
-      className:
-        "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25",
-    });
-  }
-  if (contact.bouncedAt) {
-    flags.push({
-      key: "bounced",
-      label: "bounced",
-      className:
-        "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/25",
-    });
-  }
+  const flags: { key: string; label: string; tone: BadgeTone }[] = [];
+  if (contact.doNotContact) flags.push({ key: "dnc", label: "do not contact", tone: "danger" });
+  if (contact.unsubscribedAt) flags.push({ key: "unsub", label: "unsubscribed", tone: "warning" });
+  if (contact.bouncedAt) flags.push({ key: "bounced", label: "bounced", tone: "warning" });
   if (showArchived && contact.archivedAt) {
-    flags.push({
-      key: "archived",
-      label: "archived",
-      className:
-        "bg-slate-100 text-slate-500 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700",
-    });
+    flags.push({ key: "archived", label: "archived", tone: "neutral" });
   }
   if (flags.length === 0) return null;
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {flags.map((f) => (
-        <span
-          key={f.key}
-          className={
-            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 ring-inset " +
-            f.className
-          }
-        >
+        <Badge key={f.key} tone={f.tone}>
           {f.label}
-        </span>
+        </Badge>
       ))}
     </span>
   );
@@ -522,7 +476,7 @@ export default function RevenueContacts() {
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Name</th>
                     <th className="hidden px-4 py-2 text-left font-medium md:table-cell">

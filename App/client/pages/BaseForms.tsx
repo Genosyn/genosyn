@@ -233,7 +233,7 @@ export default function BaseForms({ company }: { company: Company }) {
                     <button
                       type="button"
                       onClick={() => navigate(`${tablePath}/forms/${form.slug}`)}
-                      className="mt-4 flex flex-1 flex-col text-left focus-visible:rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                      className="mt-4 flex flex-1 flex-col text-left focus-visible:rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                     >
                       <h2 className="line-clamp-2 text-base font-semibold text-slate-900 dark:text-slate-100">
                         {form.title}

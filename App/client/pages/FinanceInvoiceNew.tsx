@@ -52,7 +52,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { Input } from "../components/ui/Input";
+import { Input, fieldClassName } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { InvoiceIssuerFixed, InvoiceIssuerSelect } from "@/components/finance/InvoiceIssuer";
@@ -70,6 +70,21 @@ type LineRow = {
   priceText: string;
   taxRateId: string;
 };
+
+/** A line's columns from `sm` up: product, quantity, unit price, tax, total, remove. */
+const LINE_GRID = "sm:grid-cols-[minmax(0,1fr)_5rem_8rem_10rem_8rem_2.5rem]";
+
+/** A field's name above it on a phone, where the column heads are hidden. */
+function LineFieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="mb-1 block text-xs font-medium text-slate-500 sm:hidden dark:text-slate-400"
+    >
+      {children}
+    </span>
+  );
+}
 
 function lineKey(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -642,113 +657,121 @@ function InvoiceForm() {
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Line items</h2>
           </div>
-          <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">Product</th>
-                  <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>
-                  <th className="w-32 px-3 py-2 text-right font-medium">Unit price</th>
-                  <th className="w-40 px-3 py-2 text-left font-medium">Tax</th>
-                  <th className="w-32 px-3 py-2 text-right font-medium">Total</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              {lines.map((l, i) => {
-                const qty = Number(l.quantityText) || 0;
-                const unit = parseMoneyToCents(l.priceText);
-                const gross = Math.round(qty * unit);
-                const rate = taxRates.find((r) => r.id === l.taxRateId);
-                let lineTotal = gross;
-                if (rate && !rate.inclusive) {
-                  lineTotal = gross + Math.round((gross * rate.ratePercent) / 100);
-                }
-                return (
-                  <tbody
-                    key={l.key}
-                    className={i > 0 ? "border-t border-slate-100 dark:border-slate-800" : ""}
-                  >
-                    <tr>
-                      <td className="px-2 pt-2 align-top">
-                        <Select
-                          value={l.productId ?? ""}
-                          onChange={(e) => pickProduct(i, e.target.value)}
-                          aria-label={`Line ${i + 1} product`}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        >
-                          <option value="">—</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="px-2 pt-2 align-top">
-                        <input
-                          value={l.quantityText}
-                          onChange={(e) => patchLine(i, { quantityText: e.target.value })}
-                          inputMode="decimal"
-                          aria-label={`Line ${i + 1} quantity`}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
-                        />
-                      </td>
-                      <td className="px-2 pt-2 align-top">
-                        <input
-                          value={l.priceText}
-                          onChange={(e) => patchLine(i, { priceText: e.target.value })}
-                          inputMode="decimal"
-                          aria-label={`Line ${i + 1} unit price`}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
-                        />
-                      </td>
-                      <td className="px-2 pt-2 align-top">
-                        <Select
-                          value={l.taxRateId}
-                          onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
-                          aria-label={`Line ${i + 1} tax`}
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        >
-                          <option value="">No tax</option>
-                          {taxRates.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name} ({t.ratePercent}%{t.inclusive ? " incl" : ""})
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="px-3 pt-2 text-right align-middle text-sm tabular-nums text-slate-700 dark:text-slate-200">
-                        {formatMoney(lineTotal, currency)}
-                      </td>
-                      <td className="px-2 pt-2 text-center align-middle">
-                        <button
-                          type="button"
-                          onClick={() => removeLine(i)}
-                          disabled={lines.length === 1}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                          aria-label="Remove line"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colSpan={6} className="px-2 pb-3 pt-2">
-                        <textarea
-                          value={l.description}
-                          onChange={(e) => patchLine(i, { description: e.target.value })}
-                          autoFocus={l.key === newLineKey}
-                          aria-label={`Line ${i + 1} description`}
-                          placeholder="Item description"
-                          rows={2}
-                          className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                );
-              })}
-            </table>
+          {/* One row per line from `sm` up, under a row of column heads. On a
+              phone each line stacks — product, quantity and price, tax, total —
+              with its own small labels, instead of a table wider than the
+              screen. The fields keep their "Line N …" names either way. */}
+          <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+            <div
+              aria-hidden="true"
+              className={`hidden gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-500 sm:grid dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400 ${LINE_GRID}`}
+            >
+              <div>Product</div>
+              <div className="text-right">Qty</div>
+              <div className="text-right">Unit price</div>
+              <div>Tax</div>
+              <div className="text-right">Total</div>
+              <div />
+            </div>
+            {lines.map((l, i) => {
+              const qty = Number(l.quantityText) || 0;
+              const unit = parseMoneyToCents(l.priceText);
+              const gross = Math.round(qty * unit);
+              const rate = taxRates.find((r) => r.id === l.taxRateId);
+              let lineTotal = gross;
+              if (rate && !rate.inclusive) {
+                lineTotal = gross + Math.round((gross * rate.ratePercent) / 100);
+              }
+              return (
+                <div
+                  key={l.key}
+                  className={`grid grid-cols-2 gap-2 p-3 sm:items-start ${LINE_GRID} ${
+                    i > 0 ? "border-t border-slate-100 dark:border-slate-800" : ""
+                  }`}
+                >
+                  <div className="col-span-2 min-w-0 sm:col-span-1">
+                    <LineFieldLabel>Product</LineFieldLabel>
+                    <Select
+                      value={l.productId ?? ""}
+                      onChange={(e) => pickProduct(i, e.target.value)}
+                      aria-label={`Line ${i + 1} product`}
+                      className="h-9 px-2"
+                    >
+                      <option value="">—</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="min-w-0">
+                    <LineFieldLabel>Qty</LineFieldLabel>
+                    <input
+                      value={l.quantityText}
+                      onChange={(e) => patchLine(i, { quantityText: e.target.value })}
+                      inputMode="decimal"
+                      aria-label={`Line ${i + 1} quantity`}
+                      className={`h-9 w-full px-2 text-right tabular-nums ${fieldClassName()}`}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <LineFieldLabel>Unit price</LineFieldLabel>
+                    <input
+                      value={l.priceText}
+                      onChange={(e) => patchLine(i, { priceText: e.target.value })}
+                      inputMode="decimal"
+                      aria-label={`Line ${i + 1} unit price`}
+                      className={`h-9 w-full px-2 text-right tabular-nums ${fieldClassName()}`}
+                    />
+                  </div>
+                  <div className="col-span-2 min-w-0 sm:col-span-1">
+                    <LineFieldLabel>Tax</LineFieldLabel>
+                    <Select
+                      value={l.taxRateId}
+                      onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
+                      aria-label={`Line ${i + 1} tax`}
+                      className="h-9 px-2"
+                    >
+                      <option value="">No tax</option>
+                      {taxRates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.ratePercent}%{t.inclusive ? " incl" : ""})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm tabular-nums text-slate-700 sm:block sm:pt-2 sm:text-right dark:text-slate-200">
+                    <span aria-hidden="true" className="text-xs font-medium text-slate-500 sm:hidden dark:text-slate-400">
+                      Total
+                    </span>
+                    {formatMoney(lineTotal, currency)}
+                  </div>
+                  <div className="flex items-center justify-end sm:justify-center sm:pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => removeLine(i)}
+                      disabled={lines.length === 1}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                      aria-label="Remove line"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className="col-span-2 sm:col-span-6">
+                    <textarea
+                      value={l.description}
+                      onChange={(e) => patchLine(i, { description: e.target.value })}
+                      autoFocus={l.key === newLineKey}
+                      aria-label={`Line ${i + 1} description`}
+                      placeholder="Item description"
+                      rows={2}
+                      className={`block w-full resize-y px-2 py-1.5 ${fieldClassName()}`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="mt-2">
             <button

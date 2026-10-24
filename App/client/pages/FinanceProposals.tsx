@@ -316,7 +316,7 @@ function ProposalCard({
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="py-1 text-left font-medium">Account</th>
                   <th className="py-1 text-right font-medium">Debit</th>
