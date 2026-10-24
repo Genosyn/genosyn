@@ -139,10 +139,13 @@ describe("Settings → Company time zone", () => {
 });
 
 describe("Settings → Company Advanced", () => {
-  /** The Advanced toggle button's own markup. */
+  /**
+   * The page's Advanced toggle button's own markup — not the Settings rail's
+   * Advanced group beside it, which carries `data-rail-advanced`.
+   */
   function advancedToggle(html: string): string | null {
     for (const match of html.matchAll(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>/g)) {
-      if (/>Advanced</.test(match[0])) return match[0];
+      if (/>Advanced</.test(match[0]) && !/data-rail-advanced/.test(match[0])) return match[0];
     }
     return null;
   }

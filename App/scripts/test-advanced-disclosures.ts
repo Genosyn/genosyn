@@ -640,7 +640,9 @@ await app.check(
       .getByRole("button")
       .click();
     await page.getByLabel("Use Genosyn Connect", { exact: true }).waitFor();
-    const advanced = page.getByRole("button", { name: /^Advanced/ });
+    // In the page, not the Admin rail, whose own Advanced group holds Database
+    // and Migrations.
+    const advanced = page.locator("main").getByRole("button", { name: /^Advanced/ });
     assert.equal(await advanced.getAttribute("aria-expanded"), "false");
     await advanced.getByText("Defaults", { exact: true }).waitFor();
     const url = page.getByLabel("Sign-in service URL", { exact: true });
