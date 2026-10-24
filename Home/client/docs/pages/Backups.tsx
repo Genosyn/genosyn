@@ -187,9 +187,12 @@ export function Backups() {
         Deleting removes it from this server and from History; its copies on destinations stay
         until off-box retention removes them. Restoring replaces everything on this install with
         the backup, after first backing up what is here now so it can be undone, and signs
-        everyone out. Genosyn opens the backup before it changes anything, so a damaged one is
-        refused up front. While a backup is being written or copied off-box, Restore says so and
-        can be pressed again once it finishes.
+        everyone out. Genosyn opens the backup before it changes anything, so one that doesn&apos;t
+        open is refused up front. If it still can&apos;t be read part-way through — a damaged
+        file inside it, or the backup going missing — the restore stops with that reason and
+        names the backup it took first: restart Genosyn and restore that one to put everything
+        back. While a backup is being written or copied off-box, Restore says so and can be
+        pressed again once it finishes.
       </P>
 
       <H2 id="advanced">Advanced</H2>
