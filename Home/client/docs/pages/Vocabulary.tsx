@@ -182,7 +182,7 @@ export function Vocabulary() {
           },
           {
             term: "Grant",
-            def: "An AI Employee's access to a specific Connection.",
+            def: "An AI Employee's access to one resource — a Connection, a mailbox, a note, a Vault item — or to a whole section such as Finance, often at a level. Each is granted on the resource's own side, under its rules; all of one employee's Grants are listed, and can be changed in bulk, on its Settings → Access page.",
           },
           {
             term: "Phone number",

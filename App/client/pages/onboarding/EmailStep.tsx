@@ -193,7 +193,7 @@ export function EmailStep({
         }
       >
         <Button className="w-full sm:w-auto" onClick={onContinue}>
-          {emailReady ? "Finish setup" : "Continue"} <ArrowRight size={15} />
+          Continue <ArrowRight size={15} />
         </Button>
       </StepFooter>
     </StepCard>

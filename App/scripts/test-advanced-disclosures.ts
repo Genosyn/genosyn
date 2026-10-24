@@ -407,7 +407,16 @@ const employeeRoutes: ApiRoute[] = [
   ],
 ];
 
-const EVERYDAY = ["General", "Soul", "Model", "Skills", "Routines", "Connections", "Autonomy"];
+const EVERYDAY = [
+  "General",
+  "Soul",
+  "Model",
+  "Skills",
+  "Routines",
+  "Access",
+  "Connections",
+  "Autonomy",
+];
 const ADVANCED = ["Memory", "Journal", "Handoffs", "Phone", "MCP", "Browser", "Integrations"];
 
 await app.check(

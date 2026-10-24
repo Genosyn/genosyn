@@ -82,8 +82,9 @@ export function GettingStarted() {
 
       <H2 id="the-guide">The setup guide</H2>
       <P>
-        The guide shows four steps: <Strong>Company</Strong>, <Strong>AI Employee</Strong>,{" "}
-        <Strong>Routines</Strong>, and <Strong>Email</Strong>. Your Goal is already saved when you
+        The guide shows five steps: <Strong>Company</Strong>, <Strong>AI Employee</Strong>,{" "}
+        <Strong>Routines</Strong>, <Strong>Email</Strong>, and <Strong>Access</Strong>. Your Goal is
+        already saved when you
         arrive from signup, so you can move straight to hiring. You can return to earlier steps to
         make changes.
       </P>
@@ -225,17 +226,28 @@ export function GettingStarted() {
         <DocLink to="/docs/email">Email</DocLink> for the full connection and access options.
       </P>
       <P>
-        Choose <Strong>Skip email for now</Strong> to finish without a mailbox, or{" "}
-        <Strong>Finish setup</Strong> once email is ready.
+        Choose <Strong>Skip email for now</Strong> to go on without a mailbox, or{" "}
+        <Strong>Continue</Strong> once email is ready.
+      </P>
+
+      <H2 id="access">5. Choose what they can reach</H2>
+      <P>
+        An AI Employee reaches nothing it has not been granted, so the next step lists everything
+        your company has that it could be — the mailbox you just connected, notebooks, Vault items,
+        Member browsers, and the company sections such as Finance and Revenue. Tick what the job
+        needs and press <Strong>Grant</Strong>; each Grant follows its own section&apos;s rules.
+        Nothing is required: <Strong>Finish setup</Strong> works with nothing ticked, and the same
+        list is always on the employee&apos;s{" "}
+        <DocLink to="/docs/employees#access">Settings → Access</DocLink>.
       </P>
 
       <H2 id="summary">Review setup and start working</H2>
       <P>
         The summary reports your AI Employee, model connection, the Routines you scheduled, the
         standing work Automatic setup added (counted on its own line, so the total is never read as
-        a limit), next Run, and actual email access. It reads saved state, so it also reflects
-        changes made outside the guide. Choose <Strong>Go to Home</Strong> or{" "}
-        <Strong>Give {"{name}"} a first request</Strong>.
+        a limit), next Run, actual email access, and how many Grants the employee holds. It reads
+        saved state, so it also reflects changes made outside the guide. Choose{" "}
+        <Strong>Go to Home</Strong> or <Strong>Give {"{name}"} a first request</Strong>.
       </P>
       <P>
         The optional first-request screen offers examples or lets you write your own. Choosing one

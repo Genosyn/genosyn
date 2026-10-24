@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PRODUCT_INTEGRATION_KEYS } from "../../client/lib/productIntegrations.js";
 import { SECTION_BY_KEY, type SectionKey } from "../../client/lib/sections.js";
 import {
+  EMPLOYEE_PAGES,
   PALETTE_SUBPAGES,
   PRODUCT_INTEGRATION_SUBPAGES,
   SECTION_SUBPAGES,
@@ -372,5 +373,24 @@ describe("rails drawn from the catalogue", () => {
     // Tasks draws its review queue by hand (it carries a live count).
     assert.match(readAppFile("client/pages/TasksLayout.tsx"), /tasks\/review/);
     assert.ok(allPages.some((p) => p.path === "/tasks/review"));
+  });
+});
+
+describe("pages inside one AI Employee", () => {
+  test("every catalogued employee page is a route under employees/:empSlug", () => {
+    assert.ok(EMPLOYEE_PAGES.length > 0);
+    for (const page of EMPLOYEE_PAGES) {
+      const fullPath = `employees/:empSlug${page.path}`;
+      const route = routes.find((r) => r.fullPath === fullPath);
+      assert.ok(route, `${page.label} (${fullPath}) is not a route in client/App.tsx`);
+      assert.equal(route.redirect, false, `${fullPath} must render a page, not redirect`);
+    }
+  });
+
+  test("the employee's Settings rail and the Access page read the catalogue", () => {
+    const rail = readAppFile("client/pages/employeeTabs.tsx");
+    assert.match(rail, /employeePageAt\("\/settings\/access"\)/);
+    const page = readAppFile("client/pages/EmployeeAccess.tsx");
+    assert.match(page, /canOpenEmployeePage\(employeePageAt\("\/settings\/access"\), company\)/);
   });
 });

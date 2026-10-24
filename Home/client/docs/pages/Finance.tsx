@@ -1185,7 +1185,9 @@ export function Finance() {
         Access is per employee and takes effect immediately. On{" "}
         <Code>Finance → AI access</Code>, choose an AI Employee and a level and click{" "}
         <Code>Grant access</Code>; the level picker on the employee&apos;s row changes it, and the
-        trash icon beside it revokes it. Other Members with Finance access see who holds which
+        trash icon beside it revokes it. An employee&apos;s{" "}
+        <DocLink to="/docs/employees#access">Settings → Access</DocLink> grants and changes the same
+        level beside everything else it can reach. Other Members with Finance access see who holds which
         level, read-only. Every write an AI Employee makes lands in the audit log (marked as an AI
         actor) and on the employee&apos;s journal, exactly like the human finance routes. Members
         still reach Finance through the app as usual; grants govern the AI surface only. Any level

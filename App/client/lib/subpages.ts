@@ -1503,3 +1503,162 @@ export function isCurrentSubpage(
   for (const [key, value] of want) if (have.get(key) !== value) return false;
   return true;
 }
+
+// ─────────────────────────── pages inside one AI Employee ───────────────────────────
+
+/**
+ * Pages that belong to one AI Employee rather than to a section — Settings →
+ * Access. Their paths sit under `/employees/<employee-slug>`, so they cannot
+ * live in {@link SECTION_PAGE_DEFS}, but they keep the same contract: the
+ * employee's Settings rail and the ⌘K palette both read this list, both leave
+ * out what the viewer cannot open (`canOpenEmployeePage`), and a page reached
+ * by URL checks its own entry (`employeePageAt`). Each path must be a real
+ * route under `employees/:empSlug` in `App.tsx`;
+ * `server/client/subpageRoutes.test.ts` fails when one is not.
+ */
+export type EmployeePageItem = {
+  id: string;
+  /** What the page calls itself. */
+  label: string;
+  /** Under `/employees/<employee-slug>`. */
+  path: string;
+  icon: LucideIcon;
+  /** Synonyms for the palette — never rendered. */
+  keywords?: readonly string[];
+  access?: SubpageAccess;
+};
+
+export const EMPLOYEE_PAGES: readonly EmployeePageItem[] = [
+  // Open to every Member, like the sections' own AI access pages: anyone can
+  // see what an employee holds, and each row says whether the viewer may
+  // change it. Who may change what is each kind's own rule.
+  {
+    id: "employee-access",
+    label: "Access",
+    path: "/settings/access",
+    icon: KeyRound,
+    keywords: [
+      "grants",
+      "grant access",
+      "bulk grant",
+      "revoke access",
+      "ai access",
+      "permissions",
+      "what can they reach",
+    ],
+  },
+];
+
+/** The catalogued employee page at `path` ("/settings/access"); throws for one not listed. */
+export function employeePageAt(path: string): EmployeePageItem {
+  const page = EMPLOYEE_PAGES.find((p) => p.path === path);
+  if (!page) throw new Error(`No employee page is catalogued at ${path}`);
+  return page;
+}
+
+/** Same gates as a section page: admin-only pages to owners and admins, Finance to its readers. */
+export function canOpenEmployeePage(page: EmployeePageItem, viewer: SubpageViewer): boolean {
+  return canOpenSubpage(employeeSubpage(page, { slug: "", name: "" }), viewer);
+}
+
+/** `/employees/ada/settings/access`: one employee's page, under `/c/<company-slug>`. */
+export function employeePagePath(page: EmployeePageItem, employeeSlug: string): string {
+  return `/employees/${encodeURIComponent(employeeSlug)}${page.path}`;
+}
+
+/** The employee whose pages the browser is on, read after the company's own prefix. */
+export function currentEmployeeSlug(pathname: string, companySlug: string): string | null {
+  const base = `/c/${companySlug}/employees/`;
+  if (!pathname.startsWith(base)) return null;
+  const match = /^([^/]+)\/(?:chat|settings)(?:\/|$)/.exec(pathname.slice(base.length));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+type EmployeeRef = { slug: string; name: string };
+
+/** An employee page as a palette row: "Access — Ada", filed under AI Employees. */
+function employeeSubpage(page: EmployeePageItem, employee: EmployeeRef): SubpageItem {
+  return {
+    id: `${page.id}-${idForPath(employee.slug) || "employee"}`,
+    section: "employees",
+    label: employee.name ? `${page.label} — ${employee.name}` : page.label,
+    path: employeePagePath(page, employee.slug),
+    icon: page.icon,
+    keywords: page.keywords,
+    access: page.access,
+    rail: false,
+    scoped: false,
+  };
+}
+
+/** How the query names the page itself, scored like a section page's own name. */
+function matchEmployeePage(page: EmployeePageItem, q: string): TextMatch | null {
+  return matchPageOwn(employeeSubpage(page, { slug: "", name: "" }), q);
+}
+
+/** Whether a word names this employee: the start of their name, or of a word in it. */
+function namesEmployee(employee: EmployeeRef, token: string): boolean {
+  const hit = matchLabelText(employee.name, token);
+  return hit !== null && hit.score >= MATCH_SCORE.boundary;
+}
+
+/** Does anything in the query name an employee page? The palette loads the roster only then. */
+export function queryNamesEmployeePage(pages: readonly EmployeePageItem[], query: string): boolean {
+  const q = foldSearchText(query);
+  if (!q) return false;
+  return pages.some(
+    (page) =>
+      matchEmployeePage(page, q) !== null ||
+      queryTokens(q).some((token) => matchEmployeePage(page, token) !== null),
+  );
+}
+
+/** How far an employee nobody named ranks below the one whose page you are on. */
+const UNNAMED_EMPLOYEE_PENALTY = 15;
+
+/**
+ * Employee pages for the palette's search, as page rows.
+ *
+ * Some word has to name the page ("access", "grants"); every other word has to
+ * name the employee ("ada access"). When nobody is named, the employee whose
+ * page the browser is on comes first and everyone else a step below, so
+ * "access" anywhere still reaches each employee's Access page.
+ */
+export function searchEmployeePages(
+  pages: readonly EmployeePageItem[],
+  employees: readonly EmployeeRef[],
+  query: string,
+  options: { viewer: SubpageViewer; currentSlug?: string | null; limit?: number },
+): SubpageMatch[] {
+  const q = foldSearchText(query);
+  if (!q) return [];
+  const tokens = queryTokens(q);
+  const limit = options.limit ?? SUBPAGE_RESULT_LIMIT;
+  const scored: Array<{ match: SubpageMatch; current: boolean; order: number }> = [];
+  for (const page of pages) {
+    if (!canOpenEmployeePage(page, options.viewer)) continue;
+    const whole = matchEmployeePage(page, q);
+    const perToken = tokens.map((token) => matchEmployeePage(page, token));
+    const pageScores = perToken.filter((m): m is TextMatch => m !== null).map((m) => m.score);
+    if (!whole && pageScores.length === 0) continue;
+    const rest = whole ? [] : tokens.filter((_token, i) => perToken[i] === null);
+    employees.forEach((employee, order) => {
+      if (!rest.every((token) => namesEmployee(employee, token))) return;
+      const named = rest.length > 0;
+      const current = employee.slug === options.currentSlug;
+      const base = whole ? whole.score : Math.min(...pageScores);
+      const score =
+        named || current || !options.currentSlug ? base : base - UNNAMED_EMPLOYEE_PENALTY;
+      scored.push({ match: { page: employeeSubpage(page, employee), hit: null, score }, current, order });
+    });
+  }
+  return scored
+    .sort(
+      (a, b) =>
+        b.match.score - a.match.score ||
+        Number(b.current) - Number(a.current) ||
+        a.order - b.order,
+    )
+    .slice(0, Math.max(0, limit))
+    .map(({ match }) => match);
+}

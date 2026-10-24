@@ -39,6 +39,11 @@ async function serveFixture(page: Page, html: string): Promise<void> {
   });
 }
 
+/**
+ * Meet's guest pages as they are now: an Ask to join button named for the
+ * devices the guest brings, a waiting room that already offers Leave call,
+ * and a name field that counts the keystrokes it receives.
+ */
 function guestFixture(requireSecondAsk: boolean): string {
   return `<!doctype html><html lang="en"><body><main>Loading Meet</main>
     <script>
@@ -46,12 +51,14 @@ function guestFixture(requireSecondAsk: boolean): string {
       const choices = [];
       let name = "";
       let asked = 0;
+      let keystrokes = 0;
       function record(choice) {
         choices.push(choice);
         document.body.dataset.choices = JSON.stringify(choices);
       }
       function waiting() {
-        main.innerHTML = "<p>You'll join the call when someone lets you in</p>";
+        main.innerHTML = "<p>Please wait until a meeting host brings you into the call</p>" +
+          '<button aria-label="Leave call">call_end</button>';
       }
       function devices(stage) {
         main.innerHTML = '<button id="enable">Use microphone and camera</button>' +
@@ -67,8 +74,15 @@ function guestFixture(requireSecondAsk: boolean): string {
         };
       }
       function prejoin() {
-        main.innerHTML = '<label>Your name<input></label><button id="ask">Ask to join</button>';
+        main.innerHTML = '<label>Your name<input></label>' +
+          '<button id="ask" aria-label="Ask to join without microphone &amp; camera">Ask to join</button>' +
+          '<button id="present">Ask to present</button>';
         document.querySelector("input").value = name;
+        document.querySelector("input").addEventListener("keydown", () => {
+          keystrokes += 1;
+          document.body.dataset.keystrokes = String(keystrokes);
+        });
+        document.querySelector("#present").onclick = () => record("present");
         document.querySelector("#ask").onclick = () => {
           name = document.querySelector("input").value;
           document.body.dataset.guestName = name;
@@ -104,14 +118,21 @@ for (const requireSecondAsk of [false, true]) {
         });
         await Promise.race([
           page
-            .getByText("You'll join the call when someone lets you in")
-            .waitFor({ timeout: 15_000 }),
+            .getByText("Please wait until a meeting host brings you into the call")
+            .waitFor({ timeout: 30_000 }),
           joining.then(() => assert.fail("The guest resolved before host admission")),
         ]);
+        // Several lobby passes with Leave call on screen, and still waiting.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
         assert.equal(admitted, false);
         assert.equal(
           await page.locator("body").getAttribute("data-guest-name"),
           "Genosyn (AI notetaker — recording)",
+        );
+        // Typed, the way Meet's not-a-bot check expects a person to.
+        assert.ok(
+          Number(await page.locator("body").getAttribute("data-keystrokes")) >=
+            "Genosyn (AI notetaker — recording)".length,
         );
         assert.deepEqual(
           JSON.parse((await page.locator("body").getAttribute("data-choices")) ?? "[]"),
@@ -124,7 +145,9 @@ for (const requireSecondAsk of [false, true]) {
         );
 
         await page.locator("main").evaluate((element) => {
-          element.innerHTML = '<button aria-label="Leave call">Leave call</button>';
+          element.innerHTML =
+            '<button aria-label="Raise hand (ctrl + alt + h)">back_hand</button>' +
+            '<button aria-label="Leave call">call_end</button>';
         });
         await joining;
         assert.equal(admitted, true);
@@ -155,7 +178,7 @@ test(
       );
       await assert.rejects(
         joinGoogleMeetAsGuest(page, joinArgs(AbortSignal.timeout(5_000))),
-        /Google Meet blocked the guest notetaker or requires a Google account/,
+        /Google Meet blocked the guest notetaker/,
       );
     } finally {
       await browser.close();

@@ -366,10 +366,14 @@ export function Integrations() {
       <UL>
         <LI>
           <Strong>Add a grant</Strong> at the employee&apos;s{" "}
-          <Strong>Settings → Connections</Strong>. The MCP tool list updates on the next run.
+          <Strong>Settings → Connections</Strong>, or tick several Connections — alongside
+          mailboxes, notes, Vault items and the rest — on its{" "}
+          <DocLink to="/docs/employees#access">Settings → Access</DocLink> and grant them in one
+          go. The MCP tool list updates on the next run.
         </LI>
         <LI>
-          <Strong>Revoke a grant</Strong> the same place. The next routine won&apos;t see the tools.
+          <Strong>Revoke a grant</Strong> in either place. The next routine won&apos;t see the
+          tools.
         </LI>
         <LI>
           <Strong>Delete a Connection</Strong> at the company level. All dependent grants disappear

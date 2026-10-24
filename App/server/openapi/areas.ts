@@ -30,6 +30,7 @@ import { emailLogsRouter } from "../routes/emailLogs.js";
 import { emailProvidersRouter } from "../routes/emailProviders.js";
 import { employeesRouter } from "../routes/employees.js";
 import { employeeSurfaceRouter } from "../routes/employeeSurface.js";
+import { employeeAccessRouter } from "../routes/employeeAccess.js";
 import { employeeWorkQueueRouter } from "../routes/employeeWorkQueue.js";
 import { exploreRouter } from "../routes/explore.js";
 import { financeRouter } from "../routes/finance.js";
@@ -141,7 +142,8 @@ export const AREAS: readonly Area[] = [
   },
   {
     name: "Employees",
-    description: "AI Employees: their profile, Soul, journal, memory, templates and work queue.",
+    description:
+      "AI Employees: their profile, Soul, journal, memory, templates, work queue and Access — every Grant they hold.",
   },
   {
     name: "Employee chat",
@@ -296,6 +298,7 @@ function areaRules(): AreaRule[] {
       paths: /\/(conversations|chat-attachments)(\/|$)/,
     },
     { router: employeeSurfaceRouter, area: "Employees" },
+    { router: employeeAccessRouter, area: "Employees" },
     { router: modelsRouter, area: "AI Models" },
     { router: skillsRouter, area: "Skills" },
     { router: toolCatalogueRouter, area: "Tool catalogue" },
