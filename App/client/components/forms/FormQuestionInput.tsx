@@ -80,7 +80,7 @@ export function FormQuestionInput({
                     "flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm transition focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/25",
                     checked
                       ? "border-indigo-300 bg-indigo-50/70 text-slate-900 ring-1 ring-indigo-200 dark:border-indigo-700 dark:bg-indigo-500/10 dark:text-slate-100 dark:ring-indigo-900"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-900",
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800/60",
                     disabled && "cursor-not-allowed opacity-60",
                   )}
                 >

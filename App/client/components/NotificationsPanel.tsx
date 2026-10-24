@@ -234,7 +234,7 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
                   Notifications
                 </span>
                 {count > 0 && (
-                  <span className="rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-200">
+                  <span className="rounded-full bg-rose-100 px-1.5 text-xs font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-200">
                     {count}
                   </span>
                 )}

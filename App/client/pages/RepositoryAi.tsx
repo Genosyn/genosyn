@@ -268,7 +268,7 @@ export default function RepositoryAi() {
                 AI work
               </h1>
               {attentionCount > 0 && (
-                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                   {attentionCount} need{attentionCount === 1 ? "s" : ""} attention
                 </span>
               )}

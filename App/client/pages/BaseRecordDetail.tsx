@@ -366,7 +366,7 @@ export function RecordFilesSection({
         <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
           <Paperclip size={12} /> Files
           {attachments && attachments.length > 0 && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               {attachments.length}
             </span>
           )}
@@ -494,7 +494,7 @@ export function RecordCommentsSection({
       <div className="text-xs font-medium flex items-center gap-2 text-slate-500 dark:text-slate-400">
         <MessageSquare size={12} /> Comments
         {comments && comments.length > 0 && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {comments.length}
           </span>
         )}
@@ -591,7 +591,7 @@ function CommentRow({
             {name}
           </span>
           {isAi && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+            <span className="inline-flex items-center gap-0.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
               <Bot size={9} /> AI
             </span>
           )}

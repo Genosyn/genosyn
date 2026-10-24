@@ -832,7 +832,7 @@ function ChannelRow({
 }) {
   const unreadBadge =
     unread && unread > 0 ? (
-      <span className="ml-auto rounded-full bg-indigo-600 px-1.5 text-[10px] font-semibold text-white">
+      <span className="ml-auto rounded-full bg-indigo-600 px-1.5 text-xs font-semibold text-white">
         {unread > 99 ? "99+" : unread}
       </span>
     ) : right ? (
@@ -2101,7 +2101,7 @@ function ChannelMembersSettings({
               )}
               <span className="font-medium text-slate-900 dark:text-slate-100">{member.name}</span>
               {member.kind === "ai" && (
-                <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <span className="rounded bg-indigo-50 px-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                   AI
                 </span>
               )}

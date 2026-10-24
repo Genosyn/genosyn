@@ -570,7 +570,7 @@ function FolderLink({
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+        <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
           {badge}
         </span>
       )}
@@ -631,7 +631,7 @@ function MailOnboarding({
         own mail server — anything that speaks IMAP.
       </p>
 
-      <div className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <ConnectMailboxForm
           companyId={company.id}
           canConnect={company.role === "owner" || company.role === "admin"}

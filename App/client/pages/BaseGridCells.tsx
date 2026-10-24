@@ -89,7 +89,7 @@ export function CellView({
                 key={id}
                 to={o.url}
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] text-indigo-700 hover:bg-indigo-100 hover:underline dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 hover:underline dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                 title={o.sublabel ? `${label} — ${o.sublabel}` : label}
               >
                 {chip}
@@ -99,7 +99,7 @@ export function CellView({
           return (
             <span
               key={id}
-              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
               title={o?.sublabel || undefined}
             >
               {chip}
@@ -171,7 +171,7 @@ export function CellView({
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
               >
                 <LinkIcon size={10} /> {label}
               </span>

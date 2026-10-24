@@ -382,7 +382,7 @@ function GoalRow({
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {goal.awaitingConfirmation ? (
             <span
-              className="mt-0.5 shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              className="mt-0.5 shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
               title="Still active. An AI employee reported the target met, and the goal settles once a person confirms the number."
             >
               Needs confirmation

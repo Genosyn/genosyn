@@ -176,7 +176,7 @@ export default function MailRules() {
           {rules.map((rule) => (
             <li
               key={rule.id}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex items-start gap-3">
                 <button

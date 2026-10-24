@@ -240,7 +240,7 @@ function MessageRow({
               {message.author?.name ?? "(unknown)"}
             </span>
             {message.author?.kind === "ai" && (
-              <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="rounded bg-indigo-50 px-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                 AI
               </span>
             )}

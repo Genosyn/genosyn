@@ -304,7 +304,7 @@ function AuditRow({ event, companySlug }: { event: AuditEvent; companySlug: stri
         </div>
       </button>
       {open && hasMeta && (
-        <pre className="ml-6 mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+        <pre className="ml-6 mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
           {JSON.stringify(event.metadata, null, 2)}
         </pre>
       )}

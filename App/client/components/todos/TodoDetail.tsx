@@ -869,7 +869,7 @@ export function CommentThread({
         <MessageSquare size={13} />
         Discussion
         {comments && comments.length > 0 && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {comments.length}
           </span>
         )}

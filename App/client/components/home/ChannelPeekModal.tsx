@@ -564,7 +564,7 @@ function ChannelMeta({
   return (
     <span className="block min-w-0">
       <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+        <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
           {unreadCount > 99 ? "99+" : unreadCount} new
         </span>
         <span className="inline-flex items-center gap-1">

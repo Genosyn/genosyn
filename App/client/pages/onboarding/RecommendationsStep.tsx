@@ -822,7 +822,7 @@ function RoutineCard({
           {routine.reasons.map((reason) => (
             <span
               key={reason}
-              className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
             >
               {reason}
             </span>
@@ -877,7 +877,7 @@ function IntegrationCard({
             {integration.connections.map((connection) => (
               <span
                 key={connection.id}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               >
                 <span
                   className={clsx(
@@ -1115,7 +1115,7 @@ function StandingWork({
 
 function StatePill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
       {children}
     </span>
   );

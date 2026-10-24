@@ -1085,7 +1085,7 @@ export default function RepositoryFiles() {
           </span>
         )}
         {currentStatus?.unborn && (
-          <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+          <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
             No commits yet
           </span>
         )}
@@ -1100,7 +1100,7 @@ export default function RepositoryFiles() {
             <GitCommitHorizontal size={14} />
             Changes
             {changes.length > 0 && (
-              <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+              <span className="rounded-full bg-amber-100 px-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                 {changes.length}
               </span>
             )}

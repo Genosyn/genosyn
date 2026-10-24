@@ -270,7 +270,7 @@ export function MailAnalysisCard({
 
   if (row.status === "running") {
     return (
-      <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
         <Spinner size={13} />
         Reading this email…
       </div>
@@ -279,7 +279,7 @@ export function MailAnalysisCard({
 
   if (row.status === "failed") {
     return (
-      <div className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <Sparkles size={14} className="mt-0.5 shrink-0 text-slate-300 dark:text-slate-600" />
         <div className="min-w-0 flex-1">
           <p className="text-xs text-slate-500 dark:text-slate-400">

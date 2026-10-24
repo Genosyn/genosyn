@@ -589,7 +589,7 @@ function SiteSettings() {
                       Whatever serves HTTPS for this install must also serve it for {settings.domain.name}. With Caddy, on-demand TLS
                       can ask Genosyn which domains to issue for:
                     </p>
-                    <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">{`{
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{`{
   on_demand_tls {
     ask http://localhost:8471/api/careers/domains/check
   }

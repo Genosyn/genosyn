@@ -1193,22 +1193,22 @@ function TurnBubble({
           <div className="mb-1 flex items-center gap-1.5 text-[11px]">
             <span className="font-medium text-slate-700 dark:text-slate-200">{authorName}</span>
             {isError && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                 <AlertCircle size={10} /> error
               </span>
             )}
             {isSkipped && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                 <CircleSlash size={10} /> not available
               </span>
             )}
             {isBusy && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                 <Clock size={10} /> working
               </span>
             )}
             {isInterrupted && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 <CircleSlash size={10} /> interrupted
               </span>
             )}
@@ -1465,7 +1465,7 @@ function QueuedMessageStack({
             </div>
           </div>
         </div>
-        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium tabular-nums text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-200 dark:ring-indigo-500/30">
+        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-medium tabular-nums text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-200 dark:ring-indigo-500/30">
           {messages.length} queued
         </span>
       </div>
@@ -1489,7 +1489,7 @@ function QueuedMessageStack({
                 {message.attachments.map((attachment) => (
                   <span
                     key={attachment.id}
-                    className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   >
                     <Paperclip size={11} className="shrink-0" />
                     <span className="truncate">{attachment.filename}</span>
@@ -1515,7 +1515,7 @@ function QueuedMessageStack({
                   type="button"
                   onClick={() => onInterruptAndSend(message.id)}
                   disabled={interrupting}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-500/30 dark:bg-slate-900 dark:text-indigo-200 dark:hover:border-indigo-400/60 dark:hover:bg-indigo-500/10"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-500/30 dark:bg-slate-900 dark:text-indigo-200 dark:hover:border-indigo-400/60 dark:hover:bg-indigo-500/10"
                   title={`Stop ${empName} and send this message now`}
                 >
                   <Zap size={11} />
@@ -1951,7 +1951,7 @@ function Composer({
                 aria-label="AI Model for this message"
                 value={selectedModelId}
                 onChange={(event) => onModelChange(event.target.value)}
-                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
+                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -2455,14 +2455,14 @@ function ActionDetailModal({ action, onClose }: { action: MessageAction; onClose
 function StatusChip({ status }: { status: "ok" | "error" | undefined }) {
   if (status === "ok") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
         <Check size={10} strokeWidth={3} /> ok
       </span>
     );
   }
   if (status === "error") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
         <AlertCircle size={10} /> error
       </span>
     );

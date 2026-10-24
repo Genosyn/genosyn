@@ -778,7 +778,7 @@ function GroupCard({
           <span className="shrink-0">{spec.icon}</span>
           <span className="min-w-0 truncate">{spec.title}</span>
           {dirty && (
-            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
               Unsaved
             </span>
           )}

@@ -215,7 +215,7 @@ export function CustomerPeoplePanel({
                 <div className="flex flex-wrap items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
                   {contact.name}
                   {contact.isPrimary && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                       Primary
                     </span>
                   )}

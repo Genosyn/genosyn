@@ -701,7 +701,7 @@ function IntegrationsPage({
                               {entry.name}
                             </span>
                             {existing > 0 && (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 {existing} connected
                               </span>
                             )}
@@ -1012,7 +1012,7 @@ function ManageAccessModal({
                   </div>
                   {isGranted ? (
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                         <Check size={10} /> Granted
                       </span>
                       <Button
@@ -1299,11 +1299,11 @@ function ChatSurfaceModal({
                         {identity.externalUserLabel || identity.externalUserId}
                       </span>
                       {identity.bound ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                           <Check size={10} /> Linked
                         </span>
                       ) : (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                           Pending
                         </span>
                       )}
@@ -1373,7 +1373,7 @@ function StatusBadge({
 }) {
   if (status === "connected") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
         <CheckCircle2 size={10} /> Connected
       </span>
     );
@@ -1381,7 +1381,7 @@ function StatusBadge({
   return (
     <span
       title={message}
-      className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+      className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
     >
       <AlertCircle size={10} /> {status === "expired" ? "Expired" : "Error"}
     </span>

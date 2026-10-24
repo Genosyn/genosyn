@@ -116,7 +116,7 @@ export default function PipelineNew({ company }: { company: Company }) {
       </header>
 
       <form onSubmit={submit} className="mt-7 space-y-6">
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-6">
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
           <div className="flex items-start gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">
               1
@@ -161,7 +161,7 @@ export default function PipelineNew({ company }: { company: Company }) {
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-6">
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
           <div className="flex items-start gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">
               2
@@ -184,7 +184,7 @@ export default function PipelineNew({ company }: { company: Company }) {
                         "relative flex cursor-pointer gap-3 rounded-xl border p-4 transition " +
                         (selected
                           ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-100 dark:border-indigo-600 dark:bg-indigo-500/10 dark:ring-indigo-950"
-                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-900")
+                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-800/60")
                       }
                     >
                       <input

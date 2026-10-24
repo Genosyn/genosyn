@@ -536,7 +536,7 @@ export default function RevenueContacts() {
                             <span className="inline-flex items-center gap-1">
                               {owner.name}
                               {owner.kind === "ai" && (
-                                <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                                <span className="rounded bg-violet-100 px-1 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
                                   AI
                                 </span>
                               )}

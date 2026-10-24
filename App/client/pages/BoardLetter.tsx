@@ -260,7 +260,7 @@ function LetterSheet({ company, letter }: { company: Company; letter: BoardLette
   const status = letterStatusBadge(letter);
   const trace = traceBadge(letter);
   return (
-    <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-slate-100 px-5 py-4 sm:px-8 dark:border-slate-800">
         <div>
           <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100">

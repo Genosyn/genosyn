@@ -634,7 +634,7 @@ export default function PublicSigning() {
                     key={field.id}
                     onClick={() => navigateToField(field)}
                     aria-label={`${field.label || SIGNATURE_FIELD_LABELS[field.type]}, page ${field.pageNumber}, ${fieldComplete(field) ? "complete" : field.required ? "required and incomplete" : "optional"}`}
-                    className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-900 ${
+                    className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800/60 ${
                       activeFieldId === field.id ? "bg-indigo-50 dark:bg-indigo-950/50" : ""
                     }`}
                   >
@@ -833,7 +833,7 @@ function TerminalCard({
 
   return (
     <div className="mx-auto flex min-h-[75vh] max-w-lg items-center px-5 py-12">
-      <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <span
           className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full ${
             tone === "success"

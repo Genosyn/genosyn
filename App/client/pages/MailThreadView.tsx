@@ -572,7 +572,7 @@ export default function MailThreadView() {
                   className={handoverDetailsOpen ? "rotate-180" : undefined}
                 />
                 Handover details
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-slate-800">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs tabular-nums dark:bg-slate-800">
                   {handovers.length}
                 </span>
                 {handovers.some((handover) => handover.status === "failed") && (
@@ -726,7 +726,7 @@ function MessageCard({
   const fromLabel = isSelf ? "me" : message.fromName || message.fromEmail;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <button onClick={onToggle} className="flex w-full items-baseline gap-2 px-4 py-3 text-left">
         <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
           {fromLabel}
@@ -1151,7 +1151,7 @@ const ReplyComposer = React.forwardRef<
   };
 
   return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         {replyAll ? <ReplyAll size={13} /> : <Reply size={13} />}
         {recipients === null ? (

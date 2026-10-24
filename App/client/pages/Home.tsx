@@ -1360,7 +1360,7 @@ function HomeTldrPanel({
   const base = `/c/${company.slug}/tldrs`;
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-950">
+    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-900">
       <div className="flex items-center gap-2 border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-violet-500/15 dark:bg-violet-500/10">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
           <Sparkles size={15} />

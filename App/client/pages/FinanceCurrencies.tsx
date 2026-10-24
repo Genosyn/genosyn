@@ -528,12 +528,12 @@ function TodaysRates({ overview }: { overview: ExchangeRateOverview }) {
                       No rate on file
                     </span>
                   ) : row.automatic ? (
-                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       ECB
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                      <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                         Set by you
                       </span>
                       {row.source && row.source !== "manual" && (

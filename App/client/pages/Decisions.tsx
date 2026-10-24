@@ -733,7 +733,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
                         <span className="mx-1.5 text-slate-400 dark:text-slate-500">→</span>
                         <span>{decider}</span>
                         {retired && (
-                          <span className="ml-2 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                          <span className="ml-2 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                             was their manager
                           </span>
                         )}
@@ -763,7 +763,7 @@ function RoutingModal({ company, onClose }: { company: Company; onClose: () => v
                         </>
                       ) : (
                         !rule.enabled && (
-                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                             off
                           </span>
                         )

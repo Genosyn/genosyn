@@ -170,7 +170,7 @@ export function PipelineRuns({
                       "block w-full border-b border-slate-100 px-4 py-3 text-left transition dark:border-slate-800 " +
                       (run.id === selectedId
                         ? "bg-indigo-50 dark:bg-indigo-500/10"
-                        : "hover:bg-slate-50 dark:hover:bg-slate-900")
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
                     }
                   >
                     <div className="flex items-center gap-2">
@@ -228,7 +228,7 @@ function RunDetail({ detail }: { detail: PipelineRunDetail }) {
   const status = RUN_STATUS_META[detail.status];
   return (
     <div className="page-shell space-y-5">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <span
@@ -310,7 +310,7 @@ function DataSection({
   const copied = copiedValue === value;
   return (
     <details
-      className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:pb-0 dark:border-slate-800 dark:bg-slate-950"
+      className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:pb-0 dark:border-slate-800 dark:bg-slate-900"
       open={title === "Step log"}
     >
       <summary className="flex cursor-pointer list-none items-start gap-3 p-4 marker:hidden">

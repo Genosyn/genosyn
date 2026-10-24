@@ -60,7 +60,7 @@ function ParticipantChip({
     >
       <span
         className={
-          "flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200 " +
+          "flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200 " +
           STATE_RING[participant.state]
         }
         aria-hidden="true"

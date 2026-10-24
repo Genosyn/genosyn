@@ -337,7 +337,7 @@ export function AskAiPanel({ company }: { company: Company }) {
         <button
           type="button"
           onClick={() => setHistoryOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-slate-50 dark:hover:bg-slate-900"
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
           aria-expanded={historyOpen}
           aria-haspopup="menu"
           title="Conversations"
@@ -1024,7 +1024,7 @@ function ConversationPane({
                 aria-label="AI Model for this message"
                 value={selectedModelId ?? ""}
                 onChange={(event) => setModelId(event.target.value)}
-                className="max-w-40 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                className="max-w-40 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-600 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
               >
                 {single.models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -1551,7 +1551,7 @@ function AttachmentChips({
           href={urlFor(a.id)}
           download={a.filename}
           title={`Download ${a.filename}`}
-          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
         >
           <FileText size={11} className="shrink-0 text-slate-400" />
           <span className="max-w-[180px] truncate">{a.filename}</span>
@@ -1568,7 +1568,7 @@ function ActionPills({ actions }: { actions: MessageAction[] }) {
       {actions.map((a, i) => (
         <span
           key={i}
-          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
           title={a.targetLabel || a.action}
         >
           <Check size={10} className="text-emerald-500" />

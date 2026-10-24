@@ -402,7 +402,7 @@ export default function RevenueContactDetail() {
                   <span className="font-medium text-slate-700 dark:text-slate-200">
                     {owner.name}
                     {owner.kind === "ai" && (
-                      <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                      <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
                         AI
                       </span>
                     )}

@@ -699,7 +699,7 @@ export default function NoteDetail({ company }: { company: Company }) {
                 Edited {formatRelative(note.updatedAt)} by{" "}
                 <span className="font-medium text-slate-500 dark:text-slate-400">{editor.name}</span>
                 {editor.kind === "ai" && (
-                  <span className="rounded bg-violet-50 px-1 text-[11px] font-medium text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
+                  <span className="rounded bg-violet-50 px-1 text-xs font-medium text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
                     AI Employee
                   </span>
                 )}

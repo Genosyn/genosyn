@@ -206,7 +206,7 @@ function LetterRow({ company, letter }: { company: Company; letter: BoardLetterS
   return (
     <Link
       to={`/c/${company.slug}/tldrs/letters/${letter.number}`}
-      className="group flex items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700 dark:hover:bg-slate-900/60"
+      className="group flex items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
     >
       <div className="w-14 shrink-0 text-center">
         <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -294,7 +294,7 @@ function LetterSettingsCard({
   const auditor = employees.find((employee) => employee.id === draft.auditorEmployeeId) ?? null;
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3.5 dark:border-slate-800">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Every month</h2>

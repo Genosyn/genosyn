@@ -234,11 +234,11 @@ export function AiEmployeeRow({
           <span className="truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">
             {name}
           </span>
-          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             {grant.accessLevel === "write" ? "Can prepare work" : "Read only"}
           </span>
           {employee?.pullRequestReady && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
               <GitPullRequest size={9} /> Can open pull requests
             </span>
           )}

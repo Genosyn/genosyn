@@ -1103,13 +1103,13 @@ export function SourceKindIcon({ kind, size = 18 }: { kind: ResourceSourceKind; 
 function StatusBadge({ status }: { status: Resource["status"] }) {
   if (status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
         <AlertCircle size={10} /> Failed
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
       <Loader2 size={10} className="animate-spin" /> {status}
     </span>
   );

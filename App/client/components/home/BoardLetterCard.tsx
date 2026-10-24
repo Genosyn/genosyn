@@ -48,7 +48,7 @@ export function BoardLetterCard({
   const writer = letter.writer.name || "A former AI Employee";
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
           <ScrollText size={15} />
@@ -120,7 +120,7 @@ export function BoardLetterCard({
       {more > 0 && (
         <Link
           to={letters}
-          className="block border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-center text-xs font-medium text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40 dark:text-indigo-400 dark:hover:bg-slate-900"
+          className="block border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-center text-xs font-medium text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40 dark:text-indigo-400 dark:hover:bg-slate-800/60"
         >
           {more} more unread {more === 1 ? "letter" : "letters"}
         </Link>

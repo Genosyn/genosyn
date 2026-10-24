@@ -405,7 +405,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
                   key={card.id}
                   role="region"
                   aria-label={label}
-                  className="explore-dashboard-card flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
+                  className="explore-dashboard-card flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
                   style={
                     {
                       "--explore-card-column": `${card.x + 1} / span ${card.w}`,
@@ -635,7 +635,7 @@ function CardEditControls({
           const width = Number(e.target.value);
           onChange({ w: width, x: Math.min(card.x, 12 - width) });
         }}
-        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
+        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-900"
         title="Card width"
         aria-label="Card width"
       >
@@ -650,7 +650,7 @@ function CardEditControls({
         containerClassName="w-24"
         value={card.h}
         onChange={(e) => onChange({ h: Number(e.target.value) })}
-        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
+        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-900"
         title="Card height"
         aria-label="Card height"
       >
@@ -792,7 +792,7 @@ function ChartPicker({
                         </div>
                       </div>
                       {isOn && (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           already added
                         </span>
                       )}

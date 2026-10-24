@@ -448,7 +448,7 @@ export default function RevenueDealDetail() {
               {owner?.ai ? <Bot size={12} /> : <User size={12} />}
               {owner ? owner.name : "Unassigned"}
               {owner && (
-                <span className="rounded bg-slate-100 px-1 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <span className="rounded bg-slate-100 px-1 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   {owner.ai ? "AI employee" : "Human"}
                 </span>
               )}

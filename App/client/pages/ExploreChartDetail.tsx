@@ -657,7 +657,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
           {/* Preview */}
           <div className="flex min-h-[340px] flex-1 items-stretch p-4">
-            <div className="flex h-full min-h-[300px] w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+            <div className="flex h-full min-h-[300px] w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
               {result ? (
                 <ChartRenderer vizType={vizType} vizConfig={vizConfig} result={result} />
               ) : (

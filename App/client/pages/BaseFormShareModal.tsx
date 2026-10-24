@@ -166,7 +166,7 @@ export function BaseFormShareModal({
           </div>
         ) : (
           <>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
                 <Link2 size={15} className="text-indigo-600 dark:text-indigo-400" /> Public link
               </div>
@@ -225,7 +225,7 @@ export function BaseFormShareModal({
               )}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">

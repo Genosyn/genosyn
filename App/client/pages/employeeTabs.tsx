@@ -56,6 +56,7 @@ import { copyToClipboard } from "../lib/clipboard";
 import { errorDetail, errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { employeeSettingsPage } from "../lib/employeeSettingsNav";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -130,7 +131,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Soul</span>
               {dirty && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                   Unsaved
                 </span>
               )}
@@ -327,7 +328,7 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
       <nav
         ref={scroller}
         aria-label="Employee settings"
-        className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
+        className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 md:hidden"
       >
         {groups.flatMap((group) =>
           group.collapsible
@@ -623,7 +624,7 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
                         granted {new Date(waiver.grantedAt).toLocaleDateString()}
                       </span>
                       {waiver.revokedAt && (
-                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
                           Revoked {new Date(waiver.revokedAt).toLocaleDateString()}
                           {waiver.revokedReason ? `: ${waiver.revokedReason}` : ""}
                         </span>
@@ -732,12 +733,12 @@ function EmployeeWakeupsCard({ company, emp }: { company: Company; emp: Employee
                     {new Date(wakeup.at).toLocaleString()}
                   </span>
                   {wakeup.status === "fired" && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       Fired
                     </span>
                   )}
                   {wakeup.status === "cancelled" && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       Cancelled
                     </span>
                   )}
@@ -2034,23 +2035,23 @@ function RunConcurrencyPanel({
 function StatusBadge({ connected }: { connected: boolean }) {
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
-        <Check size={10} /> Connected
-      </span>
+      <Badge tone="success" icon={<Check />}>
+        Connected
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300">
-      <Loader2 size={10} className="animate-spin" /> Waiting
-    </span>
+    <Badge tone="warning" icon={<Loader2 className="animate-spin" />}>
+      Waiting
+    </Badge>
   );
 }
 
 function ActiveBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300">
-      <BrainCircuit size={10} /> Active
-    </span>
+    <Badge tone="accent" icon={<BrainCircuit />}>
+      Active
+    </Badge>
   );
 }
 
@@ -2699,7 +2700,7 @@ function JournalEntryRow({
             <div className="flex items-center gap-2">
               <span
                 className={
-                  "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                  "inline-block rounded-md border px-1.5 py-0.5 text-xs font-medium first-letter:uppercase " +
                   JOURNAL_KIND_STYLE[entry.kind]
                 }
               >
@@ -3127,16 +3128,13 @@ export function McpPage() {
                     <div className="flex items-center gap-2">
                       <Plug size={14} className="text-slate-500 dark:text-slate-400" />
                       <div className="font-medium">{s.name}</div>
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
+                      <Badge capitalize={false} className="font-mono">
                         {s.transport}
-                      </span>
+                      </Badge>
                       {s.guardedTools.length > 0 && (
-                        <span
-                          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-                          title={`Guarded: ${s.guardedTools.join(", ")}`}
-                        >
+                        <Badge tone="warning" title={`Guarded: ${s.guardedTools.join(", ")}`}>
                           {s.guardedTools.length} guarded
-                        </span>
+                        </Badge>
                       )}
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">

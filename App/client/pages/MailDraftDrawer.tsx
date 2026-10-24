@@ -164,7 +164,7 @@ export function MailDraftDrawer({
                       <a
                         key={attachment.index}
                         href={mailApi.attachmentUrl(companyId, full.id, attachment.index)}
-                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/60"
                       >
                         <Paperclip size={12} />
                         <span className="max-w-52 truncate">{attachment.filename}</span>

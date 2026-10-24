@@ -864,7 +864,7 @@ function CustomerOverview({ company }: { company: Company }) {
               >
                 {label}
                 {count !== undefined && count > 0 && (
-                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                     {count}
                   </span>
                 )}

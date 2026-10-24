@@ -568,7 +568,7 @@ export default function MailThreadList() {
           />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
             <Checkbox
               checked={allSelected}
@@ -1056,7 +1056,7 @@ export function ThreadRow({
           ? "bg-indigo-50/70 dark:bg-indigo-500/10"
           : thread.unread
             ? "bg-indigo-50/30 dark:bg-indigo-500/5"
-            : "hover:bg-slate-50 dark:hover:bg-slate-900",
+            : "hover:bg-slate-50 dark:hover:bg-slate-800/60",
         focused && "ring-1 ring-inset ring-indigo-400/60 dark:ring-indigo-500/40",
       )}
     >

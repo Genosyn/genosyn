@@ -262,7 +262,7 @@ function PanelHeader({
           <Monitor size={12} className="shrink-0 text-slate-400" />
           <span>Live browser</span>
           {session.viewerCount > 1 && (
-            <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+            <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
               {session.viewerCount} watching
             </span>
           )}

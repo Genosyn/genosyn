@@ -451,7 +451,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
       {/* The shortcut hint is the affordance on pointer-and-keyboard screens;
           below sm there's no room and probably no keyboard, so fall back to
           the chevron that says "this opens something". */}
-      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[11px] font-medium text-slate-500 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-xs font-medium text-slate-500 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
         {PALETTE_SHORTCUT}
       </kbd>
       <ChevronDown size={14} className="shrink-0 text-slate-400 sm:hidden" />

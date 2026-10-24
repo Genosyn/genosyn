@@ -381,7 +381,7 @@ function TldrCard({
   return (
     <article
       id={`tldr-${item.id}`}
-      className="scroll-mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950"
+      className="scroll-mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900"
     >
       <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center dark:border-slate-800">
         <div className="flex min-w-0 items-center gap-3">
@@ -409,7 +409,7 @@ function TldrCard({
 
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
           {item.dismissed ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
               <CheckCircle2 size={11} /> Read
             </span>
           ) : (

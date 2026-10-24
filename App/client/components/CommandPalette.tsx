@@ -825,7 +825,7 @@ function PaletteRow({
         <Kbd>{item.shortcut}</Kbd>
       </span>
       {isCurrent && (
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
           Current
         </span>
       )}
@@ -894,7 +894,7 @@ function PageRow({
         </span>
       </span>
       {isCurrent && (
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
           Current
         </span>
       )}
@@ -1003,7 +1003,7 @@ function Kbd({ children, className }: { children: React.ReactNode; className?: s
   return (
     <kbd
       className={clsx(
-        "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400",
+        "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400",
         className,
       )}
     >

@@ -119,7 +119,7 @@ export default function DecisionStackSettingsPage({ company }: { company: Compan
           />
           <section
             aria-labelledby="decision-stack-instructions-title"
-            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
           >
             <h2
               id="decision-stack-instructions-title"
@@ -182,7 +182,7 @@ function StackSwitch({
   return (
     <section
       aria-labelledby="decision-stack-switch-title"
-      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
     >
       <div className="flex items-start gap-3">
         <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 sm:flex dark:bg-slate-800 dark:text-slate-300">

@@ -82,7 +82,7 @@ export function PipelinePalette({
                       key={entry.type}
                       type="button"
                       onClick={() => onAdd(entry.type)}
-                      className="group flex w-full items-start gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                      className="group flex w-full items-start gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
                     >
                       <div
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${meta.tone}`}

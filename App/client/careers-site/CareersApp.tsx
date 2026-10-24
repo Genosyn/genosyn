@@ -304,7 +304,7 @@ function Fact({ icon, label, children }: { icon: React.ReactNode; label: string;
     <div className="flex gap-3">
       <span className="mt-0.5 text-slate-400">{icon}</span>
       <div>
-        <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</dt>
+        <dt className="text-xs font-medium uppercase tracking-wider text-slate-400">{label}</dt>
         <dd className="mt-0.5 text-sm font-medium text-slate-800">{children}</dd>
       </div>
     </div>

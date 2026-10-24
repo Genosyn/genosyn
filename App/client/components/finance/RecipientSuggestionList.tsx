@@ -154,7 +154,7 @@ export function RecipientSuggestionList({
               >
                 <span
                   aria-hidden
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                 >
                   {suggestionInitials(suggestion)}
                 </span>
@@ -164,7 +164,7 @@ export function RecipientSuggestionList({
                       {label}
                     </span>
                     {suggestion.primary && (
-                      <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-px text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                      <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-px text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
                         Primary
                       </span>
                     )}

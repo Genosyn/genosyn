@@ -276,7 +276,7 @@ export default function TldrSettingsPage() {
 
       {settings && employees && draft && (
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
               <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -415,7 +415,7 @@ export default function TldrSettingsPage() {
                           "relative rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
                           active
                             ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200 dark:border-violet-500/40 dark:bg-violet-500/10 dark:ring-violet-500/20"
-                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-900",
+                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-800/60",
                         )}
                         aria-pressed={active}
                       >
@@ -502,7 +502,7 @@ export default function TldrSettingsPage() {
               )}
             </section>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Schedule status
               </h2>
@@ -538,7 +538,7 @@ export default function TldrSettingsPage() {
               </dl>
             </section>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
                 <ShieldCheck size={15} className="text-emerald-600 dark:text-emerald-400" />
                 Private by design
@@ -746,7 +746,7 @@ function StandingQuestions({
                 key={preset}
                 type="button"
                 onClick={() => add(preset)}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
               >
                 <Plus size={10} className="mr-1 inline align-[-1px]" />
                 {preset}
