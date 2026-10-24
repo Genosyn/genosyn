@@ -365,9 +365,11 @@ export function SelfHosting() {
       <P>
         System-level sends (password resets, invites, welcomes) and any company without its own
         provider fall back to a single <Strong>global SMTP transport</Strong>. Configure it in the
-        app at <Code>Admin → Email transport</Code>: fill in the host, port, encryption, username,
-        password, from name, and from address, then use <Code>Send test</Code> to confirm
-        deliverability. The settings are stored in the database and take effect immediately — no
+        app at <Code>Admin → Email transport</Code>: fill in the host, username, password, and from
+        address — the port, TLS mode, and from name sit under <Strong>Advanced</Strong>, whose
+        closed line reads <em>Port 587 · TLS by port · From “Genosyn”</em> until you change them —
+        then use <Code>Send test</Code> to confirm deliverability. The settings are stored in the
+        database and take effect immediately — no
         restart. Until it&apos;s configured, the <Code>Admin → Overview</Code> and{" "}
         <Code>Instance Health</Code> dashboards flag Email transport with a warning, because those
         system emails only log to the server console and never reach a mailbox.

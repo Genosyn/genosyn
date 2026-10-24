@@ -17,6 +17,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
+import { Disclosure } from "../components/ui/Disclosure";
+import { describeSmtpAdvanced } from "../lib/smtpSummary";
 import type { AdminOutletCtx } from "./AdminLayout";
 
 /**
@@ -32,11 +34,6 @@ const FIELD_CLASS =
   "h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
 const LABEL_CLASS =
   "mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300";
-
-const SOURCE_LABEL: Record<GlobalEmailTransport["source"], string> = {
-  database: "Admin dashboard",
-  none: "Not configured",
-};
 
 type Draft = {
   host: string;
@@ -283,41 +280,6 @@ export function AdminEmail() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className={LABEL_CLASS} htmlFor="smtp-port">
-                    Port
-                  </label>
-                  <input
-                    id="smtp-port"
-                    type="number"
-                    className={FIELD_CLASS}
-                    placeholder="587"
-                    value={draft.port}
-                    onChange={(e) =>
-                      setDraft({ ...draft, port: e.target.value })
-                    }
-                  />
-                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                    587 (STARTTLS) or 465 (implicit TLS). TLS mode is
-                    auto-detected for these ports.
-                  </p>
-                </div>
-                <div className="flex items-end pb-1">
-                  <label className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
-                      checked={draft.secure}
-                      onChange={(e) =>
-                        setDraft({ ...draft, secure: e.target.checked })
-                      }
-                    />
-                    <span className="font-medium">Use implicit TLS</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
                   <label className={LABEL_CLASS} htmlFor="smtp-user">
                     Username
                   </label>
@@ -359,44 +321,87 @@ export function AdminEmail() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={LABEL_CLASS} htmlFor="smtp-from-name">
-                    From name
-                  </label>
-                  <input
-                    id="smtp-from-name"
-                    className={FIELD_CLASS}
-                    placeholder="Genosyn"
-                    value={draft.fromName}
-                    onChange={(e) =>
-                      setDraft({ ...draft, fromName: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className={LABEL_CLASS} htmlFor="smtp-from">
-                    From address
-                  </label>
-                  <input
-                    id="smtp-from"
-                    type="email"
-                    className={clsx(FIELD_CLASS, "font-mono")}
-                    placeholder="no-reply@example.com"
-                    value={draft.from}
-                    onChange={(e) =>
-                      setDraft({ ...draft, from: e.target.value })
-                    }
-                  />
-                </div>
+              <div>
+                <label className={LABEL_CLASS} htmlFor="smtp-from">
+                  From address
+                </label>
+                <input
+                  id="smtp-from"
+                  type="email"
+                  className={clsx(FIELD_CLASS, "font-mono")}
+                  placeholder="no-reply@example.com"
+                  value={draft.from}
+                  onChange={(e) =>
+                    setDraft({ ...draft, from: e.target.value })
+                  }
+                />
               </div>
+
+              {/* The port, TLS mode and sender name work on their defaults for
+                  most mail servers, so they wait under Advanced, whose line
+                  names all three. */}
+              <Disclosure
+                title="Advanced"
+                summary={describeSmtpAdvanced(draft)}
+                keepMounted
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className={LABEL_CLASS} htmlFor="smtp-port">
+                        Port
+                      </label>
+                      <input
+                        id="smtp-port"
+                        type="number"
+                        className={FIELD_CLASS}
+                        placeholder="587"
+                        value={draft.port}
+                        onChange={(e) =>
+                          setDraft({ ...draft, port: e.target.value })
+                        }
+                      />
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        587 (STARTTLS) or 465 (implicit TLS). TLS mode is
+                        auto-detected for these ports.
+                      </p>
+                    </div>
+                    <div className="flex items-end pb-1">
+                      <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
+                          checked={draft.secure}
+                          onChange={(e) =>
+                            setDraft({ ...draft, secure: e.target.checked })
+                          }
+                        />
+                        <span className="font-medium">Use implicit TLS</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS} htmlFor="smtp-from-name">
+                      From name
+                    </label>
+                    <input
+                      id="smtp-from-name"
+                      className={FIELD_CLASS}
+                      placeholder="Genosyn"
+                      value={draft.fromName}
+                      onChange={(e) =>
+                        setDraft({ ...draft, fromName: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </Disclosure>
 
               <FormError message={formError} />
 
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-xs text-slate-400 dark:text-slate-500">
-                  Source: {SOURCE_LABEL[data.source]}
-                </span>
+              {/* Whether it is configured is the status banner's job; a
+                  "Source:" line under the form said it a second time. */}
+              <div className="flex items-center justify-end pt-1">
                 <Button type="submit" size="sm" loading={saving} disabled={!dirty}>
                   {saving ? "Saving…" : "Save transport"}
                 </Button>
