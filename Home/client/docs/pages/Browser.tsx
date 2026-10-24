@@ -86,10 +86,11 @@ export function Browser() {
       <P>
         Browser access is off by default. Open the employee, go to{" "}
         <Strong>Settings → Advanced → Browser</Strong>, and flip on{" "}
-        <Strong>Browser access</Strong>. The same card holds the two shaping controls: the{" "}
-        <Strong>allow list</Strong> (which hosts the employee may open) and{" "}
-        <Strong>require approval for form submits</Strong> (a human-in-the-loop gate on anything
-        that sends data). The submit gate is{" "}
+        <Strong>Browser access</Strong>. The card&apos;s <Strong>Advanced</Strong> holds the two
+        shaping controls, and its closed line always says how both are set:{" "}
+        <Strong>Allowed websites</Strong> (the allow list — which hosts the employee may open) and{" "}
+        <Strong>Ask before submitting forms</Strong> (a human-in-the-loop gate on anything that
+        sends data). The submit gate is{" "}
         <Strong>on by default for newly created employees</Strong> — the open web is exactly where
         hostile content meets side effects, so a human turns it off deliberately; employees created
         before that default flipped keep their existing setting. A{" "}
@@ -306,7 +307,7 @@ export function Browser() {
 
       <H2 id="approvals">Approval-gated submits</H2>
       <P>
-        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>{" "}
+        With <Strong>Ask before submitting forms</Strong> on, a <Code>browser_submit</Code>{" "}
         does not fire. It queues an Approval — visible in the company Approvals inbox with the page
         URL and a one-line summary of what the employee is trying to do — and the employee is told
         the submission is pending. Once you approve, the employee re-fires it with{" "}

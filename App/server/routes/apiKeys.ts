@@ -8,6 +8,7 @@ import {
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
+  usesBearerCredential,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { hashApiToken } from "../middleware/auth.js";
@@ -67,7 +68,7 @@ apiKeysRouter.post("/api-keys", validateBody(createSchema), async (req, res) => 
 
   // Don't let a leaked Bearer token mint more Bearer tokens. Key creation
   // must come from a real human session — that's the chain-of-custody root.
-  if (req.apiKey) {
+  if (usesBearerCredential(req)) {
     return res
       .status(403)
       .json({ error: "API keys can only be created from a logged-in browser session." });

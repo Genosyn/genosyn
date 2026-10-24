@@ -35,6 +35,7 @@ import {
   verifyTotpLogin,
 } from "../services/twoFactor.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { failNextRead } from "../test/failedReads.js";
 import { persistTestSession } from "../test/userSession.js";
 import { setPublicUrl } from "../services/publicUrl.js";
 import { SSO_SETTING_KEY } from "../services/ssoSettings.js";
@@ -344,6 +345,26 @@ describe("bootstrap ownership", () => {
     const promoted = await AppDataSource.getRepository(User).findOneByOrFail({ id: target.id });
     assert.equal(promoted.isMasterAdmin, true);
     assert.equal(promoted.sessionVersion, 1);
+  });
+
+  test("a failed second-factor read answers a hosted operator request instead of leaving it open", async (t) => {
+    security.multiTenant = true;
+    const user = await insert(User, {
+      email: "hosted-operator@example.com",
+      name: "Hosted Operator",
+      passwordHash: "x",
+      isMasterAdmin: true,
+      emailVerifiedAt: new Date(),
+      sessionVersion: 0,
+    });
+    failNextRead(t, "totp_credentials");
+    const response = await fetch(`${baseUrl}/api/operator-probe`, {
+      headers: { "x-test-user": user.id },
+      // A request the server leaves open fails here, not at the suite's timeout.
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "Internal server error" });
   });
 });
 

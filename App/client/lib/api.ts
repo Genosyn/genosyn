@@ -2089,6 +2089,47 @@ export type ApiKey = {
  * shown to the human exactly once — never persisted, never visible again. */
 export type ApiKeyCreated = ApiKey & { token: string };
 
+/**
+ * An app — claude.ai, ChatGPT — the Member approved through OAuth to use the
+ * Genosyn MCP server as them in this company. Listed beside API keys.
+ */
+export type ConnectedApp = {
+  id: string;
+  name: string;
+  /** The app's own address, where its sign-in returned: https://claude.ai. */
+  redirectOrigin: string;
+  scope: string;
+  lastUsedAt: string | null;
+  /** When it stops working unless it refreshes before then. */
+  expiresAt: string;
+  revokedAt: string | null;
+  revokedReason: "member" | "app" | "reuse" | null;
+  createdAt: string;
+};
+
+/** What the consent page shows for an app asking to connect (`GET /api/oauth/consent`). */
+export type AppConsentRequest = {
+  app: {
+    name: string;
+    clientUri: string | null;
+    redirectUri: string;
+    redirectOrigin: string;
+  };
+  member: { name: string; email: string };
+  /** Set when the app asked for one company's MCP server: the choice is made. */
+  requestedCompanyId: string | null;
+  companies: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: "owner" | "admin" | "member";
+    financeAccess: "none" | "read" | "full";
+    canConnect: boolean;
+    reason: string | null;
+  }>;
+  expiresAt: string;
+};
+
 // ───────────────────────── Email providers + logs ──────────────────────────
 
 export type EmailProviderKind = "smtp" | "sendgrid" | "mailgun" | "resend" | "postmark";

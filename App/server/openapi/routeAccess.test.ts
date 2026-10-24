@@ -6,7 +6,7 @@ import type { RequestHandler } from "express";
 import { indefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
   onRoutePaths,
-  requireApiKeyAuth,
+  requireBearerAuth,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
@@ -117,8 +117,8 @@ describe("who may call a route", () => {
 });
 
 describe("routes that take an API key and nothing else", () => {
-  test("requireApiKeyAuth authenticates, takes a key, and never a session", () => {
-    const access = accessOf(route([requireApiKeyAuth, requireCompanyMember]));
+  test("requireBearerAuth authenticates, takes a key, and never a session", () => {
+    const access = accessOf(route([requireBearerAuth, requireCompanyMember]));
     assert.equal(access.authenticated, true);
     assert.equal(access.apiKey, true);
     assert.equal(access.apiKeyOnly, true);
@@ -129,7 +129,7 @@ describe("routes that take an API key and nothing else", () => {
   });
 
   test("its paragraph says a cookie alone is refused", () => {
-    const text = accessDescription(accessOf(route([requireApiKeyAuth])), COMPANY);
+    const text = accessDescription(accessOf(route([requireBearerAuth])), COMPANY);
     assert.match(text, /Needs an API key for this company/);
     assert.match(text, /a cookie alone is refused with 401/);
     for (const [, article, word] of text.matchAll(/\b(a|an)\s+([A-Za-z]+)/gi)) {
@@ -140,7 +140,7 @@ describe("routes that take an API key and nothing else", () => {
   test("role and Finance gates still apply on top", () => {
     const access = accessOf(
       route([
-        requireApiKeyAuth,
+        requireBearerAuth,
         requireCompanyMember,
         requireCompanyRole("admin"),
         requireFinanceRead,
@@ -158,7 +158,7 @@ describe("routes that take an API key and nothing else", () => {
   });
 
   test("outside a company path no key is recognized, so it is not key-only either", () => {
-    const access = accessOf(route([requireApiKeyAuth], { path: "/api/auth/me" }));
+    const access = accessOf(route([requireBearerAuth], { path: "/api/auth/me" }));
     assert.equal(access.sessionOnly, "accountLevel");
     assert.equal(access.apiKey, false);
     assert.equal(access.apiKeyOnly, undefined);

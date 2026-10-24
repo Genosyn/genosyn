@@ -44,6 +44,7 @@
     "test:mail-review-timeline": "tsx scripts/test-mail-review-timeline.ts",
     "test:model-setup": "tsx scripts/test-model-setup.ts",
     "test:model-api-keys": "tsx scripts/test-model-api-keys.ts",
+    "test:model-cards": "tsx scripts/test-model-cards.ts",
     "test:base-forms-browser": "tsx scripts/test-base-forms-browser.ts",
     "test:onboarding-fullstack": "tsx scripts/test-onboarding-fullstack.ts",
     "test:passkey-signin": "tsx scripts/test-passkey-signin.ts",
@@ -75,6 +76,7 @@
     "test:api-keys": "tsx scripts/test-api-keys.ts",
     "test:api-docs": "tsx scripts/test-api-docs.ts",
     "test:mcp-setup": "tsx scripts/test-mcp-setup.ts",
+    "test:mcp-oauth-consent": "tsx scripts/test-mcp-oauth-consent.ts",
     "test:notes-editor": "tsx scripts/test-notes-editor.ts",
     "test:group-chats": "tsx scripts/test-group-chats.ts"
   },

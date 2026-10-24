@@ -1,5 +1,5 @@
-import type { AIModel, AuthMode, Provider } from "./api";
-import { apiKeyNotes } from "./modelApiKeys";
+import type { AIModel, AuthMode, Company, Provider, ReusableModel } from "./api";
+import { apiKeyConnectionLine, apiKeyNotes } from "./modelApiKeys";
 
 /**
  * How an AI Model is described to a Member.
@@ -42,6 +42,56 @@ export function describeModel(model: DescribableModel): string {
   return `${modelService(model)} · ${modelName(model)}`;
 }
 
+/** "Oct 9, 2026" — the day, in the viewer's own words, without the clock. */
+export function dayLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/**
+ * The line under a model's name: how it is connected, in plain words, and the
+ * day it connected — or what it is still waiting for. It says nothing about who
+ * may finish it, so a Member and an owner read the same line.
+ */
+export function modelConnectionLine(
+  model: Pick<
+    AIModel,
+    | "status"
+    | "authMode"
+    | "connectedAt"
+    | "customEndpointHost"
+    | "subscriptionCredentialKind"
+    | "subscriptionAvailable"
+    | "subscriptionUnavailableReason"
+  > & { apiKeys?: readonly unknown[] },
+  day: (iso: string) => string = dayLabel,
+): string {
+  if (model.status !== "connected") {
+    if (model.authMode === "customEndpoint") return "Waiting for the server's details";
+    if (model.authMode === "subscription") {
+      return model.subscriptionAvailable
+        ? "Waiting for a ChatGPT sign-in"
+        : (model.subscriptionUnavailableReason ??
+            "ChatGPT sign-in is unavailable on this install.");
+    }
+    return "Waiting for an API key";
+  }
+  const how =
+    model.authMode === "customEndpoint"
+      ? model.customEndpointHost
+        ? `Connected to ${model.customEndpointHost}`
+        : "Connected to a custom endpoint"
+      : model.authMode === "subscription"
+        ? model.subscriptionCredentialKind === "accessToken"
+          ? "Signed in with a Business or Enterprise access token"
+          : "Signed in with ChatGPT"
+        : apiKeyConnectionLine(model.apiKeys?.length || 1);
+  return model.connectedAt ? `${how} · since ${day(model.connectedAt)}` : how;
+}
+
 /** The active model first; everything else keeps the order it came in. */
 export function activeFirst<T extends Pick<AIModel, "isActive">>(models: readonly T[]): T[] {
   return [...models].sort((a, b) => Number(b.isActive) - Number(a.isActive));
@@ -54,9 +104,17 @@ export function runLimitNote(maxConcurrentRuns: number): string {
 }
 
 /**
+ * Owners and admins connect, tune, test and remove AI Models; a Member reads
+ * them. The server refuses a Member's writes, so a Member is not offered them.
+ */
+export function canManageModels(role: Company["role"]): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/**
  * The tuning on one model that has been moved off its default, in the words
- * the Advanced panel uses for it. Empty when everything is at its default —
- * which is nearly always, and is why the panel can stay closed.
+ * its Advanced section uses for it. Empty when everything is at its default —
+ * which is nearly always, and is why the section can stay closed.
  *
  * An unknown context window is named only for a custom endpoint. For an OpenAI
  * key it is simply how that service is, and naming it would put the same words
@@ -85,26 +143,100 @@ export function tuningNotes(
 }
 
 /**
- * The one line an Advanced disclosure shows while it is closed: the other AI
- * Models the employee holds and whatever has been tuned away from its default,
- * e.g. "2 backup API keys · Context window set manually · 2 concurrent Runs".
- * Empty when there is nothing to say, so the caller can show a plain hint of
- * what is inside.
+ * What one model card's Advanced section holds, in a few words — the closed
+ * line while nothing inside has been changed, so the person knows where its
+ * keys, endpoint or sign-in are before opening it.
  */
-export function advancedSummary(
-  models: ReadonlyArray<
+export function modelAdvancedHint(model: Pick<AIModel, "authMode" | "status">): string {
+  if (model.status !== "connected") return "Service and model";
+  if (model.authMode === "subscription") return "ChatGPT sign-in and model";
+  if (model.authMode === "customEndpoint") return "Endpoint, context window and Run limit";
+  return "API keys, model, context window and Run limit";
+}
+
+/**
+ * The line one model card's Advanced section shows while it is closed:
+ * whatever inside has been moved off its default, and any key the provider is
+ * refusing — e.g. "2 backup API keys · 1 API key failing · 2 concurrent Runs".
+ * With nothing changed it names what the section holds instead, so the line is
+ * never blank and nothing that was set is hidden by being folded away.
+ *
+ * Each card reports only its own model: two cards never share a line.
+ */
+export function modelAdvancedSummary(
+  model: Pick<
+    AIModel,
+    "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
+  > &
+    Partial<Pick<AIModel, "provider" | "apiKeys">>,
+): string {
+  const notes = tuningNotes(model);
+  return notes.length > 0 ? notes.join(" · ") : modelAdvancedHint(model);
+}
+
+/**
+ * The line over a list of several AI Models, saying which one does the work:
+ * "2 AI Models — Ada uses the active one for chat and Routines."
+ */
+export function modelListLine(count: number, employeeName: string): string {
+  return `${count} AI Models — ${employeeName} uses the active one for chat and Routines.`;
+}
+
+/** "answered in 2.4 s" — how long a Test connection reply took, to a tenth of a second. */
+export function answeredInLine(elapsedMs: number): string {
+  const ms = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
+  if (ms < 1_000) return "answered in under a second";
+  const seconds = Math.round(ms / 100) / 10;
+  if (seconds < 60) return `answered in ${seconds.toFixed(1)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds - minutes * 60);
+  return `answered in ${minutes} min ${rest} s`;
+}
+
+/** The sentence a passed Test connection shows on its card. */
+export function testPassedLine(elapsedMs: number): string {
+  return `Working — the model ${answeredInLine(elapsedMs)}.`;
+}
+
+/**
+ * The company's other AI Models a person adding one may pick from, less those
+ * this employee already runs: reusing one of those would only make a second
+ * copy of the same model, under another card.
+ *
+ * Matched on what the cards show — service, model and endpoint host — since the
+ * offer carries no credential to compare. A different key for the same model is
+ * still connected from the form beside the offers.
+ */
+export function offersNotHeld(
+  offers: readonly ReusableModel[],
+  held: ReadonlyArray<
     Pick<
       AIModel,
-      "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
-    > &
-      Partial<Pick<AIModel, "provider" | "apiKeys">>
+      "provider" | "authMode" | "model" | "customEndpointModelId" | "customEndpointHost"
+    >
   >,
-): string {
-  const parts: string[] = [];
-  const others = models.length - 1;
-  if (others > 0) parts.push(`${others} other AI ${others === 1 ? "Model" : "Models"}`);
-  for (const note of models.flatMap(tuningNotes)) {
-    if (!parts.includes(note)) parts.push(note);
-  }
-  return parts.join(" · ");
+): ReusableModel[] {
+  const signature = (parts: Array<string | null | undefined>) =>
+    parts.map((part) => (part ?? "").trim().toLowerCase()).join("\u0000");
+  const heldSignatures = new Set(
+    held.map((model) =>
+      signature([
+        model.provider,
+        model.authMode,
+        model.provider === "custom" ? model.customEndpointModelId || model.model : model.model,
+        model.provider === "custom" ? model.customEndpointHost : null,
+      ]),
+    ),
+  );
+  return offers.filter(
+    (offer) =>
+      !heldSignatures.has(
+        signature([
+          offer.provider,
+          offer.authMode,
+          offer.model,
+          offer.provider === "custom" ? offer.endpointHost : null,
+        ]),
+      ),
+  );
 }

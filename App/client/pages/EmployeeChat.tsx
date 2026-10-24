@@ -1980,8 +1980,8 @@ function Composer({
  *
  * The unknown-window state is the primary one, not an edge case: an OpenAI
  * subscription model never reports a window and an API-key OpenAI model has
- * none until someone sets it, so that branch links straight to the model
- * settings panel that can fix it.
+ * none until someone sets it, so that branch links straight to the active
+ * model's card with its Advanced section open, where the window is set.
  */
 function ContextUsageBadge({
   usage,
@@ -2024,7 +2024,7 @@ function ContextUsageBadge({
   if (display.windowUnknown) {
     return (
       <Link
-        to={`/c/${companySlug}/employees/${employeeSlug}/settings/model`}
+        to={`/c/${companySlug}/employees/${employeeSlug}/settings/model#advanced`}
         title={display.title}
         aria-label={display.title}
         className={`inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 underline decoration-dotted underline-offset-2 transition hover:text-slate-700 dark:hover:text-slate-200 ${tint}`}

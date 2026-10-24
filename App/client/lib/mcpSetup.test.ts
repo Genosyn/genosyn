@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   API_KEY_PLACEHOLDER,
   companyMcpUrl,
+  KEY_MCP_CLIENTS,
   MCP_CLIENTS,
   MCP_SERVER_NAME,
   mcpClientSetup,
@@ -29,16 +30,33 @@ describe("the endpoint", () => {
 });
 
 describe("the clients", () => {
-  test("are Claude Desktop, Claude Code, Cursor, and everything else, in that order", () => {
+  test("are claude.ai and ChatGPT, which sign in, then the key clients, in that order", () => {
     assert.deepEqual(
       MCP_CLIENTS.map((client) => client.id),
+      ["claude-ai", "chatgpt", "claude-desktop", "claude-code", "cursor", "http"],
+    );
+    assert.deepEqual(
+      KEY_MCP_CLIENTS.map((client) => client.id),
       ["claude-desktop", "claude-code", "cursor", "http"],
     );
     assert.equal(new Set(MCP_CLIENTS.map((client) => client.label)).size, MCP_CLIENTS.length);
   });
 
-  test("every setup names the real endpoint and the key as a Bearer token", () => {
-    for (const { id } of MCP_CLIENTS) {
+  test("an app that signs in takes the endpoint alone — never a key", () => {
+    for (const id of ["claude-ai", "chatgpt"] as McpClientId[]) {
+      const setup = mcpClientSetup(id, { url: URL_, token: TOKEN });
+      assert.equal(setup.signsIn, true, id);
+      assert.equal(setup.language, "url", id);
+      assert.equal(setup.snippet, URL_, id);
+      assert.match(setup.note, /sign in and approve/, id);
+      assert.match(setup.note, /no key needed/, id);
+    }
+    assert.match(mcpClientSetup("claude-ai", { url: URL_ }).where, /Settings → Connectors/);
+    assert.match(mcpClientSetup("chatgpt", { url: URL_ }).note, /Developer mode/);
+  });
+
+  test("every key client's setup names the real endpoint and the key as a Bearer token", () => {
+    for (const { id } of KEY_MCP_CLIENTS) {
       const setup = mcpClientSetup(id, { url: URL_, token: TOKEN });
       assert.ok(setup.snippet.includes(URL_), id);
       assert.ok(setup.snippet.includes(`Bearer ${TOKEN}`), id);
@@ -49,7 +67,7 @@ describe("the clients", () => {
   });
 
   test("without a key, a placeholder stands in for it — never an empty token", () => {
-    for (const { id } of MCP_CLIENTS) {
+    for (const { id } of KEY_MCP_CLIENTS) {
       for (const token of [undefined, null, "", "   "]) {
         const setup = mcpClientSetup(id, { url: URL_, token });
         assert.ok(

@@ -4,7 +4,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
-import { requireApiKeyAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireBearerAuth, requireCompanyMember } from "../middleware/auth.js";
 import { logRedactedError } from "../middleware/error.js";
 import { financeAccessFor } from "../middleware/financeAccess.js";
 import { rejectAiBrowserAppRequests } from "../services/browserRequestBoundary.js";
@@ -34,13 +34,16 @@ import { getPublicUrl, isPublicUrlConfigured } from "../services/publicUrl.js";
  * is no session to keep, so GET (an event stream) and DELETE (ending a
  * session) answer 405, which MCP clients expect of a stateless server.
  *
- * It acts as the key's Member and never more. The key is the only credential
- * — the browser session cookie is never read, so no page can ride one in —
- * and every operation a tool calls is sent back through the App's own router
- * with that same key, where each route's guards decide again. That is why
+ * It acts as one Member and never more. The credential is an API key, or the
+ * OAuth access token of an app the Member connected (`services/mcpOauth/`) —
+ * the browser session cookie is never read, so no page can ride one in — and
+ * every operation a tool calls is sent back through the App's own router with
+ * that same credential, where each route's guards decide again. That is why
  * this router is mounted before the App's JSON parser and session: it needs
  * neither, and it reads its JSON-RPC body, larger than the App's 1 MB to fit a
- * file, only once the key has checked out.
+ * file, only once the credential has checked out. A request without one is
+ * told where this endpoint's OAuth metadata is, which is how claude.ai and
+ * ChatGPT find their way to sign in.
  *
  * In front of everything, a browser `Origin` other than this install's own is
  * refused, as the MCP transport asks of every server.
@@ -61,7 +64,7 @@ companyMcpRouter.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 companyMcpRouter.use(rejectAiBrowserAppRequests);
-companyMcpRouter.use(requireApiKeyAuth);
+companyMcpRouter.use(requireBearerAuth);
 companyMcpRouter.use(requireCompanyMember);
 
 /**
@@ -107,7 +110,8 @@ function callerContext(req: Request, company: Company): CallerContext {
   }
   const socket = req.socket as Partial<TLSSocket>;
   const user = req.user!;
-  const key = req.apiKey!;
+  const app = req.connectedApp;
+  const key = req.apiKey;
   return {
     app: req.app as unknown as RequestListener,
     companyId: company.id,
@@ -117,7 +121,9 @@ function callerContext(req: Request, company: Company): CallerContext {
       role: req.companyRole!,
       financeAccess: financeAccessFor(req.companyRole, req.membership?.financeAccess),
     },
-    apiKey: { id: key.id, name: key.name, prefix: `gen_${key.prefix}` },
+    credential: key
+      ? { kind: "api_key", id: key.id, name: key.name, prefix: `gen_${key.prefix}` }
+      : { kind: "connected_app", id: app!.id, name: app!.name },
     authorization: req.headers.authorization ?? "",
     forwardedHeaders,
     remote: {

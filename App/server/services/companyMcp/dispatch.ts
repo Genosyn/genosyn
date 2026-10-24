@@ -91,6 +91,17 @@ class PipeSocket extends Duplex {
   }
 }
 
+/**
+ * Whether a request reached the App through {@link requestInProcess} — a tool
+ * call of the Genosyn MCP server — rather than over the network. Only this
+ * module makes the sockets such a request arrives on, so nothing outside the
+ * process can claim to be one; `middleware/auth.ts` accepts a connected app's
+ * access token here and at the MCP endpoint, and nowhere else.
+ */
+export function isInProcessRequest(req: { socket?: unknown }): boolean {
+  return req.socket instanceof PipeSocket;
+}
+
 /** A connected pair: [client end, server end]. */
 function socketPair(): [PipeSocket, PipeSocket] {
   const client = new PipeSocket();

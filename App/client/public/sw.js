@@ -15,6 +15,9 @@
  *                     dynamic, and covers the WebSocket + SSE endpoints)
  *   - /careers/*    → never touched: the public careers site is a separate
  *                     page, and caching it as the App shell would break both
+ *   - /.well-known/*, /oauth/authorize → never touched: OAuth discovery and
+ *                     the authorization endpoint an MCP client sends the
+ *                     browser to answer with JSON or a redirect, not the shell
  *   - push          → renders Web Push payloads sent by the server (see
  *                     server/services/push.ts); clicking deep-links into
  *                     the SPA.
@@ -65,6 +68,9 @@ self.addEventListener("fetch", (event) => {
   // The public careers site is its own page, not the App: never serve it the
   // App shell, and never cache it as one.
   if (url.pathname === "/careers" || url.pathname.startsWith("/careers/")) return;
+  // OAuth for the MCP server: server answers, never the App shell, and a
+  // redirect must not be cached in the shell's place.
+  if (url.pathname.startsWith("/.well-known/") || url.pathname === "/oauth/authorize") return;
 
   // App navigations: prefer the network so we always render the latest shell
   // (which references the current content-hashed assets); fall back to the

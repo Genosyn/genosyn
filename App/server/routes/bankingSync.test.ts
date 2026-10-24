@@ -59,6 +59,9 @@ function respond(body: unknown, status = 200): Response {
   });
 }
 
+/** A date and time with no offset — the only form Brex's date filters read. */
+const BREX_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
+
 function cashTxn(id: string, daysAgo: number, cents: number): BrexCashTransaction {
   const posted = new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 10);
   return {
@@ -80,6 +83,9 @@ before(async () => {
     brexRequests.push(url);
     const answered = brexAnswer?.(url);
     if (answered) return answered;
+    // As Brex does: a date with an offset — toISOString()'s `Z` — is refused outright.
+    const since = url.searchParams.get("posted_at_start");
+    if (since !== null && !BREX_DATE_TIME.test(since)) return respond({ message: "Bad request" }, 400);
     if (url.pathname === "/v2/accounts/cash") {
       return respond({
         items: cashAccounts.map((id, index) => ({
@@ -349,6 +355,53 @@ describe("GET /banking/accounts", () => {
     // An owner of another company is no Member here.
     actingUserId = await member(otherCompany, "owner");
     assert.equal((await call("GET", "/banking/accounts")).status, 403);
+  });
+});
+
+describe("Sync now after Brex refused every sync since July", () => {
+  /** How the accounts were left: the first sync in July worked, every one after was refused. */
+  function refusedSinceJuly(detail: string) {
+    return {
+      lastSyncAt: new Date(Date.now() - 98 * DAY),
+      lastSyncAttemptAt: new Date(Date.now() - 60 * 60 * 1000),
+      lastSyncError: "Brex refused the request",
+      lastSyncErrorDetail: detail,
+      lastSyncErrorKind: "provider_error",
+      syncFailureCount: 6,
+      nextSyncAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    };
+  }
+
+  test("a bank account and a card sync again, ask for the date as Brex reads it, and stop saying they failed", async () => {
+    const cashFeed = await brexCash(refusedSinceJuly("Bad request · HTTP 400 · GET /v2/transactions/cash/cash_1"));
+    const cardFeed = await brexCard(refusedSinceJuly("Bad request · HTTP 400 · GET /v2/transactions/card/primary"));
+    const before = await accounts();
+    assert.deepEqual(
+      before.map((account) => account.sync.error?.message),
+      ["Brex refused the request", "Brex refused the request"],
+    );
+
+    const bankSync = await call("POST", `/bank-feeds/${cashFeed.id}/sync`);
+    assert.equal(bankSync.status, 200, JSON.stringify(bankSync.body));
+    assert.deepEqual(bankSync.body, { inserted: 2, matched: 0 });
+    const cardSync = await call("POST", `/card-feeds/${cardFeed.id}/sync`);
+    assert.equal(cardSync.status, 200, JSON.stringify(cardSync.body));
+    assert.deepEqual(cardSync.body, { inserted: 1, posted: 1, failed: 0 });
+
+    const dated = brexRequests.filter((url) => url.pathname.startsWith("/v2/transactions/"));
+    assert.equal(dated.length, 2);
+    for (const url of dated) {
+      const since = url.searchParams.get("posted_at_start") ?? "";
+      assert.match(since, BREX_DATE_TIME, `${url.pathname} sent ${since}`);
+      const weekBeforeJuly = Date.now() - 105 * DAY;
+      assert.ok(Math.abs(Date.parse(`${since}Z`) - weekBeforeJuly) < 60_000, "a week before the last sync that worked");
+    }
+
+    const after = await accounts();
+    for (const account of after) {
+      assert.equal(account.sync.error, null, account.feed.name);
+      assert.ok(account.sync.lastSuccessAt && Date.parse(account.sync.lastSuccessAt) > Date.now() - 60_000);
+    }
   });
 });
 

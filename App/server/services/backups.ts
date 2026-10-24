@@ -6,8 +6,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { IncomingMessage } from "node:http";
 import type archiver from "archiver";
 import * as archiverRuntime from "archiver";
-import unzipper from "unzipper";
 import cron, { ScheduledTask } from "node-cron";
+import { readZipFile, ZipReadError } from "../lib/zipFile.js";
 import { AppDataSource, optimizeSqliteStatistics } from "../db/datasource.js";
 import { bootMailSearchIndex, stopMailSearchIndex } from "./mail/searchIndex.js";
 import { Backup } from "../db/entities/Backup.js";
@@ -566,7 +566,9 @@ export async function checkArchive(abs: string): Promise<ArchiveCheck> {
   if (!fs.existsSync(abs)) return "unreadable";
   let entries: Array<{ path: string; uncompressedSize: number }>;
   try {
-    entries = await readArchiveDirectory(abs);
+    // Nothing is left open on the file once this answers, so a caller may
+    // remove it next — {@link ingestUploadedArchive} turning an upload away.
+    entries = await readZipFile(abs, async (zip) => zip.entries);
   } catch {
     return "unreadable";
   }
@@ -575,55 +577,6 @@ export async function checkArchive(abs: string): Promise<ArchiveCheck> {
   );
   if (config.db.driver === "sqlite" && !holdsDatabase) return "no-database";
   return "restorable";
-}
-
-/**
- * The entries an archive's central directory lists, read without leaving
- * anything open on the file.
- *
- * `unzipper.Open.file` reads through two streams that it neither listens to
- * for errors nor closes, and it can answer before the second has opened: an
- * archive that lists no files needs nothing from it. A caller that removed the
- * file next — {@link ingestUploadedArchive} turning an upload away — left that
- * open to fail by itself, and a stream error nobody listens for is an uncaught
- * exception, which stops the App. So every stream here has a listener, an
- * error fails the read instead, and each one is closed, its open settled,
- * before this returns.
- */
-async function readArchiveDirectory(
-  abs: string,
-): Promise<Array<{ path: string; uncompressedSize: number }>> {
-  const streams: fs.ReadStream[] = [];
-  let failRead!: (err: unknown) => void;
-  const streamFailed = new Promise<never>((_resolve, reject) => {
-    failRead = reject;
-  });
-  // A stream that errors after the directory has been read changes nothing.
-  streamFailed.catch(() => undefined);
-  const source = {
-    size: async () => (await fs.promises.stat(abs)).size,
-    // The same byte range `Open.file` asks for.
-    stream: (start: number, length?: number) => {
-      const stream = fs.createReadStream(abs, { start, end: length ? start + length : undefined });
-      stream.on("error", failRead);
-      streams.push(stream);
-      return stream;
-    },
-  };
-  try {
-    return (await Promise.race([unzipper.Open.custom(source), streamFailed])).files;
-  } finally {
-    await Promise.all(streams.map(closeStream));
-  }
-}
-
-/** Close a stream and wait until it has — once an open still under way has finished. */
-function closeStream(stream: fs.ReadStream): Promise<void> {
-  if (stream.closed) return Promise.resolve();
-  return new Promise((resolve) => {
-    stream.once("close", () => resolve());
-    stream.destroy();
-  });
 }
 
 async function pruneOldBackupsInner(): Promise<number> {
@@ -1420,6 +1373,18 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
 }
 
 /**
+ * Why a restore stopped part-way. The archive was read only after this
+ * install's data had been removed, so the reason says where all of it went.
+ */
+function restoreStoppedMessage(safetyFilename: string): string {
+  return (
+    "This backup went missing or became unreadable part-way through the restore, after this " +
+    `install's data had been removed. Restart Genosyn, then restore ${safetyFilename}, the ` +
+    "backup taken just before, to put everything back."
+  );
+}
+
+/**
  * Replace the data directory with the contents of a Backup archive. Takes a
  * pre-restore safety snapshot, closes the TypeORM DataSource, wipes `data/`
  * (keeping `Backup/` so both the safety backup and history survive),
@@ -1528,7 +1493,12 @@ export async function restoreFromBackup(id: string): Promise<{
     }
 
     wipeDataExceptBackup();
-    await extractZipIntoDataRoot(zipPath);
+    try {
+      await extractZipIntoDataRoot(zipPath);
+    } catch (err) {
+      if (!(err instanceof ZipReadError)) throw err;
+      throw new BackupError(restoreStoppedMessage(safety.filename), 409, { cause: err.cause });
+    }
     restoreManagedInstanceSecretsIfMissing(instanceSecretsSnapshot, {
       // An archive without managed state predates this feature (or omitted its
       // hidden files). Keep the current identity, but retain decrypt-only
@@ -1698,26 +1668,26 @@ async function extractZipIntoDataRoot(zipPath: string): Promise<void> {
   const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
   fs.mkdirSync(root, { recursive: true });
 
-  const directory = await unzipper.Open.file(zipPath);
-  for (const entry of directory.files) {
-    if (entry.type === "Directory") continue;
-    // Normalise and guard against zip-slip — entry paths that try to escape
-    // the data root with `..` segments are rejected rather than silently
-    // clamped so we don't quietly write somewhere unexpected.
-    const rel = entry.path.replace(/\\/g, "/");
-    const abs = path.resolve(root, rel);
-    if (!abs.startsWith(rootWithSep) && abs !== root) {
-      throw new Error(`Refusing to extract outside data root: ${entry.path}`);
+  // A failure to read the archive is a ZipReadError, which the restore turns
+  // into its reason; nothing is left open on the archive once this settles.
+  await readZipFile(zipPath, async (zip) => {
+    for (const entry of zip.entries) {
+      if (entry.type === "Directory") continue;
+      // Normalise and guard against zip-slip — entry paths that try to escape
+      // the data root with `..` segments are rejected rather than silently
+      // clamped so we don't quietly write somewhere unexpected.
+      const rel = entry.path.replace(/\\/g, "/");
+      const abs = path.resolve(root, rel);
+      if (!abs.startsWith(rootWithSep) && abs !== root) {
+        throw new Error(`Refusing to extract outside data root: ${entry.path}`);
+      }
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      const managedSecretState =
+        rel === INSTANCE_SECRETS_FILENAME || rel === INSTANCE_SECRETS_SENTINEL_FILENAME;
+      await zip.extract(entry, abs, managedSecretState ? { mode: 0o600 } : undefined);
+      if (managedSecretState) fs.chmodSync(abs, 0o600);
     }
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    const managedSecretState =
-      rel === INSTANCE_SECRETS_FILENAME || rel === INSTANCE_SECRETS_SENTINEL_FILENAME;
-    await pipeline(
-      entry.stream(),
-      createWriteStream(abs, managedSecretState ? { mode: 0o600 } : undefined),
-    );
-    if (managedSecretState) fs.chmodSync(abs, 0o600);
-  }
+  });
 }
 
 export function serializeBackup(b: Backup) {

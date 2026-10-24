@@ -248,13 +248,20 @@ companiesRouter.get(
       company: { id: co.id, name: co.name, slug: co.slug },
       role: req.companyRole,
       financeAccess: financeAccessFor(req.companyRole, req.membership?.financeAccess),
-      authentication: req.apiKey ? "api_key" : "session",
+      authentication: req.apiKey ? "api_key" : req.connectedApp ? "connected_app" : "session",
       apiKey: req.apiKey
         ? {
             id: req.apiKey.id,
             name: req.apiKey.name,
             prefix: `gen_${req.apiKey.prefix}`,
             expiresAt: req.apiKey.expiresAt ? req.apiKey.expiresAt.toISOString() : null,
+          }
+        : null,
+      connectedApp: req.connectedApp
+        ? {
+            id: req.connectedApp.id,
+            name: req.connectedApp.name,
+            expiresAt: req.connectedApp.expiresAt.toISOString(),
           }
         : null,
     });
