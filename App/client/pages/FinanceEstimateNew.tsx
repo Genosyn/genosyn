@@ -370,7 +370,7 @@ function EstimateForm() {
         e.preventDefault();
         void save("view");
       }}
-      className="page-shell p-8"
+      className="page-shell p-4 sm:p-8"
     >
       <div className="mb-6">
         <Breadcrumbs
@@ -390,11 +390,11 @@ function EstimateForm() {
                 ? `/c/${company.slug}/finance/estimates/${estimateSlug}`
                 : `/c/${company.slug}/finance/estimates`
             }
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             {isEdit ? `Edit ${existing?.number || "estimate"}` : "New estimate"}
           </h1>
         </div>
@@ -528,9 +528,9 @@ function EstimateForm() {
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Line items</h2>
           </div>
-          <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[36rem] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Product</th>
                   <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>

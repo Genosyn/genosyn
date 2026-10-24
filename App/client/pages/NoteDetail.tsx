@@ -508,7 +508,7 @@ export default function NoteDetail({ company }: { company: Company }) {
           <button
             type="button"
             onClick={() => setShareOpen(true)}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            className="flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="Share with AI Employees"
           >
             <Share2 size={14} />
@@ -655,7 +655,7 @@ export default function NoteDetail({ company }: { company: Company }) {
                     ref={iconButtonRef}
                     type="button"
                     onClick={() => setIconOpen((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 focus-visible:opacity-100 group-hover/title:opacity-100 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300 [@media(hover:none)]:opacity-100"
+                    className="touch-target relative flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 focus-visible:opacity-100 group-hover/title:opacity-100 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300 [@media(hover:none)]:opacity-100"
                   >
                     <SmilePlus size={15} /> Add icon
                   </button>
@@ -699,7 +699,7 @@ export default function NoteDetail({ company }: { company: Company }) {
                 Edited {formatRelative(note.updatedAt)} by{" "}
                 <span className="font-medium text-slate-500 dark:text-slate-400">{editor.name}</span>
                 {editor.kind === "ai" && (
-                  <span className="rounded bg-violet-50 px-1 text-[11px] font-medium text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
+                  <span className="rounded bg-violet-50 px-1 text-xs font-medium text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
                     AI Employee
                   </span>
                 )}
@@ -749,7 +749,7 @@ export default function NoteDetail({ company }: { company: Company }) {
               type="button"
               onClick={() => setHistoryOpen((v) => !v)}
               aria-expanded={historyOpen}
-              className="flex items-center gap-1.5 rounded-md px-1 py-1 text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+              className="touch-target relative flex items-center gap-1.5 rounded-md px-1 py-1 text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
             >
               {historyOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <History size={14} />
@@ -796,7 +796,7 @@ function Crumb({
     <Link
       to={to}
       className={clsx(
-        "flex min-w-0 max-w-[10rem] items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+        "touch-target relative flex min-w-0 max-w-[10rem] items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100",
         className,
       )}
     >

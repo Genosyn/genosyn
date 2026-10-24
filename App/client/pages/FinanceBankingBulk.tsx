@@ -573,7 +573,7 @@ function CategoryPicker({
         ) : (
           shown.map((group) => (
             <div key={group.type} role="group" aria-label={group.label}>
-              <div className="sticky top-0 z-10 bg-white/95 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 backdrop-blur dark:bg-slate-900/95 dark:text-slate-500">
+              <div className="sticky top-0 z-10 bg-white/95 px-3 pb-1 pt-2 text-xs font-medium text-slate-400 backdrop-blur dark:bg-slate-900/95 dark:text-slate-500 inline-block first-letter:uppercase">
                 {group.label}
               </div>
               {group.accounts.map((account) => {

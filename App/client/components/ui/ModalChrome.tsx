@@ -351,7 +351,7 @@ export function ModalCloseButton({ onClick }: { onClick: () => void }) {
       data-modal-close
       onClick={onClick}
       aria-label="Close"
-      className="-my-1 -mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+      className="-my-1 -mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
     >
       <X size={18} />
     </button>

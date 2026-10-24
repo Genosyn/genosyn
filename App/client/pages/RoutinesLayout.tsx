@@ -23,9 +23,14 @@ import {
   RoutineFolderTree,
   RoutineWithMeta,
 } from "../lib/api";
-import { ContextualLayout } from "../components/AppShell";
+import { ContextualLayout, sidebarLinkClassName } from "../components/AppShell";
 import { ScheduleTimeZone } from "../components/ScheduleTimeZone";
-import { SectionRailLinks } from "../components/SectionRail";
+import {
+  RailIconButton,
+  SectionRailHeader,
+  SectionRailLinks,
+  railHeadingClassName,
+} from "../components/SectionRail";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
@@ -478,48 +483,42 @@ function Sidebar({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <CalendarClock size={14} /> Routines
-        </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => void createFolder(null, "header")}
-            disabled={creatingFolder !== null}
-            aria-busy={creatingFolder === "header" || undefined}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            title="New folder"
-            aria-label="New folder"
-          >
-            {creatingFolder === "header" ? <ButtonSpinner size={14} /> : <FolderPlus size={14} />}
-          </button>
-          <button
-            onClick={() =>
-              onNew(
-                newRoutinePath(company.slug, {
-                  folder: onIndex ? activeFolder : null,
-                  employee: onIndex ? activeEmployee : null,
-                }),
-              )
-            }
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            title="New routine"
-            aria-label="New routine"
-          >
-            <Plus size={14} />
-          </button>
-        </div>
-      </div>
+      <SectionRailHeader
+        section="routines"
+        label="Routines"
+        actions={
+          <>
+            <RailIconButton
+              label="New folder"
+              onClick={() => void createFolder(null, "header")}
+              disabled={creatingFolder !== null}
+              aria-busy={creatingFolder === "header" || undefined}
+            >
+              {creatingFolder === "header" ? <ButtonSpinner size={16} /> : <FolderPlus size={16} />}
+            </RailIconButton>
+            <RailIconButton
+              label="New routine"
+              onClick={() =>
+                onNew(
+                  newRoutinePath(company.slug, {
+                    folder: onIndex ? activeFolder : null,
+                    employee: onIndex ? activeEmployee : null,
+                  }),
+                )
+              }
+            >
+              <Plus size={16} />
+            </RailIconButton>
+          </>
+        }
+      />
       <div className="flex-1 overflow-y-auto p-2">
         {/* What runs now, what waits in the queue, and what ran today — the
             work, apart from the list of every Routine beneath it. */}
         <NavLink
           to={`${base}/running`}
           className={
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-            (onRunning
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+            sidebarLinkClassName(onRunning)
           }
         >
           <Radio size={14} className="shrink-0" />
@@ -529,10 +528,7 @@ function Sidebar({
           to={base}
           end
           className={
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-            (onIndex && !activeEmployee && !activeFolder
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+            sidebarLinkClassName(onIndex && !activeEmployee && !activeFolder)
           }
         >
           <CalendarClock size={14} className="shrink-0" />
@@ -544,24 +540,26 @@ function Sidebar({
           )}
         </NavLink>
 
-        <div className="flex items-center justify-between px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          <span className="flex items-center gap-2">
-            <Folder size={12} /> Folders
+        <div
+          className={`flex items-center justify-between pb-0.5 pl-2.5 pr-0.5 pt-4 ${railHeadingClassName}`}
+        >
+          <span className="flex items-center gap-1.5">
+            <Folder size={13} aria-hidden="true" /> Folders
           </span>
           <button
             onClick={() => void createFolder(null, "section")}
             disabled={creatingFolder !== null}
             aria-busy={creatingFolder === "section" || undefined}
-            className="rounded p-0.5 hover:text-slate-700 dark:hover:text-slate-200"
+            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="New folder"
             aria-label="New top-level folder"
           >
-            {creatingFolder === "section" ? <ButtonSpinner size={12} /> : <Plus size={12} />}
+            {creatingFolder === "section" ? <ButtonSpinner size={14} /> : <Plus size={14} />}
           </button>
         </div>
 
         {folders.length === 0 ? (
-          <p className="px-3 pb-1 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+          <p className="px-2.5 pb-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
             No folders yet. Group routines by the work they belong to — Finance, Support, Month-end.
           </p>
         ) : (
@@ -569,12 +567,7 @@ function Sidebar({
             {(childrenOf.get(null) ?? []).map(renderFolder)}
             <NavLink
               to={`${base}?folder=unfiled`}
-              className={
-                "mt-0.5 flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-                (onIndex && activeFolder === "unfiled"
-                  ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                  : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
-              }
+              className={`mt-0.5 ${sidebarLinkClassName(onIndex && activeFolder === "unfiled")}`}
             >
               <Inbox size={14} className="shrink-0" />
               <span className="min-w-0 flex-1 truncate">Unfiled</span>
@@ -587,8 +580,8 @@ function Sidebar({
 
         {withRoutines.length > 0 && (
           <>
-            <div className="flex items-center gap-2 px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              <Users size={12} /> Assigned to
+            <div className={`flex items-center gap-1.5 pb-1 pl-2.5 pt-4 ${railHeadingClassName}`}>
+              <Users size={13} aria-hidden="true" /> Assigned to
             </div>
             {withRoutines.map((e) => {
               const active = onIndex && activeEmployee === e.slug;
@@ -597,10 +590,7 @@ function Sidebar({
                   key={e.id}
                   to={`${base}?employee=${e.slug}`}
                   className={
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
-                    (active
-                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                    sidebarLinkClassName(active)
                   }
                 >
                   <Avatar

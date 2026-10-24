@@ -564,7 +564,7 @@ export default function MailThreadView() {
                 aria-expanded={handoverDetailsOpen}
                 aria-controls="mail-handover-details"
                 onClick={() => setHandoverDetailsOpen((open) => !open)}
-                className="inline-flex items-center gap-1.5 rounded py-1 text-xs font-medium text-slate-500 outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:text-indigo-300"
+                className="inline-flex items-center gap-1.5 rounded py-1 text-xs font-medium text-slate-500 outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-400 dark:hover:text-indigo-300"
               >
                 <ChevronDown
                   size={13}
@@ -572,7 +572,7 @@ export default function MailThreadView() {
                   className={handoverDetailsOpen ? "rotate-180" : undefined}
                 />
                 Handover details
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums dark:bg-slate-800">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs tabular-nums dark:bg-slate-800">
                   {handovers.length}
                 </span>
                 {handovers.some((handover) => handover.status === "failed") && (
@@ -726,7 +726,7 @@ function MessageCard({
   const fromLabel = isSelf ? "me" : message.fromName || message.fromEmail;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <button onClick={onToggle} className="flex w-full items-baseline gap-2 px-4 py-3 text-left">
         <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
           {fromLabel}
@@ -898,7 +898,7 @@ function DraftCard({
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
       <div className="flex items-center gap-2 px-4 py-2.5">
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 inline-block first-letter:uppercase">
           Draft
         </span>
         <div className="min-w-0 flex-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -1151,7 +1151,7 @@ const ReplyComposer = React.forwardRef<
   };
 
   return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         {replyAll ? <ReplyAll size={13} /> : <Reply size={13} />}
         {recipients === null ? (
@@ -1252,7 +1252,7 @@ function HandoverCard({
     <div
       id={`handover-${handover.id}`}
       tabIndex={-1}
-      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-800 dark:bg-slate-950"
+      className="scroll-mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-800 dark:bg-slate-950"
     >
       <div className="flex items-center gap-2 text-sm">
         <Bot size={14} className="shrink-0 text-slate-400" />
@@ -1264,7 +1264,7 @@ function HandoverCard({
         </span>
         <span
           className={clsx(
-            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            "rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
             statusStyle[handover.status],
           )}
         >

@@ -113,7 +113,7 @@ export default function Budgets({ company }: { company: Company; me: Me }) {
   );
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar
         title="Budgets"
         right={
@@ -300,7 +300,7 @@ function BudgetRow({
             </>
           ) : (
             !budget.enabled && (
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 off
               </span>
             )

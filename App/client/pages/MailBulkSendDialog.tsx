@@ -110,7 +110,7 @@ export function MailBulkSendDialog({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-slate-200/70 px-5 py-4 dark:border-slate-800">
           {sending && preview.sampleRecipients.length > 0 && (
             <section className="mb-4">
-              <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <h3 className="text-xs font-medium mb-1.5 flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                 <Users size={13} /> Going to
               </h3>
               <div className="flex flex-wrap gap-1.5">
@@ -133,7 +133,7 @@ export function MailBulkSendDialog({
 
           {breakdown.length > 0 && (
             <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <h3 className="text-xs font-medium mb-1.5 text-slate-500 dark:text-slate-400">
                 {breakdownLabel}
               </h3>
               <ul className="space-y-1">

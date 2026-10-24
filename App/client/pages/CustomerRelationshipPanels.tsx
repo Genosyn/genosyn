@@ -55,7 +55,7 @@ export function CustomerDealsTable({
     <div className={CARD}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2 text-left font-medium">Deal</th>
               <th className="px-4 py-2 text-left font-medium">Stage</th>
@@ -215,7 +215,7 @@ export function CustomerPeoplePanel({
                 <div className="flex flex-wrap items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
                   {contact.name}
                   {contact.isPrimary && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                       Primary
                     </span>
                   )}

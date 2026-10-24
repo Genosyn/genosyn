@@ -374,7 +374,7 @@ export default function RevenueSequenceDetail() {
 
   if (loadError) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <div className="mb-6">
           <Breadcrumbs
             items={[
@@ -404,7 +404,7 @@ export default function RevenueSequenceDetail() {
 
   if (!sequence || !form || !drafts) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>
@@ -421,7 +421,7 @@ export default function RevenueSequenceDetail() {
   ].filter(Boolean);
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -891,7 +891,7 @@ export default function RevenueSequenceDetail() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2 text-left font-medium">Contact</th>
                   <th className="px-4 py-2 text-left font-medium">Status</th>

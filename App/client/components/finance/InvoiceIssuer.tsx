@@ -101,7 +101,7 @@ export function InvoiceIssuerDetails({
 }) {
   return (
     <div className="mb-6 border-b border-slate-100 pb-5 text-sm dark:border-slate-800">
-      <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
         Issued by
       </div>
       <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">

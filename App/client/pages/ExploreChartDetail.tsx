@@ -524,7 +524,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         {/* LEFT: SQL pane */}
         <div className="flex min-h-[440px] flex-col border-b border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 lg:border-b-0">
           <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <label className="text-xs font-medium block text-slate-500 dark:text-slate-400">
               Connection
             </label>
             <Select
@@ -556,7 +556,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
             <div>
-              <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-medium block text-slate-500 dark:text-slate-400">
                 SQL
               </span>
               <span className="text-[10px] text-slate-400 dark:text-slate-500">
@@ -604,7 +604,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           </div>
 
           <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <label className="text-xs font-medium block text-slate-500 dark:text-slate-400">
               Description
             </label>
             <textarea
@@ -658,7 +658,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
           {/* Preview */}
           <div className="flex min-h-[340px] flex-1 items-stretch p-4">
-            <div className="flex h-full min-h-[300px] w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+            <div className="flex h-full min-h-[300px] w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
               {result ? (
                 <ChartRenderer vizType={vizType} vizConfig={vizConfig} result={result} />
               ) : (
@@ -678,7 +678,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           {/* Viz config */}
           {vizType !== "table" && (
             <div className="border-t border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
-              <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
                 Visualization
               </h3>
               <VizConfigEditor
@@ -871,7 +871,7 @@ function VizConfigEditor({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <label className="text-xs font-medium block text-slate-500 dark:text-slate-400">
         {label}
       </label>
       <div className="mt-1">{children}</div>

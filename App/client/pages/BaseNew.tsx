@@ -130,7 +130,7 @@ export default function BaseNew({ company }: { company: Company }) {
                       {t.tableNames.map((tn) => (
                         <span
                           key={tn}
-                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                         >
                           {tn}
                         </span>

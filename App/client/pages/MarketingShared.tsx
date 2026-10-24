@@ -48,7 +48,7 @@ export function PageHeader({
         <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
           {eyebrow}
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl dark:text-white">
           {title}
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">{description}</p>
@@ -137,7 +137,7 @@ export function MetricTile({
   return (
     <div className={`${cardClass} p-4`}>
       <div className="flex items-center justify-between text-slate-400">
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
         {icon}
       </div>
       <div className={`mt-3 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</div>

@@ -301,7 +301,7 @@ export function BankTransactionRow({
               <span className="truncate">{outcomeSummary(txn, accounts)}</span>
             </span>
           ) : (
-            <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 md:inline-flex dark:bg-amber-500/15 dark:text-amber-300">
+            <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 md:inline-flex dark:bg-amber-500/15 dark:text-amber-300 inline-block first-letter:uppercase">
               {paymentsOf(txn).length > 0 ? "Part paid" : "To review"}
             </span>
           )}
@@ -338,7 +338,7 @@ function PanelSection({
 }) {
   return (
     <section>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
         {title}
       </h3>
       {hint && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{hint}</p>}
@@ -971,7 +971,7 @@ function candidateKey(candidate: MatchCandidate): string {
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
       {children}
     </span>
   );
@@ -1259,7 +1259,7 @@ export function CardTransactionRow({
               <span className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
                 <span className="truncate">{accountLabel(accounts, category)}</span>
                 {waiting && (
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 inline-block first-letter:uppercase">
                     To review
                   </span>
                 )}

@@ -484,7 +484,7 @@ export function FilterPopover({
   return (
     <ToolbarPopover open={open} onClose={onClose} triggerRef={triggerRef} width={520}>
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Filters
         </span>
         {filters.length > 0 && (
@@ -1028,7 +1028,7 @@ export function SortPopover({
   return (
     <ToolbarPopover open={open} onClose={onClose} triggerRef={triggerRef} width={420}>
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Sort
         </span>
         {sorts.length > 0 && (
@@ -1142,7 +1142,7 @@ export function HideFieldsPopover({
   return (
     <ToolbarPopover open={open} onClose={onClose} triggerRef={triggerRef} width={260}>
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           Fields
         </span>
         <div className="flex gap-2">

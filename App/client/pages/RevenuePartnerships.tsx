@@ -65,13 +65,13 @@ export default function RevenuePartnerships() {
     classifications.find((row) => row.kind === kind && row.value === value)?.label || value || "Not set";
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships" }]} />
       </div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Partnerships</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Partnerships</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Partner relationships with their own status, contacts, context, and follow-up rhythm.
           </p>

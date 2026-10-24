@@ -182,7 +182,7 @@ export function AiWorkBand({
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {title}
         </h3>
         <span className="font-mono text-[11px] tabular-nums text-slate-300 dark:text-slate-600">
@@ -234,11 +234,11 @@ export function AiEmployeeRow({
           <span className="truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">
             {name}
           </span>
-          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             {grant.accessLevel === "write" ? "Can prepare work" : "Read only"}
           </span>
           {employee?.pullRequestReady && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
               <GitPullRequest size={9} /> Can open pull requests
             </span>
           )}
@@ -386,7 +386,7 @@ export function AiWorkOverview({
       {grants !== null && grants.length > 0 && (
         <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Who works here
             </h3>
             <Link

@@ -1,7 +1,6 @@
 import { Outlet } from "react-router-dom";
-import { KeyRound } from "lucide-react";
 import { ContextualLayout } from "@/components/AppShell";
-import { SectionRailLinks } from "@/components/SectionRail";
+import { SectionRailHeader, SectionRailLinks } from "@/components/SectionRail";
 import type { Company } from "@/lib/api";
 
 /**
@@ -32,11 +31,7 @@ export default function VaultLayout({ company }: { company: Company }) {
   // as "no rail", which also keeps the mobile drawer toggle off the top nav.
   const sidebar = canAdminister ? (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <KeyRound size={14} /> Vault
-        </div>
-      </div>
+      <SectionRailHeader section="vault" label="Vault" />
       <nav className="flex-1 overflow-y-auto p-2">
         <SectionRailLinks section="vault" companySlug={company.slug} viewer={company} />
       </nav>

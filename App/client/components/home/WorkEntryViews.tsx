@@ -84,7 +84,7 @@ export function WorkStatePill({ state, label }: { state: EmployeeWorkState; labe
   return (
     <span
       className={clsx(
-        "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
+        "inline-flex h-6 w-fit items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 ring-inset",
         WORK_STATE_PILL[state],
       )}
     >
@@ -107,12 +107,12 @@ function WorkKindChip({ entry }: { entry: WorkEntry }) {
   return (
     <span
       className={clsx(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset",
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium leading-none ring-1 ring-inset [&>svg]:h-3 [&>svg]:w-3",
         meta.tone,
       )}
     >
       {workEmailAnalysisPhase(entry) ? <Mail size={13} /> : WORK_KIND_ICON[entry.kind]}
-      {workEntryKindLabel(entry)}
+      <span className="inline-block first-letter:uppercase">{workEntryKindLabel(entry)}</span>
     </span>
   );
 }
@@ -147,7 +147,7 @@ function WorkEmailAnalysisResult({ entry }: { entry: WorkEntry }) {
   const details = workEmailAnalysisDetails(entry);
   if (!details) return null;
   const labelClass =
-    "text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500";
+    "text-xs font-medium text-slate-500 dark:text-slate-400";
   const contentClass = "mt-0.5 break-words text-xs leading-5 text-slate-600 dark:text-slate-300";
   return (
     <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
@@ -223,7 +223,7 @@ function WorkEffectList({ entry }: { entry: WorkEntry }) {
   const overflow = workEffectOverflowLabel(entry, shown.length);
   return (
     <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
         What changed
       </p>
       <ul className="mt-1.5 space-y-1">
@@ -273,7 +273,7 @@ export function WorkEntryBlock({
         <WorkKindChip entry={entry} />
         <WorkRunChips entry={entry} />
         {entry.active && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
             happening now
           </span>

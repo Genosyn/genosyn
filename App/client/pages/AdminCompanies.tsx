@@ -203,7 +203,7 @@ function CompanyRow({
             />
           </Link>
           {isCurrent && (
-            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
+            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300 inline-block first-letter:uppercase">
               Current
             </span>
           )}

@@ -166,7 +166,7 @@ function ConsentPanel({
         <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60">
           <Cable size={16} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
               App
             </p>
             <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">
@@ -182,7 +182,7 @@ function ConsentPanel({
         <div className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
           <UserRound size={16} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
               As
             </p>
             <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">
@@ -286,7 +286,7 @@ function CompanyChoice({
         <div className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
           <Building2 size={16} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Company
             </p>
             <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">
@@ -301,7 +301,7 @@ function CompanyChoice({
   const selected = details.companies.find((company) => company.id === value);
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <legend className="text-xs mb-1 font-medium text-slate-500 dark:text-slate-400">
         Company
       </legend>
       {details.companies.map((company) => (

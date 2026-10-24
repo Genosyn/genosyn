@@ -227,7 +227,7 @@ export function DoneStep({
 
       {status && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="border-b border-slate-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:text-slate-400">
+          <div className="text-xs font-medium border-b border-slate-100 px-4 py-2.5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
             What is set up
           </div>
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">

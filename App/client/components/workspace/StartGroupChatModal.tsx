@@ -243,7 +243,7 @@ export function StartGroupChatModal({
                   <Bot size={12} />
                   {e.name}
                   {index === 0 && (
-                    <span className="rounded bg-indigo-600 px-1 text-[10px] font-semibold uppercase tracking-wide text-white dark:bg-indigo-500">
+                    <span className="rounded bg-indigo-600 px-1 text-xs font-medium text-white dark:bg-indigo-500 inline-block first-letter:uppercase">
                       Leads
                     </span>
                   )}

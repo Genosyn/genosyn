@@ -178,7 +178,7 @@ export function TagPicker({
               type="button"
               onClick={() => commit(displayValue.filter((row) => row.id !== tag.id))}
               disabled={saving !== null}
-              className="rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+              className="touch-target relative rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               aria-label={`Remove ${tag.name}`}
             >
               <X size={11} />
@@ -190,7 +190,7 @@ export function TagPicker({
           onClick={() => setOpen((current) => !current)}
           disabled={saving !== null || displayValue.length >= 20}
           aria-busy={saving !== null || undefined}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-300"
+          className="touch-target relative inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-300"
         >
           {saving !== null ? <ButtonSpinner size={12} /> : <Plus size={12} />}
           Add tag

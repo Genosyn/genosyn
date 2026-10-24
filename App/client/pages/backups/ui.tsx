@@ -140,7 +140,7 @@ export function Switch({
       onClick={() => onChange(!checked)}
       className={clsx(
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-60",
         checked ? "bg-indigo-600 dark:bg-indigo-500" : "bg-slate-300 dark:bg-slate-700",
       )}
     >

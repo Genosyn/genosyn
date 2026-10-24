@@ -98,7 +98,7 @@ function AutomaticSteps({
 }) {
   return (
     <div className="mt-3 rounded-lg border border-violet-200/80 bg-white/70 px-3 py-2 dark:border-violet-500/20 dark:bg-slate-950/40">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-500/80 dark:text-violet-300/70">
+      <p className="text-xs font-medium text-violet-500/80 dark:text-violet-300/70">
         Your instructions
       </p>
       <ul className="mt-1 divide-y divide-violet-100 dark:divide-violet-500/10">
@@ -270,7 +270,7 @@ export function MailAnalysisCard({
 
   if (row.status === "running") {
     return (
-      <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
         <Spinner size={13} />
         Reading this email…
       </div>
@@ -279,7 +279,7 @@ export function MailAnalysisCard({
 
   if (row.status === "failed") {
     return (
-      <div className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <Sparkles size={14} className="mt-0.5 shrink-0 text-slate-300 dark:text-slate-600" />
         <div className="min-w-0 flex-1">
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -311,14 +311,14 @@ export function MailAnalysisCard({
             {row.category && (
               <span
                 className={clsx(
-                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  "rounded-full border px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
                   tone,
                 )}
               >
                 {analysisCategoryLabel(row.category)}
               </span>
             )}
-            <span className="text-[11px] font-medium uppercase tracking-wide text-violet-500/80 dark:text-violet-300/70">
+            <span className="text-xs font-medium text-violet-500/80 dark:text-violet-300/70">
               AI summary
             </span>
             <button

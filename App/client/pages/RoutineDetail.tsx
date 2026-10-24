@@ -53,6 +53,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { StanddownBanner, StanddownControl } from "../components/StanddownBanner";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { Disclosure } from "../components/ui/Disclosure";
@@ -277,7 +278,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
     // The left column takes the page's scroll off `<main>` so Ask AI, docked
     // beside the page, scrolls its own conversation instead of riding along.
     <div className="relative flex h-full min-h-0 w-full">
-      <div className="page-shell min-w-0 flex-1 overflow-y-auto p-6">
+      <div className="page-shell min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:p-6">
         <Breadcrumbs
           items={[
             { label: "Routines", to: `/c/${company.slug}/routines` },
@@ -291,14 +292,10 @@ export default function RoutineDetail({ company }: { company: Company }) {
         <div className="mb-5 mt-3 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-50">
                 {routine.name}
               </h1>
-              {!enabled && (
-                <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  <Pause size={10} /> paused
-                </span>
-              )}
+              {!enabled && <Badge icon={<Pause />}>paused</Badge>}
               <RoutinePriorityChip priority={routine.priority} />
 
               {routine.lastRun && (
@@ -348,7 +345,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             {canManage && (
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <label className="touch-target relative flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                 <EnabledToggle
                   enabled={enabled}
                   label={enabled ? "Pause this routine" : "Resume this routine"}
@@ -689,7 +686,7 @@ function OverviewTab({
             {(runs?.length ?? 0) > 0 && (
               <button
                 onClick={onSeeRuns}
-                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                className="touch-target relative text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 See all
               </button>
@@ -708,7 +705,7 @@ function OverviewTab({
                   <button
                     type="button"
                     onClick={() => onOpenRun(run.id)}
-                    className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   >
                     <RunStatusChip
                       status={run.status}
@@ -834,7 +831,7 @@ function LessonsCard({
                 {new Date(lesson.createdAt).toLocaleDateString()}
               </span>
               {lesson.dismissedAt ? (
-                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   Dismissed
                 </span>
               ) : canManage ? (
@@ -1032,9 +1029,7 @@ function CloseWorkstreamModal({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-      {children}
-    </div>
+    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{children}</div>
   );
 }
 
@@ -1398,7 +1393,7 @@ function RunsTab({
                     "flex w-full flex-col gap-0.5 border-b border-slate-100 px-3 py-2 text-left text-xs dark:border-slate-800 " +
                     (r.id === activeId
                       ? "bg-indigo-50 dark:bg-indigo-500/10"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-900")
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
                   }
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -2423,7 +2418,7 @@ function TriggersCard({
                       </>
                     )}
                     {!canManage && !trigger.enabled && (
-                      <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                         off
                       </span>
                     )}
@@ -2696,11 +2691,7 @@ function ChecksCard({
                         >
                           {check.name}
                         </span>
-                        {!check.required && (
-                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                            advisory
-                          </span>
-                        )}
+                        {!check.required && <Badge>advisory</Badge>}
                       </div>
                       <div className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">
                         {describeCheck(check)}
@@ -2758,7 +2749,7 @@ function ChecksCard({
                       </div>
                     )}
                     {!canManage && !check.enabled && (
-                      <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                         off
                       </span>
                     )}

@@ -154,7 +154,7 @@ function AddMissingDetails({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          className="touch-target relative inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
           <Plus size={11} aria-hidden />
           {needsEmail && needsAddress

@@ -354,11 +354,11 @@ function CustomerForm({ company }: { company: Company }) {
           <Link
             to={customerUrl}
             aria-label={isEdit ? "Back to the customer" : "Back to customers"}
-            className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
             {isEdit ? "Edit customer" : "New customer"}
           </h1>
         </div>

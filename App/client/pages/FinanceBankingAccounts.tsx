@@ -154,7 +154,7 @@ function SelectLayer({
       onClick={onSelect}
       aria-pressed={active}
       aria-label={label}
-      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
     />
   );
 }

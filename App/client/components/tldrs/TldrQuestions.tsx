@@ -573,7 +573,7 @@ export function TldrQuestions({
                   type="button"
                   disabled={busy}
                   onClick={() => void ask(preset)}
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
                 >
                   {preset}
                 </button>
@@ -680,7 +680,7 @@ function QuestionCard({
           onClick={onExpandedChange}
           aria-expanded={expanded}
           aria-controls={contentId}
-          className="flex w-full items-start gap-2 px-3.5 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 dark:hover:bg-slate-900"
+          className="flex w-full items-start gap-2 px-3.5 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 dark:hover:bg-slate-800/60"
         >
           <span
             className={clsx(
@@ -873,7 +873,7 @@ function ActionButton({
   if (action.status === "done") {
     return (
       <span
-        className="inline-flex h-7 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+        className="inline-flex h-7 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
         title={action.intent}
       >
         <CheckCircle2 size={12} /> {action.label}
@@ -883,7 +883,7 @@ function ActionButton({
 
   if (action.status === "running") {
     return (
-      <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 text-[11px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+      <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 text-xs font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
         <Spinner size={11} /> {action.label}
       </span>
     );
@@ -966,7 +966,7 @@ function ActionPills({
       {message.actions.map((action, index) => (
         <span
           key={`${action.action}-${action.targetId ?? index}`}
-          className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+          className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
           title={`${action.action} · ${company.slug}`}
         >
           <Check size={9} />
@@ -1001,7 +1001,7 @@ function Bubble({
         )}
       >
         {message.actionId && (
-          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-300">
+          <div className="mb-1 flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-300">
             <Zap size={10} /> Requested with one click
           </div>
         )}

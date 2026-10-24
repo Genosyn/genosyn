@@ -278,24 +278,24 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
               {item.title}
             </span>
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
               {vaultItemTypeLabel(item.type)}
             </span>
             {item.vaultSourceId !== null && (
               <span
-                className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                 title="Mirrored from a Vault source"
               >
                 Bitwarden
               </span>
             )}
             {item.type === "login" && item.hasTotp && (
-              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
                 <Smartphone size={10} /> Authenticator
               </span>
             )}
             {item.type === "login" && (item.passkeys ?? []).length > 0 && (
-              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
                 <Fingerprint size={10} /> {item.passkeys.length}{" "}
                 {item.passkeys.length === 1 ? "passkey" : "passkeys"}
               </span>
@@ -312,7 +312,7 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             {item.visibility === "company" ? <Building2 size={11} /> : <Users size={11} />}
             {item.visibility === "company" ? "Company" : "Restricted"}
           </span>
-          <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             {/* `canEdit`, not the access level: a mirrored item's contents are
                 the external vault's, so even a company admin cannot edit them
                 here and the badge must not claim otherwise. */}

@@ -120,7 +120,7 @@ export default function MeetingsAgenda() {
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Agenda</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Agenda</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             The next {WINDOW_DAYS} days across every connected calendar.
           </p>
@@ -216,7 +216,7 @@ export default function MeetingsAgenda() {
         <div className="space-y-6">
           {grouped.map((bucket) => (
             <section key={bucket.day.toISOString()}>
-              <h2 className="sticky top-0 z-10 mb-2 bg-slate-50/80 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500 backdrop-blur dark:bg-slate-900/70 dark:text-slate-400">
+              <h2 className="sticky top-0 z-10 mb-2 bg-slate-50/80 py-1 text-xs font-medium text-slate-500 backdrop-blur dark:bg-slate-900/70 dark:text-slate-400 inline-block first-letter:uppercase">
                 {formatDayLabel(bucket.day)}
               </h2>
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

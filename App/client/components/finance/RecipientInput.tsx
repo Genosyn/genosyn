@@ -306,7 +306,7 @@ export const RecipientInput = React.forwardRef<
               className={clsx(
                 "shrink-0 rounded p-0.5 focus-visible:outline-none focus-visible:ring-2",
                 chip.valid
-                  ? "text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-indigo-500/40 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                  ? "text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-focus dark:hover:bg-slate-700 dark:hover:text-slate-200"
                   : "text-red-400 hover:bg-red-100 hover:text-red-700 focus-visible:ring-red-500/40 dark:hover:bg-red-500/20",
               )}
             >

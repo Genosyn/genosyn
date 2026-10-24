@@ -477,13 +477,13 @@ export default function RevenueDeals() {
   const showBoardSpinner = board === null && !boardError;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue" }, { label: "Deals" }]} />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Deals</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Deals</h1>
         <div className="flex items-center gap-3">
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
             <ViewTab
@@ -722,7 +722,7 @@ function ViewTab({
       onClick={onClick}
       aria-pressed={active}
       className={
-        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition " +
+        "touch-target relative inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition " +
         (active
           ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
           : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
@@ -790,7 +790,7 @@ function StageColumn({
           >
             {stage.name}
           </span>
-          <span className="ml-auto rounded-full bg-slate-200 px-1.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="ml-auto rounded-full bg-slate-200 px-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {deals.length}
           </span>
         </div>
@@ -867,9 +867,9 @@ function DealCard({
       <Link
         to={`${dealsPath}/${deal.id}`}
         onClick={(e) => e.stopPropagation()}
-        className="line-clamp-2 text-sm font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
+        className="touch-target relative block text-sm font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
       >
-        {deal.title}
+        <span className="line-clamp-2">{deal.title}</span>
       </Link>
       <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
         {account ?? "No account yet"}
@@ -906,7 +906,7 @@ function DealTable({
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">Deal</th>
                 <th className="px-4 py-2 text-left font-medium">Stage</th>

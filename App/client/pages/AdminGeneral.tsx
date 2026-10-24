@@ -142,7 +142,7 @@ export function AdminGeneral() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-sm font-semibold">Public URL</h2>
                   {settled && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
                       <CheckCircle2 size={11} aria-hidden="true" /> Configured
                     </span>
                   )}

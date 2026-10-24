@@ -279,7 +279,7 @@ export default function RevenueContactDetail() {
 
   if (loadError) {
     return (
-      <div className="page-shell p-8">
+      <div className="page-shell p-4 sm:p-8">
         <Breadcrumbs
           items={[
             { label: "Revenue", to: base },
@@ -317,7 +317,7 @@ export default function RevenueContactDetail() {
   const blocked = contact.doNotContact || !!contact.unsubscribedAt || !!contact.bouncedAt;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -340,7 +340,7 @@ export default function RevenueContactDetail() {
           </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
                 {contact.name || "Unnamed contact"}
               </h1>
               <LifecycleStagePill stage={contact.lifecycleStage} />
@@ -402,7 +402,7 @@ export default function RevenueContactDetail() {
                   <span className="font-medium text-slate-700 dark:text-slate-200">
                     {owner.name}
                     {owner.kind === "ai" && (
-                      <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                      <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
                         AI
                       </span>
                     )}

@@ -145,7 +145,7 @@ export function RepositoryWorkPanel({
           title="Show repository work"
         >
           <FolderGit2 size={16} />
-          <span className="rotate-180 text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
+          <span className="text-xs font-medium rotate-180 [writing-mode:vertical-rl]">
             Work
           </span>
         </button>

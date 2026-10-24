@@ -154,7 +154,7 @@ export function RecipientSuggestionList({
               >
                 <span
                   aria-hidden
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                 >
                   {suggestionInitials(suggestion)}
                 </span>
@@ -164,7 +164,7 @@ export function RecipientSuggestionList({
                       {label}
                     </span>
                     {suggestion.primary && (
-                      <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-px text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                      <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-px text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
                         Primary
                       </span>
                     )}
@@ -184,7 +184,7 @@ export function RecipientSuggestionList({
                 onClick={(event) => add(suggestion, "to", event.currentTarget.closest("li"))}
                 aria-label={`Add ${label} to To`}
                 title={`Put ${label} on the To line`}
-                className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
               >
                 <Plus size={12} aria-hidden /> To
               </button>

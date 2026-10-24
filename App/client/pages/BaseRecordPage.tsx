@@ -203,7 +203,7 @@ export default function BaseRecordPage({ company }: { company: Company }) {
       {/* Body — fields on the left, files + comments on the right. */}
       <div className="page-shell grid gap-6 p-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <div className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
             Fields
           </div>
           <FormError message={fieldError} className="mb-3" />

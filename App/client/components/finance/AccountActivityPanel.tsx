@@ -162,7 +162,7 @@ export function AccountActivityPanel({
                 <ArrowLeft size={12} /> Back to {previous.name}
               </button>
             )}
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {report ? (
                 <>
                   {ACCOUNT_TYPE_LABEL[report.account.type]} ·{" "}
@@ -323,7 +323,7 @@ function ActivityRows({
   const hidden = newestFirst.length - visible.length;
   return (
     <>
-      <div className="flex items-center justify-between bg-slate-50 px-5 py-2 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+      <div className="flex items-center justify-between bg-slate-50 px-5 py-2 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
         <span>Entries, newest first</span>
         <span>Change · balance after</span>
       </div>

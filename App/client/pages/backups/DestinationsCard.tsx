@@ -300,7 +300,7 @@ function DestinationRow({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-slate-900 dark:text-slate-100">{dest.name}</span>
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300 inline-block first-letter:uppercase">
                 {KIND_BADGE[dest.kind]}
               </span>
             </div>

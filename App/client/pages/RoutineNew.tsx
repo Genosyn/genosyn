@@ -87,7 +87,7 @@ function NewRoutinePage({ company, children }: { company: Company; children: Rea
 }
 
 const linkButton =
-  "text-sm font-medium text-indigo-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-indigo-400";
+  "text-sm font-medium text-indigo-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:text-indigo-400";
 
 function NewRoutine({ company }: { company: Company }) {
   const { employees, folders, refresh } = useOutletContext<RoutinesContext>();
@@ -216,7 +216,7 @@ function DescribeRoutine({
                     ask.setRequest(example.request);
                     requestRef.current?.focus();
                   }}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
                 >
                   {example.label}
                 </button>

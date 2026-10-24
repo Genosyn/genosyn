@@ -34,7 +34,7 @@ export function PipelinePalette({
     <aside className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
       <div className="flex items-start justify-between gap-3 px-1">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Step library
           </div>
           <p className="mt-0.5 text-[11px] leading-4 text-slate-400 dark:text-slate-500">
@@ -82,7 +82,7 @@ export function PipelinePalette({
                       key={entry.type}
                       type="button"
                       onClick={() => onAdd(entry.type)}
-                      className="group flex w-full items-start gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                      className="group flex w-full items-start gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
                     >
                       <div
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${meta.tone}`}

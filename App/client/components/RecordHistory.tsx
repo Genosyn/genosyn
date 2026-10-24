@@ -140,7 +140,7 @@ export function RecordHistory({
     >
       <header className="flex items-center gap-2">
         <History size={14} className="text-slate-400 dark:text-slate-500" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {title}
         </h3>
       </header>
@@ -336,7 +336,7 @@ function EntryRow({
             {details.map(([key, value]) => (
               <div
                 key={key}
-                className="inline-flex max-w-full items-baseline gap-1 rounded-md bg-slate-50 px-1.5 py-0.5 text-[11px] dark:bg-slate-800/70"
+                className="inline-flex max-w-full items-baseline gap-1 rounded-md bg-slate-50 px-1.5 py-0.5 text-xs dark:bg-slate-800/70"
               >
                 <dt className="shrink-0 text-slate-400 dark:text-slate-500">{humanizeKey(key)}</dt>
                 <dd className="truncate text-slate-700 dark:text-slate-200">

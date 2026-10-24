@@ -102,7 +102,7 @@ export default function FinanceVendorCreditDetail() {
   const canVoid = canWrite && credit.status === "issued" && credit.openCents === credit.totalCents;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -118,8 +118,8 @@ export default function FinanceVendorCreditDetail() {
           <Link to={`/c/${company.slug}/finance/vendor-credits`} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{credit.number || "Draft"}</h1>
-          <span className={"inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " + (STATUS_BADGE[credit.status] ?? STATUS_BADGE.draft)}>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{credit.number || "Draft"}</h1>
+          <span className={"inline-block rounded-full px-2 py-0.5 text-xs font-medium first-letter:uppercase " + (STATUS_BADGE[credit.status] ?? STATUS_BADGE.draft)}>
             {credit.status}
           </span>
         </div>
@@ -133,14 +133,14 @@ export default function FinanceVendorCreditDetail() {
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {([["Total", credit.totalCents], ["Applied", credit.appliedCents], ["Refunded", credit.refundedCents], ["Open", credit.openCents]] as [string, number][]).map(([label, cents]) => (
           <div key={label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
             <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{formatMoney(cents, credit.currency)}</div>
           </div>
         ))}
       </div>
 
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Lines</h3>
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">Lines</h3>
         <ul className="mt-3 space-y-1 text-sm">
           {credit.lines.map((l) => (
             <li key={l.id} className="flex justify-between gap-2">
@@ -152,7 +152,7 @@ export default function FinanceVendorCreditDetail() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Applications</h3>
+        <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">Applications</h3>
         {credit.applications.length === 0 ? (
           <div className="mt-3 text-sm text-slate-400">Not applied to any bill yet.</div>
         ) : (
@@ -176,7 +176,7 @@ export default function FinanceVendorCreditDetail() {
 
       {credit.refunds.length > 0 && (
         <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Refunds</h3>
+          <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400">Refunds</h3>
           <ul className="mt-3 space-y-2 text-sm">
             {credit.refunds.map((r) => (
               <li key={r.id} className={"flex items-center justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800" + (r.reversedAt ? " opacity-60" : "")}>

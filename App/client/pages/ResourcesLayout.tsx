@@ -15,7 +15,12 @@ import {
 } from "lucide-react";
 import { ContextualLayout } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
-import { SectionRailLinks } from "../components/SectionRail";
+import {
+  RailIconButton,
+  SectionRailHeader,
+  SectionRailLinks,
+  railHeadingClassName,
+} from "../components/SectionRail";
 import { useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { ButtonSpinner } from "../components/ui/Spinner";
@@ -322,21 +327,20 @@ function Sidebar({ ctx }: { ctx: ResourcesOutletCtx }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <Library size={14} /> Resources
-        </div>
-        <button
-          onClick={() => void newTopLevelFolder()}
-          disabled={creating}
-          aria-busy={creating || undefined}
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          title="New folder"
-          aria-label="New folder"
-        >
-          {creating ? <ButtonSpinner size={14} /> : <FolderPlus size={14} />}
-        </button>
-      </div>
+      <SectionRailHeader
+        section="resources"
+        label="Resources"
+        actions={
+          <RailIconButton
+            label="New folder"
+            onClick={() => void newTopLevelFolder()}
+            disabled={creating}
+            aria-busy={creating || undefined}
+          >
+            {creating ? <ButtonSpinner size={16} /> : <FolderPlus size={16} />}
+          </RailIconButton>
+        }
+      />
       <div className="flex-1 overflow-y-auto p-2">
         <NavLink
           to={base}
@@ -357,18 +361,20 @@ function Sidebar({ ctx }: { ctx: ResourcesOutletCtx }) {
           )}
         </NavLink>
 
-        <div className="flex items-center justify-between px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          <span className="flex items-center gap-2">
-            <Folder size={12} /> Folders
+        <div
+          className={`flex items-center justify-between pb-0.5 pl-2.5 pr-0.5 pt-4 ${railHeadingClassName}`}
+        >
+          <span className="flex items-center gap-1.5">
+            <Folder size={13} aria-hidden="true" /> Folders
           </span>
           <button
             onClick={() => void newTopLevelFolder()}
             disabled={creating}
-            className="rounded p-0.5 hover:text-slate-700 dark:hover:text-slate-200"
+            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="New folder"
             aria-label="New top-level folder"
           >
-            <Plus size={12} />
+            <Plus size={14} />
           </button>
         </div>
 

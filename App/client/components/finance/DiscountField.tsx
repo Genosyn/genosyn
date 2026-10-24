@@ -42,7 +42,7 @@ export function DiscountField({
             setJustAdded(true);
             onChange({ mode: "percent", text: "" });
           }}
-          className="inline-flex items-center gap-1 rounded-md py-0.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          className="touch-target relative inline-flex items-center gap-1 rounded-md py-0.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
           <Plus size={12} /> Add discount
         </button>

@@ -58,7 +58,7 @@ async function snapshot(page: Page): Promise<{ groups: string[]; rows: Row[] }> 
   return page.evaluate(() => {
     const list = document.getElementById("command-palette-list");
     if (!list) return { groups: [], rows: [] };
-    const groups = [...list.querySelectorAll(":scope > div > div.uppercase")].map(
+    const groups = [...list.querySelectorAll(":scope > div > [data-palette-group]")].map(
       (el) => el.textContent?.trim() ?? "",
     );
     const rows = [...list.querySelectorAll<HTMLElement>('[role="option"]')].map((el) => {

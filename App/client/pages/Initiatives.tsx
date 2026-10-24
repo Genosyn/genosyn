@@ -132,7 +132,7 @@ export default function Initiatives({ company }: { company: Company; me: Me }) {
   );
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <TopBar
         title="Initiatives"
         right={
@@ -276,7 +276,7 @@ function InitiativeCard({
 
         {spec && (
           <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
               What accept creates
             </div>
             <div className="flex flex-col gap-1.5 text-sm">

@@ -190,13 +190,13 @@ export default function FinanceCurrencies() {
   const loading = !settings || !currencies || !rates || !overview;
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Currencies" }]}
         />
       </div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+      <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
         Currencies & exchange rates
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -247,7 +247,7 @@ export default function FinanceCurrencies() {
               )}
             </div>
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <tr>
                   <th className="w-20 px-4 py-2 text-left font-medium">Code</th>
                   <th className="px-4 py-2 text-left font-medium">Name</th>
@@ -328,7 +328,7 @@ export default function FinanceCurrencies() {
             <TodaysRates overview={overview} />
 
             <div className="border-t border-slate-100 dark:border-slate-800">
-              <h3 className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="text-xs font-medium px-4 pb-2 pt-4 text-slate-500 dark:text-slate-400">
                 Rates you set
               </h3>
               {rates.length === 0 ? (
@@ -340,7 +340,7 @@ export default function FinanceCurrencies() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                       <tr>
                         <th className="w-28 px-4 py-2 text-left font-medium">Date</th>
                         <th className="w-32 px-4 py-2 text-left font-medium">From → To</th>
@@ -495,12 +495,12 @@ function TodaysRates({ overview }: { overview: ExchangeRateOverview }) {
   if (overview.rates.length === 0) return null;
   return (
     <div>
-      <h3 className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <h3 className="text-xs font-medium px-4 pb-2 pt-4 text-slate-500 dark:text-slate-400">
         Today&apos;s rates
       </h3>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="w-28 px-4 py-2 text-left font-medium">Currency</th>
               <th className="w-40 px-4 py-2 text-right font-medium">
@@ -528,12 +528,12 @@ function TodaysRates({ overview }: { overview: ExchangeRateOverview }) {
                       No rate on file
                     </span>
                   ) : row.automatic ? (
-                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       ECB
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                      <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                         Set by you
                       </span>
                       {row.source && row.source !== "manual" && (

@@ -324,7 +324,7 @@ export default function FinanceTransactions() {
         items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Entry review" }]}
       />
       <div className="mt-5">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Entry review</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Entry review</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
           A sign-off on everything that reaches your books — invoices, bills, payments, and the
           bank and card transactions you categorize on Banking. Check each entry&apos;s category and
@@ -714,7 +714,7 @@ function BulkCategoryModal({
             {groups.map((group) =>
               group.list.length === 0 ? null : (
                 <div key={group.label}>
-                  <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400 inline-block first-letter:uppercase">
                     {group.label}
                   </div>
                   {group.list.map((account) => (
@@ -931,7 +931,7 @@ function TransactionReviewModal({
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
         <table className="w-full min-w-[720px] text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="px-3 py-2 text-left font-medium">Line</th>
               <th className="px-3 py-2 text-left font-medium">Category</th>

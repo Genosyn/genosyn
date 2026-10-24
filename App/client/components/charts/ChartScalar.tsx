@@ -32,7 +32,7 @@ export function ChartScalar({ config, result }: { config: VizConfig; result: Que
       >
         {text}
       </div>
-      <div className="mt-2 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <div className="text-xs font-medium mt-2 text-slate-500 dark:text-slate-400">
         {measure}
       </div>
     </div>

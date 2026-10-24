@@ -471,7 +471,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
 
   return (
     <ContextualLayout>
-      <div className="page-shell px-6 py-8 lg:px-8">
+      <div className="page-shell px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <header
           aria-label="Home greeting"
           className="flex items-start gap-3 sm:items-center sm:gap-6"
@@ -895,7 +895,7 @@ function ActiveDecisions({
         >
           Active decisions
         </h2>
-        <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-xs font-medium tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {total} waiting
         </span>
         {following > 0 && (
@@ -906,7 +906,7 @@ function ActiveDecisions({
         )}
         <Link
           to={href}
-          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
+          className="touch-target relative ml-auto flex shrink-0 items-center gap-0.5 text-xs text-indigo-700 hover:underline dark:text-indigo-300"
         >
           All decisions <ChevronRight size={12} />
         </Link>
@@ -955,11 +955,11 @@ function Greeting({ me, company }: { me: Me; company: Company }) {
       <h1
         data-home-mark-read-fallback
         tabIndex={-1}
-        className="text-2xl font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-slate-100"
+        className="text-xl font-semibold tracking-tight text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus sm:text-2xl dark:text-slate-50"
       >
         {salute}, {firstName}
       </h1>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+      <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
         {today} · Here&apos;s what needs your attention at {company.name}.
       </p>
     </div>
@@ -999,25 +999,32 @@ function PushPromptBanner() {
   }
 
   return (
-    <div className="mt-5 flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+    // A phone puts Enable under the text, so the sentence keeps the width;
+    // from `sm` up everything sits on one line.
+    <div className="mt-5 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 sm:flex sm:items-center dark:border-indigo-500/30 dark:bg-indigo-500/10">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
         <BellRing size={17} />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 sm:flex-1">
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
           Get notified when something needs you
         </div>
-        <div className="text-xs text-slate-600 dark:text-slate-400">
+        <div className="text-xs leading-5 text-slate-600 dark:text-slate-400">
           Mentions, review requests, and approvals arrive as push notifications — even when Genosyn
           is closed.
         </div>
       </div>
-      <Button size="sm" onClick={enable} loading={busy}>
+      <Button
+        size="sm"
+        onClick={enable}
+        loading={busy}
+        className="col-start-2 row-start-2 justify-self-start sm:shrink-0"
+      >
         {busy ? "Enabling…" : "Enable"}
       </Button>
       <button
         onClick={dismiss}
-        className="rounded p-1 text-slate-400 hover:bg-indigo-100 hover:text-slate-700 dark:hover:bg-indigo-500/20 dark:hover:text-slate-200"
+        className="col-start-3 row-start-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-indigo-500/20 dark:hover:text-slate-200"
         title="Not now"
         aria-label="Dismiss"
       >
@@ -1234,12 +1241,12 @@ function FailedRoutinesAlert({
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
           Routines needing attention
         </h2>
-        <span className="rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
+        <span className="inline-flex h-5 items-center rounded-full bg-rose-100 px-2 text-xs font-medium tabular-nums text-rose-700 dark:bg-rose-500/20 dark:text-rose-200">
           {data.failedRunCount}
         </span>
         <Link
           to={`/c/${company.slug}/tldrs/journal`}
-          className="ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
+          className="touch-target relative ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
         >
           Journal <ChevronRight size={12} />
         </Link>
@@ -1299,7 +1306,7 @@ function FailedRoutinesAlert({
                 aria-busy={(busy?.runId === r.runId && busy.action === "retry") || undefined}
                 title="Retry"
                 aria-label={`Retry ${r.routineName}`}
-                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                className="flex min-w-8 shrink-0 items-center justify-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
               >
                 {busy?.runId === r.runId && busy.action === "retry" ? (
                   <ButtonSpinner size={14} />
@@ -1353,13 +1360,13 @@ function HomeTldrPanel({
   const base = `/c/${company.slug}/tldrs`;
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-950">
+    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-900">
       <div className="flex items-center gap-2 border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-violet-500/15 dark:bg-violet-500/10">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
           <Sparkles size={15} />
         </span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Latest TLDR</h2>
-        <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+        <span className="inline-flex h-5 items-center rounded-full bg-violet-100 px-2 text-xs font-medium tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
           {data.unreadTldrCount}
         </span>
         <Link
@@ -1400,7 +1407,7 @@ function HomeTldrPanel({
                   <button
                     type="button"
                     onClick={() => onDismiss(item)}
-                    className="-mr-1 inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    className="touch-target relative -mr-1 inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                     aria-label={`Dismiss ${item.title || "TLDR"}`}
                   >
                     <X size={13} /> Dismiss
@@ -1465,7 +1472,7 @@ function HomeCard({
         <span className="text-slate-400 dark:text-slate-500">{icon}</span>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {count !== undefined && count > 0 && (
-          <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-xs font-medium tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {count}
           </span>
         )}
@@ -1479,7 +1486,7 @@ function HomeCard({
           <Link
             to={linkTo}
             onClick={onLinkClick}
-            className="flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
+            className="touch-target relative flex shrink-0 items-center gap-0.5 text-xs text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
           >
             {linkLabel} <ChevronRight size={12} />
           </Link>
@@ -2110,7 +2117,7 @@ function MessagesCard({
               <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
                 {c.label}
               </span>
-              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
+              <span className="inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-rose-600 px-1.5 text-xs font-semibold tabular-nums leading-none text-white">
                 {c.unreadCount > 99 ? "99+" : c.unreadCount}
               </span>
             </HomeRow>
@@ -2354,10 +2361,10 @@ function SystemHealthCard({
                 </span>
                 <span
                   className={clsx(
-                    "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                    "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-xs font-medium tabular-nums",
                     c.severity === "error"
-                      ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
-                      : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+                      ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
                   )}
                 >
                   {c.count}
@@ -2366,7 +2373,7 @@ function SystemHealthCard({
               <button
                 type="button"
                 onClick={() => dismiss(c.id, c.count)}
-                className="mr-2 shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                className="touch-target relative mr-2 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                 title="Dismiss"
                 aria-label={`Dismiss ${c.title}`}
               >

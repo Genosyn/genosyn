@@ -320,7 +320,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
   if (loadError || (!catalogLoading && catalog.length === 0 && catalogError)) {
     return (
       <div className="mx-auto max-w-xl p-6 sm:p-8">
-        <div className="rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm dark:border-rose-900 dark:bg-slate-950">
+        <div className="rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm dark:border-rose-900 dark:bg-slate-900">
           <AlertCircle size={24} className="mx-auto text-rose-500" />
           <h1 className="mt-3 text-lg font-semibold text-slate-950 dark:text-slate-50">
             This pipeline could not be opened
@@ -642,7 +642,7 @@ function TabButton({
         "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition " +
         (active
           ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200")
+          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200")
       }
     >
       <Icon size={14} /> {children}

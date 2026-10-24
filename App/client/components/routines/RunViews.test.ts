@@ -190,7 +190,10 @@ describe("Routine Run failure and error presentation", () => {
     assert.match(failed, /bg-rose-50/);
     assert.match(error, />error</);
     assert.match(error, /model request or runtime problem/);
-    assert.match(error, /bg-orange-50/);
+    // Error is the warning tone, never Failed's danger tone: the two must not
+    // read as the same outcome at a glance.
+    assert.match(error, /bg-amber-50/);
+    assert.doesNotMatch(error, /bg-rose-50/);
   });
 
   for (const [errorKind, detail] of [

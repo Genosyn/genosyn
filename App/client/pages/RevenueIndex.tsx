@@ -310,14 +310,14 @@ export default function RevenueIndex() {
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue" }]} />
       </div>
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Insights</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">Insights</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {overview
               ? `${formatDay(overview.period.from)} — ${formatDay(overview.period.to)} · reported in ${overview.currency}`
@@ -838,7 +838,7 @@ function CacByChannel({ cac, currency }: { cac: RevenueOverview["cac"]; currency
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <thead className="border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">Channel</th>
                 <th className="px-4 py-2 text-right font-medium">Authorized spend</th>

@@ -19,6 +19,7 @@ import { api, Company, RoutineFolder, RoutineWithMeta, Run } from "../lib/api";
 import { newRoutinePath } from "../lib/newItemPath";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
@@ -282,7 +283,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
         : "All routines";
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[
           { label: "Routines", to: `/c/${company.slug}/routines` },
@@ -402,7 +403,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
                 onClick={() => setHealth(key)}
                 aria-pressed={health === key}
                 className={
-                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition " +
+                  "touch-target relative flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition " +
                   (health === key
                     ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800")
@@ -486,10 +487,10 @@ export default function RoutinesIndex({ company }: { company: Company }) {
               }
             />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               {/* Column headers are desktop-only; each row restates its own
                   labels once the grid collapses. */}
-              <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] gap-4 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:grid dark:border-slate-800 dark:text-slate-500">
+              <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-4 border-b border-slate-200 bg-slate-50/80 px-4 py-2.5 text-xs font-medium text-slate-500 md:grid dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
                 <div>Routine</div>
                 <div>Assigned to</div>
                 <div>Schedule</div>
@@ -667,7 +668,7 @@ function RoutineRow({
   }
 
   return (
-    <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-900">
+    <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(0,1.4fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-800/50">
       <div className="flex min-w-0 items-start gap-2">
         {selecting && (
           <input
@@ -683,9 +684,9 @@ function RoutineRow({
             {to ? (
               <Link
                 to={to}
-                className="max-w-full truncate font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
+                className="touch-target relative flex min-w-0 max-w-full font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-400"
               >
-                {r.name}
+                <span className="truncate">{r.name}</span>
               </Link>
             ) : (
               <span className="truncate font-medium text-slate-900 dark:text-slate-100">
@@ -693,22 +694,15 @@ function RoutineRow({
               </span>
             )}
             {r.standdown && (
-              <span
-                className="inline-flex shrink-0 items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300"
-                title={standdownTitle}
-              >
-                <OctagonX size={11} aria-hidden="true" /> Stood down
-              </span>
+              <Badge tone="danger" title={standdownTitle} icon={<OctagonX />}>
+                Stood down
+              </Badge>
             )}
             {!r.enabled && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <Pause size={9} /> paused
-              </span>
+              <Badge icon={<Pause />}>paused</Badge>
             )}
             {r.requiresApproval && (
-              <span className="shrink-0 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
-                approval
-              </span>
+              <Badge tone="ai">approval</Badge>
             )}
             <RoutinePriorityChip priority={r.priority} />
           </div>
@@ -737,7 +731,7 @@ function RoutineRow({
         {r.employee ? (
           <Link
             to={`/c/${company.slug}/employees/${r.employee.slug}`}
-            className="flex min-w-0 items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
+            className="touch-target relative flex min-w-0 items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
           >
             <Avatar
               name={r.employee.name}
@@ -799,7 +793,7 @@ function RoutineRow({
                   <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
                 )}
                 <span
-                  className="truncate text-xs text-slate-400 dark:text-slate-500"
+                  className="whitespace-nowrap text-xs text-slate-500 dark:text-slate-400"
                   title={new Date(r.lastRun.startedAt).toLocaleString()}
                 >
                   {timeAgo(r.lastRun.startedAt)}
@@ -811,13 +805,13 @@ function RoutineRow({
             return to ? (
               <Link
                 to={`${to}?run=${encodeURIComponent(r.lastRun.id)}`}
-                className="flex min-w-0 items-center gap-2 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                className="touch-target relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <span className="sr-only">Open the last Run of {r.name}: </span>
                 {lastRun}
               </Link>
             ) : (
-              <div className="flex items-center gap-2">{lastRun}</div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">{lastRun}</div>
             );
           })()
         ) : (
@@ -849,7 +843,7 @@ function RoutineRow({
         {to && (
           <Link
             to={to}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="touch-target relative rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             title="Open routine"
             aria-label={`Open ${r.name}`}
           >

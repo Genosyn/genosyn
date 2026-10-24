@@ -87,7 +87,7 @@ function ProjectCard({
         </span>
         {review > 0 && (
           <span
-            className="ml-auto flex items-center gap-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+            className="ml-auto flex items-center gap-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
             title={`${review} awaiting review`}
           >
             <ShieldCheck size={10} /> {review}

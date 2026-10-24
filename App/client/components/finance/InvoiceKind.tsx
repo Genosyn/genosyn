@@ -101,7 +101,7 @@ export function InvoiceKindChoice({
   }
 
   return (
-    <div className="page-shell p-8">
+    <div className="page-shell p-4 sm:p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[
@@ -116,11 +116,11 @@ export function InvoiceKindChoice({
         <Link
           to={`${financeBase}/invoices`}
           aria-label="Back to invoices"
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="touch-target relative rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <ArrowLeft size={18} />
         </Link>
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">New invoice</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">New invoice</h1>
       </div>
 
       <section aria-labelledby={`${id}-question`} className="max-w-3xl">
@@ -161,7 +161,7 @@ export function InvoiceKindChoice({
                 aria-labelledby={`${id}-${kind}-title`}
                 aria-describedby={`${id}-${kind}-blurb`}
                 onKeyDown={(event) => moveBetweenAnswers(event, index)}
-                className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:border-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-500/60 dark:hover:bg-indigo-500/5"
+                className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:border-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-500/60 dark:hover:bg-indigo-500/5"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition group-hover:bg-indigo-100 group-hover:text-indigo-700 dark:bg-slate-800 dark:text-slate-300 dark:group-hover:bg-indigo-500/15 dark:group-hover:text-indigo-300">
                   <Icon size={18} aria-hidden="true" />
@@ -261,7 +261,7 @@ export function InvoiceKindSwitch({
               replace
               className={clsx(
                 segment,
-                "text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                "text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
               )}
             >
               {content}

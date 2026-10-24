@@ -183,7 +183,7 @@ export default function MailSettings() {
       </h1>
 
       {/* Account card */}
-      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-indigo-100 p-2 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
             <Mail size={18} />
@@ -273,7 +273,7 @@ export default function MailSettings() {
       />
 
       {/* AI access */}
-      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-1 flex items-center gap-2">
           <Users size={16} className="text-slate-400" />
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI access</h2>
@@ -346,7 +346,7 @@ export default function MailSettings() {
       </section>
 
       {/* Other mailboxes / connect */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Connected mailboxes

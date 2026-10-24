@@ -340,7 +340,7 @@ export default function DecisionHistory({ company, me }: { company: Company; me:
               aside={
                 <>
                   {working > 0 && (
-                    <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                    <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
                       {working} being worked on now
                     </span>
                   )}

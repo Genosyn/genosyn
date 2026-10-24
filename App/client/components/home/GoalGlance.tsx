@@ -55,7 +55,7 @@ export function GoalGlance({ company }: { company: Company }) {
   const fill = goalBarFill(goal);
   return (
     <div className="mt-1 flex w-full max-w-sm flex-col items-center gap-1.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
         Your Goal
       </div>
       <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{goal.title}</div>

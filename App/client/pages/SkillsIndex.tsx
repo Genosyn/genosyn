@@ -48,7 +48,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
     : tagged;
 
   return (
-    <div className="page-shell p-6">
+    <div className="page-shell p-4 sm:p-6">
       <Breadcrumbs
         items={[
           { label: "Skills", to: `/c/${company.slug}/skills` },
@@ -103,10 +103,10 @@ export default function SkillsIndex({ company }: { company: Company }) {
           {shown.length === 0 ? (
             <EmptyState title="Nothing here" description="No skills match this search." />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               {/* Column headers are desktop-only; each row restates its own
                   labels once the grid collapses. */}
-              <div className="hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] gap-4 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:grid dark:border-slate-800 dark:text-slate-500">
+              <div className="text-xs font-medium hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] gap-4 border-b border-slate-100 px-4 py-2 text-slate-500 md:grid dark:border-slate-800 dark:text-slate-400">
                 <div>Skill</div>
                 <div>Known by</div>
                 <div>Created</div>
@@ -129,7 +129,7 @@ function SkillRow({ company, skill: s }: { company: Company; skill: SkillWithMet
   const to = s.employee ? `/c/${company.slug}/skills/${s.employee.slug}/${s.slug}` : null;
 
   return (
-    <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-900">
+    <li className="grid grid-cols-1 gap-2 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,2.4fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-center md:gap-4 dark:hover:bg-slate-800/60">
       <div className="min-w-0">
         {to ? (
           <Link

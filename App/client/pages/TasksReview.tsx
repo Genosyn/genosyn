@@ -168,7 +168,7 @@ function ReviewCard({
         <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
           {item.title}
         </span>
-        <span className="ml-auto flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
+        <span className="ml-auto flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
           <ShieldCheck size={10} /> In review
         </span>
         {waitingSince && (
@@ -227,7 +227,7 @@ function PersonLine({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <span className="text-xs font-medium w-16 shrink-0 text-slate-500 dark:text-slate-400">
         {label}
       </span>
       {person ? (
@@ -235,7 +235,7 @@ function PersonLine({
           <PersonAvatar kind={person.kind} name={person.name} />
           <span className="truncate text-sm text-slate-700 dark:text-slate-200">{person.name}</span>
           {person.kind === "ai" && (
-            <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
+            <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200 inline-block first-letter:uppercase">
               AI
             </span>
           )}

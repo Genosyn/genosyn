@@ -321,7 +321,7 @@ export function PipelineCanvas({
                   <div className="truncate text-sm font-semibold">
                     {nodeDisplayName(node, catalog)}
                   </div>
-                  <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-60">
+                  <div className="text-xs font-medium mt-0.5 opacity-60">
                     {PIPELINE_FAMILY_META[family].shortLabel}
                   </div>
                 </div>
@@ -381,7 +381,7 @@ export function PipelineCanvas({
 
       {graph.nodes.length > 0 && graph.edges.length === 0 && (
         <div className="pointer-events-none sticky bottom-3 left-0 flex justify-center px-4">
-          <div className="rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-950/95 dark:text-slate-400">
+          <div className="rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-950/95 dark:text-slate-400">
             Select a step and use “Next step”, or drag its right dot to connect it.
           </div>
         </div>

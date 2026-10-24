@@ -138,7 +138,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   return (
     <Card>
       <CardBody>
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
         <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{value}</div>
         {sub && <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{sub}</div>}
       </CardBody>
@@ -156,7 +156,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
       </CardHeader>
       <CardBody>
         <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <thead className="text-left border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="py-2">Employee</th>
               <th className="py-2 text-right">Runs</th>
@@ -209,7 +209,7 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
       </CardHeader>
       <CardBody>
         <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <thead className="text-left border-b border-slate-200 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
             <tr>
               <th className="py-2">Routine</th>
               <th className="py-2">Employee</th>

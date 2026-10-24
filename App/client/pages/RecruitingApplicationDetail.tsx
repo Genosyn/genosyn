@@ -188,7 +188,7 @@ function ApplicationView({ applicationId }: { applicationId: string }) {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{detail.candidateName}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">{detail.candidateName}</h1>
             <StagePill stage={detail.stage} />
             {detail.injectionFlag ? (
               <TonePill tone="warn" title="Text in this application tried to instruct an AI. It was ignored and flagged.">
@@ -510,7 +510,7 @@ function ScorecardBody({ card }: { card: Scorecard }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-slate-900 dark:text-white">{rating.name}</span>
-                <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {CRITERION_IMPORTANCE_LABELS[rating.importance] ?? rating.importance}
                 </span>
               </div>
@@ -565,7 +565,7 @@ function ScorecardBody({ card }: { card: Scorecard }) {
       ) : null}
       {card.interviewQuestions.length > 0 ? (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ask in the interview</h4>
+          <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400">Ask in the interview</h4>
           <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-300">
             {card.interviewQuestions.map((item) => (
               <li key={item}>{item}</li>

@@ -91,7 +91,7 @@ export default function MailHandovers() {
           {handovers.map((h) => (
             <li
               key={h.id}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -99,7 +99,7 @@ export default function MailHandovers() {
                 </span>
                 <span
                   className={clsx(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
                     STATUS_STYLE[h.status],
                   )}
                 >

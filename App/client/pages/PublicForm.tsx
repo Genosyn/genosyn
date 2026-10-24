@@ -208,10 +208,10 @@ export default function PublicForm() {
     <PublicFormShell companyName={form.companyName}>
       <main className="px-4 py-7 sm:px-6 sm:py-10">
         <form onSubmit={submit} className="mx-auto max-w-2xl space-y-4" noValidate>
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className={clsx("h-2", ACCENT[form.color] ?? ACCENT.indigo)} />
             <div className="p-6 sm:p-8">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {form.companyName}
               </div>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl dark:text-slate-100">
@@ -327,7 +327,7 @@ export default function PublicForm() {
             );
           })}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-slate-700 dark:bg-slate-950">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-slate-700 dark:bg-slate-900">
             <FormError message={submitError} className="mb-4" />
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Button type="submit" loading={submitting} disabled={form.questions.length === 0}>
@@ -392,7 +392,7 @@ function TerminalCard({
 
   return (
     <div className="mx-auto flex min-h-[75vh] max-w-lg items-center px-5 py-12">
-      <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <span
           className={clsx(
             "mx-auto flex h-12 w-12 items-center justify-center rounded-full",

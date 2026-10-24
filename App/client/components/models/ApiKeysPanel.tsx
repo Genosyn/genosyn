@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { api, type AIModel, type AIModelApiKey, type Company } from "@/lib/api";
 import { companyModelPath } from "@/lib/companyModels";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
@@ -132,13 +133,11 @@ export function ApiKeysPanel({
                   <span className="font-mono text-xs text-slate-800 dark:text-slate-100">
                     {key.preview}
                   </span>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <Badge tone={index === 0 ? "accent" : "neutral"}>
                     {index === 0 ? "Primary" : "Backup"}
-                  </span>
+                  </Badge>
                   {refused && (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-900">
-                      {state === "resting" ? "Skipped for now" : "Failing"}
-                    </span>
+                    <Badge tone="warning">{state === "resting" ? "Skipped for now" : "Failing"}</Badge>
                   )}
                 </div>
                 <div

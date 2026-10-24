@@ -547,7 +547,7 @@ export function MailDraftReview({
           <DraftSendProgress batch={sendBatch} />
         </div>
       )}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {/* Header — what is here, and the one button that sends all of it. */}
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="min-w-0 flex-1">
@@ -1041,7 +1041,7 @@ function DraftRow({
         "group relative border-b border-slate-100 last:border-b-0 dark:border-slate-800/70",
         selected
           ? "bg-indigo-50/70 dark:bg-indigo-500/10"
-          : "hover:bg-slate-50 dark:hover:bg-slate-900/60",
+          : "hover:bg-slate-50 dark:hover:bg-slate-800/60",
         focused && "ring-1 ring-inset ring-indigo-400/60 dark:ring-indigo-500/40",
       )}
     >

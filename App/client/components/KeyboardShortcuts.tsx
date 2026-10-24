@@ -333,7 +333,7 @@ function ShortcutGuide({
           <section aria-labelledby="everywhere-shortcuts">
             <h3
               id="everywhere-shortcuts"
-              className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500"
+              className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400"
             >
               Everywhere
             </h3>
@@ -361,7 +361,7 @@ function ShortcutGuide({
             <section className="mt-6" aria-labelledby="mail-shortcuts">
               <h3
                 id="mail-shortcuts"
-                className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500"
+                className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400"
               >
                 In Email
               </h3>
@@ -382,7 +382,7 @@ function ShortcutGuide({
           <section className="mt-6" aria-labelledby="page-shortcuts">
             <h3
               id="page-shortcuts"
-              className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500"
+              className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400"
             >
               Go to a page
             </h3>
@@ -459,7 +459,7 @@ export function ShortcutKeys({ second, className }: { second: string; className?
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+    <kbd className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
       {children}
     </kbd>
   );

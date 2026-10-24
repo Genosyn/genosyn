@@ -332,7 +332,7 @@ function AddGrantModal({
       ) : (
         <div className="flex flex-col gap-4">
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
               Employee
             </div>
             <div className="flex flex-col gap-1">
@@ -366,7 +366,7 @@ function AddGrantModal({
           </div>
 
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-medium mb-2 text-slate-500 dark:text-slate-400">
               Access
             </div>
             <div className="flex gap-2">
