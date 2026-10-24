@@ -1,4 +1,11 @@
-import { In, LessThanOrEqual, MoreThan, MoreThanOrEqual, type FindOptionsWhere } from "typeorm";
+import {
+  In,
+  LessThanOrEqual,
+  MoreThan,
+  MoreThanOrEqual,
+  type EntityManager,
+  type FindOptionsWhere,
+} from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
@@ -373,13 +380,19 @@ export async function setMeetingStatus(
  * new reading of the same audio, and interleaving it with the old one would
  * produce a transcript that never existed. The flattened copy on the meeting
  * is rebuilt in the same call so the two can never disagree.
+ *
+ * `manager` lets a caller write the transcript inside its own transaction —
+ * the notetaker publishes Meet's captions together with the recording.
  */
-export async function replaceTranscript(args: {
-  companyId: string;
-  meetingId: string;
-  segments: Array<{ startMs: number; endMs: number; speaker: string; text: string }>;
-}): Promise<number> {
-  const segmentRepo = AppDataSource.getRepository(MeetingTranscriptSegment);
+export async function replaceTranscript(
+  args: {
+    companyId: string;
+    meetingId: string;
+    segments: Array<{ startMs: number; endMs: number; speaker: string; text: string }>;
+  },
+  manager: EntityManager = AppDataSource.manager,
+): Promise<number> {
+  const segmentRepo = manager.getRepository(MeetingTranscriptSegment);
   await segmentRepo.delete({ meetingId: args.meetingId });
 
   const rows = args.segments
@@ -401,7 +414,7 @@ export async function replaceTranscript(args: {
   const flat = rows
     .map((row) => (row.speaker ? `${row.speaker}: ${row.text}` : row.text))
     .join("\n");
-  await AppDataSource.getRepository(Meeting).update(
+  await manager.getRepository(Meeting).update(
     { id: args.meetingId },
     { transcriptText: flat, transcriptState: "ready", transcriptError: "" },
   );

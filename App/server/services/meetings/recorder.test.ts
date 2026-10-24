@@ -299,6 +299,49 @@ describe("startNotetaker", () => {
     assert.deepEqual(processed, [meeting.id]);
   });
 
+  test("publishes Meet's captions as the transcript, so nothing is left to transcribe", async () => {
+    const processed: string[] = [];
+    setMeetingBackgroundProcessor((_companyId, meetingId) => processed.push(meetingId));
+    installRecorder(async (args) => {
+      await args.onJoined();
+      return {
+        bytes: Buffer.from("recorded call"),
+        mime: "audio/webm",
+        durationMs: 9_000,
+        captions: [
+          { startMs: 0, endMs: 2_000, speaker: "Pat Lee", text: "We need SSO before we sign." },
+          { startMs: 2_500, endMs: 3_000, speaker: "Sam Rivera", text: "  " },
+          { startMs: 3_000, endMs: 6_000, speaker: "Sam Rivera", text: "I'll send pricing Friday." },
+        ],
+      };
+    });
+    const meeting = await blankMeeting({ conferenceUrl: "https://meet.google.com/a-b-c" });
+
+    assert.equal((await startNotetaker({ companyId: CO, meetingId: meeting.id })).ok, true);
+    const stored = await waitForMeeting(meeting.id, (row) => row.status === "processing");
+    // Published with the recording: a processing pass that picks the meeting
+    // up never finds it waiting for speech-to-text.
+    assert.equal(stored.transcriptState, "ready");
+    assert.equal(stored.recordingSource, "notetaker");
+    assert.ok(stored.recordingPath);
+    assert.equal(
+      stored.transcriptText,
+      "Pat Lee: We need SSO before we sign.\nSam Rivera: I'll send pricing Friday.",
+    );
+    const segments = await AppDataSource.getRepository(MeetingTranscriptSegment).find({
+      where: { meetingId: meeting.id },
+      order: { sortOrder: "ASC" },
+    });
+    assert.deepEqual(
+      segments.map((segment) => [segment.speaker, segment.startMs, segment.endMs]),
+      [
+        ["Pat Lee", 0, 2_000],
+        ["Sam Rivera", 3_000, 6_000],
+      ],
+    );
+    assert.deepEqual(processed, [meeting.id]);
+  });
+
   test("keeps finalized partial audio after abort and preserves the actual join time", async () => {
     setMeetingBackgroundProcessor(() => undefined);
     installRecorder(async (args) => {
