@@ -16,6 +16,7 @@ import {
   createUserSession,
   resolveUserSession,
   revokeCurrentUserSession,
+  userSessionIdentity,
 } from "../services/userSessions.js";
 
 declare module "express-serve-static-core" {
@@ -65,7 +66,64 @@ export function hashApiToken(body: string): string {
 // on every request. 60 s resolution is plenty for a "last used" UI display.
 const LAST_USED_DEBOUNCE_MS = 60_000;
 
-async function tryBearerAuth(req: Request): Promise<{ user: User; key: ApiKey } | null> {
+/**
+ * What one request's guards read from the database, kept for that request.
+ *
+ * About sixty routers are mounted under `/api/companies/:cid`, and each opens
+ * with `requireAuth` and `requireCompanyMember`, so a request meets those
+ * guards once for every router it passes on its way to the one that answers
+ * it. They decide from the same inputs each time — the session cookie or the
+ * `Authorization` header, the company in the URL, the Member — so each read
+ * is made once and kept under exactly those inputs, and every later guard
+ * decides again from the kept answer. A different input is a different entry,
+ * read afresh. Nothing outlives the request, so the next one sees a revoked
+ * key, an ended sign-in or a removed Member at once, and a read that fails is
+ * not kept.
+ */
+const readsByRequest = new WeakMap<Request, Map<string, unknown>>();
+
+async function readOncePerRequest<T>(
+  req: Request,
+  inputs: readonly unknown[],
+  read: () => Promise<T>,
+): Promise<T> {
+  const key = JSON.stringify(inputs);
+  let reads = readsByRequest.get(req);
+  if (reads?.has(key)) return reads.get(key) as T;
+  const value = await read();
+  if (!reads) readsByRequest.set(req, (reads = new Map()));
+  reads.set(key, value);
+  return value;
+}
+
+type BearerAuth = { user: User; key: ApiKey };
+
+/** {@link readBearerAuth} once per request: every company router asks. */
+function tryBearerAuth(req: Request): Promise<BearerAuth | null> {
+  return readOncePerRequest(
+    req,
+    ["apiKey", req.headers.authorization ?? null, companyIdFromApiPath(req.originalUrl)],
+    () => readBearerAuth(req),
+  );
+}
+
+/** The user who sent a session cookie, read once per request like the key. */
+function sessionUser(req: Request): Promise<User | null> {
+  const identity = userSessionIdentity(req.session);
+  return readOncePerRequest(
+    req,
+    [
+      "session",
+      identity?.userId ?? null,
+      identity?.userSessionId ?? null,
+      identity?.sessionVersion ?? null,
+      identity?.expiresAt ?? null,
+    ],
+    () => resolveUserSession(req.session),
+  );
+}
+
+async function readBearerAuth(req: Request): Promise<BearerAuth | null> {
   const body = parseBearer(req.headers.authorization);
   if (!body) return null;
   const tokenHash = hashApiToken(body);
@@ -118,7 +176,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Cookie-session path — what the web UI uses.
   const uid = req.session?.userId as string | undefined;
   if (uid) {
-    const user = await resolveUserSession(req.session);
+    let user: User | null;
+    try {
+      user = await sessionUser(req);
+    } catch (error) {
+      // Express 4 drops a rejected promise; hand the failure to the error handler
+      // so the client gets an answer instead of a socket left open.
+      return next(error);
+    }
     if (!user) {
       req.session = null;
       return res.status(401).json({ error: "Unauthorized" });
@@ -129,7 +194,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 
   // Bearer-token path — programmatic access via API keys.
-  const bearer = await tryBearerAuth(req);
+  let bearer: BearerAuth | null;
+  try {
+    bearer = await tryBearerAuth(req);
+  } catch (error) {
+    return next(error);
+  }
   if (bearer) {
     req.userId = bearer.user.id;
     req.user = bearer.user;
@@ -222,6 +292,25 @@ export function requireBrowserSession(
   next();
 }
 
+/** A user's Membership of a company, or why `requireCompanyMember` refuses them. */
+type CompanyStanding = Membership | "notMember" | "twoFactorRequired";
+
+async function readCompanyStanding(
+  companyId: string,
+  userId: string,
+  viaApiKey: boolean,
+): Promise<CompanyStanding> {
+  const membership = await AppDataSource.getRepository(Membership).findOneBy({ companyId, userId });
+  if (!membership) return "notMember";
+  if (!viaApiKey) {
+    const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
+    if (company?.requireTwoFactor && !(await hasTwoFactorMethod(userId))) {
+      return "twoFactorRequired";
+    }
+  }
+  return membership;
+}
+
 export async function requireCompanyMember(
   req: Request,
   res: Response,
@@ -229,31 +318,35 @@ export async function requireCompanyMember(
 ): Promise<void | Response> {
   const companyId = req.params.cid ?? req.params.companyId;
   if (!companyId) return res.status(400).json({ error: "Missing company id" });
-  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  const userId = req.userId;
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   // An ApiKey only unlocks the company it was minted for, even if the
   // owning user is a member of multiple companies. Reject before we hit
   // the DB so a wrong-company request is cheap.
   if (req.apiKeyCompanyId && req.apiKeyCompanyId !== companyId) {
     return res.status(403).json({ error: "API key is scoped to a different company" });
   }
-  const m = await AppDataSource.getRepository(Membership).findOneBy({
-    companyId,
-    userId: req.userId,
-  });
-  if (!m) return res.status(403).json({ error: "Forbidden" });
-  if (!req.apiKey) {
-    const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
-    if (company?.requireTwoFactor && !(await hasTwoFactorMethod(req.userId))) {
-      return res.status(403).json({
-        error: "This company requires two-factor authentication. Enable it in Account → Security.",
-      });
-    }
+  const viaApiKey = Boolean(req.apiKey);
+  let standing: CompanyStanding;
+  try {
+    standing = await readOncePerRequest(req, ["companyMember", companyId, userId, viaApiKey], () =>
+      readCompanyStanding(companyId, userId, viaApiKey),
+    );
+  } catch (error) {
+    // Express 4 drops a rejected promise; answer through the error handler.
+    return next(error);
   }
-  req.companyRole = m.role;
-  req.membership = m;
+  if (standing === "notMember") return res.status(403).json({ error: "Forbidden" });
+  if (standing === "twoFactorRequired") {
+    return res.status(403).json({
+      error: "This company requires two-factor authentication. Enable it in Account → Security.",
+    });
+  }
+  req.companyRole = standing.role;
+  req.membership = standing;
   // Backwards compatibility for route code that still reads the old ad-hoc
   // property. New authorization middleware uses the typed companyRole field.
-  (req as Request & { role: Role }).role = m.role;
+  (req as Request & { role: Role }).role = standing.role;
   next();
 }
 

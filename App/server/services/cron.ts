@@ -1,4 +1,4 @@
-import { In, IsNull, LessThanOrEqual, MoreThan, Not } from "typeorm";
+import { In, IsNull, LessThanOrEqual, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -135,8 +135,12 @@ export function registerRoutine(routine: Routine, timeZone: string): void {
 /**
  * A terminal verdict does not release runtime/assessment cleanup ownership.
  * Keep retries behind that claim as well as recent legacy running rows.
+ * Exported for its query-plan test.
  */
-async function findInFlightRun(routine: Routine, now: Date = new Date()): Promise<Run | null> {
+export async function findInFlightRun(
+  routine: Routine,
+  now: Date = new Date(),
+): Promise<Run | null> {
   const inFlightSince = new Date(
     now.getTime() - (Math.max(1, routine.timeoutSec) * 1000 + ORPHAN_GRACE_MS),
   );
@@ -149,7 +153,9 @@ async function findInFlightRun(routine: Routine, now: Date = new Date()): Promis
       },
       {
         routineId: routine.id,
-        queueActiveEmployeeId: Not(IsNull()),
+        // A claim is never empty, so `> ''` finds the claimed Runs through the
+        // claim index, where `IS NOT NULL` walked the Routine's whole history.
+        queueActiveEmployeeId: MoreThan(""),
       },
     ],
   });
