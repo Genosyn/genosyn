@@ -6,7 +6,7 @@ import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { onRoutePaths, requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import {
   contractUploadMiddleware,
   deleteContractBytes,
@@ -29,14 +29,24 @@ contractsRouter.use(requireAuth);
 contractsRouter.use(requireCompanyMember);
 
 // Hydrate `req.company` from the URL param — the upload middleware needs the
-// slug to compute the on-disk target dir. Mirrors workspace.ts.
-contractsRouter.use(async (req, res, next) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  (req as unknown as { company: Company }).company = co;
-  next();
-});
+// slug to compute the on-disk target dir. Mirrors workspace.ts, but scoped to
+// the contract paths: this router shares the `/api/companies/:cid` mount with
+// every router after it, whose requests have no use for the Company.
+contractsRouter.use(
+  onRoutePaths(["/contracts"], async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    let co: Company | null;
+    try {
+      co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    } catch (error) {
+      // Express 4 drops a rejected promise; answer through the error handler.
+      return next(error);
+    }
+    if (!co) return res.status(404).json({ error: "Company not found" });
+    (req as unknown as { company: Company }).company = co;
+    next();
+  }),
+);
 
 function companyOf(req: { company?: Company }): Company {
   if (!req.company) throw new Error("Company context missing");

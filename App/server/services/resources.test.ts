@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { after, before, describe, test } from "node:test";
 
 import { PDFDocument } from "pdf-lib";
 
+import { occupyThreadPool } from "../test/threadPool.js";
+import { emptyZip, withDamagedEntry, zipOf } from "../test/zipFixtures.js";
 import {
   RESOURCE_AUTO_SUMMARY_CHARS,
   RESOURCE_MAX_MATCHES,
   buildMatchSnippet,
+  epubFileToText,
+  extractResourceText,
   gradeExtraction,
   markdownToPlainText,
   pdfBufferToText,
@@ -242,5 +249,73 @@ describe("summarizeBody", () => {
     const long = summarizeBody("text", `# Long\n\n${"word ".repeat(200)}`);
     assert.equal(long.length, RESOURCE_AUTO_SUMMARY_CHARS);
     assert.ok(long.endsWith("…"));
+  });
+});
+
+/**
+ * An EPUB is read as a zip, and that used to go through `unzipper.Open.file`:
+ * file streams nobody listened to for errors, one of them possibly still
+ * opening once the import had answered. A stream error nobody listens for is
+ * an uncaught exception, which stops the App — so an EPUB listing no chapters
+ * could take the server down once its bytes were deleted. Not being able to
+ * read one is the Resource's reason instead.
+ */
+describe("epubFileToText", () => {
+  let dir = "";
+
+  before(async () => {
+    dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "genosyn-epub-"));
+  });
+
+  after(async () => {
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  async function epub(name: string, bytes: Buffer): Promise<string> {
+    const abs = path.join(dir, name);
+    await fs.promises.writeFile(abs, bytes);
+    return abs;
+  }
+
+  test("reads every chapter's text, in order", async () => {
+    const abs = await epub(
+      "book.epub",
+      await zipOf({
+        mimetype: "application/epub+zip",
+        "OEBPS/chapter-2.xhtml": "<html><body><p>Second chapter.</p></body></html>",
+        "OEBPS/chapter-1.xhtml": "<html><body><h1>First chapter.</h1></body></html>",
+        "OEBPS/cover.jpg": Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      }),
+    );
+    assert.equal(await epubFileToText(abs), "First chapter.\n\nSecond chapter.");
+  });
+
+  test("an EPUB that is not a zip, or is damaged, is reported as unreadable", async () => {
+    const unreadable = {
+      "typed.epub": Buffer.from("Chapter one, saved as text under an .epub name."),
+      "damaged.epub": withDamagedEntry(
+        await zipOf({ "OEBPS/chapter-1.xhtml": "<p>First chapter.</p>" }),
+      ),
+    };
+    for (const [name, bytes] of Object.entries(unreadable)) {
+      const extracted = await extractResourceText(await epub(name, bytes), name, "epub");
+      assert.equal(extracted.status, "failed", name);
+      assert.match(extracted.errorMessage, /^This EPUB can't be read\./, name);
+    }
+  });
+
+  test("lets go of an EPUB that lists no chapters before reporting it, however busy the server", async () => {
+    const abs = await epub("empty.epub", emptyZip());
+    const drain = occupyThreadPool();
+    try {
+      const extracted = await extractResourceText(abs, "empty.epub", "epub");
+      assert.equal(extracted.status, "failed");
+      // The bytes of an import can be deleted the moment it has answered.
+      fs.unlinkSync(abs);
+    } finally {
+      // An open still waiting in the pool runs now; one that outlived the
+      // import fails here as an uncaught exception, and fails the test.
+      await drain();
+    }
   });
 });

@@ -470,7 +470,14 @@ export async function requireMasterAdmin(
       .json({ error: "Verify your email before using instance administration" });
   }
   if (config.security.multiTenant) {
-    if (!(await hasTwoFactorMethod(req.user.id))) {
+    let enrolled: boolean;
+    try {
+      enrolled = await hasTwoFactorMethod(req.user.id);
+    } catch (error) {
+      // Express 4 drops a rejected promise; answer through the error handler.
+      return next(error);
+    }
+    if (!enrolled) {
       return res.status(403).json({
         error: "Enable two-factor authentication before using instance administration",
         code: "SECOND_FACTOR_ENROLLMENT_REQUIRED",

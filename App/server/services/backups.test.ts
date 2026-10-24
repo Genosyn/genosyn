@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
-import { pbkdf2, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { after, before, beforeEach, describe, test } from "node:test";
-import unzipper from "unzipper";
 import { config } from "../../config.js";
+import { readZipFile, type ZipEntry } from "../lib/zipFile.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import { occupyThreadPool } from "../test/threadPool.js";
+import { emptyZip, withDamagedEntry, zipOf } from "../test/zipFixtures.js";
 import {
   INSTANCE_SECRETS_FILENAME,
   INSTANCE_SECRETS_SENTINEL_FILENAME,
@@ -16,6 +19,7 @@ import {
   resetInstanceSecretsCacheForTests,
 } from "../lib/instanceSecrets.js";
 import { AppDataSource } from "../db/datasource.js";
+import { BackupError } from "./backupErrors.js";
 import {
   backupDir,
   backupFilePath,
@@ -76,8 +80,7 @@ describe("backup archive generation", () => {
 
     const archivePath = backupFilePath(backup.filename);
     assert.equal((await fs.stat(archivePath)).mode & 0o777, 0o600);
-    const archive = await unzipper.Open.file(archivePath);
-    const names = archive.files.map((entry) => entry.path);
+    const names = (await archiveEntries(archivePath)).map((entry) => entry.path);
     assert.ok(names.includes("companies/release-lab/marker.txt"));
     assert.ok(names.includes(INSTANCE_SECRETS_FILENAME));
     assert.ok(names.includes(INSTANCE_SECRETS_SENTINEL_FILENAME));
@@ -86,8 +89,10 @@ describe("backup archive generation", () => {
       false,
     );
 
-    const marker = archive.files.find((entry) => entry.path === "companies/release-lab/marker.txt");
-    assert.equal((await marker?.buffer())?.toString("utf8"), "release proof");
+    assert.equal(
+      await archiveText(archivePath, "companies/release-lab/marker.txt"),
+      "release proof",
+    );
   });
 });
 
@@ -132,6 +137,28 @@ async function listBackupDir(): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** What an archive lists, read the way the App reads one. */
+function archiveEntries(abs: string): Promise<ZipEntry[]> {
+  return readZipFile(abs, async (zip) => zip.entries);
+}
+
+/** The text of the archive's entry at `name`, if it lists one. */
+function archiveText(abs: string, name: string): Promise<string | undefined> {
+  return readZipFile(abs, async (zip) => {
+    const entry = zip.entries.find((listed) => listed.path === name);
+    return entry && (await zip.read(entry)).toString("utf8");
+  });
+}
+
+/** An upload of `bytes`, the way the upload route hands one over. */
+function uploadOf(bytes: Buffer): IncomingMessage {
+  const body = Object.assign(new PassThrough(), {
+    headers: { "content-length": String(bytes.length) },
+  });
+  body.end(bytes);
+  return body as unknown as IncomingMessage;
 }
 
 /** Run `fn` with the SQLite snapshot path enabled, restoring the driver after. */
@@ -315,8 +342,9 @@ describe("backup run staging hygiene", () => {
     await fs.writeFile(marker, "snapshot proof");
 
     const backup = await withSqliteDriver(() => runBackup("manual"));
-    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
-    const names = archive.files.map((entry) => entry.path);
+    const names = (await archiveEntries(backupFilePath(backup.filename))).map(
+      (entry) => entry.path,
+    );
 
     assert.ok(names.includes("app.sqlite"), "the archive lost its database snapshot");
     assert.ok(names.includes("companies/release-lab/marker.txt"));
@@ -389,8 +417,8 @@ describe("backup run staging hygiene", () => {
     assert.equal(sweptDuringRun, 0, "the sweep must skip a live run's snapshot");
     assert.equal(backup.status, "completed");
 
-    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
-    assert.ok(archive.files.some((entry) => entry.path === "app.sqlite"));
+    const entries = await archiveEntries(backupFilePath(backup.filename));
+    assert.ok(entries.some((entry) => entry.path === "app.sqlite"));
   });
 
   test("releases the in-flight marker once the run is over", async () => {
@@ -481,8 +509,8 @@ describe("staging snapshot lifetime", () => {
     assert.equal(backup.status, "completed");
 
     // Releasing early must not cost the archive its database.
-    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
-    assert.ok(archive.files.some((entry) => entry.path === "app.sqlite"));
+    const entries = await archiveEntries(backupFilePath(backup.filename));
+    assert.ok(entries.some((entry) => entry.path === "app.sqlite"));
   });
 });
 
@@ -593,9 +621,9 @@ describe("backups never ship without the database", () => {
 
     assert.equal(attempts, 2);
     assert.equal(backup.status, "completed");
-    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
+    const entries = await archiveEntries(backupFilePath(backup.filename));
     assert.ok(
-      archive.files.some((entry) => entry.path === "app.sqlite" && entry.uncompressedSize > 0),
+      entries.some((entry) => entry.path === "app.sqlite" && entry.uncompressedSize > 0),
       "the archive lost its database snapshot",
     );
   });
@@ -667,48 +695,14 @@ describe("backups never ship without the database", () => {
  * libuv's thread pool got to the open, so it struck about one CI run in four.
  */
 describe("a rejected upload", () => {
-  /** A zip that lists no files: its end-of-central-directory record alone. */
-  function emptyArchive(): Buffer {
-    const record = Buffer.alloc(22);
-    record.writeUInt32LE(0x06054b50, 0);
-    return record;
-  }
-
-  function uploadOf(bytes: Buffer): IncomingMessage {
-    const body = Object.assign(new PassThrough(), {
-      headers: { "content-length": String(bytes.length) },
-    });
-    body.end(bytes);
-    return body as unknown as IncomingMessage;
-  }
-
-  /**
-   * Keep every thread in libuv's pool busy, the way a loaded server's are,
-   * so each file open waits its turn. Returns a function that stops and waits
-   * for the pool to drain — and for whatever was waiting in it to run.
-   */
-  function occupyThreadPool(): () => Promise<void> {
-    let busy = true;
-    const threads = Number(process.env.UV_THREADPOOL_SIZE) || 4;
-    const work = async () => {
-      while (busy) {
-        await new Promise<void>((resolve, reject) =>
-          pbkdf2("busy", "salt", 50_000, 32, "sha256", (err) => (err ? reject(err) : resolve())),
-        );
-      }
-    };
-    const workers = Array.from({ length: threads * 2 }, work);
-    return async () => {
-      busy = false;
-      await Promise.all(workers);
-    };
-  }
-
   test("is removed only once nothing is still opening it, however busy the server", async () => {
     const drain = occupyThreadPool();
     try {
       await withSqliteDriver(() =>
-        assert.rejects(ingestUploadedArchive(uploadOf(emptyArchive())), /does not contain the database/),
+        assert.rejects(
+          ingestUploadedArchive(uploadOf(emptyZip())),
+          /does not contain the database/,
+        ),
       );
     } finally {
       // An open still waiting in the pool runs now; one that outlived the
@@ -717,5 +711,73 @@ describe("a rejected upload", () => {
     }
     const uploads = (await listBackupDir()).filter((name) => name.startsWith("uploaded-"));
     assert.deepEqual(uploads, [], "a rejected upload was kept");
+  });
+});
+
+/**
+ * Regression coverage for a restore that could not read its backup.
+ *
+ * Extracting read each entry through a file stream nobody listened to for
+ * errors, so a backup that went missing part-way was an uncaught exception,
+ * which stops the App, and the restore waited on that stream for good. A
+ * damaged entry failed it with zlib's own words, which reached Admin → Backups
+ * as "Internal server error". Either stops the restore after this install's
+ * data has been removed, so the reason says where all of it went.
+ */
+describe("a restore that can't read its backup", () => {
+  /** Why restoring `id` failed, with the database it closed connected again. */
+  async function restoreFailure(id: string): Promise<unknown> {
+    try {
+      await restoreFromBackup(id);
+    } catch (err) {
+      return err;
+    } finally {
+      // The restore closes the database before it extracts, and a failure
+      // after that leaves it closed.
+      if (!AppDataSource.isInitialized) await AppDataSource.initialize();
+    }
+    assert.fail("the restore succeeded");
+  }
+
+  async function assertPlainReason(failure: unknown): Promise<void> {
+    assert.ok(failure instanceof BackupError, `not a plain reason: ${String(failure)}`);
+    assert.equal(failure.status, 409);
+    assert.match(failure.message, /part-way through the restore/);
+    const safety = (await listBackupDir()).filter((name) => /^backup-.+\.zip$/.test(name));
+    assert.equal(safety.length, 1, "no safety backup was taken");
+    assert.ok(failure.message.includes(safety[0]), "the reason does not name the safety backup");
+  }
+
+  test("fails with a plain reason when an entry is damaged", async () => {
+    getEffectiveInstanceSecrets();
+    const damaged = withDamagedEntry(
+      await zipOf({ "companies/restored/marker.txt": "from the backup" }),
+    );
+    const backup = await ingestUploadedArchive(uploadOf(damaged));
+
+    await assertPlainReason(await restoreFailure(backup.id));
+  });
+
+  test("fails with a plain reason, never an uncaught exception, when the backup goes missing part-way", async (t) => {
+    getEffectiveInstanceSecrets();
+    const backup = await ingestUploadedArchive(
+      uploadOf(await zipOf({ "companies/restored/marker.txt": "from the backup" })),
+    );
+    // The restore makes each entry's folder just before it reads the entry:
+    // that is where the backup goes missing.
+    const folder = path.join(tempDir, "companies", "restored");
+    const mkdir = fsSync.mkdirSync;
+    let removed = false;
+    t.mock.method(fsSync, "mkdirSync", (...args: Parameters<typeof mkdir>) => {
+      if (!removed && String(args[0]) === folder) {
+        removed = true;
+        fsSync.unlinkSync(backupFilePath(backup.filename));
+      }
+      return mkdir(...args);
+    });
+
+    const failure = await restoreFailure(backup.id);
+    assert.equal(removed, true, "the restore never reached the entry");
+    await assertPlainReason(failure);
   });
 });
