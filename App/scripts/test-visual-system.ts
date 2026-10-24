@@ -10,7 +10,9 @@
  *   - every visible piece of text at WCAG AA against what is painted behind it
  *     (4.5:1, or 3:1 for large text);
  *   - on a phone, everything a finger presses at least 32×32px — counting the
- *     label it sits in and a `touch-target` hit area (styles/index.css).
+ *     label it sits in and a `touch-target` hit area (styles/index.css) — and
+ *     every hit area taking presses: what is inside it stays pressable, and a
+ *     press beside the control reaches the control.
  *
  *   npm run build:client && npm run test:visual-system
  *   npm run test:visual-system -- --shots=../output/visual   one PNG per page and mode
@@ -55,12 +57,13 @@ type Mode = {
   scheme: "light" | "dark";
   phone: boolean;
 };
-const MODES: Mode[] = [
+const ALL_MODES: Mode[] = [
   { name: "desktop-light", width: 1440, height: 900, scheme: "light", phone: false },
   { name: "desktop-dark", width: 1440, height: 900, scheme: "dark", phone: false },
   { name: "phone-light", width: 390, height: 844, scheme: "light", phone: true },
   { name: "phone-dark", width: 390, height: 844, scheme: "dark", phone: true },
-].filter((mode) => !modeFilter || mode.name.includes(modeFilter));
+];
+const MODES = ALL_MODES.filter((mode) => !modeFilter || mode.name.includes(modeFilter));
 
 await fs.mkdir(output, { recursive: true });
 if (shotsDir) await fs.mkdir(shotsDir, { recursive: true });
@@ -758,6 +761,56 @@ async function checkTargets(page: Page, label: string) {
   if (unique.length) {
     problem(`${label}: ${unique.length} touch targets under 32×32px`);
     for (const line of unique.slice(0, reportOnly ? 60 : 12)) console.error(`      ${line}`);
+  }
+
+  // A hit area works by being pressed: the control's own content stays on top
+  // of it (a press on the box, the switch, the text reaches that element), and
+  // a press beside the control, inside the area, reaches the control.
+  const misses = await page.evaluate(() => {
+    const describe = (el: Element | null) => {
+      if (!el) return "nothing";
+      const name = (el.getAttribute("aria-label") ?? (el.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 30);
+      return `${el.tagName.toLowerCase()} "${name}"`;
+    };
+    const pressable =
+      "a[href], button, input, select, textarea, label, summary, [role='button'], [role='switch'], [role='checkbox'], [role='tab'], [role='menuitem'], [role='option']";
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".touch-target"))) {
+      if (el.closest("[aria-hidden='true'], [inert], [hidden]")) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility !== "visible" || style.display === "none") continue;
+      const box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) continue;
+      if (box.top < 0 || box.left < 0 || box.bottom > innerHeight || box.right > innerWidth) continue;
+      const cx = box.left + box.width / 2;
+      // The control, and anything pressable inside it (the box in a
+      // checkbox's target, the switch in a label), is pressed at its middle.
+      const covered = [el, ...Array.from(el.querySelectorAll<HTMLElement>(pressable))].find((part) => {
+        const r = part.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) return false;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !hit || (hit !== part && !part.contains(hit));
+      });
+      if (covered) {
+        const r = covered.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        out.push(`${describe(covered)}: its middle reaches ${describe(hit)}`);
+        continue;
+      }
+      const reach = (Number.parseFloat(getComputedStyle(el, "::after").minHeight) || 0) - box.height;
+      if (reach < 4) continue;
+      const points = [box.top - reach / 4, box.bottom + reach / 4].filter((y) => y > 0 && y < innerHeight);
+      const hits = points.map((y) => document.elementFromPoint(cx, y));
+      if (hits.length === 0 || hits.some((hit) => hit === el || (hit && el.contains(hit)))) continue;
+      // Another control overlapping there is a shared edge, not a dead area.
+      if (hits.some((hit) => hit?.closest(pressable) && !hit.closest(pressable)!.contains(el))) continue;
+      out.push(`${describe(el)}: a press just beside it reaches ${describe(hits[0])}`);
+    }
+    return out;
+  });
+  if (misses.length) {
+    problem(`${label}: ${misses.length} hit areas do not take presses as they should`);
+    for (const line of misses.slice(0, reportOnly ? 60 : 12)) console.error(`      ${line}`);
   }
 }
 

@@ -215,11 +215,15 @@ describe("styles/index.css", () => {
 
   test("touch-target gives a small control a 32px hit area on touch screens only", async () => {
     const css = await compile('<a class="touch-target relative">See all</a>');
-    const rule = /@media \(pointer: coarse\), \(max-width: 639px\) \{ \.touch-target::after \{([^}]*)\}/.exec(css);
-    assert.ok(rule, "the hit area sits behind a touch-or-phone media query");
+    const rule =
+      /@media \(pointer: coarse\), \(max-width: 639px\) \{ \.touch-target \{ isolation: isolate; \} \.touch-target::after \{([^}]*)\}/.exec(
+        css,
+      );
+    assert.ok(rule, "the hit area sits behind a touch-or-phone media query, in its own stacking context");
     const body = rule[1];
     assert.match(body, /content: "";/);
     assert.match(body, /position: absolute;/);
+    assert.match(body, /z-index: -1;/, "under the control's own content, which stays pressable");
     assert.match(body, /min-width: 2rem;/);
     assert.match(body, /min-height: 2rem;/);
     assert.match(body, /transform: translate\(-50%, -50%\);/, "centred on the control");

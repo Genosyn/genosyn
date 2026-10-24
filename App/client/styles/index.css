@@ -86,11 +86,19 @@ html.dark ::selection {
      screens, centred on it, without moving anything. The control must be
      positioned (`relative`, or already `absolute`) and must not clip
      (`overflow-hidden`, `truncate`), or the area is cut back to its own box.
-     scripts/test-visual-system.ts measures targets with this area included. */
+     The control is its own stacking context and the area sits at the bottom
+     of it, under the control's content: a press on a box, a switch or text
+     inside still lands on that element, and only presses around the control
+     land on the area. scripts/test-visual-system.ts measures targets with
+     this area included. */
   @media (pointer: coarse), (max-width: 639px) {
+    .touch-target {
+      isolation: isolate;
+    }
     .touch-target::after {
       content: "";
       position: absolute;
+      z-index: -1;
       left: 50%;
       top: 50%;
       width: 100%;
