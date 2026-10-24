@@ -301,12 +301,15 @@ export function Recruiting() {
         </LI>
       </UL>
       <P>
-        Both are plain text you can rewrite, with <Code>{"{{first_name}}"}</Code>,{" "}
-        <Code>{"{{full_name}}"}</Code>, <Code>{"{{opening_title}}"}</Code>,{" "}
-        <Code>{"{{company_name}}"}</Code> and <Code>{"{{opening_url}}"}</Code> filled in. They go
+        Both are plain text you can rewrite: open <Strong>Edit the email</Strong> under either one —
+        its closed line says <em>Default wording</em> or <em>Your wording</em> and the subject —
+        and use <Code>{"{{first_name}}"}</Code>, <Code>{"{{full_name}}"}</Code>,{" "}
+        <Code>{"{{opening_title}}"}</Code>, <Code>{"{{company_name}}"}</Code> and{" "}
+        <Code>{"{{opening_url}}"}</Code>, which are filled in. <Strong>Send it</Strong> beside{" "}
+        <Strong>Application received</Strong> turns that email on or off. They go
         out through your company&apos;s email provider, or the install&apos;s if you have none (see{" "}
         <DocLink to="/docs/email">Email</DocLink>), and appear in{" "}
-        <Strong>Settings → Email logs</Strong>. The application&apos;s timeline says whether the
+        <Strong>Settings → Notification email → Logs</Strong>. The application&apos;s timeline says whether the
         confirmation was sent.
       </P>
 
@@ -361,7 +364,7 @@ export function Recruiting() {
         </LI>
         <LI>
           Deleting the company deletes its Openings, applications, resumes and Scorecards. Every
-          change to Recruiting settings is in <Strong>Settings → Audit log</Strong>.
+          change to Recruiting settings is in <Strong>Settings → Advanced → Audit log</Strong>.
         </LI>
       </UL>
 

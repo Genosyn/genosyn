@@ -36,11 +36,16 @@ import {
   searchSections,
 } from "../lib/sections";
 import {
+  EMPLOYEE_PAGES,
   PALETTE_SUBPAGES,
+  SUBPAGE_RESULT_LIMIT,
   type SubpageMatch,
   type SubpageViewer,
+  currentEmployeeSlug,
   isCurrentSubpage,
   pagesLead,
+  queryNamesEmployeePage,
+  searchEmployeePages,
   searchSubpages,
 } from "../lib/subpages";
 import { canOpenSection, listedGroups } from "../lib/sectionVisibility";
@@ -335,6 +340,42 @@ function useEntitySearch(companyId: string, query: string) {
   return { hits, pending };
 }
 
+/** At most this many employees' pages in one search — the current one first. */
+const EMPLOYEE_PAGE_RESULT_LIMIT = 4;
+const NO_EMPLOYEES: Array<{ slug: string; name: string }> = [];
+
+/**
+ * The company's AI Employees, for their pages in search. Fetched once per
+ * palette, and only when asked for; a failure leaves the list empty, which
+ * only means those rows do not appear.
+ */
+function useEmployeeRoster(
+  companyId: string,
+  enabled: boolean,
+): Array<{ slug: string; name: string }> {
+  const [roster, setRoster] = React.useState<{
+    companyId: string;
+    list: Array<{ slug: string; name: string }>;
+  } | null>(null);
+  const requested = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!enabled || requested.current === companyId) return;
+    requested.current = companyId;
+    api
+      .get<Array<{ slug: string; name: string }>>(`/api/companies/${companyId}/employees`)
+      .then((list) =>
+        setRoster({
+          companyId,
+          list: list.map((employee) => ({ slug: employee.slug, name: employee.name })),
+        }),
+      )
+      .catch(() => {
+        requested.current = null;
+      });
+  }, [companyId, enabled]);
+  return roster?.companyId === companyId ? roster.list : NO_EMPLOYEES;
+}
+
 // ───────────────────────────────── palette ─────────────────────────────────
 
 /** One keyboard-walkable row — an action, a section or page match, or an entity hit. */
@@ -393,13 +434,38 @@ function CommandPalette({
   );
   // Pages the viewer can open, minus any that land exactly where a listed
   // section row already does ("revenue" shouldn't offer Revenue twice).
-  const pageMatches = React.useMemo(
+  const sectionPageMatches = React.useMemo(
     () =>
       searchSubpages(PALETTE_SUBPAGES, query, {
         viewer,
         excludePaths: matches.map((m) => m.item.path),
       }),
     [query, viewer, matches],
+  );
+  // Pages inside one AI Employee — "access", "ada access" — ranked with the
+  // section pages. The roster is fetched only once a query names such a page.
+  const employeeSlug = currentEmployeeSlug(location.pathname, companySlug);
+  const roster = useEmployeeRoster(
+    companyId,
+    searching && queryNamesEmployeePage(EMPLOYEE_PAGES, query),
+  );
+  const employeePageMatches = React.useMemo(
+    () =>
+      searchEmployeePages(EMPLOYEE_PAGES, roster, query, {
+        viewer,
+        currentSlug: employeeSlug,
+        limit: EMPLOYEE_PAGE_RESULT_LIMIT,
+      }),
+    [roster, query, viewer, employeeSlug],
+  );
+  const pageMatches = React.useMemo(
+    () =>
+      [...sectionPageMatches, ...employeePageMatches]
+        .map((match, order) => ({ match, order }))
+        .sort((a, b) => b.match.score - a.match.score || a.order - b.order)
+        .slice(0, SUBPAGE_RESULT_LIMIT)
+        .map(({ match }) => match),
+    [sectionPageMatches, employeePageMatches],
   );
   const pagesFirst = pagesLead(matches, pageMatches);
   const currentKey = activeSection(location.pathname);

@@ -11,7 +11,9 @@ import { Textarea } from "../components/ui/Textarea";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Avatar, memberAvatarUrl } from "../components/ui/Avatar";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Spinner } from "../components/ui/Spinner";
+import { describeCompanyAdvanced } from "../lib/companySettingsSummary";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
@@ -88,11 +90,8 @@ export function SettingsCompany() {
         <CardHeader>
           <h2 className="text-sm font-semibold">General</h2>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Renaming the slug updates every URL for this company and renames its directory under{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-              data/companies/
-            </code>
-            .
+            Who the company is and what it is for. Your AI Employees read the mission and vision
+            when they suggest work.
           </p>
         </CardHeader>
         <CardBody>
@@ -139,21 +138,6 @@ export function SettingsCompany() {
           >
             <FormError message={error} />
             <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <div>
-              <Input
-                label="Slug"
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                onBlur={() => setSlug((s) => normalizeSlugInput(s))}
-                placeholder="acme"
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                title="Lowercase letters, digits, and single dashes"
-                required
-              />
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                URL: <code className="font-mono">/c/{normalizedSlug || "…"}</code>
-              </p>
-            </div>
             <div className="grid gap-3 lg:grid-cols-2">
               <div>
                 <Textarea
@@ -188,23 +172,52 @@ export function SettingsCompany() {
               <CompanyTimeZoneField value={timezone} onChange={setTimezone} />
             ) : null}
             {canAdminister ? (
-              <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                <input
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  type="checkbox"
-                  checked={requireTwoFactor}
-                  onChange={(event) => setRequireTwoFactor(event.target.checked)}
-                />
-                <span>
-                  <span className="block text-sm font-medium">
-                    Require two-factor authentication
-                  </span>
-                  <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                    Members must enroll an authenticator app, passkey, or security key before
-                    accessing this company.
-                  </span>
-                </span>
-              </label>
+              // Set once and rarely touched: the address every link uses, and
+              // the sign-in rule. Its line names both, so neither hides.
+              <Disclosure
+                title="Advanced"
+                summary={describeCompanyAdvanced({ slug: normalizedSlug, requireTwoFactor })}
+                keepMounted
+              >
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <Input
+                      label="Web address"
+                      value={slug}
+                      onChange={(e) => setSlug(e.target.value)}
+                      // No `required`/`pattern`: the field can be hidden when
+                      // the form is sent, and a browser cannot point at a
+                      // hidden field. Typing is normalized instead, and an
+                      // emptied address is simply not sent.
+                      onBlur={() => setSlug((s) => normalizeSlugInput(s))}
+                      placeholder="acme"
+                      title="Lowercase letters, digits, and single dashes"
+                    />
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Links to this company start with{" "}
+                      <code className="font-mono">/c/{normalizedSlug || "…"}</code>. Changing it
+                      changes every link, and old links stop working.
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <input
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      type="checkbox"
+                      checked={requireTwoFactor}
+                      onChange={(event) => setRequireTwoFactor(event.target.checked)}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Require two-factor authentication
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                        Members must enroll an authenticator app, passkey, or security key before
+                        accessing this company.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </Disclosure>
             ) : null}
             <div className="flex justify-end pt-1">
               <Button type="submit" loading={saving} disabled={!canAdminister || !dirty}>
@@ -287,21 +300,16 @@ function CompanyStanddownCard() {
       <CardHeader>
         <h2 className="text-sm font-semibold">Standdown</h2>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Stop every AI Employee in {company.name} at once. Routines stop firing, Wakeups and
-          Triggers defer rather than pile up, Runs in flight are interrupted and finish as{" "}
-          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-            interrupted
-          </code>
-          , and chat with every employee is refused. Nothing is deleted and no configuration changes
-          — skipped schedule slots still advance, so lifting a month-old standdown produces no
-          catch-up storm.
+          Stop every AI Employee in {company.name} at once. Work in progress stops, no Routine
+          starts, and chat with every employee is refused until someone lifts it. Nothing is deleted
+          or changed, and lifting it does not replay the work that was skipped.
         </p>
       </CardHeader>
       <CardBody className="flex flex-wrap items-center justify-between gap-3">
         <StanddownBanner company={company} className="w-full" />
         <div className="text-xs text-slate-500 dark:text-slate-400">
-          Placing and lifting are admin-only, and both are recorded against the person who did them.
-          No AI Employee can do either.
+          Only owners and admins can place or lift it, and each is recorded with who did it. No AI
+          Employee can do either.
         </div>
         <StanddownControl company={company} scope="company" label={company.name} />
       </CardBody>

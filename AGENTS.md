@@ -608,7 +608,7 @@ exists to prevent.
   via REST). Falls back to the install-wide global SMTP transport — configured
   at **Admin → Email transport**, stored encrypted in `AppSetting` — for
   system-level sends, then to the console. Every transactional send appends an
-  `EmailLog` row; company-scoped rows are visible at Settings → Email Logs
+  `EmailLog` row; company-scoped rows are visible at Settings → Notification email → Logs
   (system sends — welcome, password reset, global SMTP test — carry a null
   `companyId` and are logged but not surfaced anywhere yet).
 - **Email (the company's inbox):** the `Mail*` subsystem is **separate** and
@@ -893,7 +893,10 @@ in a Work session instead of leaving them stranded as local commits.
   entry (`canOpenSubpage(subpageAt(path), company)`) and shows a note
   instead of mounting what could only answer 403.
   `server/client/subpageRoutes.test.ts` fails on a static route that is
-  neither catalogued nor deliberately left out.
+  neither catalogued nor deliberately left out. A page people open only now
+  and then goes in its rail's `ADVANCED_NAV_GROUP`: the rail draws that group
+  last, closed, names its pages on hover, and opens it by itself on any of
+  them — so tucking a page away never hides it from a deep link or ⌘K.
 - **Sections are listed by use.** The ⌘K palette's browse view and the
   keyboard guide list the core sections and the ones a company has something
   in (`shared/navigation.ts`: `CORE_SECTIONS`, `USAGE_SECTIONS`;

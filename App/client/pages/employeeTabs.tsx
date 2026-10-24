@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Globe,
   Handshake,
+  KeyRound,
   BookText,
   Phone,
   Plug,
@@ -47,6 +48,7 @@ import { errorMessage } from "../lib/errors";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { employeeSettingsPage } from "../lib/employeeSettingsNav";
 import { Badge } from "../components/ui/Badge";
+import { employeePageAt } from "../lib/subpages";
 import { browserAdvancedSummary } from "../lib/employeeBrowser";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -245,6 +247,10 @@ type SettingsNavGroup = {
  * pretending to be a settings pane. Integrations, the one other entry that
  * leaves, is an Advanced link for the same reason.
  */
+/** Settings → Access, from the employee page catalogue; the rail links by its last segment. */
+const ACCESS_PAGE = employeePageAt("/settings/access");
+const ACCESS_PAGE_SEGMENT = ACCESS_PAGE.path.split("/").pop() ?? "access";
+
 function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] {
   return [
     {
@@ -275,6 +281,9 @@ function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] 
     {
       title: "Access",
       items: [
+        // Everything this employee could be granted, in one list. Catalogued
+        // in `lib/subpages.ts`, which the ⌘K palette reads too.
+        { to: ACCESS_PAGE_SEGMENT, icon: <KeyRound size={14} />, label: ACCESS_PAGE.label },
         { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
         { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
       ],

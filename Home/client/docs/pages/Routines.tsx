@@ -112,9 +112,10 @@ export function Routines() {
         The form asks for a <Strong>Name</Strong>, who the routine is <Strong>Assigned to</Strong>,
         its <Strong>Schedule</Strong>, and <Strong>What should happen on each run?</Strong> — the
         brief, which this form requires. <Strong>Create routine</Strong> opens the new routine,
-        already on its schedule. <Strong>More options</Strong> holds the <Strong>Folder</Strong> and{" "}
-        <Strong>Tags</Strong> and stays closed until you open it; closed, it names the folder when
-        one was carried over from the list you came from.
+        already on its schedule. <Strong>Advanced</Strong> holds the <Strong>Folder</Strong> and{" "}
+        <Strong>Tags</Strong> — the same Advanced a routine&apos;s Settings tab has — and stays
+        closed until you open it; closed, it reads <em>No folder or tags</em>, or names the folder
+        carried over from the list you came from and how many tags you picked.
       </P>
       <P>
         Every <Strong>New routine</Strong> opens this form: on the Routines list and its sidebar, in
@@ -1369,7 +1370,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="system-health">System Health</H2>
       <P>
-        <Strong>Settings → System Health</Strong> (also a card on the Home page) rolls up everything
+        <Strong>Settings → Advanced → System Health</Strong> (also a card on the Home page) rolls up everything
         that might be quietly broken for the company, over a 24-hour window:
       </P>
       <UL>

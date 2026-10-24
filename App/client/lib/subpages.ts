@@ -187,6 +187,15 @@ const FINANCE_FULL: SubpageAccess = { finance: "full" };
 const ADMIN: SubpageAccess = { admin: true };
 
 /**
+ * The rail group a section keeps for the pages people visit now and then. The
+ * rail draws it last, closed, as a single "Advanced" toggle whose tooltip
+ * names what is inside, and opens it on its own when you land on one of its
+ * pages — the same shape as an AI Employee's Settings rail. The palette and
+ * `G` chords reach these pages exactly as before: tucked away is not hidden.
+ */
+export const ADVANCED_NAV_GROUP = "Advanced";
+
+/**
  * Per-section pages, in rail order. Pages reached only from a button (create
  * forms) or drawn by the rail itself carry `rail: false`.
  */
@@ -241,8 +250,9 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "undismiss",
       ],
     },
-    // Open to every Member, read-only for Members: the switch and the
-    // instructions are owner/admin changes, but anyone may see them.
+    // Open to every Member, read-only for Members: the switch, the
+    // instructions and routing (under Advanced) are owner/admin changes, but
+    // anyone may see them.
     {
       label: "Decision stack settings",
       navLabel: "Settings",
@@ -254,6 +264,9 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "decision instructions",
         "which questions",
         "fewer questions",
+        "routing",
+        "routing rules",
+        "ai decider",
       ],
     },
   ],
@@ -599,42 +612,44 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Handshake,
       keywords: ["partners", "affiliates", "resellers"],
     },
+    // The automation an AI Employee runs for sales, under its own heading.
     {
       label: "Sequences",
       path: "/revenue/sequences",
       icon: Send,
+      navGroup: "Outreach",
       keywords: ["outbound", "outreach", "cadences", "drip campaigns"],
     },
     {
       label: "Signals",
       path: "/revenue/signals",
       icon: Radar,
+      navGroup: "Outreach",
       keywords: ["product signals", "usage triggers", "intent"],
     },
+    // Records, imports, access and setup: visited now and then, so the rail
+    // keeps them under its closed Advanced group.
     {
       label: "Activity audit",
       navLabel: "Activities",
       path: "/revenue/activities",
       icon: ClipboardList,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["activity", "timeline", "logged calls", "notes"],
     },
     {
       label: "Suppressions",
       path: "/revenue/suppressions",
       icon: Ban,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["unsubscribes", "do not email", "opt out", "blocklist"],
-    },
-    {
-      label: "AI access",
-      path: "/revenue/ai-access",
-      icon: Bot,
-      keywords: ["revenue grants", "ai employee access", "permissions"],
     },
     {
       label: "Revenue imports",
       navLabel: "Imports",
       path: "/revenue/imports",
       icon: Import,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["import contacts", "csv import", "upload"],
     },
     {
@@ -642,13 +657,22 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       navLabel: "Data quality",
       path: "/revenue/data-quality",
       icon: ShieldCheck,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["duplicates", "dedupe", "cleanup", "data hygiene"],
+    },
+    {
+      label: "AI access",
+      path: "/revenue/ai-access",
+      icon: Bot,
+      navGroup: ADVANCED_NAV_GROUP,
+      keywords: ["revenue grants", "ai employee access", "permissions"],
     },
     {
       label: "Revenue setup",
       navLabel: "Setup",
       path: "/revenue/setup",
       icon: Settings2,
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["deal stages", "pipeline stages", "custom fields", "classifications"],
     },
   ],
@@ -987,13 +1011,24 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["recruiting grants", "ai employee access", "permissions"],
     },
   ],
+  // Grouped by what someone came to do: the company and its people, the
+  // accounts it connects, what a developer scripts it with, and — closed
+  // until asked for — the pages opened now and then.
   settings: [
     {
       label: "Company",
       path: "/settings/company",
       icon: Building2,
       navGroup: "Company",
-      keywords: ["company name", "mission", "vision", "slug", "require two-factor"],
+      keywords: [
+        "company name",
+        "mission",
+        "vision",
+        "slug",
+        "web address",
+        "require two-factor",
+        "time zone",
+      ],
     },
     {
       label: "Members",
@@ -1010,13 +1045,6 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["departments", "groups"],
     },
     {
-      label: "Tags",
-      path: "/settings/tags",
-      icon: Tags,
-      navGroup: "Company",
-      keywords: ["labels", "tag colors"],
-    },
-    {
       label: "Policies",
       path: "/settings/policies",
       icon: Scale,
@@ -1024,10 +1052,18 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["company policies", "rules", "guardrails", "blocked domains"],
     },
     {
+      label: "Usage",
+      path: "/settings/usage",
+      access: ADMIN,
+      icon: BarChart3,
+      navGroup: "Company",
+      keywords: ["costs", "spend", "tokens", "runs"],
+    },
+    {
       label: "Integrations",
       path: "/settings/integrations",
       icon: Plug,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["connections", "connectors", "oauth", "integration catalog"],
     },
     {
@@ -1035,22 +1071,34 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/phone-numbers",
       access: ADMIN,
       icon: Phone,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["twilio", "sms", "texts", "calls", "phone", "otp", "verification codes"],
     },
     {
       label: "Browsers",
       path: "/settings/browsers",
       icon: Laptop,
-      navGroup: "Company",
+      navGroup: "Connections",
       keywords: ["member browsers", "chrome", "browser bridge", "pairing code"],
     },
+    // How Genosyn itself emails people (invitations, alerts) — not the
+    // company's inbox, which is the Email section. The old rail label "Email"
+    // sent people looking for their inbox here.
     {
-      label: "Email",
+      label: "Notification email",
       path: "/settings/email",
       icon: Mail,
-      navGroup: "Company",
-      keywords: ["email providers", "smtp", "sendgrid", "mailgun", "resend", "postmark"],
+      navGroup: "Connections",
+      keywords: [
+        "email",
+        "email providers",
+        "outgoing email",
+        "smtp",
+        "sendgrid",
+        "mailgun",
+        "resend",
+        "postmark",
+      ],
     },
     {
       label: "Email logs",
@@ -1061,17 +1109,10 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: ["sent emails", "email activity", "delivery log"],
     },
     {
-      label: "Environment secrets",
-      path: "/settings/secrets",
-      icon: KeyRound,
-      navGroup: "Company",
-      keywords: ["env vars", "environment variables", "developer tokens"],
-    },
-    {
       label: "API keys",
       path: "/settings/api-keys",
       icon: TerminalSquare,
-      navGroup: "Company",
+      navGroup: "Developers",
       // The same page sets up the Genosyn MCP server, which these keys open.
       keywords: [
         "api tokens",
@@ -1085,19 +1126,25 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       ],
     },
     {
-      label: "Usage",
-      path: "/settings/usage",
-      access: ADMIN,
-      icon: BarChart3,
-      navGroup: "Company",
-      keywords: ["costs", "spend", "tokens", "runs"],
+      label: "Environment secrets",
+      path: "/settings/secrets",
+      icon: KeyRound,
+      navGroup: "Developers",
+      keywords: ["env vars", "environment variables", "developer tokens"],
+    },
+    {
+      label: "Tags",
+      path: "/settings/tags",
+      icon: Tags,
+      navGroup: ADVANCED_NAV_GROUP,
+      keywords: ["labels", "tag colors"],
     },
     {
       label: "Single sign-on",
       path: "/settings/sso",
       access: ADMIN,
       icon: KeyRound,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["sso", "oidc", "google sign-in", "saml"],
     },
     {
@@ -1105,14 +1152,14 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/settings/audit",
       access: ADMIN,
       icon: ScrollText,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["audit trail", "history", "who changed"],
     },
     {
       label: "System Health",
       path: "/settings/system-health",
       icon: Activity,
-      navGroup: "Company",
+      navGroup: ADVANCED_NAV_GROUP,
       keywords: ["health", "status", "probes", "diagnostics"],
     },
   ],
@@ -1177,6 +1224,27 @@ export const SECTION_SUBPAGES: Readonly<Partial<Record<SectionKey, readonly Subp
 /** The links a section's rail draws from this catalogue, in order. */
 export function railSubpages(section: SectionKey): SubpageItem[] {
   return (SECTION_SUBPAGES[section] ?? []).filter((page) => page.rail);
+}
+
+/** True for a page the rail tucks under its closed Advanced group. */
+export function isAdvancedRailPage(page: Pick<SubpageItem, "navGroup">): boolean {
+  return page.navGroup === ADVANCED_NAV_GROUP;
+}
+
+/**
+ * True when `pathname` (a full `/c/<slug>/…` path, query-less) is one of the
+ * `pages`, or beneath one: a nested page keeps its rail entry, so it keeps the
+ * Advanced group open too.
+ */
+export function onRailPage(
+  pages: ReadonlyArray<Pick<SubpageItem, "path">>,
+  companySlug: string,
+  pathname: string,
+): boolean {
+  return pages.some((page) => {
+    const path = `/c/${companySlug}${page.path.split("?")[0]}`;
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
 }
 
 /**
@@ -1434,4 +1502,163 @@ export function isCurrentSubpage(
   const have = new URLSearchParams(location.search);
   for (const [key, value] of want) if (have.get(key) !== value) return false;
   return true;
+}
+
+// ─────────────────────────── pages inside one AI Employee ───────────────────────────
+
+/**
+ * Pages that belong to one AI Employee rather than to a section — Settings →
+ * Access. Their paths sit under `/employees/<employee-slug>`, so they cannot
+ * live in {@link SECTION_PAGE_DEFS}, but they keep the same contract: the
+ * employee's Settings rail and the ⌘K palette both read this list, both leave
+ * out what the viewer cannot open (`canOpenEmployeePage`), and a page reached
+ * by URL checks its own entry (`employeePageAt`). Each path must be a real
+ * route under `employees/:empSlug` in `App.tsx`;
+ * `server/client/subpageRoutes.test.ts` fails when one is not.
+ */
+export type EmployeePageItem = {
+  id: string;
+  /** What the page calls itself. */
+  label: string;
+  /** Under `/employees/<employee-slug>`. */
+  path: string;
+  icon: LucideIcon;
+  /** Synonyms for the palette — never rendered. */
+  keywords?: readonly string[];
+  access?: SubpageAccess;
+};
+
+export const EMPLOYEE_PAGES: readonly EmployeePageItem[] = [
+  // Open to every Member, like the sections' own AI access pages: anyone can
+  // see what an employee holds, and each row says whether the viewer may
+  // change it. Who may change what is each kind's own rule.
+  {
+    id: "employee-access",
+    label: "Access",
+    path: "/settings/access",
+    icon: KeyRound,
+    keywords: [
+      "grants",
+      "grant access",
+      "bulk grant",
+      "revoke access",
+      "ai access",
+      "permissions",
+      "what can they reach",
+    ],
+  },
+];
+
+/** The catalogued employee page at `path` ("/settings/access"); throws for one not listed. */
+export function employeePageAt(path: string): EmployeePageItem {
+  const page = EMPLOYEE_PAGES.find((p) => p.path === path);
+  if (!page) throw new Error(`No employee page is catalogued at ${path}`);
+  return page;
+}
+
+/** Same gates as a section page: admin-only pages to owners and admins, Finance to its readers. */
+export function canOpenEmployeePage(page: EmployeePageItem, viewer: SubpageViewer): boolean {
+  return canOpenSubpage(employeeSubpage(page, { slug: "", name: "" }), viewer);
+}
+
+/** `/employees/ada/settings/access`: one employee's page, under `/c/<company-slug>`. */
+export function employeePagePath(page: EmployeePageItem, employeeSlug: string): string {
+  return `/employees/${encodeURIComponent(employeeSlug)}${page.path}`;
+}
+
+/** The employee whose pages the browser is on, read after the company's own prefix. */
+export function currentEmployeeSlug(pathname: string, companySlug: string): string | null {
+  const base = `/c/${companySlug}/employees/`;
+  if (!pathname.startsWith(base)) return null;
+  const match = /^([^/]+)\/(?:chat|settings)(?:\/|$)/.exec(pathname.slice(base.length));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+type EmployeeRef = { slug: string; name: string };
+
+/** An employee page as a palette row: "Access — Ada", filed under AI Employees. */
+function employeeSubpage(page: EmployeePageItem, employee: EmployeeRef): SubpageItem {
+  return {
+    id: `${page.id}-${idForPath(employee.slug) || "employee"}`,
+    section: "employees",
+    label: employee.name ? `${page.label} — ${employee.name}` : page.label,
+    path: employeePagePath(page, employee.slug),
+    icon: page.icon,
+    keywords: page.keywords,
+    access: page.access,
+    rail: false,
+    scoped: false,
+  };
+}
+
+/** How the query names the page itself, scored like a section page's own name. */
+function matchEmployeePage(page: EmployeePageItem, q: string): TextMatch | null {
+  return matchPageOwn(employeeSubpage(page, { slug: "", name: "" }), q);
+}
+
+/** Whether a word names this employee: the start of their name, or of a word in it. */
+function namesEmployee(employee: EmployeeRef, token: string): boolean {
+  const hit = matchLabelText(employee.name, token);
+  return hit !== null && hit.score >= MATCH_SCORE.boundary;
+}
+
+/** Does anything in the query name an employee page? The palette loads the roster only then. */
+export function queryNamesEmployeePage(pages: readonly EmployeePageItem[], query: string): boolean {
+  const q = foldSearchText(query);
+  if (!q) return false;
+  return pages.some(
+    (page) =>
+      matchEmployeePage(page, q) !== null ||
+      queryTokens(q).some((token) => matchEmployeePage(page, token) !== null),
+  );
+}
+
+/** How far an employee nobody named ranks below the one whose page you are on. */
+const UNNAMED_EMPLOYEE_PENALTY = 15;
+
+/**
+ * Employee pages for the palette's search, as page rows.
+ *
+ * Some word has to name the page ("access", "grants"); every other word has to
+ * name the employee ("ada access"). When nobody is named, the employee whose
+ * page the browser is on comes first and everyone else a step below, so
+ * "access" anywhere still reaches each employee's Access page.
+ */
+export function searchEmployeePages(
+  pages: readonly EmployeePageItem[],
+  employees: readonly EmployeeRef[],
+  query: string,
+  options: { viewer: SubpageViewer; currentSlug?: string | null; limit?: number },
+): SubpageMatch[] {
+  const q = foldSearchText(query);
+  if (!q) return [];
+  const tokens = queryTokens(q);
+  const limit = options.limit ?? SUBPAGE_RESULT_LIMIT;
+  const scored: Array<{ match: SubpageMatch; current: boolean; order: number }> = [];
+  for (const page of pages) {
+    if (!canOpenEmployeePage(page, options.viewer)) continue;
+    const whole = matchEmployeePage(page, q);
+    const perToken = tokens.map((token) => matchEmployeePage(page, token));
+    const pageScores = perToken.filter((m): m is TextMatch => m !== null).map((m) => m.score);
+    if (!whole && pageScores.length === 0) continue;
+    const rest = whole ? [] : tokens.filter((_token, i) => perToken[i] === null);
+    employees.forEach((employee, order) => {
+      if (!rest.every((token) => namesEmployee(employee, token))) return;
+      const named = rest.length > 0;
+      const current = employee.slug === options.currentSlug;
+      const base = whole ? whole.score : Math.min(...pageScores);
+      const score =
+        named || current || !options.currentSlug ? base : base - UNNAMED_EMPLOYEE_PENALTY;
+      scored.push({ match: { page: employeeSubpage(page, employee), hit: null, score }, current, order });
+    });
+  }
+  return scored
+    .sort(
+      (a, b) =>
+        b.match.score - a.match.score ||
+        Number(b.current) - Number(a.current) ||
+        a.order - b.order,
+    )
+    .slice(0, Math.max(0, limit))
+    .map(({ match }) => match);
 }

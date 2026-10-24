@@ -8,6 +8,7 @@ import {
   Circle,
   GitBranch,
   Home,
+  KeyRound,
   Mail,
   MessageSquare,
   Repeat,
@@ -16,6 +17,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api, Company, Employee, OnboardingStatus } from "../../lib/api";
+import { countGrants, type EmployeeAccessListing } from "../../lib/employeeAccess";
+import { employeePageAt, employeePagePath } from "../../lib/subpages";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { clsx } from "../../components/ui/clsx";
@@ -125,6 +128,23 @@ export function DoneStep({
   const navigate = useNavigate();
   const [status, setStatus] = React.useState<OnboardingStatus | null>(null);
   const [failed, setFailed] = React.useState(false);
+  // How many Grants the Access step left the new employee with. Optional:
+  // the summary stands without it, so a failure just leaves the row out.
+  const [grantCount, setGrantCount] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setGrantCount(null);
+    api
+      .get<EmployeeAccessListing>(`/api/companies/${company.id}/employees/${employee.id}/access`)
+      .then((listing) => {
+        if (!cancelled) setGrantCount(countGrants(listing.items));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, employee.id]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -341,6 +361,32 @@ export function DoneStep({
                   : "Not connected. You can add a mailbox later from Email → Integrations."
               }
             />
+            {grantCount !== null && (
+              <ChecklistRow
+                done={grantCount > 0}
+                icon={KeyRound}
+                title={
+                  grantCount > 0
+                    ? `${grantCount} ${grantCount === 1 ? "Grant" : "Grants"}`
+                    : "No Grants yet"
+                }
+                body={
+                  <>
+                    {grantCount > 0
+                      ? `What ${employee.name} can reach beyond its defaults.`
+                      : `${employee.name} reaches nothing beyond its defaults yet.`}{" "}
+                    Change it any time on{" "}
+                    <Link
+                      to={`/c/${company.slug}${employeePagePath(employeePageAt("/settings/access"), employee.slug)}`}
+                      className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+                    >
+                      {employee.name}&apos;s Access page
+                    </Link>
+                    .
+                  </>
+                }
+              />
+            )}
           </ul>
         </div>
       )}

@@ -493,11 +493,12 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       <FormError message={saveError} className="mx-3 mt-3 sm:mx-6" />
 
       {chartId && (
-        <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-950">
+        <div className="border-b border-slate-200 bg-white px-6 py-1.5 dark:border-slate-700 dark:bg-slate-950">
           <AsyncResourceTagPicker
             companyId={company.id}
             resourceType="chart"
             resourceId={chartId}
+            variant="inline"
           />
         </div>
       )}

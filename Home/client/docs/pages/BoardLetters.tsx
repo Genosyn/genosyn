@@ -217,7 +217,7 @@ export function BoardLetters() {
       </P>
       <P>
         Every change to these settings, including who appointed or removed the auditor, is in{" "}
-        <Strong>Settings → Audit log</Strong>. So is every letter someone asked for by hand.
+        <Strong>Settings → Advanced → Audit log</Strong>. So is every letter someone asked for by hand.
       </P>
     </>
   );

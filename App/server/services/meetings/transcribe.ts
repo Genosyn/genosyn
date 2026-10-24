@@ -197,6 +197,13 @@ export async function transcribeAudio(args: {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    // A server that only serves chat — vLLM or Ollama running one LLM — has no
+    // audio route, and its bare `Not Found` told nobody what to change.
+    if (res.status === 404) {
+      throw new Error(
+        `Transcription failed (404): this AI Model's endpoint has no speech-to-text route, or no model named "${args.target.model}". Point the notetaker at a Whisper-compatible server or an OpenAI model, or paste the transcript instead. ${body.slice(0, 200)}`.trim(),
+      );
+    }
     throw new Error(`Transcription failed (${res.status}): ${body.slice(0, 300)}`);
   }
   return parseTranscriptionResponse(await res.json());

@@ -1,4 +1,7 @@
-/** Real Employees roster, employee Team card, and Decision routing modal with deterministic API fixtures. */
+/**
+ * Real Employees roster, employee Team card, and Decision routing (on Decision
+ * stack → Settings, under Advanced) with deterministic API fixtures.
+ */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -11,8 +14,8 @@ import {
   useParams,
 } from "react-router-dom";
 import { DialogProvider } from "../client/components/ui/Dialog";
-import { api, type Company, type Employee, type Me } from "../client/lib/api";
-import Decisions from "../client/pages/Decisions";
+import { api, type Company, type Employee } from "../client/lib/api";
+import DecisionStackSettingsPage from "../client/pages/DecisionStackSettings";
 import EmployeesIndex from "../client/pages/EmployeesIndex";
 import EmployeesLayout from "../client/pages/EmployeesLayout";
 import { GeneralSettingsPage } from "../client/pages/employeeTabs";
@@ -58,7 +61,6 @@ function Harness() {
   const params = new URLSearchParams(window.location.search);
   const role = (params.get("role") ?? "owner") as Company["role"];
   const company = { id: "company", slug: "acme", name: "Acme", role } as Company;
-  const me = { id: "owner", name: "Olivia Owner", email: "owner@example.test" } as Me;
   const start = params.get("path") ?? "/c/acme/employees";
   return (
     <MemoryRouter initialEntries={[start]}>
@@ -84,10 +86,10 @@ function Harness() {
               <Route path="general" element={<GeneralSettingsPage />} />
             </Route>
             <Route
-              path="/c/:companySlug/decisions"
+              path="/c/:companySlug/decisions/settings"
               element={
                 <div className="w-full">
-                  <Decisions company={company} me={me} />
+                  <DecisionStackSettingsPage company={company} />
                 </div>
               }
             />

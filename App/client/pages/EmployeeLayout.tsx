@@ -15,7 +15,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * made the roster feel like a filing cabinet, and all but Chat were things you
  * set up once and rarely revisit. Behind that door the Settings rail
  * (`SettingsPage`) keeps the everyday panes up front — General, Soul, Model,
- * Connections, Autonomy, and the Skills and Routines links — and tucks Memory,
+ * Access, Connections, Autonomy, and the Skills and Routines links — and tucks Memory,
  * Journal, Handoffs, Phone, MCP, Browser and the Integrations link under a
  * collapsed Advanced group.
  *

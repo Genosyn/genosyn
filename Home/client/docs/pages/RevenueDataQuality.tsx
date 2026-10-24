@@ -23,7 +23,7 @@ export function RevenueDataQuality() {
           <>
             Reconcile duplicate records, preview bulk cleanup, restore historical Deal truth, review
             enrichment evidence, capture mail attachments, and export complete snapshots from{" "}
-            <Code>Revenue → Data quality</Code>.
+            <Code>Revenue → Advanced → Data quality</Code>.
           </>
         }
       />

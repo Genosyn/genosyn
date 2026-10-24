@@ -4,6 +4,7 @@ import { Bot, Mail, ShieldCheck } from "lucide-react";
 
 import { InstructionsEditor } from "../components/InstructionsEditor";
 import { Button } from "../components/ui/Button";
+import { Disclosure } from "../components/ui/Disclosure";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -12,6 +13,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { api, type Employee } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
+  describeApplicantEmail,
   recruitingApi,
   sampleEmailValues,
   screeningInstructionsEdit,
@@ -109,9 +111,9 @@ function SettingsBody() {
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">AI screener</h2>
             <p className="mt-0.5 max-w-3xl text-xs text-slate-500">
               The AI Employee that reads every new application against its Opening&apos;s criteria and writes a Scorecard:
-              a rating per criterion with quoted evidence, a short summary, and questions to ask. It runs in a sealed turn
-              with no tools but the Scorecard, never sees the candidate&apos;s name, email or phone number, and never moves
-              anyone — people and AI Employees with Recruiting access decide.
+              a rating per criterion with quoted evidence, a short summary, and questions to ask. It never sees the
+              candidate&apos;s name, email or phone number, can do nothing but write the Scorecard, and never moves anyone
+              along — people and AI Employees with Recruiting access decide.
             </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,20rem)_1fr] sm:items-end">
               <Select
@@ -199,7 +201,7 @@ function SettingsBody() {
             </div>
             <p className="mt-0.5 max-w-3xl text-xs text-slate-500">
               {sender.delivers ? (
-                <>Applicant emails go out through {sender.source === "company_provider" ? "the company's email provider" : "the install's email transport"}, and every one is listed at Settings → Email Logs.</>
+                <>Applicant emails go out through {sender.source === "company_provider" ? "the company's email provider" : "the install's email transport"}, and every one is listed at Settings → Notification email → Logs.</>
               ) : (
                 <>
                   Emails are written to the server log instead of sent until you{" "}
@@ -320,41 +322,50 @@ function TemplateEditor({
         ) : null}
       </div>
       <FormError className="mt-3" message={toggleError} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3">
-          <Input label="Subject" value={draftSubject} onChange={(event) => setDraftSubject(event.target.value)} />
-          <Textarea label="Message" rows={9} value={draftBody} onChange={(event) => setDraftBody(event.target.value)} />
-        </div>
-        <div>
-          <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Preview</span>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
-            <p className="text-xs text-slate-500">To: ada@example.com</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{renderEmailTemplate(draftSubject, values)}</p>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">{renderEmailTemplate(draftBody, values)}</p>
+      {/* Whether it is sent stays in view; the wording — set once, rarely
+          revisited — waits behind one line that names it. */}
+      <Disclosure
+        className="mt-4"
+        title="Edit the email"
+        summary={describeApplicantEmail({ usingDefault, subject, dirty })}
+        keepMounted
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-3">
+            <Input label="Subject" value={draftSubject} onChange={(event) => setDraftSubject(event.target.value)} />
+            <Textarea label="Message" rows={9} value={draftBody} onChange={(event) => setDraftBody(event.target.value)} />
+          </div>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Preview</span>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+              <p className="text-xs text-slate-500">To: ada@example.com</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{renderEmailTemplate(draftSubject, values)}</p>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">{renderEmailTemplate(draftBody, values)}</p>
+            </div>
           </div>
         </div>
-      </div>
-      <FormError message={error} />
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
-        {!usingDefault ? (
-          <Button variant="ghost" loading={busy === "restore"} disabled={busy !== null} onClick={() => void run("restore")}>
-            Restore default
+        <FormError message={error} />
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          {!usingDefault ? (
+            <Button variant="ghost" loading={busy === "restore"} disabled={busy !== null} onClick={() => void run("restore")}>
+              Restore default
+            </Button>
+          ) : null}
+          <Button
+            variant="secondary"
+            disabled={!dirty || busy !== null}
+            onClick={() => {
+              setDraftSubject(subject);
+              setDraftBody(body);
+            }}
+          >
+            Cancel
           </Button>
-        ) : null}
-        <Button
-          variant="secondary"
-          disabled={!dirty || busy !== null}
-          onClick={() => {
-            setDraftSubject(subject);
-            setDraftBody(body);
-          }}
-        >
-          Cancel
-        </Button>
-        <Button loading={busy === "save"} disabled={!dirty || busy !== null} onClick={() => void run("save")}>
-          Save email
-        </Button>
-      </div>
+          <Button loading={busy === "save"} disabled={!dirty || busy !== null} onClick={() => void run("save")}>
+            Save email
+          </Button>
+        </div>
+      </Disclosure>
     </div>
   );
 }

@@ -801,11 +801,10 @@ function StageFunnel({
         </p>
       )}
       <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        History coverage: {historyCoverage.completeDeals} complete · {historyCoverage.partialDeals}{" "}
-        partial · {historyCoverage.snapshotOnlyDeals} snapshot only ·{" "}
-        {historyCoverage.withoutHistory} missing. Cohort conversion uses complete histories; partial
-        histories contribute only metrics whose entry and exit boundaries are known. Live stage
-        values include every current Deal.
+        Conversion counts the {historyCoverage.completeDeals} Deals whose whole stage history is
+        known ({historyCoverage.partialDeals} partial, {historyCoverage.snapshotOnlyDeals} with only
+        their current stage, {historyCoverage.withoutHistory} with none); a partial history counts
+        only the moves it saw. The bars include every current Deal.
       </p>
     </section>
   );

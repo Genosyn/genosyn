@@ -18,6 +18,7 @@ import {
   SOURCE_LABELS,
   TONE_CLASSES,
   addCandidate,
+  describeApplicantEmail,
   describeEvent,
   recruitingApi,
   sampleEmailValues,
@@ -549,5 +550,26 @@ describe("addCandidate", () => {
 
     stubFetch(500, JSON.stringify({}));
     assert.equal(await attempt(), "Request failed (500)");
+  });
+});
+
+describe("describeApplicantEmail", () => {
+  test("says whose wording an applicant email uses, and its subject", () => {
+    assert.equal(
+      describeApplicantEmail({ usingDefault: true, subject: DEFAULT_CONFIRMATION_EMAIL_SUBJECT }),
+      `Default wording · “${DEFAULT_CONFIRMATION_EMAIL_SUBJECT}”`,
+    );
+    assert.equal(
+      describeApplicantEmail({ usingDefault: false, subject: "  Thanks for applying!  " }),
+      "Your wording · “Thanks for applying!”",
+    );
+  });
+
+  test("leaves out an empty subject, and names unsaved changes", () => {
+    assert.equal(describeApplicantEmail({ usingDefault: false, subject: " " }), "Your wording");
+    assert.equal(
+      describeApplicantEmail({ usingDefault: true, subject: "Hello", dirty: true }),
+      "Default wording · “Hello” · unsaved changes",
+    );
   });
 });

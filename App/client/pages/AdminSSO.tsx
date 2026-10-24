@@ -484,7 +484,7 @@ function CompanySsoCard({
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Off by default. When on, a company&apos;s owners and admins can connect an identity
-              provider at Settings → Single sign-on, and that provider can sign the company&apos;s
+              provider at Settings → Advanced → Single sign-on, and that provider can sign the company&apos;s
               Members in to their whole Genosyn account. Turn it on only if you trust every
               company admin on this install with that.
             </p>

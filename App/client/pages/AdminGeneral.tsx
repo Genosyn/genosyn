@@ -4,13 +4,19 @@ import { api, type CustomJavaScriptSettings, type InstanceSettings } from "../li
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Input } from "../components/ui/Input";
+import { describeCustomJavaScript } from "../lib/customJavaScriptSummary";
 import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 
-/** Admin → General. Database-backed settings for the whole installation. */
+/**
+ * Admin → General. Database-backed settings for the whole installation: the
+ * public URL up front, with its own status, and custom JavaScript — rare, and
+ * code every Member's browser runs — under one closed Advanced disclosure.
+ */
 export function AdminGeneral() {
   const [data, setData] = React.useState<InstanceSettings | null>(null);
   const [javascriptData, setJavaScriptData] = React.useState<CustomJavaScriptSettings | null>(null);
@@ -59,6 +65,8 @@ export function AdminGeneral() {
   const dirty = normalizedDraft !== data.publicUrl;
   const javascriptDirty = customJavaScript !== javascriptData.customJavaScript;
   const differsFromBrowser = data.publicUrl !== detectedUrl;
+  /** Confirmed and matching this browser: nothing to review. */
+  const settled = data.configured && !differsFromBrowser;
 
   const save = async () => {
     setError(null);
@@ -124,57 +132,47 @@ export function AdminGeneral() {
       <div className="flex flex-col gap-4">
         <FormError message={loadError} />
 
-        <Card
-          className={
-            data.configured && !differsFromBrowser
-              ? "border-emerald-200 dark:border-emerald-500/30"
-              : "border-amber-200 dark:border-amber-500/30"
-          }
-        >
-          <CardBody className="flex items-center gap-3">
-            <span
-              className={
-                data.configured && !differsFromBrowser
-                  ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
-                  : "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
-              }
-            >
-              {data.configured && !differsFromBrowser ? (
-                <CheckCircle2 size={20} />
-              ) : (
-                <AlertTriangle size={20} />
-              )}
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {!data.configured
-                  ? "Public URL has not been confirmed"
-                  : differsFromBrowser
-                    ? "Public URL differs from this browser"
-                    : "Public URL is configured"}
-              </div>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                {!data.configured || differsFromBrowser
-                  ? `This browser reached Genosyn at ${detectedUrl}. Review and save the value below.`
-                  : "Absolute links, OAuth callbacks, and WebAuthn use this origin."}
-              </p>
-            </div>
-          </CardBody>
-        </Card>
-
+        {/* One card per setting: its status lives in the card it describes,
+            not in a second card above it. */}
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2">
-              <Globe2 size={16} className="text-indigo-500" />
-              <div>
-                <h2 className="text-sm font-semibold">Public URL</h2>
+            <div className="flex items-start gap-2">
+              <Globe2 size={16} className="mt-0.5 shrink-0 text-indigo-500" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">Public URL</h2>
+                  {settled && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                      <CheckCircle2 size={11} aria-hidden="true" /> Configured
+                    </span>
+                  )}
+                </div>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  The exact origin Members use to open this Genosyn installation.
+                  The exact origin Members use to open this Genosyn installation. Links in emails,
+                  sign-in with other services, and passkeys all use it.
                 </p>
               </div>
             </div>
           </CardHeader>
           <CardBody>
+            {!settled && (
+              <div
+                role="status"
+                className="mb-3 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+              >
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <div className="min-w-0 text-xs leading-5">
+                  <p className="font-semibold">
+                    {!data.configured
+                      ? "Public URL has not been confirmed"
+                      : "Public URL differs from this browser"}
+                  </p>
+                  <p>
+                    This browser reached Genosyn at {detectedUrl}. Review and save the value below.
+                  </p>
+                </div>
+              </div>
+            )}
             <form
               className="flex flex-col gap-3"
               onSubmit={(event) => {
@@ -221,19 +219,25 @@ export function AdminGeneral() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
+        {/* Rare and risky — code that runs in every Member's browser — so it
+            waits under Advanced, whose line always says whether any is set. */}
+        <Disclosure
+          variant="card"
+          heading="h2"
+          title="Advanced"
+          summary={describeCustomJavaScript(javascriptData.customJavaScript, customJavaScript)}
+          keepMounted
+        >
+          <div>
+            <div className="mb-3 flex items-center gap-2">
               <Code2 size={16} className="text-indigo-500" />
               <div>
-                <h2 className="text-sm font-semibold">Custom JavaScript</h2>
+                <h3 className="text-sm font-semibold">Custom JavaScript</h3>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Add analytics, tag managers, or other trusted browser scripts to this instance.
                 </p>
               </div>
             </div>
-          </CardHeader>
-          <CardBody>
             <form
               className="flex flex-col gap-3"
               onSubmit={(event) => {
@@ -280,8 +284,8 @@ export function AdminGeneral() {
                 </Button>
               </div>
             </form>
-          </CardBody>
-        </Card>
+          </div>
+        </Disclosure>
       </div>
     </>
   );

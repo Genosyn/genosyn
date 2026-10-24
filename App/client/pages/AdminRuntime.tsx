@@ -371,7 +371,7 @@ const GROUPS: GroupSpec[] = [
         kind: "boolean",
         path: "humanize",
         label: "Humanize input",
-        help: "Type and click the way a person does. Leave on for sites with anti-bot defenses.",
+        help: "Type and click the way a person does. Leave on for sites with anti-bot defenses. The Google Meet notetaker needs it: Meet refuses a guest that does not.",
       },
       {
         kind: "int",
@@ -640,15 +640,10 @@ export function AdminRuntime() {
         <Card>
           <CardBody>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Operational settings for the whole installation. They are stored in the database, not
-              in{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                config.ts
-              </code>
-              , so a change applies within about 30 seconds on every replica with no restart. Each
-              section starts collapsed and says whether anything in it was changed; open one to edit
-              it. Each saves on its own, and a section still on its shipped values can be left
-              alone.
+              How the whole installation runs. A change takes effect within about 30 seconds, with
+              no restart. Each section says on its closed line whether anything in it differs from
+              the defaults; open one to change it, and it saves on its own. A section still on its
+              defaults can be left alone.
             </p>
           </CardBody>
         </Card>

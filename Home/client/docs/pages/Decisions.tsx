@@ -268,6 +268,14 @@ export function Decisions() {
         the stack as before. Existing companies start with the stack on and the default
         instructions.
       </P>
+      <P>
+        <Strong>Advanced</Strong>, closed by default, holds <Strong>Routing</Strong>: which AI
+        Employee may answer another one&apos;s questions before anyone is asked (see{" "}
+        <DocLink to="/docs/decisions#routing">Routing to an AI decider</DocLink>). Its closed line
+        says what is set — <em>No routing rules · every question goes to people</em>, or how many
+        rules there are and how many are off or no longer route — so you can tell without opening
+        it.
+      </P>
 
       <H2 id="reviewing-email">Reviewing an email</H2>
       <UL>
@@ -453,9 +461,10 @@ export function Decisions() {
       <H2 id="routing">Routing to an AI decider</H2>
       <P>
         By default every question waits for a human — no configuration, exactly the behavior above.
-        A <Strong>routing rule</Strong> (opened with <Strong>Routing</Strong> on the{" "}
-        <Strong>Decision stack</Strong> page, admin-managed) changes that for one asking employee,
-        or for any employee: it names the AI Employee who may answer on a human&apos;s behalf. The
+        A <Strong>routing rule</Strong> (set under{" "}
+        <Strong>Decision stack → Settings → Advanced → Routing</Strong>; every Member can read the
+        rules, only owners and admins change them) changes that for one asking employee, or for any
+        employee: it names the AI Employee who may answer on a human&apos;s behalf. The
         first enabled rule that matches the asker decides. A decision the employee addressed to a
         specific person is never routed. A routed row says <em>routed to {"{name}"} (AI)</em>.
       </P>

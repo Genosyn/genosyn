@@ -28,6 +28,7 @@ import {
   WorkspaceDirectory,
   WorkspaceMessage,
   WsInboundEvent,
+  channelWebhookSummary,
   workspaceApi,
   workspaceChannelHref,
 } from "../lib/workspace";
@@ -56,6 +57,7 @@ import { ChannelComposer, type ChannelComposerHandle } from "../components/works
 import { initials, MessageList } from "../components/workspace/MessageList";
 import { TypingPill, useChannelTyping } from "../components/workspace/TypingPill";
 import { Button } from "../components/ui/Button";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Modal } from "../components/ui/Modal";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { FormError, FormSuccess } from "../components/ui/FormError";
@@ -1896,89 +1898,99 @@ function ChannelSettingsModal({
           />
         </section>
 
+        {/* The webhook is for wiring another service into the channel — a
+            developer's job, set once — so it waits under Advanced, whose line
+            says whether it is on. */}
         {!group && (
-        <section className="space-y-3 border-t border-slate-100 pt-5 dark:border-slate-800">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Incoming webhook
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Use services that already send Slack incoming webhooks. JSON text, blocks, and
-              attachments become messages in this channel.
-            </p>
+          <div className="border-t border-slate-100 pt-5 dark:border-slate-800">
+            <Disclosure
+              title="Advanced"
+              summary={channelWebhookSummary(webhook, loadingWebhook, webhookError)}
+            >
+              <section className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Incoming webhook
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Use services that already send Slack incoming webhooks. JSON text, blocks, and
+                    attachments become messages in this channel.
+                  </p>
+                </div>
+                <FormError message={webhookError} />
+                {loadingWebhook ? (
+                  <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
+                    <Spinner size={14} /> Loading webhook settings…
+                  </div>
+                ) : webhook?.enabled && webhook.url ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                      <div className="mb-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+                        Webhook enabled
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                          {webhook.url}
+                        </code>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            setWebhookError(null);
+                            setCopyNotice(null);
+                            const copied = await copyToClipboard(webhook.url!);
+                            if (copied) setCopyNotice("Webhook URL copied");
+                            else setWebhookError("Could not access clipboard");
+                          }}
+                        >
+                          <Copy size={13} /> Copy
+                        </Button>
+                      </div>
+                    </div>
+                    <FormSuccess message={copyNotice} />
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      The URL is a credential. Keep it secret. This URL always posts to this channel, even
+                      if a Slack payload names a different one.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={changingWebhook === "regenerate"}
+                        disabled={changingWebhook !== null}
+                        onClick={() => changeWebhook(true, true)}
+                      >
+                        <RefreshCw size={13} /> Regenerate URL
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        loading={changingWebhook === "disable"}
+                        disabled={changingWebhook !== null}
+                        onClick={() => changeWebhook(false)}
+                      >
+                        Disable
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                      Enabling creates a unique Slack-compatible URL for this channel.
+                    </p>
+                    <Button
+                      size="sm"
+                      loading={changingWebhook === "enable"}
+                      disabled={changingWebhook !== null || loadingWebhook}
+                      onClick={() => changeWebhook(true)}
+                    >
+                      Enable incoming webhook
+                    </Button>
+                  </div>
+                )}
+              </section>
+            </Disclosure>
           </div>
-          <FormError message={webhookError} />
-          {loadingWebhook ? (
-            <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
-              <Spinner size={14} /> Loading webhook settings…
-            </div>
-          ) : webhook?.enabled && webhook.url ? (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                <div className="mb-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
-                  Webhook enabled
-                </div>
-                <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
-                    {webhook.url}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      setWebhookError(null);
-                      setCopyNotice(null);
-                      const copied = await copyToClipboard(webhook.url!);
-                      if (copied) setCopyNotice("Webhook URL copied");
-                      else setWebhookError("Could not access clipboard");
-                    }}
-                  >
-                    <Copy size={13} /> Copy
-                  </Button>
-                </div>
-              </div>
-              <FormSuccess message={copyNotice} />
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                The URL is a credential. Keep it secret. This URL always posts to this channel, even
-                if a Slack payload names a different one.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  loading={changingWebhook === "regenerate"}
-                  disabled={changingWebhook !== null}
-                  onClick={() => changeWebhook(true, true)}
-                >
-                  <RefreshCw size={13} /> Regenerate URL
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  loading={changingWebhook === "disable"}
-                  disabled={changingWebhook !== null}
-                  onClick={() => changeWebhook(false)}
-                >
-                  Disable
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-                Enabling creates a unique Slack-compatible URL for this channel.
-              </p>
-              <Button
-                size="sm"
-                loading={changingWebhook === "enable"}
-                disabled={changingWebhook !== null || loadingWebhook}
-                onClick={() => changeWebhook(true)}
-              >
-                Enable incoming webhook
-              </Button>
-            </div>
-          )}
-        </section>
         )}
 
         <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5 dark:border-slate-800">

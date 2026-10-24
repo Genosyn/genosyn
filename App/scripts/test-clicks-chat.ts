@@ -506,7 +506,7 @@ await app.check(
       routes: workspaceRoutes(),
     });
     const { page } = view;
-    await view.click(page.getByRole("button", { name: /Settings/ }).first());
+    await view.click(page.getByRole("button", { name: "Channel settings", exact: true }));
     const dialog = page.getByRole("dialog", { name: "Channel settings" });
     const name = dialog.getByLabel("Name", { exact: true });
     await name.fill("sales-emea");
@@ -514,7 +514,7 @@ await app.check(
     await dialog.waitFor({ state: "detached" });
     await page.locator("header").getByText("sales-emea", { exact: true }).waitFor();
     assert.equal(view.clicks(), 1, "Settings, type, Enter: no Save or Close clicks");
-    await view.click(page.getByRole("button", { name: /Settings/ }).first());
+    await view.click(page.getByRole("button", { name: "Channel settings", exact: true }));
     const again = page.getByRole("dialog", { name: "Channel settings" });
     const topic = again.getByLabel("Topic", { exact: true });
     await topic.fill("EMEA pipeline");

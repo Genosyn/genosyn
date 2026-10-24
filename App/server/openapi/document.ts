@@ -40,6 +40,7 @@ import "./auth.js";
 import "./companies.js";
 import "./apiKeys.js";
 import "./employees.js";
+import "./employeeAccess.js";
 import "./routines.js";
 import "./revenue.js";
 import "./finance.js";

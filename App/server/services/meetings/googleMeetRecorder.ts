@@ -11,9 +11,16 @@ import {
   chromiumLaunchOptions,
   loadChromiumLauncher,
 } from "../browserProfile.js";
+import { humanClick, humanFill } from "../humanInput.js";
 import { registerMeetingRecorder } from "./recorder.js";
 
-const MEET_CODE_RE = /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/i;
+/**
+ * A meeting code, at the root or under `/meet/`. Meet now serves its pre-join
+ * page and the call itself from `/meet/<code>` and redirects a guest who
+ * opened `/<code>` there, so a path check that knew only the root form read
+ * every admitted call as already over.
+ */
+const MEET_CODE_RE = /^\/(?:meet\/)?[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/i;
 /** Workspace "nicknamed" meetings, which Calendar writes as a lookup alias. */
 const MEET_LOOKUP_RE = /^\/lookup\/[a-z0-9_-]{1,64}\/?$/i;
 const MAX_DISPLAY_NAME_LENGTH = 100;
@@ -422,6 +429,11 @@ async function createPulseAudioSink(
  * Best-effort by design. `module-null-source` is not in every PulseAudio
  * build, and a deployment without it is still better served by the
  * dialog-dismissal path in the lobby than by a recorder that refuses to start.
+ *
+ * Its label is `description=`, not the `source_properties=` the null *sink*
+ * takes: PulseAudio refuses any argument a module does not declare, so the
+ * sink's spelling made every load fail and every notetaker join without a
+ * microphone.
  */
 async function createSilentCaptureSource(
   sinkName: string,
@@ -435,7 +447,7 @@ async function createSilentCaptureSource(
       `source_name=${name}`,
       "rate=48000",
       "channels=1",
-      `source_properties=device.description=Genosyn_silent_mic`,
+      "description=Genosyn_silent_mic",
     ]);
     const moduleId = result.stdout.trim();
     if (!/^\d+$/.test(moduleId)) {
@@ -731,18 +743,13 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     if (page.isClosed()) {
       throw new Error("Google Meet closed while the notetaker was waiting for admission.");
     }
+    const body = (await bodyText(page)).replace(/\s+/g, " ");
     // Admitted. Everything below this line is lobby work, and once the call
     // controls are on screen none of it applies any more.
-    if (
-      await anyVisible([
-        page.getByRole("button", { name: /leave call/i }),
-        page.locator('[aria-label*="leave call" i], [data-tooltip*="leave call" i]'),
-      ])
-    ) {
+    if (!isGoogleMeetWaitingForAdmission(body) && (await isInGoogleMeetCall(page))) {
       return;
     }
 
-    const body = (await bodyText(page)).replace(/\s+/g, " ");
     const failure = googleMeetJoinFailure(page.url(), body);
     if (failure) throw new Error(failure);
 
@@ -757,10 +764,17 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     }
 
     if (Date.now() >= cutoff) {
+      // Say which step the lobby stopped at. One sentence for all three is
+      // how a notetaker that never pressed the button at all read, on every
+      // meeting, as a host who had not opened guest access.
       throw new Error(
         hadConfirmedRequest
           ? "Google Meet confirmed the notetaker was waiting, but it was not admitted before the join window closed. The notetaker has left; press Start notetaker to retry, then admit the new request."
-          : "The notetaker could not reach the Google Meet waiting room before the join window closed. No lobby request was confirmed. Check the meeting link and guest access, then press Start notetaker to retry.",
+          : asks > 0
+            ? "The notetaker asked to join, but Google Meet did not confirm that the request reached the host before the join window closed. Press Start notetaker to retry while the host is in the call."
+            : named
+              ? "The notetaker entered its name, but Google Meet never offered an Ask to join button it could press before the join window closed, so no request reached the host. Press Start notetaker to retry, or upload a recording or paste a transcript."
+              : "The notetaker could not reach the Google Meet waiting room before the join window closed. No lobby request was confirmed. Check the meeting link and guest access, then press Start notetaker to retry.",
       );
     }
 
@@ -774,7 +788,7 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     const continueWithoutMedia = /^continue without (?:a )?(?:microphone|camera|audio|video)\b/i;
     const joinWithoutMedia = /^join without (?:a )?(?:microphone|camera|audio|video)\b/i;
     if (
-      await clickFirstVisible([
+      await clickFirstVisible(page, [
         page.getByRole("button", { name: continueWithoutMedia }),
         page.getByRole("link", { name: continueWithoutMedia }),
         page.getByRole("button", { name: joinWithoutMedia }),
@@ -792,7 +806,7 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
       continue;
     }
     if (
-      await clickFirstVisible([
+      await clickFirstVisible(page, [
         page.getByRole("button", { name: /accept all|reject all/i }),
         page.getByRole("button", { name: /^got it$/i }),
         page.getByRole("button", { name: /^dismiss$/i }),
@@ -808,7 +822,15 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
         page.locator('input[placeholder*="name" i]'),
       ]);
       if (nameInput) {
-        if (await attempt(() => nameInput.fill(disclosedNotetakerName(args.displayName)))) {
+        // Typed, not set. Ask to join sends Google "system info … to confirm
+        // you're not a bot", and a name that arrived with no keystrokes, then
+        // a click from a pointer that never moved, is refused with "You can't
+        // join this video call" — even on a call that lets anyone in.
+        if (
+          await attempt(() =>
+            humanFill(page, nameInput, disclosedNotetakerName(args.displayName)),
+          )
+        ) {
           named = true;
           needsNameFill = false;
         }
@@ -821,13 +843,13 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     // button here, and failing the whole join over a decoration would be
     // absurd.
     if (!mutedMicrophone) {
-      mutedMicrophone = await clickFirstVisible([
+      mutedMicrophone = await clickFirstVisible(page, [
         page.getByRole("button", { name: /turn off microphone|disable microphone/i }),
         page.locator('[aria-label*="microphone" i][data-is-muted="false"]'),
       ]);
     }
     if (!stoppedCamera) {
-      stoppedCamera = await clickFirstVisible([
+      stoppedCamera = await clickFirstVisible(page, [
         page.getByRole("button", { name: /turn off camera|disable camera/i }),
         page.locator('[aria-label*="camera" i][data-is-muted="false"]'),
       ]);
@@ -840,14 +862,22 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
     // meeting that started late.
     const dueToAsk = needsJoinClick || unanswered || Date.now() - askedAt >= RE_ASK_AFTER_MS;
     if (named && dueToAsk && asks < MAX_JOIN_REQUESTS) {
+      // Matched by how the label starts. Meet names the button after the
+      // devices the guest brings — a notetaker with none gets "Ask to join
+      // without microphone & camera" — and a pattern anchored at both ends
+      // never found it, so no request was ever sent. `\b` still keeps "Ask to
+      // present" and "Ask to use Companion mode" out.
       const joinButton = await firstVisible([
-        page.getByRole("button", { name: /^ask to join(?: again)?$/i }),
-        page.getByRole("button", { name: /^join now$/i }),
+        page.getByRole("button", { name: /^ask to join\b/i }),
+        page.getByRole("button", { name: /^join now\b/i }),
       ]);
       if (
         joinButton &&
         (await joinButton.isEnabled().catch(() => false)) &&
-        (await attempt(() => joinButton.click()))
+        // Asking navigates the page, and an ordinary click waits for that
+        // navigation and then times out — a request that was sent, counted
+        // as one that was not.
+        (await attempt(() => humanClick(page, joinButton, { noWaitAfter: true })))
       ) {
         askedAt = Date.now();
         asks += 1;
@@ -860,7 +890,30 @@ export async function joinGoogleMeetAsGuest(page: Page, args: GoogleMeetJoinArgs
 }
 
 function isGoogleMeetWaitingForAdmission(body: string): boolean {
-  return /you.?ll join (?:the call|the meeting) when someone lets you in|someone (?:in the (?:call|meeting) )?(?:will|should) let you in soon|waiting for (?:the |a )?host to (?:let you in|admit)|(?:you are|you.?re) in the waiting room|your request (?:to join )?has been sent/i.test(body);
+  return /you.?ll join (?:the call|the meeting) when someone lets you in|someone (?:in the (?:call|meeting) )?(?:will|should) let you in soon|waiting for (?:the |a )?host to (?:let you in|admit)|(?:you are|you.?re) in the waiting room|your request (?:to join )?has been sent|please wait until (?:a |the )?(?:meeting )?host brings you into the (?:call|meeting)/i.test(body);
+}
+
+/**
+ * Inside the call, not waiting outside it.
+ *
+ * Meet's waiting room already shows Leave call — with Audio settings, Video
+ * settings and Chat — so Leave call alone admitted the notetaker the moment
+ * it knocked, and it went on to record the lobby. These controls appear only
+ * once a host has let the guest in.
+ */
+async function isInGoogleMeetCall(page: Page): Promise<boolean> {
+  const canLeave = await anyVisible([
+    page.getByRole("button", { name: /leave call/i }),
+    page.locator('[aria-label*="leave call" i], [data-tooltip*="leave call" i]'),
+  ]);
+  if (!canLeave) return false;
+  return anyVisible([
+    page.getByRole("button", { name: /^raise hand\b/i }),
+    page.getByRole("button", { name: /^send a reaction\b/i }),
+    page.getByRole("button", { name: /^turn (?:on|off) captions\b/i }),
+    page.getByRole("button", { name: /^meeting details\b/i }),
+    page.getByRole("button", { name: /^(?:share screen|present now)\b/i }),
+  ]);
 }
 
 /** Interpret only known UI messages; never expose page text or account data. */
@@ -873,9 +926,15 @@ function googleMeetJoinFailure(url: string, body: string): string | null {
   }
   if (
     /^https:\/\/accounts\.google\.com\//i.test(url) ||
-    /sign in to join|you (?:need|must|have) to (?:sign|log) in|(?:can.?t|cannot|not allowed to) join this (?:video )?(?:call|meeting)/i.test(body)
+    /sign in to join|you (?:need|must|have) to (?:sign|log) in/i.test(body)
   ) {
-    return "Google Meet blocked the guest notetaker or requires a Google account. The host may receive no lobby request. Check Host controls → Meeting access. Allow guests to ask to join, or upload a recording or paste a transcript.";
+    return "Google Meet requires a Google account for this call, so the guest notetaker cannot ask to join. Check Host controls → Meeting access. Allow guests to ask to join, or upload a recording or paste a transcript.";
+  }
+  // Google's own answer to a guest it does not accept. It is not the host's
+  // meeting access: it appears on calls open to anyone, and the request never
+  // reaches the host.
+  if (/(?:can.?t|cannot|not allowed to) join this (?:video )?(?:call|meeting)/i.test(body)) {
+    return "Google Meet blocked the guest notetaker (“You can't join this video call”) before the host saw a request. Google refuses signed-out guests it does not trust, even on calls that allow guests. Press Start notetaker to retry, or upload a recording or paste a transcript.";
   }
   if (/check (?:the |your )?meeting code|could(?:n.?t| not) find (?:the |this )?meeting|invalid meeting (?:code|link)/i.test(body)) {
     return "Google Meet could not find this meeting. Check its link, then press Start notetaker to retry.";
@@ -966,10 +1025,13 @@ async function firstVisible(
 
 /** Click the first visible locator. Never throws: a click that loses a race
  * with Meet's own re-render is retried by the next pass of the lobby loop. */
-async function clickFirstVisible(locators: ReturnType<Page["locator"]>[]): Promise<boolean> {
+async function clickFirstVisible(
+  page: Page,
+  locators: ReturnType<Page["locator"]>[],
+): Promise<boolean> {
   const candidate = await firstVisible(locators);
   if (!candidate) return false;
-  return attempt(() => candidate.click());
+  return attempt(() => humanClick(page, candidate));
 }
 
 async function anyVisible(locators: ReturnType<Page["locator"]>[]): Promise<boolean> {

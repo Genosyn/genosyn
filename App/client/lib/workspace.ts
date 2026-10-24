@@ -191,6 +191,23 @@ export function workspaceChannelHref(companySlug: string, channelId: string): st
   return `/c/${companySlug}/workspace/${channelId}`;
 }
 
+/**
+ * The closed Advanced line in a channel's settings: whether its incoming
+ * webhook is on, so the one setting tucked away there is never invisible
+ * (AGENTS.md §8). The webhook loads as the settings open, so the line also
+ * says when that is still happening or failed.
+ */
+export function channelWebhookSummary(
+  webhook: Pick<WorkspaceChannelWebhookSettings, "enabled"> | null,
+  loading: boolean,
+  error: string | null,
+): string {
+  if (webhook) return webhook.enabled ? "Incoming webhook on" : "Incoming webhook off";
+  if (loading) return "Incoming webhook · checking…";
+  if (error) return "Incoming webhook couldn’t load";
+  return "Incoming webhook";
+}
+
 // ──────────────────────── REST wrappers ──────────────────────────────────
 
 const base = (companyId: string) => `/api/companies/${companyId}/workspace`;

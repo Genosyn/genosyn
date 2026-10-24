@@ -67,7 +67,7 @@ function useCtx(): SettingsOutletCtx {
 
 export function SettingsEmailLogs() {
   const { company } = useCtx();
-  // Admin-only on the server. Settings → Email shows a Member no Logs tab, but
+  // Admin-only on the server. Settings → Notification email shows a Member no Logs tab, but
   // a link can still land here, so they get a note and the log never mounts
   // to send a request that could only answer 403.
   if (!canOpenSubpage(subpageAt("/settings/email/logs"), company)) {

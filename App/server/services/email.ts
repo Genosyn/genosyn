@@ -33,7 +33,7 @@ export type { EmailAttachment } from "./emailTransports.js";
  *      message somewhere.
  *
  * Every attempt — successful, failed, or skipped — appends an `EmailLog`
- * row so admins can audit deliverability from the Settings → Email Logs
+ * row so admins can audit deliverability from the Settings → Notification email → Logs
  * page.
  */
 

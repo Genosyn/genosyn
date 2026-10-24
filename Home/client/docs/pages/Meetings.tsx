@@ -113,7 +113,9 @@ export function Meetings() {
         <LI>
           A <Strong>custom endpoint</Strong> sends it to whatever OpenAI-compatible server the model
           points at. Point it at a local whisper.cpp or faster-whisper and the audio never leaves
-          your network.
+          your network. A server that only serves a chat model (vLLM or Ollama running one LLM) has
+          no speech-to-text route, and the meeting reports <Code>Transcription failed (404)</Code>;
+          give the notetaker a model whose endpoint transcribes.
         </LI>
         <LI>
           <Strong>Anthropic</Strong> models publish no speech-to-text endpoint, and say so plainly
@@ -154,7 +156,9 @@ export function Meetings() {
       <P>
         Shortly before a qualifying meeting starts, Genosyn opens its Google Meet link under the
         selected employee&apos;s name followed by <Code>(AI notetaker — recording)</Code>. It
-        dismisses Google&apos;s pre-join prompts, keeps its microphone and camera off, and waits to
+        dismisses Google&apos;s pre-join prompts, keeps its microphone and camera off, types its
+        name and asks to join the way a person would (Google checks that a guest is not a bot
+        before it passes the request to the host), and waits to
         be admitted for as long as the call is scheduled to run (up to 30 minutes), asking again if
         Google times its first request out — so a host who joins late still gets a notetaker. Then
         it captures the call audio inside the App container, stores that recording with the
@@ -190,10 +194,20 @@ export function Meetings() {
         actually accepted the join request.
       </P>
       <P>
-        If joining fails, the meeting page distinguishes a request that never reached the lobby
-        from a confirmed lobby wait that expired without admission. The failed attempt closes its
-        browser, so there is no notetaker left to admit. Correct the reported problem, then press
+        If joining fails, the meeting page says which step it stopped at: Meet never offered an
+        Ask to join button, the request was sent but Meet did not confirm it reached the host, or a
+        confirmed lobby wait expired without admission. The failed attempt closes its browser, so
+        there is no notetaker left to admit. Correct the reported problem, then press
         <Strong> Start notetaker</Strong> again while the host is in the call.
+      </P>
+      <P>
+        <Strong>Google Meet blocked the guest notetaker</Strong> means Google answered{" "}
+        <em>You can&apos;t join this video call</em> before the host saw a request. Google refuses
+        signed-out guests it does not trust, even on calls that let anyone ask to join, so the
+        meeting&apos;s access settings are not the cause. Genosyn tries again during the first
+        minutes of the call; keep <Strong>Humanize input</Strong> on at{" "}
+        <Code>Admin → Runtime → Browser</Code>, because Meet refuses a guest whose name and click
+        arrive without a person&apos;s typing and pointer movement.
       </P>
       <P>
         Check that the meeting link matches the call, and ask the host to review Google Meet&apos;s

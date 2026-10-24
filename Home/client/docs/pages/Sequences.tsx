@@ -153,7 +153,7 @@ export function Sequences() {
             term: "Revenue: send",
             def: (
               <>
-                Granted from <Code>Revenue → AI access</Code>. The employee is trusted to run
+                Granted from <Code>Revenue → Advanced → AI access</Code>. The employee is trusted to run
                 outbound unattended.
               </>
             ),

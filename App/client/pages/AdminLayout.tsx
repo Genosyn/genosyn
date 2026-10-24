@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
-import { SectionRailHeader } from "../components/SectionRail";
+import { RailAdvancedGroup, SectionRailHeader } from "../components/SectionRail";
 
 /**
  * Sidebar + layout for `/c/:slug/admin/*`. The Admin section holds surfaces that
@@ -87,16 +87,6 @@ export default function AdminLayout({
           label="Instance Health"
         />
         <SidebarLink
-          to={`${base}/db`}
-          icon={<Database size={14} />}
-          label="Database"
-        />
-        <SidebarLink
-          to={`${base}/migrations`}
-          icon={<Layers size={14} />}
-          label="Migrations"
-        />
-        <SidebarLink
           to={`${base}/email`}
           icon={<Mail size={14} />}
           label="Email transport"
@@ -128,6 +118,25 @@ export default function AdminLayout({
           icon={<Building2 size={14} />}
           label="Companies"
         />
+
+        {/* Developer tools — a raw SQL console and the migration ledger — are
+            not where an operator should land by accident, so they wait under
+            the same closed Advanced group the other rails keep. */}
+        <RailAdvancedGroup
+          names={["Database", "Migrations"]}
+          here={["db", "migrations"].some(
+            (seg) =>
+              location.pathname === `${base}/${seg}` ||
+              location.pathname.startsWith(`${base}/${seg}/`),
+          )}
+        >
+          <SidebarLink to={`${base}/db`} icon={<Database size={14} />} label="Database" />
+          <SidebarLink
+            to={`${base}/migrations`}
+            icon={<Layers size={14} />}
+            label="Migrations"
+          />
+        </RailAdvancedGroup>
       </nav>
     </div>
   );
