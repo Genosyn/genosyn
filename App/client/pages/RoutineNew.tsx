@@ -1,11 +1,12 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
-import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { api, Company, CompanyTag, Employee, Routine, RoutineFolder } from "../lib/api";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { ExistingDraftNote } from "../components/proactive/ExistingDraftNote";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -297,9 +298,6 @@ function SetUpRoutine({
   form: ReturnType<typeof useManualRoutine>;
   onCancel: () => void;
 }) {
-  const [moreOptions, setMoreOptions] = React.useState(false);
-  const moreOptionsId = React.useId();
-
   // Closed, say what is set inside, so a folder carried over from the list this
   // came from is not a surprise.
   const folder = folders.find((entry) => entry.id === form.folderId);
@@ -352,53 +350,37 @@ function SetUpRoutine({
             required
           />
 
-          <div>
-            <button
-              type="button"
-              aria-expanded={moreOptions}
-              aria-controls={moreOptionsId}
-              onClick={() => setMoreOptions((open) => !open)}
-              className="inline-flex items-center gap-1 rounded-lg text-sm font-medium text-slate-600 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-300 dark:hover:text-slate-100"
-            >
-              {moreOptions ? (
-                <ChevronDown size={14} aria-hidden="true" />
-              ) : (
-                <ChevronRight size={14} aria-hidden="true" />
-              )}
-              More options
-              {!moreOptions && inside.length > 0 && (
-                <span className="font-normal text-slate-400 dark:text-slate-500">
-                  · {inside.join(" · ")}
-                </span>
-              )}
-            </button>
-            {moreOptions && (
-              <div id={moreOptionsId} className="mt-3 flex flex-col gap-4">
-                {folders.length > 0 && (
-                  <div className="flex flex-col gap-1">
-                    <Select
-                      label="Folder"
-                      value={form.folderId}
-                      onChange={(e) => form.setFolderId(e.target.value)}
-                    >
-                      <option value="">No folder</option>
-                      {folders.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.path}
-                        </option>
-                      ))}
-                    </Select>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      Where the routine lives. Tags below are what it&apos;s about — a routine has
-                      one folder and any number of tags.
-                    </div>
+          {/* The same Advanced the routine's Settings tab has, holding the
+              same Folder: one name for "the rest", wherever it appears. */}
+          <Disclosure
+            title="Advanced"
+            summary={inside.length > 0 ? inside.join(" · ") : "No folder or tags"}
+          >
+            <div className="flex flex-col gap-4">
+              {folders.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <Select
+                    label="Folder"
+                    value={form.folderId}
+                    onChange={(e) => form.setFolderId(e.target.value)}
+                  >
+                    <option value="">No folder</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.path}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Where the routine lives. Tags below are what it&apos;s about — a routine has
+                    one folder and any number of tags.
                   </div>
-                )}
+                </div>
+              )}
 
-                <TagPicker companyId={companyId} value={form.tags} onChange={form.setTags} />
-              </div>
-            )}
-          </div>
+              <TagPicker companyId={companyId} value={form.tags} onChange={form.setTags} />
+            </div>
+          </Disclosure>
 
           {form.error && <FormError message={form.error} />}
 
