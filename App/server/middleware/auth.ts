@@ -5,11 +5,16 @@ import { User } from "../db/entities/User.js";
 import { Membership, Role } from "../db/entities/Membership.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Company } from "../db/entities/Company.js";
+import type { ConnectedApp } from "../db/entities/ConnectedApp.js";
 import {
   AI_BROWSER_REQUEST_HEADER,
   AI_BROWSER_REQUEST_VALUE,
 } from "../services/browserRequestBoundary.js";
+import { isInProcessRequest } from "../services/companyMcp/dispatch.js";
+import { protectedResourceMetadataUrl } from "../services/mcpOauth/metadata.js";
+import { connectedAppForAccessToken, isAccessToken } from "../services/mcpOauth/tokens.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
+import { CONNECT_APPS_ROLE_REQUIRED, mayConnectApps } from "../../shared/connectedApps.js";
 import { config } from "../../config.js";
 import { withRouteMetadata } from "./routeMetadata.js";
 import {
@@ -22,11 +27,16 @@ declare module "express-serve-static-core" {
   interface Request {
     userId?: string;
     user?: User;
-    /** When set, the request is authenticated via an ApiKey scoped to this
-     * company. Downstream `requireCompanyMember` rejects any other company. */
-    apiKeyCompanyId?: string;
-    /** Resolved ApiKey row when the request used Bearer auth. */
+    /** When set, the request is authenticated with a bearer credential — an
+     * ApiKey or a connected app's access token — scoped to this company.
+     * Downstream `requireCompanyMember` rejects any other company. */
+    bearerCompanyId?: string;
+    /** Resolved ApiKey row when the request used an API key. */
     apiKey?: ApiKey;
+    /** The connected app whose OAuth access token authenticated the request:
+     * at the Genosyn MCP server, and on the calls that server makes back into
+     * the App for each tool. Every guard that refuses API keys refuses it. */
+    connectedApp?: ConnectedApp;
     /** Company role resolved by requireCompanyMember. */
     companyRole?: Role;
     /** Full membership row resolved by requireCompanyMember — carries
@@ -44,13 +54,16 @@ declare module "express-serve-static-core" {
 const TOKEN_PREFIX = "gen_";
 const TOKEN_BODY_LEN = 43;
 
-function parseBearer(header: string | undefined): string | null {
+function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const trimmed = header.trim();
   if (!trimmed.toLowerCase().startsWith("bearer ")) return null;
-  const value = trimmed.slice(7).trim();
-  if (!value.startsWith(TOKEN_PREFIX)) return null;
-  const body = value.slice(TOKEN_PREFIX.length);
+  return trimmed.slice(7).trim() || null;
+}
+
+function apiKeyBody(token: string): string | null {
+  if (!token.startsWith(TOKEN_PREFIX)) return null;
+  const body = token.slice(TOKEN_PREFIX.length);
   if (body.length !== TOKEN_BODY_LEN) return null;
   // base64url alphabet only — guards against arbitrary garbage hitting sha256.
   if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
@@ -65,8 +78,18 @@ export function hashApiToken(body: string): string {
 // on every request. 60 s resolution is plenty for a "last used" UI display.
 const LAST_USED_DEBOUNCE_MS = 60_000;
 
-async function tryBearerAuth(req: Request): Promise<{ user: User; key: ApiKey } | null> {
-  const body = parseBearer(req.headers.authorization);
+type BearerPrincipal =
+  | { user: User; key: ApiKey; app?: undefined }
+  | { user: User; app: ConnectedApp; key?: undefined };
+
+async function tryBearerAuth(
+  req: Request,
+  options: { connectedApps: boolean },
+): Promise<BearerPrincipal | null> {
+  const token = bearerToken(req.headers.authorization);
+  if (!token) return null;
+  if (isAccessToken(token)) return tryConnectedAppAuth(req, token, options);
+  const body = apiKeyBody(token);
   if (!body) return null;
   const tokenHash = hashApiToken(body);
   const keyRepo = AppDataSource.getRepository(ApiKey);
@@ -94,6 +117,55 @@ async function tryBearerAuth(req: Request): Promise<{ user: User; key: ApiKey } 
     });
   }
   return { user, key };
+}
+
+/** `/api/companies/<cid>/mcp` itself: the one URL a connected app's token is issued for. */
+function isCompanyMcpEndpoint(originalUrl: string): boolean {
+  return /^\/api\/companies\/[^/]+\/mcp\/?$/.test(originalUrl.split("?", 1)[0]);
+}
+
+/**
+ * A connected app's access token is for the Genosyn MCP server alone — its
+ * audience (RFC 8707) is the company's `/mcp` endpoint. So it is accepted at
+ * that endpoint, where its guard asks for it (`connectedApps`), and on the
+ * requests the server sends back through this App in memory for each tool
+ * call, which no one outside the process can make; anywhere else it is not a
+ * credential. Like a key, it opens only the company it was approved for.
+ */
+async function tryConnectedAppAuth(
+  req: Request,
+  token: string,
+  options: { connectedApps: boolean },
+): Promise<BearerPrincipal | null> {
+  const atEndpoint = options.connectedApps && isCompanyMcpEndpoint(req.originalUrl);
+  if (!atEndpoint && !isInProcessRequest(req)) return null;
+  const app = await connectedAppForAccessToken(token);
+  if (!app) return null;
+  if (companyIdFromApiPath(req.originalUrl) !== app.companyId) return null;
+  const user = await AppDataSource.getRepository(User).findOneBy({ id: app.userId });
+  if (!user) return null;
+  return { user, app };
+}
+
+function authenticateBearer(req: Request, principal: BearerPrincipal): void {
+  req.userId = principal.user.id;
+  req.user = principal.user;
+  if (principal.key) {
+    req.apiKey = principal.key;
+    req.bearerCompanyId = principal.key.companyId;
+  } else {
+    req.connectedApp = principal.app;
+    req.bearerCompanyId = principal.app.companyId;
+  }
+}
+
+/**
+ * Whether the request carries a bearer credential — an API key or a connected
+ * app's token — rather than a person's browser session. What a session alone
+ * may do refuses both alike.
+ */
+export function usesBearerCredential(req: Pick<Request, "apiKey" | "connectedApp">): boolean {
+  return Boolean(req.apiKey || req.connectedApp);
 }
 
 /** Return the company named by the canonical REST mount, or null otherwise. */
@@ -128,13 +200,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return next();
   }
 
-  // Bearer-token path — programmatic access via API keys.
-  const bearer = await tryBearerAuth(req);
+  // Bearer-token path — programmatic access via API keys, and a connected
+  // app's token on the Genosyn MCP server's own calls.
+  const bearer = await tryBearerAuth(req, { connectedApps: false });
   if (bearer) {
-    req.userId = bearer.user.id;
-    req.user = bearer.user;
-    req.apiKey = bearer.key;
-    req.apiKeyCompanyId = bearer.key.companyId;
+    authenticateBearer(req, bearer);
     return next();
   }
 
@@ -142,20 +212,23 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 /**
- * Authenticate with a company API key and nothing else.
+ * Authenticate with a bearer credential and nothing else: a company API key,
+ * or the access token of an app a Member connected through OAuth.
  *
  * For surfaces that are programmatic by nature — the Genosyn MCP server — a
  * browser session must never be the credential: a page the Member has open
  * elsewhere cannot ride their cookie into it. So, unlike {@link requireAuth},
- * this never reads the session cookie, even when one is sent alongside a key.
- * The key itself is checked exactly as `requireAuth` checks it — live, minted
- * for the company the path names — and `requireCompanyMember` still has to
- * find its Member in that company.
+ * this never reads the session cookie, even when one is sent alongside a
+ * token. A key is checked exactly as `requireAuth` checks it — live, minted
+ * for the company the path names — and a connected app's token the same way,
+ * here at the endpoint it was issued for. `requireCompanyMember` still has to
+ * find the Member in that company.
  *
- * A refusal says `WWW-Authenticate: Bearer`, the way HTTP asks for a bearer
- * token, so a client knows what to send.
+ * A refusal says `WWW-Authenticate: Bearer` with the endpoint's
+ * protected-resource metadata (RFC 9728), which is how an MCP client that
+ * signs in with OAuth finds where to do it.
  */
-export async function requireApiKeyAuth(
+export async function requireBearerAuth(
   req: Request,
   res: Response,
   next: NextFunction,
@@ -166,26 +239,30 @@ export async function requireApiKeyAuth(
         "Authenticated Genosyn APIs are unavailable inside an AI Browser. Use AI Employee Grants and governed tools.",
     });
   }
-  let bearer: Awaited<ReturnType<typeof tryBearerAuth>>;
+  let bearer: BearerPrincipal | null;
   try {
-    bearer = await tryBearerAuth(req);
+    bearer = await tryBearerAuth(req, { connectedApps: true });
   } catch (error) {
     // Express 4 drops a rejected promise; hand the failure to the error handler
     // so the client gets an answer instead of a socket left open.
     return next(error);
   }
   if (!bearer) {
-    res.setHeader("WWW-Authenticate", 'Bearer realm="Genosyn"');
+    const challenge = ['Bearer realm="Genosyn"'];
+    const companyId = companyIdFromApiPath(req.originalUrl);
+    if (companyId) {
+      challenge.push(`resource_metadata="${protectedResourceMetadataUrl(companyId)}"`);
+    }
+    // RFC 6750 §3.1: name the error only when a bearer token was presented.
+    if (bearerToken(req.headers.authorization)) challenge.push('error="invalid_token"');
+    res.setHeader("WWW-Authenticate", challenge.join(", "));
     return res.status(401).json({
       error: req.headers.authorization
-        ? "The API key was not accepted: it is unknown, revoked or expired, or was minted for another company."
-        : "An API key is required: send it as `Authorization: Bearer gen_…`. Mint one at Settings → API keys.",
+        ? "The API key or access token was not accepted: it is unknown, revoked or expired, or belongs to another company."
+        : "An API key is required: send it as `Authorization: Bearer gen_…` (mint one at Settings → API keys), or connect an app that signs in with OAuth.",
     });
   }
-  req.userId = bearer.user.id;
-  req.user = bearer.user;
-  req.apiKey = bearer.key;
-  req.apiKeyCompanyId = bearer.key.companyId;
+  authenticateBearer(req, bearer);
   next();
 }
 
@@ -214,7 +291,7 @@ export function requireBrowserSession(
   next: NextFunction,
 ): void | Response {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-  if (req.apiKey) {
+  if (usesBearerCredential(req)) {
     return res.status(403).json({
       error: "This action requires a logged-in browser session",
     });
@@ -231,17 +308,27 @@ export async function requireCompanyMember(
   if (!companyId) return res.status(400).json({ error: "Missing company id" });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
   // An ApiKey only unlocks the company it was minted for, even if the
-  // owning user is a member of multiple companies. Reject before we hit
-  // the DB so a wrong-company request is cheap.
-  if (req.apiKeyCompanyId && req.apiKeyCompanyId !== companyId) {
-    return res.status(403).json({ error: "API key is scoped to a different company" });
+  // owning user is a member of multiple companies — and a connected app the
+  // company it was approved for. Reject before we hit the DB so a
+  // wrong-company request is cheap.
+  if (req.bearerCompanyId && req.bearerCompanyId !== companyId) {
+    return res.status(403).json({
+      error: req.connectedApp
+        ? "This app is connected to a different company"
+        : "API key is scoped to a different company",
+    });
   }
   const m = await AppDataSource.getRepository(Membership).findOneBy({
     companyId,
     userId: req.userId,
   });
   if (!m) return res.status(403).json({ error: "Forbidden" });
-  if (!req.apiKey) {
+  // Who may connect an app is checked again on every request, so a Member
+  // demoted below admin loses their connected apps with the role.
+  if (req.connectedApp && !mayConnectApps(m.role)) {
+    return res.status(403).json({ error: CONNECT_APPS_ROLE_REQUIRED });
+  }
+  if (!usesBearerCredential(req)) {
     const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
     if (company?.requireTwoFactor && !(await hasTwoFactorMethod(req.userId))) {
       return res.status(403).json({
@@ -363,7 +450,7 @@ export async function requireMasterAdmin(
   next: NextFunction,
 ): Promise<void | Response> {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-  if (req.apiKey) {
+  if (usesBearerCredential(req)) {
     return res.status(403).json({
       error: "Instance administration requires a logged-in browser session",
     });

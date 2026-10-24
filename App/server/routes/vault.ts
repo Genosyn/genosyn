@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import type { EmployeeVaultAccessLevel } from "../db/entities/EmployeeVaultGrant.js";
 import type { VaultMemberAccessLevel } from "../db/entities/VaultItemMemberAccess.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireCompanyMember, usesBearerCredential } from "../middleware/auth.js";
 import { describeBrowserSessionOnly } from "../middleware/routeMetadata.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
@@ -63,7 +63,7 @@ vaultRouter.use(requireAuth);
 vaultRouter.use(requireCompanyMember);
 vaultRouter.use(
   describeBrowserSessionOnly((req: Request, res: Response, next: NextFunction) => {
-    if (req.apiKey) {
+    if (usesBearerCredential(req)) {
       return res.status(403).json({
         error: "Vault access requires a logged-in browser session",
       });

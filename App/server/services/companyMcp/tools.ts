@@ -264,17 +264,18 @@ const whoami: ResidentTool = {
   name: "whoami",
   title: "Who am I",
   description:
-    "Whose authority this server carries: the Member whose API key it uses, their company role and Finance access, the key itself, and how many operations they can call. Call it first if you are unsure who you act as.",
+    "Whose authority this server carries: the Member whose API key or connected app it uses, their company role and Finance access, the key or app itself, and how many operations they can call. Call it first if you are unsure who you act as.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   outputSchema: {
     type: "object",
     properties: {
-      user: { type: "object", description: "The key's Member." },
+      user: { type: "object", description: "The Member the key or app acts as." },
       company: { type: "object" },
       role: { type: "string", enum: ["owner", "admin", "member"] },
       financeAccess: { type: "string", enum: ["none", "read", "full"] },
       authentication: { type: "string" },
       apiKey: { type: ["object", "null"] },
+      connectedApp: { type: ["object", "null"] },
       operations: {
         type: "object",
         properties: {

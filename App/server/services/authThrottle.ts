@@ -54,8 +54,19 @@ async function mutate(
   });
 }
 
-function resetExpiredWindow(row: AuthRateLimit, now: Date): void {
-  const windowMs = config.security.authRateLimit.windowMinutes * 60_000;
+/** How many attempts a bucket admits per window, and how long it then stays shut. */
+export type AuthRateLimitPolicy = {
+  windowMinutes: number;
+  maxAttempts: number;
+  blockMinutes: number;
+};
+
+function resetExpiredWindow(
+  row: AuthRateLimit,
+  now: Date,
+  policy: AuthRateLimitPolicy = config.security.authRateLimit,
+): void {
+  const windowMs = policy.windowMinutes * 60_000;
   if (now.getTime() - row.windowStartedAt.getTime() >= windowMs) {
     row.windowStartedAt = now;
     row.attempts = 0;
@@ -87,23 +98,21 @@ async function withSqliteBucketLock<T>(id: string, fn: () => Promise<T>): Promis
   }
 }
 
-function consumeRow(row: AuthRateLimit, now: Date): void {
-  resetExpiredWindow(row, now);
+function consumeRow(row: AuthRateLimit, now: Date, policy: AuthRateLimitPolicy): void {
+  resetExpiredWindow(row, now, policy);
   if (row.blockedUntil && row.blockedUntil > now) {
     throw new AuthRateLimitError(
       Math.max(1, Math.ceil((row.blockedUntil.getTime() - now.getTime()) / 1000)),
     );
   }
   row.attempts += 1;
-  if (row.attempts >= config.security.authRateLimit.maxAttempts) {
-    row.blockedUntil = new Date(
-      now.getTime() + config.security.authRateLimit.blockMinutes * 60_000,
-    );
+  if (row.attempts >= policy.maxAttempts) {
+    row.blockedUntil = new Date(now.getTime() + policy.blockMinutes * 60_000);
   }
 }
 
 /** Atomically admit and count one attempt against one persistent bucket. */
-async function consumeBucket(id: string): Promise<void> {
+async function consumeBucket(id: string, policy: AuthRateLimitPolicy): Promise<void> {
   await ensureRow(id, new Date());
   if (config.db.driver === "postgres") {
     await AppDataSource.transaction(async (manager) => {
@@ -112,7 +121,7 @@ async function consumeBucket(id: string): Promise<void> {
         where: { id },
         lock: { mode: "pessimistic_write" },
       });
-      consumeRow(row, new Date());
+      consumeRow(row, new Date(), policy);
       await repo.save(row);
     });
     return;
@@ -121,7 +130,7 @@ async function consumeBucket(id: string): Promise<void> {
   await withSqliteBucketLock(id, async () => {
     const repo = AppDataSource.getRepository(AuthRateLimit);
     const row = await repo.findOneByOrFail({ id });
-    consumeRow(row, new Date());
+    consumeRow(row, new Date(), policy);
     await repo.save(row);
   });
 }
@@ -158,7 +167,14 @@ export async function clearAuthFailures(keys: string[]): Promise<void> {
   await AppDataSource.getRepository(AuthRateLimit).delete(keys);
 }
 
-/** Count every request for endpoints that intentionally hide account existence. */
-export async function consumeAuthAttempt(keys: string[]): Promise<void> {
-  for (const id of keys) await consumeBucket(id);
+/**
+ * Count every request for endpoints that intentionally hide account existence,
+ * or that anyone may call but that write a row. `policy` defaults to the sign-in
+ * limits at `security.authRateLimit`.
+ */
+export async function consumeAuthAttempt(
+  keys: string[],
+  policy: AuthRateLimitPolicy = config.security.authRateLimit,
+): Promise<void> {
+  for (const id of keys) await consumeBucket(id, policy);
 }
