@@ -164,13 +164,13 @@ export type StatsView<Key extends string> = {
 };
 
 /** A band's key in a link, safe in a query string ("90+" is not: "+" reads as a space). */
-const AGE_KEY: Record<InvoiceAgeBucket, string> = {
+const AGE_KEY = {
   current: "age-current",
   "1-30": "age-1-30",
   "31-60": "age-31-60",
   "61-90": "age-61-90",
   "90+": "age-over-90",
-};
+} as const satisfies Record<InvoiceAgeBucket, string>;
 
 export type InvoiceStatsViewKey =
   | "outstanding"
@@ -193,7 +193,7 @@ const INVOICE_VIEW_KEYS: readonly string[] = [
 
 /** The filter key for an ageing band's legend entry. */
 export function ageViewKey(bucket: InvoiceAgeBucket): InvoiceStatsViewKey {
-  return AGE_KEY[bucket] as InvoiceStatsViewKey;
+  return AGE_KEY[bucket];
 }
 
 /** A key read from a link, or null when it names no figure the Invoices list has. */
