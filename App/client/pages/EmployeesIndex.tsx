@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Breadcrumbs } from "../components/AppShell";
@@ -109,14 +110,23 @@ export default function EmployeesIndex({ company }: { company: Company }) {
                 <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                   {employee.role || "No role set"}
                 </div>
-                {teamName && (
-                  <span className="mt-1.5 inline-flex h-5 max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    <span
-                      aria-hidden
-                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400"
-                    />
-                    <span className="truncate">{teamName}</span>
-                  </span>
+                {(teamName || employee.chatReady === false) && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {teamName && (
+                      <span className="inline-flex h-5 max-w-full items-center gap-1.5 rounded-md bg-slate-100 px-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400"
+                        />
+                        <span className="truncate">{teamName}</span>
+                      </span>
+                    )}
+                    {/* An employee that can't answer yet is worth seeing from the
+                        roster, not only after a chat message fails. */}
+                    {employee.chatReady === false && (
+                      <Badge tone="warning">No AI Model connected</Badge>
+                    )}
+                  </div>
                 )}
               </div>
             </Link>

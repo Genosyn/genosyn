@@ -15,9 +15,13 @@ export type DisclosureProps = {
   /**
    * `row` is a bordered toggle with the content below it, for a stack of cards
    * that should stay out of the way. `card` makes the whole disclosure one card,
-   * for a list of sections that each collapse to a single line.
+   * for a list of sections that each collapse to a single line. `inset` is the
+   * last section of a card that is already drawn — a card's own Advanced — so
+   * it draws no box of its own: a hairline above it, and the card's bottom
+   * corners while closed. Place it as the card's last child, outside its padded
+   * body.
    */
-  variant?: "row" | "card";
+  variant?: "row" | "card" | "inset";
   /** Wrap the toggle in a heading, for a title screen readers should be able to jump to. */
   heading?: "h2" | "h3" | "h4";
   /** Controlled state. Leave both `open` and `onOpenChange` off to let it manage itself. */
@@ -56,6 +60,9 @@ export function Disclosure({
   const open = controlled ? openProp : openState;
   const panelId = React.useId();
   const card = variant === "card";
+  const inset = variant === "inset";
+  // Both lay the summary out beside the title on one line.
+  const oneLine = card || inset;
   const rendered = open || keepMounted;
 
   function toggle() {
@@ -80,10 +87,12 @@ export function Disclosure({
           ? open
             ? "rounded-t-xl"
             : "rounded-xl"
-          : "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
+          : inset
+            ? !open && "rounded-b-xl"
+            : "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
       )}
     >
-      {card ? (
+      {oneLine ? (
         <>
           <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
             {title}
@@ -123,6 +132,7 @@ export function Disclosure({
       className={clsx(
         card &&
           "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
+        inset && "border-t border-slate-100 dark:border-slate-800",
         className,
       )}
     >
@@ -131,7 +141,7 @@ export function Disclosure({
         <div
           id={panelId}
           hidden={!open}
-          className={clsx(card ? "border-t border-slate-100 p-4 dark:border-slate-800" : "mt-4")}
+          className={clsx(oneLine ? "border-t border-slate-100 p-4 dark:border-slate-800" : "mt-4")}
         >
           {children}
         </div>

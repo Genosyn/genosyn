@@ -226,7 +226,7 @@ try {
   // Closed, Advanced already says what it holds.
   assert.match(
     await page.getByRole("button", { name: /Advanced/ }).innerText(),
-    /API keys, context window/,
+    /API keys, model, context window and Run limit/,
   );
   await openAdvanced(page);
   assert.deepEqual(await rowPreviews(page), [maskSecret(PRIMARY)]);
@@ -346,6 +346,12 @@ try {
     await page.getByRole("button", { name: /Advanced/ }).innerText(),
     /2 backup API keys · 1 API key failing/,
   );
+  // The card says it outside Advanced too: a dead key is not something to go
+  // looking for, and work carrying on on the other keys is worth knowing.
+  await page
+    .getByRole("status")
+    .filter({ hasText: "The provider is refusing 1 of 3 API keys" })
+    .waitFor();
   await openAdvanced(page);
   const failing = keyRows(page).nth(1);
   assert.match(await failing.innerText(), /Skipped for now/i);

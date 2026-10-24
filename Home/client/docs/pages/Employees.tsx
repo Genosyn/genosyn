@@ -104,8 +104,10 @@ export function Employees() {
             def: (
               <>
                 Newline-separated host patterns limiting where the browser may navigate —{" "}
-                <Code>github.com</Code> covers the domain and its subdomains. Blank means
-                unrestricted.
+                <Code>mail.google.com</Code> is exactly that host, <Code>*.github.com</Code> the
+                domain and every subdomain. Blank means unrestricted. Edited as{" "}
+                <Strong>Allowed websites</Strong> under the Browser page&apos;s{" "}
+                <Strong>Advanced</Strong>.
               </>
             ),
           },
@@ -114,7 +116,8 @@ export function Employees() {
             def: (
               <>
                 When on, form submits queue an Approval a human must grant before the browser fires
-                them. See <DocLink to="/docs/browser">Browser</DocLink>.
+                them — <Strong>Ask before submitting forms</Strong> on the Browser page. See{" "}
+                <DocLink to="/docs/browser">Browser</DocLink>.
               </>
             ),
           },
@@ -220,7 +223,9 @@ export function Employees() {
       <P>
         <Strong>AI → Employees</Strong> lists every AI Employee as a card with their name, role, and
         team. Open a card to reach that employee, or choose <Strong>New employee</Strong> to hire
-        one.
+        one. An employee with no connected AI Model — who can&apos;t answer a message or run a
+        Routine yet — says <Strong>No AI Model connected</Strong> on their card, and their header
+        carries the same warning as a link to <Strong>Settings → Model</Strong>.
       </P>
       <P>
         An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
@@ -231,7 +236,9 @@ export function Employees() {
         <Strong>Access</Strong> (Connections, Autonomy). Everything you visit now and then sits
         under <Strong>Advanced</Strong>: Memory, Journal, Handoffs, Phone, MCP, Browser, and a link
         to Integrations. It starts closed and opens by itself whenever you are on one of those
-        pages.
+        pages. Each page leads with its basics; anything rarely changed sits behind that
+        page&apos;s own <Strong>Advanced</Strong>, whose closed line says what is set inside.
+        Owners and admins change an employee&apos;s settings; other Members read them.
       </P>
       <P>
         <Strong>Group chat</Strong>, beside the switch, starts a group chat with this employee
@@ -283,9 +290,10 @@ export function Employees() {
           exact figures. Past 80% it turns amber: the runtime may need to compact history soon.
           OpenCode manages that compaction for API-key and custom models. You can also finish the
           conversation or type <Code>/new</Code> for a fresh context. If the AI Model has no known
-          context window the badge shows the token count alone and links to the model settings,
-          because there is no ceiling to measure against — see{" "}
-          <DocLink to="/docs/models">AI Models</DocLink>.
+          context window the badge shows the token count alone and links to the active
+          model&apos;s card with its <Strong>Advanced</Strong> section open, where the window is
+          set, because there is no ceiling to measure against — see{" "}
+          <DocLink to="/docs/models#context-window">AI Models</DocLink>.
           <br />
           <br />
           An employee can inspect its current turn with <Code>get_runtime_diagnostics</Code>:
@@ -297,11 +305,15 @@ export function Employees() {
           own tool sets.
         </LI>
         <LI>
-          <Strong>Settings → Soul.</Strong> The employee&apos;s constitution. Markdown, ⌘S to save.
+          <Strong>Settings → Soul.</Strong> The employee&apos;s constitution: who they are and how
+          they work, read before every chat and Routine Run. Markdown, ⌘S to save.
         </LI>
         <LI>
-          <Strong>Settings → Model.</Strong> The AI Model this employee thinks with — see{" "}
-          <DocLink to="/docs/models">AI Models</DocLink>.
+          <Strong>Settings → Model.</Strong> The AI Models this employee thinks with, one card each:
+          its status, <Strong>Test connection</Strong>, <Strong>Make active</Strong>, and its own{" "}
+          <Strong>Advanced</Strong> section for its keys, model, endpoint or sign-in, context window,
+          concurrent Runs and Remove. <Strong>Add an AI Model</Strong> sits under the cards — see{" "}
+          <DocLink to="/docs/models#advanced">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → Advanced → Memory.</Strong> Durable facts and preferences injected
@@ -342,10 +354,11 @@ export function Employees() {
           <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
         </LI>
         <LI>
-          <Strong>Settings → Autonomy.</Strong> The{" "}
-          <DocLink to="/docs/autonomy">earned-autonomy</DocLink> record, this employee&apos;s
-          Wakeups, and <Strong>Stand down</Strong> — a revocable stop on everything they do, kept
-          one click away. See <DocLink to="/docs/standdowns">Standdowns</DocLink>.
+          <Strong>Settings → Autonomy.</Strong> <Strong>Stand down</Strong> first — a revocable
+          stop on everything they do, kept one click away (see{" "}
+          <DocLink to="/docs/standdowns">Standdowns</DocLink>) — then the{" "}
+          <DocLink to="/docs/autonomy">earned-autonomy</DocLink> record and this employee&apos;s
+          Wakeups.
         </LI>
         <LI>
           <Strong>Settings → Advanced → Phone.</Strong> The Twilio numbers given to this employee,
@@ -357,12 +370,14 @@ export function Employees() {
           as this employee.
         </LI>
         <LI>
-          <Strong>Settings → Advanced → Browser.</Strong> Whether this employee may drive a browser
-          — see <DocLink to="/docs/browser">Browser</DocLink>.
+          <Strong>Settings → Advanced → Browser.</Strong> Whether this employee may use a browser;
+          the allowed websites and <Strong>Ask before submitting forms</Strong> sit under its{" "}
+          <Strong>Advanced</Strong> — see <DocLink to="/docs/browser">Browser</DocLink>.
         </LI>
         <LI>
-          <Strong>Settings → General.</Strong> Name, role, slug, profile picture, team — and, at
-          the bottom, deleting the employee.
+          <Strong>Settings → General.</Strong> Name and role, profile picture, team — and, at the
+          bottom, deleting the employee. The slug (the last part of the employee&apos;s address)
+          sits under <Strong>Advanced</Strong> in Basics.
         </LI>
       </UL>
 

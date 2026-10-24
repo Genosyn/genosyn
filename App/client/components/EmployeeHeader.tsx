@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, MessageSquare, Settings as SettingsIcon } from "lucide-react";
+import { AlertTriangle, ArrowLeft, MessageSquare, Settings as SettingsIcon } from "lucide-react";
 import { Company, Employee } from "../lib/api";
 import { Avatar, employeeAvatarUrl } from "./ui/Avatar";
 import { StartGroupChatButton } from "./workspace/StartGroupChatButton";
@@ -64,13 +64,25 @@ export function EmployeeHeader({
         src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey)}
       />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
           <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
             {emp.name}
           </div>
           <div className="hidden truncate text-xs text-slate-500 sm:block dark:text-slate-400">
             {emp.role}
           </div>
+          {/* Without a connected AI Model the employee can't answer a message or
+              run a Routine, so say so on both sides of the switch, one click
+              from the fix — rather than after a chat message fails. */}
+          {emp.chatReady === false && (
+            <Link
+              to={`${base}/settings/model`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30 dark:hover:bg-amber-500/20"
+            >
+              <AlertTriangle size={11} aria-hidden="true" /> No AI Model
+              <span className="hidden sm:inline"> connected</span>
+            </Link>
+          )}
         </div>
         {subtitle !== undefined && (
           <div className="truncate text-[11px] text-slate-400 dark:text-slate-500">{subtitle}</div>

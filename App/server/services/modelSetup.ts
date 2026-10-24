@@ -8,11 +8,13 @@ import {
   modelSetupFailure,
   ModelSetupError,
   type ApiModelProvider,
+  type ModelCatalog,
 } from "./modelCatalog.js";
 import { isModelConnected } from "./providers.js";
 import { createActiveModel } from "./models.js";
 import {
   decryptApiKey,
+  decryptApiKeys,
   newStoredApiKey,
   readApiKeys,
   writeApiKeys,
@@ -138,6 +140,39 @@ export async function replaceApiKey(
   const saved = await saveVerifiedModel(model, candidate);
   await pruneKeyHealth(saved);
   return saved;
+}
+
+/**
+ * The models a connected Claude or OpenAI AI Model's own keys can reach, so
+ * changing which model it runs is a pick from a list rather than an ID typed
+ * from memory, and no key is pasted again. The keys are tried in the order
+ * requests use them: a primary the provider now refuses does not hide the list
+ * a backup can still read. When every key fails, the primary's reason is the
+ * one reported. Listing models stores nothing.
+ */
+export async function discoverStoredApiModels(model: AIModel): Promise<ModelCatalog> {
+  if (
+    model.authMode !== "apikey" ||
+    (model.provider !== "anthropic" && model.provider !== "openai")
+  ) {
+    throw new ModelSetupError(
+      "Only a Claude or OpenAI AI Model connected with an API key lists its models here.",
+      400,
+    );
+  }
+  const keys = decryptApiKeys(model.configJson);
+  if (keys.length === 0) {
+    throw new ModelSetupError("This AI Model has no API key to list its models with.", 400);
+  }
+  let first: unknown = null;
+  for (const key of keys) {
+    try {
+      return await discoverApiModels(model.provider, key.apiKey);
+    } catch (error) {
+      first ??= error;
+    }
+  }
+  throw modelSetupFailure(first, "load the available AI Models");
 }
 
 /** Model-only edits must not leave a connected badge on an unusable model. */

@@ -57,11 +57,17 @@ export function Models() {
           sign-in.
         </LI>
         <LI>
-          To register another AI Model for an employee who already has one, open{" "}
-          <Strong>Advanced</Strong> and select <Strong>Add model</Strong>. Use{" "}
-          <Strong>Make active</Strong> to switch between connected AI Models.
+          To give an employee who already has one another AI Model, select{" "}
+          <Strong>Add an AI Model</Strong> under their cards. It lists the AI Models your company
+          already runs on, each with <Strong>Use this one</Strong>, above the same connect form.
+          Use <Strong>Make active</Strong> on a card to switch between connected AI Models.
         </LI>
       </OL>
+      <P>
+        Owners and admins connect, test, change and remove AI Models. Other Members see the same
+        cards and settings without the controls, and an employee with none says that an owner or
+        admin connects one.
+      </P>
 
       <H2 id="reuse-model">Use the company&apos;s AI Model</H2>
       <P>
@@ -102,38 +108,62 @@ export function Models() {
         company an API key.
       </P>
 
-      <H2 id="advanced">Advanced</H2>
+      <H2 id="advanced">Each AI Model&apos;s card</H2>
       <P>
-        A connected AI Model is a title and a <Strong>Connected</Strong> badge: the service and
-        model in plain words, and how it is connected. Everything else sits behind one{" "}
-        <Strong>Advanced</Strong> line under it, closed until you open it:
+        Every AI Model is one card, and everything about that model is on it. The top says the
+        service and model in plain words, whether it is <Strong>Connected</Strong>, and how — an
+        API key, a ChatGPT sign-in, or the server a custom endpoint reaches. Beside it:
       </P>
       <UL>
         <LI>
-          <Strong>API keys</Strong> for a Claude or OpenAI model connected with a key: the primary
-          and its <a href="#backup-keys">backup keys</a>, each with how it has been doing.
+          <Strong>Test connection</Strong> asks the model for one small reply, the same test it
+          passed when it was connected, and changes nothing. A pass says how long the reply took;
+          a failure says what to check, with the service&apos;s own words behind{" "}
+          <Strong>View details</Strong>. It spends a little of the account&apos;s allowance.
         </LI>
         <LI>
-          <Strong>Context window</Strong> and <Strong>Concurrent Routine Runs</Strong>, described
-          below.
-        </LI>
-        <LI>
-          <Strong>Endpoint</Strong> for a custom endpoint, or the ChatGPT sign-in for a connected
-          ChatGPT subscription model.
-        </LI>
-        <LI>
-          <Strong>Change provider, model, or endpoint</Strong>, <Strong>Add model</Strong>, and{" "}
-          <Strong>Remove</Strong>.
+          <Strong>Make active</Strong>, on every connected model that isn&apos;t the active one.
         </LI>
       </UL>
       <P>
-        The closed line names whatever has been moved off its default, so nothing you set is
-        hidden by being folded away: for example{" "}
-        <Strong>2 backup API keys · Context window set manually · 2 concurrent Runs</Strong>, or{" "}
-        <Strong>1 other AI Model</Strong> when the employee holds more than one. A key the provider
-        is refusing adds <Strong>1 API key failing</Strong>. A custom endpoint whose server did not
-        report a context window reads <Strong>Context window unknown</Strong>. With nothing
-        changed it lists what is inside.
+        The bottom of the card is that model&apos;s own <Strong>Advanced</Strong> section, closed
+        until you open it:
+      </P>
+      <UL>
+        <LI>
+          A Claude or OpenAI model connected with a key: its <Strong>API keys</Strong> — the
+          primary and its <a href="#backup-keys">backup keys</a>, each with how it has been doing —
+          then <Strong>Model</Strong>, <Strong>Context window</Strong> and{" "}
+          <Strong>Concurrent Routine Runs</Strong>.
+        </LI>
+        <LI>
+          A custom endpoint: its <Strong>Endpoint</Strong> — the server, the model it serves and
+          whether a key is saved — then context window and concurrent Runs.
+        </LI>
+        <LI>
+          A ChatGPT sign-in: the <Strong>ChatGPT sign-in</Strong> and its <Strong>Model</Strong>.
+          Codex manages its context and Runs.
+        </LI>
+        <LI>
+          Last, <Strong>Remove from</Strong> the employee.
+        </LI>
+      </UL>
+      <P>
+        Its closed line names whatever has been moved off its default on that model, so nothing you
+        set is hidden by being folded away: for example{" "}
+        <Strong>2 backup API keys · 4 concurrent Runs</Strong>. A key the provider is refusing adds{" "}
+        <Strong>1 API key failing</Strong> — and the card itself says so too, above the line. A
+        custom endpoint whose server did not report a context window reads{" "}
+        <Strong>Context window unknown</Strong>. With nothing changed it names what is inside, such
+        as <Strong>API keys, model, context window and Run limit</Strong>. No setting applies to
+        every model at once, so the page holds only the cards and <Strong>Add an AI Model</Strong>.
+      </P>
+      <P>
+        To run a different model on the same service, open <Strong>Model</Strong> and select{" "}
+        <Strong>Change</Strong>: the list comes from the models the card&apos;s own keys can reach,
+        with the current one marked, so there is nothing to paste. Genosyn tests the model you pick
+        before saving it. The same form switches to the other API-key service with a new key, or
+        replaces the primary key.
       </P>
 
       <H2 id="backup-keys">Backup API keys</H2>
@@ -155,9 +185,9 @@ export function Models() {
           remove the model instead.
         </LI>
         <LI>
-          To replace the primary, use <Strong>Replace primary API key</Strong> under{" "}
-          <Strong>Change provider, model, or endpoint</Strong>. The backups stay; switching to
-          another service drops them, since another service&apos;s keys would not work.
+          To replace the primary, open <Strong>Model → Change</Strong> and fill in{" "}
+          <Strong>Replace primary API key</Strong>. The backups stay; switching to another service
+          drops them, since another service&apos;s keys would not work.
         </LI>
       </UL>
       <P>
@@ -278,7 +308,8 @@ export function Models() {
         Existing AI Models keep their selected IDs; onboarding does not silently upgrade them.
       </P>
       <P>
-        To change a connected ChatGPT AI Model, edit its model ID and save. Genosyn tests the new
+        To change a connected ChatGPT AI Model, open <Strong>Model → Change</Strong> on its card,
+        edit the model ID and save. Genosyn tests the new
         choice with the existing sign-in before saving. Leave the model ID blank to discover and
         test the workspace&apos;s current default. If the test fails, the previous model stays
         selected.
@@ -286,14 +317,14 @@ export function Models() {
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
-        In the connect form (under <Strong>Advanced → Add model</Strong> for an employee who
-        already has one), choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
+        In the connect form (under <Strong>Add an AI Model</Strong> for an employee who already
+        has one), choose <Strong>OpenAI / ChatGPT</Strong>, set{" "}
         <Strong>Connect with</Strong> to <Strong>ChatGPT sign-in</Strong>, then select{" "}
         <Strong>Continue to ChatGPT sign-in</Strong>.
         Genosyn uses your workspace&apos;s current default model and tests a real reply before
         marking it connected. While the sign-in is waiting, the model card offers two official
-        Codex authentication paths; once it is connected they sit under{" "}
-        <Strong>Advanced</Strong>:
+        Codex authentication paths; once it is connected they sit in{" "}
+        <Strong>ChatGPT sign-in</Strong> under the card&apos;s <Strong>Advanced</Strong>:
       </P>
       <UL>
         <LI>
@@ -304,8 +335,8 @@ export function Models() {
         </LI>
         <LI>
           <Strong>Codex access token.</Strong> Open{" "}
-          <Strong>Advanced: Business or Enterprise access token</Strong> and paste a token created
-          by a permitted member of that workspace. Workspace admins control whether members can
+          <Strong>Business or Enterprise access token</Strong> and paste a token created by a
+          permitted member of that workspace. Workspace admins control whether members can
           create these tokens and use Codex Local.
         </LI>
       </UL>
@@ -374,7 +405,8 @@ export function Models() {
         app-server manages context for subscription models.
       </P>
       <P>
-        Genosyn probes the context window when a model connects and every three hours afterward.
+        Genosyn probes the context window when a model connects or changes, and every three hours
+        afterward.
         Open <Strong>Advanced</Strong> on the model card to see the result. If your endpoint does
         not report a window, select
         <Strong> Set manually</Strong> and enter the number your server supports, such as
@@ -474,8 +506,8 @@ export function Models() {
         Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card names
         the service and model in plain words and shows whether it is connected. With more than one
         model the current brain carries an <Strong>Active</Strong> badge and every other connected
-        model offers <Strong>Make active</Strong>. Use <Strong>Advanced → Add model</Strong> to
-        register another.
+        model offers <Strong>Make active</Strong>. Use <Strong>Add an AI Model</Strong> to register
+        another.
       </P>
       <P>
         When at least two models are connected, the dedicated employee Chat composer shows an{" "}
@@ -524,8 +556,8 @@ export function Models() {
 
       <H3 id="removing-a-model">Removing a model</H3>
       <P>
-        <Strong>Remove</Strong>, under <Strong>Advanced</Strong> on a model card, deletes that
-        AIModel row along with its encrypted credentials. A copy another employee made when they
+        <Strong>Remove</Strong>, the last setting in a card&apos;s <Strong>Advanced</Strong>{" "}
+        section, deletes that AIModel row along with its encrypted credentials. A copy another employee made when they
         reused the model is a separate row and is not touched. If you remove the active model, the
         most recently added survivor is promoted to active. No data on Soul, Skills, Routines, or
         past Runs is affected.

@@ -9,9 +9,10 @@ import { useDialog } from "@/components/ui/Dialog";
 import { clsx } from "@/components/ui/clsx";
 import { errorDetail, errorMessage } from "@/lib/errors";
 import { apiKeyHealthLine, apiKeyState, isRefused, moveApiKey } from "@/lib/modelApiKeys";
+import { ModelSettingSection } from "./ModelSettingSection";
 
 /**
- * An API-key AI Model's keys, under Advanced: the primary and every backup
+ * An API-key AI Model's keys, in its card's Advanced section: the primary and every backup
  * key in the order requests try them, each as a masked preview with how it has
  * been doing. When the provider refuses a key — invalid or revoked, out of
  * credit, rate-limited — the same request moves to the next key, so this list
@@ -104,29 +105,18 @@ export function ApiKeysPanel({
   }
 
   return (
-    <section
-      aria-labelledby={`api-keys-${model.id}`}
-      className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700"
+    <ModelSettingSection
+      headingId={`api-keys-${model.id}`}
+      title="API keys"
+      description="Requests use the first key. When the provider refuses it — invalid or revoked, out of credit, or rate-limited — the same request moves to the next key, so work carries on; a refused key is skipped for a few minutes."
     >
-      <div
-        id={`api-keys-${model.id}`}
-        className="text-xs font-medium text-slate-700 dark:text-slate-200"
-      >
-        API keys
-      </div>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        Requests use the first key. When the provider refuses it — invalid or revoked, out of
-        credit, or rate-limited — the same request moves to the next key, so work carries on; a
-        refused key is skipped for a few minutes.
-      </p>
-
       <FormError
         message={rowError ? errorMessage(rowError) : null}
         detail={errorDetail(rowError)}
-        className="mt-2"
+        className="mb-2"
       />
 
-      <ol className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+      <ol className="divide-y divide-slate-100 rounded-lg border border-slate-200 px-3 dark:divide-slate-800 dark:border-slate-700">
         {keys.map((key, index) => {
           const refused = isRefused(key, now);
           const state = apiKeyState(key, now);
@@ -220,7 +210,7 @@ export function ApiKeysPanel({
       </ol>
 
       {canManage && (
-        <form className="mt-2 flex flex-col gap-2" onSubmit={add}>
+        <form className="mt-3 flex flex-col gap-2" onSubmit={add}>
           <Input
             label="Add a backup key"
             type="password"
@@ -258,6 +248,6 @@ export function ApiKeysPanel({
           </div>
         </form>
       )}
-    </section>
+    </ModelSettingSection>
   );
 }
