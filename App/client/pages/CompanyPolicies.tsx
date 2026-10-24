@@ -111,7 +111,7 @@ export function CompanyPolicies() {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No policies yet"
-          description="Company policies bind every AI employee: prose is injected into each prompt above the Soul, blocked recipient domains are enforced on every send, and forbidden tools are refused at dispatch."
+          description="A policy is a rule every AI Employee follows, whatever its Soul says: what to always do, who never to email, and which tools never to use. Genosyn holds them to the last two itself."
           action={canManage ? newPolicyButton : undefined}
         />
       ) : (

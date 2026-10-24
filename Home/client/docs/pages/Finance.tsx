@@ -356,7 +356,7 @@ export function Finance() {
         only if the invoice reopens and is paid a second time. An invoice settled only by a write-off
         or a credit shows as <Code>Written off</Code> or <Code>Credited</Code> and sends nothing,
         because nobody paid it. The confirmation goes through the company&apos;s email transport, and
-        each copy appears under <Code>Settings → Email Logs</Code>.
+        each copy appears under <Code>Settings → Notification email → Logs</Code>.
       </P>
 
       <H3 id="invoices-line-tax">Tax on each line</H3>

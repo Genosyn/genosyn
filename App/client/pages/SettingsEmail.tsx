@@ -68,7 +68,9 @@ export function SettingsEmail() {
   const canReadLogs = ctx.company.role === "owner" || ctx.company.role === "admin";
   return (
     <>
-      <TopBar title="Email" />
+      {/* How Genosyn itself emails people — not the company's inbox, which is
+          the Email section. */}
+      <TopBar title="Notification email" />
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <nav className="lg:w-48 lg:shrink-0">
           <ul className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900 lg:flex-col lg:gap-0.5 lg:p-2">
@@ -175,8 +177,9 @@ export function SettingsEmailProviders() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Configured providers</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Outgoing notification emails (invitations, alerts) use the default provider.
-              Credentials are encrypted at rest.
+              How Genosyn sends this company&apos;s own emails — invitations, alerts, applicant
+              replies — through the default provider. Credentials are encrypted at rest. Your
+              inbox is connected in the Email section instead.
             </p>
           </CardHeader>
           <CardBody>
@@ -187,7 +190,7 @@ export function SettingsEmailProviders() {
             ) : providers.length === 0 ? (
               <EmptyState
                 title="No email provider yet"
-                description="Until you add one, Genosyn falls back to the platform SMTP block (or logs to the server console when neither is configured)."
+                description="Until you add one, emails go out through the installation's own email server, set by its operator — or, when there is none, are only written to the server log."
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">

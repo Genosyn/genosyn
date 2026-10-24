@@ -4,19 +4,29 @@ import { Link } from "react-router-dom";
 
 import { TopBar } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
+import { DecisionRoutingRules } from "@/components/decisions/DecisionRoutingRules";
 import { InstructionsEditor } from "@/components/InstructionsEditor";
 import { Button } from "@/components/ui/Button";
 import { clsx } from "@/components/ui/clsx";
+import { Disclosure } from "@/components/ui/Disclosure";
 import { FormError } from "@/components/ui/FormError";
 import { Spinner } from "@/components/ui/Spinner";
-import { decisionStackApi, type Company, type DecisionStackSettings } from "@/lib/api";
+import {
+  api,
+  decisionStackApi,
+  type Company,
+  type DecisionPolicyRule,
+  type DecisionStackSettings,
+  type Employee,
+} from "@/lib/api";
+import { describeDecisionRouting } from "@/lib/decisionRouting";
 import { decisionStackInstructionsEdit, decisionStackSwitchNote } from "@/lib/decisionStack";
 import { errorMessage } from "@/lib/errors";
 import { MAX_DECISION_STACK_INSTRUCTIONS_LENGTH } from "../../shared/decisionStackInstructions";
 
 /**
- * Decision stack → Settings: the two things a company decides about its
- * Decision stack, in the order people think about them.
+ * Decision stack → Settings: everything a company decides about its Decision
+ * stack, in one place and in the order people think about it.
  *
  *  1. **Whether AI Employees may add questions at all.** On by default. Off
  *     says, right under the switch, what still happens — questions already
@@ -25,8 +35,12 @@ import { MAX_DECISION_STACK_INSTRUCTIONS_LENGTH } from "../../shared/decisionSta
  *  2. **Which questions belong.** The instructions every new question is
  *     checked against before it is stacked, pre-filled with the default, in
  *     the same box as a mailbox's AI analysis instructions.
+ *  3. **Advanced: routing.** Which AI Employee answers another one's
+ *     questions before people are asked. Most companies never set a rule, so
+ *     it waits behind one closed disclosure whose line says what is set. It
+ *     used to be a modal behind a button on the stack, away from the rest.
  *
- * Every Member can read both; only owners and admins can change them (the
+ * Every Member can read all of it; only owners and admins can change it (the
  * server says which via `canManage`, so a role change shows up on reload).
  */
 export default function DecisionStackSettingsPage({ company }: { company: Company }) {
@@ -35,6 +49,9 @@ export default function DecisionStackSettingsPage({ company }: { company: Compan
   const [retrying, setRetrying] = React.useState(false);
   const [switching, setSwitching] = React.useState(false);
   const [switchError, setSwitchError] = React.useState<string | null>(null);
+  const [rules, setRules] = React.useState<DecisionPolicyRule[] | null>(null);
+  const [rulesError, setRulesError] = React.useState<string | null>(null);
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
 
   const load = React.useCallback(async () => {
     try {
@@ -45,13 +62,50 @@ export default function DecisionStackSettingsPage({ company }: { company: Compan
     }
   }, [company.id]);
 
+  // Loaded with the page rather than when Advanced opens: its closed line
+  // says what routing is set.
+  const loadRules = React.useCallback(async () => {
+    try {
+      setRules(
+        await api.get<DecisionPolicyRule[]>(`/api/companies/${company.id}/decision-policies`),
+      );
+      setRulesError(null);
+    } catch (err) {
+      setRulesError(errorMessage(err, "Could not load the routing rules"));
+    }
+  }, [company.id]);
+
   React.useEffect(() => {
     setSettings(null);
     setLoadError(null);
     void load();
   }, [load]);
-  // Another admin's change, or a question arriving, updates this page live.
-  useLiveRefetch("decision", load);
+  React.useEffect(() => {
+    setRules(null);
+    setRulesError(null);
+    void loadRules();
+  }, [loadRules]);
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .get<Employee[]>(`/api/companies/${company.id}/employees`)
+      .then((list) => {
+        if (!cancelled) setEmployees(list);
+      })
+      .catch(() => {
+        if (!cancelled) setEmployees([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id]);
+  // Another admin's change, or a question arriving, updates this page live;
+  // routing rule edits ride the same "decision" kind.
+  const reloadAll = React.useCallback(() => {
+    void load();
+    void loadRules();
+  }, [load, loadRules]);
+  useLiveRefetch("decision", reloadAll);
 
   async function retry() {
     setRetrying(true);
@@ -160,6 +214,22 @@ export default function DecisionStackSettingsPage({ company }: { company: Compan
               }}
             />
           </section>
+          <Disclosure
+            variant="card"
+            heading="h2"
+            title="Advanced"
+            summary={
+              rulesError ? "Routing rules couldn’t load" : describeDecisionRouting(rules)
+            }
+          >
+            <DecisionRoutingRules
+              company={company}
+              rules={rules}
+              loadError={rulesError}
+              employees={employees}
+              onChanged={loadRules}
+            />
+          </Disclosure>
         </div>
       )}
     </div>

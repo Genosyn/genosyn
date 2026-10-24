@@ -669,7 +669,7 @@ await app.check("what was typed in one way is still there after a look at the ot
 });
 
 await app.check(
-  "Folder and Tags wait behind More options, which says what is set while it is closed",
+  "Folder and Tags wait behind Advanced, which says what is set while it is closed",
   async () => {
     const s = store();
     const view = await app.open({
@@ -677,9 +677,9 @@ await app.check(
       routes: routes(s),
     });
     const { page } = view;
-    const more = page.getByRole("button", { name: /^More options/ });
+    const more = page.getByRole("button", { name: /^Advanced/ });
     // The folder it was opened from lands with the folders.
-    await page.getByRole("button", { name: /^More options\s*· Folder: Operations$/ }).waitFor();
+    await page.getByRole("button", { name: /^Advanced\s*Folder: Operations$/ }).waitFor();
     assert.equal(await more.getAttribute("aria-expanded"), "false");
     assert.equal(await page.getByRole("combobox", { name: "Folder", exact: true }).count(), 0);
     assert.match((await more.textContent()) ?? "", /Folder: Operations/);

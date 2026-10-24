@@ -10,13 +10,14 @@ import {
 } from "lucide-react";
 import { api, OauthAppDescriptor } from "../lib/api";
 import { Button } from "../components/ui/Button";
-import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 import { errorMessage } from "../lib/errors";
+import { describeOauthApp } from "../lib/oauthAppSummary";
 
 /**
  * Admin → Integrations. Register each provider's OAuth client **once** for the
@@ -204,26 +205,20 @@ function OauthAppCard({
   };
 
   return (
-    <Card>
-      <CardHeader>
+    // One line per provider until you open it: most installs register none of
+    // them, and six open forms buried the one someone came for.
+    <Disclosure
+      variant="card"
+      heading="h2"
+      title={app.label}
+      summary={describeOauthApp(app, dirty)}
+      keepMounted
+    >
+      <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">{app.label}</h2>
-              {app.configured ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-                  <Check size={11} /> Registered
-                </span>
-              ) : (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  Not registered
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Unlocks {app.unlocks.join(", ")}.
-            </p>
-          </div>
+          <p className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
+            Unlocks {app.unlocks.join(", ")}.
+          </p>
           <div className="flex items-center gap-2">
             <a
               className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
@@ -247,8 +242,6 @@ function OauthAppCard({
             )}
           </div>
         </div>
-      </CardHeader>
-      <CardBody>
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
@@ -333,7 +326,7 @@ function OauthAppCard({
             )}
           </div>
         </form>
-      </CardBody>
-    </Card>
+      </div>
+    </Disclosure>
   );
 }

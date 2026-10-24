@@ -1,8 +1,9 @@
 /**
  * Real Chrome coverage for the Employees page after reporting lines were
  * removed: the roster (no org chart), the employee's Team card (no Reports
- * to), and Decision routing (no "their manager"). The APIs are deterministic
- * fixtures.
+ * to), and Decision routing (no "their manager"), which lives on Decision
+ * stack → Settings under a closed Advanced disclosure. The APIs are
+ * deterministic fixtures.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -105,6 +106,8 @@ let employees = initialEmployees();
 let rules = initialRules();
 let teamsFailure = false;
 let patchFailure: string | null = null;
+/** The server's `canManage` follows the viewer's role, as it does for real. */
+let memberView = false;
 const requested: string[] = [];
 const patches: Array<{ employeeId: string; body: Record<string, unknown> }> = [];
 const posts: unknown[] = [];
@@ -165,6 +168,18 @@ await context.route("**/api/**", async (route) => {
   }
   if (pathname === `${base}/decisions` || pathname === `${base}/approvals`) {
     return route.fulfill({ json: [] });
+  }
+  // Routing lives on Decision stack → Settings, beside the stack's switch.
+  if (pathname === `${base}/decision-stack/settings` && method === "GET") {
+    return route.fulfill({
+      json: {
+        enabled: true,
+        instructions: "Only ask us about big decisions.",
+        usingDefaultInstructions: true,
+        pendingDecisions: 0,
+        canManage: !memberView,
+      },
+    });
   }
   // The General page's History card: an empty feed, not a 404 whose long path
   // would stretch the page.
@@ -362,52 +377,61 @@ try {
   patchFailure = null;
 
   // ── Decision routing ──────────────────────────────────────────────────────
-  await page.goto(`${fixture.origin}/?path=/c/acme/decisions`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Routing", exact: true }).click();
-  const modal = page.getByRole("dialog");
-  await modal.getByText("Add a rule", { exact: true }).waitFor();
-  const legacy = modal.getByRole("listitem").filter({ hasText: "was their manager" });
+  // It configures the Decision stack, so it sits on Decision stack → Settings,
+  // under Advanced — closed, with a line that already says what is set.
+  await page.goto(`${fixture.origin}/?path=/c/acme/decisions/settings`, {
+    waitUntil: "networkidle",
+  });
+  const advanced = page.getByRole("button", { name: /^Advanced/ });
+  assert.equal(await advanced.getAttribute("aria-expanded"), "false");
+  await advanced.getByText("2 routing rules · 1 no longer routes", { exact: true }).waitFor();
+  await advanced.click();
+  const routing = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Routing", exact: true }),
+  });
+  await routing.getByText("Add a rule", { exact: true }).waitFor();
+  const legacy = routing.getByRole("listitem").filter({ hasText: "was their manager" });
   await legacy.getByText("Any employee", { exact: true }).waitFor();
   await legacy.getByText("people", { exact: true }).waitFor();
-  await modal
+  await routing
     .getByText("stopped routing when reporting lines were removed", { exact: false })
     .waitFor();
-  const named = modal.getByRole("listitem").filter({ hasText: "Bob Writer" });
+  const named = routing.getByRole("listitem").filter({ hasText: "Bob Writer" });
   await named.getByText("Ada Lovelace", { exact: true }).waitFor();
   assert.equal(await named.getByText("was their manager").count(), 0);
 
   // The form names the decider; "Their manager" is no longer a choice.
-  assert.equal(await modal.getByText("Their manager", { exact: true }).count(), 0);
-  assert.equal(await modal.getByText("A named employee", { exact: true }).count(), 0);
-  await modal.getByRole("combobox", { name: "Are answered by", exact: true }).click();
+  assert.equal(await routing.getByText("Their manager", { exact: true }).count(), 0);
+  assert.equal(await routing.getByText("A named employee", { exact: true }).count(), 0);
+  await routing.getByRole("combobox", { name: "Are answered by", exact: true }).click();
   const offered = await page.getByRole("option").allTextContents();
   assert.deepEqual(
     offered.map((label) => label.trim()),
     ["Choose an employee…", "Cy Archivist", "Bob Writer", "Ada Lovelace"],
   );
-  // Close the list by clicking away: Escape would close the whole modal.
-  await modal.getByText("Add a rule", { exact: true }).click();
+  // Close the list by clicking away.
+  await routing.getByText("Add a rule", { exact: true }).click();
 
   // Saving without a decider is caught in the form, and sends nothing.
-  await modal.getByRole("button", { name: "Add rule", exact: true }).click();
-  await modal.getByText("Pick the employee who answers.", { exact: true }).waitFor();
+  await routing.getByRole("button", { name: "Add rule", exact: true }).click();
+  await routing.getByText("Pick the employee who answers.", { exact: true }).waitFor();
   assert.equal(posts.length, 0);
 
   // An asker cannot answer itself: picking it clears that decider.
   await choose(page, "Are answered by", "Cy Archivist");
   await choose(page, "Questions from", "Cy Archivist");
   assert.equal(
-    await modal.getByRole("combobox", { name: "Are answered by", exact: true }).inputValue(),
+    await routing.getByRole("combobox", { name: "Are answered by", exact: true }).inputValue(),
     "Choose an employee…",
   );
-  await modal.getByRole("combobox", { name: "Are answered by", exact: true }).click();
+  await routing.getByRole("combobox", { name: "Are answered by", exact: true }).click();
   assert.equal(await page.getByRole("option", { name: "Cy Archivist", exact: true }).count(), 0);
-  // Close the list by clicking away: Escape would close the whole modal.
-  await modal.getByText("Add a rule", { exact: true }).click();
+  // Close the list by clicking away.
+  await routing.getByText("Add a rule", { exact: true }).click();
 
   await choose(page, "Are answered by", "Ada Lovelace");
-  await modal.getByRole("button", { name: "Add rule", exact: true }).click();
-  await modal
+  await routing.getByRole("button", { name: "Add rule", exact: true }).click();
+  await routing
     .getByRole("listitem")
     .filter({ hasText: "Cy Archivist" })
     .getByText("Ada Lovelace", { exact: true })
@@ -417,13 +441,13 @@ try {
   ]);
 
   // Deleting the retired rule removes it, and its explanation with it.
-  await modal
+  await routing
     .getByRole("button", { name: "Delete routing Any employee → people", exact: true })
     .click();
-  await modal.getByText("was their manager").waitFor({ state: "detached" });
+  await routing.getByText("was their manager").waitFor({ state: "detached" });
   assert.deepEqual(deletes, ["rule-legacy"]);
   assert.equal(
-    await modal
+    await routing
       .getByText("stopped routing when reporting lines were removed", { exact: false })
       .count(),
     0,
@@ -431,13 +455,17 @@ try {
 
   // A Member reads the same rules, retired label included, with no controls.
   rules = initialRules();
-  await page.goto(`${fixture.origin}/?path=/c/acme/decisions&role=member`, {
+  memberView = true;
+  await page.goto(`${fixture.origin}/?path=/c/acme/decisions/settings&role=member`, {
     waitUntil: "networkidle",
   });
-  await page.getByRole("button", { name: "Routing", exact: true }).click();
-  await modal.getByText("was their manager", { exact: true }).waitFor();
-  assert.equal(await modal.getByText("Add a rule").count(), 0);
-  assert.equal(await modal.getByRole("button", { name: /^Delete routing/ }).count(), 0);
+  await advanced.getByText("2 routing rules · 1 no longer routes", { exact: true }).waitFor();
+  await advanced.click();
+  await routing.getByText("was their manager", { exact: true }).waitFor();
+  await routing.getByText("Only owners and admins can change routing.", { exact: true }).waitFor();
+  assert.equal(await routing.getByText("Add a rule").count(), 0);
+  assert.equal(await routing.getByRole("button", { name: /^Delete routing/ }).count(), 0);
+  memberView = false;
 
   // ── Phone width ───────────────────────────────────────────────────────────
   await page.setViewportSize({ width: 390, height: 844 });
@@ -466,7 +494,7 @@ try {
 
   assert.deepEqual(errors, []);
   console.log(
-    "Employees roster browser checks passed: sorted roster with no org chart, team badges, card and hire navigation, team-list failure, empty state, Team-only General card with inline error, Decision routing without a manager option, retired-rule label and note, decider/asker guard, Member read-only view, phone layout.",
+    "Employees roster browser checks passed: sorted roster with no org chart, team badges, card and hire navigation, team-list failure, empty state, Team-only General card with inline error, Decision routing under Decision stack → Settings → Advanced with a line that counts the rules, no manager option, retired-rule label and note, decider/asker guard, Member read-only view, phone layout.",
   );
 } finally {
   await context.close();

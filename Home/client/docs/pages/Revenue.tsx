@@ -146,7 +146,7 @@ export function Revenue() {
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
         a Member or an AI Employee, never both. <Strong>Source</Strong> records where they came
         from. Deal sources and buying-committee roles use the controlled lists in{" "}
-        <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a
+        <Code>Revenue → Advanced → Setup</Code>; contact source is filled in automatically for contacts a
         signal created (<Code>signal:trial-expiring</Code>) so attribution survives.
       </P>
       <P>
@@ -162,7 +162,7 @@ export function Revenue() {
 
       <H2 id="account-merge">Archive or merge a core record</H2>
       <P>
-        Open <Code>Revenue → Data quality</Code> to merge duplicate Accounts, Contacts, Deals, or
+        Open <Code>Revenue → Advanced → Data quality</Code> to merge duplicate Accounts, Contacts, Deals, or
         Partnerships. Archiving only removes a record from default lists; historical links remain,
         and restore or guarded undo can bring it back. A customer&apos;s page in Customers offers
         the same Account merge — see{" "}
@@ -217,7 +217,7 @@ export function Revenue() {
       <H2 id="stages">Deal stages</H2>
       <P>
         Your sales process is a flat, ordered list of <Strong>deal stages</Strong>, managed from{" "}
-        <Code>Revenue → Setup → Deal Stages</Code>. Each stage has a name, a colour, a default
+        <Code>Revenue → Advanced → Setup → Deal Stages</Code>. Each stage has a name, a colour, a default
         probability, and a <Strong>kind</Strong> that decides what reaching it means:
       </P>
       <UL>
@@ -276,7 +276,7 @@ export function Revenue() {
         event: what happened, when it happened, and who did it.
       </P>
       <P>
-        <Code>Revenue → Activities</Code> provides the company-wide audit view: search across
+        <Code>Revenue → Advanced → Activities</Code> provides the company-wide audit view: search across
         subjects and bodies, filter by kind or date, inspect a row by ID, and export the filtered
         result. Manually logged notes, calls, meetings, and tasks can be corrected or removed;
         machine-recorded mail, Deal, Sequence, and Signal evidence cannot.
@@ -404,7 +404,7 @@ export function Revenue() {
       <H2 id="ai-access">Giving AI Employees revenue access</H2>
       <P>
         By default an AI Employee cannot see the revenue section at all — no grant means no revenue
-        tool. Owners and admins grant access from <Code>Revenue → AI access</Code> at one of three
+        tool. Owners and admins grant access from <Code>Revenue → Advanced → AI access</Code> at one of three
         escalating levels:
       </P>
       <UL>

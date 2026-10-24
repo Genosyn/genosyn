@@ -309,7 +309,7 @@ export function explainStatus(
       return "Genosyn is limiting how often this can be done. Wait a little and try again.";
     default:
       if (status >= 500) {
-        return "Genosyn failed while handling it: a server error, not a problem with the arguments. Try again later; if it keeps failing, check Settings → System Health or the server log.";
+        return "Genosyn failed while handling it: a server error, not a problem with the arguments. Try again later; if it keeps failing, check Settings → Advanced → System Health or the server log.";
       }
       return `Genosyn answered ${status} ${reasonPhrase(status)}.`.trim();
   }

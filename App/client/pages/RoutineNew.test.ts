@@ -137,7 +137,7 @@ const FORM = [
   "Assigned to",
   "Schedule",
   "What should happen on each run?",
-  "More options",
+  "Advanced",
   "Create routine",
 ];
 /** Everything that belongs to the box alone. */
@@ -195,8 +195,10 @@ describe("New routine, before anything is clicked", () => {
     assert.match(html, /<button type="submit" disabled=""[^>]*>Create routine</);
   });
 
-  test("keeps Folder and Tags behind More options", () => {
-    assert.match(buttonTag(html, "More options</button>"), /aria-expanded="false"/);
+  test("keeps Folder and Tags behind one closed Advanced disclosure that says none is set", () => {
+    const toggle = buttonTag(html, ">Advanced<");
+    assert.match(toggle, /aria-expanded="false"/);
+    assert.match(html, />Advanced<\/span><span[^>]*>No folder or tags<\/span>/);
     assert.ok(!html.includes(">Folder</label>"));
     assert.ok(!html.includes(">Tags<"));
   });

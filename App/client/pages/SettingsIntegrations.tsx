@@ -705,11 +705,13 @@ function IntegrationsPage({
                                 {existing} connected
                               </span>
                             )}
+                            {/* How connecting works, in words: you sign in at
+                                the provider, or paste a key it gave you. */}
                             <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
                               {entry.authMode === "oauth2"
                                 ? entry.oauth?.instanceApp
-                                  ? "OAuth · 1-click"
-                                  : "OAuth"
+                                  ? "Sign in · 1-click"
+                                  : "Sign in"
                                 : "API key"}
                             </span>
                           </div>

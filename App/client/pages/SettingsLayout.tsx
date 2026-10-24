@@ -30,7 +30,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   integrations: "Integrations",
   "phone-numbers": "Phone numbers",
   browsers: "Browsers",
-  email: "Email",
+  email: "Notification email",
   providers: "Providers",
   logs: "Logs",
   secrets: "Environment secrets",

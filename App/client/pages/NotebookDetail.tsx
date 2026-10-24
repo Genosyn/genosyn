@@ -242,8 +242,13 @@ export default function NotebookDetail({ company }: { company: Company }) {
           </div>
           <FormError message={titleError} className="mb-2" />
 
-          <div className="mb-6 mt-3">
-            <AsyncResourceTagPicker companyId={company.id} resourceType="notebook" resourceId={notebook.id} />
+          <div className="mb-6 mt-2">
+            <AsyncResourceTagPicker
+              companyId={company.id}
+              resourceType="notebook"
+              resourceId={notebook.id}
+              variant="inline"
+            />
           </div>
 
           <div className="mb-6 flex flex-col gap-2 sm:flex-row">

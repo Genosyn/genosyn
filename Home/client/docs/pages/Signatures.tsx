@@ -71,7 +71,7 @@ export function Signatures() {
       </OL>
       <Callout kind="info" title="Configure the public URL and transactional email first">
         Signing links use the installation URL from <Strong>Admin → General</Strong>. Delivery uses
-        the company&apos;s provider under <Strong>Settings → Email</Strong>, with the global SMTP
+        the company&apos;s provider under <Strong>Settings → Notification email</Strong>, with the global SMTP
         fallback described in <DocLink to="/docs/self-hosting">Configuration</DocLink>. A local
         console-only install can create and test requests, but customers cannot reach localhost.
       </Callout>
@@ -221,7 +221,7 @@ export function Signatures() {
         transition is evidence in the request timeline.
       </P>
       <P>
-        Delivery attempts also appear under <Code>Settings → Email Logs</Code>. Backups include the
+        Delivery attempts also appear under <Code>Settings → Notification email → Logs</Code>. Backups include the
         database metadata and both PDFs under the company&apos;s data directory.
       </P>
     </>

@@ -47,6 +47,23 @@ let switchRefusal: string | null = null;
 const patches: Array<Record<string, unknown>> = [];
 const decides: Array<{ id: string; optionId: string }> = [];
 
+type RoutingRule = {
+  id: string;
+  askingEmployeeId: string | null;
+  deciderKind: "employee" | "manager";
+  deciderEmployeeId: string | null;
+  sortOrder: number;
+  enabled: boolean;
+  createdAt: string;
+};
+/** Decision routing, which now lives on this page under Advanced. */
+let routingRules: RoutingRule[] = [];
+const rulePatches: Array<{ id: string; body: Record<string, unknown> }> = [];
+const EMPLOYEES = [
+  { id: "employee", companyId: "company", name: "Alex Rivera", slug: "alex", role: "Account manager", avatarKey: null },
+  { id: "riley", companyId: "company", name: "Riley Chen", slug: "riley", role: "Bookkeeper", avatarKey: null },
+];
+
 const DEFAULT_LINES = DEFAULT_DECISION_STACK_INSTRUCTIONS.split("\n").length;
 const NOW = "2026-10-09T09:00:00.000Z";
 
@@ -180,6 +197,25 @@ await context.route("**/api/**", async (route) => {
   if (pathname === `${base}/approvals` && method === "GET") {
     return route.fulfill({ json: [] });
   }
+  if (pathname === `${base}/employees` && method === "GET") {
+    return route.fulfill({ json: EMPLOYEES });
+  }
+  if (pathname === `${base}/decision-policies` && method === "GET") {
+    return route.fulfill({ json: routingRules });
+  }
+  const ruleOne = pathname.match(/^\/api\/companies\/company\/decision-policies\/([^/]+)$/);
+  if (ruleOne && method === "PATCH") {
+    const body = request.postDataJSON() as Record<string, unknown>;
+    rulePatches.push({ id: ruleOne[1], body });
+    await sleep(200);
+    if (viewerRole === "member") {
+      return route.fulfill({ status: 403, json: { error: "admin company role required" } });
+    }
+    routingRules = routingRules.map((rule) =>
+      rule.id === ruleOne[1] ? { ...rule, enabled: Boolean(body.enabled) } : rule,
+    );
+    return route.fulfill({ json: routingRules.find((rule) => rule.id === ruleOne[1]) });
+  }
   // The Decision stack layout counts what waits beside the stack.
   if (pathname === `${base}/navigation/waiting` && method === "GET") {
     return route.fulfill({
@@ -257,6 +293,69 @@ try {
   await switchCard()
     .getByText(/^On\. AI Employees can bring you big decisions/)
     .waitFor();
+
+  // ── Routing waits under one closed Advanced disclosure that says what is set ─
+  const advanced = page.getByRole("button", { name: /^Advanced/ });
+  assert.equal(await advanced.getAttribute("aria-expanded"), "false", "Advanced starts closed");
+  await advanced
+    .getByText("No routing rules · every question goes to people", { exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("heading", { name: "Routing", exact: true }).count(),
+    0,
+    "routing is tucked away",
+  );
+  // Rules are a setting, so the closed line names them once there are some.
+  routingRules = [
+    {
+      id: "rule-legacy",
+      askingEmployeeId: null,
+      deciderKind: "manager",
+      deciderEmployeeId: null,
+      sortOrder: 0,
+      enabled: true,
+      createdAt: NOW,
+    },
+    {
+      id: "rule-alex",
+      askingEmployeeId: "employee",
+      deciderKind: "employee",
+      deciderEmployeeId: "riley",
+      sortOrder: 1,
+      enabled: true,
+      createdAt: NOW,
+    },
+  ];
+  await openSettings("admin");
+  await advanced.getByText("2 routing rules · 1 no longer routes", { exact: true }).waitFor();
+  await advanced.click();
+  assert.equal(await advanced.getAttribute("aria-expanded"), "true");
+  await page.getByRole("heading", { name: "Routing", exact: true }).waitFor();
+  const alexRule = page.getByRole("listitem").filter({ hasText: "Riley Chen" });
+  await alexRule.getByText("Alex Rivera", { exact: true }).waitFor();
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: "was their manager" })
+    .getByText("Any employee", { exact: true })
+    .waitFor();
+  await page.getByText("Add a rule", { exact: true }).waitFor();
+  // Switching a rule off saves it and the line says so.
+  await page.getByRole("switch", { name: "Disable routing Alex Rivera → Riley Chen" }).click();
+  await until(() => rulePatches.length === 1, "the rule switch");
+  assert.deepEqual(rulePatches, [{ id: "rule-alex", body: { enabled: false } }]);
+  await advanced
+    .getByText("2 routing rules · 1 off · 1 no longer routes", { exact: true })
+    .waitFor();
+  await page.screenshot({
+    path: path.join(output, "decision-stack-settings-routing-open.png"),
+    fullPage: true,
+  });
+  routingRules = [];
+
+  // The stack itself carries no settings button any more: this page is the one place.
+  await openStack("admin");
+  assert.equal(await page.getByRole("button", { name: "Routing", exact: true }).count(), 0);
+  await openSettings("admin");
 
   // ── The instructions box arrives with the default text ──────────────────
   assert.equal(await field().inputValue(), DEFAULT_DECISION_STACK_INSTRUCTIONS);
@@ -445,6 +544,28 @@ try {
   await page.keyboard.type(" more");
   assert.equal(await field().inputValue(), "Only ask us about hiring.", "read-only means read-only");
   assert.equal(patches.length, patchesBefore);
+  // A Member reads the routing rules too, with no controls.
+  routingRules = [
+    {
+      id: "rule-alex",
+      askingEmployeeId: "employee",
+      deciderKind: "employee",
+      deciderEmployeeId: "riley",
+      sortOrder: 0,
+      enabled: false,
+      createdAt: NOW,
+    },
+  ];
+  await openSettings("member");
+  const memberAdvanced = page.getByRole("button", { name: /^Advanced/ });
+  await memberAdvanced.getByText("1 routing rule · 1 off", { exact: true }).waitFor();
+  await memberAdvanced.click();
+  await page.getByRole("listitem").filter({ hasText: "Riley Chen" }).getByText("off").waitFor();
+  await page.getByText("Only owners and admins can change routing.", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Add a rule").count(), 0);
+  assert.equal(await page.getByRole("switch", { name: /routing/ }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: /^Delete routing/ }).count(), 0);
+  routingRules = [];
   await openStack("member");
   const memberBanner = page.getByRole("status").filter({ hasText: "The Decision stack is off" });
   await memberBanner.getByRole("link", { name: "See Settings" }).waitFor();
@@ -457,6 +578,8 @@ try {
   await openSettings("admin");
   await field().fill(`${stored}\nAlways ask us before signing anything with a supplier we have never used before.`);
   assert.equal(await button("Save instructions").isEnabled(), true);
+  await page.getByRole("button", { name: /^Advanced/ }).click();
+  await page.getByRole("heading", { name: "Routing", exact: true }).waitFor();
   assert.equal(await noHorizontalScroll(), true, "the settings fit a phone");
   // Let the buttons' colour transition settle so the screenshot shows them as they are.
   await sleep(300);
@@ -481,7 +604,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpected, []);
   console.log(
-    "Decision stack settings browser checks passed: rail Settings page, on by default, default text and Default pill, unchanged Save disabled, edit and Cancel, save with loading and reload, inline refusal and retry, keyboard save, too many lines, emptied box, Restore default, refused switch inline, switch off with busy state and note, off banner with a still-answerable question and its link back, switch on again, Member read-only view and banner, phone and desktop layouts.",
+    "Decision stack settings browser checks passed: rail Settings page, on by default, routing under a closed Advanced disclosure whose line counts the rules (off and retired ones too), a rule switched off from there, no Routing button left on the stack, default text and Default pill, unchanged Save disabled, edit and Cancel, save with loading and reload, inline refusal and retry, keyboard save, too many lines, emptied box, Restore default, refused switch inline, switch off with busy state and note, off banner with a still-answerable question and its link back, switch on again, Member read-only view and banner, phone and desktop layouts.",
   );
 } finally {
   await context.close();

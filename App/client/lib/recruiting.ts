@@ -572,6 +572,25 @@ export function screeningInstructionsEdit(args: {
   });
 }
 
+/**
+ * The closed line over an applicant email's editor at Recruiting → Settings:
+ * whose wording it is and its subject, so the email reads true while its big
+ * editor is tucked away, and an unsaved edit is named (AGENTS.md §8).
+ *
+ *   { usingDefault: true, subject: "We received…" } → "Default wording · “We received…”"
+ */
+export function describeApplicantEmail(args: {
+  usingDefault: boolean;
+  /** The subject as saved (or the default's). */
+  subject: string;
+  dirty?: boolean;
+}): string {
+  const parts = [args.usingDefault ? "Default wording" : "Your wording"];
+  if (args.subject.trim()) parts.push(`“${args.subject.trim()}”`);
+  if (args.dirty) parts.push("unsaved changes");
+  return parts.join(" · ");
+}
+
 /** Sample values for previewing an applicant email before anyone applies. */
 export function sampleEmailValues(companyName: string, siteUrl: string) {
   return {

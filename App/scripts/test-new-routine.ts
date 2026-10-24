@@ -173,7 +173,7 @@ const briefField = (page: Page) =>
   page.getByLabel("What should happen on each run?", { exact: true });
 const createRoutine = (page: Page) =>
   page.getByRole("button", { name: "Create routine", exact: true });
-const moreOptions = (page: Page) => page.getByRole("button", { name: /^More options/ });
+const moreOptions = (page: Page) => page.getByRole("button", { name: /^Advanced/ });
 const folderPicker = (page: Page) => page.getByRole("combobox", { name: "Folder", exact: true });
 const describeInstead = (page: Page) =>
   page.getByRole("button", { name: "Describe it instead", exact: true });
@@ -186,9 +186,9 @@ const askEmployee = (page: Page) =>
 const continueToChat = (page: Page) =>
   page.getByRole("button", { name: "Continue to Chat", exact: true });
 const sidebarNew = (page: Page) => page.locator('button[title="New routine"]');
-/** More options, closed, naming the folder the routine will be filed in. */
+/** Advanced, closed, naming the folder the routine will be filed in. */
 const filedIn = (page: Page, folder: string) =>
-  page.getByRole("button", { name: new RegExp(`^More options\\s*· Folder: ${folder}$`) });
+  page.getByRole("button", { name: new RegExp(`^Advanced\\s*Folder: ${folder}$`) });
 const NO_MODEL = /Describing a Routine needs an AI Employee with a connected AI Model/;
 
 /** Pick `option` from a combobox the way a person does: open it, click the row. */
@@ -392,7 +392,7 @@ await app.check(
       await briefField(page).inputValue(),
       "Tidy the shared inbox and flag anything urgent.",
     );
-    // More options opens closed again, and says where the routine will be filed.
+    // Advanced opens closed again, and says where the routine will be filed.
     await filedIn(page, "Operations").waitFor();
 
     // And the box kept its words too.

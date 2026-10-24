@@ -341,7 +341,7 @@ export function VaultSources() {
         the scheduler lease at a time, so running several replicas does not multiply the load on an
         operator&apos;s Vaultwarden, and a source that fails is left alone until the next pass.
         Connecting, updating, disconnecting, and syncing a source are audited under{" "}
-        <Strong>Settings → Audit log</Strong>, with no credential in the event.
+        <Strong>Settings → Advanced → Audit log</Strong>, with no credential in the event.
       </P>
     </>
   );

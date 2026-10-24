@@ -78,7 +78,8 @@
     "test:mcp-setup": "tsx scripts/test-mcp-setup.ts",
     "test:mcp-oauth-consent": "tsx scripts/test-mcp-oauth-consent.ts",
     "test:notes-editor": "tsx scripts/test-notes-editor.ts",
-    "test:group-chats": "tsx scripts/test-group-chats.ts"
+    "test:group-chats": "tsx scripts/test-group-chats.ts",
+    "test:ux-placements": "tsx scripts/test-ux-placements.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

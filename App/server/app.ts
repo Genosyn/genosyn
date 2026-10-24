@@ -476,8 +476,8 @@ export function createApp(): express.Express {
   app.use("/api/companies/:cid", exploreRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
-  // Postmark) and the append-only delivery log used by Settings → Email
-  // and Settings → Email Logs.
+  // Postmark) and the append-only delivery log used by Settings → Notification email
+  // and its Logs tab.
   app.use("/api/companies/:cid/email/providers", emailProvidersRouter);
   app.use("/api/companies/:cid/email/logs", emailLogsRouter);
 

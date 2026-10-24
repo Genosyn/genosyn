@@ -261,7 +261,7 @@ async function discover(page: Page, address = "owner@gmail.com") {
 async function assertNoPassword(page: Page) {
   assert.equal(await form(page).locator('input[type="password"]').count(), 0);
   assert.equal(
-    await form(page).getByRole("button", { name: "Server settings", exact: true }).count(),
+    await form(page).getByRole("button", { name: /^Server settings/ }).count(),
     0,
   );
   assert.equal(
@@ -491,7 +491,7 @@ add("hosted Gmail service errors stay inline", async (page) => {
 add("other services still connect with a password and discovered servers", async (page) => {
   await discover(page, "owner@fastmail.com");
   await page.getByLabel("Password", { exact: true }).fill("fixture-app-password");
-  await form(page).getByRole("button", { name: "Server settings", exact: true }).click();
+  await form(page).getByRole("button", { name: /^Server settings/ }).click();
   assert.equal(
     await page.getByLabel("IMAP server", { exact: true }).inputValue(),
     "imap.fastmail.com",

@@ -91,7 +91,7 @@ import {
   timeUntil,
   visibleBrowserRecordings,
 } from "../components/routines/RunViews";
-import { describeCronExpr } from "../lib/scheduleBuilder";
+import { describeCronExpr, formatRunTime, resolveTimeZone } from "../lib/scheduleBuilder";
 import { ScheduleField } from "../components/ScheduleField";
 import {
   DEFAULT_TIMEOUT_SEC,
@@ -333,13 +333,16 @@ export default function RoutineDetail({ company }: { company: Company }) {
                 </>
               )}
             </div>
-            <div className="mt-3 max-w-lg">
+            {/* A quiet property row, not a labelled box: tags are for finding
+                the routine later, not something to fill in on every visit. */}
+            <div className="mt-2">
               <ResourceTagPicker
                 companyId={company.id}
                 resourceType="routine"
                 resourceId={routine.id}
                 value={routine.tags ?? []}
                 onSaved={refresh}
+                variant="inline"
               />
             </div>
           </div>
@@ -475,6 +478,8 @@ function OverviewTab({
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
   const emp = routine.employee;
+  /** The zone this routine's schedule is read in: its company's, or server time. */
+  const scheduleZone = resolveTimeZone(company.timezone);
   const folder = routine.folderId ? (folders.find((f) => f.id === routine.folderId) ?? null) : null;
 
   React.useEffect(() => {
@@ -584,8 +589,11 @@ function OverviewTab({
                 Overdue by {overdueFor(routine.nextRunAt)}
               </span>
             ) : routine.nextRunAt ? (
-              <span title={new Date(routine.nextRunAt).toLocaleString()}>
-                {new Date(routine.nextRunAt).toLocaleString()} ({timeUntil(routine.nextRunAt)})
+              // Read on the clock the schedule is: the company's zone, the way
+              // the Settings preview says it, not the browser's own with seconds.
+              <span title={`${formatRunTime(new Date(routine.nextRunAt), new Date(), scheduleZone)} (${scheduleZone ?? "server time"})`}>
+                {formatRunTime(new Date(routine.nextRunAt), new Date(), scheduleZone)} (
+                {timeUntil(routine.nextRunAt)})
               </span>
             ) : (
               <span className="text-amber-600 dark:text-amber-400">Never</span>
