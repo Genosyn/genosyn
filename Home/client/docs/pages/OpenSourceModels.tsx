@@ -231,8 +231,9 @@ docker run -d --name vllm --restart unless-stopped --gpus all --ipc=host -p 8000
       </P>
       <UL>
         <LI>
-          <Strong>Model id</Strong>: leave it blank. Genosyn uses the model vLLM serves and follows
-          it when you restart vLLM with another (
+          <Strong>Model ID</Strong>, in <Strong>Endpoint → Change endpoint</Strong>: leave it
+          blank. Genosyn uses the model vLLM serves and follows it when you restart vLLM with
+          another (
           <a href="#follow-the-server">Change the model on the server</a>).
         </LI>
         <LI>
@@ -325,7 +326,7 @@ llama-server \\
           the same Mac/Windows host, or the full LAN URL of your GPU box.
         </LI>
         <LI>
-          <Strong>Model id</Strong>: the raw model name your server exposes — e.g.{" "}
+          <Strong>Model ID</Strong>: the raw model name your server exposes — e.g.{" "}
           <Code>qwen2.5-coder:32b</Code>. Leave it blank for a server that serves one model, such
           as vLLM: Genosyn uses that model and follows it when the server changes model (
           <a href="#follow-the-server">Change the model on the server</a>).
@@ -335,8 +336,8 @@ llama-server \\
           ignore the key entirely.
         </LI>
         <LI>
-          Click <Code>Continue</Code>. That&apos;s it — the next chat or routine run hits your
-          endpoint.
+          Click <Code>Continue</Code> (<Code>Add AI Model</Code> when the employee already has
+          one). That&apos;s it — the next chat or routine run hits your endpoint.
         </LI>
         <LI>
           <Strong>Check the context window</Strong> under <Strong>Advanced</Strong> on the model
