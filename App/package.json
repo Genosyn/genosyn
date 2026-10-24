@@ -76,7 +76,8 @@
     "test:api-docs": "tsx scripts/test-api-docs.ts",
     "test:mcp-setup": "tsx scripts/test-mcp-setup.ts",
     "test:notes-editor": "tsx scripts/test-notes-editor.ts",
-    "test:group-chats": "tsx scripts/test-group-chats.ts"
+    "test:group-chats": "tsx scripts/test-group-chats.ts",
+    "test:visual-system": "tsx scripts/test-visual-system.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
