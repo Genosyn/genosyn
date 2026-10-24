@@ -35,18 +35,21 @@ function attachmentTime(requested: Date | undefined): Date {
   return new Date(now);
 }
 
+/**
+ * The company a fixture model belongs to: the one given, else the employee's.
+ * Plenty of service tests name an employee they never insert; their models go
+ * to one stand-in company, which is all a model and its attachment need to
+ * agree on.
+ */
+export const FIXTURE_COMPANY_ID = "fixture-company";
+
 async function companyOf(employeeId: string, explicit?: string): Promise<string> {
   if (explicit) return explicit;
   const employee = await AppDataSource.getRepository(AIEmployee).findOne({
     where: { id: employeeId },
     select: { id: true, companyId: true },
   });
-  if (!employee) {
-    throw new Error(
-      `insertEmployeeModel: employee ${employeeId} does not exist — insert it first or pass companyId`,
-    );
-  }
-  return employee.companyId;
+  return employee?.companyId ?? FIXTURE_COMPANY_ID;
 }
 
 /** Save a company AI Model attached to one employee. */

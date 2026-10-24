@@ -530,14 +530,14 @@ describe("inbound mail analysis HTTP API", () => {
 
     const foreignModelOnRow = await call<ApiError>("PATCH", path, { modelId: rexModel.id });
     assert.equal(foreignModelOnRow.status, 400, JSON.stringify(foreignModelOnRow.body));
-    assert.equal(foreignModelOnRow.body.error, "That AI Model is not this employee's");
+    assert.equal(foreignModelOnRow.body.error, "That AI Model is not attached to this employee");
 
     const foreignModelInBody = await call<ApiError>("PATCH", path, {
       employeeId: ada.id,
       modelId: rexModel.id,
     });
     assert.equal(foreignModelInBody.status, 400, JSON.stringify(foreignModelInBody.body));
-    assert.equal(foreignModelInBody.body.error, "That AI Model is not this employee's");
+    assert.equal(foreignModelInBody.body.error, "That AI Model is not attached to this employee");
 
     const settings = await call<AnalysisSettings>("GET", path);
     assert.equal(settings.body.employeeId, ada.id);

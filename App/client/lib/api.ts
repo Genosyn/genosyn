@@ -1297,14 +1297,32 @@ export type AIModelApiKey = {
   /** While in the future, requests try the AI Model's other keys first. */
   restingUntil: string | null;
 };
+/** One AI Employee using an AI Model, and whether it is that employee's active model. */
+export type ModelUser = {
+  id: string;
+  name: string;
+  slug: string;
+  avatarKey: string | null;
+  isActive: boolean;
+};
+/**
+ * One of the company's AI Models. A model belongs to the company — one set of
+ * keys, settings and health — and is attached to any number of AI Employees
+ * (`employees`). Its keys and endpoint never reach the browser, only previews.
+ */
 export type AIModel = {
   id: string;
-  employeeId: string;
+  companyId: string;
   provider: Provider;
   model: string;
   authMode: AuthMode;
-  /** True if this is the brain the runner + chat seams use for the employee. */
+  /**
+   * In an AI Employee's list: whether it is the brain that employee's Routines
+   * and chat use. Always false in the company's list — see `employees`.
+   */
   isActive: boolean;
+  /** When the model was added to the company. */
+  createdAt: string;
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
@@ -1345,25 +1363,15 @@ export type AIModel = {
   /** How many Routine Runs may use this model at once; null means no limit. */
   effectiveMaxConcurrentRuns: number | null;
   /** Why that limit applies. */
-  concurrencySource: "configured" | "local-default" | "unlimited";
-};
-/**
- * An AI Model another AI Employee in the company already runs on, offered so a
- * new hire can use the same one without pasting its key again. Describes the
- * model and who has it — the credential itself never leaves the server.
- */
-export type ReusableModel = {
-  /** The source AI Model's id; what a reuse call names. */
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  provider: Provider;
-  model: string;
-  authMode: "apikey" | "customEndpoint";
-  /** Host-only preview of a custom endpoint, or null for an API key. */
-  endpointHost: string | null;
-  /** Whether it is that employee's active AI Model. */
-  isActive: boolean;
+  concurrencySource: "configured" | "local-default" | "subscription-default" | "unlimited";
+  /** Every AI Employee the model is attached to, by name. */
+  employees: ModelUser[];
+  /**
+   * Other company AI Models that are exactly this one — same service, model,
+   * endpoint and keys — and could be merged into it. Only the company's list
+   * fills it in.
+   */
+  duplicateIds: string[];
 };
 export type FinanceAccess = "none" | "read" | "full";
 

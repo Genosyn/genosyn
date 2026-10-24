@@ -27,6 +27,8 @@ export type PublicModel = {
    * employees and not others — see `employees`.
    */
   isActive: boolean;
+  /** When the model was added to the company. */
+  createdAt: string;
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
@@ -123,6 +125,7 @@ export function toPublicModel(
     model: m.model,
     authMode: m.authMode,
     isActive: options.isActive ?? false,
+    createdAt: (m.createdAt ?? new Date()).toISOString(),
     connectedAt: m.connectedAt?.toISOString() ?? null,
     status: connected ? "connected" : "not_connected",
     apiKeyMasked: apiKeyEncrypted ? "sk-…••••" : null,

@@ -1,4 +1,4 @@
-import type { AIModel, AuthMode, Company, Provider, ReusableModel } from "./api";
+import type { AIModel, AuthMode, Company, Provider } from "./api";
 import { apiKeyConnectionLine, apiKeyNotes } from "./modelApiKeys";
 
 /**
@@ -6,13 +6,13 @@ import { apiKeyConnectionLine, apiKeyNotes } from "./modelApiKeys";
  *
  * The API speaks in `provider` and `authMode` values (`anthropic`, `apikey`),
  * which are names for the code, not words for a person. Everything a Member
- * reads about a model — its card, the offer to reuse it, the line that says it
- * was reused — goes through here so it says the same thing everywhere, and so
- * no screen has to invent its own spelling of "Claude".
+ * reads about a model — its card on an employee's Model page or in Settings →
+ * AI Models, the offer to use one the company already has — goes through here
+ * so it says the same thing everywhere, and so no screen has to invent its own
+ * spelling of "Claude".
  *
- * Dependency-free on purpose: it only needs the *shape* of a model, so it
- * describes a connected model and a reusable one alike, and runs under
- * `node --test`.
+ * Dependency-free on purpose: it only needs the *shape* of a model, and runs
+ * under `node --test`.
  */
 
 export type DescribableModel = {
@@ -196,47 +196,4 @@ export function answeredInLine(elapsedMs: number): string {
 /** The sentence a passed Test connection shows on its card. */
 export function testPassedLine(elapsedMs: number): string {
   return `Working — the model ${answeredInLine(elapsedMs)}.`;
-}
-
-/**
- * The company's other AI Models a person adding one may pick from, less those
- * this employee already runs: reusing one of those would only make a second
- * copy of the same model, under another card.
- *
- * Matched on what the cards show — service, model and endpoint host — since the
- * offer carries no credential to compare. A different key for the same model is
- * still connected from the form beside the offers.
- */
-export function offersNotHeld(
-  offers: readonly ReusableModel[],
-  held: ReadonlyArray<
-    Pick<
-      AIModel,
-      "provider" | "authMode" | "model" | "customEndpointModelId" | "customEndpointHost"
-    >
-  >,
-): ReusableModel[] {
-  const signature = (parts: Array<string | null | undefined>) =>
-    parts.map((part) => (part ?? "").trim().toLowerCase()).join("\u0000");
-  const heldSignatures = new Set(
-    held.map((model) =>
-      signature([
-        model.provider,
-        model.authMode,
-        model.provider === "custom" ? model.customEndpointModelId || model.model : model.model,
-        model.provider === "custom" ? model.customEndpointHost : null,
-      ]),
-    ),
-  );
-  return offers.filter(
-    (offer) =>
-      !heldSignatures.has(
-        signature([
-          offer.provider,
-          offer.authMode,
-          offer.model,
-          offer.provider === "custom" ? offer.endpointHost : null,
-        ]),
-      ),
-  );
 }

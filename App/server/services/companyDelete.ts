@@ -13,7 +13,9 @@ import {
 } from "./paths.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
-import { deleteCompanyModelRows } from "./companyModels.js";
+import { deleteKeyHealth } from "./modelKeyHealth.js";
+import { AIModel } from "../db/entities/AIModel.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Account } from "../db/entities/Account.js";
@@ -446,7 +448,12 @@ export async function deleteCompanyCascade(args: {
 
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
     // The company's AI Models, their attachments, and their keys' health.
-    await deleteCompanyModelRows(companyId, m);
+    const modelIds = (await m.find(AIModel, { where: { companyId }, select: ["id"] })).map(
+      (model) => model.id,
+    );
+    await deleteKeyHealth(modelIds, m);
+    await m.delete(EmployeeModel, { companyId });
+    await m.delete(AIModel, { companyId });
     await m.delete(ParallelWorkerResult, { companyId });
     await m.delete(TldrQuestionAction, { companyId });
     await m.delete(TldrQuestionMessage, { companyId });

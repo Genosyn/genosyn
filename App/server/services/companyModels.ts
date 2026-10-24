@@ -315,16 +315,3 @@ export async function mergeDuplicateModels(options: {
   emitResourceChange(companyId, "routine");
   return { model: target, merged: checked, movedEmployees };
 }
-
-/** Delete every AI Model of a company and its attachments — the company is going. */
-export async function deleteCompanyModelRows(
-  companyId: string,
-  manager: EntityManager,
-): Promise<void> {
-  const ids = (
-    await manager.find(AIModel, { where: { companyId }, select: { id: true } })
-  ).map((model) => model.id);
-  await deleteKeyHealth(ids, manager);
-  await manager.delete(EmployeeModel, { companyId });
-  await manager.delete(AIModel, { companyId });
-}

@@ -5,7 +5,7 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from "node
 import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { AIModel } from "../db/entities/AIModel.js";
+import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
@@ -193,9 +193,14 @@ describe("server enforced mail delivery ceiling", () => {
         assigneeEmployeeId: employee.id,
         reviewerEmployeeId: reviewer.id,
       });
-      // A real kickoff resolves the reviewer's model; returning no models
-      // makes the permitted control path finish without an external call.
-      const modelReads = mock.method(AppDataSource.getRepository(AIModel), "find", async () => []);
+      // A real kickoff resolves the reviewer's model, starting from the models
+      // attached to it; returning none makes the permitted control path finish
+      // without an external call.
+      const modelReads = mock.method(
+        AppDataSource.getRepository(EmployeeModel),
+        "find",
+        async () => [],
+      );
       const result = await call("update_todo", { todoId: todo.id, status: "in_review" });
       assert.equal(result.status, 200, JSON.stringify(result.body));
       assert.equal(
