@@ -141,13 +141,45 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Expired</Strong> — a synthetic status shown when <Code>validUntil</Code> has
-          passed and the estimate is still in <Code>sent</Code>. Extend <Code>Valid until</Code>{" "}
-          from <Code>Edit</Code>, or void it.
+          passed and the estimate is still in <Code>sent</Code>: from the day after its valid-until
+          date, since the customer can accept all of that day. An accepted estimate never expires;
+          it stays accepted until you convert it. Extend <Code>Valid until</Code> from{" "}
+          <Code>Edit</Code>, or void it.
         </LI>
         <LI>
           <Strong>Void</Strong> — terminal cancellation, available on any non-draft estimate.
         </LI>
       </OL>
+
+      <H3 id="estimates-figures">Estimate figures</H3>
+      <P>
+        Once you have issued an estimate, <Code>Finance → Estimates</Code> opens with its figures.{" "}
+        <Strong>Open estimates</Strong> is what sent estimates still within their valid-until date
+        come to, tax included, until the customer accepts or declines, with how many estimates and
+        customers. Beside it a bar shows the estimates <Strong>issued in the last 90 days</Strong>{" "}
+        by where each stands now: invoiced and accepted on one side, declined and expired on the
+        other, still open between them. One converted to an invoice counts as accepted even if
+        nobody marked it so.
+      </P>
+      <P>
+        Five figures follow. <Strong>Acceptance rate</Strong> is the share of those 90 days&apos;
+        estimates the customer has decided on that were accepted; ones still open don&apos;t count
+        against it. <Strong>Expiring in 14 days</Strong> is the open estimates valid until today or
+        within 14 days, with the soonest date. <Strong>Accepted, not invoiced</Strong> is work won
+        and not yet billed, with how long the oldest has waited. <Strong>Declined or
+        expired</Strong> is what those 90 days&apos; estimates lost. <Strong>Largest
+        customer</Strong> is the share of open value one customer holds.
+      </P>
+      <P>
+        Click a figure, or a part of the bar, to narrow the list to exactly the estimates behind
+        it; <Code>Show all</Code> or any status tab goes back, and the address keeps the view. Every
+        amount is in the home currency: an estimate in another currency converts at the rate on
+        file for its issue date, the rate an invoice issued that day would lock, or the latest rate
+        when none is that old. Days are counted on your company&apos;s calendar, as for{" "}
+        <DocLink to="/docs/finance#invoices-figures">invoice figures</DocLink>. Drafts and voided
+        estimates aren&apos;t counted. An archived estimate leaves what is open and what waits to
+        be invoiced, but what its customer decided still counts in the 90-day figures.
+      </P>
 
       <H3 id="estimates-discount">Discounts</H3>
       <P>
@@ -316,7 +348,48 @@ export function Finance() {
         isn&apos;t void, from drafts to paid. Voided invoices stay in your records under the{" "}
         <Code>Void</Code> tab, invoices you{" "}
         <DocLink to="/docs/finance#invoices-archive">archive</DocLink> wait under{" "}
-        <Code>Archived</Code>, and the other tabs narrow Active down by status.
+        <Code>Archived</Code>, and the other tabs narrow Active down by status. An invoice turns{" "}
+        <Code>overdue</Code> the day after its due date: it is due all of that day.
+      </P>
+
+      <H3 id="invoices-figures">Invoice figures</H3>
+      <P>
+        Once you have issued an invoice, the list opens with its figures.{" "}
+        <Strong>Outstanding</Strong> is what issued invoices still have due: each one&apos;s total
+        less payments (partial ones included), credit notes applied, and amounts written off, tax
+        included, with how many invoices and customers it comes from. Beside it a bar splits it{" "}
+        <Strong>by days overdue</Strong>: not yet due, then 1–30, 31–60, 61–90 and 90+ days past
+        the due date.
+      </P>
+      <P>
+        Five figures follow. <Strong>Overdue</Strong> is the outstanding amount past its due date,
+        with how many days the oldest is late. <Strong>Due in the next 30 days</Strong> is what
+        falls due from today through the 30th day. <Strong>Paid in the last 30 days</Strong> is the
+        cash recorded against invoices with a payment date in that window, compared with the 30
+        days before it. <Strong>Average days to pay</Strong> runs from each invoice&apos;s issue
+        date to its last payment, across the invoices paid in full in the last 90 days; one cleared
+        only by a credit note or a write-off was never paid, so it isn&apos;t counted.{" "}
+        <Strong>Largest customer</Strong> is the share of what is outstanding that one customer
+        owes.
+      </P>
+      <P>
+        Click a figure, or a band of the bar, to narrow the list to exactly the invoices behind it.
+        The line above the list names the figure and how many invoices it counts, and{" "}
+        <Code>Show all</Code> or any status tab goes back. The address keeps the view (for example{" "}
+        <Code>?show=overdue</Code>), so you can bookmark it or send it to a colleague.
+      </P>
+      <P>
+        Every amount is in the home currency set under <Code>Finance → Currencies</Code>: an
+        invoice at the rate it locked when it was issued, a payment at the rate it locked the day it
+        was paid (see <DocLink to="/docs/finance#currencies-locked">Locked rates</DocLink>), and the
+        note under the figures names the other currencies converted. Days are counted on your
+        company&apos;s calendar, the time zone in <Strong>Settings → Company → Time zone</Strong>{" "}
+        (the server&apos;s when none is set), and the status tabs and badges below count them the
+        same way. Drafts and voided invoices aren&apos;t counted. An archived invoice never has a
+        balance due, but the cash it brought in still counts in Paid and Average days to pay, and
+        it shows in those views marked <Code>Archived</Code>. The same figures are available to
+        scripts and connected apps from <Code>GET /api/companies/:id/invoices/stats</Code> in the{" "}
+        <DocLink to="/docs/api">API reference</DocLink>.
       </P>
 
       <H3 id="invoices-new">One-time or recurring</H3>

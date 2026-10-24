@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -20,6 +20,14 @@ import {
   InvoiceStatus,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import {
+  companyToday,
+  invoiceStatsView,
+  parseInvoiceStatsView,
+  rowsInView,
+  type InvoiceStats,
+  type InvoiceStatsViewKey,
+} from "../lib/financeStats";
 import { newInvoicePath } from "../lib/invoiceKind";
 import { recurringInvoiceFromDocumentPath } from "../lib/recurringInvoiceForm";
 import { canWriteFinance } from "../lib/subpages";
@@ -30,8 +38,15 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
-import { ArchiveBulkBar, ArchivedTabLabel, FilterTab } from "../components/finance/ArchiveControls";
+import {
+  ArchiveBulkBar,
+  ArchivedTabLabel,
+  ArchivedTag,
+  FilterTab,
+} from "../components/finance/ArchiveControls";
+import { InvoiceStatsPanel } from "../components/finance/InvoiceStatsPanel";
 import { InvoiceStatusBadge } from "../components/finance/InvoiceStatusBadge";
+import { StatsUnavailable, StatsViewBar } from "../components/finance/StatsPanel";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
 import { invoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -56,6 +71,9 @@ const FILTERS: { key: Exclude<StatusFilter, "void" | "archived">; label: string 
 const BALANCE_DUE_HINT =
   "Has a balance due — it can be archived once it is paid, credited, or written off";
 
+/** Beside the disabled tick box of an archived invoice a figure shows. */
+const ALREADY_ARCHIVED_HINT = "Already archived — restore it from the Archived tab";
+
 /**
  * Invoice list with status-tab filter. Phase A of the Finance milestone
  * (M19). Click any row to open the detail page. A read-only Member gets the
@@ -64,6 +82,12 @@ const BALANCE_DUE_HINT =
  * but leaves that view for its own Void tab, and an archived one leaves every
  * status tab for Archived. Only an invoice with nothing left to collect can be
  * archived, so the rest keep their tick box disabled.
+ *
+ * Once anything has been issued, the list leads with its figures
+ * (`InvoiceStatsPanel`): what is outstanding and how late, what came in, and
+ * how long customers take to pay. A click on a figure filters the list to
+ * exactly the invoices it counts, kept in the address as `?show=` so the view
+ * survives a reload and can be linked to; any status tab, or Show all, ends it.
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
@@ -71,30 +95,88 @@ export default function FinanceInvoices() {
   const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("active");
+  const [stats, setStats] = React.useState<InvoiceStats | null>(null);
+  const [statsFailed, setStatsFailed] = React.useState(false);
+  const [retryingStats, setRetryingStats] = React.useState(false);
+
+  // The figures stand apart from the list: if they fail, the list still
+  // loads, and they say so in their own place. A refetch that fails keeps the
+  // figures already on screen.
+  const loadStats = React.useCallback(
+    () =>
+      api
+        .get<InvoiceStats>(`/api/companies/${company.id}/invoices/stats`)
+        .then((next) => {
+          setStats(next);
+          setStatsFailed(false);
+        })
+        .catch(() => setStatsFailed(true)),
+    [company.id],
+  );
+
+  async function retryStats() {
+    setRetryingStats(true);
+    try {
+      await loadStats();
+    } finally {
+      setRetryingStats(false);
+    }
+  }
 
   const reload = React.useCallback(async () => {
-    // Archived rows come too: they fill the Archived view and its count.
-    const list = await api.get<InvoiceListItem[]>(
-      `/api/companies/${company.id}/invoices?archived=true`,
-    );
+    const [list] = await Promise.all([
+      // Archived rows come too: they fill the Archived view and its count.
+      api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices?archived=true`),
+      // Settles either way, so the figures land with the list rather than
+      // pushing it down a moment later.
+      loadStats(),
+    ]);
     setInvoices(list);
-  }, [company.id]);
+  }, [company.id, loadStats]);
 
   React.useEffect(() => {
     reload().catch(() => setInvoices([]));
   }, [reload]);
 
   useLiveRefetch("invoice", reload);
+  // A renamed customer, a new exchange rate or home currency changes the
+  // figures, not the list.
+  useLiveRefetch(["customer", "currency", "financesettings"], loadStats);
+
+  const viewKey = parseInvoiceStatsView(searchParams.get("show"));
+  const view = stats && viewKey ? invoiceStatsView(stats, viewKey) : null;
+  // The day the figures were counted on, so the tabs and badges below agree
+  // with them; the company's clock stands in until they arrive.
+  const today = stats?.today ?? companyToday(company.timezone);
+
+  function showView(key: InvoiceStatsViewKey | null) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (key) next.set("show", key);
+        else next.delete("show");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function chooseFilter(key: StatusFilter) {
+    setFilter(key);
+    if (viewKey) showView(null);
+  }
 
   const filtered = React.useMemo(() => {
     if (!invoices) return null;
+    if (view) return rowsInView(invoices, view);
     if (filter === "archived") return invoices.filter((inv) => inv.archivedAt);
     const listed = invoices.filter((inv) => !inv.archivedAt);
     if (filter === "active") return listed.filter((inv) => inv.status !== "void");
-    return listed.filter((inv) => displayInvoiceStatus(inv) === filter);
-  }, [invoices, filter]);
+    return listed.filter((inv) => displayInvoiceStatus(inv, undefined, today) === filter);
+  }, [invoices, filter, view, today]);
 
   const counts = React.useMemo(() => {
     const c: Record<StatusFilter, number> = {
@@ -114,16 +196,21 @@ export default function FinanceInvoices() {
         continue;
       }
       if (inv.status !== "void") c.active += 1;
-      c[displayInvoiceStatus(inv)] += 1;
+      c[displayInvoiceStatus(inv, undefined, today)] += 1;
     }
     return c;
-  }, [invoices]);
+  }, [invoices, today]);
 
   const rows = React.useMemo(() => filtered ?? [], [filtered]);
   const selection = useArchiveSelection({
     rows,
-    canSelect: (inv) => filter === "archived" || !invoiceArchiveBlocker(inv),
-    view: filter,
+    // A figure's view only ever archives: the archived invoices it shows
+    // stay where they are, restored from the Archived tab.
+    canSelect: (inv) =>
+      view
+        ? !inv.archivedAt && !invoiceArchiveBlocker(inv)
+        : filter === "archived" || !invoiceArchiveBlocker(inv),
+    view: view ? `stats:${view.key}` : filter,
     bulkUrl: `/api/companies/${company.id}/invoices/bulk`,
     noun: { one: "invoice", many: "invoices" },
     onChanged: (ids, action) => {
@@ -138,7 +225,7 @@ export default function FinanceInvoices() {
         (current) => current?.map((item) => (item.id === inv.id ? inv : item)) ?? current,
       ),
   });
-  const bulkAction: InvoiceBulkAction = filter === "archived" ? "restore" : "archive";
+  const bulkAction: InvoiceBulkAction = !view && filter === "archived" ? "restore" : "archive";
 
   async function deleteDraft(inv: InvoiceListItem) {
     const ok = await dialog.confirm({
@@ -231,38 +318,75 @@ export default function FinanceInvoices() {
         )}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
-        {FILTERS.map((f) => (
-          <FilterTab
-            key={f.key}
-            active={filter === f.key}
-            label={f.label}
-            count={invoices ? counts[f.key] : null}
-            onClick={() => setFilter(f.key)}
-          />
-        ))}
-        {/* Void and Archived sit apart, outside Active. Kept together so the
-            divider never ends a wrapped line; on a phone, where the tabs wrap
-            anyway, it is dropped. */}
-        <span className="flex items-center">
-          <span
-            aria-hidden
-            className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
-          />
-          <FilterTab
-            active={filter === "void"}
-            label="Void"
-            count={invoices ? counts.void : null}
-            onClick={() => setFilter("void")}
-          />
-          <FilterTab
-            active={filter === "archived"}
-            label={<ArchivedTabLabel />}
-            count={invoices ? counts.archived : null}
-            onClick={() => setFilter("archived")}
-          />
-        </span>
-      </div>
+      {/* With nothing issued yet, the figures would be a row of zeros — and
+          failing to load them would be no loss worth a note. */}
+      {invoices &&
+        (stats
+          ? stats.issuedInvoices > 0
+          : statsFailed && invoices.some((inv) => inv.status === "sent" || inv.status === "paid")) && (
+        <div className="mb-6">
+          {stats ? (
+            <InvoiceStatsPanel
+              stats={stats}
+              companySlug={company.slug}
+              view={view?.key ?? null}
+              onView={showView}
+            />
+          ) : (
+            <StatsUnavailable
+              what="the invoice figures"
+              retrying={retryingStats}
+              onRetry={() => void retryStats()}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Held back until the first load, so the figures above can't arrive
+          and push the tabs down. */}
+      {invoices && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          {FILTERS.map((f) => (
+            <FilterTab
+              key={f.key}
+              active={!view && filter === f.key}
+              label={f.label}
+              count={counts[f.key]}
+              onClick={() => chooseFilter(f.key)}
+            />
+          ))}
+          {/* Void and Archived sit apart, outside Active. Kept together so the
+              divider never ends a wrapped line; on a phone, where the tabs wrap
+              anyway, it is dropped. */}
+          <span className="flex items-center">
+            <span
+              aria-hidden
+              className="mx-1 hidden h-5 w-px bg-slate-200 sm:block dark:bg-slate-700"
+            />
+            <FilterTab
+              active={!view && filter === "void"}
+              label="Void"
+              count={counts.void}
+              onClick={() => chooseFilter("void")}
+            />
+            <FilterTab
+              active={!view && filter === "archived"}
+              label={<ArchivedTabLabel />}
+              count={counts.archived}
+              onClick={() => chooseFilter("archived")}
+            />
+          </span>
+        </div>
+      )}
+
+      {view && filtered && (
+        <StatsViewBar
+          label={view.label}
+          count={filtered.length}
+          noun={{ one: "invoice", many: "invoices" }}
+          onClear={() => showView(null)}
+        />
+      )}
 
       {filtered === null ? (
         <div className="flex justify-center p-16">
@@ -271,9 +395,24 @@ export default function FinanceInvoices() {
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-            {filter === "archived" ? "Nothing archived" : "No invoices in this view"}
+            {view
+              ? "No invoices behind this figure"
+              : filter === "archived"
+                ? "Nothing archived"
+                : "No invoices in this view"}
           </h3>
-          {filter === "archived" ? (
+          {view ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              They may have changed since the figures were counted.{" "}
+              <button
+                type="button"
+                onClick={() => showView(null)}
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Show all invoices
+              </button>
+            </p>
+          ) : filter === "archived" ? (
             <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
               Archived invoices wait here, out of the other tabs and customer pages. They keep their
               number, payments, and PDF, still count in every total, and you can restore them at any
@@ -316,7 +455,7 @@ export default function FinanceInvoices() {
                       label={
                         selection.allSelected
                           ? "Clear selection"
-                          : filter === "archived"
+                          : !view && filter === "archived"
                             ? "Select every invoice in view"
                             : "Select every invoice in view that can be archived"
                       }
@@ -335,9 +474,11 @@ export default function FinanceInvoices() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filtered.map((inv) => {
-                const ds = displayInvoiceStatus(inv);
+                const ds = displayInvoiceStatus(inv, undefined, today);
                 const isSelected = selection.selectedIds.has(inv.id);
                 const owed = !inv.archivedAt && invoiceArchiveBlocker(inv) !== null;
+                // In a figure's view an archived invoice is shown, not acted on.
+                const filedInView = !!view && !!inv.archivedAt;
                 return (
                   <tr
                     key={inv.id}
@@ -351,8 +492,14 @@ export default function FinanceInvoices() {
                       <td className="w-10 py-3 pl-4 pr-0">
                         <Checkbox
                           checked={isSelected}
-                          disabled={owed}
-                          title={owed ? BALANCE_DUE_HINT : undefined}
+                          disabled={owed || filedInView}
+                          title={
+                            filedInView
+                              ? ALREADY_ARCHIVED_HINT
+                              : owed
+                                ? BALANCE_DUE_HINT
+                                : undefined
+                          }
                           onChange={(event) =>
                             selection.toggleOne(inv, (event.nativeEvent as MouseEvent).shiftKey)
                           }
@@ -377,6 +524,7 @@ export default function FinanceInvoices() {
                           <Repeat size={12} />
                         </Link>
                       )}
+                      {filedInView && <ArchivedTag />}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                       {inv.customer?.name ?? "—"}
