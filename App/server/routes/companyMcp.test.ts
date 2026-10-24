@@ -224,6 +224,7 @@ describe("whoami", () => {
       financeAccess: "full",
       authentication: "api_key",
       apiKey: { id: key.id, name: "Claude Desktop", prefix: `gen_${key.prefix}`, expiresAt: null },
+      connectedApp: null,
       operations: { total: catalogue.operations.length, available: catalogue.operations.length },
       endpoint: `http://genosyn.example.test/api/companies/${company.id}/mcp`,
     });
@@ -240,7 +241,7 @@ describe("whoami", () => {
         companyName: company.name,
         member: { id: user.id, name: user.name, email: user.email },
         standing: { role: "owner", financeAccess: "full" },
-        apiKey: { id: "k", name: "gone", prefix: "gen_x" },
+        credential: { kind: "api_key", id: "k", name: "gone", prefix: "gen_x" },
         authorization: `Bearer gen_${"Z".repeat(43)}`,
         forwardedHeaders: { host: "genosyn.example.test" },
         remote: {},

@@ -51,6 +51,7 @@ import { bootPublicUrl } from "./services/publicUrl.js";
 import { bootCustomJavaScript } from "./services/customJavaScript.js";
 import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
 import { bootAuthFlowStateSweeper, stopAuthFlowStateSweeper } from "./services/authFlowCleanup.js";
+import { bootConnectedAppSweeper, stopConnectedAppSweeper } from "./services/mcpOauth/sweeper.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootGroupDiscussions } from "./services/groupDiscussions.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
@@ -75,6 +76,7 @@ async function main() {
   await initDb();
   await bindInstanceSecretsToDatabase();
   await bootAuthFlowStateSweeper();
+  await bootConnectedAppSweeper();
   await bootPublicUrl();
   await bootCustomJavaScript();
   // An install upgrading from an old-shape config.ts (or a Kubernetes overlay
@@ -297,6 +299,7 @@ function installShutdownHandlers(server: http.Server): void {
 
   const shutdown = (signal: NodeJS.Signals): void => {
     stopAuthFlowStateSweeper();
+    stopConnectedAppSweeper();
     // A second Ctrl-C should not start a second flush over the first.
     if (shuttingDown) return;
     shuttingDown = true;

@@ -122,6 +122,9 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
   "GET /api/forms/{token}": "getPublicForm",
   "POST /api/forms/{token}/responses": "submitPublicFormResponse",
   "GET /api/careers/sites/{siteSlug}/feed.json": "getCareersSiteFeed",
+  "GET /api/oauth/consent": "getAppConsentRequest",
+  "POST /api/oauth/consent": "answerAppConsentRequest",
+  "DELETE /api/companies/{cid}/connected-apps/{id}": "disconnectConnectedApp",
 };
 
 /** Lower-cased words of one path segment: `ai-access` → [ai, access], `feed.json` → [feed, json]. */

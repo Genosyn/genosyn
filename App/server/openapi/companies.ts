@@ -55,7 +55,11 @@ const CompanyMe = z
     financeAccess: z
       .enum(["none", "read", "full"])
       .describe("Owners and admins always have full Finance access."),
-    authentication: z.enum(["api_key", "session"]).describe("How this request was authenticated."),
+    authentication: z
+      .enum(["api_key", "connected_app", "session"])
+      .describe(
+        "How this request was authenticated: an API key, the OAuth token of a connected app (through the Genosyn MCP server), or a browser session.",
+      ),
     apiKey: z
       .object({
         id: z.string().uuid(),
@@ -64,7 +68,18 @@ const CompanyMe = z
         expiresAt: z.string().datetime().nullable(),
       })
       .nullable()
-      .describe("The key this request used; null for a browser session."),
+      .describe("The key this request used; null otherwise."),
+    connectedApp: z
+      .object({
+        id: z.string().uuid(),
+        name: z.string(),
+        expiresAt: z
+          .string()
+          .datetime()
+          .describe("When the app stops working unless it refreshes its token before then."),
+      })
+      .nullable()
+      .describe("The connected app this request came from; null otherwise."),
   })
   .openapi("CompanyMe");
 

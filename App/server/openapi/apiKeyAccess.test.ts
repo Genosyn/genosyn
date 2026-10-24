@@ -393,6 +393,7 @@ describe("what an API client needs to orient itself", () => {
       financeAccess: "full",
       authentication: "api_key",
       apiKey: { id: key.id, name: key.name, prefix: `gen_${key.prefix}`, expiresAt: null },
+      connectedApp: null,
     });
 
     const cookie = await sessionCookieFor(user);

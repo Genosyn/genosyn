@@ -428,7 +428,13 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/mcp-server",
         title: "MCP server",
         blurb:
-          "Connect Claude Desktop, Claude Code, Cursor or any MCP client to Genosyn with an API key — everything the REST API does, one search away.",
+          "Connect claude.ai, ChatGPT, Claude Desktop, Claude Code, Cursor or any MCP client to Genosyn — everything the REST API does, one search away.",
+      },
+      {
+        path: "/docs/connected-apps",
+        title: "Connected apps",
+        blurb:
+          "Approve claude.ai, ChatGPT and other apps that sign in to the MCP server: who may, what they reach, how long they last and how to disconnect one.",
       },
       {
         path: "/docs/vocabulary",

@@ -12,7 +12,9 @@ import { findAcceptedManualRoutineRun } from "./routineManualStart.js";
 import { releaseOrphanedQueueSlots } from "./routineQueue.js";
 import { claimedRuns, companyRunQueue, queuedRunsInStartOrder } from "./routineQueueOrder.js";
 import { assertManualResumeSource } from "./runManualResume.js";
+import { claimRetryDispatch } from "./runRecovery.js";
 import { refreshStanddowns } from "./standdowns.js";
+import { getSystemHealthReport, getSystemHealthSummary } from "./systemHealth.js";
 
 /**
  * The Routine queue's reads stay bounded on a large `runs` table.
@@ -32,6 +34,7 @@ type Plan = { sql: string; steps: string[] };
 
 let routineHistoryIndex = "";
 let claimIndex = "";
+let retryIndex = "";
 
 /** Run `work`, then explain every statement it sent against `runs`. */
 async function plansOf(work: () => Promise<unknown>): Promise<Plan[]> {
@@ -96,13 +99,34 @@ function assertClaimIndexed(plans: Plan[], label: string) {
   }
 }
 
+/**
+ * The reads of `runs` that look for a Run owed a follow-up, in either shape:
+ * the `retryAt` range, or the `NOT (… IS NULL)` it replaced.
+ */
+function followUpReads(plans: Plan[]): Plan[] {
+  return plans.filter((plan) => /"retryAt" >|NOT\s*\("\w+"\."retryAt" IS NULL\)/.test(plan.sql));
+}
+
+/** Fails unless every read of `runs` that looks for a follow-up goes through the `retryAt` index. */
+function assertRetryIndexed(plans: Plan[], label: string) {
+  const reads = followUpReads(plans);
+  assert.ok(reads.length > 0, `${label} looked for no follow-up`);
+  for (const plan of reads) {
+    assert.ok(
+      plan.steps.some((step) => step.includes(retryIndex)),
+      `${label} looks for a follow-up without its index (${plan.steps.join("; ")}):\n${plan.sql}`,
+    );
+  }
+}
+
 describe("Routine queue reads on a large Run history", () => {
   before(async () => {
     await initTestDb();
     await resetTestDb();
     // One company of 12 AI Employees and 120 Routines, plus two small ones;
     // 200 finished Runs per Routine (one in twenty a retry or continuation of
-    // the one before), and a few waiting, running and claimed.
+    // the one before), a few waiting, running and claimed, and two owed a
+    // retry: one due, one being dispatched.
     await AppDataSource.query(`
       INSERT INTO companies (id, name, slug, ownerId) VALUES
         ('c1', 'OneUptime', 'oneuptime', 'u1'), ('c2', 'Other', 'other', 'u1'),
@@ -147,7 +171,17 @@ describe("Routine queue reads on a large Run history", () => {
         ('w1', 'r1', 'e1', '2026-10-23 08:00:00.000', 'running', '2026-10-23 08:00:00.000', '', 'schedule', 'run:w1:a', NULL),
         ('w2', 'r11', 'e2', '2026-10-23 08:00:00.000', 'running', '2026-10-23 08:00:00.000', '', 'schedule', 'run:w2:a', NULL),
         ('w3', 'r21', 'e3', '2026-10-23 07:00:00.000', 'completed', '2026-10-23 07:00:00.000', '', 'schedule', 'run:w3:a', NULL),
-        ('f1', 'r2', 'e1', '2026-10-23 06:00:00.000', 'error', '2026-10-23 06:00:00.000', '', 'schedule', NULL, '2026-10-23 13:00:00.000')`);
+        ('f1', 'r2', 'e1', '2026-10-23 06:00:00.000', 'error', '2026-10-23 06:00:00.000', '', 'schedule', NULL, '2026-10-23 13:00:00.000'),
+        ('f2', 'r35', 'e4', '2026-10-23 06:00:00.000', 'error', '2026-10-23 06:00:00.000', '', 'schedule', NULL, '2026-10-23 13:00:00.000')`);
+    // The scheduler swaps a retry's due time for its dispatch claim, a date
+    // in the 1900s, while it starts the retry.
+    assert.ok(
+      await claimRetryDispatch(
+        "f2",
+        new Date("2026-10-23T13:00:00Z"),
+        new Date("2026-10-23T13:00:05Z"),
+      ),
+    );
     await AppDataSource.query("ANALYZE");
     const [index] = (await AppDataSource.query(
       `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'runs'
@@ -159,6 +193,11 @@ describe("Routine queue reads on a large Run history", () => {
         AND sql LIKE '%("queueActiveEmployeeId")%'`,
     )) as { name: string }[];
     claimIndex = claim.name;
+    const [retry] = (await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'runs'
+        AND sql LIKE '%("retryAt")%'`,
+    )) as { name: string }[];
+    retryIndex = retry.name;
     await refreshStanddowns();
   });
 
@@ -181,6 +220,31 @@ describe("Routine queue reads on a large Run history", () => {
     assert.ok(
       sibling.some((step) => step.detail.includes(routineHistoryIndex)),
       `the old sibling check no longer walks history: ${JSON.stringify(sibling)}`,
+    );
+  });
+
+  test("the old follow-up reads scan the table or walk a Routine's history", async () => {
+    // `retryAt` had the same `NOT (… IS NULL)`: a manual resume read every Run
+    // its Routine ever had, and System Health read every Run in the table,
+    // past its transcript, to count the few owed a retry.
+    const resume = (await AppDataSource.query(
+      `EXPLAIN QUERY PLAN SELECT 1 FROM runs WHERE "routineId" = 'r2'
+         AND NOT ("retryAt" IS NULL) LIMIT 1`,
+    )) as { detail: string }[];
+    assert.ok(
+      resume.some((step) => step.detail.includes(routineHistoryIndex)),
+      `the old resume check no longer walks history: ${JSON.stringify(resume)}`,
+    );
+    const routineIds = Array.from({ length: 120 }, (_, i) => `r${i + 1}`);
+    const health = (await AppDataSource.query(
+      `EXPLAIN QUERY PLAN SELECT COUNT(*) FROM runs
+         WHERE "routineId" IN (${routineIds.map(() => "?").join(", ")})
+         AND NOT ("retryAt" IS NULL)`,
+      routineIds,
+    )) as { detail: string }[];
+    assert.ok(
+      health.some((step) => /^SCAN runs\b/.test(step.detail)),
+      `the old System Health count no longer scans: ${JSON.stringify(health)}`,
     );
   });
 
@@ -299,5 +363,62 @@ describe("Routine queue reads on a large Run history", () => {
     assert.equal(result, "Wait for this Routine's earlier Run cleanup to finish.");
     assertBounded(plans, "assertManualResumeSource");
     assertClaimIndexed(plans, "assertManualResumeSource");
+  });
+
+  // The follow-up checks below wrote `Not(IsNull())` on `retryAt`, the shape
+  // the control case above shows walking history. `anyRetryAt()` starts in
+  // 1900, so it also finds f2, whose `retryAt` holds a dispatch claim.
+
+  test("a manual resume waits for an owed follow-up without walking history", async () => {
+    // r2's f1 is due a retry and r35's f2 is being dispatched; unfinished work
+    // on either Routine waits for it.
+    for (const [routineId, employeeId] of [
+      ["r2", "e1"],
+      ["r35", "e4"],
+    ] as const) {
+      const id = `resume-${routineId}`;
+      await AppDataSource.query(
+        `INSERT INTO runs (id, routineId, employeeId, startedAt, finishedAt, status, createdAt,
+          logContent, triggerKind, checkpointJson)
+        VALUES (?, ?, ?, '2026-10-23 05:00:00.000', '2026-10-23 05:30:00.000', 'failed',
+          '2026-10-23 05:00:00.000', '', 'schedule',
+          '{"state":"continue","completed":"Half the list.","remaining":"The other half.","resume":"Start at the second half.","progressKey":"list"}')`,
+        [id, routineId, employeeId],
+      );
+      const routine = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routineId });
+      const run = await AppDataSource.getRepository(Run).findOneByOrFail({ id });
+      const { plans, result } = await traced(() =>
+        assertManualResumeSource(run, routine).then(
+          () => "resumable",
+          (error: Error) => error.message,
+        ),
+      );
+      const label = `assertManualResumeSource(${routineId})`;
+      assert.equal(result, "This Routine already has a follow-up queued or starting.", label);
+      assertBounded(plans, label);
+      assertRetryIndexed(plans, label);
+    }
+  });
+
+  test("System Health counts the Runs owed a follow-up without walking history", async () => {
+    // Its other reads are windowed by `startedAt`; only the retry reads are
+    // held to the `retryAt` index.
+    const { plans, result: report } = await traced(() => getSystemHealthReport("c1"));
+    assertBounded(followUpReads(plans), "getSystemHealthReport");
+    assertRetryIndexed(plans, "getSystemHealthReport");
+    const retries = report.checks.find((check) => check.id === "pending_retries");
+    assert.ok(retries);
+    assert.equal(retries.count, 2);
+    assert.deepEqual(
+      retries.items.map((item) => item.label),
+      ["Routine 35", "Routine 2"],
+      "the retry being dispatched sorts first, by its claim",
+    );
+
+    // The Home card asks for the count alone.
+    const { plans: countPlans, result: summary } = await traced(() => getSystemHealthSummary("c1"));
+    assertBounded(followUpReads(countPlans), "getSystemHealthSummary");
+    assertRetryIndexed(countPlans, "getSystemHealthSummary");
+    assert.equal(summary.checks.find((check) => check.id === "pending_retries")?.count, 2);
   });
 });

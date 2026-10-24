@@ -17,6 +17,7 @@ import { careersRouter } from "../routes/careers.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "../routes/chatSurfaces.js";
 import { companiesRouter } from "../routes/companies.js";
 import { companyMcpRouter } from "../routes/companyMcp.js";
+import { connectedAppsRouter } from "../routes/connectedApps.js";
 import { companyPoliciesRouter } from "../routes/companyPolicies.js";
 import { companySsoRouter } from "../routes/companySso.js";
 import { companySsoAuthRouter } from "../routes/companySsoAuth.js";
@@ -44,6 +45,7 @@ import { mailRouter } from "../routes/mail.js";
 import { marketingRouter } from "../routes/marketing.js";
 import { mcpRouter } from "../routes/mcp.js";
 import { mcpConnectRouter } from "../routes/mcpConnect.js";
+import { oauthConsentRouter } from "../routes/mcpOauth.js";
 import { meetingsRouter } from "../routes/meetings.js";
 import { memberBrowsersRouter } from "../routes/memberBrowsers.js";
 import { modelsRouter } from "../routes/models.js";
@@ -127,6 +129,11 @@ export const AREAS: readonly Area[] = [
   {
     name: "API Keys",
     description: "Personal API keys. Minting and revoking a key needs a signed-in browser session.",
+  },
+  {
+    name: "Connected apps",
+    description:
+      "Apps such as claude.ai and ChatGPT that a Member approved, through OAuth, to use the Genosyn MCP server as them: the consent screen's calls, and listing and disconnecting them. A signed-in browser session only.",
   },
   {
     name: "Home",
@@ -273,6 +280,8 @@ function areaRules(): AreaRule[] {
     { router: companiesRouter, area: "Companies" },
     { router: invitationsRouter, area: "Companies" },
     { router: apiKeysRouter, area: "API Keys" },
+    { router: connectedAppsRouter, area: "Connected apps" },
+    { router: oauthConsentRouter, area: "Connected apps" },
     { router: homeRouter, area: "Home" },
     { router: inboxRouter, area: "Home" },
     { router: navigationRouter, area: "Home" },

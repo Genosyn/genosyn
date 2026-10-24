@@ -1,17 +1,20 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
-import { BookOpen, Cable, Check, Copy, KeyRound, Trash2 } from "lucide-react";
-import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
+import { BookOpen, Cable, Check, Copy, KeyRound, PlugZap, Trash2, Unplug } from "lucide-react";
+import { api, ApiKey, ApiKeyCreated, Company, type ConnectedApp } from "../lib/api";
 import { apiKeyCurlExample, apiReferenceUrl, companyApiBaseUrl } from "../lib/apiAccess";
+import { appHost } from "../lib/appConsent";
 import { copyToClipboard } from "../lib/clipboard";
 import {
   API_KEY_PLACEHOLDER,
   companyMcpUrl,
+  KEY_MCP_CLIENTS,
   MCP_CLIENTS,
   mcpClientSetup,
   type McpClientId,
 } from "../lib/mcpSetup";
+import { CONNECTED_APP_IDLE_DAYS, mayConnectApps } from "../../shared/connectedApps";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -33,7 +36,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
  *
  * The same keys open the Genosyn MCP server, so its endpoint and the setup
  * for each MCP client sit here too — and, filled in with the real key, at the
- * one moment the key is shown.
+ * one moment the key is shown. Apps that sign in to that server instead of
+ * taking a key — claude.ai, ChatGPT — are listed here as connected apps, the
+ * place to disconnect them.
  */
 export function SettingsApiKeys() {
   const { company } = useOutletContext<SettingsOutletCtx>();
@@ -41,7 +46,8 @@ export function SettingsApiKeys() {
     <>
       <TopBar title="API keys" />
       <ApiKeysCard company={company} />
-      <McpServerCard companyId={company.id} />
+      <ConnectedAppsCard company={company} />
+      <McpServerCard company={company} />
     </>
   );
 }
@@ -228,12 +234,172 @@ function CopyableUrl({
 }
 
 /**
- * The Genosyn MCP server: its endpoint and how to point each client at it.
- * The setup shows a placeholder for the key — the real one is shown only once,
- * when it is generated, and the new-key dialog fills it in there.
+ * The apps the Member approved, through OAuth, to use the MCP server as them
+ * in this company — claude.ai, ChatGPT — and the place to disconnect one.
  */
-function McpServerCard({ companyId }: { companyId: string }) {
-  const url = companyMcpUrl(window.location.origin, companyId);
+function ConnectedAppsCard({ company }: { company: Company }) {
+  const [rows, setRows] = React.useState<ConnectedApp[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const background = useBackgroundAction();
+  const dialog = useDialog();
+  const canConnect = mayConnectApps(company.role);
+
+  const reload = React.useCallback(async () => {
+    try {
+      setRows(await api.get<ConnectedApp[]>(`/api/companies/${company.id}/connected-apps`));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(errorMessage(err, "Could not load the connected apps"));
+      setRows([]);
+    }
+  }, [company.id]);
+
+  React.useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <div className="flex items-start gap-2">
+          <PlugZap size={16} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">Connected apps</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Apps such as claude.ai and ChatGPT that you approved to use the MCP server below as
+              you. Each stays connected until you disconnect it, or after {CONNECTED_APP_IDLE_DAYS}{" "}
+              days without use.
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : rows === null ? (
+          <Spinner />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No connected apps"
+            description={
+              canConnect
+                ? "Add the MCP server's endpoint to claude.ai or ChatGPT, and approve the app when Genosyn asks."
+                : "Only owners and admins can connect apps that sign in. Use an API key with Claude Desktop, Claude Code or Cursor."
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {rows.map((app) => (
+              <ConnectedAppRow
+                key={app.id}
+                app={app}
+                onDisconnect={async () => {
+                  const ok = await dialog.confirm({
+                    title: `Disconnect "${app.name}"?`,
+                    message:
+                      "It stops working at once: its next request to Genosyn is refused. To use it again, connect it from the app.",
+                    confirmLabel: "Disconnect",
+                    variant: "danger",
+                  });
+                  if (!ok) return;
+                  const now = new Date().toISOString();
+                  const replace = (next: ConnectedApp) =>
+                    setRows((current) =>
+                      current ? current.map((row) => (row.id === app.id ? next : row)) : current,
+                    );
+                  replace({ ...app, revokedAt: now, revokedReason: "member" });
+                  background(
+                    async () => {
+                      replace(
+                        await api.del<ConnectedApp>(
+                          `/api/companies/${company.id}/connected-apps/${app.id}`,
+                        ),
+                      );
+                    },
+                    {
+                      title: "Couldn’t disconnect the app",
+                      error: (error) => `${errorMessage(error)} It is still connected.`,
+                      onError: () => replace(app),
+                    },
+                  );
+                }}
+              />
+            ))}
+          </ul>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+const REVOKED_LABELS: Record<NonNullable<ConnectedApp["revokedReason"]>, string> = {
+  member: "Disconnected",
+  app: "Disconnected by the app",
+  reuse: "Disconnected: a token was reused",
+};
+
+function ConnectedAppRow({
+  app,
+  onDisconnect,
+}: {
+  app: ConnectedApp;
+  onDisconnect: () => void | Promise<void>;
+}) {
+  const revoked = !!app.revokedAt;
+  const expired = !revoked && new Date(app.expiresAt).getTime() <= Date.now();
+  return (
+    <li className="flex items-center justify-between gap-3 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Cable size={14} className="text-slate-400" />
+          <span className="truncate font-medium text-slate-900 dark:text-slate-100">
+            {app.name}
+          </span>
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {appHost(app.redirectOrigin)}
+          </code>
+          {revoked && (
+            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+              {REVOKED_LABELS[app.revokedReason ?? "member"]}
+            </span>
+          )}
+          {expired && (
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              Expired
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Connected {new Date(app.createdAt).toLocaleDateString()}</span>
+          <span>
+            {app.lastUsedAt
+              ? `Last used ${new Date(app.lastUsedAt).toLocaleString()}`
+              : "Never used"}
+          </span>
+          {!revoked && !expired && (
+            <span>Expires {new Date(app.expiresAt).toLocaleDateString()} unless used</span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {!revoked && !expired && (
+          <Button variant="ghost" size="sm" onClick={onDisconnect}>
+            <Unplug size={12} /> Disconnect
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * The Genosyn MCP server: its endpoint and how to point each client at it.
+ * claude.ai and ChatGPT take the endpoint alone and sign in; the rest take a
+ * key, shown as a placeholder — the real one is shown only once, when it is
+ * generated, and the new-key dialog fills it in there.
+ */
+function McpServerCard({ company }: { company: Company }) {
+  const url = companyMcpUrl(window.location.origin, company.id);
   return (
     <Card className="mt-4">
       <CardHeader>
@@ -242,9 +408,9 @@ function McpServerCard({ companyId }: { companyId: string }) {
           <div className="min-w-0">
             <h2 className="text-sm font-semibold">MCP server</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Connect Claude, Cursor or any MCP client to this company. It works with an API key and
-              acts as the key&apos;s Member: it can find, read and change whatever they can, and
-              nothing more.
+              Connect Claude, ChatGPT, Cursor or any MCP client to this company. It acts as one
+              Member — you, once you approve an app, or an API key&apos;s Member — and can find,
+              read and change whatever they can, and nothing more.
             </p>
           </div>
         </div>
@@ -254,20 +420,35 @@ function McpServerCard({ companyId }: { companyId: string }) {
           label="Endpoint"
           url={url}
           copyLabel="Copy the MCP endpoint"
-          hint="Streamable HTTP. Send an API key from above as a Bearer token."
+          hint="Streamable HTTP. claude.ai and ChatGPT sign in with OAuth; other clients send an API key from above as a Bearer token."
         />
-        <McpClientSetupPanel url={url} token={null} />
+        <McpClientSetupPanel
+          url={url}
+          token={null}
+          clients={MCP_CLIENTS}
+          canConnectApps={mayConnectApps(company.role)}
+        />
       </CardBody>
     </Card>
   );
 }
 
 /** Pick a client, copy its setup. With `token`, the setup carries the real key. */
-function McpClientSetupPanel({ url, token }: { url: string; token: string | null }) {
-  const [client, setClient] = React.useState<McpClientId>("claude-desktop");
+function McpClientSetupPanel({
+  url,
+  token,
+  clients,
+  canConnectApps = true,
+}: {
+  url: string;
+  token: string | null;
+  clients: typeof MCP_CLIENTS;
+  canConnectApps?: boolean;
+}) {
+  const [client, setClient] = React.useState<McpClientId>(clients[0].id);
   const [copied, setCopied] = React.useState<McpClientId | null>(null);
   const [copyError, setCopyError] = React.useState<string | null>(null);
-  const label = MCP_CLIENTS.find((candidate) => candidate.id === client)?.label ?? "";
+  const label = clients.find((candidate) => candidate.id === client)?.label ?? "";
   const setup = mcpClientSetup(client, { url, token });
   const panelId = React.useId();
   return (
@@ -278,7 +459,7 @@ function McpClientSetupPanel({ url, token }: { url: string; token: string | null
           aria-label="MCP client"
           className="flex min-w-max gap-0.5 border-b border-slate-200 dark:border-slate-800"
         >
-          {MCP_CLIENTS.map((candidate) => (
+          {clients.map((candidate) => (
             <button
               key={candidate.id}
               type="button"
@@ -325,7 +506,13 @@ function McpClientSetupPanel({ url, token }: { url: string; token: string | null
           {setup.snippet}
         </pre>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{setup.note}</p>
-        {!token && (
+        {setup.signsIn && !canConnectApps && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+            Only owners and admins can approve an app that signs in. Use an API key with Claude
+            Desktop, Claude Code or Cursor instead.
+          </p>
+        )}
+        {!setup.signsIn && !token && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Replace <code className="font-mono">{API_KEY_PLACEHOLDER}</code> with a key from above.
           </p>
@@ -551,6 +738,7 @@ function NewKeyTokenModal({
           <McpClientSetupPanel
             url={companyMcpUrl(window.location.origin, companyId)}
             token={created.token}
+            clients={KEY_MCP_CLIENTS}
           />
         </div>
         <div className="flex justify-end pt-2">

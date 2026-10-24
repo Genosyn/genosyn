@@ -68,6 +68,10 @@ await context.route("**/api/**", async (route) => {
     keys = [key, ...keys];
     return route.fulfill({ json: { ...key, token: TOKEN } });
   }
+  // The Connected apps card on the same page; scripts/test-mcp-setup.ts covers it.
+  if (pathname === `/api/companies/${COMPANY_ID}/connected-apps` && method === "GET") {
+    return route.fulfill({ json: [] });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });

@@ -160,16 +160,13 @@ describe("a request through every company router", () => {
     assert.ok(runsOf(requireAuth)! > runsOf(requireCompanyMember)!);
   });
 
-  // Besides the guards, the contracts router loads the Company for every
-  // request that reaches it, once: that is the second Company read below.
-
   test("reads a browser session's sign-in, User, Membership and Company once", async () => {
     const { status, body, lookups } = await probeRequest({ cookie });
     assert.equal(status, 200, JSON.stringify(body));
     assert.deepEqual(body, { userId: user.id, role: "admin", viaApiKey: false });
     assert.deepEqual(
       lookups,
-      { user_sessions: 1, users: 1, memberships: 1, companies: 2 },
+      { user_sessions: 1, users: 1, memberships: 1, companies: 1 },
       `${runsOf(requireCompanyMember)} company routers`,
     );
   });
@@ -178,11 +175,10 @@ describe("a request through every company router", () => {
     const { status, body, lookups } = await probeRequest({ authorization: `Bearer ${token}` });
     assert.equal(status, 200, JSON.stringify(body));
     assert.deepEqual(body, { userId: user.id, role: "admin", viaApiKey: true });
-    // A key skips the company's two-factor rule, so only the contracts router
-    // reads the Company.
+    // A key skips the company's two-factor rule, so nothing reads the Company.
     assert.deepEqual(
       lookups,
-      { api_keys: 1, users: 1, memberships: 1, companies: 1 },
+      { api_keys: 1, users: 1, memberships: 1 },
       `${runsOf(requireCompanyMember)} company routers`,
     );
   });
@@ -211,7 +207,7 @@ describe("a request through every company router", () => {
       user_sessions: 1,
       users: 1,
       memberships: 1,
-      companies: 2,
+      companies: 1,
       totp_credentials: 1,
       webauthn_credentials: 1,
     });
