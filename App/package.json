@@ -75,6 +75,7 @@
     "test:api-keys": "tsx scripts/test-api-keys.ts",
     "test:api-docs": "tsx scripts/test-api-docs.ts",
     "test:mcp-setup": "tsx scripts/test-mcp-setup.ts",
+    "test:mcp-oauth-consent": "tsx scripts/test-mcp-oauth-consent.ts",
     "test:notes-editor": "tsx scripts/test-notes-editor.ts",
     "test:group-chats": "tsx scripts/test-group-chats.ts"
   },
