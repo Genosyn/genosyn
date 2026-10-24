@@ -241,8 +241,9 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "undismiss",
       ],
     },
-    // Open to every Member, read-only for Members: the switch and the
-    // instructions are owner/admin changes, but anyone may see them.
+    // Open to every Member, read-only for Members: the switch, the
+    // instructions and routing (under Advanced) are owner/admin changes, but
+    // anyone may see them.
     {
       label: "Decision stack settings",
       navLabel: "Settings",
@@ -254,6 +255,9 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "decision instructions",
         "which questions",
         "fewer questions",
+        "routing",
+        "routing rules",
+        "ai decider",
       ],
     },
   ],
