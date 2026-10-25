@@ -15,6 +15,7 @@ import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { alertDeliveryFailed, alertDeliveryRecovered, alertDue } from "./backupAlerts.js";
 import {
   deleteCopiesAtDestination,
+  formatBytes,
   markCopiesPending,
   markCopiesRemoved,
   markCopyCopied,
@@ -137,6 +138,29 @@ export function expiredArchives(names: string[], cutoff: Date, keep: string): st
     const takenAt = archiveTakenAt(name);
     return takenAt !== null && takenAt.getTime() < cutoff.getTime();
   });
+}
+
+/**
+ * The archives the off-box policy deletes from a destination before `sending`
+ * is copied there, to make room for it: the expired ones, except `sending`
+ * itself and the newest complete archive among them. Until the new copy has
+ * arrived, that newest one stands in for it, so a copy that then fails leaves
+ * the destination what the policy keeps and one backup older than that; once
+ * the copy arrives, {@link expiredArchives} lets it go.
+ *
+ * Retention used to wait for a copy to arrive, so a destination filled with
+ * archives it had expired could never take another: every copy failed part-way
+ * for want of the room that only a finished copy would have freed.
+ */
+export function expiredBeforeCopy(names: string[], cutoff: Date, sending: string): string[] {
+  const expired = expiredArchives(names, cutoff, sending);
+  const standIn = expired
+    .filter((name) => !name.endsWith(PARTIAL_SUFFIX))
+    .reduce<{ name: string; at: number } | null>((newest, name) => {
+      const at = archiveTakenAt(name)!.getTime();
+      return newest && newest.at >= at ? newest : { name, at };
+    }, null);
+  return expired.filter((name) => name !== standIn?.name);
 }
 
 export type DestinationInput = {
@@ -461,9 +485,10 @@ async function probeSftp(cfg: SftpConfig): Promise<void> {
  * the ones `options.destinationIds` names. Best-effort: a failure to reach one
  * destination is recorded on that row and returned in the result list, but
  * never throws — the local backup already succeeded. With an off-box
- * `retention` policy, each destination the copy reaches then drops the
- * archives the policy has expired there. Given a `backupId`, each copy's
- * progress is recorded against that backup, so History can say where it is.
+ * `retention` policy, each destination drops the archives the policy has
+ * expired there: all but the newest before the copy, to make room for it, and
+ * that one once the copy arrives. Given a `backupId`, each copy's progress is
+ * recorded against that backup, so History can say where it is.
  */
 export async function deliverBackupToDestinations(
   filename: string,
@@ -556,6 +581,7 @@ async function deliverOne(
     if (!fs.existsSync(absPath)) {
       throw new Error("This backup is no longer on this server, so there was nothing to copy.");
     }
+    await makeRoom(row, cfg, filename, absPath, retention);
     if (row.kind === "local") {
       await copyLocal(cfg as LocalConfig, filename, absPath);
     } else if (row.kind === "smb") {
@@ -612,6 +638,68 @@ async function saveDeliveryState(dest: BackupDestination): Promise<void> {
 }
 
 /**
+ * Before a copy: delete what the off-box policy has expired on the destination
+ * — all but the newest of it, which waits for the copy ({@link
+ * expiredBeforeCopy}) — then refuse a copy there is no room for. Such a copy
+ * used to run for an hour, fill the destination to the last byte and fail,
+ * every day. Looking is best-effort: a destination that can't be listed, or
+ * doesn't say how much room it has, is copied to regardless.
+ */
+async function makeRoom(
+  row: BackupDestination,
+  cfg: DestConfig,
+  filename: string,
+  absPath: string,
+  retention: OffBoxRetention | null,
+): Promise<void> {
+  let contents = await inspectQuietly(row, cfg);
+  if (contents && retention) {
+    const expired = expiredBeforeCopy(
+      contents.archives.map((archive) => archive.name),
+      retentionCutoff(retention),
+      filename,
+    );
+    if (expired.length > 0) {
+      await removeExpired(row, cfg, expired, retention);
+      contents = await inspectQuietly(row, cfg);
+    }
+  }
+  if (contents?.freeBytes == null) return;
+  const size = (await fs.promises.stat(absPath)).size;
+  // A copy of this backup cut short is written over in place, so its room is the copy's too.
+  const partial = contents.archives.find((archive) => archive.name === filename + PARTIAL_SUFFIX);
+  if (contents.freeBytes + (partial?.size ?? 0) >= size) return;
+  const free = formatBytes(contents.freeBytes);
+  throw new Error(
+    `${row.name} has ${free} free, but this backup is ${formatBytes(size)}. ` +
+      (retention
+        ? "Free up space there, or keep fewer days off-box. If it has a recycle bin, empty it: the backups Genosyn deletes stay in it until then."
+        : "Free up space there, or turn on off-box retention under Advanced."),
+  );
+}
+
+/** {@link inspectDestination}, logging rather than throwing when the destination can't be listed. */
+async function inspectQuietly(
+  row: BackupDestination,
+  cfg: DestConfig,
+): Promise<DestinationContents | null> {
+  try {
+    return await inspectDestination(row.kind, cfg);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[backups] could not look inside "${row.name}":`,
+      (err as Error).message ?? String(err),
+    );
+    return null;
+  }
+}
+
+function retentionCutoff(retention: OffBoxRetention): Date {
+  return new Date(Date.now() - retention.days * 24 * 60 * 60 * 1000);
+}
+
+/**
  * Delete what the off-box policy has expired on a destination that just took a
  * copy. Best-effort and logged: the archive is safely delivered, and a folder
  * left a little fuller is retried at the next delivery.
@@ -623,11 +711,21 @@ async function applyOffBoxRetention(
   retention: OffBoxRetention,
 ): Promise<void> {
   if (!cfg) return;
+  const contents = await inspectQuietly(row, cfg);
+  if (!contents) return;
+  const names = contents.archives.map((archive) => archive.name);
+  await removeExpired(row, cfg, expiredArchives(names, retentionCutoff(retention), keep), retention);
+}
+
+/** Delete `expired` from a destination and record each backup's copy there as removed. Best-effort and logged. */
+async function removeExpired(
+  row: BackupDestination,
+  cfg: DestConfig,
+  expired: string[],
+  retention: OffBoxRetention,
+): Promise<void> {
+  if (expired.length === 0) return;
   try {
-    const cutoff = new Date(Date.now() - retention.days * 24 * 60 * 60 * 1000);
-    const names = (await listArchives(row.kind, cfg)).map((entry) => entry.name);
-    const expired = expiredArchives(names, cutoff, keep);
-    if (expired.length === 0) return;
     await deleteArchives(row.kind, cfg, expired);
     await markCopiesRemoved(
       row.id,
@@ -649,23 +747,31 @@ async function applyOffBoxRetention(
 /** An archive on a destination, and its size in bytes. */
 export type DestinationArchive = { name: string; size: number };
 
+/**
+ * What a destination holds: the archives Genosyn wrote there, partial copies
+ * included, and the bytes still free there — null when it doesn't say, as an
+ * SFTP server without OpenSSH's `statvfs` extension doesn't.
+ */
+type DestinationContents = { archives: DestinationArchive[]; freeBytes: number | null };
+
 /** The archives Genosyn wrote to a destination, partial copies included, for daily verification. */
 export async function listDestinationArchives(
   row: BackupDestination,
 ): Promise<DestinationArchive[]> {
   const cfg = decodeConfig(row);
   if (!cfg) throw new Error("Stored configuration could not be decrypted");
-  return listArchives(row.kind, cfg);
+  return (await inspectDestination(row.kind, cfg)).archives;
 }
 
 /**
- * The archives Genosyn wrote to a destination. A folder that doesn't exist
- * yet holds none: it is created by the first delivery.
+ * The archives Genosyn wrote to a destination, and the room left there. A
+ * folder that doesn't exist yet holds none, and its room is unknown: it is
+ * created by the first delivery.
  */
-async function listArchives(
+async function inspectDestination(
   kind: BackupDestinationKind,
   cfg: DestConfig,
-): Promise<DestinationArchive[]> {
+): Promise<DestinationContents> {
   if (kind === "local") {
     const dir = (cfg as LocalConfig).path?.trim();
     if (!dir) throw new Error("No path configured");
@@ -673,28 +779,59 @@ async function listArchives(
     try {
       names = await fs.promises.readdir(dir);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { archives: [], freeBytes: null };
       throw err;
     }
     const archives: DestinationArchive[] = [];
     for (const name of names.filter((n) => ARCHIVE_NAME.test(n))) {
       archives.push({ name, size: (await fs.promises.stat(path.join(dir, name))).size });
     }
-    return archives;
+    return { archives, freeBytes: await localFreeBytes(dir) };
   }
-  if (kind === "smb") return listSmbArchives(cfg as SmbConfig);
+  if (kind === "smb") return inspectSmb(cfg as SmbConfig);
   const sftp = cfg as SftpConfig;
   const client = new SftpClient();
   try {
-    await client.connect(sftpConnectOptions(sftp));
-    if (!(await client.exists(sftp.remoteDir))) return [];
+    const session = await client.connect(sftpConnectOptions(sftp));
+    if (!(await client.exists(sftp.remoteDir))) return { archives: [], freeBytes: null };
     const entries = await client.list(sftp.remoteDir);
-    return entries
-      .filter((entry) => ARCHIVE_NAME.test(entry.name))
-      .map((entry) => ({ name: entry.name, size: entry.size }));
+    return {
+      archives: entries
+        .filter((entry) => ARCHIVE_NAME.test(entry.name))
+        .map((entry) => ({ name: entry.name, size: entry.size })),
+      freeBytes: await sftpFreeBytes(session, sftp.remoteDir),
+    };
   } finally {
     await safeEnd(client);
   }
+}
+
+/** The bytes free in a folder on this server; null when its filesystem won't say, as some FUSE mounts don't. */
+async function localFreeBytes(dir: string): Promise<number | null> {
+  try {
+    const disk = await fs.promises.statfs(dir);
+    return disk.bavail * disk.bsize;
+  } catch {
+    return null;
+  }
+}
+
+/** The session `connect()` resolves with: ssh2's own SFTP client, extensions and all. */
+type SftpSession = Awaited<ReturnType<SftpClient["connect"]>>;
+
+/** The bytes free in `dir` on an SFTP server, through OpenSSH's `statvfs` extension; null without it. */
+function sftpFreeBytes(session: SftpSession, dir: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    try {
+      session.ext_openssh_statvfs(dir, (err, disk) => {
+        const free = err ? NaN : Number(disk?.f_bavail) * Number(disk?.f_frsize);
+        resolve(Number.isFinite(free) ? free : null);
+      });
+    } catch {
+      // The server doesn't offer the extension.
+      resolve(null);
+    }
+  });
 }
 
 /** Delete archives by name; each was matched against {@link ARCHIVE_NAME}. */
@@ -968,13 +1105,19 @@ export function smbErrorMessage(
   if (e?.killed) return timeoutMessage ?? "Timed out talking to the SMB server";
 
   const output = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`;
+  // A copy that fails says why on stderr — `cli_push returned
+  // NT_STATUS_DISK_FULL` — and the close smbclient still attempts afterwards
+  // fails too, on stdout and so earlier in the output: `NT_STATUS_INVALID_
+  // NETWORK_RESPONSE closing remote file …`. The push's status is the reason;
+  // reading the close's instead reported every full share as a dropped link.
+  const pushStatus = /cli_push returned (NT_STATUS_[A-Z_]+)/.exec(output)?.[1];
   // The mkdir chain re-creates existing directories on every delivery, so a
   // collision is expected noise on stdout — never the reason we failed. It's
   // also the *first* status in the output, so scanning naively would report it
   // in place of the real error further down.
-  const status = (output.match(/NT_STATUS_[A-Z_]+/g) ?? []).find(
-    (s) => s !== "NT_STATUS_OBJECT_NAME_COLLISION",
-  );
+  const status =
+    pushStatus ??
+    (output.match(/NT_STATUS_[A-Z_]+/g) ?? []).find((s) => s !== "NT_STATUS_OBJECT_NAME_COLLISION");
   switch (status) {
     case "NT_STATUS_LOGON_FAILURE":
       return "Authentication failed — check the username, password, and domain";
@@ -1095,16 +1238,40 @@ export function parseSmbListing(stdout: string): DestinationArchive[] {
   return archives;
 }
 
-async function listSmbArchives(cfg: SmbConfig): Promise<DestinationArchive[]> {
+/**
+ * The line an smbclient listing ends with, saying how much room the share has
+ * left for this account: `3839458616 blocks of size 1024. 27552564 blocks
+ * available`.
+ */
+const SMB_DISK_LINE = /(\d+) blocks of size (\d+)\. (\d+) blocks available/;
+
+/**
+ * The bytes free on the share, from an smbclient listing; null when it has no
+ * such line — a folder no delivery has created yet lists nothing — or the
+ * share reports no size at all, which is no answer.
+ */
+export function parseSmbFreeBytes(stdout: string): number | null {
+  const match = SMB_DISK_LINE.exec(stdout);
+  if (!match) return null;
+  const [total, blockSize, available] = match.slice(1).map(Number);
+  if (!(total > 0) || !(blockSize > 0)) return null;
+  return available * blockSize;
+}
+
+/**
+ * Everything in the folder is listed, not only archives: smbclient prints the
+ * room left only after a listing that matched something, and `.` always does.
+ */
+async function inspectSmb(cfg: SmbConfig): Promise<DestinationContents> {
   const segments = smbDirSegments(cfg.remoteDir);
   const stdout = await runSmbClient(
     cfg,
-    [`ls "${smbRemotePath(segments, "backup-*.zip*")}"`],
+    [`ls "${smbRemotePath(segments, "*")}"`],
     SMB_HOUSEKEEPING_TIMEOUT_MS,
-    // Nothing matching, or a folder no delivery has created yet: no archives.
+    // A folder no delivery has created yet: no archives.
     { tolerate: ["NT_STATUS_NO_SUCH_FILE", "NT_STATUS_OBJECT_PATH_NOT_FOUND", "NT_STATUS_OBJECT_NAME_NOT_FOUND"] },
   );
-  return parseSmbListing(stdout);
+  return { archives: parseSmbListing(stdout), freeBytes: parseSmbFreeBytes(stdout) };
 }
 
 export function serializeDestination(row: BackupDestination) {

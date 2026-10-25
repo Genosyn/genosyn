@@ -380,8 +380,9 @@ async function offBoxRetention(): Promise<OffBoxRetention | null> {
  * On-box retention is enforced immediately rather than at the next hourly
  * tick, so saving the form has a visible effect — the returned count is what
  * the UI reports back to the operator. The off-box policy waits for the next
- * delivery to each destination: that is the one moment a fresh, complete copy
- * is known to be there, so pruning can never leave a destination empty.
+ * delivery to each destination, which keeps the newest expired archive there
+ * until its fresh, complete copy has arrived, so pruning can never leave a
+ * destination empty.
  */
 export async function updateBackupSchedule(patch: {
   enabled?: boolean;
