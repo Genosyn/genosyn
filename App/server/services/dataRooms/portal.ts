@@ -422,10 +422,10 @@ export async function recordHeartbeat(
   const added = Math.min(step, Math.max(0, MAX_VIEW_SECONDS - view.seconds));
   if (added === 0) return;
   await repo.update({ id: view.id }, { seconds: view.seconds + added });
-  await AppDataSource.getRepository(DataRoomGuest).update(
-    { id: context.guest.id },
-    { totalSeconds: context.guest.totalSeconds + added, lastViewedAt: new Date() },
-  );
+  // Incremented in place: a guest reading in two tabs beats for both.
+  const guests = AppDataSource.getRepository(DataRoomGuest);
+  await guests.increment({ id: context.guest.id }, "totalSeconds", added);
+  await guests.update({ id: context.guest.id }, { lastViewedAt: new Date() });
   await touchRoom(context.room);
 }
 

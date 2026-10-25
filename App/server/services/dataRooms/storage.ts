@@ -297,6 +297,12 @@ let watermarkCacheBytes = 0;
 
 function rememberWatermark(key: string, bytes: Buffer): void {
   if (bytes.length > WATERMARK_CACHE_BYTES / 4) return;
+  // Two requests can stamp the same copy at once; count it only once.
+  const previous = watermarkCache.get(key);
+  if (previous) {
+    watermarkCache.delete(key);
+    watermarkCacheBytes -= previous.length;
+  }
   watermarkCache.set(key, bytes);
   watermarkCacheBytes += bytes.length;
   for (const [oldest, value] of watermarkCache) {
