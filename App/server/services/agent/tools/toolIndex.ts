@@ -483,6 +483,23 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "add_candidate",
     ],
   },
+  data_rooms: {
+    label: "data rooms",
+    blurb:
+      "Documents shared with investors, buyers, auditors or partners: rooms, their documents, guests, activity and questions. Needs a Data room grant.",
+    tools: [
+      "list_data_rooms",
+      "get_data_room",
+      "read_data_room_document",
+      "list_data_room_questions",
+      "get_data_room_activity",
+      "create_data_room",
+      "add_data_room_document",
+      "draft_data_room_answer",
+      "answer_data_room_question",
+      "invite_data_room_guest",
+    ],
+  },
   files: {
     label: "files",
     blurb:
@@ -1150,6 +1167,17 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   ],
 
   // Recruiting
+  // Data rooms — people say "data room", "VDR", "diligence" or name the deal.
+  list_data_rooms: ["data room", "virtual data room", "vdr", "due diligence", "deal room", "investor room"],
+  get_data_room: ["data room index", "diligence folders", "who has access", "room documents"],
+  read_data_room_document: ["read diligence document", "data room file", "document text"],
+  list_data_room_questions: ["investor questions", "buyer questions", "diligence questions", "q&a"],
+  get_data_room_activity: ["who viewed", "investor engagement", "who opened the deck", "views analytics"],
+  create_data_room: ["set up a data room", "fundraising room", "diligence room", "share with investors"],
+  add_data_room_document: ["upload to data room", "add to diligence", "file in data room"],
+  draft_data_room_answer: ["draft diligence answer", "prepare answer for investor"],
+  answer_data_room_question: ["answer investor question", "reply to diligence question"],
+  invite_data_room_guest: ["invite investor", "give access to data room", "share data room", "invite buyer"],
   list_openings: ["jobs", "job postings", "roles we are hiring for", "vacancies", "careers page"],
   get_opening: ["job description", "hiring criteria", "role details"],
   create_opening: ["post a job", "job posting", "hire someone", "new role", "contract role", "post a contract"],

@@ -20,6 +20,7 @@ import {
 import { REVENUE_ACCESS_LEVELS } from "../../db/entities/EmployeeRevenueGrant.js";
 import { DEFAULT_ROUTINE_ACCESS, ROUTINE_ACCESS_LEVELS } from "../../db/entities/EmployeeRoutineGrant.js";
 import { SIGNING_ACCESS_LEVELS } from "../../db/entities/EmployeeSigningGrant.js";
+import { DATA_ROOM_ACCESS_LEVELS } from "../../db/entities/EmployeeDataRoomGrant.js";
 import { EMPLOYEE_VAULT_ACCESS_LEVELS } from "../../db/entities/EmployeeVaultGrant.js";
 import { closeTestDb, initTestDb } from "../../test/dbHarness.js";
 import {
@@ -67,6 +68,7 @@ const ENTITY_LEVELS: Record<AccessKind, readonly string[]> = {
   marketing: MARKETING_ACCESS_LEVELS,
   recruiting: RECRUITING_ACCESS_LEVELS,
   signing: SIGNING_ACCESS_LEVELS,
+  data_room: DATA_ROOM_ACCESS_LEVELS,
 };
 
 describe("the Access catalogue", () => {
@@ -86,7 +88,7 @@ describe("the Access catalogue", () => {
       return entity.name;
     }).sort();
     assert.deepEqual(covered, grantTables);
-    assert.equal(grantTables.length, 19, "the task named 19 grant tables");
+    assert.equal(grantTables.length, 20, "the task named 19 grant tables; data rooms added the 20th");
   });
 
   test("a new Grant takes the level its own table or route gives it", () => {
@@ -152,7 +154,7 @@ describe("the Access catalogue", () => {
     );
     assert.deepEqual(
       ACCESS_GROUPS.find((group) => group.key === "sections")?.kinds,
-      ["finance", "revenue", "marketing", "recruiting", "signing"],
+      ["finance", "revenue", "marketing", "recruiting", "signing", "data_room"],
     );
   });
 

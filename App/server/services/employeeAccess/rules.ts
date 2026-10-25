@@ -72,6 +72,7 @@ const ADMIN_KINDS: ReadonlySet<AccessKind> = new Set([
   "marketing",
   "recruiting",
   "signing",
+  "data_room",
 ]);
 
 export const BROWSER_SESSION_REASON =
@@ -122,8 +123,12 @@ export function kindChangeReason(kind: AccessKind, viewer: AccessViewer): string
   return null;
 }
 
-/** Whether the viewer may see who holds this kind at all (Finance reads need Finance access). */
+/**
+ * Whether the viewer may see who holds this kind at all: Finance reads need
+ * Finance access, and data rooms are owners' and admins' alone, reads included.
+ */
 export function kindGrantHidden(kind: AccessKind, viewer: AccessViewer): boolean {
+  if (kind === "data_room") return !isAdmin(viewer);
   return kind === "finance" && viewer.financeAccess === "none";
 }
 

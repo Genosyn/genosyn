@@ -34,6 +34,11 @@ import {
   RECRUITING_ACCESS_RANK,
   type RecruitingAccessLevel,
 } from "../../../db/entities/EmployeeRecruitingGrant.js";
+import {
+  DATA_ROOM_ACCESS_RANK,
+  EmployeeDataRoomGrant,
+  type DataRoomAccessLevel,
+} from "../../../db/entities/EmployeeDataRoomGrant.js";
 import { EmployeeResourceLibraryGrant } from "../../../db/entities/EmployeeResourceLibraryGrant.js";
 import { EmployeeRoutineGrant } from "../../../db/entities/EmployeeRoutineGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
@@ -353,6 +358,21 @@ const RECRUITING_TOOL_ACCESS: Record<string, RecruitingAccessLevel> = {
 };
 const RECRUITING_GATED_TOOLS = new Set(Object.keys(RECRUITING_TOOL_ACCESS));
 
+/** Data rooms: one company-wide `EmployeeDataRoomGrant`, reads included. */
+const DATA_ROOM_TOOL_ACCESS: Record<string, DataRoomAccessLevel> = {
+  list_data_rooms: "read",
+  get_data_room: "read",
+  read_data_room_document: "read",
+  list_data_room_questions: "read",
+  get_data_room_activity: "read",
+  create_data_room: "prepare",
+  add_data_room_document: "prepare",
+  draft_data_room_answer: "prepare",
+  answer_data_room_question: "share",
+  invite_data_room_guest: "share",
+};
+const DATA_ROOM_GATED_TOOLS = new Set(Object.keys(DATA_ROOM_TOOL_ACCESS));
+
 /**
  * The Resources library ceiling (Resources → AI access). The opposite shape to
  * every set above: an employee with no row holds `write`, so these are dead
@@ -413,6 +433,7 @@ export function assertGrantSetsResolve(): void {
     ...VAULT_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
     ...RECRUITING_GATED_TOOLS,
+    ...DATA_ROOM_GATED_TOOLS,
     ...RESOURCE_WRITE_GATED_TOOLS,
     ...ROUTINE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
@@ -486,6 +507,20 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
       if (typeof have === "number") {
         for (const [tool, required] of Object.entries(RECRUITING_TOOL_ACCESS)) {
           if (have < RECRUITING_ACCESS_RANK[required]) dead.add(tool);
+        }
+      }
+    }
+    const dataRooms = await AppDataSource.getRepository(EmployeeDataRoomGrant).findOne({
+      where: { employeeId },
+    });
+    if (!dataRooms) {
+      for (const tool of DATA_ROOM_GATED_TOOLS) dead.add(tool);
+    } else {
+      const have = DATA_ROOM_ACCESS_RANK[dataRooms.accessLevel];
+      // An unknown level stays live, as for signing: the route gate fails closed.
+      if (typeof have === "number") {
+        for (const [tool, required] of Object.entries(DATA_ROOM_TOOL_ACCESS)) {
+          if (have < DATA_ROOM_ACCESS_RANK[required]) dead.add(tool);
         }
       }
     }

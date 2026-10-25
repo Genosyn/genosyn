@@ -42,6 +42,10 @@ export type NotificationKind =
   | "board_letter_ready"
   | "recruiting_application"
   | "recruiting_strong_match"
+  /** A guest asked a question in a data room the recipient runs. */
+  | "data_room_question"
+  /** A guest opened a data room for the first time. */
+  | "data_room_visit"
   /** A group discussion the recipient started handed back its outcome. */
   | "group_discussion";
 
@@ -65,6 +69,7 @@ export type NotificationEntityKind =
   | "standdown"
   | "board_letter"
   | "recruiting_application"
+  | "data_room"
   | "group_discussion";
 
 @Entity("notifications")

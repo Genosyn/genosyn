@@ -27,7 +27,14 @@ describe("section listing", () => {
     }
     assert.deepEqual(
       keysOf(MEMBER_NONE),
-      ALL_KEYS.filter((key) => key !== "finance" && key !== "customers"),
+      ALL_KEYS.filter((key) => key !== "finance" && key !== "customers" && key !== "dataRooms"),
     );
+  });
+
+  test("Data rooms are offered to owners and admins only, whatever their Finance access", () => {
+    assert.equal(canOpenSection("dataRooms", OWNER), true);
+    assert.equal(canOpenSection("dataRooms", { role: "admin", financeAccess: "none" }), true);
+    assert.equal(canOpenSection("dataRooms", { role: "member", financeAccess: "full" }), false);
+    assert.equal(canOpenSection("dataRooms", MEMBER_NONE), false);
   });
 });

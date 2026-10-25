@@ -27,8 +27,8 @@ import { findProjectAccess } from "./projects.js";
  * ## Which records
  *
  * An allowlist, not every `targetType` the log has ever seen. A type is here
- * only when its read bar is settled: any Member, Finance read, or a Project's
- * own access. Secrets, Vault items, API keys, Connections, mailboxes and
+ * only when its read bar is settled: any Member, Finance read, a Project's
+ * own access, or owners and admins for records only they can open. Secrets, Vault items, API keys, Connections, mailboxes and
  * Member browsers stay out — their audit rows carry exactly what their own
  * pages take care not to show.
  */
@@ -39,7 +39,7 @@ export type RecordHistoryViewer = {
   financeAccess: FinanceAccess | undefined;
 };
 
-type AccessRule = "member" | "finance" | "project" | "todo";
+type AccessRule = "member" | "finance" | "admin" | "project" | "todo";
 
 /**
  * Every record type with a History, and the bar a viewer must clear to read
@@ -86,6 +86,8 @@ export const RECORD_HISTORY_TYPES: Record<string, AccessRule> = {
   resource: "member",
   meeting: "member",
   signature_envelope: "member",
+  // Owners and admins only, like the data room itself.
+  data_room: "admin",
   marketing_campaign: "member",
   repository: "member",
   // Tasks — a restricted Project is readable only by its own members.
@@ -117,6 +119,7 @@ export async function canReadRecordHistory(
   if (!rule) return false;
   if (rule === "member") return true;
   if (rule === "finance") return financeAccessFor(viewer.role, viewer.financeAccess) !== "none";
+  if (rule === "admin") return viewer.role === "owner" || viewer.role === "admin";
   let projectId = targetId;
   if (rule === "todo") {
     const todo = await AppDataSource.getRepository(Todo).findOne({

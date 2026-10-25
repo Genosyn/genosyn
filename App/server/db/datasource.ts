@@ -242,6 +242,14 @@ import { CompanySso } from "./entities/CompanySso.js";
 import { PhoneNumber } from "./entities/PhoneNumber.js";
 import { PhoneMessage } from "./entities/PhoneMessage.js";
 import { PhoneCall } from "./entities/PhoneCall.js";
+import { DataRoom } from "./entities/DataRoom.js";
+import { DataRoomFolder } from "./entities/DataRoomFolder.js";
+import { DataRoomDocument } from "./entities/DataRoomDocument.js";
+import { DataRoomGuest } from "./entities/DataRoomGuest.js";
+import { DataRoomEvent } from "./entities/DataRoomEvent.js";
+import { DataRoomQuestion } from "./entities/DataRoomQuestion.js";
+import { DataRoomJob } from "./entities/DataRoomJob.js";
+import { EmployeeDataRoomGrant } from "./entities/EmployeeDataRoomGrant.js";
 
 const entities = [
   User,
@@ -494,6 +502,16 @@ const entities = [
   RecruitingScorecard,
   RecruitingApplicationEvent,
   EmployeeRecruitingGrant,
+  // Data rooms — documents shared with guests outside the company, what each
+  // guest did there, their questions, and the room's queue of AI work.
+  DataRoom,
+  DataRoomFolder,
+  DataRoomDocument,
+  DataRoomGuest,
+  DataRoomEvent,
+  DataRoomQuestion,
+  DataRoomJob,
+  EmployeeDataRoomGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

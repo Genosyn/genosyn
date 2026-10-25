@@ -24,6 +24,7 @@ import { EmployeeResourceLibraryGrant } from "../../db/entities/EmployeeResource
 import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js";
 import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { EmployeeSigningGrant } from "../../db/entities/EmployeeSigningGrant.js";
+import { EmployeeDataRoomGrant } from "../../db/entities/EmployeeDataRoomGrant.js";
 import { EmployeeVaultGrant } from "../../db/entities/EmployeeVaultGrant.js";
 import { Note } from "../../db/entities/Note.js";
 import { Notebook } from "../../db/entities/Notebook.js";
@@ -142,7 +143,7 @@ describe("listing every kind", () => {
       assert.equal(item.grant, null, `${kind} starts ungranted`);
       assert.equal(item.key, `${kind}:${id}`);
     }
-    for (const kind of ["finance", "revenue", "marketing", "recruiting", "signing"] as const) {
+    for (const kind of ["finance", "revenue", "marketing", "recruiting", "signing", "data_room"] as const) {
       assert.equal(find(listing, kind).grant, null, kind);
     }
     // Every AI Employee holds Routines and the Resources library by default.
@@ -401,6 +402,19 @@ describe("who may see and change what — each kind's own rule", () => {
     }
     // The Vault manages sharing for owners and admins whoever added the item.
     assert.equal(find(listing, "vault_item", g.restrictedVaultItemId).canChange, true);
+  });
+
+  test("Data room access is hidden from Members, whatever their Finance access", async () => {
+    await insert(EmployeeDataRoomGrant, { companyId: company.id, employeeId: employee.id, accessLevel: "share" });
+    const member = find(await list(viewer({ userId: colleague.id, role: "member", financeAccess: "full" })), "data_room");
+    assert.equal(member.hidden, true);
+    assert.equal(member.grant, null);
+    assert.equal(member.canChange, false);
+    assert.equal(member.reason, "Only owners and admins can change Data room access.");
+    const admin = await addMember(company.id, "admin");
+    const shown = find(await list(viewer({ userId: admin.id, role: "admin" })), "data_room");
+    assert.deepEqual(shown.grant, { level: "share", byDefault: false });
+    assert.equal(shown.href, "/data-rooms/ai-access");
   });
 
   test("Finance is hidden from a Member without Finance access, visible read-only with it", async () => {

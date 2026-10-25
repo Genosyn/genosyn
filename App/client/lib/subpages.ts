@@ -20,6 +20,7 @@ import {
   FileSignature,
   FileText,
   FlaskConical,
+  FolderLock,
   FolderKanban,
   GitPullRequest,
   Globe,
@@ -548,6 +549,25 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       path: "/signatures/ai-access",
       icon: Bot,
       keywords: ["signature grants", "ai employee access", "permissions"],
+    },
+  ],
+  // Owners and admins only, reads included (routes/dataRooms.ts): a room
+  // often holds news the rest of the company has not heard yet.
+  dataRooms: [
+    {
+      label: "Data rooms",
+      navLabel: "Rooms",
+      path: "/data-rooms",
+      icon: FolderLock,
+      access: ADMIN,
+      keywords: ["vdr", "diligence rooms", "investor rooms", "shared documents"],
+    },
+    {
+      label: "AI access",
+      path: "/data-rooms/ai-access",
+      icon: Bot,
+      access: ADMIN,
+      keywords: ["data room grants", "ai employee access", "permissions"],
     },
   ],
   meetings: [

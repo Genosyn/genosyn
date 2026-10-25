@@ -35,6 +35,7 @@ import { bootPhone } from "./services/phone/sync.js";
 import { appShellFallback, careersPagesRouter } from "./routes/careersSite.js";
 import { bootCareersHosts } from "./services/recruiting/domains.js";
 import { bootScreeningQueue } from "./services/recruiting/screeningQueue.js";
+import { bootDataRoomQueue } from "./services/dataRooms/queue.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootBrowserRecordingRetention } from "./services/browserRecordingRetention.js";
 import { bootExchangeRateFeed } from "./services/exchangeRateFeed.js";
@@ -114,6 +115,9 @@ async function main() {
   // Applications waiting for their AI screen (resumed after a restart).
   await bootCareersHosts();
   bootScreeningQueue();
+  // Data rooms: the AI work a room queued — briefs, answers, reviews — picked
+  // up where a previous process left it.
+  bootDataRoomQueue();
   await bootCron();
   // `genosyn upgrade` asks the running server to pause its Routine Runs before
   // it restarts. Started after boot recovery cleared any stale request.

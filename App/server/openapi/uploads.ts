@@ -3,6 +3,7 @@ import { applicationFieldsSchema } from "../routes/careers.js";
 import { contractFieldsSchema } from "../routes/contracts.js";
 import { manualApplicationSchema } from "../routes/recruiting.js";
 import { createMultipartSchema } from "../routes/signatures.js";
+import { documentUploadFields } from "../routes/dataRooms.js";
 import type { JsonSchema } from "./schemaConversion.js";
 
 /**
@@ -82,6 +83,11 @@ export const MULTIPART_UPLOADS: Record<string, MultipartUpload> = {
     fileField: "file",
     file: "The PDF to send for signature.",
     fieldsSchema: createMultipartSchema,
+  },
+  "POST /api/companies/{cid}/data-rooms/{roomId}/documents": {
+    fileField: "file",
+    file: "A PDF, Word, Excel, PowerPoint, text or image file, up to 50 MB.",
+    fieldsSchema: documentUploadFields,
   },
   "POST /api/companies/{cid}/mail/accounts/{aid}/outbox-attachments": {
     fileField: "file",

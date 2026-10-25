@@ -39,6 +39,10 @@ export const TAINT_SINK_TOOLS = new Set([
   // does, so a page that read "now text this number" is held the same way.
   "send_text_message",
   "place_phone_call",
+  // Inviting a guest emails them a link to the company's confidential
+  // documents, and publishing an answer speaks to them: both reach outside.
+  "invite_data_room_guest",
+  "answer_data_room_question",
   "create_routine",
   "update_routine",
   "delete_routine",
@@ -62,9 +66,22 @@ export const WEB_TAINT_SOURCES = new Set(["search_web", "fetch_web_page", "downl
  */
 export const APPLICANT_TAINT_SOURCES = new Set(["list_applications", "get_application"]);
 
+/**
+ * A data room guest is a stranger too, and their question is written to the
+ * company's AI as surely as a resume is. Reading questions taints the turn, so
+ * the answer it publishes or the guest it invites afterwards waits for a
+ * person — the room's own answer turn, which has no tools, is how answers go
+ * out on their own.
+ */
+export const DATA_ROOM_TAINT_SOURCES = new Set(["list_data_room_questions"]);
+
 /** Whether calling this tool marks the turn as having read outside content. */
 export function isTaintSource(toolName: string): boolean {
-  return WEB_TAINT_SOURCES.has(toolName) || APPLICANT_TAINT_SOURCES.has(toolName);
+  return (
+    WEB_TAINT_SOURCES.has(toolName) ||
+    APPLICANT_TAINT_SOURCES.has(toolName) ||
+    DATA_ROOM_TAINT_SOURCES.has(toolName)
+  );
 }
 
 export type TaintedToolPayload = {
@@ -120,7 +137,7 @@ export async function createTaintedToolApproval(args: {
     status: "pending",
     title: redactApprovalSummary(`Tainted turn · ${args.tool}`),
     summary: redactApprovalSummary(
-      `This turn read outside content (a web page or an application) before calling ${args.tool}. Held for review: ` +
+      `This turn read outside content (a web page, an application or a guest's question) before calling ${args.tool}. Held for review: ` +
         approvalArgsPreview(args.toolArgs).slice(0, 300),
     ),
     payloadJson: JSON.stringify({

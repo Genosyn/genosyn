@@ -32,6 +32,7 @@ import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeRecruitingContext } from "./recruiting/grants.js";
+import { composeDataRoomContext } from "./dataRooms/grants.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
@@ -814,6 +815,7 @@ async function prepareRoutineRun(
         revenueContext,
         marketingContext,
         recruitingContext,
+        dataRoomsContext,
         resourcesContext,
         phoneContext,
       ] = await Promise.all([
@@ -821,6 +823,7 @@ async function prepareRoutineRun(
           composeRevenueContext(emp.id),
           composeMarketingContext(emp.id),
           composeRecruitingContext(emp.id),
+          composeDataRoomContext(emp.id),
           composeResourceLibraryContext(emp.id),
           // A Run held to an email delivery ceiling cannot text or call, so
           // it is not briefed that it can.
@@ -846,6 +849,7 @@ async function prepareRoutineRun(
         revenueContext,
         marketingContext,
         recruitingContext,
+        dataRoomsContext,
         resourcesContext,
         phoneContext,
         routineAccess,

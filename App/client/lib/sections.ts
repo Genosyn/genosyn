@@ -6,6 +6,7 @@ import {
   CircleUser,
   Contact2,
   FolderGit2,
+  FolderLock,
   FileSignature,
   GitBranch,
   Home,
@@ -75,6 +76,7 @@ export type SectionKey =
   | "marketing"
   | "customers"
   | "signatures"
+  | "dataRooms"
   | "finance"
   | "recruiting"
   | "pipelines"
@@ -473,6 +475,33 @@ export const SECTION_GROUPS: SectionGroup[] = [
         ],
       },
       {
+        key: "dataRooms",
+        label: "Data rooms",
+        description: "Share documents with investors, buyers, and auditors.",
+        icon: FolderLock,
+        // The one letter no other section holds.
+        shortcut: "A",
+        path: "/data-rooms",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        // "vdr", "deal room" and "diligence" are what people type; the product
+        // says Data rooms, Guests and Questions.
+        keywords: [
+          "data room",
+          "vdr",
+          "virtual data room",
+          "deal room",
+          "due diligence",
+          "diligence",
+          "fundraising",
+          "investors",
+          "acquisition",
+          "m&a",
+          "audit",
+          "share documents",
+          "docsend",
+        ],
+      },
+      {
         key: "finance",
         label: "Finance",
         description: "Invoices, bills, and revenue.",
@@ -636,6 +665,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/revenue(\/|$)/.test(pathname)) return "revenue";
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/signatures(\/|$)/.test(pathname)) return "signatures";
+  if (/\/c\/[^/]+\/data-rooms(\/|$)/.test(pathname)) return "dataRooms";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/recruiting(\/|$)/.test(pathname)) return "recruiting";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";

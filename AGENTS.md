@@ -258,6 +258,8 @@ code, UI copy, commits, and docs.
 | **Application** (one person applying to one Opening — `RecruitingApplication`; the person is the candidate, and where it stands is its **Stage**) | Submission, Lead, Candidate record; never "pipeline" for its stages |
 | **Scorecard** (one judgment of an Application against its Opening's criteria, by a person or an AI Employee — `RecruitingScorecard`) | Evaluation, Assessment, Rating, Review |
 | **Careers site** (where a company's Openings are listed and applications taken — on the install at `/careers/<company-slug>`, on a verified custom domain, or internal to Members) | Job board, Portal, ATS (in product copy) |
+| **Data room** (a private, tracked set of documents shared with people outside the company — investors, a buyer, auditors, a partner — `DataRoom`) | Deal room, VDR, Space, Portal, Share (in product copy) |
+| **Guest** (one person outside the company invited to one Data room through their own private link — `DataRoomGuest`) | Visitor, Viewer, User, Member (Members are the company's own people) |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
@@ -555,6 +557,31 @@ domain is answered by `careersHostGuard` with the careers site and nothing
 else; resumes stay App-private under `.private/recruiting/` and reach only
 signed-in Members. Keep those boundaries when extending it.
 
+**A data room's guest is a stranger, and its AI answers only from what that
+guest can open.** A Guest's private link is their only credential: its token
+is hashed for lookup and encrypted so owners and admins can copy it again, and
+it reaches that guest's folders and their own questions and nothing else
+(`services/dataRooms/portal.ts`). Rooms are owners' and admins' alone, reads
+included, on the human routes and under Member delegation alike. The room's
+appointed AI Employee (`DataRoom.aiEmployeeId`, an appointment like the AI
+screener's, not a Grant) works in restricted one-tool turns
+(`services/dataRooms/ai.ts`): a brief per document, a readiness review against
+the purpose's server-owned checklist (`shared/dataRooms.ts` — the model only
+says which documents cover each item, and `readinessScore` does the
+arithmetic), a reading of activity the server counted, and an answer to each
+question. An answer turn is shown only the documents the asking guest can
+open, as bounded passages (`services/dataRooms/retrieval.ts`), with the
+question as untrusted JSON in the user turn; every quote it cites is checked
+against those passages, and in `auto` mode it reaches the guest only when the
+model says the documents answer it, it cites at least one passage, every quote
+holds and the question did not try to instruct it — otherwise it waits as a
+draft. An AI Employee's own tools answer to `EmployeeDataRoomGrant`
+(`read < prepare < share`); `list_data_room_questions` is a taint source and
+`invite_data_room_guest` and `answer_data_room_question` are taint sinks and
+delivery tools, and no tool ever returns a guest's link. Keep those
+boundaries: do not let an answer read beyond its guest's folders, publish an
+unchecked quote, or hand a link to a model.
+
 **A group discussion talks; it does not act.** Several AI Employees take turns
 on one Member's question in a Workspace channel — in a group chat every Member
 message is one — and the lead writes the outcome (summary, recommendation, open
@@ -683,9 +710,10 @@ data/
 │   │   └── <employee-id>.json     # exported cookie/local-storage snapshot
 │   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
 │   ├── code-repository-ssh/<company-id>/<employee-id>.known_hosts
-│   └── recruiting/<company-id>/
-│       ├── resumes/        # applicants' resume files, named by a random key on the Application
-│       └── site/           # the careers site logo
+│   ├── recruiting/<company-id>/
+│   │   ├── resumes/        # applicants' resume files, named by a random key on the Application
+│   │   └── site/           # the careers site logo
+│   └── data-rooms/<company-id>/documents/  # data room files, named by a random key on the document
 ├── app.sqlite              # WAL mode: app.sqlite-wal / -shm beside it while running
 └── companies/<company-slug>/employees/<emp-slug>/
     ├── repos/  code-repos/    # git working trees the coding tools operate on

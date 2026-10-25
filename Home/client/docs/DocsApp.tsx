@@ -58,6 +58,7 @@ import { PdfForms } from "@/docs/pages/PdfForms";
 import { WordDocuments } from "@/docs/pages/WordDocuments";
 import { ExcelWorkbooks } from "@/docs/pages/ExcelWorkbooks";
 import { Signatures } from "@/docs/pages/Signatures";
+import { DataRooms } from "@/docs/pages/DataRooms";
 import { Finance } from "@/docs/pages/Finance";
 import { Banking } from "@/docs/pages/Banking";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
@@ -130,6 +131,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/word-documents": WordDocuments,
   "/docs/excel-workbooks": ExcelWorkbooks,
   "/docs/signatures": Signatures,
+  "/docs/data-rooms": DataRooms,
   "/docs/finance": Finance,
   "/docs/banking": Banking,
   "/docs/self-hosting": SelfHosting,

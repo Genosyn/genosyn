@@ -16,6 +16,9 @@ const SEND_TOOLS = new Set([
   "send_estimate",
   "send_signature_envelope",
   "remind_signature_recipient",
+  // A data room invitation is an email to an outsider; an answer emails them too.
+  "invite_data_room_guest",
+  "answer_data_room_question",
   "send_sequence_step",
   "send_campaign",
 ]);

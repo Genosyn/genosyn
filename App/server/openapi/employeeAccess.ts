@@ -105,7 +105,7 @@ registry.registerPath({
   path: "/api/companies/{cid}/employees/{eid}/access",
   summary: "List everything an AI Employee can be granted, and what it holds",
   description: [
-    "Every Connection, mailbox, calendar, Repository, notebook and note, Base, chart, dashboard, Resource, Vault item and Member browser in the company, the Resources library, Routines and the company sections (Finance, Revenue, Marketing, Recruiting, Document signing) — each with the Grant this AI Employee holds and whether the caller may change it.",
+    "Every Connection, mailbox, calendar, Repository, notebook and note, Base, chart, dashboard, Resource, Vault item and Member browser in the company, the Resources library, Routines and the company sections (Finance, Revenue, Marketing, Recruiting, Document signing, Data rooms) — each with the Grant this AI Employee holds and whether the caller may change it.",
     `Each kind lists at most ${ACCESS_LIST_LIMIT} rows plus every row the employee holds a Grant on; \`q\` searches the rest. A note covered by its notebook's Grant, or a parent page's, says so in \`inherited\`.`,
     "Who may see and change each row follows the kind's own surface: an API key or a connected app cannot list Connections, Repositories, Vault items or Member browsers, and only the Member who connected a browser sees who may use it.",
   ].join("\n\n"),

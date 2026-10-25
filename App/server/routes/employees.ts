@@ -58,6 +58,7 @@ import { removeRepositoryPrivateStateForEmployee } from "../services/repositoryS
 import { detachEmployeeFromTldrs, ensureDefaultTldrSchedule } from "../services/tldrs.js";
 import { detachEmployeeFromBoardLetters } from "../services/boardLetters.js";
 import { detachEmployeeFromRecruiting } from "../services/recruiting/grants.js";
+import { detachEmployeeFromDataRooms } from "../services/dataRooms/grants.js";
 import {
   deleteBrowserRecordingsForRunIds,
   markBrowserRecordingEmployeeDeleting,
@@ -438,6 +439,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await detachEmployeeFromTldrs(emp.companyId, emp.id);
   await detachEmployeeFromBoardLetters(emp.companyId, emp.id);
   await detachEmployeeFromRecruiting(emp.companyId, emp.id);
+  await detachEmployeeFromDataRooms(emp.companyId, emp.id);
 
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: emp.id },
@@ -547,6 +549,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await detachEmployeeFromTldrs(emp.companyId, emp.id);
   await detachEmployeeFromBoardLetters(emp.companyId, emp.id);
   await detachEmployeeFromRecruiting(emp.companyId, emp.id);
+  await detachEmployeeFromDataRooms(emp.companyId, emp.id);
 
   await removeBrowserStorageForEmployee(emp.companyId, emp.id);
   removeRepositoryPrivateStateForEmployee(emp.companyId, emp.id);

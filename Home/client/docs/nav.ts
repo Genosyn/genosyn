@@ -371,6 +371,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Prepare, send, sign, and archive PDFs with recipient evidence and AI Employee delegation.",
       },
       {
+        path: "/docs/data-rooms",
+        title: "Data rooms",
+        blurb:
+          "Share documents with investors, buyers and auditors through private links — briefed, checked for readiness, and answered from the documents by AI.",
+      },
+      {
         path: "/docs/finance",
         title: "Finance",
         blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting.",

@@ -7,6 +7,7 @@ import {
   browserRecordingsCompanyDir,
   companyDir,
   meetingRecordingsCompanyDir,
+  dataRoomPrivateCompanyDir,
   recruitingPrivateCompanyDir,
   repositoryPrivateCompanyDir,
   repositoryWorkspaceCompanyDir,
@@ -143,6 +144,14 @@ import { RecruitingApplicationEvent } from "../db/entities/RecruitingApplication
 import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
 import { RecruitingScorecard } from "../db/entities/RecruitingScorecard.js";
 import { RecruitingSettings } from "../db/entities/RecruitingSettings.js";
+import { DataRoom } from "../db/entities/DataRoom.js";
+import { DataRoomDocument } from "../db/entities/DataRoomDocument.js";
+import { DataRoomEvent } from "../db/entities/DataRoomEvent.js";
+import { DataRoomFolder } from "../db/entities/DataRoomFolder.js";
+import { DataRoomGuest } from "../db/entities/DataRoomGuest.js";
+import { DataRoomJob } from "../db/entities/DataRoomJob.js";
+import { DataRoomQuestion } from "../db/entities/DataRoomQuestion.js";
+import { EmployeeDataRoomGrant } from "../db/entities/EmployeeDataRoomGrant.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
@@ -627,6 +636,16 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RecruitingOpening, { companyId });
     await m.delete(RecruitingSettings, { companyId });
     await m.delete(EmployeeRecruitingGrant, { companyId });
+    // Data rooms: what guests did and asked before the guests, documents
+    // before their folders, and the rooms last.
+    await m.delete(DataRoomEvent, { companyId });
+    await m.delete(DataRoomQuestion, { companyId });
+    await m.delete(DataRoomGuest, { companyId });
+    await m.delete(DataRoomDocument, { companyId });
+    await m.delete(DataRoomFolder, { companyId });
+    await m.delete(DataRoomJob, { companyId });
+    await m.delete(DataRoom, { companyId });
+    await m.delete(EmployeeDataRoomGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
     // Sessions before the repositories they belong to, so a failure halfway
@@ -730,6 +749,15 @@ export async function deleteCompanyCascade(args: {
   } catch (err) {
     console.warn(
       `[companyDelete] failed to remove Recruiting files for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  // Data room documents: the company's books, contracts and cap table, kept
+  // App-private. They must not outlive the company that shared them.
+  try {
+    fs.rmSync(dataRoomPrivateCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove data room files for ${companyId}: ${(err as Error).message}`,
     );
   }
 }

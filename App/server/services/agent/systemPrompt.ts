@@ -56,6 +56,8 @@ export function composeEmployeeSystemPrompt(args: {
   marketingContext: string;
   /** The "## Recruiting" block from `services/recruiting/grants.ts`, or "" without a Recruiting Grant. */
   recruitingContext?: string;
+  /** The "## Data rooms" block from `services/dataRooms/grants.ts`, or "" without a Data room Grant. */
+  dataRoomsContext?: string;
   /** The "## Resources" block from `services/resourceLibraryAccess.ts` — only
    * for an employee set to read only; "" otherwise. */
   resourcesContext: string;
@@ -138,6 +140,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
   if (args.recruitingContext) parts.push(args.recruitingContext);
+  if (args.dataRoomsContext) parts.push(args.dataRoomsContext);
   if (resourcesContext) parts.push(resourcesContext);
   if (args.phoneContext) parts.push(args.phoneContext);
 

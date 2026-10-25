@@ -26,6 +26,7 @@ import { composePhoneContext } from "./phone/context.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeRecruitingContext } from "./recruiting/grants.js";
+import { composeDataRoomContext } from "./dataRooms/grants.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
@@ -365,6 +366,8 @@ export type InteractiveChatContextAccess = {
   revenue: boolean;
   marketing: boolean;
   recruiting: boolean;
+  /** Data rooms are owners' and admins' on the human route, so their briefing is too. */
+  dataRooms: boolean;
   resources: boolean;
   extraSystem: boolean;
   taggedReferences: boolean;
@@ -403,6 +406,7 @@ export function resolveInteractiveChatContextAccess(
     revenue: companyContext,
     marketing: companyContext,
     recruiting: companyContext,
+    dataRooms: privilegedToolSources,
     resources: companyContext,
     extraSystem: companyContext,
     taggedReferences: companyContext,
@@ -813,6 +817,7 @@ export async function streamChatWithEmployee(
       revenueContext,
       marketingContext,
       recruitingContext,
+      dataRoomsContext,
       resourcesContext,
       phoneContext,
     ] = await Promise.all([
@@ -827,6 +832,9 @@ export async function streamChatWithEmployee(
           : Promise.resolve(""),
         contextAccess.recruiting && !repositoryWork
           ? composeRecruitingContext(emp.id)
+          : Promise.resolve(""),
+        contextAccess.dataRooms && !repositoryWork && !options.collaboration
+          ? composeDataRoomContext(emp.id)
           : Promise.resolve(""),
         contextAccess.resources && !repositoryWork
           ? composeResourceLibraryContext(emp.id)
@@ -887,6 +895,7 @@ export async function streamChatWithEmployee(
             revenueContext,
             marketingContext,
             recruitingContext,
+            dataRoomsContext,
             resourcesContext,
             phoneContext,
             routineAccess,

@@ -8,12 +8,14 @@ import {
   Briefcase,
   CheckCircle2,
   ClipboardCheck,
+  FolderLock,
   GitBranch,
   GitPullRequest,
   Hourglass,
   Landmark,
   Lightbulb,
   Mail,
+  MessageCircleQuestion,
   PiggyBank,
   ScrollText,
   ShieldAlert,
@@ -426,6 +428,10 @@ function KindIcon({
       return <Briefcase size={size} className={className} />;
     case "recruiting_strong_match":
       return <Star size={size} className={className} />;
+    case "data_room_question":
+      return <MessageCircleQuestion size={size} className={className} />;
+    case "data_room_visit":
+      return <FolderLock size={size} className={className} />;
     case "group_discussion":
       return <Users size={size} className={className} />;
   }
@@ -523,6 +529,14 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   recruiting_strong_match: {
     iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
     iconFg: "text-emerald-600 dark:text-emerald-300",
+  },
+  data_room_question: {
+    iconBg: "bg-indigo-100 dark:bg-indigo-500/15",
+    iconFg: "text-indigo-600 dark:text-indigo-300",
+  },
+  data_room_visit: {
+    iconBg: "bg-slate-100 dark:bg-slate-700/40",
+    iconFg: "text-slate-600 dark:text-slate-300",
   },
   group_discussion: {
     iconBg: "bg-indigo-100 dark:bg-indigo-500/15",

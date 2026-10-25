@@ -62,6 +62,8 @@ import { proactiveRouter } from "../routes/proactive.js";
 import { projectsRouter } from "../routes/projects.js";
 import { publicFormsRouter } from "../routes/publicForms.js";
 import { publicSignaturesRouter } from "../routes/publicSignatures.js";
+import { publicDataRoomsRouter } from "../routes/publicDataRooms.js";
+import { dataRoomsRouter } from "../routes/dataRooms.js";
 import { pushRouter } from "../routes/push.js";
 import { reactivityRouter } from "../routes/reactivity.js";
 import { recordHistoryRouter } from "../routes/recordHistory.js";
@@ -238,6 +240,11 @@ export const AREAS: readonly Area[] = [
     description: "Openings, Applications, Scorecards and the careers site settings.",
   },
   {
+    name: "Data rooms",
+    description:
+      "Rooms of documents shared with guests outside the company, their guests, activity and questions, and the room's AI work. Owners and admins only.",
+  },
+  {
     name: "Customers",
     description: "Customer accounts, their contacts, statements and contracts.",
   },
@@ -265,6 +272,11 @@ export const AREAS: readonly Area[] = [
       "The pages a document's recipients sign on, authenticated by the link they were sent.",
   },
   { name: "Public forms", description: "Published forms anyone with the link can fill in." },
+  {
+    name: "Guest data rooms",
+    description:
+      "The data room a guest reads and asks questions in, authenticated by their private link.",
+  },
   { name: "Careers site", description: "The public careers site: Openings and applications." },
   {
     name: "Inbound webhooks",
@@ -358,6 +370,7 @@ function areaRules(): AreaRule[] {
     { router: meetingsRouter, area: "Meetings" },
     { router: marketingRouter, area: "Marketing" },
     { router: recruitingRouter, area: "Recruiting" },
+    { router: dataRoomsRouter, area: "Data rooms" },
     { router: customerMergeRouter, area: "Customers" },
     { router: contractsRouter, area: "Customers" },
     { router: subsidiariesRouter, area: "Finance" },
@@ -390,6 +403,7 @@ function areaRules(): AreaRule[] {
     { router: backupDestinationsRouter, area: "Backups" },
     { router: publicSignaturesRouter, area: "Public signing" },
     { router: publicFormsRouter, area: "Public forms" },
+    { router: publicDataRoomsRouter, area: "Guest data rooms" },
     { router: careersRouter, area: "Careers site" },
     { router: webhooksRouter, area: "Inbound webhooks" },
   ];

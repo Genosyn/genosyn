@@ -368,6 +368,8 @@ describe("subpage visibility", () => {
     // form is for. Pages a Member can open read-only are deliberately absent.
     const hidden = ALL_PAGES.filter((p) => !canOpenSubpage(p, MEMBER_FULL)).map((p) => p.path);
     assert.deepEqual(hidden.sort(), [
+      "/data-rooms",
+      "/data-rooms/ai-access",
       "/decisions/approvals",
       "/employees/new",
       "/pipelines/new",
@@ -639,7 +641,7 @@ describe("subpage search", () => {
   });
 
   test("keeps catalogue order between equally good matches", () => {
-    const aiAccess = paths(searchSubpages(PALETTE_SUBPAGES, "ai access", { viewer: OWNER }));
+    const aiAccess = paths(searchSubpages(PALETTE_SUBPAGES, "ai access", { viewer: OWNER, limit: 20 }));
     const catalogueOrder = PALETTE_SUBPAGES.filter((p) => p.label === "AI access").map((p) => p.path);
     assert.deepEqual(aiAccess, catalogueOrder);
     assert.deepEqual(aiAccess, [
@@ -649,6 +651,7 @@ describe("subpage search", () => {
       "/marketing/ai-access",
       "/revenue/ai-access",
       "/signatures/ai-access",
+      "/data-rooms/ai-access",
       "/finance/ai-access",
       "/recruiting/ai-access",
     ]);

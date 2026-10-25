@@ -194,6 +194,11 @@ import SignatureNew from "@/pages/SignatureNew";
 import SignatureDetail from "@/pages/SignatureDetail";
 import SignatureAiAccess from "@/pages/SignatureAiAccess";
 import PublicSigning from "@/pages/PublicSigning";
+import DataRoomsLayout from "@/pages/DataRoomsLayout";
+import DataRoomsIndex from "@/pages/DataRoomsIndex";
+import DataRoomDetail from "@/pages/DataRoomDetail";
+import DataRoomsAiAccess from "@/pages/DataRoomsAiAccess";
+import PublicDataRoom from "@/pages/PublicDataRoom";
 import PublicForm from "@/pages/PublicForm";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
@@ -244,13 +249,13 @@ type AuthState =
   | { status: "ready"; me: Me; companies: Company[] };
 
 function isAnonymousPage(pathname: string): boolean {
-  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|oauth\/consent(?:\/|$)|sign(?:\/|$)|forms(?:\/|$))/i.test(
+  return /^\/(?:login(?:\/|$)|signup(?:\/|$)|forgot(?:\/|$)|reset(?:\/|$)|verify-email(?:\/|$)|invite(?:\/|$)|link-chat(?:\/|$)|oauth\/consent(?:\/|$)|sign(?:\/|$)|forms(?:\/|$)|room(?:\/|$))/i.test(
     pathname,
   );
 }
 
 function isPublicSurfacePage(pathname: string): boolean {
-  return /^\/(?:sign|forms)(?:\/|$)/i.test(pathname);
+  return /^\/(?:sign|forms|room)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -302,6 +307,7 @@ export default function App() {
           <Routes>
             <Route path="/sign/:token" element={<PublicSigning />} />
             <Route path="/forms/:token" element={<PublicForm />} />
+            <Route path="/room/:token" element={<PublicDataRoom />} />
           </Routes>
         ) : auth.status === "loading" ? (
           <SplashScreen />
@@ -659,6 +665,15 @@ function CompanyRoutes({
             <Route path="new" element={<SignatureNew />} />
             <Route path="ai-access" element={<SignatureAiAccess />} />
             <Route path=":envelopeId" element={<SignatureDetail />} />
+          </Route>
+          {/* Data rooms — documents shared with investors, buyers and
+            auditors, each guest through a private link, with the room's AI
+            Employee briefing documents and answering questions. Owners and
+            admins only. */}
+          <Route path="data-rooms" element={<DataRoomsLayout company={company} />}>
+            <Route index element={<DataRoomsIndex />} />
+            <Route path="ai-access" element={<DataRoomsAiAccess />} />
+            <Route path=":roomId" element={<DataRoomDetail />} />
           </Route>
 
           {/* Calendar + Meetings (M44) — the mirrored agenda, recorded calls

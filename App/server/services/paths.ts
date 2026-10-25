@@ -122,6 +122,19 @@ export function recruitingPrivateCompanyDir(companyId: string): string {
 }
 
 /**
+ * Where data rooms keep their documents.
+ *
+ * App-private for the same reason as resumes: a room holds the company's most
+ * sensitive files — its books, its cap table, the contracts a buyer will read —
+ * and an AI Employee reaches them only through the data room tools that check
+ * a Grant, never by listing a directory its coding tools can read. Keyed by
+ * company id, so a slug rename strands nothing and deletion needs no lookup.
+ */
+export function dataRoomPrivateCompanyDir(companyId: string): string {
+  return path.join(dataRoot(), ".private", "data-rooms", companyId);
+}
+
+/**
  * App-private SSH host-key cache for server-owned repository operations.
  *
  * The directory name still says `code-repository-ssh` after the Code →

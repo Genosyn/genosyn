@@ -87,6 +87,14 @@ trusted-origin check, is in `App/server/index.ts`.
      site only. `GET /api/careers/domains/check` (for a proxy's on-demand TLS)
      says whether a domain is a verified careers domain. An internal careers
      site needs a signed-in Member of that company.
+   - **Data room guests**: `/room/<token>` and `/api/room/<token>`
+     (`App/server/routes/publicDataRooms.ts`,
+     `App/server/services/dataRooms/portal.ts`). The token in a guest's link
+     is their only credential; it reaches only that guest's folders and their
+     own questions. Guests are strangers: a question reaches AI Employees only
+     as untrusted data (the room's restricted answer turn in
+     `App/server/services/dataRooms/ai.ts`, shown only the documents that guest
+     can open, and `list_data_room_questions`, a taint source).
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
      `App/server/services/hostedOauth.ts`.
@@ -159,9 +167,10 @@ trusted-origin check, is in `App/server/index.ts`.
    session reads the repository's `AGENTS.md` into its context. Allowed
    commands run the repository's own scripts.
 8. **Uploaded and fetched files**: chat, Base, Resource, and mail
-   attachments, avatars, documents to sign, and applicants' resumes (typed by
+   attachments, avatars, documents to sign, applicants' resumes (typed by
    their bytes and stored App-private by
-   `App/server/services/recruiting/files.ts`). Their parsing (PDF, DOCX,
+   `App/server/services/recruiting/files.ts`), and data room documents
+   (App-private, `App/server/services/dataRooms/storage.ts`). Their parsing (PDF, DOCX,
    XLSX, EPUB, images, MIME) and the way they are served back to browsers
    (`App/server/services/files.ts`, `App/server/services/resourceFiles.ts`,
    `App/server/services/uploads.ts`).
@@ -169,7 +178,8 @@ trusted-origin check, is in `App/server/index.ts`.
    (`App/server/services/mcpTokens.ts`), connected apps' OAuth authorization
    codes, access and refresh tokens and client secrets
    (`App/server/services/mcpOauth/tokens.ts`), browser-session tokens,
-   member-browser bridge tokens, webhook, form, and signing tokens, and
+   member-browser bridge tokens, webhook, form, signing and data room guest
+   tokens, and
    invitation, reset, and verification tokens (`App/server/lib/token.ts`).
 10. **Genosyn Connect on the public internet**:
     `/api/connect/<provider>/{status,start,authorize,callback,refresh}`
@@ -235,6 +245,12 @@ trusted-origin check, is in `App/server/index.ts`.
   signing in as a Member of that company is a finding. Any Member may read
   and act on applications; owners and admins alone change Recruiting
   settings, the careers site, its domain, and AI access.
+- **A data room guest link is a bearer credential by design.** Anyone holding
+  it opens the room as that guest until it is reissued or revoked. Watermarks
+  and view-only rooms deter copying; they do not prevent it, since anything
+  shown on a screen can be captured. Reaching another guest's folders or
+  questions, another room, or a room's documents without a link is a finding.
+  Data rooms are owners' and admins' alone; a Member reading one is a finding.
 - **Answering a Decision has no side effect**, so any Member may answer one.
   Decision screening fails open by design (`AGENTS.md` §3). Approvals, which
   replay a held action, are admin-gated.
@@ -359,9 +375,9 @@ Most, roughly in order:
    returning it), `App/server/services/memberBrowsers.ts`, and
    `App/server/services/browserRequestBoundary.ts` (the App refuses its own
    API to the AI's browser, even with a Member's cookies).
-9. **Public routes**: forms, signing, webhooks, chat surfaces, phone number
-   webhooks, unsubscribe, the careers site and its custom-domain host guard,
-   and OAuth callbacks (listed above).
+9. **Public routes**: forms, signing, data room guests, webhooks, chat
+   surfaces, phone number webhooks, unsubscribe, the careers site and its
+   custom-domain host guard, and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are
     served (Content-Type, Content-Disposition, sandboxing), document parsing,
     and archive extraction (`App/server/services/backups.ts`).

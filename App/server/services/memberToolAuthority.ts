@@ -400,6 +400,20 @@ const ADMIN_TOOLS = [
   "place_phone_call",
   "get_phone_call",
   "list_phone_calls",
+  // Data rooms. The human routes are owner/admin for reads and writes alike —
+  // a room holds the company's most sensitive documents and often news the
+  // rest of the company has not heard — so a Member cannot reach one through
+  // an AI Employee either.
+  "list_data_rooms",
+  "get_data_room",
+  "read_data_room_document",
+  "list_data_room_questions",
+  "get_data_room_activity",
+  "create_data_room",
+  "add_data_room_document",
+  "draft_data_room_answer",
+  "answer_data_room_question",
+  "invite_data_room_guest",
 ] as const;
 
 /**

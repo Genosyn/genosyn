@@ -198,7 +198,13 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // Recoverable Journal reads and Run checkpoints add two deferred names. They
 // let an unfinished Run reach older evidence and persist its next exact step;
 // neither adds a resident schema. At least 2,500 chars remain at the minimum cap.
-const DOMAIN_FOOTER_CHARS_MAX = 5_500;
+// Raised to 5,560 for the ten data room tools, a new `data_rooms` domain of
+// about 200 characters. An employee asked to "share the deck with Acme" or
+// "answer the investor's question" reaches for words that match none of them
+// lexically, and a miss reads as the product having no data rooms at all; the
+// invite and answer tools must be findable by name because the data room
+// briefing names them. 2,440 characters remain at the minimum result cap.
+const DOMAIN_FOOTER_CHARS_MAX = 5_560;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

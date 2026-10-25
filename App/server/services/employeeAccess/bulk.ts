@@ -24,6 +24,7 @@ import { EmployeeResourceLibraryGrant } from "../../db/entities/EmployeeResource
 import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js";
 import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { EmployeeSigningGrant } from "../../db/entities/EmployeeSigningGrant.js";
+import { EmployeeDataRoomGrant } from "../../db/entities/EmployeeDataRoomGrant.js";
 import { EmployeeVaultGrant } from "../../db/entities/EmployeeVaultGrant.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
@@ -293,11 +294,12 @@ export const ACCESS_ROUTES: Record<AccessKind, KindRoutes> = {
   marketing: upsertByEmployee("/marketing/ai-access", "grant"),
   recruiting: upsertByEmployee("/recruiting/ai-access", "grant"),
   signing: upsertByEmployee("/signatures/ai-access", "employee"),
+  data_room: upsertByEmployee("/data-rooms/ai-access", "employee"),
 };
 
 /**
  * `PUT <base>/:employeeId` states the level; revoking deletes by the Grant's
- * own id, or (Document signing) by the employee's.
+ * own id, or (Document signing, Data rooms) by the employee's.
  */
 function upsertByEmployee(base: string, revokeBy: "grant" | "employee"): KindRoutes {
   const put = (c: OperationContext): Operation => ({
@@ -381,6 +383,7 @@ export const GRANT_SOURCES: Record<AccessKind, GrantSource> = {
   marketing: { entity: EmployeeMarketingGrant, levelColumn: "accessLevel" },
   recruiting: { entity: EmployeeRecruitingGrant, levelColumn: "accessLevel" },
   signing: { entity: EmployeeSigningGrant, levelColumn: "accessLevel" },
+  data_room: { entity: EmployeeDataRoomGrant, levelColumn: "accessLevel" },
 };
 
 async function loadKindState(

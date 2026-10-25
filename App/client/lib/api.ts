@@ -2203,6 +2203,7 @@ export type EmailLogPurpose =
   | "welcome"
   | "signature"
   | "recruiting"
+  | "data_room"
   | "backup_alert"
   | "test"
   | "other";
@@ -3769,6 +3770,10 @@ export type NotificationKind =
   | "recruiting_application"
   /** The AI screener rated an applicant a strong match for the recipient's Opening. */
   | "recruiting_strong_match"
+  /** A guest asked a question in a data room the recipient runs. */
+  | "data_room_question"
+  /** A guest opened a data room for the first time. */
+  | "data_room_visit"
   /** A group discussion the recipient started handed back its outcome. */
   | "group_discussion";
 
@@ -3790,7 +3795,8 @@ export type NotificationEntityKind =
   | "budget"
   | "initiative"
   | "board_letter"
-  | "recruiting_application";
+  | "recruiting_application"
+  | "data_room";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

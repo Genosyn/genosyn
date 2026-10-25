@@ -80,6 +80,11 @@ import { contractsRouter } from "./routes/contracts.js";
 import { signaturesRouter } from "./routes/signatures.js";
 import { publicSignaturesRouter, publicSigningSecurityHeaders } from "./routes/publicSignatures.js";
 import { publicFormsRouter, publicFormsSecurityHeaders } from "./routes/publicForms.js";
+import { dataRoomsRouter } from "./routes/dataRooms.js";
+import {
+  publicDataRoomSecurityHeaders,
+  publicDataRoomsRouter,
+} from "./routes/publicDataRooms.js";
 import { formsRouter } from "./routes/forms.js";
 import { exploreRouter } from "./routes/explore.js";
 import { notificationsRouter } from "./routes/notifications.js";
@@ -189,6 +194,9 @@ export function createApp(): express.Express {
   app.use("/sign", publicSigningSecurityHeaders);
   app.use("/api/forms", publicFormsSecurityHeaders);
   app.use("/forms", publicFormsSecurityHeaders);
+  // A guest's data room link is a bearer credential too.
+  app.use("/api/room", publicDataRoomSecurityHeaders);
+  app.use("/room", publicDataRoomSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
   // The OAuth registration, token and revocation endpoints: called by the
   // clients' own servers with no cookie, so ahead of the session — the client
@@ -200,6 +208,9 @@ export function createApp(): express.Express {
   // email clients that omit Origin can view, consent, complete, or decline.
   app.use("/api/sign", publicSignaturesRouter);
   app.use("/api/forms", publicFormsRouter);
+  // Data room guests: no account, no session — the token in their private
+  // link is the credential, checked by the router on every request.
+  app.use("/api/room", publicDataRoomsRouter);
 
   let sessionMiddleware: ReturnType<typeof cookieSession> | null = null;
   let sessionMiddlewareSecret = "";
@@ -510,6 +521,10 @@ export function createApp(): express.Express {
   // Recruiting — Openings, Applications and their Scorecards, the AI
   // screener, and the careers site's settings and custom domain.
   app.use("/api/companies/:cid", recruitingRouter);
+
+  // Data rooms — documents shared with guests outside the company, their
+  // activity and questions, and the room's AI work. Owners and admins only.
+  app.use("/api/companies/:cid", dataRoomsRouter);
 
   return app;
 }

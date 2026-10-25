@@ -10,10 +10,12 @@ import { effectiveFinanceAccess, type SubpageViewer } from "./subpages";
  * Whether this person can open the section at all. Finance and Customers are
  * both served by the finance routes, which refuse a Member without Finance
  * access, so neither is offered to them anywhere; a Member reaches the same
- * accounts through Revenue.
+ * accounts through Revenue. Data rooms are owners' and admins', reads
+ * included: a room often holds news the rest of the company has not heard.
  */
 export function canOpenSection(key: SectionKey, viewer: SubpageViewer): boolean {
   if (key === "finance" || key === "customers") return effectiveFinanceAccess(viewer) !== "none";
+  if (key === "dataRooms") return viewer.role === "owner" || viewer.role === "admin";
   return true;
 }
 

@@ -198,6 +198,7 @@ describe("the Access listing on a large company", () => {
       ["employee_marketing_grants", null, "read", true],
       ["employee_recruiting_grants", null, "read", true],
       ["employee_signing_grants", null, "read", true],
+      ["employee_data_room_grants", null, "read", true],
     ];
     for (const [table, resource, level, company] of grantTables) {
       const columns = ["id", "employeeId", resource, level ? "accessLevel" : null, company ? "companyId" : null]

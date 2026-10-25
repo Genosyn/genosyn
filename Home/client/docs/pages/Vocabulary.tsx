@@ -278,6 +278,39 @@ export function Vocabulary() {
         ]}
       />
 
+      <H2 id="data-room-words">Data room words</H2>
+      <KeyList
+        rows={[
+          {
+            term: "Data room",
+            def: (
+              <>
+                A private, tracked set of documents shared with people outside the company —
+                investors, a buyer, auditors, a partner — each through a personal link. Never a
+                &quot;deal room&quot;, &quot;VDR&quot; or &quot;portal&quot;. See{" "}
+                <DocLink to="/docs/data-rooms">Data rooms</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Guest",
+            def: "One person outside the company invited to one room, through their own private link. Never a Member: Members are the company's own people.",
+          },
+          {
+            term: "Brief",
+            def: "The room's AI Employee's reading of one document: a summary, key facts, what to check before sharing it, and the folder it belongs in.",
+          },
+          {
+            term: "Readiness review",
+            def: "The room checked against what a room of its purpose usually holds. The checklist and the score are Genosyn's; the AI Employee says which documents cover each item.",
+          },
+          {
+            term: "Question",
+            def: "One guest asking about the room. Only that guest sees it and its answer, which quotes the documents they can open.",
+          },
+        ]}
+      />
+
       <H2 id="control-surfaces">Control surfaces</H2>
       <KeyList
         rows={[

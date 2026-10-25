@@ -296,6 +296,20 @@ const REGISTRY: Record<string, Mapping> = {
   },
   EmployeeRecruitingGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
 
+  // ── Data rooms ───────────────────────────────────────────────────────────
+  // Scoped by room throughout, so a Routine can subscribe to one room. The
+  // room, its folders and documents are one kind; guests, what they did, and
+  // what they asked are their own, so a Trigger can fire on "a guest asked"
+  // without waking on every document a Member files. The AI work queue is
+  // not listed: it announces itself to open pages and wakes no Routine.
+  DataRoom: { kind: "data_room", company: "direct", scopeFk: "id" },
+  DataRoomFolder: { kind: "data_room", company: "direct", scopeFk: "roomId" },
+  DataRoomDocument: { kind: "data_room", company: "direct", scopeFk: "roomId" },
+  DataRoomGuest: { kind: "data_room_guest", company: "direct", scopeFk: "roomId" },
+  DataRoomEvent: { kind: "data_room_activity", company: "direct", scopeFk: "roomId" },
+  DataRoomQuestion: { kind: "data_room_question", company: "direct", scopeFk: "roomId" },
+  EmployeeDataRoomGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
+
   // ── Phone numbers ────────────────────────────────────────────────────────
   // One kind for a number, its texts and its calls, scoped by the number: the
   // page that shows a number's settings is the page that shows its activity,
