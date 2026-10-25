@@ -14,6 +14,7 @@ import {
   Clock,
   Download,
   Gauge,
+  Lightbulb,
   LoaderCircle,
   MessageSquarePlus,
   Paperclip,
@@ -36,6 +37,7 @@ import {
   ConversationSummary,
   Employee,
   MessageAction,
+  ModelEffort,
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
 import { isIndeterminateChatProgress, shouldShowChatProgressCard } from "../lib/chatProgress";
@@ -47,7 +49,13 @@ import {
   useEmployeeSession,
 } from "../lib/chatSessions";
 import { focusOnArrival } from "../lib/composerFocus";
-import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
+import { MODEL_EFFORT_LABELS } from "../../shared/modelEffort";
+import {
+  type ComposerEffortOverride,
+  type ComposerModelOverride,
+  resolveComposerEffort,
+  resolveComposerModelId,
+} from "../lib/composerModel";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
@@ -132,6 +140,8 @@ export default function EmployeeChat() {
    * rather than an override keyed to the not-yet-existing conversation.
    */
   const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
+  /** Effort picked by hand, scoped like `modelOverride` and to the model it was picked for. */
+  const [effortOverride, setEffortOverride] = React.useState<ComposerEffortOverride | null>(null);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const [creatingConversation, setCreatingConversation] = React.useState(false);
   const [archivingConvId, setArchivingConvId] = React.useState<string | null>(null);
@@ -506,6 +516,7 @@ export default function EmployeeChat() {
       clearInput: !messageOverride,
       attachments: atts,
       modelId: selectedModelId,
+      effort: selectedEffort,
       interrupt: opts?.interrupt,
     });
     if (err) {
@@ -573,6 +584,17 @@ export default function EmployeeChat() {
     activeConvId,
     threadModelId: activeConv?.lastModelId ?? null,
     override: modelOverride,
+  });
+  // How hard that model thinks follows the same rule, and only ever offers the
+  // levels the model supports. See `resolveComposerEffort`.
+  const effortLevels = chatModels.find((model) => model.id === selectedModelId)?.effortLevels ?? [];
+  const selectedEffort = resolveComposerEffort({
+    modelId: selectedModelId,
+    effortLevels,
+    activeConvId,
+    threadModelId: activeConv?.lastModelId ?? null,
+    threadEffort: activeConv?.lastEffort ?? null,
+    override: effortOverride,
   });
   // Show a skeleton while bootstrapping or while the active thread is still
   // loading — otherwise there's a visible EmptyState flash between the
@@ -802,7 +824,18 @@ export default function EmployeeChat() {
             onRemoveAttachment={removePendingAttachment}
             models={chatModels}
             selectedModelId={selectedModelId}
-            onModelChange={(modelId) => setModelOverride({ convId: activeConvId, modelId })}
+            onModelChange={(modelId) => {
+              setModelOverride({ convId: activeConvId, modelId });
+              // An effort is a setting of one model; a new model starts at its own default.
+              setEffortOverride(null);
+            }}
+            effortLevels={effortLevels}
+            selectedEffort={selectedEffort}
+            onEffortChange={(effort) => {
+              if (selectedModelId) {
+                setEffortOverride({ convId: activeConvId, modelId: selectedModelId, effort });
+              }
+            }}
             contextUsage={visibleContextUsage}
             employeeSlug={emp.slug}
           />
@@ -1623,6 +1656,9 @@ function Composer({
   models,
   selectedModelId,
   onModelChange,
+  effortLevels,
+  selectedEffort,
+  onEffortChange,
   contextUsage,
   employeeSlug,
 }: {
@@ -1649,6 +1685,11 @@ function Composer({
   models: AIModel[];
   selectedModelId: string | null;
   onModelChange: (modelId: string) => void;
+  /** Efforts the selected model supports; empty hides the picker. */
+  effortLevels: ModelEffort[];
+  /** Null is the selected model's default effort. */
+  selectedEffort: ModelEffort | null;
+  onEffortChange: (effort: ModelEffort | null) => void;
   contextUsage: ChatContextUsage | null;
   employeeSlug: string;
 }) {
@@ -1957,6 +1998,31 @@ function Composer({
                   <option key={model.id} value={model.id}>
                     {chatModelLabel(model)}
                     {model.isActive ? " (active)" : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
+          {/* Shown whenever the selected model supports effort, even when it is
+              the employee's only model and the model picker is hidden. */}
+          {effortLevels.length > 0 && (
+            <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Lightbulb size={12} aria-hidden="true" />
+              <span aria-hidden="true">Effort</span>
+              <Select
+                aria-label="Effort for this message"
+                title="How hard the AI Model thinks before it answers. Higher effort can take longer and use more tokens."
+                value={selectedEffort ?? ""}
+                onChange={(event) =>
+                  onEffortChange(effortLevels.find((level) => level === event.target.value) ?? null)
+                }
+                containerClassName="w-40"
+                className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 outline-none max-sm:min-h-8 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
+              >
+                <option value="">Model default</option>
+                {effortLevels.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {MODEL_EFFORT_LABELS[effort]}
                   </option>
                 ))}
               </Select>

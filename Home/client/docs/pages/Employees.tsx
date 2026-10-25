@@ -293,6 +293,12 @@ export function Employees() {
           moment. Chat stays available while that employee&apos;s Routines run.
           <br />
           <br />
+          To change how hard the employee thinks before answering, pick a level in{" "}
+          <Strong>Effort</Strong> under the composer, beside the AI Model picker. It appears when
+          the selected model supports effort, lists only that model&apos;s levels, and the
+          conversation remembers it — see <DocLink to="/docs/models#effort">Effort</DocLink>.
+          <br />
+          <br />
           Under the composer, next to the model picker, Genosyn shows{" "}
           <Strong>how full the model&apos;s context window is</Strong> — the share of it the last
           turn&apos;s prompt occupied. The number comes from the provider&apos;s own token count for

@@ -1360,6 +1360,12 @@ export type AIModel = {
   contextWindowSource: "probed" | "manual" | null;
   /** False when the provider can't be asked at all (OpenAI reports no window). */
   contextWindowProbeable: boolean;
+  /**
+   * Efforts this model accepts beyond its default, lowest first. Empty when it
+   * always runs at its default: a custom endpoint, or a model without known
+   * effort support.
+   */
+  effortLevels: ModelEffort[];
   /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
   maxConcurrentRuns: number | null;
   /** How many Routine Runs may use this model at once; null means no limit. */
@@ -1409,6 +1415,12 @@ export type ConversationSummary = {
    * back to the employee's active model.
    */
   lastModelId: string | null;
+  /**
+   * Effort that same turn ran at, or null for the model's default. The
+   * composer reapplies it along with `lastModelId`, while that model still
+   * supports it.
+   */
+  lastEffort: ModelEffort | null;
   /**
    * The Member browser this thread's browser work runs in, or null for the
    * one inside Genosyn. Chosen by the thread's owner from the chat header.

@@ -57,6 +57,7 @@ function conversation(id: string, title: string, hoursOld: number): Conversation
     updatedAt: hoursAgo(hoursOld),
     lastMessageAt: hoursAgo(hoursOld),
     lastModelId: "model-1",
+    lastEffort: null,
   };
 }
 

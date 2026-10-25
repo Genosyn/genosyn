@@ -16,7 +16,7 @@ import {
   requireCompanyMember,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { lastChatModelId, lastChatModelIds } from "../services/conversationModels.js";
+import { lastChatModelChoice, lastChatModelChoices } from "../services/conversationModels.js";
 import {
   serializeConversation,
   serializeConversationDetail,
@@ -28,8 +28,10 @@ import {
   executeDurableChatTurn,
   interruptDurableChatTurn,
 } from "../services/durableChatTurns.js";
+import { supportsModelEffort } from "../services/modelEffort.js";
 import { resolveChatModel } from "../services/models.js";
 import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
+import { MODEL_EFFORT_VALUES } from "../../shared/modelEffort.js";
 
 /**
  * Chat + per-employee surface endpoints. Split from `employees.ts` to keep
@@ -167,11 +169,11 @@ employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
       : ownedWhere,
     order: { updatedAt: "DESC" },
   });
-  const lastModelIds = await lastChatModelIds(
+  const lastChoices = await lastChatModelChoices(
     eid,
     rows.map((r) => r.id),
   );
-  res.json(rows.map((r) => serializeConversation(r, r.updatedAt, lastModelIds.get(r.id) ?? null)));
+  res.json(rows.map((r) => serializeConversation(r, r.updatedAt, lastChoices.get(r.id) ?? null)));
 });
 
 employeeSurfaceRouter.post(
@@ -264,13 +266,13 @@ employeeSurfaceRouter.post(
           serializeConversation(
             alreadyOwned,
             alreadyOwned.updatedAt,
-            await lastChatModelId(eid, alreadyOwned.id),
+            await lastChatModelChoice(eid, alreadyOwned.id),
           ),
         );
       return res.status(409).json({ error: "Conversation has already been claimed" });
     }
     res.json(
-      serializeConversation(claimed, claimed.updatedAt, await lastChatModelId(eid, claimed.id)),
+      serializeConversation(claimed, claimed.updatedAt, await lastChatModelChoice(eid, claimed.id)),
     );
   },
 );
@@ -290,7 +292,7 @@ employeeSurfaceRouter.post("/:eid/conversations/:convId/archive", async (req, re
     conv.archivedAt = new Date();
     await repo.save(conv);
   }
-  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)));
+  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelChoice(eid, conv.id)));
 });
 
 employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, res) => {
@@ -308,7 +310,7 @@ employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, 
     conv.archivedAt = null;
     await repo.save(conv);
   }
-  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)));
+  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelChoice(eid, conv.id)));
 });
 
 employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => {
@@ -400,6 +402,8 @@ const sendSchema = z.object({
   message: z.string().max(8000).default(""),
   attachmentIds: z.array(z.string().uuid()).max(20).optional().default([]),
   modelId: z.string().uuid().nullable().optional().default(null),
+  /** How hard the selected AI Model thinks for this turn; null keeps its default. */
+  effort: z.enum(MODEL_EFFORT_VALUES).nullable().optional().default(null),
 });
 
 /**
@@ -490,6 +494,17 @@ employeeSurfaceRouter.post(
         writeEvent("done", {});
         return res.end();
       }
+      // An effort is a setting of one model, so it is checked against the
+      // model this turn will run on. Refused rather than dropped: a Member who
+      // asked for more thinking must not silently get the default.
+      if (body.effort && !(selectedModel && supportsModelEffort(selectedModel, body.effort))) {
+        writeEvent("error", {
+          message:
+            "The selected AI Model does not support this effort. Choose another effort or Model default, then send the message again.",
+        });
+        writeEvent("done", {});
+        return res.end();
+      }
 
       // User row, input attachments, durable assistant job and conversation
       // timestamp commit together. Once this returns, browser loss and process
@@ -501,23 +516,21 @@ employeeSurfaceRouter.post(
         message: body.message,
         attachmentIds: body.attachmentIds,
         modelId: selectedModel?.id ?? null,
+        effort: body.effort,
         requesterUserId: req.userId!,
         requesterSessionVersion: req.session!.sessionVersion!,
       });
       acceptedTurn = true;
-      // The accepted turn is now this thread's newest one, so its model is what
-      // the composer must reopen on. Resolved once here because `onFinal` is
-      // synchronous and executing the turn never changes the persisted choice.
-      const threadModelId = await lastChatModelId(eid, enqueued.conversation.id);
+      // The accepted turn is now this thread's newest one, so its model and
+      // effort are what the composer must reopen on. Resolved once here because
+      // `onFinal` is synchronous and executing the turn never changes the
+      // persisted choice.
+      const threadChoice = await lastChatModelChoice(eid, enqueued.conversation.id);
       writeEvent("user", serializeMessage(enqueued.userMessage, enqueued.userAttachments));
       writeEvent("working", serializeMessage(enqueued.assistantMessage));
       writeEvent(
         "conversation",
-        serializeConversation(
-          enqueued.conversation,
-          enqueued.conversation.updatedAt,
-          threadModelId,
-        ),
+        serializeConversation(enqueued.conversation, enqueued.conversation.updatedAt, threadChoice),
       );
 
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
@@ -533,7 +546,7 @@ employeeSurfaceRouter.post(
           writeEvent("assistant", serializeMessage(message, attachments));
           writeEvent(
             "conversation",
-            serializeConversation(conversation, conversation.updatedAt, threadModelId),
+            serializeConversation(conversation, conversation.updatedAt, threadChoice),
           );
         },
       });

@@ -53,14 +53,7 @@ export function ToneIcon({
   return <MinusCircle {...props} />;
 }
 
-/** Room a row's menu needs below its button; with less, it opens upward. */
-const MENU_ROOM_PX = 140;
-
-/**
- * A row's ⋯ menu. It opens upward when the row is near the bottom of the
- * window: opened downward there, its last item — Remove, Delete — was cut off
- * below the screen.
- */
+/** A row's ⋯ menu; `Menu` opens it upward when the row is near the bottom of the window. */
 export function RowMenu({
   label,
   loading,
@@ -72,11 +65,9 @@ export function RowMenu({
   disabled?: boolean;
   children: (close: () => void) => React.ReactNode;
 }) {
-  const [side, setSide] = React.useState<"top" | "bottom">("bottom");
   return (
     <Menu
       align="right"
-      side={side}
       width={240}
       trigger={({ ref, onClick, open }) => (
         <Button
@@ -88,11 +79,7 @@ export function RowMenu({
           aria-label={label}
           loading={loading}
           disabled={disabled}
-          onClick={() => {
-            const rect = ref.current?.getBoundingClientRect();
-            setSide(rect && window.innerHeight - rect.bottom < MENU_ROOM_PX ? "top" : "bottom");
-            onClick();
-          }}
+          onClick={onClick}
         >
           <MoreHorizontal size={14} />
         </Button>

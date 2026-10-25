@@ -6,6 +6,7 @@ import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { resolveChatModel } from "./models.js";
+import { supportsModelEffort } from "./modelEffort.js";
 import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
@@ -653,6 +654,18 @@ export async function streamChatWithEmployee(
       reply: options.modelId
         ? `The selected AI Model is no longer available to ${employeeDisplayName}. Choose another model and send the message again.`
         : `${employeeDisplayName} has no AI Model connected. Open Settings on this employee to connect one.`,
+      attachmentIds: [],
+      sidecars: {},
+    };
+  }
+  // Callers check the effort when they accept work; checked again here because
+  // a durable turn can run long after that, on a model edited in between. A
+  // provider would refuse the request anyway, with a less useful message.
+  if (!supportsModelEffort(model, options.effort)) {
+    return {
+      status: "skipped",
+      reply:
+        "The selected AI Model does not support the effort chosen for this message. Choose another effort or Model default, then send the message again.",
       attachmentIds: [],
       sidecars: {},
     };

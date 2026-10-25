@@ -7,6 +7,7 @@ import {
   ConversationDetail,
   ConversationMessage,
   ConversationSummary,
+  ModelEffort,
 } from "./api";
 import { latestContextUsage, parseContextUsageEvent } from "./chatContextUsage";
 
@@ -91,6 +92,8 @@ export type QueuedChatMessage = {
   newConversationIntent: number;
   /** AI Model captured when this message entered the follow-up queue. */
   modelId: string | null;
+  /** Effort captured with `modelId`; null keeps that model's default. */
+  effort: ModelEffort | null;
   content: string;
   attachments: ChatAttachment[];
   queuedAt: string;
@@ -220,6 +223,7 @@ type ChatActions = {
       clearInput?: boolean;
       attachments?: ChatAttachment[];
       modelId?: string | null;
+      effort?: ModelEffort | null;
       /**
        * Stop the reply already in flight in this thread and put this message at
        * the head of its queue, instead of waiting the employee out.
@@ -769,6 +773,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         conversationId?: string | null;
         newConversationIntent?: number;
         modelId?: string | null;
+        effort?: ModelEffort | null;
         /**
          * Fired the moment a lazily-created Conversation gets its id, so the
          * caller's queue can follow the thread onto its real key.
@@ -957,6 +962,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             message: msg,
             attachmentIds: attachments.map((a) => a.id),
             modelId: opts?.modelId ?? null,
+            effort: opts?.effort ?? null,
           },
           (event, data) => {
             if (event === "user") {
@@ -1171,6 +1177,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         clearInput?: boolean;
         attachments?: ChatAttachment[];
         modelId?: string | null;
+        effort?: ModelEffort | null;
         interrupt?: boolean;
       },
     ): Promise<string | null> => {
@@ -1195,6 +1202,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           conversationId,
           newConversationIntent: intent,
           modelId: opts?.modelId ?? null,
+          effort: opts?.effort ?? null,
           content,
           attachments,
           queuedAt: new Date().toISOString(),
@@ -1254,6 +1262,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
               conversationId: current.conversationId,
               newConversationIntent: current.newConversationIntent,
               modelId: current.modelId,
+              effort: current.effort,
               onConversationCreated: adoptCreatedConversation,
             });
             current.resolve(error);
@@ -1403,6 +1412,7 @@ function withRefreshedSummary(
   if (
     current.title === fresh.title &&
     current.lastModelId === fresh.lastModelId &&
+    current.lastEffort === fresh.lastEffort &&
     current.updatedAt === fresh.updatedAt &&
     current.lastMessageAt === fresh.lastMessageAt &&
     current.archivedAt === fresh.archivedAt &&
