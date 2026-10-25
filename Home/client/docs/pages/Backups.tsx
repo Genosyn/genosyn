@@ -272,6 +272,9 @@ export function Backups() {
         always whole; one interrupted by a restart is swept up on the next start. SQLite is copied
         a few pages at a time, so Genosyn keeps answering while a backup runs, and a backup that
         can&apos;t copy the database fails with the reason instead of saving an archive without it.
+        Work carries on while a backup is written, so a file deleted or renamed before its turn
+        comes — a browser recording finishing, a branch pruned in an AI Employee&apos;s checkout
+        — is left out of that backup rather than failing it.
       </P>
       <Callout kind="warn" title="Treat every backup like the live Vault">
         Every backup holds both the encrypted credentials and the key that decrypts them, so
