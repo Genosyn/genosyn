@@ -86,13 +86,18 @@ export function modelEffortLevels(model: EffortModel): ModelEffort[] {
   return catalogue && Object.hasOwn(catalogue, id) ? [...catalogue[id]] : [];
 }
 
+/** Whether this AI Model accepts `effort`. Null, the model's own default, always passes. */
+export function supportsModelEffort(model: EffortModel, effort?: ModelEffort | null): boolean {
+  return effort == null || modelEffortLevels(model).includes(effort);
+}
+
 /** Validate before creating work, and again if its AI Model changes later. */
 export function requireModelEffort(
   model: EffortModel,
   effort?: ModelEffort | null,
 ): ModelEffort | null {
   if (effort == null) return null;
-  if (!modelEffortLevels(model).includes(effort)) {
+  if (!supportsModelEffort(model, effort)) {
     throw new Error(
       "The selected AI Model does not support this effort. Start a new work session with a supported effort or Model default.",
     );

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { IsNull, LessThanOrEqual } from "typeorm";
 
 import { config } from "../../config.js";
+import type { ModelEffort } from "../../shared/modelEffort.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Attachment } from "../db/entities/Attachment.js";
@@ -90,6 +91,8 @@ export async function enqueueDurableChatTurn(args: {
   message: string;
   attachmentIds: string[];
   modelId?: string | null;
+  /** Effort chosen for `modelId`; null or omitted keeps the AI Model's default. */
+  effort?: ModelEffort | null;
   /** Authenticated Member who submitted this browser chat turn. */
   requesterUserId: string;
   /** Auth epoch carried by the browser session that submitted this turn. */
@@ -151,6 +154,7 @@ export async function enqueueDurableChatTurn(args: {
         progressPercent: 1,
         progressLabel: "Starting work",
         modelId: args.modelId ?? null,
+        effort: args.effort ?? null,
         turnUserMessageId: userMessage.id,
         turnRequesterUserId: args.requesterUserId,
         turnRequesterSessionVersion: args.requesterSessionVersion,
@@ -405,6 +409,7 @@ export async function executeDurableChatTurn(
           images,
           conversationId: context.conversation.id,
           modelId: claimedMessage.modelId,
+          effort: claimedMessage.effort,
           surface: context.conversation.source === "help" ? "help" : "chat",
           ...requesterAuthority,
           onProgress: progressRecorder.report,

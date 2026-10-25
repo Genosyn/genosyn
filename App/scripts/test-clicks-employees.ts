@@ -289,6 +289,7 @@ const CONNECTED_MODEL = {
   contextWindow: null,
   contextWindowSource: null,
   contextWindowProbeable: false,
+  effortLevels: [],
   maxConcurrentRuns: null,
   effectiveMaxConcurrentRuns: null,
   concurrencySource: "unlimited",

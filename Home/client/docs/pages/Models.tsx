@@ -586,6 +586,29 @@ export function Models() {
         since been detached, removed or disconnected.
       </P>
 
+      <H3 id="effort">Effort: how hard the model thinks</H3>
+      <P>
+        Many Anthropic and OpenAI models can think longer before they answer. In the dedicated
+        employee Chat composer, <Strong>Effort</Strong> sits next to the AI Model picker whenever
+        the selected model supports it, including when it is the employee&apos;s only model. It
+        lists only that model&apos;s levels — for example Low, Medium, High, Extra high and Maximum.
+        Higher effort helps with hard problems but takes longer and uses more tokens.{" "}
+        <Strong>Model default</Strong> uses the model&apos;s normal setting. The choice applies to
+        the messages you send in that conversation and changes nothing for the employee&apos;s
+        Routines or other conversations.
+      </P>
+      <P>
+        Effort is kept with each message the way the model is: a follow-up queued while the employee
+        is still replying keeps the effort it was sent with, including while a durable turn recovers
+        after a disconnect or server restart. Reopening a conversation puts Effort back on the level
+        its last message used, while the picker is on that message&apos;s model and the model still
+        supports the level. Switch to another AI Model and Effort starts from Model default for it.
+        Custom endpoints and models without known effort support always use their normal setting, so
+        no picker appears for them.{" "}
+        <DocLink to="/docs/repositories">Repository work sessions</DocLink> have an Effort choice of
+        their own.
+      </P>
+
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
         OpenCode manages temporary model-service retries for API-key and custom models; a key the

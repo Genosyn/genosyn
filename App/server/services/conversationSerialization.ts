@@ -3,7 +3,7 @@ import type { Attachment } from "../db/entities/Attachment.js";
 import type { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { contextUsagePercent } from "./agent/contextUsage.js";
-import { lastChatModelId } from "./conversationModels.js";
+import { lastChatModelChoice, type ThreadModelChoice } from "./conversationModels.js";
 import { parseActions } from "./turnActions.js";
 import { attachmentsForMessages } from "./uploads.js";
 
@@ -14,15 +14,17 @@ import { attachmentsForMessages } from "./uploads.js";
  */
 
 /**
- * `lastModelId` is the brain this thread last ran a turn on, resolved by
- * `lastChatModelId`. The composer preselects it so reopening a past
- * conversation keeps talking to the same model instead of silently jumping to
- * whichever one happens to be active now; null means "use the active model".
+ * `lastModelId` is the brain this thread last ran a turn on, and `lastEffort`
+ * the effort that turn used, both resolved by `lastChatModelChoice`. The
+ * composer preselects them so reopening a past conversation keeps talking to
+ * the same model, thinking as hard, instead of silently jumping to whichever
+ * model happens to be active now; null means "use the active model" and "use
+ * the model's default effort".
  */
 export function serializeConversation(
   c: Conversation,
   lastMessageAt: Date | null = null,
-  lastModelId: string | null = null,
+  lastChoice: ThreadModelChoice | null = null,
 ) {
   return {
     id: c.id,
@@ -32,7 +34,8 @@ export function serializeConversation(
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     lastMessageAt,
-    lastModelId,
+    lastModelId: lastChoice?.modelId ?? null,
+    lastEffort: lastChoice?.effort ?? null,
     source: c.source ?? "web",
     connectionId: c.connectionId ?? null,
     memberBrowserId: c.memberBrowserId ?? null,
@@ -113,7 +116,7 @@ export async function serializeConversationDetail(conversation: Conversation) {
     conversation: serializeConversation(
       conversation,
       conversation.updatedAt,
-      await lastChatModelId(conversation.employeeId, conversation.id),
+      await lastChatModelChoice(conversation.employeeId, conversation.id),
     ),
     messages: messages.map((m) => serializeMessage(m, attachmentsByMessage.get(m.id) ?? [])),
   };

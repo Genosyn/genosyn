@@ -1,6 +1,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { clsx } from "./clsx";
+import { placeMenu, type MenuPlacement } from "./menuPlacement";
 
 /* ── Escape across open menus and popovers ────────────────────────────────
  *
@@ -97,10 +98,11 @@ export function useCloseOnPressOutside(
  * status pickers, assignee pickers, filter menus, "more actions" menus, etc.
  *
  * Positioning is fixed-coord relative to the viewport, computed from the
- * trigger's bounding rect. The menu sizes itself (no max-height math) and
- * caps to an 80vh scroll — fine for our lists which max out at ~dozens.
+ * trigger's bounding rect and the menu's own height (`menuPlacement.ts`).
  * It opens below the trigger; `side="top"` opens it above, for a trigger that
- * sits at the bottom of the screen, like a floating bulk bar.
+ * sits at the bottom of the screen, like a floating bulk bar. Either way it
+ * turns to the other side when only that one has room, so a row's menu at the
+ * bottom of a page stays on screen, and it scrolls inside when neither does.
  */
 export function Menu({
   trigger,
@@ -134,22 +136,26 @@ export function Menu({
   };
 
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const [coords, setCoords] = React.useState<{
-    top?: number;
-    bottom?: number;
-    left: number;
-  } | null>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = React.useState<MenuPlacement | null>(null);
 
+  // The menu is on the page by now, so it can be measured; placing it here
+  // re-renders before the browser paints, so it is never seen unplaced.
   React.useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const r = triggerRef.current.getBoundingClientRect();
-    // Above the trigger, the menu's bottom edge is pinned so it grows upward.
-    const vertical =
-      side === "top" ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 };
-    const left = align === "left" ? r.left : r.right - width;
-    // Clamp horizontally to keep the menu on-screen.
-    const maxLeft = window.innerWidth - width - 8;
-    setCoords({ ...vertical, left: Math.max(8, Math.min(left, maxLeft)) });
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (!open || !trigger || !menu) return;
+    setPlacement(
+      placeMenu({
+        trigger: trigger.getBoundingClientRect(),
+        // Its full height, past any cap an earlier opening left on it.
+        height: menu.scrollHeight + menu.offsetHeight - menu.clientHeight,
+        width,
+        align,
+        side,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      }),
+    );
   }, [open, align, side, width]);
 
   const markPressInside = useCloseOnPressOutside(open, () => setOpen(false), triggerRef);
@@ -163,13 +169,16 @@ export function Menu({
         open,
       })}
       {open &&
-        coords &&
         createPortal(
           <div
+            ref={menuRef}
             role="menu"
             onMouseDownCapture={markPressInside}
-            style={{ top: coords.top, bottom: coords.bottom, left: coords.left, width }}
-            className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:ring-black/20"
+            // Visible, not hidden, while it is measured: a search field inside
+            // (the assignee picker's) takes focus with `autoFocus`, which a
+            // hidden element refuses.
+            style={placement ? { ...placement, width } : { top: 0, left: 0, width }}
+            className="fixed z-50 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:ring-black/20"
           >
             {children(() => setOpen(false))}
           </div>,

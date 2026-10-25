@@ -7,13 +7,19 @@ import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
-import { lastChatModelId, lastChatModelIds } from "./conversationModels.js";
+import type { ModelEffort } from "../../shared/modelEffort.js";
+import { lastChatModelChoice, lastChatModelChoices } from "./conversationModels.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
 after(closeTestDb);
 
 const EMPLOYEE = "employee-thread-model";
+
+/** Just the model, for the tests about which brain a thread reopens on. */
+async function lastChatModelId(employeeId: string, conversationId: string) {
+  return (await lastChatModelChoice(employeeId, conversationId))?.modelId ?? null;
+}
 const OTHER_EMPLOYEE = "employee-other";
 
 async function model(args: {
@@ -55,6 +61,7 @@ async function turn(args: {
   modelId: string | null;
   at: string;
   status?: "ok" | "working" | "error";
+  effort?: ModelEffort | null;
 }): Promise<ConversationMessage> {
   await insert(ConversationMessage, {
     conversationId: args.conversationId,
@@ -69,6 +76,7 @@ async function turn(args: {
     content: "answer",
     status: args.status ?? "ok",
     modelId: args.modelId,
+    effort: args.effort ?? null,
     createdAt: new Date(args.at),
   });
 }
@@ -87,9 +95,9 @@ describe("thread model resolution", () => {
     await turn({ conversationId: alpha.id, modelId: gpt.id, at: "2026-08-01T11:00:00.000Z" });
     await turn({ conversationId: beta.id, modelId: claude.id, at: "2026-08-02T09:00:00.000Z" });
 
-    const resolved = await lastChatModelIds(EMPLOYEE, [alpha.id, beta.id, gamma.id]);
-    assert.equal(resolved.get(alpha.id), gpt.id);
-    assert.equal(resolved.get(beta.id), claude.id);
+    const resolved = await lastChatModelChoices(EMPLOYEE, [alpha.id, beta.id, gamma.id]);
+    assert.equal(resolved.get(alpha.id)?.modelId, gpt.id);
+    assert.equal(resolved.get(beta.id)?.modelId, claude.id);
     // A thread nobody has sent in yet has no model of its own.
     assert.equal(resolved.get(gamma.id), null);
     assert.equal(resolved.size, 3);
@@ -215,7 +223,7 @@ describe("thread model resolution", () => {
     const theirs = await conversation("theirs");
     await turn({ conversationId: theirs.id, modelId: claude.id, at: "2026-08-01T10:00:00.000Z" });
 
-    const resolved = await lastChatModelIds(EMPLOYEE, [mine.id]);
+    const resolved = await lastChatModelChoices(EMPLOYEE, [mine.id]);
     assert.equal(resolved.get(mine.id), null);
     assert.equal(resolved.has(theirs.id), false);
   });
@@ -226,7 +234,56 @@ describe("thread model resolution", () => {
   });
 
   test("an empty request short-circuits to an empty map", async () => {
-    const resolved = await lastChatModelIds(EMPLOYEE, []);
+    const resolved = await lastChatModelChoices(EMPLOYEE, []);
     assert.equal(resolved.size, 0);
+  });
+
+  test("the effort comes from the same turn as the model", async () => {
+    const claude = await model({ name: "claude" });
+    const gpt = await model({ name: "gpt" });
+    const conv = await conversation("effort follows its model");
+
+    await turn({
+      conversationId: conv.id,
+      modelId: claude.id,
+      effort: "high",
+      at: "2026-08-01T10:00:00.000Z",
+    });
+    await turn({
+      conversationId: conv.id,
+      modelId: gpt.id,
+      effort: "low",
+      at: "2026-08-01T11:00:00.000Z",
+    });
+    assert.deepEqual(await lastChatModelChoice(EMPLOYEE, conv.id), {
+      modelId: gpt.id,
+      effort: "low",
+    });
+
+    // With the newest model gone, the thread falls back to the older turn and
+    // takes that turn's effort with it, never the newer model's.
+    await AppDataSource.getRepository(AIModel).delete({ id: gpt.id });
+    assert.deepEqual(await lastChatModelChoice(EMPLOYEE, conv.id), {
+      modelId: claude.id,
+      effort: "high",
+    });
+  });
+
+  test("a newer turn at the model default clears an older effort", async () => {
+    const claude = await model({ name: "claude" });
+    const conv = await conversation("back to default");
+
+    await turn({
+      conversationId: conv.id,
+      modelId: claude.id,
+      effort: "max",
+      at: "2026-08-01T10:00:00.000Z",
+    });
+    await turn({ conversationId: conv.id, modelId: claude.id, at: "2026-08-01T11:00:00.000Z" });
+
+    assert.deepEqual(await lastChatModelChoice(EMPLOYEE, conv.id), {
+      modelId: claude.id,
+      effort: null,
+    });
   });
 });
