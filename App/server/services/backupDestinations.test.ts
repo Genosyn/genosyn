@@ -17,6 +17,8 @@ import {
   createDestination,
   deliverBackupToDestinations,
   expiredArchives,
+  expiredBeforeCopy,
+  parseSmbFreeBytes,
   parseSmbListing,
   smbDeliverTimeoutMs,
   smbErrorMessage,
@@ -139,6 +141,97 @@ describe("off-box retention", () => {
     );
   });
 
+  test("before a copy, keeps the newest expired archive until the new one arrives", () => {
+    const names = [
+      "backup-2026-08-01-030000.zip",
+      "backup-2026-09-01-030000.zip",
+      // Newer, but only part of one: no stand-in for a complete backup.
+      "backup-2026-09-02-030000.zip.partial",
+      "backup-2026-10-20-030000.zip",
+      "uploaded-2026-08-01-030000.zip",
+    ];
+    assert.deepEqual(
+      expiredBeforeCopy(names, new Date(2026, 9, 1), "backup-2026-10-21-030000.zip"),
+      ["backup-2026-08-01-030000.zip", "backup-2026-09-02-030000.zip.partial"],
+    );
+    // Nothing expired, nothing to delete.
+    assert.deepEqual(
+      expiredBeforeCopy(["backup-2026-10-20-030000.zip"], new Date(2026, 9, 1), "x"),
+      [],
+    );
+    // A copy of the very archive being sent again is never deleted first.
+    assert.deepEqual(
+      expiredBeforeCopy(
+        ["backup-2026-08-01-030000.zip", "backup-2026-09-01-030000.zip"],
+        new Date(2026, 9, 1),
+        "backup-2026-08-01-030000.zip",
+      ),
+      [],
+    );
+  });
+
+  test("makes room before a copy, so a destination full of expired backups takes the next one", async () => {
+    const oldest = archiveName(daysAgo(40));
+    const older = archiveName(daysAgo(35));
+    const newestExpired = archiveName(daysAgo(31));
+    const recent = archiveName(daysAgo(10));
+    for (const name of [oldest, older, newestExpired, recent]) {
+      await fs.writeFile(path.join(nasDir, name), name);
+    }
+    await createDestination({ name: "NAS", kind: "local", path: nasDir }, null);
+    const { filename, absPath } = await freshArchive();
+    // A folder where the copy has to go: this copy fails after the room is made.
+    const blocker = path.join(nasDir, `${filename}.partial`);
+    await fs.mkdir(blocker);
+
+    const [failed] = await deliverBackupToDestinations(filename, absPath, { days: 30 });
+
+    assert.equal(failed.ok, false);
+    assert.deepEqual(
+      (await fs.readdir(nasDir)).sort(),
+      [newestExpired, recent, `${filename}.partial`].sort(),
+    );
+
+    await fs.rmdir(blocker);
+    const [delivered] = await deliverBackupToDestinations(filename, absPath, { days: 30 });
+
+    assert.equal(delivered.ok, true);
+    assert.deepEqual((await fs.readdir(nasDir)).sort(), [filename, recent].sort());
+  });
+
+  test("refuses a copy there is no room for, saying how much is free", async (t) => {
+    const dest = await createDestination({ name: "NAS", kind: "local", path: nasDir }, null);
+    const { filename, absPath } = await freshArchive();
+    const real = fs.statfs;
+    t.mock.method(fs, "statfs", async (dir: string) => ({ ...(await real(dir)), bavail: 0 }));
+
+    const [result] = await deliverBackupToDestinations(filename, absPath, null);
+
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.error,
+      "NAS has 0 B free, but this backup is 13 B. Free up space there, or turn on off-box retention under Advanced.",
+    );
+    assert.deepEqual(await fs.readdir(nasDir), []);
+    assert.equal((await destinationRow(dest.id)).lastError, result.error);
+
+    const [withRetention] = await deliverBackupToDestinations(filename, absPath, { days: 30 });
+    assert.match(withRetention.error ?? "", /keep fewer days off-box\. If it has a recycle bin, empty it/);
+  });
+
+  test("counts a copy of the same backup cut short as room, since it is written over", async (t) => {
+    await createDestination({ name: "NAS", kind: "local", path: nasDir }, null);
+    const { filename, absPath } = await freshArchive();
+    await fs.writeFile(path.join(nasDir, `${filename}.partial`), "archive by");
+    const real = fs.statfs;
+    t.mock.method(fs, "statfs", async (dir: string) => ({ ...(await real(dir)), bavail: 1, bsize: 3 }));
+
+    const [result] = await deliverBackupToDestinations(filename, absPath, null);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(await fs.readdir(nasDir), [filename]);
+  });
+
   test("finds the archives and their sizes in an smbclient listing, and nothing else", () => {
     // What smbclient 4.17, the version in the image, printed for
     // `ls "Genosyn/Nightly/backup-*.zip*"` against a Samba share.
@@ -254,6 +347,31 @@ describe("SMB delivery", () => {
       stderr: "cli_push returned NT_STATUS_DISK_FULL\n",
     });
     assert.match(smbErrorMessage(full, nas), /^The share on nas.tail is full/);
+  });
+
+  test("says the share is full when the close that follows fails too, not that the link dropped", () => {
+    // smbclient 4.17 filling a Samba share: the push fails on stderr, and the
+    // close it still attempts fails on stdout, ahead of it in the output.
+    const full = Object.assign(new Error("Command failed"), {
+      stdout:
+        "NT_STATUS_OBJECT_NAME_COLLISION making remote directory \\genosyn\n" +
+        "NT_STATUS_INVALID_NETWORK_RESPONSE closing remote file \\genosyn\\backup-2026-10-25-060000.zip.partial\n",
+      stderr: "cli_push returned NT_STATUS_DISK_FULL\n",
+    });
+    assert.match(smbErrorMessage(full, nas), /^The share on nas.tail is full/);
+  });
+
+  test("reads the room left on the share from the end of a listing", () => {
+    const listing = [
+      "  .                                   D        0  Sun Oct 25 07:24:11 2026",
+      "  backup-2026-10-11-090000.zip        A 35985131893  Sun Oct 11 09:57:50 2026",
+      "",
+      "\t\t3839458616 blocks of size 1024. 27552564 blocks available",
+    ].join("\n");
+    assert.equal(parseSmbFreeBytes(listing), 27552564 * 1024);
+    // A folder no copy has created yet lists nothing, so says nothing either.
+    assert.equal(parseSmbFreeBytes("NT_STATUS_OBJECT_NAME_NOT_FOUND listing \\genosyn\\*\n"), null);
+    assert.equal(parseSmbFreeBytes("\t\t0 blocks of size 1024. 0 blocks available"), null);
   });
 
   test("names a copy that ran out of time by how long it had", () => {

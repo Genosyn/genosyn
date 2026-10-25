@@ -344,10 +344,10 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
         An install that is already stopped is archived as it lies.
       </P>
       <P>
-        In a terminal, a progress bar beneath the backup step shows how much of the volume has been
-        archived out of its total, with a line naming the database snapshot before it and the check
-        of the finished archive after. Output to a file or a pipe, such as an automatic
-        update&apos;s log, has no bar.
+        In a terminal, the backup step shows a line while the database is snapshotted, then a
+        progress bar of how much of the volume has been archived out of its total, and another of
+        how much of the finished archive has been read back to check it. Output to a file or a
+        pipe, such as an automatic update&apos;s log, has no bar.
       </P>
       <P>
         The archive holds the data as it was when the backup began. A failed upgrade restores it

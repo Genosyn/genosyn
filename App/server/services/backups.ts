@@ -380,8 +380,9 @@ async function offBoxRetention(): Promise<OffBoxRetention | null> {
  * On-box retention is enforced immediately rather than at the next hourly
  * tick, so saving the form has a visible effect — the returned count is what
  * the UI reports back to the operator. The off-box policy waits for the next
- * delivery to each destination: that is the one moment a fresh, complete copy
- * is known to be there, so pruning can never leave a destination empty.
+ * delivery to each destination, which keeps the newest expired archive there
+ * until its fresh, complete copy has arrived, so pruning can never leave a
+ * destination empty.
  */
 export async function updateBackupSchedule(patch: {
   enabled?: boolean;
@@ -1030,6 +1031,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     const partPath = `${outPath}${PART_SUFFIX}`;
     const output = createWriteStream(partPath, { mode: 0o600 });
     const archive = new ZipArchive({ zlib: { level: 9 } });
+    const files = openFilesAhead(archive);
     const walked = { entries: 0 };
 
     let failed = false;
@@ -1037,6 +1039,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
       if (failed) return;
       failed = true;
       stopWatching();
+      files.close();
       output.destroy();
       reject(err);
     };
@@ -1086,8 +1089,9 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     const root = dataRoot();
     const appendAll = async () => {
       if (fs.existsSync(root)) {
-        await walkAndAppend(archive, root, "", sqliteSnapshot, walked);
+        await walkAndAppend(files, root, "", sqliteSnapshot, walked);
       }
+      if (files.closed) return;
       if (sqliteSnapshot) {
         archive.file(sqliteSnapshot, { name: "app.sqlite" });
       }
@@ -1104,7 +1108,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
  * it takes.
  */
 async function walkAndAppend(
-  archive: archiver.Archiver,
+  files: FilesAhead,
   absDir: string,
   relPrefix: string,
   sqliteSnapshot: string | null,
@@ -1117,6 +1121,8 @@ async function walkAndAppend(
     return;
   }
   for (const entry of entries) {
+    // The backup failed: nothing more will be archived.
+    if (files.closed) return;
     walked.entries += 1;
     const absPath = path.join(absDir, entry.name);
     const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
@@ -1125,7 +1131,7 @@ async function walkAndAppend(
     if (relPrefix === "" && entry.name === BACKUP_DIR_NAME) continue;
 
     if (entry.isDirectory()) {
-      await walkAndAppend(archive, absPath, relPath, sqliteSnapshot, walked);
+      await walkAndAppend(files, absPath, relPath, sqliteSnapshot, walked);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -1139,8 +1145,88 @@ async function walkAndAppend(
       if (relPath === "app.sqlite-journal") continue;
     }
 
-    archive.file(absPath, { name: relPath });
+    await files.add(absPath, relPath);
   }
+}
+
+/** How many files the archive is handed open ahead of the one it is compressing. */
+const FILES_OPENED_AHEAD = 32;
+
+export type FilesAhead = {
+  /** Open `absPath` and queue it as `name`, once fewer than the limit are waiting; a file already gone is left out. */
+  add(absPath: string, name: string): Promise<void>;
+  /** Stop: close every file still waiting, and let `add` return. */
+  close(): void;
+  readonly closed: boolean;
+};
+
+/**
+ * Hands files to the archive already open, a few ahead of the one it is
+ * compressing. archiver's own `file()` looks at a file when it is queued but
+ * opens it only when its turn comes — in a data directory of hundreds of
+ * thousands of files, up to an hour later — and a file deleted or renamed in
+ * between failed the whole backup: a browser recording finishing, a `git
+ * fetch` pruning a ref in an AI Employee's checkout. Opened here instead, a
+ * file already gone is left out, like one deleted before the backup began,
+ * and one that is open stays readable to the end whatever happens to its name.
+ */
+export function openFilesAhead(
+  archive: Pick<archiver.Archiver, "append">,
+  ahead = FILES_OPENED_AHEAD,
+): FilesAhead {
+  const waiting = new Set<fs.ReadStream>();
+  let wake: (() => void) | null = null;
+  let closed = false;
+  const resume = () => {
+    const next = wake;
+    wake = null;
+    next?.();
+  };
+  return {
+    get closed() {
+      return closed;
+    },
+    async add(absPath, name) {
+      while (waiting.size >= ahead && !closed) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+      if (closed) return;
+      let handle: fs.promises.FileHandle;
+      try {
+        handle = await fs.promises.open(absPath, "r");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw err;
+      }
+      let stats: fs.Stats;
+      try {
+        stats = await handle.stat();
+      } catch (err) {
+        await handle.close().catch(() => undefined);
+        throw err;
+      }
+      // Stopped meanwhile, or no longer a plain file since it was listed.
+      if (closed || !stats.isFile()) {
+        await handle.close().catch(() => undefined);
+        return;
+      }
+      const stream = handle.createReadStream();
+      waiting.add(stream);
+      stream.once("close", () => {
+        waiting.delete(stream);
+        resume();
+      });
+      archive.append(stream, { name, stats });
+    },
+    close() {
+      closed = true;
+      for (const stream of waiting) stream.destroy();
+      waiting.clear();
+      resume();
+    },
+  };
 }
 
 export async function listBackups(): Promise<Backup[]> {

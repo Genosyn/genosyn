@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.14.0"
+CLI_VERSION="0.15.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -652,13 +652,24 @@ upgrade_backup_path() {
     "${backup_dir}" "$(auto_update_key)" "$(date -u +%Y%m%d-%H%M%S)" "$$"
 }
 
-# Whether an archive holds something and reads end to end.
+# Whether an archive holds something and reads end to end, drawn as a bar of
+# the archive read so far. BusyBox tar reports nothing, so the shell beside it
+# finds whichever process has the archive open -- the gunzip tar forks -- and
+# reads its position in the file from /proc twice a second.
 archive_valid() {
   [ -s "$1" ] || return 1
-  docker run --rm \
+  with_progress "Verifying the backup" "$(wc -c <"$1" | tr -d ' ')" docker run --rm \
     -v "$(cd "$(dirname "$1")" && pwd):/backup:ro" \
     alpine:3.20 \
-    sh -c 'tar -tzf "/backup/$1" >/dev/null' sh "$(basename "$1")"
+    sh -c 'tar -tzf "/backup/$1" >/dev/null &
+pid=$!
+while kill -0 "$pid" 2>/dev/null; do
+  for fd in /proc/[0-9]*/fd/*; do
+    [ "$(readlink "$fd" 2>/dev/null)" = "/backup/$1" ] && sed -n "s/^pos:[[:space:]]*/$2 /p" "${fd%/fd/*}/fdinfo/${fd##*/}" >&2 2>/dev/null
+  done
+  sleep 0.5
+done
+wait "$pid"' sh "$(basename "$1")" "${PROGRESS_MARK}"
 }
 
 # Bytes of data an archive of the volume reads, by apparent size, without the
@@ -704,7 +715,7 @@ wait "$pid" && chmod 0600 "/backup/$1" && { chown "$2:$3" "/backup/$1" 2>/dev/nu
 
   [ -s "${out}" ] || return 1
   chmod 0600 "${out}" || return 1
-  with_progress "Verifying the backup" "" archive_valid "${out}"
+  archive_valid "${out}"
 }
 
 # Where a live backup stages its database snapshot: inside the running App
@@ -792,7 +803,7 @@ NODE
   docker exec -u 0 "${NAME}" rm -rf "${LIVE_SNAPSHOT_DIR}" >/dev/null 2>&1 || true
   [ "${rc}" = "0" ] || return 1
   chmod 0600 "${out}" || return 1
-  with_progress "Verifying the backup" "" archive_valid "${out}"
+  archive_valid "${out}"
 }
 
 # Replace the volume's contents with an archive's. The App's own Backup/

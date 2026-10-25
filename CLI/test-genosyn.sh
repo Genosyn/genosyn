@@ -753,9 +753,9 @@ check "a volume that grows past its measured size fills the bar and stops there"
   "$(cat "${progress_screen}")" \
   "$(redraw '  Archiving the volume…')$(redraw "  $(cells 30 █) 100%  1.0KB of 1.0KB")$(redraw 'tar: ./locked: Cannot open: Permission denied')"$'\n'"  $(cells 30 █) 100%  1.0KB of 1.0KB$(redraw '')"
 
-on_terminal "Verifying the backup" "" true
+on_terminal "Snapshotting the database" "" true
 check "a step that reports nothing says what it is doing until it ends" \
-  "$(cat "${progress_screen}")" "$(redraw '  Verifying the backup…')$(redraw '')"
+  "$(cat "${progress_screen}")" "$(redraw '  Snapshotting the database…')$(redraw '')"
 
 echo "live backups — the progress bar's total"
 live_screen="${test_root}/live.screen"
@@ -799,8 +799,8 @@ check "so tar reports about a thousand times over it" \
   "$(grep -F -- '--file=- ' "${live_log}" | grep -o -- '--checkpoint=[0-9]*')" '--checkpoint=3'
 check "which the terminal shows as a bar, never as tar's own lines" \
   "$(grep -Fc " 50%  9.8MB of 19.5MB" "${live_screen}" || true):$(grep -Fc "${PROGRESS_MARK}" "${live_screen}" || true)" '1:0'
-check "with what the backup is doing before and after" \
-  "$(grep -Fc 'Snapshotting the database…' "${live_screen}" || true):$(grep -Fc 'Verifying the backup…' "${live_screen}" || true)" '1:1'
+check "after a line saying the database is being snapshotted" \
+  "$(grep -Fc 'Snapshotting the database…' "${live_screen}" || true)" '1'
 check "and the backup still succeeds" \
   "$(cat "${test_root}/live.tar.gz"):$(tail -1 "${live_log}")" 'archive-bytes:rc=0'
 
@@ -875,6 +875,58 @@ check "and the archive is still written and checked" \
 volume_progress no
 check "elsewhere, the volume is not measured and nothing is drawn" \
   "$(grep -Fc 'du -sb' "${volume_log}" || true):$(cat "${volume_screen}"):$(tail -1 "${volume_log}")" '0::rc=0'
+
+echo "archive checks — how far tar has read the archive, as the progress"
+check_log="${test_root}/check.log"
+check_screen="${test_root}/check.screen"
+check_archive="${test_root}/backups/check.tar.gz"
+printf '%4096s' '' >"${check_archive}"
+archive_check() {
+  # $1 = yes to draw as on a terminal, $2 = what tar exits with, $3 = the
+  # archive. Logs docker to check_log and keeps what the terminal is sent in
+  # check_screen.
+  local tty="$1" tar_rc="$2" archive="$3"
+  : >"${check_log}"
+  (
+    # shellcheck source=./genosyn
+    source "${HERE}/genosyn"
+    C_INDIGO="" C_DIM="" C_RESET=""
+    if [ "${tty}" = "yes" ]; then progress_tty() { return 0; }; fi
+    docker() {
+      printf '%s\n' "$*" >>"${check_log}"
+      # The shell beside tar reports its position in the archive, with the
+      # mark it is given as its last argument.
+      local args=("$@")
+      printf '%s 2048\n' "${args[$# - 1]}" >&2
+      printf '%s 4096\n' "${args[$# - 1]}" >&2
+      return "${tar_rc}"
+    }
+    rc=0
+    archive_valid "${archive}" 2>"${check_screen}" || rc=$?
+    echo "rc=${rc}" >>"${check_log}"
+  )
+}
+
+archive_check yes 0 "${check_archive}"
+check "the archive's folder is mounted read-only and tar lists it" \
+  "$(head -1 "${check_log}")" \
+  "run --rm -v ${test_root}/backups:/backup:ro alpine:3.20 sh -c tar -tzf \"/backup/\$1\" >/dev/null &"
+check "while the shell beside it reads its position in the archive from /proc" \
+  "$(grep -Fc '"${fd%/fd/*}/fdinfo/${fd##*/}"' "${check_log}" || true):$(grep -F 'wait "$pid"' "${check_log}")" \
+  "1:wait \"\$pid\" sh check.tar.gz ${PROGRESS_MARK}"
+check "which a terminal shows as a bar of the archive's size" \
+  "$(cat "${check_screen}")" \
+  "$(redraw '  Verifying the backup…')$(redraw "  $(cells 15 █)$(cells 15 ░)  50%  2.0KB of 4.0KB")$(redraw "  $(cells 30 █) 100%  4.0KB of 4.0KB")$(redraw '')"
+check "and an archive tar reads end to end is valid" "$(tail -1 "${check_log}")" 'rc=0'
+
+archive_check no 1 "${check_archive}"
+check "one it cannot read is not, and elsewhere nothing is drawn" \
+  "$(tail -1 "${check_log}"):$(cat "${check_screen}")" 'rc=1:'
+
+: >"${test_root}/backups/empty.tar.gz"
+archive_check yes 0 "${test_root}/backups/empty.tar.gz"
+check "an empty archive is not valid, and tar is never started" \
+  "$(cat "${check_log}")" 'rc=1'
 
 echo "upgrade pauses running Routine Runs so they continue afterwards"
 : >"${upgrade_log}"
