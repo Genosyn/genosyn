@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 import { after, before, beforeEach, describe, test } from "node:test";
+import type archiver from "archiver";
+import * as archiverRuntime from "archiver";
 import { config } from "../../config.js";
 import { readZipFile, type ZipEntry } from "../lib/zipFile.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
@@ -25,6 +27,7 @@ import {
   backupFilePath,
   bootBackups,
   ingestUploadedArchive,
+  openFilesAhead,
   restoreFromBackup,
   runBackup,
   setSnapshotBusyLimitForTests,
@@ -93,6 +96,117 @@ describe("backup archive generation", () => {
       await archiveText(archivePath, "companies/release-lab/marker.txt"),
       "release proof",
     );
+  });
+});
+
+describe("files that change while a backup is written", () => {
+  /** An archive that only queues what it is handed, so a test decides when each file is read. */
+  function queueingArchive() {
+    const queued: Array<{ name: string; source: Readable }> = [];
+    const archive = {
+      append(source: unknown, data?: { name?: string }) {
+        queued.push({ name: data?.name ?? "", source: source as Readable });
+        return archive as never;
+      },
+    };
+    return { archive, queued };
+  }
+
+  async function readAll(source: Readable): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of source) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks).toString("utf8");
+  }
+
+  test("leaves out a file deleted before its turn, and archives one deleted after it was opened", async () => {
+    const dir = path.join(tempDir, "companies", "release-lab");
+    const [recording, reflog, notes] = ["recording.mp4.part", "reflog", "notes.txt"].map((name) =>
+      path.join(dir, name),
+    );
+    await fs.writeFile(recording, "recording");
+    await fs.writeFile(reflog, "reflog");
+    await fs.writeFile(notes, "notes");
+    const { archive, queued } = queueingArchive();
+    const files = openFilesAhead(archive, 2);
+
+    await files.add(recording, "recording.mp4.part");
+    // The recording finishes and is renamed: the open file is still read whole.
+    await fs.rename(recording, path.join(dir, "recording.mp4"));
+    await files.add(reflog, "reflog");
+    // Two are waiting, so the third waits its turn — and is pruned meanwhile.
+    let thirdAdded = false;
+    const third = files.add(notes, "notes.txt").then(() => {
+      thirdAdded = true;
+    });
+    await fs.rm(notes);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(thirdAdded, false);
+
+    assert.equal(await readAll(queued[0].source), "recording");
+    await third;
+
+    assert.deepEqual(
+      queued.map((entry) => entry.name),
+      ["recording.mp4.part", "reflog"],
+    );
+    assert.equal(await readAll(queued[1].source), "reflog");
+  });
+
+  test("writes a whole archive while files are renamed and deleted around it", async () => {
+    const dir = path.join(tempDir, "companies", "release-lab");
+    const big = path.join(dir, "big.bin");
+    await fs.writeFile(big, randomBytes(4 * 1024 * 1024));
+    const [renamed, kept, pruned] = ["renamed.txt", "kept.txt", "pruned.txt"].map((name) =>
+      path.join(dir, name),
+    );
+    for (const file of [renamed, kept, pruned]) await fs.writeFile(file, path.basename(file));
+    const zipPath = path.join(tempDir, "volatile.zip");
+    const archive = new (
+      archiverRuntime as unknown as { ZipArchive: new () => archiver.Archiver }
+    ).ZipArchive();
+    const written = new Promise<void>((resolve, reject) => {
+      const output = fsSync
+        .createWriteStream(zipPath)
+        .on("close", () => resolve())
+        .on("error", reject);
+      archive.on("error", reject);
+      archive.pipe(output);
+    });
+    const files = openFilesAhead(archive, 2);
+
+    await files.add(big, "big.bin");
+    await files.add(renamed, "renamed.txt");
+    await fs.rename(renamed, `${renamed}.done`);
+    await fs.rm(pruned);
+    await files.add(kept, "kept.txt");
+    await files.add(pruned, "pruned.txt");
+    await archive.finalize();
+    await written;
+
+    assert.deepEqual(
+      (await archiveEntries(zipPath)).map((entry) => entry.path),
+      ["big.bin", "renamed.txt", "kept.txt"],
+    );
+    assert.equal(await archiveText(zipPath, "renamed.txt"), "renamed.txt");
+  });
+
+  test("closes the files still waiting when the backup stops", async () => {
+    const marker = path.join(tempDir, "companies", "release-lab", "marker.txt");
+    await fs.writeFile(marker, "marker");
+    const { archive, queued } = queueingArchive();
+    const files = openFilesAhead(archive, 1);
+    await files.add(marker, "first");
+    const waiting = files.add(marker, "second");
+
+    files.close();
+    await waiting;
+
+    assert.equal(files.closed, true);
+    assert.deepEqual(
+      queued.map((entry) => entry.name),
+      ["first"],
+    );
+    assert.equal(queued[0].source.destroyed, true);
   });
 });
 

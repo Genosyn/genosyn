@@ -100,6 +100,16 @@ export function Backups() {
         time the backup takes at 2 MB/s — about seven and a half hours for 50 GB — and an SFTP
         copy whose server stops answering for two minutes fails rather than hanging.
       </P>
+      <P>
+        Before each copy Genosyn checks that the destination has room for the backup. When it
+        doesn&apos;t, the copy fails at once and says how much is free and how big the backup is,
+        instead of filling the destination for an hour first. Folders, SMB shares and most SFTP
+        servers say how much room they have; a destination that doesn&apos;t is copied to
+        regardless. A
+        recycle bin on a NAS shared folder, which Synology and QNAP offer, keeps every backup
+        Genosyn deletes there, still taking up space, until it is emptied: turn it off for that
+        folder, or empty it on a schedule.
+      </P>
 
       <H3 id="test">Testing a destination</H3>
       <P>
@@ -216,8 +226,10 @@ export function Backups() {
       </P>
       <P>
         <Strong>On off-box destinations.</Strong> Off until you turn it on. Applied each time a
-        backup is copied to a destination, never leaving it without the copy just made, and it
-        deletes only Genosyn&apos;s own <Code>backup-YYYY-MM-DD-HHMMSS.zip</Code> files and
+        backup is copied to a destination, before the copy as well as after it, so a destination
+        full of old backups makes room for the new one. The newest of the old backups stays until
+        the new copy has arrived, so a copy that fails never leaves the destination without one.
+        It deletes only Genosyn&apos;s own <Code>backup-YYYY-MM-DD-HHMMSS.zip</Code> files and
         partial copies of them. If several installs copy to one folder, give each its own: each
         prunes every Genosyn backup it finds there.
       </P>
@@ -260,6 +272,9 @@ export function Backups() {
         always whole; one interrupted by a restart is swept up on the next start. SQLite is copied
         a few pages at a time, so Genosyn keeps answering while a backup runs, and a backup that
         can&apos;t copy the database fails with the reason instead of saving an archive without it.
+        Work carries on while a backup is written, so a file deleted or renamed before its turn
+        comes — a browser recording finishing, a branch pruned in an AI Employee&apos;s checkout
+        — is left out of that backup rather than failing it.
       </P>
       <Callout kind="warn" title="Treat every backup like the live Vault">
         Every backup holds both the encrypted credentials and the key that decrypts them, so

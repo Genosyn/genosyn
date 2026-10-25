@@ -195,7 +195,7 @@ function RetentionForm({
         onChange={(enabled, days) =>
           setDraft({ ...draft, offBoxRetentionEnabled: enabled, offBoxRetentionDays: days })
         }
-        note="Applied each time a backup is copied to a destination; the copy just made is always kept. Only Genosyn's own backup-….zip files are deleted there."
+        note="Applied each time a backup is copied to a destination, before the copy too, so old backups make room for it. A destination always keeps a complete backup, and only Genosyn's own backup-….zip files are deleted there."
       />
       <FormError message={error} />
       <FormSuccess message={note} />
