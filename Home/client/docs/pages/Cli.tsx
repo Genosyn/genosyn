@@ -45,7 +45,8 @@ const COMMANDS: Cmd[] = [
   {
     name: "backup",
     flags: "[--out FILE]",
-    blurb: "Tarball the data volume. Defaults to a timestamped file in the current directory.",
+    blurb:
+      "Tarball the data volume, with a progress bar in a terminal. Defaults to a timestamped file in the current directory.",
   },
   {
     name: "restore",
@@ -341,6 +342,12 @@ genosyn upgrade --no-backup     # upgrade without the backup (--skip-backup work
         takes that snapshot in place of the live file. Only then does the upgrade pause Routine
         Runs and restart Genosyn, so a large volume makes the upgrade longer but not the downtime.
         An install that is already stopped is archived as it lies.
+      </P>
+      <P>
+        In a terminal, a progress bar beneath the backup step shows how much of the volume has been
+        archived out of its total, with a line naming the database snapshot before it and the check
+        of the finished archive after. Output to a file or a pipe, such as an automatic
+        update&apos;s log, has no bar.
       </P>
       <P>
         The archive holds the data as it was when the backup began. A failed upgrade restores it

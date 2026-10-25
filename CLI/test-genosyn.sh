@@ -679,7 +679,7 @@ check "the database is snapshotted inside the running container" \
   'exec -i -w /app -e GENOSYN_SNAPSHOT_DIR=/tmp/genosyn-upgrade-backup genosyn-test node'
 check "and the archive streams the volume with the snapshot in place of the live database" \
   "$(grep -F 'tar --create' "${live_log}")" \
-  'exec -u 0 genosyn-test tar --create --gzip --file=- --directory=/app/data --anchored --ignore-failed-read --warning=no-file-changed --warning=no-file-removed --warning=no-file-ignored --exclude=./Backup --exclude=./app.sqlite --exclude=./app.sqlite-wal --exclude=./app.sqlite-shm --exclude=./app.sqlite-journal . --directory=/tmp/genosyn-upgrade-backup app.sqlite'
+  'exec -u 0 genosyn-test tar --create --gzip --file=- --checkpoint=1000 --checkpoint-action=echo=genosyn-progress %{}T --directory=/app/data --anchored --ignore-failed-read --warning=no-file-changed --warning=no-file-removed --warning=no-file-ignored --exclude=./Backup --exclude=./app.sqlite --exclude=./app.sqlite-wal --exclude=./app.sqlite-shm --exclude=./app.sqlite-journal . --directory=/tmp/genosyn-upgrade-backup app.sqlite'
 check "into a private file on the host" \
   "$(cat "${test_root}/live.tar.gz"):$(stat -c '%a' "${test_root}/live.tar.gz" 2>/dev/null || stat -f '%Lp' "${test_root}/live.tar.gz")" \
   'archive-bytes:600'
@@ -701,6 +701,116 @@ check "a volume with no SQLite database (Postgres) is archived as it is" \
   "$(grep -F 'tar --create' "${live_log}" | sed 's/.* --exclude=/--exclude=/')" \
   '--exclude=./Backup .'
 
+echo "progress — a bar on a terminal, the same lines as ever elsewhere"
+progress_screen="${test_root}/progress.screen"
+# Reports progress the way GNU tar's checkpoints do, with an error among the
+# reports, writes an archive to stdout, and exits with $1.
+progress_reporter() {
+  printf 'tar: %s 1024 (1.0KiB, 1.0KiB/s)\n' "${PROGRESS_MARK}" >&2
+  printf 'tar: ./locked: Cannot open: Permission denied\n' >&2
+  printf 'tar: %s 1050 (1.0KiB, 1.0KiB/s)\n' "${PROGRESS_MARK}" >&2
+  printf 'tar: %s 2048 (2.0KiB, 2.0KiB/s)\n' "${PROGRESS_MARK}" >&2
+  printf 'archive-bytes'
+  return "$1"
+}
+# What a terminal is sent to redraw the progress line as $1.
+redraw() { printf '\r\033[K%s' "$1"; }
+# $1 cells of $2.
+cells() { local s; printf -v s '%*s' "$1" ''; printf '%s' "${s// /$2}"; }
+# Run with_progress as if stderr were a terminal, keeping what it is sent.
+on_terminal() {
+  (
+    progress_tty() { return 0; }
+    C_INDIGO="" C_DIM="" C_RESET=""
+    with_progress "$@" >/dev/null 2>"${progress_screen}"
+  )
+}
+
+progress_rc=0
+progress_out="$(with_progress "Archiving the volume" 4096 progress_reporter 3 2>"${progress_screen}")" || progress_rc=$?
+check "with_progress hands the command's stdout through" "${progress_out}" 'archive-bytes'
+check "and returns the command's status" "${progress_rc}" '3'
+check "off a terminal, the progress reports are dropped and every other line passes through" \
+  "$(cat "${progress_screen}")" 'tar: ./locked: Cannot open: Permission denied'
+
+on_terminal "Archiving the volume" 4096 progress_reporter 0
+bar25="  $(cells 7 █)$(cells 23 ░)  25%  1.0KB of 4.0KB"
+bar50="  $(cells 15 █)$(cells 15 ░)  50%  2.0KB of 4.0KB"
+expected="$(redraw '  Archiving the volume…')$(redraw "${bar25}")"
+expected+="$(redraw 'tar: ./locked: Cannot open: Permission denied')"$'\n'"${bar25}"
+expected+="$(redraw "${bar50}")$(redraw '')"
+check "on a terminal, the line says what is happening, then shows the bar, redrawn as the percentage moves, around other lines, and is cleared at the end" \
+  "$(cat "${progress_screen}")" "${expected}"
+
+on_terminal "Archiving the volume" "" progress_reporter 0
+expected="$(redraw '  Archiving the volume…')$(redraw '  Archiving the volume… 1.0KB')"
+expected+="$(redraw 'tar: ./locked: Cannot open: Permission denied')"$'\n''  Archiving the volume… 1.0KB'
+expected+="$(redraw '  Archiving the volume… 2.0KB')$(redraw '')"
+check "without a total, it counts the bytes done" "$(cat "${progress_screen}")" "${expected}"
+
+on_terminal "Archiving the volume" 1024 progress_reporter 0
+check "a volume that grows past its measured size fills the bar and stops there" \
+  "$(cat "${progress_screen}")" \
+  "$(redraw '  Archiving the volume…')$(redraw "  $(cells 30 █) 100%  1.0KB of 1.0KB")$(redraw 'tar: ./locked: Cannot open: Permission denied')"$'\n'"  $(cells 30 █) 100%  1.0KB of 1.0KB$(redraw '')"
+
+on_terminal "Verifying the backup" "" true
+check "a step that reports nothing says what it is doing until it ends" \
+  "$(cat "${progress_screen}")" "$(redraw '  Verifying the backup…')$(redraw '')"
+
+echo "live backups — the progress bar's total"
+live_screen="${test_root}/live.screen"
+live_progress() {
+  # $1 = yes to draw as on a terminal. Logs docker to live_log and keeps what
+  # the terminal is sent in live_screen.
+  local tty="$1"
+  : >"${live_log}"
+  rm -f "${test_root}/live.tar.gz"
+  (
+    # shellcheck source=./genosyn
+    source "${HERE}/genosyn"
+    NAME="genosyn-test"
+    C_INDIGO="" C_DIM="" C_RESET=""
+    if [ "${tty}" = "yes" ]; then progress_tty() { return 0; }; fi
+    docker() {
+      printf '%s\n' "$*" >>"${live_log}"
+      case "$*" in
+        *" node") cat >/dev/null; printf 'app.sqlite' ;;
+        *" tar --create --file=/dev/null "*) printf 'Total bytes written: 20480000 (20MiB, 1.0GiB/s)\n' >&2 ;;
+        *" tar --create "*)
+          printf 'tar: %s 10240000 (9.8MiB, 9.8MiB/s)\n' "${PROGRESS_MARK}" >&2
+          printf 'archive-bytes'
+          printf 'tar: %s 20480000 (20MiB, 9.8MiB/s)\n' "${PROGRESS_MARK}" >&2
+          ;;
+      esac
+      return 0
+    }
+    archive_valid() { [ -s "$1" ]; }
+    rc=0
+    backup_running_volume_to "${test_root}/live.tar.gz" 1 2>"${live_screen}" || rc=$?
+    echo "rc=${rc}" >>"${live_log}"
+  )
+}
+
+live_progress yes
+check "on a terminal, a dry run into /dev/null measures the same archive first, in the C locale" \
+  "$(grep -F -- '--file=/dev/null' "${live_log}")" \
+  'exec -u 0 -e LC_ALL=C genosyn-test tar --create --file=/dev/null --totals --directory=/app/data --anchored --ignore-failed-read --warning=no-file-changed --warning=no-file-removed --warning=no-file-ignored --exclude=./Backup --exclude=./app.sqlite --exclude=./app.sqlite-wal --exclude=./app.sqlite-shm --exclude=./app.sqlite-journal . --directory=/tmp/genosyn-upgrade-backup app.sqlite'
+check "so tar reports about a thousand times over it" \
+  "$(grep -F -- '--file=- ' "${live_log}" | grep -o -- '--checkpoint=[0-9]*')" '--checkpoint=3'
+check "which the terminal shows as a bar, never as tar's own lines" \
+  "$(grep -Fc " 50%  9.8MB of 19.5MB" "${live_screen}" || true):$(grep -Fc "${PROGRESS_MARK}" "${live_screen}" || true)" '1:0'
+check "with what the backup is doing before and after" \
+  "$(grep -Fc 'Snapshotting the database…' "${live_screen}" || true):$(grep -Fc 'Verifying the backup…' "${live_screen}" || true)" '1:1'
+check "and the backup still succeeds" \
+  "$(cat "${test_root}/live.tar.gz"):$(tail -1 "${live_log}")" 'archive-bytes:rc=0'
+
+live_progress no
+check "elsewhere, nothing measures the archive first" \
+  "$(grep -Fc -- '--file=/dev/null' "${live_log}" || true)" '0'
+check "tar reports every ~10MB" \
+  "$(grep -o -- '--checkpoint=[0-9]*' "${live_log}")" '--checkpoint=1000'
+check "and nothing is drawn" "$(cat "${live_screen}"):$(tail -1 "${live_log}")" ':rc=0'
+
 echo "volume archives — the App's Backup/ folder"
 volume_log="${test_root}/volume.log"
 (
@@ -712,6 +822,59 @@ volume_log="${test_root}/volume.log"
 )
 check "a restore keeps the App's Backup/ archives" \
   "$(grep -Fc '! -name Backup' "${volume_log}" || true)" '1'
+
+echo "volume archives — what BusyBox tar has read, as the progress"
+volume_screen="${test_root}/volume.screen"
+mkdir -p "${test_root}/backups"
+volume_progress() {
+  # $1 = yes to draw as on a terminal. Logs docker to volume_log and keeps what
+  # the terminal is sent in volume_screen.
+  local tty="$1"
+  : >"${volume_log}"
+  rm -f "${test_root}/backups/stopped.tar.gz"
+  (
+    # shellcheck source=./genosyn
+    source "${HERE}/genosyn"
+    VOLUME="genosyn-test-data"
+    C_INDIGO="" C_DIM="" C_RESET=""
+    if [ "${tty}" = "yes" ]; then progress_tty() { return 0; }; fi
+    docker() {
+      printf '%s\n' "$*" >>"${volume_log}"
+      case "$*" in
+        *"du -sb"*) printf '4096\n' ;;
+        *"tar -czf"*)
+          # The archive goes to the directory mounted at /backup, named by the
+          # script's first argument; the progress mark is its last.
+          local args=("$@")
+          printf '%s 2048\n' "${args[$# - 1]}" >&2
+          printf 'archive' >"${args[5]%:/backup}/${args[$# - 5]}"
+          printf '%s 4096\n' "${args[$# - 1]}" >&2
+          ;;
+      esac
+      return 0
+    }
+    archive_valid() { [ -s "$1" ]; }
+    rc=0
+    backup_volume_to "${test_root}/backups/stopped.tar.gz" 1 2>"${volume_screen}" || rc=$?
+    echo "rc=${rc}" >>"${volume_log}"
+  )
+}
+
+volume_progress yes
+check "on a terminal, the volume is measured first, leaving out the App's Backup/ folder" \
+  "$(grep -F 'du -sb' "${volume_log}" | awk '{ print $NF }')" '1'
+check "while tar archives, the shell beside it reports what tar has read from /proc" \
+  "$(grep -Fc 'sed -n "s/^rchar: /$5 /p" "/proc/$pid/io"' "${volume_log}" || true)" '1'
+check "with the progress mark" \
+  "$(grep -F 'wait "$pid"' "${volume_log}" | awk '{ print $(NF - 1), $NF }')" "1 ${PROGRESS_MARK}"
+check "which the terminal shows as a bar, never as the reports themselves" \
+  "$(grep -Fc " 50%  2.0KB of 4.0KB" "${volume_screen}" || true):$(grep -Fc "${PROGRESS_MARK}" "${volume_screen}" || true)" '1:0'
+check "and the archive is still written and checked" \
+  "$(cat "${test_root}/backups/stopped.tar.gz"):$(tail -1 "${volume_log}")" 'archive:rc=0'
+
+volume_progress no
+check "elsewhere, the volume is not measured and nothing is drawn" \
+  "$(grep -Fc 'du -sb' "${volume_log}" || true):$(cat "${volume_screen}"):$(tail -1 "${volume_log}")" '0::rc=0'
 
 echo "upgrade pauses running Routine Runs so they continue afterwards"
 : >"${upgrade_log}"
