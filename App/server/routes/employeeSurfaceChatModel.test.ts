@@ -17,12 +17,15 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import type { ModelEffort } from "../../shared/modelEffort.js";
 import { employeeSurfaceRouter } from "./employeeSurface.js";
 
 /**
  * The chat composer must reopen a past thread on the brain that thread was
- * held with. These tests pin the wire contract that makes that possible:
- * every conversation the surface hands back carries `lastModelId`.
+ * held with, at the effort it was asked to think with. These tests pin the
+ * wire contract that makes that possible: every conversation the surface hands
+ * back carries `lastModelId` and `lastEffort`, and a send's effort is checked
+ * against its model before the turn is accepted.
  */
 
 let server: Server;
@@ -119,6 +122,7 @@ async function turn(args: {
   conversationId: string;
   modelId: string | null;
   at: string;
+  effort?: ModelEffort | null;
 }): Promise<void> {
   await insert(ConversationMessage, {
     conversationId: args.conversationId,
@@ -133,11 +137,17 @@ async function turn(args: {
     content: "answer",
     status: "ok",
     modelId: args.modelId,
+    effort: args.effort ?? null,
     createdAt: new Date(args.at),
   });
 }
 
-type Summary = { id: string; title: string | null; lastModelId: string | null };
+type Summary = {
+  id: string;
+  title: string | null;
+  lastModelId: string | null;
+  lastEffort: ModelEffort | null;
+};
 
 async function call(method: string, suffix: string, body?: unknown) {
   const headers: Record<string, string> = { "x-test-user": owner.id };
@@ -269,5 +279,116 @@ describe("conversation lastModelId", () => {
 
     const detail = await call("GET", `/conversations/${conv.id}`);
     assert.equal((detail.body as { conversation: Summary }).conversation.lastModelId, null);
+  });
+});
+
+/** Every `event:` / `data:` frame of a streamed send, read to the end. */
+async function sendEvents(
+  conversationId: string,
+  body: Record<string, unknown>,
+): Promise<{ event: string; data: unknown }[]> {
+  const response = await fetch(
+    `${baseUrl}/api/companies/${company.id}/employees/${employee.id}/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-user": owner.id },
+      body: JSON.stringify(body),
+    },
+  );
+  assert.equal(response.status, 200);
+  const events: { event: string; data: unknown }[] = [];
+  for (const frame of (await response.text()).split("\n\n")) {
+    const event = /^event: (.+)$/m.exec(frame)?.[1];
+    const data = /^data: (.+)$/m.exec(frame)?.[1];
+    if (event && data) events.push({ event, data: JSON.parse(data) });
+  }
+  return events;
+}
+
+describe("conversation lastEffort", () => {
+  test("summaries report the effort of the turn the thread reopens on", async () => {
+    const thinking = await conversation({ title: "asked for more thinking" });
+    const plain = await conversation({ title: "default effort" });
+    await turn({
+      conversationId: thinking.id,
+      modelId: otherModel.id,
+      effort: "xhigh",
+      at: "2026-08-01T10:00Z",
+    });
+    await turn({ conversationId: plain.id, modelId: otherModel.id, at: "2026-08-01T11:00Z" });
+
+    const listed = await call("GET", "/conversations");
+    const byId = new Map((listed.body as Summary[]).map((row) => [row.id, row]));
+    assert.equal(byId.get(thinking.id)?.lastEffort, "xhigh");
+    assert.equal(byId.get(plain.id)?.lastEffort, null);
+
+    const detail = await call("GET", `/conversations/${thinking.id}`);
+    assert.deepEqual(
+      {
+        modelId: (detail.body as { conversation: Summary }).conversation.lastModelId,
+        effort: (detail.body as { conversation: Summary }).conversation.lastEffort,
+      },
+      { modelId: otherModel.id, effort: "xhigh" },
+    );
+
+    const created = await call("POST", "/conversations", {});
+    assert.equal((created.body as Summary).lastEffort, null);
+  });
+
+  test("a send at an effort its model does not support is refused before anything is saved", async () => {
+    const conv = await conversation({ title: "unsupported effort" });
+    for (const [modelId, effort] of [
+      // This model has no known effort support at all.
+      [otherModel.id, "high"],
+      // This one does, but not at this level.
+      [(await model({ name: "gpt-5.4" })).id, "max"],
+    ] as const) {
+      const events = await sendEvents(conv.id, { message: "Think hard", modelId, effort });
+      const error = events.find((entry) => entry.event === "error");
+      assert.match(
+        String((error?.data as { message?: string } | undefined)?.message),
+        /does not support this effort/,
+      );
+      assert.equal(
+        events.some((entry) => entry.event === "user"),
+        false,
+      );
+    }
+    assert.equal(
+      await AppDataSource.getRepository(ConversationMessage).countBy({ conversationId: conv.id }),
+      0,
+    );
+  });
+
+  test("an effort the API does not know is rejected by the schema", async () => {
+    const conv = await conversation({ title: "made-up effort" });
+    const response = await call("POST", `/conversations/${conv.id}/messages`, {
+      message: "Think hard",
+      effort: "turbo",
+    });
+    assert.equal(response.status, 400);
+  });
+
+  test("a supported effort is stored with the turn and reported on the thread", async () => {
+    const reasoning = await model({ name: "gpt-5.4" });
+    const conv = await conversation({ title: "think harder" });
+
+    const events = await sendEvents(conv.id, {
+      message: "Think hard",
+      modelId: reasoning.id,
+      effort: "xhigh",
+    });
+    const accepted = events.find((entry) => entry.event === "conversation")?.data as
+      | Summary
+      | undefined;
+    assert.equal(accepted?.lastModelId, reasoning.id);
+    assert.equal(accepted?.lastEffort, "xhigh");
+
+    const assistant = await AppDataSource.getRepository(ConversationMessage).findOneByOrFail({
+      conversationId: conv.id,
+      role: "assistant",
+    });
+    assert.equal(assistant.modelId, reasoning.id);
+    assert.equal(assistant.effort, "xhigh");
   });
 });

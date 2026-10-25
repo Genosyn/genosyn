@@ -199,6 +199,7 @@ function conversation(id = "older-chat"): ConversationSummary {
     updatedAt: fixtureNow.toISOString(),
     lastMessageAt: fixtureNow.toISOString(),
     lastModelId: "model",
+    lastEffort: null,
   };
 }
 function message(

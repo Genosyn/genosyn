@@ -60,7 +60,7 @@ import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import type { ChatAttachment } from "@/lib/api";
-import { MODEL_EFFORT_LABELS } from "@/lib/workSessionModel";
+import { MODEL_EFFORT_LABELS } from "../../../shared/modelEffort";
 
 /**
  * One work session, everywhere it is shown.

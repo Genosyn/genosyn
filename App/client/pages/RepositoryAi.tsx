@@ -49,11 +49,8 @@ import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import { WorkSessionModelPicker } from "@/components/repositories/WorkSessionModelPicker";
-import {
-  MODEL_EFFORT_LABELS,
-  resolveWorkSessionModelId,
-  type WorkSessionModelOverride,
-} from "@/lib/workSessionModel";
+import { resolveWorkSessionModelId, type WorkSessionModelOverride } from "@/lib/workSessionModel";
+import { MODEL_EFFORT_LABELS } from "../../shared/modelEffort";
 import type { ChatAttachment, ModelEffort } from "@/lib/api";
 import { firstBracketPlaceholder } from "@/lib/composerFocus";
 import { useRepositoriesContext } from "./RepositoriesLayout";

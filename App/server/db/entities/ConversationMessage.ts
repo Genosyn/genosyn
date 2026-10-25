@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
 } from "typeorm";
 import { dateTimeColumnType } from "./columnTypes.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 
 /**
  * One turn in a {@link Conversation}. `role` is `user` for humans and
@@ -107,6 +108,15 @@ export class ConversationMessage {
    */
   @Column({ type: "varchar", nullable: true })
   modelId!: string | null;
+
+  /**
+   * Effort selected with {@link modelId} for this durable assistant turn. NULL
+   * uses the AI Model's default, as do user messages, legacy replies and turns
+   * sent without a choice. Persisted for the model's reason: a queued or
+   * recovered turn thinks as hard as the Member asked when they sent it.
+   */
+  @Column({ type: "varchar", nullable: true })
+  effort!: ModelEffort | null;
 
   /**
    * User message that owns this durable assistant turn. NULL on ordinary

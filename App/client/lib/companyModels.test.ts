@@ -66,6 +66,7 @@ function model(values: Partial<AIModel> = {}): AIModel {
     contextWindow: null,
     contextWindowSource: null,
     contextWindowProbeable: true,
+    effortLevels: ["low", "medium", "high", "max"],
     maxConcurrentRuns: null,
     effectiveMaxConcurrentRuns: null,
     concurrencySource: "unlimited",

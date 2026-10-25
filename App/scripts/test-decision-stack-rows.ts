@@ -557,6 +557,7 @@ async function open(options: Options = {}): Promise<Fixture> {
                 updatedAt: now,
                 lastMessageAt: null,
                 lastModelId: null,
+                lastEffort: null,
                 discussedDecisionId: row.id,
               },
               messages: [],

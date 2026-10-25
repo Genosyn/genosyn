@@ -1,15 +1,4 @@
-import type { ModelEffort, WorkSessionModel } from "@/lib/api";
-
-export const MODEL_EFFORT_LABELS: Record<ModelEffort, string> = {
-  none: "None",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-  ultra: "Ultra",
-};
+import type { WorkSessionModel } from "@/lib/api";
 
 export type WorkSessionModelOverride = { employeeId: string; modelId: string };
 

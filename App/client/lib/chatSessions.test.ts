@@ -25,6 +25,7 @@ function queued(
     conversationId,
     newConversationIntent,
     modelId: null,
+    effort: null,
     content: id,
     attachments: [],
     queuedAt: "2026-08-21T09:00:00.000Z",

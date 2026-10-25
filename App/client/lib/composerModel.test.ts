@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { ModelEffort } from "../../shared/modelEffort.js";
 import {
   connectedModelId,
+  resolveComposerEffort,
   resolveComposerModelId,
+  type ComposerEffortOverride,
   type ComposerModelOption,
 } from "./composerModel.js";
 
@@ -138,5 +141,96 @@ describe("connectedModelId", () => {
   test("treats null and empty ids as no selection", () => {
     assert.equal(connectedModelId(CONNECTED, null), null);
     assert.equal(connectedModelId(CONNECTED, ""), null);
+  });
+});
+
+describe("composer effort selection", () => {
+  const LEVELS: ModelEffort[] = ["low", "medium", "high", "max"];
+
+  function effort(args: {
+    modelId?: string | null;
+    effortLevels?: ModelEffort[];
+    activeConvId?: string | null;
+    threadModelId?: string | null;
+    threadEffort?: ModelEffort | null;
+    override?: ComposerEffortOverride | null;
+  }): ModelEffort | null {
+    return resolveComposerEffort({
+      modelId: "modelId" in args ? (args.modelId ?? null) : CLAUDE.id,
+      effortLevels: args.effortLevels ?? LEVELS,
+      activeConvId: "activeConvId" in args ? (args.activeConvId ?? null) : "conv-1",
+      threadModelId: args.threadModelId ?? null,
+      threadEffort: args.threadEffort ?? null,
+      override: args.override ?? null,
+    });
+  }
+
+  test("a new thread starts at the model's default", () => {
+    assert.equal(effort({}), null);
+    assert.equal(effort({ activeConvId: null }), null);
+  });
+
+  test("reopens a past thread at the effort its last turn used", () => {
+    assert.equal(effort({ threadModelId: CLAUDE.id, threadEffort: "high" }), "high");
+  });
+
+  test("the thread's effort stays with the thread's model", () => {
+    // The thread thought hard on GPT; the composer is now on Claude.
+    assert.equal(effort({ threadModelId: GPT.id, threadEffort: "high" }), null);
+  });
+
+  test("an effort the model no longer supports falls back to its default", () => {
+    assert.equal(
+      effort({ threadModelId: CLAUDE.id, threadEffort: "xhigh", effortLevels: LEVELS }),
+      null,
+    );
+    assert.equal(
+      effort({ threadModelId: CLAUDE.id, threadEffort: "high", effortLevels: [] }),
+      null,
+    );
+  });
+
+  test("a hand-picked effort outranks the thread's own, including Model default", () => {
+    const picked = (value: ModelEffort | null): ComposerEffortOverride => ({
+      convId: "conv-1",
+      modelId: CLAUDE.id,
+      effort: value,
+    });
+    assert.equal(
+      effort({ threadModelId: CLAUDE.id, threadEffort: "high", override: picked("max") }),
+      "max",
+    );
+    assert.equal(
+      effort({ threadModelId: CLAUDE.id, threadEffort: "high", override: picked(null) }),
+      null,
+    );
+  });
+
+  test("a hand-picked effort speaks only for its own thread and model", () => {
+    const override: ComposerEffortOverride = {
+      convId: "conv-1",
+      modelId: CLAUDE.id,
+      effort: "max",
+    };
+    assert.equal(effort({ activeConvId: "conv-2", override }), null);
+    assert.equal(effort({ modelId: GPT.id, override }), null);
+    assert.equal(
+      effort({ activeConvId: "conv-2", threadModelId: CLAUDE.id, threadEffort: "low", override }),
+      "low",
+    );
+  });
+
+  test("a hand-picked effort the model does not support is not sent", () => {
+    assert.equal(
+      effort({
+        effortLevels: ["low", "medium", "high"],
+        override: { convId: "conv-1", modelId: CLAUDE.id, effort: "max" },
+      }),
+      null,
+    );
+  });
+
+  test("no model means no effort", () => {
+    assert.equal(effort({ modelId: null, threadModelId: null, threadEffort: "high" }), null);
   });
 });
