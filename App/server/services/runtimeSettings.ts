@@ -53,6 +53,7 @@ export const RUNTIME_SETTING_KEYS = {
   containment: "runtime.containment",
   network: "runtime.network",
   banking: "runtime.banking",
+  emailVerification: "runtime.emailVerification",
 } as const;
 
 export type RuntimeSettingsGroup = keyof typeof RUNTIME_SETTING_KEYS;
@@ -187,6 +188,28 @@ export type RuntimeBankingSettings = {
   syncIntervalMinutes: number;
 };
 
+/**
+ * The in-house email finder and verifier (`verify_email`, `find_contact_email`;
+ * `services/revenue/emailFinder.ts`). The SMTP callout is what confirms a
+ * mailbox rather than just the domain, and it is the operationally sensitive
+ * part — it makes outbound connections on port 25 and spends the install's
+ * sending reputation — so an operator can turn it off here without losing the
+ * cheaper syntax/MX/classification checks. SMTP probing is additionally forced
+ * off on multi-tenant installs by `emailFinder.ts`, regardless of this value.
+ */
+export type RuntimeEmailVerificationSettings = {
+  /** Master switch for both tools. Off makes them refuse with an explanation. */
+  enabled: boolean;
+  /** Perform the SMTP RCPT callout. Ignored (treated as off) on shared installs. */
+  smtpProbe: boolean;
+  /** The MAIL FROM used in a probe. Empty sends the RFC-standard null sender `<>`. */
+  probeFromAddress: string;
+  /** Per-connection timeout for one SMTP callout, in milliseconds. */
+  probeTimeoutMs: number;
+  /** How many name patterns `find_contact_email` will try per lookup. */
+  maxCandidates: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -197,6 +220,7 @@ export type RuntimeSettings = {
   containment: RuntimeContainmentSettings;
   network: RuntimeNetworkSettings;
   banking: RuntimeBankingSettings;
+  emailVerification: RuntimeEmailVerificationSettings;
 };
 
 /** Whether each group is currently backed by a stored row (vs. the default). */
@@ -262,6 +286,13 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
   banking: {
     syncEnabled: true,
     syncIntervalMinutes: 30,
+  },
+  emailVerification: {
+    enabled: true,
+    smtpProbe: true,
+    probeFromAddress: "",
+    probeTimeoutMs: 7_000,
+    maxCandidates: 12,
   },
 } satisfies RuntimeSettings);
 
@@ -680,6 +711,21 @@ export function parseBankingSettings(raw: unknown): RuntimeBankingSettings {
   };
 }
 
+export function parseEmailVerificationSettings(raw: unknown): RuntimeEmailVerificationSettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.emailVerification;
+  return {
+    enabled: boolField(o, "emailVerification", "enabled", d.enabled),
+    smtpProbe: boolField(o, "emailVerification", "smtpProbe", d.smtpProbe),
+    // A full address or "" (the null sender). Never longer than one address.
+    probeFromAddress: stringField(o, "emailVerification", "probeFromAddress", d.probeFromAddress, 320),
+    // One second at the least so a typo cannot turn a lookup into a hang, 30s
+    // at the most — a server that has not answered RCPT by then will not.
+    probeTimeoutMs: intField(o, "emailVerification", "probeTimeoutMs", d.probeTimeoutMs, 1_000, 30_000),
+    maxCandidates: intField(o, "emailVerification", "maxCandidates", d.maxCandidates, 1, 25),
+  };
+}
+
 /** One parser per group, so refresh, write, and legacy import share a code path. */
 const PARSERS: {
   [G in RuntimeSettingsGroup]: (raw: unknown) => RuntimeSettings[G];
@@ -693,6 +739,7 @@ const PARSERS: {
   containment: parseContainmentSettings,
   network: parseNetworkSettings,
   banking: parseBankingSettings,
+  emailVerification: parseEmailVerificationSettings,
 };
 
 // ────────────────────────────── the cache ──────────────────────────────────
@@ -708,6 +755,7 @@ let overridden: RuntimeSettingsOverridden = {
   containment: false,
   network: false,
   banking: false,
+  emailVerification: false,
 };
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -779,6 +827,11 @@ export function getBankingSettings(): RuntimeBankingSettings {
   return effective("banking");
 }
 
+/** The in-house email finder/verifier. Read per `verify_email` / `find_contact_email` call. */
+export function getEmailVerificationSettings(): RuntimeEmailVerificationSettings {
+  return effective("emailVerification");
+}
+
 function parseRow(group: RuntimeSettingsGroup, value: string): unknown {
   try {
     return JSON.parse(value);
@@ -804,6 +857,7 @@ async function refreshRuntimeSettings(): Promise<void> {
     containment: false,
     network: false,
     banking: false,
+    emailVerification: false,
   };
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const raw = byKey.get(RUNTIME_SETTING_KEYS[group]);
@@ -850,6 +904,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
     containment: effective("containment"),
     network: effective("network"),
     banking: effective("banking"),
+    emailVerification: effective("emailVerification"),
     overridden: { ...overridden },
   };
 }
@@ -928,6 +983,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
     containment: false,
     network: false,
     banking: false,
+    emailVerification: false,
   };
   testOverrides = {};
   warned.clear();
@@ -997,8 +1053,8 @@ export async function importLegacyConfigOverrides(): Promise<void> {
   const legacy = config as unknown as LegacyRuntimeConfig;
 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
-    // Hosted sign-in and bank sync never lived in boot config.
-    if (group === "oauth" || group === "banking") continue;
+    // Hosted sign-in, bank sync and email verification never lived in boot config.
+    if (group === "oauth" || group === "banking" || group === "emailVerification") continue;
     const raw =
       group === "agent"
         ? legacyAgentBlock(legacy)

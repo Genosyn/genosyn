@@ -305,6 +305,7 @@ const runtimeGroupParams = z.object({
     "containment",
     "network",
     "banking",
+    "emailVerification",
   ]),
 });
 
@@ -394,6 +395,20 @@ const runtimeGroupSchemas = {
   banking: z.object({
     syncEnabled: z.boolean(),
     syncIntervalMinutes: z.number().int().min(5).max(1_440),
+  }),
+  emailVerification: z.object({
+    enabled: z.boolean(),
+    smtpProbe: z.boolean(),
+    probeFromAddress: z
+      .string()
+      .trim()
+      .max(320)
+      .refine((value) => value === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), {
+        message: "Use a full email address, or leave it blank to send the null sender.",
+      })
+      .default(""),
+    probeTimeoutMs: z.number().int().min(1_000).max(30_000),
+    maxCandidates: z.number().int().min(1).max(25),
   }),
 } as const;
 

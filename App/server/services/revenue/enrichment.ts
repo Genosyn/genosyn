@@ -30,7 +30,7 @@ import { normalizeAccountDomain } from "./accounts.js";
 import { liveDealHistoryKey } from "./dealHistory.js";
 import type { RevenueOperationActor } from "./operations.js";
 
-const PUBLIC_EMAIL_DOMAINS = new Set([
+export const PUBLIC_EMAIL_DOMAINS = new Set([
   "aol.com",
   "gmail.com",
   "googlemail.com",
@@ -49,7 +49,7 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
   "zoho.com",
 ]);
 
-const DISPOSABLE_EMAIL_DOMAINS = new Set([
+export const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "10minutemail.com",
   "dispostable.com",
   "emailondeck.com",

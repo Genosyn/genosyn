@@ -4194,7 +4194,8 @@ export type RuntimeSettingsGroup =
   | "agent"
   | "containment"
   | "network"
-  | "banking";
+  | "banking"
+  | "emailVerification";
 
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
@@ -4285,6 +4286,20 @@ export type RuntimeBankingSettings = {
   syncIntervalMinutes: number;
 };
 
+/** The in-house email finder/verifier (`verify_email`, `find_contact_email`). */
+export type RuntimeEmailVerificationSettings = {
+  /** Master switch for both tools. */
+  enabled: boolean;
+  /** Perform the SMTP RCPT callout. Forced off on multi-tenant installs. */
+  smtpProbe: boolean;
+  /** MAIL FROM for a probe; empty sends the null sender `<>`. */
+  probeFromAddress: string;
+  /** Per-connection SMTP timeout, in milliseconds. */
+  probeTimeoutMs: number;
+  /** Name patterns `find_contact_email` tries per lookup. */
+  maxCandidates: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -4295,6 +4310,7 @@ export type RuntimeSettings = {
   containment: RuntimeContainmentSettings;
   network: RuntimeNetworkSettings;
   banking: RuntimeBankingSettings;
+  emailVerification: RuntimeEmailVerificationSettings;
 };
 
 export type RuntimeSettingsSnapshot = RuntimeSettings & {

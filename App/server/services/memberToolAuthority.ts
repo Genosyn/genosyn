@@ -171,6 +171,8 @@ const MEMBER_TOOLS = [
   "search_contacts",
   "get_contact",
   "lookup_suppression",
+  "verify_email",
+  "find_contact_email",
   "get_contact_timeline",
   "list_activities",
   "get_activity",

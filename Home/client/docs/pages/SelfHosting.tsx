@@ -142,7 +142,10 @@ export function SelfHosting() {
                 <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input, how long Routine recordings are kept),{" "}
                 <Strong>Agent</Strong> (taint policy, member browsers, tool
-                discovery), <Strong>Containment</Strong> (the re-grade sweep), and{" "}
+                discovery), <Strong>Containment</Strong> (the re-grade sweep),{" "}
+                <Strong>Email verification</Strong> (the in-house email finder and verifier: on/off,
+                whether it confirms mailboxes over SMTP, and the probe&apos;s sender, timeout and
+                pattern limit), and{" "}
                 <Strong>Outbound network</Strong> (the private-host allowlist). Each section starts
                 as one collapsed line that reads <Strong>Defaults</Strong> or, say,{" "}
                 <Strong>3 customized</Strong>; open one to edit it, save it on its own, or choose{" "}

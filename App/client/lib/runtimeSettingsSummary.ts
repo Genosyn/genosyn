@@ -61,6 +61,13 @@ export const RUNTIME_DEFAULTS: Readonly<RuntimeSettings> = {
     syncEnabled: true,
     syncIntervalMinutes: 30,
   },
+  emailVerification: {
+    enabled: true,
+    smtpProbe: true,
+    probeFromAddress: "",
+    probeTimeoutMs: 7_000,
+    maxCandidates: 12,
+  },
 };
 
 /** Read a dotted path (`toolDiscovery.enabled`) out of a settings group. */

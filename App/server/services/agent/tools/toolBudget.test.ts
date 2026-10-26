@@ -204,7 +204,12 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // lexically, and a miss reads as the product having no data rooms at all; the
 // invite and answer tools must be findable by name because the data room
 // briefing names them. 2,440 characters remain at the minimum result cap.
-const DOMAIN_FOOTER_CHARS_MAX = 5_560;
+// Raised to 5,600 for the two email tools — `verify_email` and
+// `find_contact_email` in the `revenue` domain. A lead the company has a name
+// and an employer for but no address is the exact miss that reads as "we can't
+// email anyone here", so both must stay findable by name in the footer. About
+// 2,400 characters remain at the minimum result cap.
+const DOMAIN_FOOTER_CHARS_MAX = 5_600;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

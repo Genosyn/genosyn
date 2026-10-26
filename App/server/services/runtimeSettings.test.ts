@@ -17,6 +17,7 @@ import {
   getBankingSettings,
   getBrowserSettings,
   getContainmentSettings,
+  getEmailVerificationSettings,
   getMailSettings,
   getMeetingsSettings,
   getNetworkSettings,
@@ -30,6 +31,7 @@ import {
   parseAgentSettings,
   parseBankingSettings,
   parseBrowserSettings,
+  parseEmailVerificationSettings,
   parseNetworkSettings,
   parseOauthSettings,
   reloadRuntimeSettings,
@@ -152,6 +154,7 @@ describe("defaults", () => {
       containment: false,
       network: false,
       banking: false,
+      emailVerification: false,
     });
   });
 
@@ -358,6 +361,62 @@ describe("the banking group", () => {
       restore();
     }
     assert.equal(await readRow(RUNTIME_SETTING_KEYS.banking), null);
+  });
+});
+
+describe("the emailVerification group", () => {
+  test("a fresh install verifies with SMTP on and the shipped bounds", async () => {
+    await reloadRuntimeSettings();
+    assert.deepEqual(getEmailVerificationSettings(), {
+      enabled: true,
+      smtpProbe: true,
+      probeFromAddress: "",
+      probeTimeoutMs: 7_000,
+      maxCandidates: 12,
+    });
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.emailVerification, false);
+  });
+
+  test("a saved row is read back, and reaches this replica at once", async () => {
+    const saved = await saveRuntimeSettingsGroup("emailVerification", {
+      enabled: true,
+      smtpProbe: false,
+      probeFromAddress: "verify@acme.com",
+      probeTimeoutMs: 5_000,
+      maxCandidates: 6,
+    });
+    assert.equal(saved.smtpProbe, false);
+    assert.deepEqual(getEmailVerificationSettings(), saved);
+    resetRuntimeSettingsCacheForTests();
+    await reloadRuntimeSettings();
+    assert.deepEqual(getEmailVerificationSettings(), saved);
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.emailVerification, true);
+    await resetRuntimeSettingsGroup("emailVerification");
+    assert.deepEqual(getEmailVerificationSettings(), RUNTIME_SETTINGS_DEFAULTS.emailVerification);
+  });
+
+  test("out-of-range timeout and candidate counts fall back on their own", () => {
+    assert.equal(
+      parseEmailVerificationSettings({ probeTimeoutMs: 1 }).probeTimeoutMs,
+      RUNTIME_SETTINGS_DEFAULTS.emailVerification.probeTimeoutMs,
+    );
+    assert.equal(parseEmailVerificationSettings({ maxCandidates: 99 }).maxCandidates, 12);
+    assert.deepEqual(
+      parseEmailVerificationSettings("not an object"),
+      RUNTIME_SETTINGS_DEFAULTS.emailVerification,
+    );
+  });
+
+  test("never lived in config.ts, so nothing is imported for it", async () => {
+    const restore = withLegacyConfig({
+      emailVerification: { enabled: false },
+    } as unknown as LegacyRuntimeConfig);
+    try {
+      await importLegacyConfigOverrides();
+    } finally {
+      restore();
+    }
+    assert.equal(await readRow(RUNTIME_SETTING_KEYS.emailVerification), null);
   });
 });
 
