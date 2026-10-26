@@ -167,7 +167,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/revenue-data-quality",
         title: "Revenue data quality",
         blurb:
-          "Audited merges, bulk cleanup, historical truth, enrichment review, document capture, and exports.",
+          "Audited merges, bulk cleanup, historical truth, enrichment, finding and verifying Contact emails, document capture, and exports.",
       },
       {
         path: "/docs/sequences",

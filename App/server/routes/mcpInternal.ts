@@ -161,7 +161,8 @@ import {
   stageSidecarForToken,
   tokenOwnsAttachment,
 } from "../services/mcpTokens.js";
-import { getAgentSettings } from "../services/runtimeSettings.js";
+import { getAgentSettings, getEmailVerificationSettings } from "../services/runtimeSettings.js";
+import { findEmail, verifyEmail } from "../services/revenue/emailFinder.js";
 import {
   createTaintedToolApproval,
   taintGateApplies,
@@ -568,7 +569,7 @@ import {
   REVENUE_ACCESS_RANK,
   type RevenueAccessLevel,
 } from "../db/entities/EmployeeRevenueGrant.js";
-import { normalizeEmail } from "../lib/emailAddress.js";
+import { emailDomain, normalizeEmail } from "../lib/emailAddress.js";
 import {
   EmployeeMarketingGrant,
   MARKETING_ACCESS_RANK,
@@ -8509,6 +8510,99 @@ mcpInternalRouter.post(
       suppression: serializeSuppression(row),
       created: !already,
       note: "Removing an address from the do-not-mail list is a human's decision — there is no tool for it.",
+    });
+  },
+);
+
+// ----- Email verification & finding (in-house; replaces a paid service) -----
+//
+// `verify_email` checks one address end to end; `find_contact_email` works out
+// the likeliest address for a named person at a domain. Both are revenue
+// `read` — they confirm or build a Contact detail, they do not write one — and
+// both honour the Admin → Runtime master switch. The SMTP callout and its
+// multi-tenant lock live in `services/revenue/emailFinder.ts`; nothing a mail
+// server says is passed to the model, only our own structured verdict.
+
+const verifyEmailSchema = z.object({ email: z.string().min(3).max(320) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/verify_email",
+  validateBody(verifyEmailSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    if (!getEmailVerificationSettings().enabled) {
+      return res.status(403).json({
+        error:
+          "Email verification is turned off on this Genosyn install. An operator can turn it back on at Admin → Runtime → Email verification.",
+      });
+    }
+    const body = req.body as z.infer<typeof verifyEmailSchema>;
+    const verification = await verifyEmail(body.email);
+    res.json({
+      verification,
+      note: "status is 'valid' only when the mailbox was confirmed and the domain is not catch-all. 'risky' and 'unknown' are not confirmations — do not treat them as a licence to send. A send still obeys the suppression list, the Contact's doNotContact flag and human review.",
+    });
+  },
+);
+
+const findContactEmailSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    domain: z.string().min(3).max(253).optional(),
+    contactId: z.string().uuid().optional(),
+  })
+  .strict();
+
+/** Pull a host out of a website URL or a bare domain a Contact carries. */
+function domainFromWebsite(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    return url.hostname.replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+mcpInternalRouter.post(
+  "/tools/find_contact_email",
+  validateBody(findContactEmailSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    if (!getEmailVerificationSettings().enabled) {
+      return res.status(403).json({
+        error:
+          "Email verification is turned off on this Genosyn install. An operator can turn it back on at Admin → Runtime → Email verification.",
+      });
+    }
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof findContactEmailSchema>;
+
+    let name = body.name ?? null;
+    let domain = body.domain ?? null;
+    if (body.contactId) {
+      const contact = await getContact(cid, body.contactId);
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      name = name ?? contact.name;
+      domain =
+        domain ?? domainFromWebsite(contact.websiteUrl) ?? emailDomain(contact.email) ?? null;
+    }
+    if (!name) {
+      return res.status(400).json({ error: "Pass a person's name, or a contactId to read it from." });
+    }
+    if (!domain) {
+      return res.status(400).json({
+        error:
+          "Pass the company domain (e.g. acme.com), or a contactId whose website or email gives one. A name alone is not enough to find an address.",
+      });
+    }
+
+    const result = await findEmail(name, domain);
+    res.json({
+      result,
+      note: "Candidates are ranked best first. A candidate is confirmed only when its status is 'valid'; otherwise the top one is a best guess, not a verified address. Save a chosen address with update_contact, and every send still obeys the suppression list, doNotContact and human review.",
     });
   },
 );

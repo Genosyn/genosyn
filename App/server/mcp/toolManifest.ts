@@ -8296,6 +8296,42 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "verify_email",
+    description:
+      "Check whether one email address is real and deliverable, in-house — the job a paid verifier does, with no third party and no per-lookup fee. Runs syntax, then the domain's MX, then (unless an operator turned the SMTP step off) opens the mail-server conversation up to the recipient check. Returns a `status`: `valid` (the mailbox was confirmed and the domain is not catch-all — safe to use), `invalid` (bad syntax, the domain takes no mail, or the server rejected the mailbox — do not send), `risky` (a catch-all domain or a shared role box — deliverability is unconfirmed), or `unknown` (the check could not reach a verdict). `valid` is the only confirmation; never read `risky` or `unknown` as permission to send. Use it before adding or relying on a Contact's address. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "The address to check." },
+      },
+      required: ["email"],
+      additionalProperties: false,
+    },
+    readOnly: true,
+  },
+  {
+    name: "find_contact_email",
+    description:
+      "Work out the likeliest work email for a named person at a company domain, in-house — this is what unblocks a lead you have a name and an employer for but no address. Generates the patterns real companies use (`first.last@`, `flast@`, `first@`, …), then, when SMTP checking is on and the domain is not catch-all, confirms them one at a time and stops at the first the mail server accepts. Returns `best` (the top pick) and every `candidate` tried, each with the same `status` as verify_email. A `valid` best is a confirmed mailbox; otherwise `best` is the most common pattern and a best guess only — say so, and never present an unconfirmed guess as certain. Pass a `name` and a `domain`, or a `contactId` to read both from an existing Contact. Saving an address is a separate `update_contact` call, and every send still obeys the suppression list, the Contact's doNotContact flag, and human review. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The person's full name, e.g. 'Dana Reed'." },
+        domain: {
+          type: "string",
+          description: "The employer's mail domain, e.g. 'acme.com'. A bare domain, not a URL.",
+        },
+        contactId: {
+          type: "string",
+          description:
+            "An existing Contact's id to read the name and domain from, instead of passing them. An explicit name or domain still wins.",
+        },
+      },
+      additionalProperties: false,
+    },
+    readOnly: true,
+  },
+  {
     name: "get_marketing_overview",
     description:
       "Read the autonomous ad-agency dashboard: Campaign counts and policies, Creative waiting for review, running Experiments, planned daily budget, and window performance — spend, impressions, clicks, conversions, CTR, CPC, CPA and ROAS — plus an `attention` list naming every Campaign that is off target, off pace, stale or unmeasured. Each Campaign carries its own scored metrics. Money is null when Campaigns run in mixed currencies rather than summed across them. Figures come from recorded platform snapshots; they are not the authorized-budget-change ledger. Needs `read` Marketing access.",

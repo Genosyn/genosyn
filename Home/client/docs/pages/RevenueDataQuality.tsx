@@ -220,6 +220,64 @@ export function RevenueDataQuality() {
         invented source.
       </P>
 
+      <H2 id="email-verification">Find and verify Contact emails</H2>
+      <P>
+        Genosyn finds and checks email addresses in-house, so a lead you have a name and an employer
+        for but no address no longer stalls, and no Contact is sent to a paid verification service.
+        An AI Employee with <Strong>read</Strong> revenue access reaches it through two tools, and a
+        Member can run the same checks while chatting with one.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Verify an address.</Strong> Given an email, Genosyn checks the syntax, that the
+          domain actually receives mail (its MX records), and — unless an operator turned the step
+          off — opens the mail-server conversation up to the recipient check to confirm the mailbox
+          itself. It returns one of four verdicts.
+        </LI>
+        <LI>
+          <Strong>Find an address.</Strong> Given a person&apos;s name and their employer&apos;s
+          domain, Genosyn builds the patterns companies actually use — <Code>first.last@</Code>,{" "}
+          <Code>flast@</Code>, <Code>first@</Code>, and so on — then confirms them one at a time and
+          returns the one the mail server accepts, with the rest ranked behind it.
+        </LI>
+      </UL>
+      <P>
+        The verdict is deliberately cautious, because a send to an address wrongly called good
+        bounces, and bounces cost the sending domain its reputation:
+      </P>
+      <KeyList
+        rows={[
+          { term: "valid", def: "The mailbox was confirmed and the domain is not catch-all — safe to use." },
+          {
+            term: "invalid",
+            def: "Bad syntax, a domain that takes no mail, or a mailbox the server rejected — do not send.",
+          },
+          {
+            term: "risky",
+            def: "A catch-all domain that accepts everyone, or a shared role box like info@ — deliverability is unconfirmed, so treat it as a lead, not a fact.",
+          },
+          {
+            term: "unknown",
+            def: "The check could not reach a verdict — a free provider that accepts everyone, a greylisting server, a blocked port, or SMTP checking turned off. The domain still takes mail; the mailbox was not confirmed.",
+          },
+        ]}
+      />
+      <Callout kind="info" title="Verifying is not permission to send.">
+        A verdict never bypasses the guards around sending. Every send still honours the{" "}
+        <DocLink to="/docs/deliverability#suppression">suppression list</DocLink>, the
+        Contact&apos;s do-not-contact flag, and human review of the draft. <Code>valid</Code> means
+        the address is real, not that the person agreed to hear from you.
+      </Callout>
+      <P>
+        The SMTP confirmation step is controlled at{" "}
+        <Code>Admin → Runtime → Email verification</Code>. It makes outbound connections on port 25
+        and spends the install&apos;s sending reputation, and many hosted networks block that port,
+        so an operator can turn it off and rely on the syntax, MX and pattern checks alone — the
+        tools keep working, returning <Code>unknown</Code> where they would otherwise confirm a
+        mailbox. On multi-tenant installs the SMTP step is always off. A chosen address is saved to
+        the Contact as a separate, audited edit; finding one never writes it on its own.
+      </P>
+
       <H2 id="document-capture">Revenue document capture</H2>
       <P>
         Gmail sync automatically detects relevant attachments and proposes proposal, RFP, contract,
