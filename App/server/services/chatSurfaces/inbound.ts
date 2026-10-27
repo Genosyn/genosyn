@@ -7,14 +7,16 @@ import { EmployeeConnectionGrant } from "../../db/entities/EmployeeConnectionGra
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { chatWithEmployee, type ChatOptions, type ChatTurn } from "../chat.js";
 import { decryptConnectionConfig } from "../integrations.js";
+import { routeCustomerChannelTurn } from "../customerChannels/inbound.js";
 import {
   mintBindLink,
   recordSighting,
   resolveBoundRequester,
   type ChatSurfaceRequester,
 } from "./identity.js";
+import type { IntegrationConfig } from "../../integrations/types.js";
 import { getChatSurfaceAdapter } from "./adapters.js";
-import { truncateForSurface, type InboundChatTurn } from "./types.js";
+import { truncateForSurface, type ChatSurfaceAdapter, type InboundChatTurn } from "./types.js";
 
 /**
  * The shared inbound core for every external chat surface.
@@ -24,13 +26,24 @@ import { truncateForSurface, type InboundChatTurn } from "./types.js";
  * authority, responder, transcript, reply) is identical whether the message
  * arrived over a Slack socket, a Teams webhook, or a Telegram long poll.
  *
- * Two of those steps are load-bearing and easy to get wrong:
+ * One step comes before all of them: a group message posted in a **customer
+ * channel** is handed to `customerChannels/inbound.ts` and goes no further
+ * here. The people in that room include the customer, so its replies are
+ * written for them from the channel's own instructions, and nobody in it is
+ * offered a Member link or answered with a Member's authority. A group message
+ * that did not address the employee (`overheard`) is kept there and dropped
+ * unread everywhere else.
+ *
+ * Two of the remaining steps are load-bearing and easy to get wrong:
  *
  *  - **Authority.** An unbound sender's turn carries no `requesterUserId`, so
  *    `chatWithEmployee` runs it untrusted: no Soul, no Skills, no company
  *    tools. A bound sender's turn carries their id and their Membership is
  *    re-read here every time, so removing someone from the company removes
  *    their Slack authority on the very next message with no cleanup step.
+ *    The audience matters as much as the asker: in a channel shared with
+ *    another organization, people outside the company read the reply, so it
+ *    carries nobody's authority ({@link groupAudience}).
  *  - **Serialization.** The Conversation is the workload scope, so two
  *    threads with the same employee answer in parallel instead of queueing
  *    behind each other, while two messages in *one* thread cannot race their
@@ -146,14 +159,74 @@ function deriveTitle(message: string): string {
 }
 
 /**
+ * Who can read a group reply, as far as anyone can tell.
+ *
+ *  - `internal` — only the company's own people.
+ *  - `shared` — people from another organization too: a Slack Connect channel.
+ *  - `unknown` — the delivery did not say, and the platform could not be asked.
+ */
+export type GroupAudience = "internal" | "shared" | "unknown";
+
+/**
+ * A Member's authority is theirs to use where only the company reads the
+ * answer. In a channel shared with another organization the reply is read
+ * outside the company, so it carries nobody's authority — the rule a customer
+ * channel keeps, applied to every shared channel nobody linked to a Customer.
+ *
+ * The platform's own word on the delivery decides. When it said nothing and a
+ * Member's authority is at stake, the platform is asked; when that fails too,
+ * the channel is treated as shared. An answer that is too general is a
+ * nuisance; one that is too specific cannot be taken back.
+ */
+export async function groupAudience(args: {
+  turn: InboundChatTurn;
+  adapter: ChatSurfaceAdapter;
+  config: IntegrationConfig;
+  /** True when a proven Member's authority would otherwise ride on the reply. */
+  authorityAtStake: boolean;
+}): Promise<GroupAudience> {
+  const { turn, adapter } = args;
+  if (!turn.group) return "internal";
+  if (turn.externallyShared === true) return "shared";
+  if (turn.externallyShared === false) return "internal";
+  // Nothing to protect: an unproven sender's turn carries no authority either way.
+  if (!args.authorityAtStake) return "internal";
+  // A surface with no notion of a shared channel — a Telegram group — keeps
+  // the rule it always had.
+  if (!adapter.channelSharedExternally || !turn.externalChannelId) return "internal";
+  try {
+    const shared = await adapter.channelSharedExternally({
+      connectionId: turn.connectionId,
+      config: args.config,
+      externalChannelId: turn.externalChannelId,
+    });
+    return shared ? "shared" : "internal";
+  } catch (err) {
+    logSurfaceError(turn.provider, turn.connectionId, "shared-channel check failed", err);
+    return "unknown";
+  }
+}
+
+/**
  * Provenance the model can read but the transcript does not keep. Tells the
  * employee where it is and who it is talking to, including — crucially —
- * whether that person proved who they are.
+ * whether that person proved who they are, and who else is reading.
  */
-function frameTurn(turn: InboundChatTurn, requester: ChatSurfaceRequester | null): string {
+function frameTurn(
+  turn: InboundChatTurn,
+  requester: ChatSurfaceRequester | null,
+  audience: GroupAudience,
+): string {
   const who = turn.externalUserLabel ? ` · from ${turn.externalUserLabel}` : "";
   const place = turn.group ? " · group conversation" : " · direct message";
-  const identity = requester ? "" : " · sender is not a verified Genosyn Member";
+  const identity =
+    audience === "shared"
+      ? " · people from another organization can read this conversation"
+      : audience === "unknown"
+        ? " · people outside the company may be able to read this conversation"
+        : requester
+          ? ""
+          : " · sender is not a verified Genosyn Member";
   return `[Inbound via ${turn.provider}${place}${who}${identity}]\n${turn.text}`;
 }
 
@@ -170,13 +243,30 @@ function frameTurn(turn: InboundChatTurn, requester: ChatSurfaceRequester | null
  *
  * Even in a DM the link is at most one live one at a time, so an unbound
  * conversation gets a footer occasionally rather than on every message.
+ *
+ * In a channel people outside the company can read, nobody's authority is
+ * used, so everyone — a linked Member included — is told why the answer is
+ * general and where to ask instead.
  */
 async function bindFooter(
   identity: { linkExpiresAt: Date | null },
   proven: boolean,
   group: boolean,
+  audience: GroupAudience,
   mint: () => Promise<string>,
 ): Promise<string> {
+  if (audience === "shared") {
+    return (
+      `\n\n—\nThis channel is shared with another organization, so I answer here without ` +
+      `anyone's Genosyn access. For anything that needs yours, message me directly.`
+    );
+  }
+  if (audience === "unknown") {
+    return (
+      `\n\n—\nI could not confirm this channel is private to the company, so I answered ` +
+      `without anyone's Genosyn access. For anything that needs yours, message me directly.`
+    );
+  }
   // Keyed on whether this turn actually carried a Member's authority, not on
   // whether the row has a `userId`. They come apart exactly when it matters:
   // a Member who signed out everywhere still has a bound row, and their next
@@ -215,6 +305,10 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
   });
   if (!conn || conn.provider !== turn.provider) return;
 
+  if (await routeCustomerChannelTurn({ ...turn, companyId: conn.companyId })) return;
+  // Somebody else's conversation in a channel that is not a customer channel.
+  if (turn.overheard) return;
+
   const send = async (body: string): Promise<void> => {
     try {
       await adapter.send({
@@ -235,7 +329,16 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
     externalUserId: turn.externalUserId,
     externalUserLabel: turn.externalUserLabel,
   });
-  const requester = await resolveBoundRequester(identity);
+  const proven = await resolveBoundRequester(identity);
+  const audience = await groupAudience({
+    turn,
+    adapter,
+    config: decryptConnectionConfig(conn),
+    authorityAtStake: proven !== null,
+  });
+  // The proven Member's authority, unless people outside the company will
+  // read the answer.
+  const requester = audience === "internal" ? proven : null;
 
   const responder = await resolveResponder(turn.connectionId, text);
   if (!responder) {
@@ -301,7 +404,7 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
   const result = await chatWithEmployee(
     conn.companyId,
     responder.employeeId,
-    frameTurn({ ...turn, text: responder.text }, requester),
+    frameTurn({ ...turn, text: responder.text }, requester, audience),
     replay,
     chatOptions,
   );
@@ -321,7 +424,7 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
   if (!conversation.title) conversation.title = deriveTitle(responder.text);
   await convRepo.save(conversation);
 
-  const footer = await bindFooter(identity, Boolean(requester), turn.group, () =>
+  const footer = await bindFooter(identity, Boolean(requester), turn.group, audience, () =>
     mintBindLink(identity),
   );
   await send(`${result.reply}${footer}`);

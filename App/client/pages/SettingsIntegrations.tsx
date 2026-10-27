@@ -15,6 +15,7 @@ import {
   Database,
   GitFork,
   Github,
+  Hash,
   Inbox,
   Landmark,
   Layers,
@@ -54,6 +55,7 @@ import { connectWithOauth, type IntegrationOauthStart } from "@/lib/integrationO
 import { copyToClipboard } from "../lib/clipboard";
 import { formatRelative } from "../components/decisions/relative";
 import { chatSurfaceLabel, isChatSurfaceProvider } from "./LinkChat";
+import { CustomerChannelsModal } from "../components/customerChannels/CustomerChannelsModal";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -188,6 +190,9 @@ function IntegrationsPage({
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
   const [pickingRepos, setPickingRepos] = React.useState<IntegrationConnection | null>(null);
   const [chatSurface, setChatSurface] = React.useState<IntegrationConnection | null>(null);
+  const [customerChannels, setCustomerChannels] = React.useState<IntegrationConnection | null>(
+    null,
+  );
   const [search, setSearch] = React.useState("");
   // The chat-surface reads are admin-only server-side (the identity list is an
   // org chart of everyone's external handles), so a Member is not offered a
@@ -584,6 +589,16 @@ function IntegrationsPage({
                             <MessageCircle size={12} /> Chat
                           </Button>
                         )}
+                        {canAdminister && c.provider === "slack" && !c.retired && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCustomerChannels(c)}
+                            title="Link Slack channels to Customers — the AI Employee keeps notes and answers there"
+                          >
+                            <Hash size={12} /> Channels
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -817,6 +832,12 @@ function IntegrationsPage({
         connection={chatSurface}
         company={company}
         onClose={() => setChatSurface(null)}
+      />
+      <CustomerChannelsModal
+        open={customerChannels !== null}
+        connection={customerChannels}
+        company={company}
+        onClose={() => setCustomerChannels(null)}
       />
     </>
   );
@@ -1211,6 +1232,8 @@ function ChatSurfaceModal({
             People reach the AI Employees granted this Connection from {surface} itself. In a
             channel or group it answers when it is @-mentioned; in a direct message it answers
             everything. Approvals and Standdowns stay in Genosyn.
+            {connection.provider === "slack" &&
+              " A Slack channel linked to a Customer under Channels works differently: the employee reads all of it, keeps notes, and answers from that channel’s own instructions."}
           </p>
         </div>
 

@@ -18,6 +18,7 @@ import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
 import { bootMeetings } from "./services/meetings/boot.js";
 import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
+import { bootCustomerChannels } from "./services/customerChannels/boot.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
 import { bootMailSearchIndex } from "./services/mail/searchIndex.js";
@@ -170,6 +171,9 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[chat-surface] boot failed:", err);
   });
+  // Customer channels: the heartbeat that writes notes for a linked Slack
+  // channel once it goes quiet. Synchronous — it only installs a timer.
+  bootCustomerChannels();
   // Phone numbers: fetch the texts Twilio cannot push to this install, and
   // re-point numbers' webhooks when the public URL changes. Also registers the
   // automatic text reply, so it must run before any webhook can arrive.

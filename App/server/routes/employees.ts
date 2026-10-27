@@ -46,6 +46,7 @@ import { attachedModelsByEmployee, deleteEmployeeAttachments } from "../services
 import { removeDir, soulTemplate, skillTemplate } from "../services/files.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { unassignPhoneNumbersForEmployee } from "../services/phone/numbers.js";
+import { detachEmployeeFromCustomerChannels } from "../services/customerChannels/cleanup.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate, personalizeTemplateSoul } from "../services/templates.js";
 import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
@@ -475,6 +476,9 @@ employeesRouter.delete("/:eid", async (req, res) => {
   // Phone numbers belong to the company: they stay reserved, unassigned, for
   // the next employee an admin gives them to.
   await unassignPhoneNumbersForEmployee(emp.id);
+  // Customer channels too: they stay linked, keeping their messages, until an
+  // admin gives them to another employee.
+  await detachEmployeeFromCustomerChannels(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeSigningGrant).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeVaultGrant).delete({ employeeId: emp.id });
