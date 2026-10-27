@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import type { FinanceAccess, Role } from "../db/entities/Membership.js";
@@ -58,6 +59,59 @@ describe("company search product references", () => {
     assert.ok(invoice.some((result) => result.id === "product:invoices"));
     assert.ok(invoice.some((result) => result.id === "product:recurring-invoices"));
     assert.ok(workspace.some((result) => result.id === "product:workspace"));
+  });
+});
+
+/**
+ * The palette puts AI Employees first, and the response cap must never crowd
+ * one out, so they lead the results whatever else matched.
+ */
+describe("company search puts AI Employees first", () => {
+  test("employees lead records that match better or were touched more recently", async () => {
+    const company = await insert(Company, {
+      name: "Northwind",
+      slug: "northwind",
+      ownerId: "owner-1",
+    });
+    // An exact name, and a prefix match with a recent updatedAt: both used to
+    // outrank an employee, who has no recency to break a tie with.
+    await insert(Customer, { companyId: company.id, name: "Sam", slug: "sam" });
+    await insert(Customer, { companyId: company.id, name: "SameSystem", slug: "samesystem" });
+    await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Samuel",
+      slug: "samuel",
+      role: "Account Executive",
+    });
+    // Matched by role alone, the weakest kind of hit, and still ahead.
+    await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Ada",
+      slug: "ada",
+      role: "Sam's chief of staff",
+    });
+
+    const results = await searchCompany({
+      companyId: company.id,
+      userId: "owner-1",
+      role: "owner",
+      financeAccess: "full",
+      query: "sam",
+    });
+
+    assert.deepEqual(
+      results.slice(0, 2).map((result) => [result.kind, result.label, result.path]),
+      [
+        ["employee", "Samuel", "/employees/samuel"],
+        ["employee", "Ada", "/employees/ada"],
+      ],
+      "employees lead, the better match first",
+    );
+    assert.deepEqual(
+      results.filter((result) => result.kind === "customer").map((result) => result.label),
+      ["Sam", "SameSystem"],
+      "everything else keeps its order beneath them",
+    );
   });
 });
 
