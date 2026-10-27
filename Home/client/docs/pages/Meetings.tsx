@@ -70,6 +70,12 @@ export function Meetings() {
         anything outside it fall away. The mirror is a cache — a recorded meeting keeps its
         transcript long after the invite ages out.
       </P>
+      <P>
+        A connected calendar is also where meetings booked from an email go. In a conversation,{" "}
+        <DocLink to="/docs/email#schedule-meeting">Schedule</DocLink> reads the thread for the
+        agreed time and zone, creates the event with a Google Meet link, and has Google send the
+        invitations — the event then shows up in this agenda like any other.
+      </P>
 
       <H2 id="recording">Capturing a meeting</H2>
       <P>

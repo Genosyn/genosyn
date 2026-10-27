@@ -185,6 +185,42 @@ export function Email() {
         thread you mark unread stays unread. <Strong>Back</Strong> on a thread you opened from a
         link goes to the Inbox.
       </P>
+      <H3 id="writing">Writing a reply, a forward, or a new email</H3>
+      <P>
+        <Strong>Reply</Strong>, <Strong>Reply all</Strong> and <Strong>Forward</Strong> open an
+        editor right under the conversation — from the buttons below it, from the same three
+        buttons under any one message to answer <em>that</em> message, or with <Code>r</Code>,{" "}
+        <Code>a</Code> and <Code>f</Code>. Switch between them from the menu at the top of the
+        editor without losing what you wrote.
+      </P>
+      <P>
+        Recipients are <Strong>chips</Strong> on <Strong>To</Strong>, <Strong>Cc</Strong> and{" "}
+        <Strong>Bcc</Strong> lines, shown by name. Take anyone off with their ×, type or paste to
+        add more, and click a chip to fix it. As you type, people on the conversation are offered
+        first, then everyone this mailbox has mailed with, most frequent first. Cc and Bcc stay
+        folded behind two small buttons until you need them. Putting someone on a line takes them
+        off the others, so moving a person to Bcc is just adding them there. The same lines are in{" "}
+        <Strong>Compose</Strong>, in a saved draft&apos;s editor, and in an AI Employee&apos;s email
+        under review in the Decision stack.
+      </P>
+      <P>
+        A reply carries the message it answers as a quote, folded behind <Strong>•••</Strong>, so
+        people reading it in another mail client see what you are answering; turn that off with{" "}
+        <Strong>Don&apos;t include the earlier message</Strong>. A forward keeps the original&apos;s
+        attachments — remove any you don&apos;t want to pass on. <Code>⌘↵</Code> (
+        <Code>Ctrl+Enter</Code>) sends. While you write, the conversation&apos;s one-key shortcuts
+        are off, so a stray <Code>e</Code> never archives it.
+      </P>
+      <P>
+        What you write is kept in this browser until you send it, save it as a draft, or press{" "}
+        <Strong>Discard</Strong>. Leave the conversation half-way through and it offers{" "}
+        <Strong>Resume</Strong> when you come back.
+      </P>
+      <P>
+        In a message you read, the quoted history at the bottom — the earlier emails other clients
+        paste under a reply — is folded behind <Strong>•••</Strong> too, so a long conversation
+        reads as the new words in each message. Forwarded messages are never folded.
+      </P>
       <P>
         Click an attachment on a saved draft to download it, including while editing the draft.
         Downloads preserve filenames in any language. The separate × button removes it from the
@@ -310,6 +346,50 @@ export function Email() {
         while the rest of the queue continues.
       </P>
 
+      <H2 id="schedule-meeting">Scheduling a meeting from an email</H2>
+      <P>
+        When a conversation ends in &ldquo;let&apos;s get on a call&rdquo;, press{" "}
+        <Strong>Schedule</Strong> at the top of it, or <Strong>Schedule meeting</Strong> in the reply.
+        The form opens filled in: the people a Reply all would reach as guests, a title from the
+        subject, and a free slot. Meanwhile the mailbox&apos;s AI Employee — the one that{" "}
+        <DocLink to="/docs/email#analysis">reads new mail</DocLink> — reads the conversation for the
+        time people actually agreed and the time zone they agreed it in. It fills in only what you
+        have not changed yet; a time it finds after you picked one is offered with{" "}
+        <Strong>Use it</Strong> rather than forced. Under the time it shows the words it took it
+        from, checked word for word against the emails, and any other times the thread mentioned,
+        one click each.
+      </P>
+      <P>
+        Times are kept in the zone they were agreed in. &ldquo;Tuesday at 3pm CET&rdquo; is booked
+        as 3 PM in Berlin, whatever your own zone, and the form shows the same slot in your zone
+        beside it — &ldquo;9:00 – 9:30 AM EDT for you&rdquo;. Change the zone from the picker (type
+        a city to find it). Google applies daylight saving, and every guest sees the meeting in
+        their own zone. If your calendar already has something at that time, the form says so.
+      </P>
+      <P>
+        <Strong>Send invite</Strong> creates the event on Google Calendar with a{" "}
+        <Strong>Google Meet</Strong> link, and Google emails the invitation to every guest. Untick{" "}
+        <Strong>Add a Google Meet link</Strong> or <Strong>Email the invitation to guests</Strong>{" "}
+        to skip either. Guests on the{" "}
+        <DocLink to="/docs/email#suppressed">do-not-email list</DocLink> are flagged before
+        anything is sent, and refused if sent anyway. Afterwards, <Strong>Add details to reply</Strong>{" "}
+        puts the time and the Meet link into a Reply all, so your email and the invitation say the
+        same thing.
+      </P>
+      <P>
+        When the AI review of a new email finds a request for a call, it offers a{" "}
+        <Strong>Schedule</Strong> button of its own; pressing it opens the same form with what the
+        email proposed. Nothing is sent until you press <Strong>Send invite</Strong>.
+      </P>
+      <Callout kind="info" title="Which calendar it goes on.">
+        The event is created on a Google calendar connected under{" "}
+        <DocLink to="/docs/meetings">Meetings → Calendars</DocLink>, or on this mailbox&apos;s own
+        Google calendar when its Google sign-in includes Calendar access. With more than one, pick it
+        in the form; the mailbox&apos;s own calendar is chosen first. With none, the form says where
+        to connect one. Scheduling is open to every Member who can use the mailbox, like sending
+        mail, and each meeting is recorded in the audit log.
+      </Callout>
+
       <H2 id="suppressed">Sending refuses suppressed recipients</H2>
       <P>
         Every send from this mailbox is checked against the company&apos;s{" "}
@@ -320,9 +400,12 @@ export function Email() {
         message actually goes out rather than when the draft was written.
       </P>
       <P>
-        A single message is refused <Strong>all or nothing</Strong>: if any recipient in To, Cc or
-        Bcc is on the list, the send fails and names the addresses, rather than quietly delivering
-        to the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list,
+        You see it before you send: a recipient on the list, or at a domain a company{" "}
+        <DocLink to="/docs/policies">Policy</DocLink> blocks, turns red the moment it is added, with
+        the reason underneath and a <Strong>Remove</Strong> button — in replies, new emails, drafts,
+        and the guests of a meeting. A single message is still refused{" "}
+        <Strong>all or nothing</Strong>: if any recipient in To, Cc or Bcc is on the list, the send
+        fails and names the addresses, rather than quietly delivering to the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list,
         and read the unsubscribe and bounce rules, under{" "}
         <DocLink to="/docs/deliverability">Deliverability</DocLink>.
       </P>
@@ -335,8 +418,9 @@ export function Email() {
         review, <Code>c</Code> composes from anywhere in mail, and <Code>Esc</Code> clears the
         selection. Inside an open thread, <Code>e</Code>, <Code>#</Code>, <Code>s</Code> and{" "}
         <Code>u</Code> do the same to that thread (archive, trash and mark unread return you to the
-        list, with the cursor on the next thread), while <Code>r</Code> and <Code>a</Code> open{" "}
-        <Strong>Reply</Strong> and <Strong>Reply all</Strong> with the cursor in the box. Press{" "}
+        list, with the cursor on the next thread), while <Code>r</Code>, <Code>a</Code> and <Code>f</Code> open{" "}
+        <Strong>Reply</Strong>, <Strong>Reply all</Strong> and <Strong>Forward</Strong> with the
+        cursor where you start typing. Press{" "}
         <Code>?</Code> for the full list. Shortcuts pause automatically while you are typing in a
         field or a dialog is open.
       </P>
@@ -442,6 +526,12 @@ export function Email() {
           <Strong>Hand to an employee</Strong> — starts a{" "}
           <DocLink to="/docs/email#hand-to-ai">handover</DocLink> with the instruction already
           written.
+        </LI>
+        <LI>
+          <Strong>Schedule</Strong> — opens the{" "}
+          <DocLink to="/docs/email#schedule-meeting">meeting scheduler</DocLink> with the time,
+          zone and guests the email proposed. Nothing is sent until you press{" "}
+          <Strong>Send invite</Strong>.
         </LI>
       </UL>
       <Callout kind="tip" title="Buttons wait for you.">

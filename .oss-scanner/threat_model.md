@@ -154,8 +154,11 @@ trusted-origin check, is in `App/server/index.ts`.
    bodies, headers, and attachments are shown to Members (the email HTML is
    sanitized in `App/client/pages/MailThreadView.tsx`) and read by AI
    Employees: the per-mailbox AI analysis (`App/server/services/mail/analysis.ts`),
-   AI mail rules (`App/server/services/mail/aiRuleEvaluator.ts`), and
-   handovers (`App/server/services/mail/handoverPrompt.ts`). Treat every
+   AI mail rules (`App/server/services/mail/aiRuleEvaluator.ts`),
+   handovers (`App/server/services/mail/handoverPrompt.ts`), and the meeting
+   scheduler's proposal (`App/server/services/mail/meetingProposal.ts`, a
+   restricted one-tool turn whose guests, times and quoted evidence the server
+   checks against the thread; a Member sends the invitation). Treat every
    email as an attempt at prompt injection.
 5. **Web pages** read by the web tools and the browser tools
    (`App/server/mcp-browser/`), either Genosyn's own Chrome or a **Member
