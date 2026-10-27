@@ -5995,7 +5995,12 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
+export type BankFeedKind =
+  | "stripe_payouts"
+  | "brex_cash"
+  | "mercury_account"
+  | "wise_balance"
+  | "csv";
 
 export type BankFeed = {
   id: string;
@@ -6022,6 +6027,20 @@ export type BrexCashAccount = {
   availableBalance: { amount: number; currency: string | null };
 };
 
+/** One account a Mercury Connection can read, as the Add account picker lists it. */
+export type MercuryAccountChoice = {
+  /** Mercury's account id — what the feed stores as `externalAccountId`. */
+  id: string;
+  name: string;
+  /** "checking", "savings", … as Mercury says it. */
+  kind: string | null;
+  accountNumberLast4: string | null;
+  currentCents: number | null;
+  availableCents: number | null;
+  /** Why it can't be added to Banking, or null when it can. */
+  unavailableReason: string | null;
+};
+
 /** One balance a Wise Connection can read, as the Add account picker lists it. */
 export type WiseBalanceChoice = {
   /** `<profileId>:<balanceId>` — what the feed stores as `externalAccountId`. */
@@ -6038,7 +6057,7 @@ export type CardFeed = {
   id: string;
   companyId: string;
   name: string;
-  kind: "brex_card";
+  kind: "brex_card" | "ramp_card";
   connectionId: string;
   liabilityAccountId: string;
   defaultExpenseAccountId: string;
@@ -6228,7 +6247,7 @@ export type FeedSyncStatus = {
   nextAttemptAt: string | null;
 };
 
-export type BankingProvider = "brex" | "wise" | "stripe";
+export type BankingProvider = "brex" | "mercury" | "ramp" | "wise" | "stripe";
 
 /** The Connection an account syncs through. */
 export type BankingConnection = {
@@ -6247,7 +6266,7 @@ type BankingAccountExtras = {
   sync: FeedSyncStatus;
   /** Null for a CSV account, and for one whose Connection was removed. */
   connection: BankingConnection | null;
-  /** What the provider reported at the last sync — a Brex cash account or a Wise balance. */
+  /** What the provider reported at the last sync — a Brex cash account, a Mercury account or a Wise balance. */
   balance: { cents: number; currency: string; at: string } | null;
 };
 

@@ -27,12 +27,13 @@ import { schedulerLeaseHeld, withSchedulerLease } from "./schedulerLeases.js";
  * Until this existed an account synced only when someone opened it and
  * pressed Update now, so a Brex account added in July still said "Updated
  * 18 Jul" in October: nothing else ever asked Brex for its transactions.
- * Now a node-cron tick runs every minute, and each Brex cash account, Brex
- * card, Wise balance and Stripe payouts account that is due — every
- * `runtime.banking.syncIntervalMinutes` (Admin → Runtime → Bank sync; 30 by
- * default) — syncs exactly as Sync now does: new transactions land in To
- * review, and a bank account's deposits are matched to the payments already
- * recorded. A CSV account has nothing to ask and is never touched.
+ * Now a node-cron tick runs every minute, and each Brex cash account, Mercury
+ * account, Wise balance, Brex or Ramp card, and Stripe payouts account that
+ * is due — every `runtime.banking.syncIntervalMinutes` (Admin → Runtime →
+ * Bank sync; 30 by default) — syncs exactly as Sync now does: new
+ * transactions land in To review, and a bank account's deposits are matched
+ * to the payments already recorded. A CSV account has nothing to ask and is
+ * never touched.
  *
  * - **Catching up.** Each provider sync asks for what was posted since a week
  *   before the feed's last *successful* sync (`lastSyncAt`), however long ago
@@ -65,6 +66,7 @@ export type FeedRef = { kind: FeedKind; companyId: string; id: string };
 export const AUTOMATIC_BANK_FEED_KINDS: readonly BankFeedKind[] = [
   "stripe_payouts",
   "brex_cash",
+  "mercury_account",
   "wise_balance",
 ];
 
@@ -176,9 +178,21 @@ function announce(ref: FeedRef): void {
 
 /** Who to name in a failure, and what this account reads. */
 export function feedSyncContext(kind: FeedKind, feedKind: string): FeedSyncContext {
-  if (kind === "card") return { provider: "Brex", credential: "token", reads: "card transactions" };
+  if (kind === "card") {
+    return feedKind === "ramp_card"
+      ? {
+          provider: "Ramp",
+          credential: "client ID and secret",
+          holder: "this app",
+          reads: "card transactions and payments",
+        }
+      : { provider: "Brex", credential: "token", reads: "card transactions" };
+  }
   if (feedKind === "stripe_payouts") {
     return { provider: "Stripe", credential: "API key", reads: "payouts" };
+  }
+  if (feedKind === "mercury_account") {
+    return { provider: "Mercury", credential: "API token", reads: "accounts and transactions" };
   }
   if (feedKind === "wise_balance") {
     return { provider: "Wise", credential: "API token", reads: "balance statements" };

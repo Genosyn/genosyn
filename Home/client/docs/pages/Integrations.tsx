@@ -19,6 +19,8 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Forgejo / Gitea", kind: "engineering (self-hosted)" },
   { name: "Stripe", kind: "finance" },
   { name: "Brex", kind: "finance" },
+  { name: "Mercury", kind: "finance" },
+  { name: "Ramp", kind: "finance" },
   { name: "Wise", kind: "finance" },
   { name: "Gmail / Google", kind: "comms + drive" },
   { name: "Google Analytics", kind: "analytics" },
@@ -427,6 +429,61 @@ export function Integrations() {
         filed under a default expense category you can change per purchase, and{" "}
         <Code>Advanced</Code> sets the card liability and the bank account that pays the card. Brex
         exposes only settled transactions: pending card activity appears after it settles.
+      </P>
+
+      <H3 id="mercury">Mercury accounts</H3>
+      <P>
+        To connect your company&apos;s Mercury account, sign in to Mercury, click your
+        organization&apos;s name at the top left, choose <Code>All Settings</Code>, then{" "}
+        <Code>Tokens</Code>, and click <Code>Create an API Token</Code>. Choose{" "}
+        <Code>Read Only</Code> — it is all Genosyn needs, and unlike a token that can send money it
+        needs no IP whitelist — and copy the token, which Mercury shows only once. In Genosyn, open{" "}
+        <Code>Finance → Integrations</Code>, choose <Code>Mercury</Code>, and paste the whole token,
+        including its <Code>secret-token:</Code> beginning, into a new Connection. Genosyn talks to
+        Mercury directly, encrypts the token, and never returns it to the browser after creation.
+      </P>
+      <P>
+        To bring an account&apos;s transactions into the books, open{" "}
+        <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
+        <Code>Add account</Code>, choose <Code>Mercury account</Code>, and pick the Connection and
+        the checking or savings account; it <DocLink to="/docs/banking#sync">syncs on its own</DocLink>{" "}
+        from then on. Only settled transactions come in. Mercury accounts are in US dollars, so they
+        can be added only when your books are in USD.
+      </P>
+      <P>
+        The Connection contributes read-only account and transaction tools to employees who receive
+        a Grant. Account numbers show only their last four digits, and neither routing numbers nor
+        a counterparty&apos;s bank details reach an employee. No tool sends or moves money. Mercury
+        deletes a token nobody uses for 45 days; an account syncing on Banking keeps its token in
+        use.
+      </P>
+
+      <H3 id="ramp">Ramp cards</H3>
+      <P>
+        Ramp connects through a developer app rather than a token. As a Ramp admin, open{" "}
+        <Code>Company → Developer</Code> and click <Code>Create New App</Code>. Under{" "}
+        <Code>Grant types</Code>, add <Code>Client Credentials</Code>; under{" "}
+        <Code>Scopes</Code>, allow <Code>business:read</Code>, <Code>transactions:read</Code>,{" "}
+        <Code>transfers:read</Code>, and <Code>cashbacks:read</Code>. Copy the app&apos;s client ID
+        and client secret, then in Genosyn open <Code>Finance → Integrations</Code>, choose{" "}
+        <Code>Ramp</Code>, and paste both into a new Connection. Genosyn trades them for a
+        short-lived access token when it reads, keeps that token in memory only, and never returns
+        the secret to the browser after creation.
+      </P>
+      <P>
+        For corporate card accounting, open{" "}
+        <DocLink to="/docs/banking#add-account">Finance → Banking</DocLink>, click{" "}
+        <Code>Add account</Code>, and choose <Code>Ramp card</Code>. It brings in settled card
+        transactions, the payments that settle your Ramp bill, and cashback: purchases are filed
+        under a default expense category you can change per purchase, refunds and cashback come back
+        under it, and bill payments move what you owe on the card against the bank account that
+        paid. Ramp dates a transaction by when the card was used, so each sync looks back a month
+        for purchases that settled late, such as hotel stays.
+      </P>
+      <P>
+        The Connection contributes read-only tools to employees who receive a Grant: card
+        transactions with the merchant and cardholder, bill payments, cashback, and the card
+        balance and limit. No tool issues cards, changes limits, or moves money.
       </P>
 
       <H3 id="wise">Wise balances</H3>

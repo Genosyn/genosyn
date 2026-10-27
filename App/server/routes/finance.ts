@@ -205,6 +205,10 @@ import {
   listBrexCashAccountsForConnection,
   manualMatch,
 } from "../services/reconcile.js";
+import {
+  assertMercuryAccountFeed,
+  listMercuryAccountsForConnection,
+} from "../services/mercuryFeeds.js";
 import { assertWiseBalanceFeed, listWiseBalancesForConnection } from "../services/wiseFeeds.js";
 import {
   BankingAccountError,
@@ -3274,6 +3278,7 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
 const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = [
   "stripe_payouts",
   "brex_cash",
+  "mercury_account",
   "wise_balance",
   "csv",
 ];
@@ -3308,6 +3313,26 @@ financeRouter.get("/bank-feeds/brex-accounts", async (req, res) => {
     res.status(400).json({ error: (err as Error).message });
   }
 });
+
+const mercuryAccountsQuerySchema = z.object({
+  connectionId: z.string().uuid(),
+});
+
+// The accounts a Mercury Connection can read, each saying why it can't be
+// added when it can't — one already on Banking, or one Mercury closed.
+financeRouter.get(
+  "/bank-feeds/mercury-accounts",
+  validateQuery(mercuryAccountsQuerySchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const query = req.query as z.infer<typeof mercuryAccountsQuerySchema>;
+    try {
+      res.json(await listMercuryAccountsForConnection(cid, query.connectionId));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
 
 const wiseBalancesQuerySchema = z.object({
   connectionId: z.string().uuid(),
@@ -3370,6 +3395,18 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
+  } else if (body.kind === "mercury_account") {
+    if (!body.connectionId) {
+      return res.status(400).json({ error: "Mercury feeds need a connectionId" });
+    }
+    if (!body.externalAccountId) {
+      return res.status(400).json({ error: "Mercury feeds need an account" });
+    }
+    try {
+      await assertMercuryAccountFeed(cid, body.connectionId, body.externalAccountId);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
   } else if (body.kind === "wise_balance") {
     if (!body.connectionId) {
       return res.status(400).json({ error: "Wise feeds need a connectionId" });
@@ -3391,7 +3428,7 @@ financeRouter.post("/bank-feeds", validateBody(feedCreateSchema), async (req, re
     accountId: body.accountId,
     connectionId: body.kind === "csv" ? null : (body.connectionId ?? null),
     externalAccountId:
-      body.kind === "brex_cash" || body.kind === "wise_balance"
+      body.kind === "brex_cash" || body.kind === "mercury_account" || body.kind === "wise_balance"
         ? (body.externalAccountId ?? null)
         : null,
   });

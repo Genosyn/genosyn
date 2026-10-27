@@ -178,7 +178,7 @@ export type RuntimeNetworkSettings = {
 
 /**
  * The background sync behind Finance → Banking: how often each bank account
- * and card connected to Brex, Wise or Stripe asks its provider for new
+ * and card connected to Brex, Mercury, Ramp, Wise or Stripe asks its provider for new
  * transactions (`services/bankingSync.ts`). A CSV account has nothing to ask.
  */
 export type RuntimeBankingSettings = {

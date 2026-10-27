@@ -27,7 +27,8 @@ import {
 } from "./invoicePayments.js";
 import { bookedLines } from "./ledger.js";
 import { feedSyncStatus, type FeedSyncStatus } from "./bankingSync.js";
-import { assertBrexCardConnection } from "./cardExpenses.js";
+import { assertCardConnection, CARD_FEED_PROVIDERS } from "./cardExpenses.js";
+import { assertMercuryAccountFeed } from "./mercuryFeeds.js";
 import { assertBrexCashAccountConnection, unmatch } from "./reconcile.js";
 import { assertWiseBalanceFeed } from "./wiseFeeds.js";
 
@@ -35,20 +36,20 @@ import { assertWiseBalanceFeed } from "./wiseFeeds.js";
  * Banking: the company's bank accounts and cards, and the transactions on
  * them, as one list a person works through.
  *
- * A bank account here is a `BankFeed` (a CSV upload, Brex Cash, a Wise
- * balance, or Stripe payouts) and a card is a `CardFeed` (Brex). A bank
- * transaction waits for review until something explains it — it paid one or
- * more invoices, it matches a payment or entry already in the books, or
- * someone gave it a category — and `reconciledAt` records that it is done. A
- * card purchase is filed under its card's default category the moment it
- * arrives, and waits until someone keeps that category or picks another
- * (`needsReview`), or while that posting failed.
+ * A bank account here is a `BankFeed` (a CSV upload, Brex Cash, a Mercury
+ * account, a Wise balance, or Stripe payouts) and a card is a `CardFeed`
+ * (Brex or Ramp). A bank transaction waits for review until something
+ * explains it — it paid one or more invoices, it matches a payment or entry
+ * already in the books, or someone gave it a category — and `reconciledAt`
+ * records that it is done. A card purchase is filed under its card's default
+ * category the moment it arrives, and waits until someone keeps that category
+ * or picks another (`needsReview`), or while that posting failed.
  */
 
 export type BankingStatus = "review" | "done";
 
 /** Who an account's transactions come from; null for a CSV account. */
-export type BankingProvider = "brex" | "wise" | "stripe";
+export type BankingProvider = "brex" | "mercury" | "ramp" | "wise" | "stripe";
 
 /** The Connection an account syncs through, as much as Banking shows of it. */
 export type BankingConnection = {
@@ -78,9 +79,14 @@ export type BankingAccount =
 
 export function bankFeedProvider(kind: BankFeed["kind"]): BankingProvider | null {
   if (kind === "brex_cash") return "brex";
+  if (kind === "mercury_account") return "mercury";
   if (kind === "wise_balance") return "wise";
   if (kind === "stripe_payouts") return "stripe";
   return null;
+}
+
+export function cardFeedProvider(kind: CardFeed["kind"]): BankingProvider {
+  return CARD_FEED_PROVIDERS[kind]?.provider ?? "brex";
 }
 
 type FeedCount = { feedId: string; count: number | string };
@@ -182,7 +188,7 @@ export async function listBankingAccounts(
       feed,
       toReview: cardOpen.get(feed.id) ?? 0,
       total: cardTotals.get(feed.id) ?? 0,
-      provider: "brex" as const,
+      provider: cardFeedProvider(feed.kind),
       sync: feedSyncStatus("card", feed, now),
       connection: connectionOf(feed.connectionId),
       balance: null,
@@ -201,6 +207,8 @@ export class BankingAccountError extends Error {
 
 const PROVIDER_NAMES: Record<BankingProvider, string> = {
   brex: "Brex",
+  mercury: "Mercury",
+  ramp: "Ramp",
   wise: "Wise",
   stripe: "Stripe",
 };
@@ -209,17 +217,21 @@ const PROVIDER_NAMES: Record<BankingProvider, string> = {
  * Point a bank account or card at another Connection of the same provider:
  * the way back for an account whose Connection was removed, or that should
  * read through another token. The new Connection has to reach the same
- * account — the same Brex cash account, the same Wise balance, card
- * transactions for a card — so the books keep following one account. The
- * failed sync behind the change is forgotten, so the next sync runs at once.
- * Run it under `whileFeedIdle`, so no sync is writing to the account meanwhile.
+ * account — the same Brex cash account, the same Mercury account, the same
+ * Wise balance, card transactions for a card — so the books keep following
+ * one account. The failed sync behind the change is forgotten, so the next
+ * sync runs at once. Run it under `whileFeedIdle`, so no sync is writing to
+ * the account meanwhile.
  */
 export async function changeFeedConnection(
   kind: "bank" | "card",
   feed: BankFeed | CardFeed,
   connectionId: string,
 ): Promise<BankFeed | CardFeed> {
-  const provider = kind === "card" ? "brex" : bankFeedProvider((feed as BankFeed).kind);
+  const provider =
+    kind === "card"
+      ? cardFeedProvider((feed as CardFeed).kind)
+      : bankFeedProvider((feed as BankFeed).kind);
   if (!provider) throw new BankingAccountError("A CSV account doesn't sync through a Connection.");
   const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
     id: connectionId,
@@ -234,10 +246,15 @@ export async function changeFeedConnection(
     // The same checks as adding the account, against the new Connection —
     // whatever they refuse is the request's to fix, as it is there.
     if (kind === "card") {
-      await assertBrexCardConnection(feed.companyId, connectionId);
+      await assertCardConnection(feed.companyId, connectionId, (feed as CardFeed).kind);
     } else if ((feed as BankFeed).kind === "brex_cash") {
       if (!externalAccountId) throw new Error("This account has no Brex cash account.");
       await assertBrexCashAccountConnection(feed.companyId, connectionId, externalAccountId);
+    } else if ((feed as BankFeed).kind === "mercury_account") {
+      if (!externalAccountId) throw new Error("This account has no Mercury account.");
+      await assertMercuryAccountFeed(feed.companyId, connectionId, externalAccountId, {
+        exceptFeedId: feed.id,
+      });
     } else if ((feed as BankFeed).kind === "wise_balance") {
       if (!externalAccountId) throw new Error("This account has no Wise balance.");
       await assertWiseBalanceFeed(feed.companyId, connectionId, externalAccountId, new Date(), {

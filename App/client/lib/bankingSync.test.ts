@@ -160,6 +160,11 @@ describe("what the account is", () => {
     );
     assert.equal(accountKindLabel(bank({ provider: "wise", balance: null }, { kind: "wise_balance" })), "Balance");
     assert.equal(accountSubtitle(bank({ provider: "stripe", balance: null }, { kind: "stripe_payouts" })), "Stripe · Payouts");
+    assert.equal(
+      accountSubtitle(bank({ provider: "mercury" }, { kind: "mercury_account" })),
+      "Mercury · Business account",
+    );
+    assert.equal(accountSubtitle(card({ provider: "ramp" }, { kind: "ramp_card" })), "Ramp · Card");
     assert.equal(accountSubtitle(csv()), "Bank account · CSV uploads");
   });
 

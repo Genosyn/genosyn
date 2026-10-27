@@ -45,8 +45,8 @@ export class CardTransaction {
   @Column({ type: dateTimeColumnType })
   postedAt!: Date;
 
-  /** Brex convention: purchases are positive; refunds and collections are
-   * negative. */
+  /** Brex convention, which every card provider is stored in: purchases are
+   * positive; refunds and collections are negative. */
   @Column({ type: "int" })
   amountCents!: number;
 

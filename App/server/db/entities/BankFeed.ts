@@ -25,6 +25,9 @@ const minorUnits: ValueTransformer = {
  *   - `brex_cash`: pulled from a Brex `IntegrationConnection` via the
  *     Transactions API. `externalAccountId` identifies the selected Cash
  *     account.
+ *   - `mercury_account`: pulled from a Mercury `IntegrationConnection` via
+ *     the account's transactions. `externalAccountId` is the Mercury account
+ *     id (`services/mercuryFeeds.ts`).
  *   - `wise_balance`: pulled from a Wise `IntegrationConnection` via the
  *     balance statement. `externalAccountId` is `<profileId>:<balanceId>`,
  *     and only a balance in the home currency can be one
@@ -35,7 +38,12 @@ const minorUnits: ValueTransformer = {
  * Phase E (multi-currency) will add `currency` to `BankFeed`; for Phase
  * D every feed is in the company's home currency (USD).
  */
-export type BankFeedKind = "stripe_payouts" | "brex_cash" | "wise_balance" | "csv";
+export type BankFeedKind =
+  | "stripe_payouts"
+  | "brex_cash"
+  | "mercury_account"
+  | "wise_balance"
+  | "csv";
 
 @Entity("bank_feeds")
 @Index(["companyId"])
@@ -59,8 +67,8 @@ export class BankFeed {
   connectionId!: string | null;
 
   /** Provider-side account identifier when one Connection can expose more
-   *  than one account. Set for Brex Cash and Wise feeds; null for Stripe
-   *  and CSV. */
+   *  than one account. Set for Brex Cash, Mercury and Wise feeds; null for
+   *  Stripe and CSV. */
   @Column({ type: "varchar", nullable: true })
   externalAccountId!: string | null;
 
