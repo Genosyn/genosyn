@@ -3,6 +3,7 @@ import { ArrowRight, Bot, CheckCircle2, LockKeyhole, Sparkles } from "lucide-rea
 import { Link, useNavigate } from "react-router-dom";
 
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
@@ -11,6 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { api, type Company, type Employee } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import type { ExploreBase } from "@/lib/explore";
 
 export type ExploreAiConnection = {
   id: string;
@@ -20,36 +22,48 @@ export type ExploreAiConnection = {
   status: string;
 };
 
-type ConnectionGrant = {
+/**
+ * What the employee builds from: a connected database, or a Base with an
+ * active table (an AI Employee never reads an archived one). `key` is the
+ * picker's value.
+ */
+type AiSource =
+  | { kind: "connection"; key: string; connection: ExploreAiConnection }
+  | { kind: "base"; key: string; base: ExploreBase };
+
+type SourceGrant = {
   employeeId: string;
 };
 
 /**
- * Explore's human-to-AI handoff. A Member picks a database Connection and an
- * AI Employee, grants the Connection when needed, then lands in ordinary Chat
- * with a reviewed starter request. The employee completes the work through
- * Explore's grant-gated tools, so Charts and Dashboards appear in the same UI
- * and carry the usual audit trail.
+ * Explore's human-to-AI handoff. A Member picks a data source — a database
+ * Connection or a Base — and an AI Employee, grants the source when needed,
+ * then lands in ordinary Chat with a reviewed starter request. The employee
+ * completes the work through Explore's grant-gated tools, so Charts and
+ * Dashboards appear in the same UI and carry the usual audit trail.
  */
 export function ExploreAiBuilder({
   open,
   company,
   connections,
+  bases,
   initialConnectionId,
   onClose,
 }: {
   open: boolean;
   company: Company;
-  connections: ExploreAiConnection[];
+  /** Null while loading, like `bases`. */
+  connections: ExploreAiConnection[] | null;
+  bases: ExploreBase[] | null;
   initialConnectionId?: string | null;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const connected = React.useMemo(
-    () => connections.filter((connection) => connection.status === "connected"),
-    [connections],
+  const sources = React.useMemo(
+    () => (connections && bases ? aiSources(connections, bases) : null),
+    [connections, bases],
   );
-  const [connectionId, setConnectionId] = React.useState("");
+  const [sourceKey, setSourceKey] = React.useState("");
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
   const [employeesError, setEmployeesError] = React.useState<string | null>(null);
   const [grantedIds, setGrantedIds] = React.useState<Set<string> | null>(null);
@@ -60,11 +74,6 @@ export function ExploreAiBuilder({
 
   React.useEffect(() => {
     if (!open) return;
-    const preferred = connected.some((connection) => connection.id === initialConnectionId)
-      ? initialConnectionId!
-      : (connected[0]?.id ?? "");
-    setConnectionId(preferred);
-    setRequest(defaultRequest(connected.find((connection) => connection.id === preferred)));
     setEmployees(null);
     setEmployeesError(null);
     setActionError(null);
@@ -75,10 +84,29 @@ export function ExploreAiBuilder({
         setEmployees([]);
         setEmployeesError(errorMessage(error, "Could not load the AI Employees"));
       });
-  }, [company.id, connected, initialConnectionId, open]);
+  }, [company.id, open]);
+
+  // Each opening starts from the preferred source and its starter request. A
+  // live refresh of the source lists keeps the choice and any edits to the
+  // request, unless the chosen source is gone.
+  React.useEffect(() => {
+    if (!open) {
+      setSourceKey("");
+      return;
+    }
+    if (!sources || sources.some((source) => source.key === sourceKey)) return;
+    const preferred =
+      sources.find((source) => source.key === `connection:${initialConnectionId}`) ?? sources[0];
+    setSourceKey(preferred?.key ?? "");
+    setRequest(defaultRequest(preferred));
+  }, [initialConnectionId, open, sourceKey, sources]);
+
+  const selectedSource = sources?.find((source) => source.key === sourceKey);
+  const grantNoun = selectedSource?.kind === "base" ? "Base" : "Connection";
+  const grantsPath = selectedSource ? sourceGrantsPath(company.id, selectedSource) : null;
 
   React.useEffect(() => {
-    if (!open || !connectionId) {
+    if (!open || !grantsPath) {
       setGrantedIds(new Set());
       setGrantsError(null);
       return;
@@ -87,43 +115,39 @@ export function ExploreAiBuilder({
     setGrantedIds(null);
     setGrantsError(null);
     api
-      .get<ConnectionGrant[]>(
-        `/api/companies/${company.id}/integrations/connections/${connectionId}/grants`,
-      )
+      .get<SourceGrant[]>(grantsPath)
       .then((grants) => {
         if (!cancelled) setGrantedIds(new Set(grants.map((grant) => grant.employeeId)));
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         setGrantedIds(new Set());
-        setGrantsError(errorMessage(error, "Could not load the Connection grants"));
+        setGrantsError(errorMessage(error, `Could not load the ${grantNoun} grants`));
       });
     return () => {
       cancelled = true;
     };
-  }, [company.id, connectionId, open]);
+  }, [grantNoun, grantsPath, open]);
 
-  const selectedConnection = connected.find((connection) => connection.id === connectionId);
   // Only a failed AI Employee fetch has nothing to render in place of: the
   // grants fetch supplies a per-row badge, and its catch falls back to an empty
   // set so every row still offers "Grant & open chat".
   const loadError = employeesError;
+  const connectionSources = (sources ?? []).filter((source) => source.kind === "connection");
+  const baseSources = (sources ?? []).filter((source) => source.kind === "base");
 
-  function changeConnection(nextId: string) {
-    setConnectionId(nextId);
-    setRequest(defaultRequest(connected.find((connection) => connection.id === nextId)));
+  function changeSource(nextKey: string) {
+    setSourceKey(nextKey);
+    setRequest(defaultRequest(sources?.find((source) => source.key === nextKey)));
   }
 
   async function openEmployeeChat(employee: Employee) {
-    if (!selectedConnection || !request.trim()) return;
+    if (!selectedSource || !request.trim()) return;
     setBusyEmployeeId(employee.id);
     setActionError(null);
     try {
       if (!grantedIds?.has(employee.id)) {
-        await api.post(
-          `/api/companies/${company.id}/integrations/employees/${employee.id}/grants`,
-          { connectionId: selectedConnection.id },
-        );
+        await grantSource(company.id, selectedSource, employee.id);
         setGrantedIds((current) => new Set([...(current ?? []), employee.id]));
       }
       onClose();
@@ -139,14 +163,25 @@ export function ExploreAiBuilder({
 
   return (
     <Modal open={open} onClose={onClose} title="Build with an AI Employee" size="lg">
-      {connected.length === 0 ? (
+      {sources === null ? (
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
+      ) : sources.length === 0 ? (
         <EmptyState
-          title="Connect a database first"
-          description="AI Employees use the same Postgres, MySQL, or ClickHouse Connections as Explore."
+          title="Add a data source first"
+          description="AI Employees build from the same Postgres, MySQL, or ClickHouse Connections and Bases as Explore."
           action={
-            <Link to={`/c/${company.slug}/explore/integrations`} onClick={onClose}>
-              <Button size="sm">Connect a database</Button>
-            </Link>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Link to={`/c/${company.slug}/explore/integrations`} onClick={onClose}>
+                <Button size="sm">Connect a database</Button>
+              </Link>
+              <Link to={`/c/${company.slug}/bases`} onClick={onClose}>
+                <Button size="sm" variant="secondary">
+                  Open Bases
+                </Button>
+              </Link>
+            </div>
           }
         />
       ) : (
@@ -161,25 +196,45 @@ export function ExploreAiBuilder({
                   Delegate the whole analytics loop
                 </h3>
                 <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                  Your employee can inspect the schema, validate SQL, save Charts, and assemble a
+                  Your employee can inspect the data, check each query, save Charts, and assemble a
                   Dashboard. You review the request in Chat before sending it.
                 </p>
               </div>
             </div>
           </div>
 
-          <Select
-            label="Database Connection"
-            value={connectionId}
-            onChange={(event) => changeConnection(event.target.value)}
-            searchPlaceholder="Search database Connections…"
-          >
-            {connected.map((connection) => (
-              <option key={connection.id} value={connection.id}>
-                {connection.label} · {providerLabel(connection.provider)}
-              </option>
-            ))}
-          </Select>
+          <div>
+            <Select
+              label="Data source"
+              value={sourceKey}
+              onChange={(event) => changeSource(event.target.value)}
+              searchPlaceholder="Search data sources…"
+            >
+              {connectionSources.length > 0 && (
+                <optgroup label="Databases">
+                  {connectionSources.map((source) => (
+                    <option key={source.key} value={source.key}>
+                      {sourceLabel(source)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {baseSources.length > 0 && (
+                <optgroup label="Bases">
+                  {baseSources.map((source) => (
+                    <option key={source.key} value={source.key}>
+                      {sourceLabel(source)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </Select>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {selectedSource?.kind === "base"
+                ? "A Base Grant also lets the employee read and edit this Base's records and fields."
+                : "A Connection Grant lets the employee run any SQL its database role allows."}
+            </p>
+          </div>
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -191,7 +246,7 @@ export function ExploreAiBuilder({
               rows={6}
               className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             />
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Chat opens with this as a draft. Nothing runs until you send it.
             </p>
           </label>
@@ -239,13 +294,11 @@ export function ExploreAiBuilder({
                             {employee.name}
                           </span>
                           {granted ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                              <CheckCircle2 size={10} /> Connection granted
-                            </span>
+                            <Badge tone="success" icon={<CheckCircle2 />}>
+                              {grantNoun} granted
+                            </Badge>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                              <LockKeyhole size={10} /> Grant on continue
-                            </span>
+                            <Badge icon={<LockKeyhole />}>Grant on continue</Badge>
                           )}
                         </div>
                         <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
@@ -285,8 +338,54 @@ export function ExploreAiBuilder({
   );
 }
 
-function defaultRequest(connection: ExploreAiConnection | undefined): string {
-  const label = connection?.label ?? "the selected database";
+function aiSources(connections: ExploreAiConnection[], bases: ExploreBase[]): AiSource[] {
+  return [
+    ...connections
+      .filter((connection) => connection.status === "connected")
+      .map(
+        (connection): AiSource => ({
+          kind: "connection",
+          key: `connection:${connection.id}`,
+          connection,
+        }),
+      ),
+    ...bases
+      .filter((base) => base.tables.some((table) => !table.archived))
+      .map((base): AiSource => ({ kind: "base", key: `base:${base.id}`, base })),
+  ];
+}
+
+function sourceLabel(source: AiSource): string {
+  if (source.kind === "base") return source.base.name;
+  return `${source.connection.label} · ${providerLabel(source.connection.provider)}`;
+}
+
+function sourceGrantsPath(companyId: string, source: AiSource): string {
+  if (source.kind === "base") return `/api/companies/${companyId}/bases/${source.base.slug}/grants`;
+  return `/api/companies/${companyId}/integrations/connections/${source.connection.id}/grants`;
+}
+
+function grantSource(companyId: string, source: AiSource, employeeId: string): Promise<unknown> {
+  if (source.kind === "base") {
+    return api.post(`/api/companies/${companyId}/bases/${source.base.slug}/grants`, {
+      employeeId,
+    });
+  }
+  return api.post(`/api/companies/${companyId}/integrations/employees/${employeeId}/grants`, {
+    connectionId: source.connection.id,
+  });
+}
+
+function defaultRequest(source: AiSource | undefined): string {
+  if (source?.kind === "base") {
+    const { name, slug } = source.base;
+    return `Use the granted Base “${name}” to build a useful starter analytics dashboard.
+
+Start with get_base for baseSlug “${slug}” to read its active tables and the table and field ids each Chart needs. Identify 3–5 decision-useful metrics. Save each one with create_chart, passing baseSlug “${slug}” and a baseQuery built from those ids, as a clearly named Chart with the most appropriate visualization, and check it with run_chart. Then create one Dashboard with create_dashboard and add the Charts in a readable order with add_dashboard_card.
+
+Explain any assumptions or data-quality concerns. Do not change the Base's records.`;
+  }
+  const label = source?.connection.label ?? "the selected database";
   return `Use the granted Explore Connection “${label}” to build a useful starter analytics dashboard.
 
 Start by listing your Explore Connections and inspecting this Connection's schema. Identify 3–5 decision-useful metrics, validate each SQL query against the live data, and save each one as a clearly named Chart with the most appropriate visualization. Then create one Dashboard and add the Charts in a readable order.
