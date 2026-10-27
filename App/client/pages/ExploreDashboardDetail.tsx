@@ -9,6 +9,7 @@ import {
   Check,
   Calculator,
   ChevronLeft,
+  History,
   Pencil,
   Plus,
   RefreshCw,
@@ -88,6 +89,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [formulaError, setFormulaError] = React.useState<string | null>(null);
   const [savingFormula, setSavingFormula] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
+  const [showingHistory, setShowingHistory] = React.useState(false);
   const [editingDetails, setEditingDetails] = React.useState(false);
   const [savingDetails, setSavingDetails] = React.useState(false);
   const [detailsError, setDetailsError] = React.useState<string | null>(null);
@@ -334,6 +336,11 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         >
           <RefreshCw size={14} /> Refresh
         </Button>
+        {/* History stays one click away rather than under the cards, where an
+          AI Employee's run of edits would bury the dashboard itself. */}
+        <Button variant="ghost" size="sm" onClick={() => setShowingHistory(true)}>
+          <History size={14} /> History
+        </Button>
         <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
           <Share2 size={14} /> Share
         </Button>
@@ -517,15 +524,6 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           </div>
         )}
 
-        <RecordHistory
-          className="mx-auto mt-6 max-w-3xl"
-          companyId={company.id}
-          companySlug={company.slug}
-          targetType="dashboard"
-          targetId={data.id}
-          noun="this dashboard"
-          milestones={[{ label: "Dashboard created", at: data.createdAt, covers: ["create"] }]}
-        />
       </div>
 
       {picking && (
@@ -556,6 +554,22 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           onSave={(title, formula) => void saveFormula(title, formula)}
         />
       )}
+      <Modal
+        open={showingHistory}
+        onClose={() => setShowingHistory(false)}
+        title="Dashboard history"
+        size="lg"
+      >
+        <RecordHistory
+          className="shadow-none"
+          companyId={company.id}
+          companySlug={company.slug}
+          targetType="dashboard"
+          targetId={data.id}
+          noun="this dashboard"
+          milestones={[{ label: "Dashboard created", at: data.createdAt, covers: ["create"] }]}
+        />
+      </Modal>
       <ExploreShareModal
         open={sharing}
         onClose={() => setSharing(false)}
