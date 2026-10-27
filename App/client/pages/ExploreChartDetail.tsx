@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Play,
+  RefreshCw,
   Save,
   Share2,
   Sparkles,
@@ -27,15 +28,19 @@ import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 import { RecordHistory } from "../components/RecordHistory";
 import { ExploreDataBrowser } from "../components/explore/ExploreDataBrowser";
+import { ExploreBaseQueryBuilder } from "../components/explore/ExploreBaseQueryBuilder";
 import {
   buildTablePreviewSql,
   humanizeExploreName,
   quoteExploreIdentifier,
   suggestExploreVisualization,
+  type BaseChartQuery,
+  type ExploreBase,
   type ExploreProvider,
   type ExploreSchemaTable,
   type VisualizationSuggestion,
 } from "../lib/explore";
+import { emptyBaseChartQuery } from "../../shared/baseChartQuery";
 import {
   ChartRenderer,
   type QueryResult,
@@ -45,17 +50,20 @@ import {
 
 /**
  * Chart editor. URL slug `new` enters "compose mode": the page lets the
- * caller pick a connection (or reads one from `?connectionId=`), then on
- * first save replaces the URL with the new chart's slug. Existing slugs
- * load the full Chart row and let the user edit SQL, viz type, and viz
- * config in place.
+ * caller pick a data source (or reads one from `?connectionId=`, or
+ * `?baseId=` and `?tableId=`), then on first save replaces the URL with the
+ * new chart's slug. Existing slugs load the full Chart row and let the user
+ * edit its query, viz type, and viz config in place.
+ *
+ * A chart reads either a database Connection, through SQL, or one of the
+ * company's Bases, through a query built by pointing (`ExploreBaseQueryBuilder`).
  *
  * Layout: header (title + actions), then a two-pane body:
- *   - Left  : SQL editor (textarea), Run button, status line
+ *   - Left  : SQL editor or Base query builder, Run button, status line
  *   - Right : viz preview + viz-type tabs + viz-config side panel
  *
- * Auto-Run isn't wired — Run is explicit so a half-typed query doesn't
- * hammer the upstream DB.
+ * SQL runs only on Run, so a half-typed query doesn't hammer the upstream DB.
+ * A Base query runs as it changes: it is answered from the App's own rows.
  */
 
 type ConnectionRow = {
@@ -72,8 +80,11 @@ type ChartDTO = {
   slug: string;
   title: string;
   description: string;
-  connectionId: string;
+  source: "connection" | "base";
+  connectionId: string | null;
   sql: string;
+  baseId: string | null;
+  baseQuery: BaseChartQuery | null;
   vizType: VizType;
   vizConfig: VizConfig;
   createdAt: string;
@@ -101,6 +112,17 @@ const STARTER_SQL: Record<ExploreProvider, string> = {
   clickhouse: "SELECT now() AS at, 1 AS value",
 };
 
+const UNTITLED = "Untitled chart";
+
+/** A Base's first active table, or a requested one, to start a query on. */
+function startingTable(base: ExploreBase, tableId: string | null) {
+  return (
+    base.tables.find((table) => table.id === tableId) ??
+    base.tables.find((table) => !table.archived) ??
+    base.tables[0]
+  );
+}
+
 export default function ExploreChartDetail({ company }: { company: Company }) {
   const { slug = "" } = useParams<{ slug: string }>();
   const isNew = slug === "new";
@@ -110,12 +132,15 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const { reload: reloadIndex } = useExplore();
 
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
+  const [bases, setBases] = React.useState<ExploreBase[] | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [connectionId, setConnectionId] = React.useState("");
   const [sql, setSql] = React.useState("");
+  const [baseId, setBaseId] = React.useState("");
+  const [baseQuery, setBaseQuery] = React.useState<BaseChartQuery | null>(null);
   const [vizType, setVizType] = React.useState<VizType>("table");
   const [vizConfig, setVizConfig] = React.useState<VizConfig>({});
   const [result, setResult] = React.useState<QueryResult | null>(null);
@@ -132,25 +157,56 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [suggestion, setSuggestion] = React.useState<VisualizationSuggestion | null>(null);
   const editorRef = React.useRef<HTMLTextAreaElement>(null);
   const ranOnceRef = React.useRef(false);
+  const runRequest = React.useRef(0);
+  const usingBase = Boolean(baseId && baseQuery);
+  const selectedBase = usingBase ? bases?.find((base) => base.id === baseId) : undefined;
 
-  // Load connections once.
+  // While a new chart is untitled, name it after what it reads; a title the
+  // person typed is never replaced.
+  const autoTitle = React.useRef<string | null>(null);
+  const isNewRef = React.useRef(isNew);
+  isNewRef.current = isNew;
+  const titleRef = React.useRef(title);
+  titleRef.current = title;
+  const suggestTitle = React.useCallback((suggested: string) => {
+    const current = titleRef.current;
+    if (!isNewRef.current || (current !== UNTITLED && current !== autoTitle.current)) return;
+    autoTitle.current = suggested;
+    setTitle(suggested);
+  }, []);
+
+  function startBaseQuery(base: ExploreBase, tableId: string | null): boolean {
+    const table = startingTable(base, tableId);
+    if (!table) return false;
+    setBaseId(base.id);
+    setBaseQuery(emptyBaseChartQuery(table.id));
+    return true;
+  }
+
+  // Load the data sources once: database Connections and Bases.
   React.useEffect(() => {
     (async () => {
-      try {
-        const rows = await api.get<ConnectionRow[]>(
-          `/api/companies/${company.id}/explore/connections`,
-        );
-        setConnections(rows);
-        if (isNew && rows.length > 0) {
-          const presetId = searchParams.get("connectionId");
-          const matched = presetId ? rows.find((r) => r.id === presetId) : undefined;
-          const pick: ConnectionRow = matched ?? rows[0];
-          setConnectionId(pick.id);
-          if (!sql) setSql(STARTER_SQL[pick.provider] ?? "SELECT 1");
-        }
-      } catch {
-        setConnections([]);
+      const [connectionResult, baseResult] = await Promise.allSettled([
+        api.get<ConnectionRow[]>(`/api/companies/${company.id}/explore/connections`),
+        api.get<ExploreBase[]>(`/api/companies/${company.id}/explore/bases`),
+      ]);
+      const rows = connectionResult.status === "fulfilled" ? connectionResult.value : [];
+      const baseRows = baseResult.status === "fulfilled" ? baseResult.value : [];
+      setConnections(rows);
+      setBases(baseRows);
+      if (!isNew) return;
+      const presetBase = baseRows.find((base) => base.id === searchParams.get("baseId"));
+      if (presetBase && startBaseQuery(presetBase, searchParams.get("tableId"))) return;
+      const presetId = searchParams.get("connectionId");
+      const matched = presetId ? rows.find((r) => r.id === presetId) : undefined;
+      const pick = matched ?? rows[0];
+      if (pick) {
+        setConnectionId(pick.id);
+        if (!sql) setSql(STARTER_SQL[pick.provider] ?? "SELECT 1");
+        return;
       }
+      const firstBase = baseRows.find((base) => base.tables.some((table) => !table.archived));
+      if (firstBase) startBaseQuery(firstBase, null);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id]);
@@ -166,7 +222,8 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       setChartId(null);
       setChartCreatedAt(null);
       setLoading(false);
-      setTitle("Untitled chart");
+      setTitle(UNTITLED);
+      autoTitle.current = null;
       setDescription("");
       setVizType("table");
       setVizConfig({});
@@ -181,8 +238,10 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         setChartCreatedAt(c.createdAt);
         setTitle(c.title);
         setDescription(c.description);
-        setConnectionId(c.connectionId);
+        setConnectionId(c.connectionId ?? "");
         setSql(c.sql);
+        setBaseId(c.baseId ?? "");
+        setBaseQuery(c.baseId ? c.baseQuery : null);
         setVizType(c.vizType);
         setVizConfig(c.vizConfig);
         setDirty(false);
@@ -197,13 +256,23 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   // Auto-run the saved chart once on load so the visualization shows up
   // without the user having to hit Run.
   React.useEffect(() => {
-    if (loading || isNew) return;
+    if (loading || isNew || usingBase) return;
     if (ranOnceRef.current) return;
     if (!sql || !connectionId) return;
     ranOnceRef.current = true;
     void runSql();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, isNew, sql, connectionId]);
+  }, [loading, isNew, sql, connectionId, usingBase]);
+
+  // A Base query is answered from the App's own rows, so it runs as it is
+  // built — a moment after the last change, newest answer wins.
+  const baseQueryKey = usingBase ? `${baseId}:${JSON.stringify(baseQuery)}` : "";
+  React.useEffect(() => {
+    if (loading || !baseQueryKey) return;
+    const timer = window.setTimeout(() => void runBase(), 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, baseQueryKey]);
 
   React.useEffect(() => {
     if (!dirty) return;
@@ -277,6 +346,26 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  /** Run one query; a later run's answer replaces an earlier one's, never the reverse. */
+  async function runQuery(request: () => Promise<QueryResult>) {
+    const run = ++runRequest.current;
+    setRunning(true);
+    setRunError(null);
+    try {
+      const r = await request();
+      if (run !== runRequest.current) return;
+      setResult(r);
+      setSuggestion(suggestExploreVisualization(r));
+    } catch (err) {
+      if (run !== runRequest.current) return;
+      setRunError(errorMessage(err));
+      setResult(null);
+      setSuggestion(null);
+    } finally {
+      if (run === runRequest.current) setRunning(false);
+    }
+  }
+
   async function runSql(sqlOverride = sql, connectionOverride = connectionId) {
     if (!connectionOverride) {
       setRunError("Pick a connection first");
@@ -286,28 +375,51 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       setRunError("SQL is empty");
       return;
     }
-    setRunning(true);
-    setRunError(null);
-    try {
-      const r = await api.post<QueryResult>(`/api/companies/${company.id}/explore/run`, {
+    await runQuery(() =>
+      api.post<QueryResult>(`/api/companies/${company.id}/explore/run`, {
         connectionId: connectionOverride,
         sql: sqlOverride,
-      });
-      setResult(r);
-      setSuggestion(suggestExploreVisualization(r));
-    } catch (err) {
-      setRunError(errorMessage(err));
-      setResult(null);
-      setSuggestion(null);
-    } finally {
-      setRunning(false);
+      }),
+    );
+  }
+
+  async function runBase() {
+    if (!baseId || !baseQuery) return;
+    await runQuery(() =>
+      api.post<QueryResult>(`/api/companies/${company.id}/explore/bases/${baseId}/run`, {
+        query: baseQuery,
+      }),
+    );
+  }
+
+  /** Switch what the chart reads, from the data source picker. */
+  function chooseSource(value: string) {
+    const [kind, id] = [value.slice(0, value.indexOf(":")), value.slice(value.indexOf(":") + 1)];
+    if (kind === "base") {
+      const base = bases?.find((candidate) => candidate.id === id);
+      if (!base || (usingBase && base.id === baseId) || !startBaseQuery(base, null)) return;
+    } else {
+      const next = connections?.find((connection) => connection.id === id);
+      if (!next) return;
+      setConnectionId(next.id);
+      setBaseId("");
+      setBaseQuery(null);
+      if (!sql.trim() || (isNew && Object.values(STARTER_SQL).includes(sql))) {
+        setSql(STARTER_SQL[next.provider]);
+      }
     }
+    runRequest.current += 1;
+    setRunning(false);
+    setRunError(null);
+    setResult(null);
+    setSuggestion(null);
+    markDirty();
   }
 
   function previewTable(table: ExploreSchemaTable, provider: ExploreProvider) {
     const nextSql = buildTablePreviewSql(provider, table);
     setSql(nextSql);
-    if (isNew && title === "Untitled chart") setTitle(humanizeExploreName(table.name));
+    if (isNew && title === UNTITLED) setTitle(humanizeExploreName(table.name));
     setDirty(true);
     void runSql(nextSql);
   }
@@ -345,22 +457,22 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       setSaveError("Chart needs a title");
       return;
     }
-    if (!connectionId) {
-      setSaveError("Pick a connection first");
+    if (!usingBase && !connectionId) {
+      setSaveError("Pick a data source first");
       return;
     }
-    if (!sql.trim()) {
+    if (!usingBase && !sql.trim()) {
       setSaveError("SQL is empty");
       return;
     }
+    const source = usingBase ? { baseId, baseQuery } : { connectionId, sql };
     setSaving(true);
     try {
       if (isNew) {
         const created = await api.post<ChartDTO>(`/api/companies/${company.id}/explore/charts`, {
           title,
           description,
-          connectionId,
-          sql,
+          ...source,
           vizType,
           vizConfig,
         });
@@ -372,8 +484,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         await api.patch<ChartDTO>(`/api/companies/${company.id}/explore/charts/${slug}`, {
           title,
           description,
-          connectionId,
-          sql,
+          ...source,
           vizType,
           vizConfig,
         });
@@ -416,7 +527,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     );
   }
 
-  if (loading || connections === null) {
+  if (loading || connections === null || bases === null) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
@@ -424,23 +535,30 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     );
   }
 
-  if ((connections?.length ?? 0) === 0) {
+  const chartableBases = bases.filter((base) => base.tables.length > 0);
+  if (connections.length === 0 && chartableBases.length === 0 && !usingBase) {
     return (
       <div className="mx-auto max-w-2xl px-8 py-12">
         <h1 className="mb-2 text-xl font-semibold text-slate-900 dark:text-slate-100">
-          No database connections yet
+          No data sources yet
         </h1>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Explore needs at least one Postgres, MySQL, or ClickHouse Integration Connection before
-          you can author charts.
+          A chart reads a Postgres, MySQL, or ClickHouse Integration Connection, or a table in one
+          of your Bases. Connect a database or create a Base to start.
         </p>
-        <Link to={`/c/${company.slug}/explore/integrations`}>
-          <Button>Open integrations</Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link to={`/c/${company.slug}/explore/integrations`}>
+            <Button>Open integrations</Button>
+          </Link>
+          <Link to={`/c/${company.slug}/bases`}>
+            <Button variant="secondary">Open Bases</Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
+  const browsing = schemaOpen && !usingBase;
   const columns = result?.fields.map((f) => f.name) ?? [];
 
   return (
@@ -463,16 +581,18 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           className="min-w-0 flex-1 border-0 bg-transparent text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
         />
         <div className="flex items-center gap-1.5 sm:gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSchemaOpen((open) => !open)}
-            aria-pressed={schemaOpen}
-            title={schemaOpen ? "Hide data browser" : "Browse tables and columns"}
-          >
-            {schemaOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-            <span className="hidden sm:inline">Data</span>
-          </Button>
+          {!usingBase && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSchemaOpen((open) => !open)}
+              aria-pressed={schemaOpen}
+              title={schemaOpen ? "Hide data browser" : "Browse tables and columns"}
+            >
+              {schemaOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+              <span className="hidden sm:inline">Data</span>
+            </Button>
+          )}
           {!isNew && (
             <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
               <Share2 size={14} /> Share
@@ -507,12 +627,14 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       <div
         className={
           "grid min-h-0 flex-1 grid-cols-1 overflow-y-auto " +
-          (schemaOpen
+          (browsing
             ? "xl:grid-cols-[240px_minmax(320px,400px)_1fr] xl:overflow-hidden"
-            : "lg:grid-cols-[minmax(320px,420px)_1fr] lg:overflow-hidden")
+            : "lg:grid-cols-[minmax(320px,420px)_1fr] lg:overflow-hidden") +
+          // Stacked on a phone, each pane is as tall as what it holds.
+          (usingBase ? " auto-rows-max lg:auto-rows-auto" : "")
         }
       >
-        {schemaOpen && connectionId && (
+        {browsing && connectionId && (
           <ExploreDataBrowser
             companyId={company.id}
             connectionId={connectionId}
@@ -521,79 +643,134 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           />
         )}
 
-        {/* LEFT: SQL pane */}
-        <div className="flex min-h-[440px] flex-col border-b border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 lg:border-b-0">
+        {/* LEFT: SQL editor or Base query builder. The SQL box stretches to fill a
+            fixed pane; the builder is as tall as its controls on a phone, and
+            scrolls inside the pane from lg. */}
+        <div
+          className={
+            "flex flex-col border-b border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 lg:border-b-0 " +
+            (usingBase ? "lg:min-h-0" : "min-h-[440px]")
+          }
+        >
           <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
             <label className="text-xs font-medium block text-slate-500 dark:text-slate-400">
-              Connection
+              Data source
             </label>
             <Select
-              value={connectionId}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                const nextConnection = connections?.find((connection) => connection.id === nextId);
-                setConnectionId(nextId);
-                if (
-                  isNew &&
-                  nextConnection &&
-                  (!sql.trim() || Object.values(STARTER_SQL).includes(sql))
-                ) {
-                  setSql(STARTER_SQL[nextConnection.provider]);
-                }
-                setResult(null);
-                setSuggestion(null);
-                markDirty();
-              }}
+              value={
+                usingBase ? `base:${baseId}` : connectionId ? `connection:${connectionId}` : ""
+              }
+              onChange={(e) => chooseSource(e.target.value)}
               className="mt-1 w-full"
+              aria-label="Data source"
             >
-              {(connections ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label} · {c.provider}
-                </option>
-              ))}
+              {connections.length > 0 && (
+                <optgroup label="Databases">
+                  {connections.map((c) => (
+                    <option key={c.id} value={`connection:${c.id}`}>
+                      {c.label} · {c.provider}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {chartableBases.length > 0 && (
+                <optgroup label="Bases">
+                  {chartableBases.map((base) => (
+                    <option key={base.id} value={`base:${base.id}`}>
+                      {base.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </Select>
           </div>
 
-          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
-            <div>
-              <span className="text-xs font-medium block text-slate-500 dark:text-slate-400">
-                SQL
-              </span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                ⌘/Ctrl + Enter to run · ⌘/Ctrl + S to save
-              </span>
-            </div>
-            <Button onClick={() => void runSql()} size="sm" loading={running}>
-              <Play size={12} />
-              {running ? "Running…" : "Run"}
-            </Button>
-          </div>
+          {usingBase ? (
+            <>
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+                <div>
+                  <span className="text-xs font-medium block text-slate-500 dark:text-slate-400">
+                    Query
+                  </span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    Updates as you choose · ⌘/Ctrl + S to save
+                  </span>
+                </div>
+                <Button
+                  onClick={() => void runBase()}
+                  size="sm"
+                  variant="secondary"
+                  loading={running}
+                >
+                  <RefreshCw size={12} />
+                  Refresh
+                </Button>
+              </div>
+              {/* A phone scrolls the whole page; from lg the builder scrolls in its pane. */}
+              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                {selectedBase && baseQuery ? (
+                  <ExploreBaseQueryBuilder
+                    companyId={company.id}
+                    base={selectedBase}
+                    query={baseQuery}
+                    onChange={(next) => {
+                      setBaseQuery(next);
+                      markDirty();
+                    }}
+                    onSuggestTitle={suggestTitle}
+                  />
+                ) : (
+                  <FormError
+                    className="m-4"
+                    message="This chart's Base no longer exists. Choose another data source."
+                  />
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+                <div>
+                  <span className="text-xs font-medium block text-slate-500 dark:text-slate-400">
+                    SQL
+                  </span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    ⌘/Ctrl + Enter to run · ⌘/Ctrl + S to save
+                  </span>
+                </div>
+                <Button onClick={() => void runSql()} size="sm" loading={running}>
+                  <Play size={12} />
+                  {running ? "Running…" : "Run"}
+                </Button>
+              </div>
 
-          <textarea
-            ref={editorRef}
-            value={sql}
-            onChange={(e) => {
-              setSql(e.target.value);
-              markDirty();
-            }}
-            spellCheck={false}
-            placeholder="SELECT count(*) FROM users"
-            aria-label="SQL query"
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                void runSql();
-              }
-            }}
-            className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"
-          />
+              <textarea
+                ref={editorRef}
+                value={sql}
+                onChange={(e) => {
+                  setSql(e.target.value);
+                  markDirty();
+                }}
+                spellCheck={false}
+                placeholder="SELECT count(*) FROM users"
+                aria-label="SQL query"
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    void runSql();
+                  }
+                }}
+                className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"
+              />
+            </>
+          )}
 
           <div className="border-t border-slate-100 px-4 py-2 text-[11px] dark:border-slate-800">
             {runError ? (
               <span className="text-red-600 dark:text-red-400">{runError}</span>
             ) : result ? (
               <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-                {result.rowCount.toLocaleString()} rows
+                {result.rowCount.toLocaleString()} {result.rowCount === 1 ? "row" : "rows"}
                 {result.truncated && " (truncated)"} · {result.elapsedMs?.toFixed(0) ?? "?"} ms
               </span>
             ) : (
@@ -665,7 +842,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
                 <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-slate-400 dark:text-slate-500">
                   <Database size={22} className="text-slate-300 dark:text-slate-600" />
                   <span>Run the query to preview the visualization.</span>
-                  {schemaOpen && (
+                  {browsing && (
                     <span className="max-w-sm text-[11px]">
                       Choose the eye icon beside a table to build and run a starter query.
                     </span>

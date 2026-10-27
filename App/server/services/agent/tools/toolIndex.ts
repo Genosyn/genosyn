@@ -228,7 +228,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   charts: {
     label: "Explore data & charts",
-    blurb: "Granted databases and saved SQL charts.",
+    blurb: "Granted databases, and saved charts over databases or Bases.",
     tools: [
       "list_explore_connections",
       "get_explore_schema",
@@ -663,10 +663,10 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   ],
   get_explore_schema: ["database schema", "tables", "columns", "inspect database"],
   run_explore_query: ["sql", "query database", "ad hoc query", "explore data", "analyze data"],
-  run_chart: ["sql", "query", "database", "report", "numbers", "metrics"],
+  run_chart: ["sql", "query", "database", "report", "numbers", "metrics", "base"],
   list_charts: ["sql", "report", "graph", "metrics"],
   get_chart: ["sql", "graph", "report"],
-  create_chart: ["sql", "graph", "report", "visualise", "visualize"],
+  create_chart: ["sql", "graph", "report", "visualise", "visualize", "chart a base"],
   update_chart: ["sql", "graph"],
   delete_chart: ["graph"],
   list_dashboards: ["report", "overview", "kpi"],

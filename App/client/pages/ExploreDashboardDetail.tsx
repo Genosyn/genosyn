@@ -57,7 +57,8 @@ type ChartDTO = {
   slug: string;
   title: string;
   description: string;
-  connectionId: string;
+  source: "connection" | "base";
+  connectionId: string | null;
   sql: string;
   vizType: VizType;
   vizConfig: VizConfig;
@@ -790,6 +791,7 @@ function ChartPicker({
                         <div className="truncate text-slate-900 dark:text-slate-100">{c.title}</div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
                           {c.vizType}
+                          {c.source === "base" ? " · from a Base" : ""}
                         </div>
                       </div>
                       {isOn && (
