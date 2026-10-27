@@ -688,7 +688,17 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   ],
   create_mail_draft: ["email", "compose", "write email", "reply", "draft"],
   edit_mail_draft: ["email", "revise draft", "amend"],
-  update_mail_thread: ["archive email", "label", "mark read", "inbox"],
+  update_mail_thread: [
+    "archive email",
+    "archive the email",
+    "archive mail",
+    // "archive / label / mark this email": acting on the email in front of the
+    // employee, which the address-finding tools must not outrank.
+    "this email",
+    "label",
+    "mark read",
+    "inbox",
+  ],
   mail_block_sender: ["block spam", "junk email", "block sender", "stop spam"],
   mail_unsubscribe: ["unsubscribe newsletter", "stop marketing", "mailing list"],
   send_mail: ["email", "reply", "send email", "respond"],

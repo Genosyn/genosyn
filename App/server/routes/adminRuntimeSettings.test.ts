@@ -99,6 +99,7 @@ type Snapshot = {
   agent: typeof RUNTIME_SETTINGS_DEFAULTS.agent;
   network: typeof RUNTIME_SETTINGS_DEFAULTS.network;
   banking: typeof RUNTIME_SETTINGS_DEFAULTS.banking;
+  emailVerification: typeof RUNTIME_SETTINGS_DEFAULTS.emailVerification;
   overridden: Record<string, boolean>;
 };
 
@@ -123,8 +124,10 @@ describe("GET /api/admin/runtime-settings", () => {
       containment: false,
       network: false,
       banking: false,
+      emailVerification: false,
     });
     assert.deepEqual(body.banking, RUNTIME_SETTINGS_DEFAULTS.banking);
+    assert.deepEqual(body.emailVerification, RUNTIME_SETTINGS_DEFAULTS.emailVerification);
   });
 
   test("only a signed-in master admin can read it", async () => {
