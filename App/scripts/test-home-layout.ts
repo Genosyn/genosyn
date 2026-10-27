@@ -539,6 +539,18 @@ async function open(options: FixtureOptions = {}) {
       return route.abort();
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    // An email review's recipient chips ask who can be emailed and who the
+    // mailbox knows. Both are reads with no effect, answered empty here.
+    if (
+      request.method() === "POST" &&
+      /^\/api\/companies\/company\/mail\/accounts\/[^/]+\/recipient-check$/.test(url.pathname)
+    )
+      return route.fulfill({ json: { blocked: [] } });
+    if (
+      request.method() === "GET" &&
+      /^\/api\/companies\/company\/mail\/accounts\/[^/]+\/recipient-suggestions$/.test(url.pathname)
+    )
+      return route.fulfill({ json: { suggestions: [] } });
     if (request.method() === "POST") {
       if (options.live && url.pathname === "/api/companies/company/workspace/ws-token")
         return route.fulfill({ json: { token: "fixture-token" } });
