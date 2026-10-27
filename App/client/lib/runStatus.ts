@@ -1,4 +1,4 @@
-import type { RunErrorKind, RunStatus } from "@/lib/api";
+import type { RunErrorKind, RunStatus, UsageBucket } from "@/lib/api";
 
 /** Old timeout/interrupted rows remain readable as operational Errors. */
 export function isRunError(status: RunStatus | undefined): boolean {
@@ -50,6 +50,8 @@ export function runStatusHint(
     return "Waiting to start: Runs start as their AI Model has room, High priority first. A Standdown can defer this Run; other Routines run independently.";
   if (status === "reviewed")
     return "The proactive review finished. This Run did not carry out the proposed work.";
+  if (status === "continued")
+    return "This Run saved its progress and handed its unfinished work to a continuation. Open the continuation to see how the work ended.";
   if (status === "failed")
     return "The Run did not complete its intended work. Open the Run log for the reason.";
   if (!isRunError(status)) return undefined;
@@ -58,4 +60,15 @@ export function runStatusHint(
   if (status === "interrupted" || errorKind === "interrupted")
     return "The Run encountered an error: it was interrupted before it finished.";
   return "A model request or runtime problem prevented this Run from finishing. Open the Run log for details.";
+}
+
+/**
+ * Completed share of delivery Runs. A review delivers nothing, and a hand-off's
+ * continuation carries its outcome, so neither is in the denominator.
+ */
+export function runCompletionRate(
+  bucket: Pick<UsageBucket, "runs" | "reviewed" | "completed" | "continued">,
+): number | null {
+  const deliveryRuns = bucket.runs - (bucket.reviewed ?? 0) - (bucket.continued ?? 0);
+  return deliveryRuns > 0 ? Math.round((bucket.completed / deliveryRuns) * 100) : null;
 }

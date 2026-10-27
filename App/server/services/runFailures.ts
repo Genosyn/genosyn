@@ -31,6 +31,8 @@ export type LiveRunFailureQuery = {
  *   been spent yet;
  * - a continuation has taken over the unfinished work. Its eventual failure
  *   is the one a Member should see; a skipped child leaves its parent visible.
+ *   A hand-off finalized since `continued` existed never matches at all: it
+ *   returns to Failed only when its continuation does not take over;
  *   A continuation retaining its server-owned review scope can finish reviewed:
  *   that review owns the next step, without claiming verified delivery;
  * - **the routine has completed a run since**, which is the interesting one.
@@ -88,6 +90,7 @@ export async function findLiveRunFailures({
       "queued",
       "running",
       "completed",
+      "continued",
       ...FAILED_RUN_STATUSES,
     ])
     .setParameter("reviewedContinuationStatus", "reviewed" satisfies RunStatus)

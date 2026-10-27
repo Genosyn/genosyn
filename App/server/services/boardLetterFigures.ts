@@ -491,7 +491,8 @@ async function runCounts(companyId: string, month: LetterMonth): Promise<RunCoun
   );
 }
 
-const UNFINISHED_RUN_STATUSES = new Set(["queued", "running", "skipped"]);
+// A hand-off's continuation carries its outcome, so a chain counts once.
+const UNFINISHED_RUN_STATUSES = new Set(["queued", "running", "skipped", "continued"]);
 const COMPLETED_RUN_STATUSES = new Set(["completed", "reviewed"]);
 const ERRORED_RUN_STATUSES = new Set(["error", "timeout", "interrupted"]);
 
@@ -589,7 +590,7 @@ async function workAndDecisionFigures(
       "work.runs",
       "Routine Runs finished",
       finished,
-      "Runs started this month that have finished",
+      "Runs started this month that have finished; work handed to a continuation counts once, by the Run that ended it",
       "/routines",
     ),
     count(

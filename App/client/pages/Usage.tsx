@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { api, Company, UsageBucket, UsageSummary } from "../lib/api";
+import { api, Company, UsageSummary } from "../lib/api";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -9,6 +9,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { errorMessage } from "../lib/errors";
+import { runCompletionRate } from "../lib/runStatus";
 import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { formatTokens } from "../components/routines/RunViews";
@@ -114,10 +115,14 @@ function UsageReport({ company }: { company: Company }) {
 
 function TotalsCards({ summary }: { summary: UsageSummary }) {
   const t = summary.totals;
-  const rate = completionRate(t);
+  const rate = runCompletionRate(t);
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <StatCard label="Runs" value={String(t.runs)} sub={`${t.reviewed ?? 0} reviewed · over ${summary.windowDays} days`} />
+      <StatCard
+        label="Runs"
+        value={String(t.runs)}
+        sub={`${t.reviewed ?? 0} reviewed · ${t.continued ?? 0} continued · over ${summary.windowDays} days`}
+      />
       <StatCard
         label="Tokens"
         value={formatTokens((t.tokensIn ?? 0) + (t.tokensOut ?? 0))}
@@ -188,7 +193,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
                 </td>
                 <td className="py-2 text-right tabular-nums">{formatDuration(e.durationMs)}</td>
                 <td className="py-2 text-right tabular-nums">
-                  {completionRate(e) === null ? "—" : `${completionRate(e)}%`}
+                  {runCompletionRate(e) === null ? "—" : `${runCompletionRate(e)}%`}
                 </td>
               </tr>
             ))}
@@ -223,7 +228,13 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
             {rows.map((r) => {
               // Every status that produced a duration, or the average is wrong.
               const finished =
-                r.completed + (r.reviewed ?? 0) + r.failed + (r.error ?? 0) + r.timeout + r.interrupted;
+                r.completed +
+                (r.reviewed ?? 0) +
+                (r.continued ?? 0) +
+                r.failed +
+                (r.error ?? 0) +
+                r.timeout +
+                r.interrupted;
               const avg = finished > 0 ? r.durationMs / finished : 0;
               return (
                 <tr key={r.routineId}>
@@ -260,11 +271,6 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
       </CardBody>
     </Card>
   );
-}
-
-function completionRate(bucket: Pick<UsageBucket, "runs" | "reviewed" | "completed">): number | null {
-  const deliveryRuns = bucket.runs - (bucket.reviewed ?? 0);
-  return deliveryRuns > 0 ? Math.round((bucket.completed / deliveryRuns) * 100) : null;
 }
 
 function formatDuration(ms: number): string {

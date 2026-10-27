@@ -371,6 +371,19 @@ off-goal. The employee can report only its own active Run, with a durable
 outcome verdicts remain separate evidence, and an unverified assessment never
 becomes success. Legacy `timeout` and `interrupted` statuses display as Error.
 
+**"Continued" is not "Failed" either.** A Run that saved a continue checkpoint
+and handed its unfinished work to an automatic continuation ends `continued`
+(the batch hand-off past two million tokens is the common case). It is the
+planned hand-off, not a failure: the last Run in the chain carries the outcome,
+so alerts, failure counts, Usage completion, earned autonomy and the letter to
+the board never count a `continued` Run against anyone. Only a continuation
+that is actually queued earns the status, and a Run whose employee reported a
+failure (`mark_run_failed`) keeps `failed` while its work continues. One
+cancelled, stopped at dispatch
+or skipped before it starts returns its parent to `failed` with the reason
+(`revertUnstartedContinuation`), so unfinished work nothing will continue stays
+visible. Do not reuse `failed` as the "resumable" marker again.
+
 **"Decision" and "Approval" are not synonyms**, and the split is the whole
 point of both. An **Approval** is the *system* interposing on an action an
 employee already attempted — a gated routine tick, a payment over a threshold,

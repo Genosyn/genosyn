@@ -79,17 +79,22 @@ const Run = z
   .object({
     id: z.string().uuid(),
     routineId: z.string().uuid(),
-    status: z.enum([
-      "queued",
-      "running",
-      "completed",
-      "reviewed",
-      "failed",
-      "error",
-      "skipped",
-      "timeout",
-      "interrupted",
-    ]),
+    status: z
+      .enum([
+        "queued",
+        "running",
+        "completed",
+        "reviewed",
+        "continued",
+        "failed",
+        "error",
+        "skipped",
+        "timeout",
+        "interrupted",
+      ])
+      .describe(
+        "`continued` means the Run saved its progress and an automatic continuation took over its unfinished work; the last Run in the chain carries the outcome.",
+      ),
     errorKind: z
       .enum(["runtime", "timeout", "interrupted"])
       .nullable()

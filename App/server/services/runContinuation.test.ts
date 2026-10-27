@@ -196,7 +196,8 @@ test("default Routine queues partial work, resumes exact evidence, and finishes 
   });
   const parent = await (await startRoutineRun(routine, { triggerKind: "schedule" })).completion;
   assert.equal(routine.maxAttempts, 1);
-  assert.equal(parent.status, "failed");
+  // The planned hand-off is not a failure; the continuation carries the outcome.
+  assert.equal(parent.status, "continued");
   assert.ok(parent.retryAt);
   assert.equal(parent.checksVerdict, null);
   assert.equal(
@@ -340,7 +341,7 @@ test("a checkpoint changed during finalization cannot leave a stale continuation
   const update = runs.update.bind(runs);
   let raced = false;
   t.mock.method(runs, "update", async (...args: Parameters<typeof runs.update>) => {
-    if (!raced && args[1].status === "failed" && args[1].retryAt) {
+    if (!raced && args[1].status === "continued" && args[1].retryAt) {
       raced = true;
       const live = await runs.findOneByOrFail({ routineId: routine.id, status: "running" });
       await update(live.id, {

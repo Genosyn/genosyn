@@ -60,6 +60,7 @@ import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { matchCardCategoriesToBooks } from "./services/cardCategoryRepair.js";
+import { backfillContinuedRuns } from "./services/runContinuedBackfill.js";
 import { createApp } from "./app.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -110,6 +111,14 @@ async function main() {
   // their category changes: Banking shows the category their books hold.
   // Purchases split across several categories wait for a person on Banking.
   await matchCardCategoriesToBooks();
+  // A Run that handed its work to a continuation used to be stored as Failed.
+  // Read that history as the progress it was before the scheduler, the board
+  // letter or earned autonomy count it. Never blocks startup: it retries on
+  // the next boot.
+  await backfillContinuedRuns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[runs] reclassifying continued Runs failed:", err);
+  });
   await bootProactiveDefaults();
   // Recruiting: which custom domains serve a careers site, and the queue of
   // Applications waiting for their AI screen (resumed after a restart).

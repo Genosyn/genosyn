@@ -1467,6 +1467,10 @@ async function finalizeRunFromRunning(
       const eligible = continuationEligibility(run, routine);
       run.retryAt = eligible.eligible ? new Date(Date.now() + CONTINUATION_DELAY_MS) : null;
       run.continuationStopReason = eligible.reason;
+      // The planned hand-off is not a failure: the continuation carries the
+      // outcome. A failure the employee reported stays one, and unfinished
+      // work nothing will continue stays Failed.
+      if (eligible.eligible && !run.failureReason?.trim()) run.status = "continued";
       log.line(
         eligible.eligible
           ? "\n[continuation] Unfinished work saved; continuation queued automatically."
@@ -1642,17 +1646,19 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
       ? "was reviewed; proposed work needs human approval"
       : run.status === "completed"
         ? "completed"
-        : run.status === "error"
-          ? "ended with an error"
-          : run.status === "failed"
-            ? "failed"
-            : run.status === "skipped"
-              ? "was skipped"
-              : run.status === "timeout"
-                ? "timed out"
-                : run.status === "interrupted"
-                  ? "was interrupted"
-                  : "finished";
+        : run.status === "continued"
+          ? "handed its unfinished work to a continuation"
+          : run.status === "error"
+            ? "ended with an error"
+            : run.status === "failed"
+              ? "failed"
+              : run.status === "skipped"
+                ? "was skipped"
+                : run.status === "timeout"
+                  ? "timed out"
+                  : run.status === "interrupted"
+                    ? "was interrupted"
+                    : "finished";
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);

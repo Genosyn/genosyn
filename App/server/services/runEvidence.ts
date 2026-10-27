@@ -10,7 +10,7 @@ export function finishedRunEvidence(): Brackets {
   return new Brackets((query) => {
     query
       .where("run.status IN (:...finishedEvidenceStatuses)", {
-        finishedEvidenceStatuses: ["completed", "failed", "error", "timeout"],
+        finishedEvidenceStatuses: ["completed", "continued", "failed", "error", "timeout"],
       })
       .andWhere(
         "(run.status != :evidenceErrorStatus OR run.errorKind IS NULL OR run.errorKind != :evidenceInterruptedKind)",

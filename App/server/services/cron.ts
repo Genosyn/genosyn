@@ -422,17 +422,21 @@ function isRetryDispatchEligible(parent: Run, routine: Routine, now: Date): bool
 }
 
 async function stopQueuedContinuation(parent: Run, claim: Date, reason: string): Promise<void> {
+  // A hand-off nothing will continue is unfinished work again, and alerts so.
+  const reverted = parent.status === "continued";
   const stopped = await AppDataSource.getRepository(Run).update(
     { id: parent.id, retryAt: claim },
     {
       routineId: parent.routineId,
       retryAt: null,
       continuationStopReason: reason,
+      ...(reverted ? { status: "failed" as const } : {}),
     },
   );
   if (stopped.affected !== 1) return;
   parent.retryAt = null;
   parent.continuationStopReason = reason;
+  if (reverted) parent.status = "failed";
   await notifyRunFailure(parent).catch((err) => {
     // A notification outage cannot resurrect an ineligible continuation.
     // eslint-disable-next-line no-console
