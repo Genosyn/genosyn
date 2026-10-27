@@ -88,6 +88,10 @@ function connection(id: string, provider: string, label: string): IntegrationCon
 const BREX = connection("conn-brex", "brex", "Brex (Ops)");
 const BREX_SPARE = connection("conn-brex-2", "brex", "Brex (Finance team)");
 const WISE = connection("conn-wise", "wise", "Wise business");
+const MERCURY = connection("conn-mercury", "mercury", "Mercury (Ops)");
+const RAMP = connection("conn-ramp", "ramp", "Ramp");
+const MERCURY_CHECKING_ID = "8f3c2a8e-7b6d-4c5e-9f1a-2b3c4d5e6f70";
+const MERCURY_CLOSED_ID = "0f0f0f0f-1e1e-4d2d-8c3c-4b4b4b4b4b4b";
 
 function sync(overrides: Partial<FeedSyncStatus> = {}): FeedSyncStatus {
   return {
@@ -193,6 +197,47 @@ function wiseUsd(overrides: Partial<BankingAccount> = {}): BankingAccount {
     }),
     connection: WISE,
     balance: { cents: 1_234_567, currency: "USD", at: hoursAgo(24 * 97) },
+    ...overrides,
+  } as BankingAccount;
+}
+
+function mercuryChecking(overrides: Partial<BankingAccount> = {}): BankingAccount {
+  return {
+    kind: "bank",
+    feed: bankFeed({
+      id: "feed-mercury",
+      name: "Mercury Operating",
+      kind: "mercury_account",
+      connectionId: MERCURY.id,
+      externalAccountId: MERCURY_CHECKING_ID,
+      createdAt: hoursAgo(24 * 50),
+    }),
+    toReview: 3,
+    total: 210,
+    provider: "mercury",
+    sync: sync(),
+    connection: MERCURY,
+    balance: { cents: 4_821_233, currency: "USD", at: hoursAgo(4 * MINUTE) },
+    ...overrides,
+  } as BankingAccount;
+}
+
+function rampCard(overrides: Partial<BankingAccount> = {}): BankingAccount {
+  return {
+    kind: "card",
+    feed: cardFeed({
+      id: "feed-ramp",
+      name: "Ramp card",
+      kind: "ramp_card",
+      connectionId: RAMP.id,
+      createdAt: hoursAgo(24 * 40),
+    }),
+    toReview: 5,
+    total: 77,
+    provider: "ramp",
+    sync: sync(),
+    connection: RAMP,
+    balance: null,
     ...overrides,
   } as BankingAccount;
 }
@@ -696,11 +741,196 @@ await app.check("loading, a failed load, and no accounts yet each have their sta
   await page.getByText("Add your bank accounts and cards").waitFor();
   await app.shot(page, "banking-sync-empty");
   // Each starting point opens Add account on that kind.
-  await view.click(page.getByRole("button", { name: /^Brex or Wise/ }));
+  await view.click(page.getByRole("button", { name: /^Brex, Mercury or Wise/ }));
   const form = page.getByRole("dialog");
   await form.getByText("Add an account").waitFor();
   assert.equal(await form.getByRole("radio", { name: "Brex business account" }).isChecked(), true);
   assert.equal(await form.getByLabel("Name").inputValue(), "Brex Cash");
+  await page.close();
+});
+
+/** Connections with Mercury and Ramp beside Brex and Wise, for adding accounts. */
+const WITH_MERCURY_AND_RAMP: ApiRoute = [
+  "GET",
+  `${API}/integrations/connections`,
+  () => [BREX, WISE, MERCURY, RAMP],
+];
+
+await app.check("a Mercury account is added from its Connection, a closed one greyed out", async () => {
+  const added = bankFeed({
+    id: "feed-mercury",
+    name: "Mercury",
+    kind: "mercury_account",
+    connectionId: MERCURY.id,
+    externalAccountId: MERCURY_CHECKING_ID,
+    lastSyncAt: null,
+  });
+  let accounts: BankingAccount[] = [];
+  const view = await app.open({
+    path: PATH,
+    routes: bankingRoutes({
+      accounts: () => accounts,
+      extra: [
+        WITH_MERCURY_AND_RAMP,
+        // The form opens on a Brex business account, which lists Brex's first.
+        ["GET", `${API}/bank-feeds/brex-accounts`, () => []],
+        [
+          "GET",
+          `${API}/bank-feeds/mercury-accounts`,
+          ({ url }) => {
+            assert.equal(url.searchParams.get("connectionId"), MERCURY.id);
+            return [
+              {
+                id: MERCURY_CHECKING_ID,
+                name: "Operating",
+                kind: "checking",
+                accountNumberLast4: "1234",
+                currentCents: 4_821_233,
+                availableCents: 4_812_050,
+                unavailableReason: null,
+              },
+              {
+                id: MERCURY_CLOSED_ID,
+                name: "Old checking",
+                kind: "checking",
+                accountNumberLast4: "5678",
+                currentCents: 0,
+                availableCents: 0,
+                unavailableReason: "Closed in Mercury",
+              },
+            ];
+          },
+        ],
+        [
+          "POST",
+          `${API}/bank-feeds`,
+          () => {
+            accounts = [mercuryChecking({ feed: added, toReview: 0, total: 0 })];
+            return added;
+          },
+        ],
+        ["POST", `${API}/bank-feeds/feed-mercury/sync`, () => ({ inserted: 3, matched: 0 })],
+      ],
+    }),
+  });
+  const { page } = view;
+  await page.getByText("Add your bank accounts and cards").waitFor();
+  await view.click(page.getByRole("button", { name: /^Brex, Mercury or Wise/ }));
+  const form = page.getByRole("dialog");
+  await form.getByText("Add an account").waitFor();
+  await view.click(form.getByRole("radio", { name: "Mercury account" }));
+  assert.equal(await form.getByLabel("Name").inputValue(), "Mercury");
+  // The only Mercury Connection is chosen, and its accounts load.
+  assert.equal(await form.getByLabel("Mercury Connection").inputValue(), MERCURY.label);
+  // The kind's radio is labelled "Mercury account" too.
+  const picker = form.getByRole("combobox", { name: "Mercury account" });
+  await picker.waitFor();
+  assert.equal(
+    await picker.inputValue(),
+    "Operating · •••• 1234 · $48,212.33",
+    "the open account is chosen, by its last four digits and balance",
+  );
+  await view.click(picker);
+  const closed = page.getByRole("option", { name: /Old checking/ });
+  assert.equal(await closed.getAttribute("aria-disabled"), "true", "a closed account can't be picked");
+  assert.match((await closed.textContent()) ?? "", /Closed in Mercury/);
+  await app.shot(page, "banking-add-mercury");
+  await view.click(page.getByRole("option", { name: /^Operating/ }));
+  await view.click(form.getByRole("button", { name: "Add account" }));
+  const write = await view.waitForWrite(
+    (candidate) => candidate.method === "POST" && candidate.path === `${API}/bank-feeds`,
+  );
+  assert.deepEqual(write.body, {
+    name: "Mercury",
+    kind: "mercury_account",
+    accountId: "acct-bank",
+    connectionId: MERCURY.id,
+    externalAccountId: MERCURY_CHECKING_ID,
+  });
+  // Its first sync starts at once.
+  await view.waitForWrite((candidate) => candidate.path === `${API}/bank-feeds/feed-mercury/sync`);
+  assert.deepEqual(view.unrouted, []);
+  await page.close();
+});
+
+await app.check("a Ramp card is added the way a Brex card is, through its own Connection", async () => {
+  const added = cardFeed({ id: "feed-ramp", name: "Ramp card", kind: "ramp_card", connectionId: RAMP.id });
+  let accounts: BankingAccount[] = [];
+  const view = await app.open({
+    path: PATH,
+    routes: bankingRoutes({
+      accounts: () => accounts,
+      extra: [
+        WITH_MERCURY_AND_RAMP,
+        [
+          "POST",
+          `${API}/card-feeds`,
+          () => {
+            accounts = [rampCard({ feed: added, toReview: 0, total: 0 })];
+            return added;
+          },
+        ],
+        ["POST", `${API}/card-feeds/feed-ramp/sync`, () => ({ inserted: 4, posted: 4, failed: 0 })],
+      ],
+    }),
+  });
+  const { page } = view;
+  await page.getByText("Add your bank accounts and cards").waitFor();
+  await view.click(page.getByRole("button", { name: /^Brex or Ramp card/ }));
+  const form = page.getByRole("dialog");
+  await form.getByText("Add an account").waitFor();
+  assert.equal(await form.getByRole("radio", { name: "Brex card" }).isChecked(), true);
+  await view.click(form.getByRole("radio", { name: "Ramp card" }));
+  assert.equal(await form.getByLabel("Name").inputValue(), "Ramp card");
+  assert.equal(await form.getByLabel("Ramp Connection").inputValue(), RAMP.label);
+  await form.getByText(/Purchases filed under 6000 General & Administrative/).waitFor();
+  await app.shot(page, "banking-add-ramp");
+  await view.click(form.getByRole("button", { name: "Add account" }));
+  const write = await view.waitForWrite(
+    (candidate) => candidate.method === "POST" && candidate.path === `${API}/card-feeds`,
+  );
+  assert.deepEqual(write.body, {
+    name: "Ramp card",
+    connectionId: RAMP.id,
+    liabilityAccountId: "acct-card",
+    defaultExpenseAccountId: "acct-ga",
+    paymentAccountId: "acct-bank",
+  });
+  await view.waitForWrite((candidate) => candidate.path === `${API}/card-feeds/feed-ramp/sync`);
+  assert.deepEqual(view.unrouted, []);
+  await page.close();
+
+  // Without a Ramp Connection the form says what to do, and what the app needs.
+  const bare = await app.open({ path: PATH, routes: bankingRoutes({ accounts: () => [] }) });
+  await bare.page.getByText("Add your bank accounts and cards").waitFor();
+  await bare.click(bare.page.getByRole("button", { name: /^Brex or Ramp card/ }));
+  const bareForm = bare.page.getByRole("dialog");
+  await bare.click(bareForm.getByRole("radio", { name: "Ramp card" }));
+  await bareForm
+    .getByText("The Ramp app needs permission to read transactions, transfers and cashback.")
+    .waitFor();
+  assert.equal(await bareForm.getByRole("button", { name: "Add account" }).isDisabled(), true);
+  await bare.page.close();
+});
+
+await app.check("Mercury and Ramp accounts say where they come from", async () => {
+  const view = await app.open({
+    path: PATH,
+    routes: bankingRoutes({
+      accounts: () => [mercuryChecking(), rampCard()],
+      extra: [WITH_MERCURY_AND_RAMP],
+    }),
+  });
+  const { page } = view;
+  await cardSays(page, "feed-mercury", "Synced 4 min ago");
+  const mercury = await cardText(page, "feed-mercury");
+  assert.match(mercury, /Mercury Operating/);
+  assert.match(mercury, /Mercury · Business account/);
+  assert.match(mercury, /\$48,212\.33/);
+  const ramp = await cardText(page, "feed-ramp");
+  assert.match(ramp, /Ramp card/);
+  assert.match(ramp, /Ramp · Card/);
+  await app.shot(page, "banking-mercury-ramp-cards");
   await page.close();
 });
 

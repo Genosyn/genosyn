@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type FindOptionsWhere, In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
-import { CardFeed } from "../db/entities/CardFeed.js";
+import { CardFeed, type CardFeedKind } from "../db/entities/CardFeed.js";
 import { type CardAccountingKind, CardTransaction } from "../db/entities/CardTransaction.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -15,6 +15,7 @@ import { FeedSyncError, withProviderRetry } from "./feedSyncErrors.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import { decryptConnectionConfig } from "./integrations.js";
 import { postLedgerEntry } from "./ledger.js";
+import { assertRampCardConnection, RAMP_SYNC_OVERLAP_MS, rampCardPages } from "./rampCards.js";
 
 /**
  * How far before the last successful sync the next one asks Brex again, as
@@ -39,6 +40,48 @@ export type CardSyncResult = {
   posted: number;
   failed: number;
 };
+
+/** Each kind of card: the Connection provider it reads, and what people call it. */
+export const CARD_FEED_PROVIDERS: Record<CardFeedKind, { provider: "brex" | "ramp"; name: string }> = {
+  brex_card: { provider: "brex", name: "Brex" },
+  ramp_card: { provider: "ramp", name: "Ramp" },
+};
+
+/**
+ * A settled card transaction as Banking keeps it, whichever provider sent it.
+ * Amounts follow Brex's convention, which the books and Banking read: a
+ * purchase is positive, a refund or a payment of the card's bill negative.
+ */
+export type IncomingCardTransaction = {
+  cardId: string | null;
+  postedAt: Date;
+  amountCents: number;
+  currency: string;
+  description: string;
+  providerType: string;
+  accountingKind: CardAccountingKind;
+  raw: unknown;
+};
+
+/**
+ * One transaction a provider listed: its id, which dedupes it, and how to
+ * read the rest. Only a transaction Genosyn hasn't seen is read, so one the
+ * provider later sends something odd about never fails a sync again; `read`
+ * throws a `FeedSyncError` on anything Genosyn won't guess about.
+ */
+export type ListedCardTransaction = {
+  externalId: string;
+  read: () => IncomingCardTransaction;
+};
+
+/**
+ * Every transaction a card's provider settled since `postedAtStart` (its
+ * whole history without one), a page at a time.
+ */
+type CardPages = (
+  feed: CardFeed,
+  postedAtStart: Date | undefined,
+) => AsyncIterable<ListedCardTransaction[]>;
 
 async function getBrexConfig(companyId: string, connectionId: string): Promise<BrexConfig> {
   const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
@@ -90,7 +133,36 @@ export async function assertBrexCardConnection(
   }
 }
 
+/** Check a Connection can read what a card of this kind syncs. */
+export async function assertCardConnection(
+  companyId: string,
+  connectionId: string,
+  kind: CardFeedKind,
+): Promise<void> {
+  if (kind === "ramp_card") await assertRampCardConnection(companyId, connectionId);
+  else await assertBrexCardConnection(companyId, connectionId);
+}
+
+/** The kind of card a Connection syncs — a Brex card or a Ramp card — by its provider. */
+async function cardKindOfConnection(companyId: string, connectionId: string): Promise<CardFeedKind> {
+  const connection = await AppDataSource.getRepository(IntegrationConnection).findOne({
+    where: { id: connectionId, companyId },
+    select: { id: true, provider: true },
+  });
+  if (!connection) throw new Error("Connection not found");
+  const kind = (Object.keys(CARD_FEED_PROVIDERS) as CardFeedKind[]).find(
+    (candidate) => CARD_FEED_PROVIDERS[candidate].provider === connection.provider,
+  );
+  if (!kind) throw new Error("A card syncs through a Brex or Ramp Connection");
+  return kind;
+}
+
+/**
+ * Add a card to Banking. Which provider it reads follows from the Connection:
+ * a Brex Connection makes a Brex card, a Ramp Connection a Ramp card.
+ */
 export async function createCardFeed(input: CreateCardFeedInput): Promise<CardFeed> {
+  const kind = await cardKindOfConnection(input.companyId, input.connectionId);
   await Promise.all([
     requireMappedAccount(input.companyId, input.liabilityAccountId, "liability", "Card liability"),
     requireMappedAccount(
@@ -100,14 +172,14 @@ export async function createCardFeed(input: CreateCardFeedInput): Promise<CardFe
       "Default category",
     ),
     requireMappedAccount(input.companyId, input.paymentAccountId, "asset", "Payment account"),
-    assertBrexCardConnection(input.companyId, input.connectionId),
+    assertCardConnection(input.companyId, input.connectionId, kind),
   ]);
   const repo = AppDataSource.getRepository(CardFeed);
   return repo.save(
     repo.create({
       companyId: input.companyId,
       name: input.name,
-      kind: "brex_card",
+      kind,
       connectionId: input.connectionId,
       liabilityAccountId: input.liabilityAccountId,
       defaultExpenseAccountId: input.defaultExpenseAccountId,
@@ -152,7 +224,9 @@ async function postCardTransaction(feed: CardFeed, transaction: CardTransaction)
     settings.homeCurrency,
     transaction.postedAt,
   );
-  const description = transaction.description || "Brex card transaction " + transaction.externalId;
+  const provider = CARD_FEED_PROVIDERS[feed.kind]?.name ?? "Brex";
+  const description =
+    transaction.description || provider + " card transaction " + transaction.externalId;
 
   let source: "brex_card_expense" | "brex_card_refund" | "brex_card_payment";
   let lines: Array<{
@@ -247,7 +321,7 @@ async function postCardTransaction(feed: CardFeed, transaction: CardTransaction)
   const { entry } = await postLedgerEntry({
     companyId: feed.companyId,
     date: transaction.postedAt,
-    memo: "Brex card · " + description,
+    memo: provider + " card · " + description,
     source,
     sourceRefId: transaction.id,
     createdById: null,
@@ -269,22 +343,76 @@ async function recordPostingResult(feed: CardFeed, transaction: CardTransaction)
   }
 }
 
+/** A Brex card transaction in Banking's terms. */
+function readBrexCardTransaction(remote: BrexCardTransaction): IncomingCardTransaction {
+  if (!remote.amount || !Number.isSafeInteger(remote.amount.amount)) {
+    throw new FeedSyncError(
+      "bad_data",
+      "Brex card transaction " + remote.id + " has no safe integer amount",
+    );
+  }
+  return {
+    cardId: remote.card_id ?? null,
+    postedAt: parsePostedDate(remote.posted_at_date, remote.id),
+    amountCents: remote.amount.amount,
+    currency: (remote.amount.currency ?? "USD").toUpperCase(),
+    description: remote.description || "Brex card transaction",
+    providerType: remote.type ?? "",
+    accountingKind: classifyCardTransaction(remote),
+    raw: remote,
+  };
+}
+
+/** A Brex card's settled transactions — purchases, refunds and collections alike. */
+async function* brexCardPages(
+  feed: CardFeed,
+  postedAtStart: Date | undefined,
+): AsyncIterable<ListedCardTransaction[]> {
+  const config = await getBrexConfig(feed.companyId, feed.connectionId);
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await withProviderRetry(() =>
+      getBrexCardTransactionsPage(config.userToken, {
+        cursor,
+        limit: 100,
+        postedAtStart,
+      }),
+    );
+    yield (page.items ?? []).map((remote) => ({
+      externalId: remote.id,
+      read: () => readBrexCardTransaction(remote),
+    }));
+    const next = page.next_cursor ?? undefined;
+    if (!next) break;
+    if (seenCursors.has(next)) {
+      throw new FeedSyncError("bad_data", "Brex returned a repeated card transaction cursor");
+    }
+    seenCursors.add(next);
+    cursor = next;
+  }
+}
+
+/** Where each kind of card reads from, and how far back a sync looks again. */
+const CARD_SOURCES: Record<CardFeedKind, { pages: CardPages; overlapMs: number }> = {
+  brex_card: { pages: brexCardPages, overlapMs: CARD_SYNC_OVERLAP_MS },
+  ramp_card: { pages: rampCardPages, overlapMs: RAMP_SYNC_OVERLAP_MS },
+};
+
 /**
- * Bring in a Brex card's settled transactions and put each in the books under
- * the card's default category, waiting for review. The first sync walks the
- * whole history; later ones ask for what was posted since a week before the
- * last successful sync. A purchase whose posting failed before is posted
- * again on every sync, so one that waited on a closed period goes in once the
- * period reopens.
+ * Bring in a card's settled transactions and put each in the books under the
+ * card's default category, waiting for review. The first sync walks the whole
+ * history; later ones ask for what was posted since a little before the last
+ * successful sync — a week for Brex, a month for Ramp. A purchase whose
+ * posting failed before is posted again on every sync, so one that waited on
+ * a closed period goes in once the period reopens.
  */
 export async function syncCardFeed(feed: CardFeed, now = new Date()): Promise<CardSyncResult> {
-  if (feed.kind !== "brex_card") {
-    throw new Error("Feed is not a Brex Card feed");
-  }
-  const config = await getBrexConfig(feed.companyId, feed.connectionId);
+  const source = CARD_SOURCES[feed.kind];
+  if (!source) throw new Error("Feed is not a card feed");
   const transactionRepo = AppDataSource.getRepository(CardTransaction);
   // Ids only, for dedupe: a card's history only grows, and every row carries
-  // Brex's whole payload. The ones still to post are read in full.
+  // the provider's whole payload. The ones still to post are read in full.
   const known = new Set(
     (await transactionRepo.find({ where: { feedId: feed.id }, select: ["id", "externalId"] })).map(
       (transaction) => transaction.externalId,
@@ -295,59 +423,38 @@ export async function syncCardFeed(feed: CardFeed, now = new Date()): Promise<Ca
     order: { postedAt: "ASC", createdAt: "ASC" },
   });
   const postedAtStart = feed.lastSyncAt
-    ? new Date(feed.lastSyncAt.getTime() - CARD_SYNC_OVERLAP_MS)
+    ? new Date(feed.lastSyncAt.getTime() - source.overlapMs)
     : undefined;
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
   let inserted = 0;
 
-  for (;;) {
-    const page = await withProviderRetry(() =>
-      getBrexCardTransactionsPage(config.userToken, {
-        cursor,
-        limit: 100,
-        postedAtStart,
-      }),
-    );
-    for (const remote of page.items ?? []) {
-      if (known.has(remote.id)) continue;
-      if (!remote.amount || !Number.isSafeInteger(remote.amount.amount)) {
-        throw new FeedSyncError(
-          "bad_data",
-          "Brex card transaction " + remote.id + " has no safe integer amount",
-        );
-      }
-      const accountingKind = classifyCardTransaction(remote);
+  for await (const page of source.pages(feed, postedAtStart)) {
+    for (const listed of page) {
+      if (known.has(listed.externalId)) continue;
+      const remote = listed.read();
       const row = await transactionRepo.save(
         transactionRepo.create({
           companyId: feed.companyId,
           feedId: feed.id,
-          externalId: remote.id,
-          cardId: remote.card_id ?? null,
-          postedAt: parsePostedDate(remote.posted_at_date, remote.id),
-          amountCents: remote.amount.amount,
-          currency: (remote.amount.currency ?? "USD").toUpperCase(),
-          description: remote.description || "Brex card transaction",
-          providerType: remote.type ?? "",
-          accountingKind,
-          expenseAccountId: accountingKind === "payment" ? null : feed.defaultExpenseAccountId,
+          externalId: listed.externalId,
+          cardId: remote.cardId,
+          postedAt: remote.postedAt,
+          amountCents: remote.amountCents,
+          currency: remote.currency,
+          description: remote.description,
+          providerType: remote.providerType,
+          accountingKind: remote.accountingKind,
+          expenseAccountId:
+            remote.accountingKind === "payment" ? null : feed.defaultExpenseAccountId,
           // Filed under the default category, and waiting for someone to keep
           // it or pick another. A card bill payment has no category to pick.
-          needsReview: accountingKind !== "payment",
-          raw: JSON.stringify(remote),
+          needsReview: remote.accountingKind !== "payment",
+          raw: JSON.stringify(remote.raw),
         }),
       );
-      known.add(remote.id);
+      known.add(listed.externalId);
       pendingPosts.push(row);
       inserted += 1;
     }
-    const next = page.next_cursor ?? undefined;
-    if (!next) break;
-    if (seenCursors.has(next)) {
-      throw new FeedSyncError("bad_data", "Brex returned a repeated card transaction cursor");
-    }
-    seenCursors.add(next);
-    cursor = next;
   }
 
   let posted = 0;

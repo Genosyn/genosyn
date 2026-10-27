@@ -308,7 +308,7 @@ const GROUPS: GroupSpec[] = [
     title: "Bank sync",
     icon: <Landmark size={16} className="text-indigo-500" />,
     blurb:
-      "How often Finance → Banking brings in new transactions from the Brex, Wise and Stripe accounts each company connected. CSV accounts are imported by hand.",
+      "How often Finance → Banking brings in new transactions from the Brex, Mercury, Ramp, Wise and Stripe accounts each company connected. CSV accounts are imported by hand.",
     fields: [
       {
         kind: "boolean",

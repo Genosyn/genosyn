@@ -26,6 +26,13 @@ const BREX_CASH = { provider: "Brex", credential: "token", reads: "cash transact
 const BREX_CARD = { provider: "Brex", credential: "token", reads: "card transactions" };
 const STRIPE = { provider: "Stripe", credential: "API key", reads: "payouts" };
 const WISE = { provider: "Wise", credential: "API token", reads: "balance statements" };
+const MERCURY = { provider: "Mercury", credential: "API token", reads: "accounts and transactions" };
+const RAMP_CARD = {
+  provider: "Ramp",
+  credential: "client ID and secret",
+  holder: "this app",
+  reads: "card transactions and payments",
+};
 
 describe("describeFeedSyncFailure", () => {
   test("a rejected token is an auth failure that marks the Connection expired", () => {
@@ -66,6 +73,28 @@ describe("describeFeedSyncFailure", () => {
     assert.equal(failure.kind, "permission");
     assert.equal(failure.message, "Brex won't let this token read card transactions");
     assert.equal(failure.connectionStatus, null, "the token works; it just lacks a scope");
+  });
+
+  test("a Ramp app missing a scope is named as the app, not its credentials", () => {
+    const failure = describeFeedSyncFailure(
+      new ProviderRequestError("Ramp didn't grant transfers:read", "Ramp", 403, null, "POST /developer/v1/token"),
+      RAMP_CARD,
+    );
+    assert.equal(failure.kind, "permission");
+    assert.equal(failure.message, "Ramp won't let this app read card transactions and payments");
+    const rejected = describeFeedSyncFailure(
+      new ProviderRequestError("invalid_client", "Ramp", 401, null, "POST /developer/v1/token"),
+      RAMP_CARD,
+    );
+    assert.equal(rejected.message, "Ramp rejected the client ID and secret");
+  });
+
+  test("a Mercury account names its API token", () => {
+    const failure = describeFeedSyncFailure(
+      new ProviderRequestError("Forbidden", "Mercury", 403, null, "GET /api/v1/accounts"),
+      MERCURY,
+    );
+    assert.equal(failure.message, "Mercury won't let this API token read accounts and transactions");
   });
 
   test("Strong Customer Authentication is a Wise limit, not a broken token", () => {

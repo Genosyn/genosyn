@@ -502,7 +502,13 @@ export function AccountPanelHeader({
   );
 }
 
-const PROVIDER_OF: Record<string, string> = { brex: "Brex", wise: "Wise", stripe: "Stripe" };
+const PROVIDER_OF: Record<string, string> = {
+  brex: "Brex",
+  mercury: "Mercury",
+  ramp: "Ramp",
+  wise: "Wise",
+  stripe: "Stripe",
+};
 
 /**
  * Point the account at another Connection of the same provider — how an

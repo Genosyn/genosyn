@@ -28,6 +28,7 @@ import {
   FeedSyncResponse,
   formatMoney,
   IntegrationConnection,
+  MercuryAccountChoice,
   WiseBalanceChoice,
 } from "../lib/api";
 import { describeSync, isCsvAccount, syncNotice, type SyncViewer } from "../lib/bankingSync";
@@ -646,7 +647,7 @@ export default function FinanceBanking() {
             // Its first sync starts now rather than at the next background pass.
             else {
               void syncNow({
-                kind: kind === "brex_card" ? "card" : "bank",
+                kind: isCardKind(kind) ? "card" : "bank",
                 id: feed.id,
                 name: feed.name,
               });
@@ -732,13 +733,13 @@ const STARTING_POINTS: ReadonlyArray<{
   {
     kind: "brex_cash",
     icon: <Landmark size={16} />,
-    title: "Brex or Wise",
+    title: "Brex, Mercury or Wise",
     description: "Connect once; transactions sync on their own.",
   },
   {
     kind: "brex_card",
     icon: <CreditCard size={16} />,
-    title: "Brex card",
+    title: "Brex or Ramp card",
     description: "Purchases arrive filed under a category you can change.",
   },
   {
@@ -853,12 +854,26 @@ function EmptyList({
 
 // ───────────────────────────── Add an account ──────────────────────────────
 
-type NewAccountKind = "csv" | "brex_cash" | "brex_card" | "wise_balance" | "stripe_payouts";
+type NewAccountKind =
+  | "csv"
+  | "brex_cash"
+  | "mercury_account"
+  | "wise_balance"
+  | "brex_card"
+  | "ramp_card"
+  | "stripe_payouts";
 
-type AccountProvider = "brex" | "wise" | "stripe";
+/** A card, posted to the books as it syncs, rather than a bank account. */
+function isCardKind(kind: NewAccountKind): boolean {
+  return kind === "brex_card" || kind === "ramp_card";
+}
+
+type AccountProvider = "brex" | "mercury" | "ramp" | "wise" | "stripe";
 
 const PROVIDER_NAMES: Record<AccountProvider, string> = {
   brex: "Brex",
+  mercury: "Mercury",
+  ramp: "Ramp",
   wise: "Wise",
   stripe: "Stripe",
 };
@@ -885,11 +900,11 @@ const NEW_ACCOUNT_KINDS: ReadonlyArray<{
     provider: "brex",
   },
   {
-    kind: "brex_card",
-    title: "Brex card",
-    description: "Bring in card purchases automatically, each filed under a category you can change.",
-    defaultName: "Brex card",
-    provider: "brex",
+    kind: "mercury_account",
+    title: "Mercury account",
+    description: "Bring in a Mercury checking or savings account's transactions automatically.",
+    defaultName: "Mercury",
+    provider: "mercury",
   },
   {
     kind: "wise_balance",
@@ -897,6 +912,21 @@ const NEW_ACCOUNT_KINDS: ReadonlyArray<{
     description: "Bring in a Wise balance's transactions automatically.",
     defaultName: "Wise",
     provider: "wise",
+  },
+  {
+    kind: "brex_card",
+    title: "Brex card",
+    description: "Bring in card purchases automatically, each filed under a category you can change.",
+    defaultName: "Brex card",
+    provider: "brex",
+  },
+  {
+    kind: "ramp_card",
+    title: "Ramp card",
+    description:
+      "Bring in Ramp card purchases, bill payments and cashback, each purchase filed under a category you can change.",
+    defaultName: "Ramp card",
+    provider: "ramp",
   },
   {
     kind: "stripe_payouts",
@@ -932,6 +962,9 @@ function AddAccountModal({
   const [cashAccounts, setCashAccounts] = React.useState<BrexCashAccount[] | null>([]);
   const [cashAccountId, setCashAccountId] = React.useState("");
   const [cashError, setCashError] = React.useState<string | null>(null);
+  const [mercuryAccounts, setMercuryAccounts] = React.useState<MercuryAccountChoice[] | null>([]);
+  const [mercuryAccountId, setMercuryAccountId] = React.useState("");
+  const [mercuryError, setMercuryError] = React.useState<string | null>(null);
   const [wiseBalances, setWiseBalances] = React.useState<WiseBalanceChoice[] | null>([]);
   const [wiseBalanceId, setWiseBalanceId] = React.useState("");
   const [wiseError, setWiseError] = React.useState<string | null>(null);
@@ -1002,6 +1035,37 @@ function AddAccountModal({
   }, [company.id, connectionId, kind]);
 
   React.useEffect(() => {
+    if (kind !== "mercury_account" || !connectionId) {
+      setMercuryAccounts([]);
+      setMercuryAccountId("");
+      setMercuryError(null);
+      return;
+    }
+    let alive = true;
+    setMercuryAccounts(null);
+    setMercuryError(null);
+    api
+      .get<MercuryAccountChoice[]>(
+        `/api/companies/${company.id}/bank-feeds/mercury-accounts?connectionId=${encodeURIComponent(connectionId)}`,
+      )
+      .then((list) => {
+        if (!alive) return;
+        setMercuryAccounts(list);
+        // The first account that can be added, so the common case is no choice.
+        setMercuryAccountId(list.find((item) => !item.unavailableReason)?.id ?? "");
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setMercuryAccounts([]);
+        setMercuryAccountId("");
+        setMercuryError(errorMessage(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id, connectionId, kind]);
+
+  React.useEffect(() => {
     if (kind !== "wise_balance" || !connectionId) {
       setWiseBalances([]);
       setWiseBalanceId("");
@@ -1047,7 +1111,7 @@ function AddAccountModal({
     return account ? `${account.code} ${account.name}` : "—";
   };
   const advancedSummary =
-    kind === "brex_card"
+    isCardKind(kind)
       ? `Purchases filed under ${named(defaultExpenseAccountId)} · card balance in ${named(liabilityAccountId)}`
       : `Posts to ${named(bankAccountId)}`;
 
@@ -1056,8 +1120,9 @@ function AddAccountModal({
     !!bankAccountId &&
     (!option.provider || !!connectionId) &&
     (kind !== "brex_cash" || !!cashAccountId) &&
+    (kind !== "mercury_account" || !!mercuryAccountId) &&
     (kind !== "wise_balance" || !!wiseBalanceId) &&
-    (kind !== "brex_card" || (!!liabilityAccountId && !!defaultExpenseAccountId));
+    (!isCardKind(kind) || (!!liabilityAccountId && !!defaultExpenseAccountId));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -1065,8 +1130,10 @@ function AddAccountModal({
     setBusy(true);
     setError(null);
     try {
+      // A card's provider follows from its Connection, so Brex and Ramp cards
+      // are added the same way.
       const feed =
-        kind === "brex_card"
+        isCardKind(kind)
           ? await api.post<CardFeed>(`/api/companies/${company.id}/card-feeds`, {
               name: name.trim(),
               connectionId,
@@ -1080,7 +1147,13 @@ function AddAccountModal({
               accountId: bankAccountId,
               connectionId: kind === "csv" ? null : connectionId,
               externalAccountId:
-                kind === "brex_cash" ? cashAccountId : kind === "wise_balance" ? wiseBalanceId : null,
+                kind === "brex_cash"
+                  ? cashAccountId
+                  : kind === "mercury_account"
+                    ? mercuryAccountId
+                    : kind === "wise_balance"
+                      ? wiseBalanceId
+                      : null,
             });
       await onAdded(feed, kind);
     } catch (err) {
@@ -1153,6 +1226,9 @@ function AddAccountModal({
             {kind === "brex_card" && (
               <> The Brex token needs permission to read card transactions.</>
             )}
+            {kind === "ramp_card" && (
+              <> The Ramp app needs permission to read transactions, transfers and cashback.</>
+            )}
           </p>
         ) : option.provider ? (
           <Select
@@ -1197,6 +1273,36 @@ function AddAccountModal({
           </>
         )}
 
+        {kind === "mercury_account" && connectionId && (
+          <>
+            {mercuryAccounts === null ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <Spinner size={14} /> Loading your Mercury accounts…
+              </div>
+            ) : (
+              <Select
+                label="Mercury account"
+                value={mercuryAccountId}
+                onChange={(event) => setMercuryAccountId(event.target.value)}
+                required
+              >
+                <option value="">Choose an account</option>
+                {mercuryAccounts.map((account) => (
+                  <option key={account.id} value={account.id} disabled={!!account.unavailableReason}>
+                    {account.name}
+                    {account.accountNumberLast4 ? ` · •••• ${account.accountNumberLast4}` : ""}
+                    {account.currentCents === null
+                      ? ""
+                      : ` · ${formatMoney(account.currentCents, "USD")}`}
+                    {account.unavailableReason ? ` — ${account.unavailableReason}` : ""}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <FormError message={mercuryError} />
+          </>
+        )}
+
         {kind === "wise_balance" && connectionId && (
           <>
             {wiseBalances === null ? (
@@ -1232,7 +1338,7 @@ function AddAccountModal({
               Where this account&apos;s money shows up in your books. The defaults suit most
               companies; a company with several bank accounts can give each its own.
             </p>
-            {kind === "brex_card" ? (
+            {isCardKind(kind) ? (
               <>
                 <Select
                   label="Card balance (what you owe on the card)"

@@ -50,14 +50,20 @@ function parse(iso: string | null | undefined): Date | null {
 
 // ── What the account is ─────────────────────────────────────────────────
 
-const PROVIDER_NAMES = { brex: "Brex", wise: "Wise", stripe: "Stripe" } as const;
+const PROVIDER_NAMES = {
+  brex: "Brex",
+  mercury: "Mercury",
+  ramp: "Ramp",
+  wise: "Wise",
+  stripe: "Stripe",
+} as const;
 
 /** A bank account brought up to date by importing CSV statements, not by a sync. */
 export function isCsvAccount(account: BankingAccount): boolean {
   return account.kind === "bank" && account.feed.kind === "csv";
 }
 
-/** "Brex", "Wise", "Stripe" — or null for a CSV account. */
+/** "Brex", "Mercury", "Ramp", "Wise", "Stripe" — or null for a CSV account. */
 export function providerName(account: BankingAccount): string | null {
   return account.provider ? PROVIDER_NAMES[account.provider] : null;
 }
@@ -65,7 +71,9 @@ export function providerName(account: BankingAccount): string | null {
 /** What kind of account it is, in a word or two: "Business account", "Card", "USD balance". */
 export function accountKindLabel(account: BankingAccount): string {
   if (account.kind === "card") return "Card";
-  if (account.feed.kind === "brex_cash") return "Business account";
+  if (account.feed.kind === "brex_cash" || account.feed.kind === "mercury_account") {
+    return "Business account";
+  }
   if (account.feed.kind === "wise_balance") {
     return account.balance ? `${account.balance.currency} balance` : "Balance";
   }

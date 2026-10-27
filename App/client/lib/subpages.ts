@@ -763,6 +763,8 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
         "card expenses",
         "corporate cards",
         "brex",
+        "mercury",
+        "ramp",
         "wise",
         "stripe payouts",
         "deposits",

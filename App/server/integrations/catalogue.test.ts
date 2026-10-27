@@ -22,6 +22,8 @@ import { INTEGRATION_CATEGORY_ORDER } from "./types.js";
 const EXPECTED_PROVIDER_IDS = [
   "stripe",
   "brex",
+  "mercury",
+  "ramp",
   "wise",
   "google",
   "google-analytics",
