@@ -63,10 +63,48 @@ export type InboundChatTurn = {
   externalMessageId: string | null;
   /** Opaque routing handed straight back to {@link ChatSurfaceAdapter.send}. */
   replyTo: ChatSurfaceReplyTarget;
+  /**
+   * The upstream channel a group message was posted in — what a customer
+   * channel is keyed on. Absent on surfaces that cannot link one yet.
+   */
+  externalChannelId?: string | null;
+  /**
+   * The thread a group message belongs to: its parent's id, or its own for a
+   * top-level message. Absent on surfaces that cannot link a customer channel.
+   */
+  externalThreadId?: string | null;
+  /** When the platform says the message was sent. */
+  sentAt?: Date | null;
+  /**
+   * True when the platform says the sender belongs to another organization —
+   * a Slack Connect member of a customer's workspace. Never used for
+   * authorization; it only tells a customer channel who the customer is.
+   */
+  outsideWorkspace?: boolean;
+  /**
+   * True when the platform says people from another organization can read
+   * this group conversation (a Slack Connect channel), false when it says they
+   * cannot, absent when it did not say. A reply there is answered with nobody's
+   * Member authority, because whatever it says is read outside the company.
+   */
+  externallyShared?: boolean;
+  /**
+   * A group message that did not address the AI Employee. The core keeps it
+   * when its channel is a customer channel and drops it otherwise — somebody
+   * else's conversation is never answered as a chat turn.
+   */
+  overheard?: boolean;
+  /** An overheard message that also names the employee, and so arrives again as a mention. */
+  mentionsEmployee?: boolean;
 };
 
 /** Whatever the adapter needs to answer in the right place. */
 export type ChatSurfaceReplyTarget = Record<string, unknown>;
+
+export type ChatSurfaceSent = {
+  /** The platform's id for the posted message, in the same shape inbound ids take. */
+  externalMessageId: string | null;
+};
 
 export type ChatSurfaceSendArgs = {
   connectionId: string;
@@ -91,8 +129,23 @@ export type ChatSurfaceAdapter = {
    * connect a bot that will never receive anything.
    */
   requiresPublicUrl: boolean;
-  /** Deliver one reply. Errors are logged and swallowed by the caller. */
-  send(args: ChatSurfaceSendArgs): Promise<void>;
+  /**
+   * Deliver one reply. Errors are logged and swallowed by the caller. A
+   * surface that learns the posted message's id says so, so a customer channel
+   * can keep its own reply exactly once.
+   */
+  send(args: ChatSurfaceSendArgs): Promise<ChatSurfaceSent | void>;
+  /**
+   * Ask the platform whether a group conversation is shared with another
+   * organization, for a turn whose delivery did not say. Throws when it cannot
+   * tell, and the core then answers as if it were. Surfaces with no notion of
+   * a shared channel leave it out.
+   */
+  channelSharedExternally?(args: {
+    connectionId: string;
+    config: IntegrationConfig;
+    externalChannelId: string;
+  }): Promise<boolean>;
   /**
    * Long-running transports implement this. Returns when the loop ends;
    * must return promptly once `isCancelled()` flips.

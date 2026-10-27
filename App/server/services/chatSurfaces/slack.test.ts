@@ -7,7 +7,10 @@ import {
   SIGNATURE_WINDOW_SECONDS,
   SOCKET_IDLE_TIMEOUT_MS,
   SOCKET_PING_INTERVAL_MS,
+  clearSlackSharedChannelCacheForTests,
+  normalizeSlackChannelMessage,
   normalizeSlackEvent,
+  normalizeSlackInbound,
   pumpSocketMode,
   signSlackRequest,
   slackChatSurface,
@@ -469,6 +472,178 @@ describe("normalizeSlackEvent — everything it must refuse", () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * Overheard channel messages — what a customer channel reads
+ * ------------------------------------------------------------------ */
+
+const TEAM = "T0OURS";
+
+function channelEvent(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: "message",
+    channel: "C0ACME",
+    channel_type: "channel",
+    user: "U0DANA",
+    ts: "1700000000.000500",
+    text: "our exports have been failing since Tuesday",
+    team: TEAM,
+    ...over,
+  };
+}
+
+function overhear(event: unknown, teamId: string | null = TEAM): InboundChatTurn | null {
+  return normalizeSlackChannelMessage({
+    connectionId: CONNECTION,
+    companyId: COMPANY,
+    botUserId: BOT,
+    teamId,
+    event,
+  });
+}
+
+describe("normalizeSlackChannelMessage", () => {
+  test("a person's ordinary channel message is handed over, marked overheard", () => {
+    const turn = overhear(channelEvent())!;
+    assert.equal(turn.overheard, true);
+    assert.equal(turn.group, true);
+    assert.equal(turn.text, "our exports have been failing since Tuesday");
+    assert.equal(turn.externalChannelId, "C0ACME");
+    assert.equal(turn.externalThreadId, "1700000000.000500");
+    assert.equal(turn.externalMessageId, "C0ACME:1700000000.000500");
+    assert.equal(turn.sentAt?.toISOString(), "2023-11-14T22:13:20.001Z");
+    assert.equal(turn.mentionsEmployee, false);
+    assert.deepEqual(turn.replyTo, { channel: "C0ACME", thread_ts: "1700000000.000500" });
+  });
+
+  test("a reply in a thread belongs to that thread", () => {
+    const turn = overhear(channelEvent({ thread_ts: "1700000000.000100" }))!;
+    assert.equal(turn.externalThreadId, "1700000000.000100");
+    assert.equal(turn.externalKey, "C0ACME:1700000000.000100");
+  });
+
+  test("someone from another workspace is outside it; a colleague is not", () => {
+    assert.equal(overhear(channelEvent({ user_team: "T0ACME" }))!.outsideWorkspace, true);
+    const profileOnly = overhear(
+      channelEvent({ team: undefined, user_profile: { team: "T0ACME" } }),
+    );
+    assert.equal(profileOnly!.outsideWorkspace, true);
+    assert.equal(overhear(channelEvent({ user_team: TEAM }))!.outsideWorkspace, false);
+    // No team named at all is Slack's own workspace, never a guess at outside.
+    assert.equal(overhear(channelEvent({ team: undefined }))!.outsideWorkspace, false);
+    // A Connection that never learned its team cannot tell anyone apart.
+    assert.equal(overhear(channelEvent({ user_team: "T0ACME" }), null)!.outsideWorkspace, false);
+  });
+
+  test("a message that names the app says so, so only its mention twin is answered", () => {
+    const turn = overhear(channelEvent({ text: `<@${BOT}> can you check?` }))!;
+    assert.equal(turn.mentionsEmployee, true);
+    assert.equal(turn.text, "can you check?");
+    assert.equal(overhear(channelEvent({ text: `thanks <@${BOT}>!` }))!.mentionsEmployee, true);
+  });
+
+  test("a file with words, and a reply also sent to the channel, are still people talking", () => {
+    assert.equal(overhear(channelEvent({ subtype: "thread_broadcast" }))!.text.length > 0, true);
+    assert.equal(overhear(channelEvent({ subtype: "file_share" }))!.text, channelEvent().text);
+    assert.equal(
+      overhear(channelEvent({ subtype: "file_share", text: "" }))!.text,
+      "(shared a file)",
+    );
+  });
+
+  test("never a DM — a DM is already a conversation", () => {
+    assert.equal(overhear(dmEvent()), null);
+    assert.equal(overhear(channelEvent({ channel: "D0HUMAN", channel_type: undefined })), null);
+  });
+
+  test("never a mention — that is the addressed copy's job", () => {
+    assert.equal(overhear(mentionEvent()), null);
+  });
+
+  test("never anything a bot wrote, ours or anyone else's", () => {
+    assert.equal(overhear(channelEvent({ bot_id: "B0OTHER" })), null);
+    assert.equal(overhear(channelEvent({ user: BOT })), null);
+  });
+
+  for (const subtype of ["message_changed", "message_deleted", "channel_join", "bot_message"]) {
+    test(`the ${subtype} subtype`, () => {
+      assert.equal(overhear(channelEvent({ subtype })), null);
+    });
+  }
+
+  test("an empty message", () => {
+    assert.equal(overhear(channelEvent({ text: "  " })), null);
+  });
+});
+
+describe("normalizeSlackInbound", () => {
+  test("a mention is the addressed turn, with what a customer channel needs to keep it", () => {
+    const turn = normalizeSlackInbound({
+      connectionId: CONNECTION,
+      companyId: COMPANY,
+      botUserId: BOT,
+      teamId: TEAM,
+      event: mentionEvent({ user_team: "T0ACME" }),
+    })!;
+    assert.equal(turn.overheard, undefined);
+    assert.equal(turn.externalChannelId, "C0OPS");
+    assert.equal(turn.externalThreadId, "1700000000.000200");
+    assert.equal(turn.outsideWorkspace, true);
+  });
+
+  test("a DM stays a DM and carries no channel to link", () => {
+    const turn = normalizeSlackInbound({
+      connectionId: CONNECTION,
+      companyId: COMPANY,
+      botUserId: BOT,
+      teamId: TEAM,
+      event: dmEvent(),
+    })!;
+    assert.equal(turn.group, false);
+    assert.equal(turn.externalChannelId, undefined);
+  });
+
+  test("an ordinary channel message falls through to the overheard copy", () => {
+    const turn = normalizeSlackInbound({
+      connectionId: CONNECTION,
+      companyId: COMPANY,
+      botUserId: BOT,
+      teamId: TEAM,
+      event: channelEvent(),
+    })!;
+    assert.equal(turn.overheard, true);
+  });
+
+  function inbound(event: unknown, sharedChannel: boolean | null | undefined) {
+    return normalizeSlackInbound({
+      connectionId: CONNECTION,
+      companyId: COMPANY,
+      botUserId: BOT,
+      teamId: TEAM,
+      sharedChannel,
+      event,
+    })!;
+  }
+
+  test("Slack's word on a shared channel travels with the turn", () => {
+    assert.equal(inbound(mentionEvent(), true).externallyShared, true);
+    assert.equal(inbound(mentionEvent(), false).externallyShared, false);
+    assert.equal(inbound(channelEvent(), true).externallyShared, true);
+  });
+
+  test("a delivery that did not say leaves it unsaid, for the core to ask", () => {
+    assert.equal(inbound(mentionEvent(), null).externallyShared, undefined);
+    assert.equal(inbound(mentionEvent(), undefined).externallyShared, undefined);
+  });
+
+  test("a sender from another workspace proves the channel is shared", () => {
+    assert.equal(inbound(mentionEvent({ user_team: "T0ACME" }), false).externallyShared, true);
+  });
+
+  test("a DM carries no shared flag — only its two parties read it", () => {
+    assert.equal(inbound(dmEvent(), true).externallyShared, undefined);
+  });
+});
+
 describe("normalizeSlackEvent — who sent it", () => {
   test("prefers the display name, then the real name, then the handle", () => {
     assert.equal(
@@ -776,6 +951,17 @@ describe("webhook.verifyAndNormalize", () => {
     assert.equal(turn.text, "what is our runway");
   });
 
+  test("the envelope's shared-channel flag reaches the turn, and only a real boolean counts", async () => {
+    const shared = await deliver({
+      body: { type: "event_callback", is_ext_shared_channel: true, event: mentionEvent() },
+    });
+    assert.equal((shared as { turns: InboundChatTurn[] }).turns[0].externallyShared, true);
+    const garbled = await deliver({
+      body: { type: "event_callback", is_ext_shared_channel: "yes", event: mentionEvent() },
+    });
+    assert.equal((garbled as { turns: InboundChatTurn[] }).turns[0].externallyShared, undefined);
+  });
+
   test("the bot's own message becomes no turns at all", async () => {
     const result = await deliver({
       body: { type: "event_callback", event: dmEvent({ user: BOT }) },
@@ -919,6 +1105,20 @@ describe("pumpSocketMode", () => {
     assert.deepEqual(h.socket.sent, ['{"envelope_id":"env-1"}']);
     assert.equal(h.delivered.length, 1);
     assert.equal(h.delivered[0].text, "what is our runway");
+    h.cancel();
+    assert.ok(await endedWithin(h.finished, 3000));
+  });
+
+  test("the envelope's shared-channel flag reaches the turn over the socket too", async () => {
+    const h = socketHarness();
+    h.socket.frame({
+      type: "events_api",
+      envelope_id: "env-shared",
+      payload: { type: "event_callback", is_ext_shared_channel: true, event: mentionEvent() },
+    });
+    await pause(20);
+    assert.equal(h.delivered.length, 1);
+    assert.equal(h.delivered[0].externallyShared, true);
     h.cancel();
     assert.ok(await endedWithin(h.finished, 3000));
   });
@@ -1118,5 +1318,64 @@ describe("slackChatSurface", () => {
       thread_ts: "1700000000.000200",
       text: "14 months.",
     });
+  });
+});
+
+describe("slackChatSurface.channelSharedExternally", () => {
+  const realFetch = globalThis.fetch;
+  let calls: string[] = [];
+  let described: Record<string, unknown> | undefined;
+
+  beforeEach(() => {
+    calls = [];
+    described = { id: "C0X", is_ext_shared: true };
+    clearSlackSharedChannelCacheForTests();
+    globalThis.fetch = (async (input: unknown) => {
+      calls.push(String(input));
+      const body = described ? { ok: true, channel: described } : { ok: true };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    clearSlackSharedChannelCacheForTests();
+  });
+
+  function ask(externalChannelId = "C0X", botToken = "xoxb-t") {
+    return slackChatSurface.channelSharedExternally!({
+      connectionId: CONNECTION,
+      config: { botToken },
+      externalChannelId,
+    });
+  }
+
+  test("asks Slack and believes it", async () => {
+    assert.equal(await ask(), true);
+    assert.deepEqual(calls, ["https://slack.com/api/conversations.info"]);
+  });
+
+  test("an internal channel is internal", async () => {
+    described = { id: "C0X", is_ext_shared: false };
+    assert.equal(await ask(), false);
+  });
+
+  test("a pending Slack Connect invitation already counts as shared", async () => {
+    described = { id: "C0X", is_ext_shared: false, is_pending_ext_shared: true };
+    assert.equal(await ask(), true);
+  });
+
+  test("the answer is reused for a few minutes, channel by channel", async () => {
+    await ask();
+    await ask();
+    assert.equal(calls.length, 1);
+    await ask("C0Y");
+    assert.equal(calls.length, 2);
+  });
+
+  test("an answer Slack could not give is an error, never a guess", async () => {
+    described = undefined;
+    await assert.rejects(ask(), /no channel/);
+    await assert.rejects(ask("C0X", ""), /no bot token/);
   });
 });

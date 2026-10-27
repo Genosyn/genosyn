@@ -134,6 +134,7 @@ const REPRESENTATIVES: Record<string, string> = {
   Banking: "/api/companies/{cid}/bank-transactions",
   "Document signing": "/api/companies/{cid}/signature-envelopes",
   "Data rooms": "/api/companies/{cid}/data-rooms",
+  "Customer channels": "/api/companies/{cid}/customer-channels",
   Tags: "/api/companies/{cid}/tags",
   Notifications: "/api/companies/{cid}/notifications",
   "Audit log": "/api/companies/{cid}/audit",

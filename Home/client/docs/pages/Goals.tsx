@@ -137,14 +137,15 @@ export function Goals() {
         </LI>
       </UL>
       <P>
-        Only a person can change the SQL of a Chart a Goal reads, or delete it: an AI Employee with{" "}
+        Only a person can change the query of a Chart a Goal reads — its SQL, or its question about a
+        Base — or delete it: an AI Employee with{" "}
         <Code>write</Code> on that Chart can still edit its title, description, and visualization.
         Deleting the Chart in Explore turns the Goal into a <Strong>Manual</Strong> Goal that keeps
         its last value.
       </P>
       <Callout kind="tip" title="Bind the Goal to a Chart when you can.">
-        A manual Goal is only as honest as its last report. A chart-bound Goal reads the database
-        and cannot forget, drift, or flatter.
+        A manual Goal is only as honest as its last report. A chart-bound Goal reads the database or
+        Base itself and cannot forget, drift, or flatter.
       </Callout>
 
       <H2 id="lifecycle">Lifecycle</H2>
@@ -260,7 +261,7 @@ export function Goals() {
         Employees are told to report when their own work moves a Goal&apos;s number. What they are
         {" "}
         <em>not</em> given is any tool to create, edit, archive, or settle a Goal, or to change the
-        SQL of the Chart a Goal reads — the definitions and the verdict stay human.
+        query of the Chart a Goal reads — the definitions and the verdict stay human.
       </P>
 
       <Callout kind="info" title="Humans set intent. AI reports against it.">

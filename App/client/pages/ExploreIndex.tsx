@@ -11,6 +11,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api, Company } from "../lib/api";
+import type { ExploreBase } from "../lib/explore";
+import { BaseIcon, baseAccent } from "../components/BaseIcons";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
@@ -21,12 +23,13 @@ import { ExploreAiBuilder, type ExploreAiConnection } from "@/components/explore
 /**
  * Explore landing page. Three columns:
  *   1. Data sources — the company's postgres / mysql / clickhouse
- *      connections that Explore can query. Empty state nudges to /explore/integrations.
+ *      connections that Explore can query, and its own Bases. Empty state
+ *      nudges to /explore/integrations and to Bases.
  *   2. Recent charts.
  *   3. Recent dashboards.
  *
  * Clicking a data source navigates to the chart editor with that
- * connection pre-selected.
+ * connection or Base pre-selected.
  */
 
 type ConnectionRow = ExploreAiConnection;
@@ -35,6 +38,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
   const { charts, dashboards, loading, error, createDashboard, reload } = useExplore();
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
   const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
+  const [bases, setBases] = React.useState<ExploreBase[] | null>(null);
   const [aiBuilderOpen, setAiBuilderOpen] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
 
@@ -51,18 +55,28 @@ export default function ExploreIndex({ company }: { company: Company }) {
     }
   }, [company.id]);
 
+  const reloadBases = React.useCallback(async () => {
+    try {
+      setBases(await api.get<ExploreBase[]>(`/api/companies/${company.id}/explore/bases`));
+    } catch {
+      setBases((current) => current ?? []);
+    }
+  }, [company.id]);
+
   React.useEffect(() => {
     reloadConnections();
-  }, [reloadConnections]);
+    reloadBases();
+  }, [reloadConnections, reloadBases]);
 
   // Charts + dashboards are kept live by ExploreLayout's context; keep the
-  // database sources list live too.
+  // data sources live too.
   useLiveRefetch("connection", reloadConnections);
+  useLiveRefetch("base", reloadBases);
 
   async function retry() {
     setRetrying(true);
     try {
-      await Promise.all([reload(), reloadConnections()]);
+      await Promise.all([reload(), reloadConnections(), reloadBases()]);
     } finally {
       setRetrying(false);
     }
@@ -71,6 +85,10 @@ export default function ExploreIndex({ company }: { company: Company }) {
   const hasConnections = (connections ?? []).some(
     (connection) => connection.status === "connected",
   );
+  const chartableBases = (bases ?? []).filter((base) =>
+    base.tables.some((table) => !table.archived),
+  );
+  const hasSources = hasConnections || chartableBases.length > 0;
 
   return (
     <div className="page-shell px-8 py-10">
@@ -80,8 +98,8 @@ export default function ExploreIndex({ company }: { company: Company }) {
             <BarChart3 size={20} className="text-indigo-500" /> Explore
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Explore connected databases yourself or ask an AI Employee to inspect the schema,
-            validate SQL, create Charts, and assemble Dashboards for the team.
+            Chart connected databases and your own Bases, or ask an AI Employee to inspect the
+            schema, validate SQL, create Charts, and assemble Dashboards for the team.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -93,14 +111,14 @@ export default function ExploreIndex({ company }: { company: Company }) {
           </Button>
           <Link
             to={
-              hasConnections
+              hasSources
                 ? `/c/${company.slug}/explore/charts/new`
                 : `/c/${company.slug}/explore/integrations`
             }
           >
             <Button size="sm">
               <Plus size={14} />
-              {hasConnections ? "New chart" : "Connect a database"}
+              {hasSources ? "New chart" : "Connect a database"}
             </Button>
           </Link>
         </div>
@@ -120,18 +138,25 @@ export default function ExploreIndex({ company }: { company: Company }) {
         <h2 className="text-xs font-medium mb-3 text-slate-500 dark:text-slate-400">
           Data sources
         </h2>
-        {connections === null ? (
+        {connections === null || bases === null ? (
           <div className="flex justify-center p-6">
             <Spinner />
           </div>
-        ) : connections.length === 0 ? (
+        ) : connections.length === 0 && chartableBases.length === 0 ? (
           <EmptyState
-            title="No database connections"
-            description="Connect Postgres, MySQL, or ClickHouse once, then explore it yourself or grant it to an AI Employee."
+            title="No data sources yet"
+            description="Connect Postgres, MySQL, or ClickHouse, or chart a table in one of your Bases."
             action={
-              <Link to={`/c/${company.slug}/explore/integrations`}>
-                <Button size="sm">Open integrations</Button>
-              </Link>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Link to={`/c/${company.slug}/explore/integrations`}>
+                  <Button size="sm">Open integrations</Button>
+                </Link>
+                <Link to={`/c/${company.slug}/bases`}>
+                  <Button size="sm" variant="secondary">
+                    Open Bases
+                  </Button>
+                </Link>
+              </div>
             }
           />
         ) : (
@@ -171,6 +196,33 @@ export default function ExploreIndex({ company }: { company: Company }) {
                 </div>
               </Link>
             ))}
+            {chartableBases.map((base) => {
+              const tables = base.tables.filter((table) => !table.archived).length;
+              return (
+                <Link
+                  key={base.id}
+                  to={`/c/${company.slug}/explore/charts/new?baseId=${base.id}`}
+                  className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-500"
+                >
+                  <span
+                    className={
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+                      baseAccent(base.color, "tile")
+                    }
+                  >
+                    <BaseIcon name={base.icon} size={16} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {base.name}
+                    </span>
+                    <div className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      Base · {tables} {tables === 1 ? "table" : "tables"}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
@@ -237,9 +289,9 @@ export default function ExploreIndex({ company }: { company: Company }) {
         ) : charts.length === 0 ? (
           <EmptyState
             title="No charts yet"
-            description="A chart is a saved SQL query with a visualization. Start one from a data source above."
+            description="A chart is a saved query with a visualization. Start one from a data source above."
             action={
-              hasConnections ? (
+              hasSources ? (
                 <Link to={`/c/${company.slug}/explore/charts/new`}>
                   <Button size="sm">New chart</Button>
                 </Link>

@@ -6,6 +6,7 @@ import { Customer } from "../../db/entities/Customer.js";
 import { CustomerContact } from "../../db/entities/CustomerContact.js";
 import { CustomerContract } from "../../db/entities/CustomerContract.js";
 import { CustomerCredit } from "../../db/entities/CustomerCredit.js";
+import { CustomerChannel } from "../../db/entities/CustomerChannel.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealContact } from "../../db/entities/DealContact.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
@@ -1541,6 +1542,9 @@ async function applyRelationships(
     await move(Estimate, "estimate", "customerId");
     await move(RecurringInvoice, "recurring_invoice", "customerId");
     await move(CustomerCredit, "customer_credit", "customerId");
+    // A Slack channel linked to the merged-away account keeps writing its
+    // notes, now onto the survivor's timeline.
+    await move(CustomerChannel, "customer_channel", "customerId");
     await mergeFirmographicLookups(manager, rows, companyId, sourceId, targetId);
   } else if (type === "contact") {
     await move(Activity, "activity", "contactId");

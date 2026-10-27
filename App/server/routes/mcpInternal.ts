@@ -826,6 +826,13 @@ import {
   upsertChartGrant,
   upsertDashboardGrant,
 } from "../services/explore.js";
+import { baseChartQuerySchema } from "../services/baseCharts.js";
+import {
+  applyChartSource,
+  ChartSourceError,
+  runChart,
+  type ChartSourceInput,
+} from "../services/exploreCharts.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { formatPhoneNumber } from "../../shared/phone.js";
 import { phoneFailure } from "../services/phone/errors.js";
@@ -18545,7 +18552,9 @@ mcpInternalRouter.post(
 // Charts + Dashboards. AI employees can list/run/create charts and pin
 // them to dashboards the team will see. SQL runs through the company's
 // existing postgres/mysql/clickhouse Integration Connections — no extra
-// auth, same 30s / 5,000-row envelope as the integration tools.
+// auth, same 30s / 5,000-row envelope as the integration tools. A chart over
+// a Base answers its query from the Base's rows; creating or re-querying one
+// needs a Grant on that Base, and archived tables stay out of reach.
 
 async function loadGrantedExploreConnection(
   req: McpRequest,
@@ -18694,16 +18703,11 @@ mcpInternalRouter.post(
     if (!(await hasChartAccess(self.id, row.id, "read"))) {
       return res.status(403).json({ error: "No access to that chart" });
     }
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: row.connectionId,
-      companyId: co.id,
-    });
-    if (!conn) {
-      return res.status(400).json({ error: "Chart's connection no longer exists" });
-    }
     try {
-      const result = await runSqlAgainstConnection(conn, row.sql, {
+      const result = await runChart(row, {
         maxRows: body.maxRows,
+        viewer: { kind: "ai", id: self.id },
+        forEmployee: true,
       });
       res.json(result);
     } catch (err) {
@@ -18717,36 +18721,63 @@ const VIZ_ENUM_MCP = ["table", "scalar", "bar", "line", "area", "pie"] as [strin
 const createChartMcpSchema = z
   .object({
     title: z.string().min(1).max(200),
-    connectionId: z.string().uuid(),
-    sql: z.string().min(1).max(50_000),
+    connectionId: z.string().uuid().optional(),
+    sql: z.string().min(1).max(50_000).optional(),
+    baseSlug: z.string().min(1).max(120).optional(),
+    baseQuery: baseChartQuerySchema.optional(),
     description: z.string().max(2000).optional(),
     vizType: z.enum(VIZ_ENUM_MCP).optional(),
     vizConfig: z.record(z.unknown()).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) =>
+      body.baseSlug || body.baseQuery
+        ? Boolean(body.baseSlug && body.baseQuery && !body.connectionId && !body.sql)
+        : Boolean(body.connectionId && body.sql),
+    {
+      message:
+        "Pass connectionId and sql for a database chart, or baseSlug and baseQuery for a Base",
+    },
+  );
 
 mcpInternalRouter.post(
   "/tools/create_chart",
   validateBody(createChartMcpSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof createChartMcpSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    if (!(await loadGrantedExploreConnection(req, res, body.connectionId))) return;
+    let source: ChartSourceInput;
+    if (body.baseSlug) {
+      const base = await loadGrantedBase(req, res, body.baseSlug);
+      if (!base) return;
+      source = { baseId: base.id, baseQuery: body.baseQuery };
+    } else {
+      if (!(await loadGrantedExploreConnection(req, res, body.connectionId!))) return;
+      source = { connectionId: body.connectionId, sql: body.sql };
+    }
     const repo = AppDataSource.getRepository(Chart);
-    const slug = await uniqueChartSlug(co.id, body.title);
     const row = repo.create({
       companyId: co.id,
       title: body.title,
-      slug,
       description: body.description ?? "",
-      connectionId: body.connectionId,
-      sql: body.sql,
+      connectionId: null,
+      sql: "",
+      baseId: null,
+      baseQueryJson: null,
       vizType: (body.vizType ?? "table") as Chart["vizType"],
       vizConfig: JSON.stringify(body.vizConfig ?? {}),
       createdById: null,
       createdByEmployeeId: self.id,
     });
+    try {
+      await applyChartSource(row, source, { forEmployee: true });
+    } catch (err) {
+      if (err instanceof ChartSourceError) return res.status(400).json({ error: err.message });
+      return next(err);
+    }
+    row.slug = await uniqueChartSlug(co.id, body.title);
     await repo.save(row);
     // Seed grants: read for the team, write for the author.
     await grantChartToAllEmployees(co.id, row.id);
@@ -18758,7 +18789,11 @@ mcpInternalRouter.post(
       targetType: "chart",
       targetId: row.id,
       targetLabel: row.title,
-      metadata: { via: "mcp", vizType: row.vizType },
+      metadata: {
+        via: "mcp",
+        vizType: row.vizType,
+        ...(row.baseId ? { baseId: row.baseId } : { connectionId: row.connectionId }),
+      },
     });
     await journal(self.id, `${self.name} created chart "${row.title}"`);
     res.json({ chart: serializeChart(row) });
@@ -18785,15 +18820,33 @@ const updateChartMcpSchema = z
     title: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).optional(),
     sql: z.string().min(1).max(50_000).optional(),
+    baseQuery: baseChartQuerySchema.optional(),
     vizType: z.enum(VIZ_ENUM_MCP).optional(),
     vizConfig: z.record(z.unknown()).optional(),
   })
   .strict();
 
+/** The Base a chart reads, when this employee holds a Grant on it. */
+async function loadGrantedChartBase(
+  req: McpRequest,
+  res: Response,
+  baseId: string,
+): Promise<Base | null> {
+  const base = await AppDataSource.getRepository(Base).findOneBy({
+    id: baseId,
+    companyId: req.mcpCompany!.id,
+  });
+  if (!base) {
+    res.status(400).json({ error: "The chart's Base no longer exists" });
+    return null;
+  }
+  return loadGrantedBase(req, res, base.slug);
+}
+
 mcpInternalRouter.post(
   "/tools/update_chart",
   validateBody(updateChartMcpSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const body = req.body as z.infer<typeof updateChartMcpSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
@@ -18805,19 +18858,48 @@ mcpInternalRouter.post(
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
       return res.status(403).json({ error: "Write access required to edit that chart" });
     }
-    if (body.sql !== undefined && body.sql !== row.sql) {
+    if (body.sql !== undefined && row.baseId) {
+      return res
+        .status(400)
+        .json({ error: "This chart reads a Base, not SQL. Change its `baseQuery` instead." });
+    }
+    if (body.baseQuery !== undefined && !row.baseId) {
+      return res.status(400).json({
+        error: "This chart runs SQL over a database Connection. Change its `sql` instead.",
+      });
+    }
+    const queryChanged =
+      body.baseQuery !== undefined && JSON.stringify(body.baseQuery) !== row.baseQueryJson;
+    if ((body.sql !== undefined && body.sql !== row.sql) || queryChanged) {
       const goals = await goalsReadingChart(co.id, row.id);
       if (goals.length > 0) {
-        return res.status(403).json({ error: goalBoundChartRefusal(goals, "change its SQL") });
+        return res.status(403).json({
+          error: goalBoundChartRefusal(goals, row.baseId ? "change its query" : "change its SQL"),
+        });
       }
     }
     if (body.sql !== undefined) {
-      const connection = await loadGrantedExploreConnection(req, res, row.connectionId);
+      const connection = await loadGrantedExploreConnection(req, res, row.connectionId ?? "");
       if (!connection) return;
+    }
+    if (body.baseQuery !== undefined) {
+      if (!(await loadGrantedChartBase(req, res, row.baseId!))) return;
+    }
+    try {
+      await applyChartSource(
+        row,
+        {
+          ...(body.sql !== undefined ? { sql: body.sql } : {}),
+          ...(body.baseQuery !== undefined ? { baseQuery: body.baseQuery } : {}),
+        },
+        { forEmployee: true },
+      );
+    } catch (err) {
+      if (err instanceof ChartSourceError) return res.status(400).json({ error: err.message });
+      return next(err);
     }
     if (body.title !== undefined) row.title = body.title;
     if (body.description !== undefined) row.description = body.description;
-    if (body.sql !== undefined) row.sql = body.sql;
     if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
     if (body.vizConfig !== undefined) row.vizConfig = JSON.stringify(body.vizConfig);
     await AppDataSource.getRepository(Chart).save(row);

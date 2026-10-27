@@ -14,7 +14,6 @@ import {
   BaseFilterOperator,
   BaseFilterRule,
   BaseLinkOption,
-  BaseRecord,
   BaseResourceOption,
   BaseSortRule,
   isBaseResourceFieldType,
@@ -34,7 +33,7 @@ import { chipClass } from "../components/BaseIcons";
  *
  * Filter operators are gated by field type. The same picker drives every
  * field, but only operators that make sense for the chosen field's type are
- * offered. The full set of evaluators lives in `recordMatchesRule` below.
+ * offered. The full set of evaluators lives in `shared/baseFilters.ts`.
  */
 
 // ───────────────────── operator catalogue ────────────────────────────────────
@@ -158,196 +157,12 @@ export function isUnaryOperator(op: BaseFilterOperator): boolean {
 
 // ───────────────────── evaluator (filter + sort) ─────────────────────────────
 
-function isCellEmpty(val: unknown): boolean {
-  if (val === null || val === undefined) return true;
-  if (typeof val === "string" && val === "") return true;
-  if (Array.isArray(val) && val.length === 0) return true;
-  return false;
-}
-
-function asLowerString(v: unknown): string | null {
-  return typeof v === "string" ? v.toLowerCase() : null;
-}
-
-function recordMatchesRule(
-  record: BaseRecord,
-  rule: BaseFilterRule,
-  field: BaseField,
-): boolean {
-  const val = record.data[rule.fieldId];
-
-  switch (rule.operator) {
-    case "isEmpty":
-      return isCellEmpty(val);
-    case "isNotEmpty":
-      return !isCellEmpty(val);
-    case "isChecked":
-      return !!val;
-    case "isUnchecked":
-      return !val;
-
-    case "is":
-    case "equals": {
-      if (field.type === "number") {
-        return typeof val === "number" && val === Number(rule.value);
-      }
-      const a = asLowerString(val);
-      const b = asLowerString(rule.value);
-      if (a !== null && b !== null) return a === b;
-      return val === rule.value;
-    }
-    case "isNot":
-    case "notEquals": {
-      if (isCellEmpty(val)) return true;
-      if (field.type === "number") {
-        return typeof val === "number" && val !== Number(rule.value);
-      }
-      const a = asLowerString(val);
-      const b = asLowerString(rule.value);
-      if (a !== null && b !== null) return a !== b;
-      return val !== rule.value;
-    }
-
-    case "contains": {
-      const a = asLowerString(val);
-      const b = asLowerString(rule.value);
-      if (a === null || b === null) return false;
-      return a.includes(b);
-    }
-    case "doesNotContain": {
-      const a = asLowerString(val);
-      const b = asLowerString(rule.value);
-      if (b === null) return true;
-      if (a === null) return true;
-      return !a.includes(b);
-    }
-
-    case "greaterThan":
-      return typeof val === "number" && val > Number(rule.value);
-    case "lessThan":
-      return typeof val === "number" && val < Number(rule.value);
-    case "greaterThanOrEqual":
-      return typeof val === "number" && val >= Number(rule.value);
-    case "lessThanOrEqual":
-      return typeof val === "number" && val <= Number(rule.value);
-
-    case "isAnyOf": {
-      if (!Array.isArray(rule.value)) return false;
-      return (rule.value as unknown[]).includes(val);
-    }
-    case "isNoneOf": {
-      if (!Array.isArray(rule.value)) return true;
-      return !(rule.value as unknown[]).includes(val);
-    }
-    case "hasAnyOf": {
-      if (!Array.isArray(rule.value) || !Array.isArray(val)) return false;
-      return (rule.value as unknown[]).some((v) => (val as unknown[]).includes(v));
-    }
-    case "hasAllOf": {
-      if (!Array.isArray(rule.value) || !Array.isArray(val)) return false;
-      return (rule.value as unknown[]).every((v) =>
-        (val as unknown[]).includes(v),
-      );
-    }
-    case "hasNoneOf": {
-      if (!Array.isArray(rule.value)) return true;
-      if (!Array.isArray(val)) return true;
-      return !(rule.value as unknown[]).some((v) =>
-        (val as unknown[]).includes(v),
-      );
-    }
-
-    case "isBefore": {
-      if (typeof val !== "string" || typeof rule.value !== "string") return false;
-      const a = new Date(val).getTime();
-      const b = new Date(rule.value).getTime();
-      if (Number.isNaN(a) || Number.isNaN(b)) return false;
-      return a < b;
-    }
-    case "isAfter": {
-      if (typeof val !== "string" || typeof rule.value !== "string") return false;
-      const a = new Date(val).getTime();
-      const b = new Date(rule.value).getTime();
-      if (Number.isNaN(a) || Number.isNaN(b)) return false;
-      return a > b;
-    }
-
-    default:
-      return true;
-  }
-}
-
-export function applyFilters(
-  records: BaseRecord[],
-  filters: BaseFilterRule[],
-  fields: BaseField[],
-): BaseRecord[] {
-  if (filters.length === 0) return records;
-  const fieldById = new Map(fields.map((f) => [f.id, f] as const));
-  return records.filter((r) =>
-    filters.every((rule) => {
-      const f = fieldById.get(rule.fieldId);
-      if (!f) return true; // tolerate stale rules referencing deleted fields
-      return recordMatchesRule(r, rule, f);
-    }),
-  );
-}
-
-function compareValues(
-  a: unknown,
-  b: unknown,
-  type: BaseFieldType,
-): number {
-  const aEmpty = isCellEmpty(a);
-  const bEmpty = isCellEmpty(b);
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1; // empties sink to the bottom regardless of direction
-  if (bEmpty) return -1;
-
-  if (type === "number") {
-    const an = typeof a === "number" ? a : Number(a);
-    const bn = typeof b === "number" ? b : Number(b);
-    if (Number.isNaN(an) && Number.isNaN(bn)) return 0;
-    if (Number.isNaN(an)) return 1;
-    if (Number.isNaN(bn)) return -1;
-    return an - bn;
-  }
-  if (type === "checkbox") {
-    return Number(!!a) - Number(!!b);
-  }
-  if (type === "date" || type === "datetime") {
-    const at = typeof a === "string" ? new Date(a).getTime() : 0;
-    const bt = typeof b === "string" ? new Date(b).getTime() : 0;
-    return at - bt;
-  }
-  if (Array.isArray(a) || Array.isArray(b)) {
-    const ax = Array.isArray(a) ? a.join(",") : String(a ?? "");
-    const bx = Array.isArray(b) ? b.join(",") : String(b ?? "");
-    return ax.localeCompare(bx);
-  }
-  const ax = String(a ?? "");
-  const bx = String(b ?? "");
-  return ax.localeCompare(bx, undefined, { sensitivity: "base" });
-}
-
-export function applySorts(
-  records: BaseRecord[],
-  sorts: BaseSortRule[],
-  fields: BaseField[],
-): BaseRecord[] {
-  if (sorts.length === 0) return records;
-  const fieldById = new Map(fields.map((f) => [f.id, f] as const));
-  // Stable sort copy — slice first so callers' original array is preserved.
-  return records.slice().sort((a, b) => {
-    for (const s of sorts) {
-      const f = fieldById.get(s.fieldId);
-      if (!f) continue;
-      const cmp = compareValues(a.data[s.fieldId], b.data[s.fieldId], f.type);
-      if (cmp !== 0) return s.direction === "asc" ? cmp : -cmp;
-    }
-    return a.sortOrder - b.sortOrder;
-  });
-}
+// The rules themselves live in shared/ so a Chart over a Base filters its rows
+// exactly as this grid does.
+export {
+  applyBaseFilters as applyFilters,
+  applyBaseSorts as applySorts,
+} from "../../shared/baseFilters";
 
 // ───────────────────── shared shell for popovers ─────────────────────────────
 

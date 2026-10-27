@@ -1,3 +1,4 @@
+import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
 import type { RoutinePriority } from "../../shared/routinePriority";
@@ -2622,33 +2623,11 @@ export type BaseDetail = {
 };
 
 /**
- * Operators for a filter rule, by field type. Kept as a flat union so the
- * UI can drive its operator dropdown from a single source. Some operators
- * apply to multiple types (e.g. `isEmpty`) and the picker filters them based
- * on the field's `type`.
+ * Operators for a filter rule, by field type. One flat union, defined beside
+ * the evaluator in `shared/baseFilters.ts`; the picker offers only the ones
+ * that make sense for the chosen field's `type`.
  */
-export type BaseFilterOperator =
-  | "is"
-  | "isNot"
-  | "contains"
-  | "doesNotContain"
-  | "isEmpty"
-  | "isNotEmpty"
-  | "equals"
-  | "notEquals"
-  | "greaterThan"
-  | "lessThan"
-  | "greaterThanOrEqual"
-  | "lessThanOrEqual"
-  | "isAnyOf"
-  | "isNoneOf"
-  | "hasAnyOf"
-  | "hasAllOf"
-  | "hasNoneOf"
-  | "isBefore"
-  | "isAfter"
-  | "isChecked"
-  | "isUnchecked";
+export type { BaseFilterOperator };
 
 export type BaseFilterRule = {
   id: string;

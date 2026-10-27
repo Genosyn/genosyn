@@ -135,6 +135,8 @@ import { EmployeeChartGrant } from "../db/entities/EmployeeChartGrant.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { ExternalChatIdentity } from "../db/entities/ExternalChatIdentity.js";
+import { CustomerChannel } from "../db/entities/CustomerChannel.js";
+import { CustomerChannelMessage } from "../db/entities/CustomerChannelMessage.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
@@ -553,6 +555,10 @@ export async function deleteCompanyCascade(args: {
     // turns a sender on Slack or WhatsApp into an authorized Member of *this*
     // company, so it must not outlive the company it authorized into.
     await m.delete(ExternalChatIdentity, { companyId });
+    // Customer channels and the messages kept from them, before the Slack
+    // Connections they were heard through.
+    await m.delete(CustomerChannelMessage, { companyId });
+    await m.delete(CustomerChannel, { companyId });
     // Phone numbers and their texts and calls, before the Twilio Connections
     // they were reserved through. Twilio itself is not touched here: the
     // numbers stay on the Twilio account (their webhooks then answer 404), so

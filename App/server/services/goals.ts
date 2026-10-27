@@ -9,14 +9,13 @@ import {
   type GoalStatus,
   type GoalValueSource,
 } from "../db/entities/Goal.js";
-import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { toSlug } from "../lib/slug.js";
 // The shared uuid-PK guard, not a second copy — see routineFolders.ts for why
 // arbitrary text must never reach a uuid lookup on Postgres.
 import { UUID_RE } from "./bases.js";
-import { runSqlAgainstConnection } from "./explore.js";
+import { ChartSourceError, runChart } from "./exploreCharts.js";
 import { createNotifications } from "./notifications.js";
 import { emitResourceChange } from "./resourceEvents.js";
 
@@ -528,10 +527,11 @@ export async function releaseGoalsOwnedBy(companyId: string, employeeId: string)
 }
 
 /**
- * Pull the current value for a chart-bound goal: run the Chart's SQL over its
- * own Connection and read the first numeric cell of the first row — the same
- * contract the `scalar` viz renders. Throws {@link GoalError} with the reason
- * when the chart cannot produce a number, so callers can surface it.
+ * Pull the current value for a chart-bound goal: run the Chart over its own
+ * source — SQL over its Connection, or its query over a Base — and read the
+ * first numeric cell of the first row, the same contract the `scalar` viz
+ * renders. Throws {@link GoalError} with the reason when the chart cannot
+ * produce a number, so callers can surface it.
  */
 export async function refreshGoalValue(
   goal: Goal,
@@ -545,13 +545,10 @@ export async function refreshGoalValue(
     companyId: goal.companyId,
   });
   if (!chart) throw new GoalError("The bound chart no longer exists");
-  const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-    id: chart.connectionId,
-    companyId: goal.companyId,
-  });
-  if (!connection) throw new GoalError("The chart's database connection no longer exists");
   assertLeaseHeld();
-  const result = await runSqlAgainstConnection(connection, chart.sql, { maxRows: 1 });
+  const result = await runChart(chart, { maxRows: 1 }).catch((error: unknown) => {
+    throw error instanceof ChartSourceError ? new GoalError(error.message) : error;
+  });
   assertLeaseHeld();
   const first = result.rows[0];
   if (!first) throw new GoalError("The chart returned no rows");

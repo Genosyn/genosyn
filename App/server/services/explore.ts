@@ -20,12 +20,15 @@ import type { ChartVizType } from "../db/entities/Chart.js";
 import { decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
 import type { ExploreFormula } from "../../shared/exploreFormula.js";
+import { parseBaseChartQuery, type BaseChartQuery } from "../../shared/baseChartQuery.js";
 import { parseDashboardFormula } from "./exploreDashboardCards.js";
 
 /**
  * Explore — Metabase-style analytics. Re-uses the company's existing
  * `IntegrationConnection` rows of provider `postgres` / `mysql` /
- * `clickhouse` as the data sources, so a Chart needs no separate auth.
+ * `clickhouse` as the data sources, so a Chart needs no separate auth. A
+ * Chart can read one of the company's own Bases instead; that engine lives in
+ * `baseCharts.ts`, and `exploreCharts.ts` runs a saved Chart of either kind.
  *
  * Single executor entry point is {@link runSqlAgainstConnection}; it
  * picks a driver based on the connection's provider, decrypts the
@@ -478,8 +481,12 @@ export type ChartDTO = {
   slug: string;
   title: string;
   description: string;
-  connectionId: string;
+  /** What the chart reads: SQL over a database Connection, or a Base. */
+  source: "connection" | "base";
+  connectionId: string | null;
   sql: string;
+  baseId: string | null;
+  baseQuery: BaseChartQuery | null;
   vizType: ChartVizType;
   vizConfig: Record<string, unknown>;
   createdById: string | null;
@@ -495,8 +502,11 @@ export function serializeChart(c: Chart): ChartDTO {
     slug: c.slug,
     title: c.title,
     description: c.description,
+    source: c.baseId ? "base" : "connection",
     connectionId: c.connectionId,
     sql: c.sql,
+    baseId: c.baseId,
+    baseQuery: c.baseId ? parseBaseChartQuery(c.baseQueryJson) : null,
     vizType: c.vizType,
     vizConfig: parseVizConfig(c.vizConfig),
     createdById: c.createdById,

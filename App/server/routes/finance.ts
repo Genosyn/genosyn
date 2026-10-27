@@ -118,6 +118,7 @@ import {
   voidVendorRefund,
 } from "../services/vendorCredits.js";
 import { recordAudit } from "../services/audit.js";
+import { countCustomerChannelsForCustomer } from "../services/customerChannels/cleanup.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
   FINANCE_ACCESS_LEVELS,
@@ -746,6 +747,7 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
     documentCount,
     contractCount,
     signatureEnvelopeCount,
+    customerChannelCount,
   ] = await Promise.all([
     AppDataSource.getRepository(Invoice).count({ where: { companyId: cid, customerId: c.id } }),
     AppDataSource.getRepository(Contact).count({ where: { companyId: cid, customerId: c.id } }),
@@ -762,6 +764,7 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
     AppDataSource.getRepository(SignatureEnvelope).count({
       where: { companyId: cid, customerId: c.id },
     }),
+    countCustomerChannelsForCustomer(cid, c.id),
   ]);
   if (
     invoiceCount +
@@ -770,7 +773,8 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
       partnershipCount +
       documentCount +
       contractCount +
-      signatureEnvelopeCount >
+      signatureEnvelopeCount +
+      customerChannelCount >
     0
   ) {
     return res.status(409).json({

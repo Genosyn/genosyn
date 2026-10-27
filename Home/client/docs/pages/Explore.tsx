@@ -22,11 +22,10 @@ export function Explore() {
         title="Explore"
         lead={
           <>
-            Self-serve BI over the database integrations your company already connects. Save a SQL
-            query as a <Strong>Chart</Strong>, pick a visualization, pin charts onto a{" "}
-            <Strong>Dashboard</Strong> the team reads at a glance. Distinct from{" "}
-            <DocLink to="/docs/vocabulary">Bases</DocLink> (the team writes into those) and from
-            running queries inside an Integration tool by hand.
+            Self-serve BI over the database integrations your company already connects and over
+            your own <DocLink to="/docs/bases">Bases</DocLink>. Save a query as a{" "}
+            <Strong>Chart</Strong>, pick a visualization, pin charts onto a{" "}
+            <Strong>Dashboard</Strong> the team reads at a glance.
           </>
         }
       />
@@ -34,16 +33,18 @@ export function Explore() {
       <H2 id="what-it-is">What ships</H2>
       <UL>
         <LI>
-          <Strong>Chart</Strong> — a saved SQL query against one database Connection plus a
-          visualization choice (table, scalar, bar, line, area, pie).
+          <Strong>Chart</Strong> — a saved SQL query against one database Connection, or a question
+          about one table in a Base, plus a visualization choice (table, scalar, bar, line, area,
+          pie).
         </LI>
         <LI>
           <Strong>Dashboard</Strong> — a grid of Charts and formula widgets, each with its own
           size and position. Formula widgets combine the numbers shown by other widgets.
         </LI>
         <LI>
-          <Strong>Run</Strong> — every execution (ad-hoc from the editor or from a saved Chart) goes
-          through the same executor with a 30s wall-clock timeout and a 5,000-row cap.
+          <Strong>Run</Strong> — every SQL execution (ad-hoc from the editor or from a saved Chart)
+          goes through the same executor with a 30s wall-clock timeout and a 5,000-row cap. A Base
+          Chart is answered from the Base&apos;s own rows under the same row cap.
         </LI>
         <LI>
           <Strong>Data browser</Strong> — the Chart editor reads the tables, views, columns, and
@@ -62,7 +63,8 @@ export function Explore() {
         Explore reads from <DocLink to="/docs/integrations">Integrations</DocLink> — specifically
         Connections of provider <Code>postgres</Code>, <Code>mysql</Code>, or{" "}
         <Code>clickhouse</Code>. Set one up under <Code>Explore → Integrations</Code>, then it shows
-        up in the Connection picker inside Explore. To delegate analytics, click{" "}
+        up in the Data source picker inside Explore. Bases need nothing connected: every Base in the
+        company is already a data source. To delegate analytics, click{" "}
         <Code>Build with AI</Code>, choose the Connection and an AI Employee, and Genosyn can create
         the Connection Grant before opening Chat.
       </P>
@@ -124,6 +126,36 @@ export function Explore() {
           edits.
         </LI>
       </OL>
+
+      <H2 id="bases">Charting a Base</H2>
+      <P>
+        Any table in a <DocLink to="/docs/bases">Base</DocLink> can feed a Chart without SQL. Click{" "}
+        <Code>Chart</Code> at the top of a Base, pick the Base under <Code>Data source</Code> in the
+        Chart editor, or start from its card under Data sources on the Explore page. The preview
+        updates as you choose — there is no Run step.
+      </P>
+      <OL>
+        <LI>
+          Choose the <Code>Table</Code>, then <Code>Filter</Code> its rows with the same rules a
+          Base view uses. The filters are saved with the Chart, not shared with a view.
+        </LI>
+        <LI>
+          <Code>Summarize</Code> to count rows, or sum, average, min, or max a number field — up to
+          five measures. <Code>Group by</Code> any field but long text: a date groups by day, week,
+          month, quarter, or year; a multiple select or link puts a row in each of its values; blank
+          cells form an <Code>(empty)</Code> group.
+        </LI>
+        <LI>
+          Or <Code>List rows</Code> to show the matching rows as the grid shows them, sorted by any
+          field. Sort groups by their own order or by size, and set a <Code>Limit</Code> for a top
+          ten.
+        </LI>
+      </OL>
+      <P>
+        Base Charts pin to Dashboards, feed formulas, and supply Goals like any other Chart. A date
+        typed in the grid is charted on the day it shows; a time stamped through the API is placed
+        on the company&apos;s calendar.
+      </P>
 
       <H3 id="viz-types">The six visualization types</H3>
       <KeyList
@@ -222,9 +254,11 @@ export function Explore() {
       <P>
         Explore has two grant boundaries. A <Strong>Connection Grant</Strong> lets an AI Employee
         inspect that database, run ad-hoc SQL, create a Chart against it, and change that
-        Chart&apos;s SQL. A <Strong>Chart or Dashboard Grant</Strong> controls access to the saved
-        Explore row. Charts and Dashboards default to <Code>read</Code> for every employee in the
-        company; their AI author receives <Code>write</Code>.
+        Chart&apos;s SQL. A <Strong>Base Grant</Strong> does the same for Charts over that Base. A{" "}
+        <Strong>Chart or Dashboard Grant</Strong> controls access to the saved Explore row. Charts
+        and Dashboards default to <Code>read</Code> for every employee in the company; their AI
+        author receives <Code>write</Code>. A Chart over an archived Base table never runs for an AI
+        Employee.
       </P>
       <P>
         Open the <Code>Share</Code> menu on any Chart or Dashboard to change a teammate&apos;s
@@ -253,8 +287,9 @@ export function Explore() {
         </LI>
         <LI>
           <Code>create_chart</Code>, <Code>update_chart</Code>, <Code>delete_chart</Code> — write
-          paths. Create requires a Grant on the bound Connection; changing SQL requires both that
-          Connection Grant and <Code>write</Code> on the Chart. Other edits and deletion require{" "}
+          paths. Create requires a Grant on the bound Connection, or on the Base for a Chart that
+          passes <Code>baseSlug</Code> and a <Code>baseQuery</Code> built from <Code>get_base</Code>.
+          Changing SQL or a Base query requires that Grant and <Code>write</Code> on the Chart. Other edits and deletion require{" "}
           <Code>write</Code> on the Chart. A Chart a <DocLink to="/docs/goals">Goal</DocLink> reads
           refuses an AI Employee&apos;s SQL change and deletion outright — only a person can make
           them. Deleting it here turns that Goal into a manual Goal that keeps its last value.
@@ -343,8 +378,8 @@ GROUP BY plan;`}</Pre>
           <Strong>Snowflake / BigQuery / Redshift</Strong> connectors.
         </LI>
         <LI>
-          <Strong>Native (no-SQL) query builder</Strong> over a column picker — for teammates who
-          don&apos;t write SQL.
+          <Strong>Native (no-SQL) query builder</Strong> over a database Connection — Bases already
+          have one.
         </LI>
         <LI>
           <Strong>AI-suggested charts</Strong> on a freshly-added connection.

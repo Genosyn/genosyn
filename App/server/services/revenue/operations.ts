@@ -11,6 +11,7 @@ import { Customer } from "../../db/entities/Customer.js";
 import { CustomerContact } from "../../db/entities/CustomerContact.js";
 import { CustomerContract } from "../../db/entities/CustomerContract.js";
 import { CustomerCredit } from "../../db/entities/CustomerCredit.js";
+import { CustomerChannel } from "../../db/entities/CustomerChannel.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealContact } from "../../db/entities/DealContact.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
@@ -70,6 +71,7 @@ const OPERATION_ENTITIES: Record<string, EntityTarget<ObjectLiteral>> = {
   deal_history_event: DealHistoryEvent,
   activity: Activity,
   customer_contact: CustomerContact,
+  customer_channel: CustomerChannel,
   customer_contract: CustomerContract,
   customer_credit: CustomerCredit,
   deal_contact: DealContact,
