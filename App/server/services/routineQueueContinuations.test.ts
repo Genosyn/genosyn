@@ -361,7 +361,7 @@ test("a Run that hands off keeps its model's next slot for its continuation", as
   await startRoutineRun(prospecting, { triggerKind: "manual" });
   release.resolve();
   const parent = await first.completion;
-  assert.equal(parent.status, "failed", parent.logContent);
+  assert.equal(parent.status, "continued", parent.logContent);
   assert.ok(parent.retryAt, "the unfinished work is handed to a continuation");
   await waitForRoutineQueueIdle();
   const held = await runOf(prospecting, "manual");

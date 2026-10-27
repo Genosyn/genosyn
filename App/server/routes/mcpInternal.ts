@@ -9341,6 +9341,7 @@ mcpInternalRouter.post(
 const TERMINAL_RUN_STATUSES: RunStatus[] = [
   "completed",
   "reviewed",
+  "continued",
   "failed",
   "error",
   "skipped",
@@ -9425,6 +9426,7 @@ mcpInternalRouter.post(
       note:
         "Newest first. `checksVerdict` is the Checks the Routine declares; " +
         "`outcomeVerdict` is how the finished work was graded. " +
+        "Status `continued` means the Run saved its progress and the next Run took over its unfinished work, not that it failed. " +
         "Call get_run_report for one Run's check results and what it changed.",
     });
   },

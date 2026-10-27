@@ -58,13 +58,15 @@ const UNKNOWN_FAILURE =
 
 /**
  * A Run that saved its progress and handed the rest of its work to a fresh
- * Run (see `runContinuation.ts`) ends `failed` with no reason of its own. That
- * is the planned handoff, not a failure — the continuation shows how the work
+ * Run (see `runContinuation.ts`) ends `continued`; one finalized before that
+ * status existed ended `failed` with no reason of its own. Either way it is
+ * the planned handoff, not a failure — the continuation shows how the work
  * ended — so it gets no invented failure. Shown as one, it contradicted the
  * Run's own "Continuation scheduled" notice and told a continuation reading
  * its parent's report that the parent had failed.
  */
 function handedOff(run: DiagnosticRun): boolean {
+  if (run.status === "continued") return !run.errorKind;
   if (run.status !== "failed" || run.errorKind) return false;
   if (safe(run.failureReason ?? "") || safe(run.continuationStopReason ?? "")) return false;
   if (run.checksVerdict === "failed" || run.outcomeVerdict === "off_goal") return false;

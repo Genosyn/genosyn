@@ -332,6 +332,25 @@ describe("list_runs is the first way an employee can see what its schedule did",
     assert.equal(second.outcomeVerdict, "off_goal");
   });
 
+  test("a hand-off reads Continued, and the note says that is not a failure", async () => {
+    const handedOff = await addRun({ startedAgoMinutes: 20, status: "continued" });
+    const ended = await addRun({ startedAgoMinutes: 10 });
+    const { status, body } = await tool<{ runs: RunRow[]; note: string }>("list_runs", {
+      routine: routine.id,
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(
+      body.runs.map((r) => [r.id, r.status]),
+      [
+        [ended.id, "completed"],
+        [handedOff.id, "continued"],
+      ],
+      "a hand-off is finished history the employee can read",
+    );
+    assert.match(body.note, /`continued` means the Run saved its progress/);
+    assert.match(body.note, /not that it failed/);
+  });
+
   test("the limit is respected, and it takes the newest rows rather than the first", async () => {
     for (let i = 0; i < 6; i++) {
       await addRun({ startedAgoMinutes: (i + 1) * 10 });

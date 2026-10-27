@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   Between,
+  In,
   IsNull,
   LessThanOrEqual,
   Like,
@@ -23,7 +24,11 @@ import { StanddownError, workBlockedForRoutine } from "./standdowns.js";
 import { browserRunCreationBlocked } from "./browserRecordings.js";
 import { automaticRetryDelayMs, ORPHAN_GRACE_MS, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
-import { creditedQueueWaitMs, readRunCheckpoint } from "./runContinuation.js";
+import {
+  creditedQueueWaitMs,
+  readRunCheckpoint,
+  revertUnstartedContinuation,
+} from "./runContinuation.js";
 import { activeRunPause, resumeBudgetMs } from "./runPause.js";
 import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
 import { routineQueueHeldUntil } from "./routineQueueHold.js";
@@ -398,7 +403,7 @@ export async function hasLiveRoutineRunLease(run: Run, now: Date): Promise<boole
 
 async function skipQueuedRun(run: Run, reason: string): Promise<void> {
   const repo = AppDataSource.getRepository(Run);
-  await repo.update(
+  const skipped = await repo.update(
     { id: run.id, status: "queued" },
     run.pauseCount > 0
       ? {
@@ -417,8 +422,24 @@ async function skipQueuedRun(run: Run, reason: string): Promise<void> {
           logContent: `[queue] ${reason}\n`,
         },
   );
+  if (skipped.affected === 1 && run.pauseCount <= 0) await revertSkippedContinuation(run, reason);
   await settleQueuedApproval(run);
   await settleWaiter(run.id);
+}
+
+/**
+ * A continuation skipped before it started never took over its parent's
+ * unfinished work, so the parent's hand-off is undone and it reads Failed.
+ */
+async function revertSkippedContinuation(run: Run, reason: string): Promise<void> {
+  if (run.triggerKind !== "continuation" || !run.parentRunId) return;
+  try {
+    await revertUnstartedContinuation(run.parentRunId, reason);
+  } catch (err) {
+    // The skip itself stands; the parent stays visible as a hand-off.
+    // eslint-disable-next-line no-console
+    console.error(`[routine-queue] could not reopen run ${run.parentRunId}:`, err);
+  }
 }
 
 async function processRun(run: Run, routine: Routine): Promise<void> {
@@ -466,7 +487,7 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
           maxAttempts: routine.maxAttempts,
           retryOnTimeout: routine.retryOnTimeout,
         });
-      await repo.update(
+      const settled = await repo.update(
         { id: run.id, status: "running", queueActiveEmployeeId: run.queueActiveEmployeeId! },
         {
           routineId: run.routineId,
@@ -491,6 +512,11 @@ async function processRun(run: Run, routine: Routine): Promise<void> {
             `[queue] Unable to ${run.pauseCount > 0 ? "resume" : "start"} this Run: ${error instanceof Error ? error.message : "Unexpected dispatch error"}\n`,
         },
       );
+      if (skipped && settled.affected === 1)
+        await revertSkippedContinuation(
+          run,
+          error instanceof Error ? error.message : "The continuation could not start.",
+        );
     }
   } finally {
     await repo.update(
@@ -687,7 +713,8 @@ async function slotHeldForContinuation(target: QueuedRunModel): Promise<boolean>
   const now = Date.now();
   const handoffs = await AppDataSource.getRepository(Run).find({
     where: {
-      status: "failed",
+      // Hand-offs finalized before `continued` existed read Failed.
+      status: In(["continued", "failed"]),
       errorKind: IsNull(),
       continuationStopReason: IsNull(),
       retryAt: Between(

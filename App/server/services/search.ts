@@ -555,7 +555,14 @@ export async function searchCompany(opts: {
     }));
 }
 
+/**
+ * AI Employees come first whatever else matched: the people a company runs on
+ * are who a search most often means, and ranking them ahead keeps `TOTAL_CAP`
+ * from ever crowding them out. Then the best match, the most recent, A–Z.
+ */
 function byRank(a: Scored, b: Scored): number {
+  const lead = Number(b.kind === "employee") - Number(a.kind === "employee");
+  if (lead !== 0) return lead;
   if (a.score !== b.score) return b.score - a.score;
   const at = a.updatedAt?.getTime() ?? 0;
   const bt = b.updatedAt?.getTime() ?? 0;

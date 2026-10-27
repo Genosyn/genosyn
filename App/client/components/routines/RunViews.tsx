@@ -57,12 +57,13 @@ import {
 
 /**
  * Failed (the work was not done) and Error (something stopped the Run) stay
- * apart: rose for the first, amber for the second. Skipped and reviewed are
- * plain facts.
+ * apart: rose for the first, amber for the second. Skipped, reviewed and
+ * continued (the next Run took over the work) are plain facts.
  */
 const RUN_STATUS_TONE: Record<RunStatus, BadgeTone> = {
   queued: "neutral",
   reviewed: "neutral",
+  continued: "neutral",
   running: "info",
   completed: "success",
   failed: "danger",

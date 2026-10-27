@@ -13,7 +13,13 @@ import {
 } from "@/components/routines/RunViews";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { DialogProvider } from "@/components/ui/Dialog";
-import { isRunPaused, runNeedsAttention, runStatusHint, runStatusLabel } from "@/lib/runStatus";
+import {
+  isRunPaused,
+  runCompletionRate,
+  runNeedsAttention,
+  runStatusHint,
+  runStatusLabel,
+} from "@/lib/runStatus";
 import type { RunStatus } from "@/lib/api";
 import type { Company, Run, RunBrowserRecording, RunFollowUp, RunLog } from "@/lib/api";
 
@@ -300,6 +306,65 @@ describe("Routine Run failure and error presentation", () => {
     assert.match(html, />pending</);
     assert.doesNotMatch(html, /work queue|one at a time/);
     assert.doesNotMatch(html, /animate-spin/);
+  });
+});
+
+describe("a Run that handed its work to a continuation", () => {
+  test("reads Continued in a plain tone, never as a failure", () => {
+    const html = renderToStaticMarkup(React.createElement(RunStatusChip, { status: "continued" }));
+    assert.match(html, />continued</);
+    assert.match(html, /bg-slate-100/);
+    assert.doesNotMatch(html, /bg-rose-50|bg-amber-50/);
+    assert.match(html, /handed its unfinished work to a continuation/);
+    assert.doesNotMatch(html, /did not complete its intended work/);
+    assert.equal(runStatusLabel("continued"), "continued");
+    assert.match(runStatusHint("continued") ?? "", /Open the continuation/);
+  });
+
+  test("never asks for attention, a retry, or a manual resumption", () => {
+    assert.equal(runNeedsAttention("continued"), false);
+    const html = renderToStaticMarkup(
+      React.createElement(
+        DialogProvider,
+        null,
+        React.createElement(RunResumeButton, {
+          company: { role: "owner" } as Company,
+          routineName: "Review",
+          run: {
+            id: "parent",
+            status: "continued",
+            errorKind: null,
+            hasUnfinishedWork: true,
+            continuationPending: false,
+            retryAt: null,
+            followUpRun: null,
+          },
+          onResumed: () => {},
+        }),
+      ),
+    );
+    assert.doesNotMatch(html, /Resume unfinished work/);
+  });
+
+  test("a continuation's completed status links from its parent without the parent claiming it", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RunContinuationNotice, {
+        continuationPending: false,
+        continuationStopReason: null,
+        followUpRun: { ...followUp, status: "completed", finishedAt: "2026-09-28T08:20:00Z" },
+      }),
+    );
+    assert.match(html, /Continuation completed/);
+    assert.match(html, /keeps its own result/);
+  });
+
+  test("the Usage completion rate leaves hand-offs and reviews out of delivery work", () => {
+    // Four chains that completed after six hand-offs, and one that failed.
+    assert.equal(runCompletionRate({ runs: 11, completed: 4, reviewed: 0, continued: 6 }), 80);
+    assert.equal(runCompletionRate({ runs: 12, completed: 4, reviewed: 1, continued: 6 }), 80);
+    // Usage computed before the bucket existed still reads.
+    assert.equal(runCompletionRate({ runs: 5, completed: 4, reviewed: 0 }), 80);
+    assert.equal(runCompletionRate({ runs: 3, completed: 0, reviewed: 1, continued: 2 }), null);
   });
 });
 

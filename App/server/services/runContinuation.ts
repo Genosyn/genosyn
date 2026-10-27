@@ -103,7 +103,7 @@ export function continuationEligibility(
     run.status === "reviewed"
   ) {
     reason = "This work requires human review before another Run can start.";
-  } else if (run.status !== "failed" || run.errorKind)
+  } else if ((run.status !== "failed" && run.status !== "continued") || run.errorKind)
     reason = "This Run did not finish with resumable work.";
   else if ((run.continuationCount ?? 0) >= MAX_RUN_CONTINUATIONS)
     reason = "The automatic continuation limit was reached.";
@@ -115,6 +115,32 @@ export function continuationEligibility(
     reason = "The original Routine time limit leaves too little time for another continuation.";
   }
   return { eligible: reason === null, reason };
+}
+
+/** Recorded on a hand-off whose queued continuation a Member cancelled. */
+export const CONTINUATION_CANCELLED_REASON = "The continuation was cancelled before it started.";
+
+/**
+ * A hand-off whose continuation never took over leaves its work unfinished:
+ * a Member cancelled it, dispatch found it ineligible, or the queue skipped
+ * it before it started. Put the `continued` parent back to `failed` with the
+ * reason, so it reads, alerts and counts as the unfinished work it now is
+ * rather than a hand-off to nothing. Compare-and-set on `continued` leaves a
+ * Run another path already settled alone; `retryAt` stays with its caller.
+ */
+export async function revertUnstartedContinuation(runId: string, reason: string): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Run);
+  const run = await repo.findOne({
+    where: { id: runId, status: "continued" },
+    select: { id: true, routineId: true },
+  });
+  if (!run) return false;
+  const reverted = await repo.update(
+    { id: run.id, status: "continued" },
+    // ResourceChangeSubscriber routes this update to its Routine stream.
+    { routineId: run.routineId, status: "failed", continuationStopReason: reason },
+  );
+  return reverted.affected === 1;
 }
 
 /** Only the live top-level Run can checkpoint itself; no caller-selected IDs. */

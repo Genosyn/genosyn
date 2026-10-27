@@ -1,11 +1,19 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
+/**
+ * `continued` is the planned hand-off: the Run saved actionable progress and an
+ * automatic continuation took over its unfinished work. It is neither a success
+ * nor a failure — the last Run in the chain carries the outcome. A hand-off
+ * whose continuation is cancelled, stopped or skipped before it starts goes
+ * back to `failed` (`revertUnstartedContinuation`).
+ */
 export type RunStatus =
   | "queued"
   | "running"
   | "completed"
   | "reviewed"
+  | "continued"
   | "failed"
   | "error"
   | "skipped"

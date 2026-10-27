@@ -643,6 +643,8 @@ function runFallbackSentence(run: WorkEntryRun | null, active: boolean): string 
   switch (run?.status) {
     case "reviewed":
       return "The proactive review finished. This Run did not carry out the proposed work.";
+    case "continued":
+      return "This run saved its progress and a continuation took over the rest of its work.";
     case "failed":
       return "This run failed to complete its intended work. Open the run log for details.";
     case "error":

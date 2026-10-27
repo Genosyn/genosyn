@@ -359,6 +359,27 @@ describe("work and Decision figures", () => {
     assert.match(figure(figures, "work.runsUnverified")?.note ?? "", /not a pass/);
   });
 
+  test("count work handed to a continuation once, by the Run that ended it", async () => {
+    const { company, routine } = await fixture();
+    // Two chains: one completed after two hand-offs, one failed after three.
+    await run(routine.id, "continued", "2026-09-02T08:00:00Z");
+    await run(routine.id, "continued", "2026-09-02T08:05:00Z");
+    await run(routine.id, "completed", "2026-09-02T08:10:00Z", { outcomeVerdict: "achieved" });
+    await run(routine.id, "continued", "2026-09-03T08:00:00Z");
+    await run(routine.id, "continued", "2026-09-03T08:05:00Z");
+    await run(routine.id, "continued", "2026-09-03T08:10:00Z");
+    await run(routine.id, "failed", "2026-09-03T08:15:00Z", {
+      continuationStopReason: "The automatic continuation limit was reached.",
+    });
+
+    const figures = await figuresFor(company.id);
+    assert.equal(value(figures, "work.runs"), 2, "a chain is one piece of work");
+    assert.equal(value(figures, "work.runsCompleted"), 1);
+    assert.equal(value(figures, "work.runsFailed"), 1, "hand-offs are never failures");
+    assert.equal(value(figures, "work.runsErrored"), 0);
+    assert.match(figure(figures, "work.runs")?.source ?? "", /continuation counts once/);
+  });
+
   test("read the month on the company's own clock", async () => {
     const { company, routine } = await fixture();
     const zone = "America/Los_Angeles";

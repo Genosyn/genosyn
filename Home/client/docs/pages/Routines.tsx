@@ -929,9 +929,11 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <LI>
           <Strong>Status</Strong> starts at <Strong>Running</Strong> and ends at{" "}
           <Strong>Completed</Strong>, <Strong>Reviewed</Strong> (proactive review and preparation),{" "}
-          <Strong>Failed</Strong>, <Strong>Error</Strong>, or <Strong>Skipped</Strong> (no AI Model
-          was connected). Completed means the work finished without a known failure; the separate{" "}
-          <DocLink to="/docs/routines#checks">Checks</DocLink> and{" "}
+          <Strong>Continued</Strong> (a{" "}
+          <DocLink to="/docs/routines#continuations">continuation</DocLink> took over the unfinished
+          work), <Strong>Failed</Strong>, <Strong>Error</Strong>, or <Strong>Skipped</Strong> (no AI
+          Model was connected). Completed means the work finished without a known failure; the
+          separate <DocLink to="/docs/routines#checks">Checks</DocLink> and{" "}
           <DocLink to="/docs/routines#outcome-check">outcome verdict</DocLink> show what was
           verified.
         </LI>
@@ -1239,8 +1241,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         existing and new Routines without changing <Strong>Attempts</Strong> or configuring a
         Workstream. Open the Run log to see <Strong>Continuation scheduled</Strong>; use
         <Strong> Cancel continuation</Strong> to stop the follow-up without disabling the Routine.
-        The unfinished Run retains its Failed status, and later Runs show their continuation number.
-        Once a later Run exists, the original Run links to it with its current status. Choose
+        The Run that handed off ends <Strong>Continued</Strong>, not Failed: its work goes on in the
+        continuation, and the last Run in the chain carries the outcome. Continued Runs never count
+        as failures in alerts, Usage, earned autonomy or the letter to the board. A Run whose
+        employee reported a failure with <Code>mark_run_failed</Code> stays Failed while its work
+        continues. If the continuation is cancelled, stops before it starts, or is skipped, the Run
+        returns to <Strong>Failed</Strong> and shows the reason. Later Runs show their continuation
+        number. Once a later Run exists, the original Run links to it with its current status.
+        Choose
         <Strong> Open continuation</Strong> to follow its progress. A completed or reviewed later
         Run keeps its own Checks and outcome; it does not rewrite the original Run&apos;s result.
       </P>

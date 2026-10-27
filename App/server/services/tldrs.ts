@@ -53,6 +53,7 @@ const MAX_SCHEDULED_PER_TICK = 3;
 const TERMINAL_RUN_STATUSES = [
   "completed",
   "reviewed",
+  "continued",
   "failed",
   "error",
   "skipped",

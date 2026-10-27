@@ -16,7 +16,7 @@ import { encryptSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
 import { agentRuntime } from "../services/agent/runtime.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
-import { saveRunCheckpoint } from "../services/runContinuation.js";
+import { CONTINUATION_CANCELLED_REASON, saveRunCheckpoint } from "../services/runContinuation.js";
 import {
   assertManualResumeSource,
   manualResumeEligibility,
@@ -182,6 +182,41 @@ const resume = () =>
     userId: administrator.id,
     acknowledgeNewAllowance: true,
   });
+
+test("cancelling a hand-off's queued continuation returns it to Failed, and an admin can then resume it", async () => {
+  const runs = AppDataSource.getRepository(Run);
+  await runs.update(source.id, {
+    status: "continued",
+    continuationStopReason: null,
+    continuationDeadlineAt: new Date(Date.now() + 3_600_000),
+    retryAt: new Date(Date.now() + 60_000),
+  });
+  const owned = await call();
+  assert.equal(owned.status, 409, "the queued continuation owns the work while it is Continued");
+  assert.match(owned.body.error ?? "", /Only failed Runs/);
+
+  const response = await fetch(
+    `${baseUrl}/api/companies/${company.id}/runs/${source.id}/cancel-retry`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+  );
+  assert.equal(response.status, 200);
+  const cancelled = (await response.json()) as Run & {
+    continuationPending: boolean;
+    hasUnfinishedWork: boolean;
+  };
+  assert.equal(cancelled.status, "failed", "the response reflects the Run as it now is");
+  assert.equal(cancelled.retryAt, null);
+  assert.equal(cancelled.continuationPending, false);
+  assert.equal(cancelled.hasUnfinishedWork, true);
+  assert.equal(cancelled.continuationStopReason, CONTINUATION_CANCELLED_REASON);
+  assert.equal((await runs.findOneByOrFail({ id: source.id })).status, "failed");
+
+  const resumed = await call();
+  assert.equal(resumed.status, 200, resumed.body.error);
+  const child = await waitForChild(resumed.body.id);
+  assert.equal(child.status, "completed");
+  assert.equal(child.parentRunId, source.id);
+});
 
 test("only a company administrator can authorize a fresh Run allowance", async () => {
   actingUserId = member.id;

@@ -270,7 +270,7 @@ test("an advanced continuation yields and its next Run retains the original dead
       continuationFromRunId: parent.id,
     })
   ).completion;
-  assert.equal(child.status, "failed");
+  assert.equal(child.status, "continued");
   assert.equal(child.errorKind, null);
   assert.equal(child.continuationStopReason, null);
   assert.ok(child.retryAt);
@@ -428,7 +428,7 @@ for (const continuing of [false, true]) {
           : { triggerKind: "manual" },
       )
     ).completion;
-    assert.equal(result.status, "failed");
+    assert.equal(result.status, "continued");
     assert.equal(result.errorKind, null);
     assert.ok(result.retryAt);
     assert.match(result.logContent, /Batch progress saved; handing unfinished work/);
@@ -491,7 +491,7 @@ test("a long initial Run yields at a new durable checkpoint and its child receiv
     return { finalText: "Reviewed the full window.", steps: 1, stopReason: "end_turn" };
   });
   const parent = await (await startRoutineRun(routine)).completion;
-  assert.equal(parent.status, "failed");
+  assert.equal(parent.status, "continued");
   assert.equal(parent.errorKind, null);
   assert.ok(parent.retryAt);
   assert.equal(parent.continuationStopReason, null);

@@ -1092,6 +1092,11 @@ export type RunStatus =
   /** Proactive review finished; proposed work requires a separate Approval. */
   | "reviewed"
   | "completed"
+  /**
+   * The Run saved its progress and an automatic continuation took over its
+   * unfinished work. Not a failure: the last Run in the chain has the outcome.
+   */
+  | "continued"
   /** A model request or runtime problem prevented the Run from finishing. */
   | "error"
   /** The Run did not complete its intended work. */
@@ -1683,6 +1688,8 @@ export type UsageBucket = {
   completed: number;
   /** Evidence-review Runs consume resources without counting as delivered work. */
   reviewed: number;
+  /** Hand-offs to a continuation, which carries the outcome; not counted as delivered or failed. */
+  continued?: number;
   error: number;
   failed: number;
   skipped: number;

@@ -39,12 +39,35 @@ const NOTE: CompanySearchResult = {
   path: "/notes/strategy/recurring-revenue-plan",
 };
 
+/** "sam" finds an AI Employee and a customer, the customer answered first. */
+const EMPLOYEE: CompanySearchResult = {
+  kind: "employee",
+  id: "employee-1",
+  label: "Samantha",
+  sublabel: "Account Executive",
+  path: "/employees/samantha",
+};
+const CUSTOMER: CompanySearchResult = {
+  kind: "customer",
+  id: "customer-1",
+  label: "SameSystem",
+  sublabel: "billing@samesystem.test",
+  path: "/customers/samesystem",
+};
+/** Holds the "sam" answer back while a check moves the cursor. */
+let samAnswer: Promise<void> = Promise.resolve();
+
 await context.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
   if (url.pathname === "/api/companies/company/search" && route.request().method() === "GET") {
     const q = url.searchParams.get("q") ?? "";
     searches.push(q);
-    const results = q.toLowerCase().includes("recurring") ? [NOTE] : [];
+    let results: CompanySearchResult[] = [];
+    if (q.toLowerCase().includes("recurring")) results = [NOTE];
+    else if (q.toLowerCase().includes("sam")) {
+      await samAnswer;
+      results = [CUSTOMER, EMPLOYEE];
+    }
     return route.fulfill({ json: { results } });
   }
   unexpected.push(`${route.request().method()} ${url.pathname}`);
@@ -198,6 +221,42 @@ try {
   await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
   await expectLocation(owner, "/c/acme/routines");
 
+  // ── AI Employees lead, above pages and the company's other records ──
+  await openPalette(owner);
+  await search(owner, "sam");
+  await owner.getByText(EMPLOYEE.label, { exact: true }).waitFor();
+  view = await snapshot(owner);
+  assert.deepEqual(view.groups, ["AI Employees", "Pages", "Customers"], "employees come first");
+  assert.deepEqual(view.rows[0], {
+    id: "command-palette-opt-ent-employee-employee-1",
+    label: EMPLOYEE.label,
+    context: EMPLOYEE.sublabel,
+    selected: true,
+    current: false,
+  });
+  assert.equal(view.rows[view.rows.length - 1].label, CUSTOMER.label);
+  await owner.screenshot({ path: path.join(output, "command-palette-employee-first.png") });
+  await owner.keyboard.press("Enter");
+  await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
+  await expectLocation(owner, "/c/acme/employees/samantha");
+
+  // ── an employee landing late keeps the row someone already moved to ──
+  let answer = () => {};
+  samAnswer = new Promise<void>((resolve) => {
+    answer = () => resolve();
+  });
+  await openPalette(owner);
+  await owner.getByRole("combobox").fill("sam");
+  await pressTo(owner, "ArrowDown", "Spam");
+  answer();
+  await owner.getByText(EMPLOYEE.label, { exact: true }).waitFor();
+  view = await snapshot(owner);
+  assert.equal(view.rows[0].label, EMPLOYEE.label, "the employee still lands on top");
+  assert.equal(view.rows.find((r) => r.selected)?.label, "Spam", "the cursor stays put");
+  await owner.keyboard.press("Enter");
+  await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
+  await expectLocation(owner, "/c/acme/mail?view=spam");
+
   // ── a click opens a page too; a page named for the query leads its section ──
   await openPalette(owner);
   await search(owner, "members");
@@ -342,7 +401,8 @@ try {
   assert.equal(searches.some((q) => q.trim().length < 2), false);
   console.log(
     "Command palette browser checks passed: recurring → Recurring invoices beside Routines and records; " +
-      "↵, arrows with wrap, and click navigation; group order by best match; no duplicate destinations; " +
+      "↵, arrows with wrap, and click navigation; AI Employees first, a late answer leaving the cursor put; " +
+      "group order by best match; no duplicate destinations; " +
       "folding of case, spaces, and accents; browse lists every section; owner / Member / finance-access " +
       "visibility; current-page marker; phone layout.",
   );

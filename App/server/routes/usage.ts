@@ -32,6 +32,8 @@ type RunBucket = {
   runs: number;
   completed: number;
   reviewed: number;
+  /** Hand-offs: the work went on in a continuation, which carries the outcome. */
+  continued: number;
   failed: number;
   error: number;
   skipped: number;
@@ -47,6 +49,7 @@ function emptyBucket(): RunBucket {
     runs: 0,
     completed: 0,
     reviewed: 0,
+    continued: 0,
     failed: 0,
     error: 0,
     skipped: 0,
@@ -64,6 +67,7 @@ function accumulate(b: RunBucket, run: Run): void {
   b.runs += 1;
   if (run.status === "completed") b.completed += 1;
   else if (run.status === "reviewed") b.reviewed += 1;
+  else if (run.status === "continued") b.continued += 1;
   else if (run.status === "failed") b.failed += 1;
   else if (run.status === "error") b.error += 1;
   else if (run.status === "skipped") b.skipped += 1;
