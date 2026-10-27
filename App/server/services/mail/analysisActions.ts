@@ -276,6 +276,15 @@ async function runAction(
       };
     }
 
+    case "schedule_meeting":
+      // Nothing to run here: the button opens the Member's scheduler, where
+      // the time, zone and guests are checked before any invite exists. The
+      // scheduler spends the button once the meeting is actually on the
+      // calendar (`markScheduleMeetingActionDone`).
+      throw new MailAnalysisActionError(
+        "Open the email and press Schedule meeting to choose the time.",
+      );
+
     case "create_estimate": {
       const customer = await resolveOrCreateCustomer(account.companyId, {
         name: action.customerName,
@@ -424,6 +433,40 @@ async function createInvoiceDraft(
   await repo.save(invoice);
   await replaceInvoiceLines(invoice, toLineDrafts(action.lines));
   return recomputeInvoiceTotals(invoice);
+}
+
+/**
+ * Spend an analysis's "Schedule meeting" button once the scheduler it opened
+ * has put the meeting on a calendar.
+ *
+ * Only that kind of button, on an analysis of that same thread in this
+ * mailbox, can be stamped this way — the request names the button, so the
+ * server checks it is one this path is allowed to spend. Returns whether a
+ * stamp landed; a button already spent, or one that is gone, is left alone.
+ */
+export async function markScheduleMeetingActionDone(
+  account: MailAccount,
+  threadId: string,
+  ref: { analysisId: string; actionId: string },
+): Promise<boolean> {
+  const analysis = await AppDataSource.getRepository(MailInboundAnalysis).findOneBy({
+    id: ref.analysisId,
+    accountId: account.id,
+    companyId: account.companyId,
+    threadId,
+  });
+  if (!analysis) return false;
+  const action = parseAnalysisActions(analysis.actionsJson).find(
+    (candidate) => candidate.id === ref.actionId,
+  );
+  if (!action || action.kind !== "schedule_meeting" || action.executedAt) return false;
+  try {
+    await claimAction(analysis.id, ref.actionId);
+    return true;
+  } catch (error) {
+    if (error instanceof MailAnalysisActionError) return false;
+    throw error;
+  }
 }
 
 type ActionClaim = {

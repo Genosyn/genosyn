@@ -172,6 +172,9 @@ function mailRoutes(s: Store): ApiRoute[] {
       },
     ],
     ["GET", `${mail}/accounts/mailbox/saved-searches`, () => ({ savedSearches: [] })],
+    // A composer's recipient chips: who can be emailed, and who the mailbox knows.
+    ["POST", `${mail}/accounts/mailbox/recipient-check`, () => ({ blocked: [] })],
+    ["GET", `${mail}/accounts/mailbox/recipient-suggestions`, () => ({ suggestions: [] })],
     ["GET", `${mail}/accounts/mailbox/grants`, () => ({ direct: s.grants })],
     [
       "GET",
@@ -364,15 +367,23 @@ await app.check(
     const reply = page.getByPlaceholder("Write your reply…");
     await waitForFocus(reply, "r opens the reply box focused");
     assert.equal(await reply.inputValue(), "", "the r itself is not typed into the reply");
-    await page.getByText("to priya@customer.example").waitFor();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    // The sender is a chip on the To line, by name, and can be taken off.
+    await page
+      .locator('[data-recipient="priya@customer.example"]')
+      .getByText("Priya Shah")
+      .waitFor();
+    await page.getByRole("button", { name: "Close the reply", exact: true }).click();
     await page.keyboard.press("a");
     await waitForFocus(reply, "a opens reply-all focused");
-    await page.getByRole("button", { name: "Reply only to sender", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Reply all — change", exact: true }).waitFor();
     // Typing in the reply never triggers the thread's keys.
     await page.keyboard.type("es#u");
     assert.equal(await reply.inputValue(), "es#u");
-    assert.deepEqual(view.writes, []);
+    assert.deepEqual(
+      view.writes.filter((w) => !w.path.endsWith("/recipient-check")),
+      [],
+      "only the read-only recipient check, no thread action",
+    );
     await page.close();
   },
 );

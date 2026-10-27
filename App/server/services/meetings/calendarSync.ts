@@ -119,7 +119,7 @@ export function attendeesFor(event: GoogleCalendarEvent): StoredAttendee[] {
  * across edits, which is what makes a re-list idempotent rather than a source
  * of duplicates.
  */
-async function upsertEvent(
+export async function upsertEvent(
   account: CalendarAccount,
   raw: GoogleCalendarEvent,
 ): Promise<"upserted" | "cancelled" | "skipped"> {

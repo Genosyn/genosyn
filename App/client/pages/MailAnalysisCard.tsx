@@ -4,6 +4,7 @@ import {
   Archive,
   Ban,
   Bot,
+  CalendarPlus,
   Check,
   CircleAlert,
   FileText,
@@ -38,6 +39,7 @@ import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { FormSuccess } from "../components/ui/FormError";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
+import type { ScheduleMeetingPrefill } from "./MailScheduleMeeting";
 
 /**
  * What the AI made of this email, and the buttons it earned.
@@ -59,6 +61,7 @@ const ACTION_ICONS: Record<MailAnalysisAction["kind"], React.ReactNode> = {
   unsubscribe: <MailX size={13} />,
   thread_action: <Tag size={13} />,
   hand_over: <Bot size={13} />,
+  schedule_meeting: <CalendarPlus size={13} />,
 };
 
 function iconFor(action: MailAnalysisAction): React.ReactNode {
@@ -121,7 +124,7 @@ function AutomaticSteps({
                 ) : tone === "failed" ? (
                   <CircleAlert size={13} />
                 ) : (
-                  AUTO_ICONS[step.action] ?? <Sparkles size={13} />
+                  (AUTO_ICONS[step.action] ?? <Sparkles size={13} />)
                 )}
               </span>
               <div className="min-w-0 flex-1">
@@ -183,6 +186,7 @@ export function MailAnalysisCard({
   financeAccess,
   onChanged,
   onArchived,
+  onScheduleMeeting,
 }: {
   analysis: MailAnalysis;
   companyId: string;
@@ -193,6 +197,11 @@ export function MailAnalysisCard({
   onChanged: () => void;
   /** The suggested Archive went through: the thread view returns to its list. */
   onArchived?: () => void;
+  /**
+   * A Schedule button opens the scheduler with what the email proposed —
+   * nothing runs server-side until the Member sends the invitation there.
+   */
+  onScheduleMeeting?: (prefill: ScheduleMeetingPrefill) => void;
 }) {
   const dialog = useDialog();
   const navigate = useNavigate();
@@ -224,6 +233,10 @@ export function MailAnalysisCard({
   const run = async (action: MailAnalysisAction) => {
     if (busyId || retrying || undoingId || action.executedAt) return;
     if (analysisActionBlockedReason(action, financeAccess)) return;
+    if (action.kind === "schedule_meeting") {
+      onScheduleMeeting?.({ analysisId: row.id, actionId: action.id, action });
+      return;
+    }
     const confirmation = analysisActionConfirm(action);
     if (confirmation) {
       const ok = await dialog.confirm({

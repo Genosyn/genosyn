@@ -20,6 +20,8 @@ import {
   type RowSelection,
 } from "@/components/decisions/StackRow";
 import { mailReviewStatusLine } from "@/components/decisions/stackStatus";
+import { MailRecipientFields, useMailRecipientCheck } from "@/components/mail/MailRecipientFields";
+import { mailHeaders, mailRecipientsFrom, type MailRecipients } from "@/lib/mailRecipients";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
@@ -559,27 +561,13 @@ export function MailReviewCard({
                 </Button>
               </div>
             )}
-            <Input
-              label="To"
-              name="to"
-              defaultValue={editSession.draft.to}
+            <ReviewRecipients
+              key={editSession.baseRevision}
+              company={company}
+              accountId={review?.source.accountId ?? ""}
+              draft={editSession.draft}
               disabled={busy !== null}
-              autoFocus
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                label="Cc"
-                name="cc"
-                defaultValue={editSession.draft.cc}
-                disabled={busy !== null}
-              />
-              <Input
-                label="Bcc"
-                name="bcc"
-                defaultValue={editSession.draft.bcc}
-                disabled={busy !== null}
-              />
-            </div>
             <Input
               label="Subject"
               name="subject"
@@ -731,5 +719,49 @@ export function MailReviewOutcome({
         {refreshNotice}
       </article>
     </li>
+  );
+}
+
+/**
+ * The review's To, Cc and Bcc as chips. The form reads its fields when Save is
+ * pressed, so the chips write their lines into hidden inputs it can read —
+ * the working copy stays the form's, as the rest of the editor's is.
+ */
+function ReviewRecipients({
+  company,
+  accountId,
+  draft,
+  disabled,
+}: {
+  company: Company;
+  accountId: string;
+  draft: MailReviewDraft;
+  disabled: boolean;
+}) {
+  const [fields, setFields] = React.useState<MailRecipients>(() =>
+    mailRecipientsFrom({ to: draft.to, cc: draft.cc, bcc: draft.bcc }),
+  );
+  const blocked = useMailRecipientCheck(company.id, accountId, fields);
+  const headers = mailHeaders(fields);
+  return (
+    <div>
+      <div className="rounded-lg border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-900">
+        <MailRecipientFields
+          companyId={company.id}
+          companySlug={company.slug}
+          accountId={accountId}
+          value={fields}
+          onChange={setFields}
+          selfAddress=""
+          blocked={blocked}
+          autoFocus="to"
+          disabled={disabled}
+          className="pb-1"
+        />
+      </div>
+      <input type="hidden" name="to" value={headers.to} />
+      <input type="hidden" name="cc" value={headers.cc} />
+      <input type="hidden" name="bcc" value={headers.bcc} />
+    </div>
   );
 }

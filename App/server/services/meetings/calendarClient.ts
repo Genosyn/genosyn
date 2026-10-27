@@ -120,7 +120,7 @@ async function calendarFetch<T>(args: {
 }
 
 /** Pull the human sentence out of Google's `{error:{message}}` envelope. */
-function googleErrorText(body: string): string {
+export function googleErrorText(body: string): string {
   try {
     const parsed = JSON.parse(body) as { error?: { message?: unknown } };
     const message = parsed?.error?.message;

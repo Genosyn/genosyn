@@ -43,6 +43,7 @@ import { inboxRouter } from "../routes/inbox.js";
 import { integrationsRouter } from "../routes/integrations.js";
 import { invitationsRouter } from "../routes/invitations.js";
 import { mailRouter } from "../routes/mail.js";
+import { mailMeetingsRouter } from "../routes/mailMeetings.js";
 import { marketingRouter } from "../routes/marketing.js";
 import { mcpRouter } from "../routes/mcp.js";
 import { mcpConnectRouter } from "../routes/mcpConnect.js";
@@ -363,6 +364,7 @@ function areaRules(): AreaRule[] {
     { router: memberBrowsersRouter, area: "Member browsers" },
     { router: phoneRouter, area: "Phone numbers" },
     { router: mailRouter, area: "Email" },
+    { router: mailMeetingsRouter, area: "Email" },
     { router: emailProvidersRouter, area: "Email delivery" },
     { router: emailLogsRouter, area: "Email delivery" },
     { router: revenueRouter, area: "Revenue" },

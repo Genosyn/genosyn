@@ -6,10 +6,12 @@ import {
   ArchiveRestore,
   ArrowLeft,
   Bot,
+  CalendarPlus,
   ChevronDown,
   Forward,
   Image as ImageIcon,
   Mail,
+  MoreHorizontal,
   Paperclip,
   Reply,
   ReplyAll,
@@ -33,6 +35,8 @@ import {
 } from "../lib/mail";
 import { MailAnalysisCard } from "./MailAnalysisCard";
 import { MailOutletCtx } from "./MailLayout";
+import { ReplyComposer, type ReplyComposerHandle } from "./MailReplyComposer";
+import { ScheduleMeetingModal, type ScheduleMeetingPrefill } from "./MailScheduleMeeting";
 import { useAskAiPageContext } from "../components/askAi/AskAiProvider";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
@@ -43,11 +47,26 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
+import { Avatar } from "../components/ui/Avatar";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
+import {
+  MailRecipientFields,
+  type MailRecipientFieldsHandle,
+  useMailRecipientCheck,
+} from "../components/mail/MailRecipientFields";
 import { allAttachmentIndexes, draftEditorIsDirty, withoutAttachment } from "../lib/draftEditor";
 import { errorMessage } from "../lib/errors";
-import { useComposerFileDrop } from "../lib/fileDrop";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
+import { quotedTailStart, replyRecipientsFor } from "../lib/mailCompose";
+import {
+  mailHeaders,
+  mailRecipientProblem,
+  mailRecipientsFrom,
+  type MailRecipients,
+  sameMailRecipients,
+  threadParticipants,
+} from "../lib/mailRecipients";
+import { parseRecipients, recipientKey } from "../lib/recipientTokens";
 import { clsx } from "../components/ui/clsx";
 import { MailReviewTimeline } from "@/pages/MailReviewTimeline";
 import { currentMailAnalysis, mergeMailThreadUpdate } from "@/lib/mailReview";
@@ -147,7 +166,7 @@ function applyThreadAction(
 }
 
 export default function MailThreadView() {
-  const { company, account, labels, changeTick, openCompose } = useOutletContext<MailOutletCtx>();
+  const { company, account, labels, changeTick } = useOutletContext<MailOutletCtx>();
   const { threadId } = useParams();
   const background = useBackgroundAction();
   const navigate = useNavigate();
@@ -172,16 +191,6 @@ export default function MailThreadView() {
     };
   }, [requestScope]);
 
-  const forward = React.useCallback(
-    (m: MailMessage) => {
-      openCompose({
-        subject: /^fwd:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
-        bodyText: forwardQuote(m),
-      });
-    },
-    [openCompose],
-  );
-
   const [thread, setThread] = React.useState<MailThread | null>(null);
   const [messages, setMessages] = React.useState<MailMessage[]>([]);
   const [handovers, setHandovers] = React.useState<MailHandover[]>([]);
@@ -193,6 +202,20 @@ export default function MailThreadView() {
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [handOpen, setHandOpen] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
+  const [scheduling, setScheduling] = React.useState<{
+    prefill: ScheduleMeetingPrefill | null;
+  } | null>(null);
+  const sentMessages = React.useMemo(() => messages.filter((m) => !m.isDraft), [messages]);
+  const participants = React.useMemo(
+    () => threadParticipants(sentMessages, [account.address]),
+    [sentMessages, account.address],
+  );
+  const newestMessage = sentMessages[sentMessages.length - 1] ?? null;
+  const meetingGuests = React.useMemo(() => {
+    if (!newestMessage) return [];
+    const fields = replyRecipientsFor(newestMessage, account.address, true);
+    return [...fields.to, ...fields.cc];
+  }, [newestMessage, account.address]);
 
   const load = React.useCallback(async () => {
     if (!threadId || activeRequestScope.current !== requestScope) return;
@@ -245,6 +268,7 @@ export default function MailThreadView() {
     setReviewTimeline(null);
     setHandoverDetailsOpen(false);
     setHandOpen(false);
+    setScheduling(null);
     scrolledToHandover.current = null;
     keptUnread.current = null;
     setExpanded(new Set());
@@ -301,7 +325,7 @@ export default function MailThreadView() {
   }, [thread?.id, thread?.unread]);
 
   // The keys the mail guide lists work in an open thread too: e archive,
-  // # trash, s star, u mark unread, r reply, a reply all.
+  // # trash, s star, u mark unread, r reply, a reply all, f forward.
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (shouldIgnoreShortcut(event)) return;
@@ -351,7 +375,9 @@ export default function MailThreadView() {
               Try again
             </Button>
           </div>
-        ) : <Spinner size={22} />}
+        ) : (
+          <Spinner size={22} />
+        )}
       </div>
     );
   }
@@ -408,8 +434,9 @@ export default function MailThreadView() {
         return true;
       case "r":
       case "a":
+      case "f":
         if (!canReply) return false;
-        replyRef.current?.open(key === "a");
+        replyRef.current?.open(key === "a" ? "replyAll" : key === "f" ? "forward" : "reply");
         return true;
       default:
         return false;
@@ -433,7 +460,7 @@ export default function MailThreadView() {
             <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
               {thread.subject || "(no subject)"}
             </h1>
-            <div className="ml-auto flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto">
+            <div className="ml-auto flex w-full shrink-0 flex-wrap items-center justify-end gap-0.5 sm:w-auto">
               <HeaderAction
                 title={starred ? "Unstar" : "Star"}
                 onClick={() => act(starred ? "unstar" : "star")}
@@ -501,6 +528,18 @@ export default function MailThreadView() {
                   </>
                 )}
               </Menu>
+              {canReply && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setScheduling({ prefill: null })}
+                  title="Schedule a meeting with the people on this thread"
+                  aria-label="Schedule a meeting"
+                >
+                  <CalendarPlus size={14} className="sm:mr-1.5" />
+                  <span className="hidden sm:inline">Schedule</span>
+                </Button>
+              )}
               <Button size="sm" variant="secondary" onClick={() => setHandOpen(true)}>
                 <Bot size={14} className="mr-1.5" /> Hand to AI
               </Button>
@@ -552,6 +591,7 @@ export default function MailThreadView() {
               financeAccess={company.financeAccess}
               onChanged={load}
               onArchived={leave}
+              onScheduleMeeting={(prefill) => setScheduling({ prefill })}
             />
           )}
 
@@ -605,7 +645,10 @@ export default function MailThreadView() {
                   key={m.id}
                   draft={m}
                   companyId={company.id}
+                  companySlug={company.slug}
                   accountId={account.id}
+                  selfAddress={account.address}
+                  participants={participants}
                   startEditing={m.id === editDraftId}
                   onChanged={load}
                 />
@@ -616,7 +659,8 @@ export default function MailThreadView() {
                   companyId={company.id}
                   selfAddress={account.address}
                   expanded={expanded.has(m.id)}
-                  onForward={() => forward(m)}
+                  onReply={(mode) => replyRef.current?.open(mode, m)}
+                  canReply={canReply}
                   onToggle={() =>
                     setExpanded((prev) => {
                       const next = new Set(prev);
@@ -635,12 +679,31 @@ export default function MailThreadView() {
             <ReplyComposer
               ref={replyRef}
               companyId={company.id}
+              companySlug={company.slug}
               accountId={account.id}
+              selfAddress={account.address}
               thread={thread}
+              messages={messages}
               onSent={load}
               onDraftSaved={load}
+              onScheduleMeeting={() => setScheduling({ prefill: null })}
             />
           )}
+
+          <ScheduleMeetingModal
+            open={scheduling !== null}
+            onClose={() => setScheduling(null)}
+            companyId={company.id}
+            companySlug={company.slug}
+            accountId={account.id}
+            selfAddress={account.address}
+            threadId={thread.id}
+            subject={thread.subject}
+            participants={participants}
+            defaultAttendees={meetingGuests}
+            prefill={scheduling?.prefill ?? null}
+            onAddToReply={(text) => replyRef.current?.insertText(text)}
+          />
 
           <HandToAiModal
             open={handOpen}
@@ -680,21 +743,47 @@ function HeaderAction({
 
 // ───────────────────────────── message card ─────────────────────────────
 
-function forwardQuote(m: MailMessage): string {
-  const lines = [
-    "",
-    "",
-    "---------- Forwarded message ----------",
-    `From: ${m.fromName ? `${m.fromName} <${m.fromEmail}>` : m.fromEmail}`,
-    `Date: ${m.sentAt ? new Date(m.sentAt).toLocaleString() : ""}`,
-    `Subject: ${m.subject}`,
-    `To: ${m.toEmails}`,
-  ];
-  if (m.attachments.length > 0) {
-    lines.push(`Attachments (not re-attached): ${m.attachments.map((a) => a.filename).join(", ")}`);
+/**
+ * The quoted history at the bottom of an HTML email — Gmail's `gmail_quote`,
+ * Apple Mail's `blockquote type=cite`, Outlook's reply header — folded away
+ * the way mail clients do. Only a quote that ends the message is folded, and
+ * only when the message has words of its own above it; a forward is never
+ * folded, since it is the point of the email.
+ */
+function foldHtmlQuote(html: string): { main: string; folded: boolean } {
+  if (!html) return { main: html, folded: false };
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const root = template.content;
+  const quote = root.querySelector(
+    ".gmail_quote, blockquote[type='cite'], #appendonsend, #divRplyFwdMsg, .yahoo_quoted, .moz-cite-prefix",
+  );
+  if (!quote || !root.lastChild) return { main: html, folded: false };
+  if (/forwarded message/i.test((quote.textContent ?? "").slice(0, 200))) {
+    return { main: html, folded: false };
   }
-  lines.push("", m.bodyText || m.snippet);
-  return lines.join("\n");
+  const before = document.createRange();
+  before.setStart(root, 0);
+  before.setEndBefore(quote);
+  const ownWords =
+    before.toString().trim() !== "" || before.cloneContents().querySelector("img") !== null;
+  const after = document.createRange();
+  after.setStartAfter(quote);
+  after.setEndAfter(root.lastChild);
+  if (!ownWords || after.toString().trim() !== "") return { main: html, folded: false };
+  const tail = document.createRange();
+  tail.setStartBefore(quote);
+  tail.setEndAfter(root.lastChild);
+  tail.deleteContents();
+  return { main: template.innerHTML, folded: true };
+}
+
+/** "Felix Menzel, Dana" — the people on a header line, by the names they go by. */
+function peopleOn(header: string, selfAddress: string): string {
+  const self = recipientKey(selfAddress);
+  return parseRecipients(header)
+    .map((person) => (recipientKey(person.email) === self ? "me" : person.name || person.email))
+    .join(", ");
 }
 
 function MessageCard({
@@ -702,17 +791,20 @@ function MessageCard({
   companyId,
   selfAddress,
   expanded,
-  onForward,
+  canReply,
+  onReply,
   onToggle,
 }: {
   message: MailMessage;
   companyId: string;
   selfAddress: string;
   expanded: boolean;
-  onForward: () => void;
+  canReply: boolean;
+  onReply: (mode: "reply" | "replyAll" | "forward") => void;
   onToggle: () => void;
 }) {
   const [showImages, setShowImages] = React.useState(false);
+  const [showQuote, setShowQuote] = React.useState(false);
   const rendered = React.useMemo(
     () =>
       message.bodyHtml
@@ -720,35 +812,78 @@ function MessageCard({
         : { html: "", hadRemoteImages: false },
     [message.bodyHtml, showImages],
   );
-  const html = rendered.html;
+  const folded = React.useMemo(() => foldHtmlQuote(rendered.html), [rendered.html]);
+  const html = showQuote ? rendered.html : folded.main;
   const hasRemoteImages = rendered.hadRemoteImages;
+  const text = message.bodyText || message.snippet;
+  const textQuoteAt = React.useMemo(
+    () => (rendered.html ? -1 : quotedTailStart(text)),
+    [rendered.html, text],
+  );
+  const hasQuote = rendered.html ? folded.folded : textQuoteAt > 0;
   const isSelf = message.fromEmail.toLowerCase() === selfAddress.toLowerCase();
   const fromLabel = isSelf ? "me" : message.fromName || message.fromEmail;
+  const to = peopleOn(message.toEmails, selfAddress);
+  const cc = peopleOn(message.ccEmails, selfAddress);
+  const others = parseRecipients(`${message.toEmails}, ${message.ccEmails}`).filter(
+    (person) =>
+      recipientKey(person.email) !== recipientKey(selfAddress) &&
+      recipientKey(person.email) !== recipientKey(message.fromEmail),
+  ).length;
+  const sentAtTitle = message.sentAt ? new Date(message.sentAt).toLocaleString() : undefined;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <button onClick={onToggle} className="flex w-full items-baseline gap-2 px-4 py-3 text-left">
-        <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-          {fromLabel}
-        </span>
-        {expanded ? (
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
-            to {message.toEmails || "(unknown)"}
-            {message.ccEmails ? `, cc ${message.ccEmails}` : ""}
+      <button
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <Avatar name={message.fromName || message.fromEmail} size="md" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+              {fromLabel}
+            </span>
+            {expanded && !isSelf && (
+              <span className="hidden min-w-0 truncate text-xs text-slate-400 sm:inline">
+                {message.fromEmail}
+              </span>
+            )}
           </span>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{message.snippet}</span>
-        )}
-        <span className="shrink-0 text-xs tabular-nums text-slate-400">
-          {shortMailDate(message.sentAt)}
+          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+            {expanded ? (
+              <span
+                title={[
+                  `To: ${message.toEmails}`,
+                  message.ccEmails ? `Cc: ${message.ccEmails}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
+              >
+                to {to || "(unknown)"}
+                {cc ? ` · cc ${cc}` : ""}
+              </span>
+            ) : (
+              message.snippet
+            )}
+          </span>
         </span>
-        <ChevronDown
-          size={14}
-          className={clsx(
-            "shrink-0 text-slate-300 transition-transform dark:text-slate-600",
-            expanded && "rotate-180",
+        <span className="flex shrink-0 items-center gap-1.5 self-start pt-0.5">
+          {message.attachments.length > 0 && (
+            <Paperclip size={12} className="text-slate-400" aria-label="Has attachments" />
           )}
-        />
+          <span className="text-xs tabular-nums text-slate-400" title={sentAtTitle}>
+            {shortMailDate(message.sentAt)}
+          </span>
+          <ChevronDown
+            size={14}
+            className={clsx(
+              "text-slate-300 transition-transform dark:text-slate-600",
+              expanded && "rotate-180",
+            )}
+          />
+        </span>
       </button>
       {expanded && (
         <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800/70">
@@ -760,12 +895,24 @@ function MessageCard({
               <ImageIcon size={12} /> Remote images are hidden — show images
             </button>
           )}
-          {html ? (
+          {rendered.html ? (
             <div className="mail-html" dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-700 dark:text-slate-300">
-              {message.bodyText || message.snippet}
+              {hasQuote && !showQuote ? text.slice(0, textQuoteAt).trimEnd() : text}
             </pre>
+          )}
+          {hasQuote && (
+            <button
+              type="button"
+              onClick={() => setShowQuote((open) => !open)}
+              aria-expanded={showQuote}
+              aria-label={showQuote ? "Hide quoted history" : "Show quoted history"}
+              title={showQuote ? "Hide the quoted history" : "Show the quoted history"}
+              className="mt-2 flex h-6 items-center rounded-md bg-slate-100 px-2 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+            >
+              <MoreHorizontal size={14} aria-hidden />
+            </button>
           )}
           {message.attachments.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-800/70">
@@ -782,17 +929,50 @@ function MessageCard({
               ))}
             </div>
           )}
-          <div className="mt-3 flex justify-end">
-            <button
-              onClick={onForward}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400"
-            >
-              <Forward size={13} /> Forward
-            </button>
-          </div>
+          {canReply && (
+            <div className="mt-3 flex flex-wrap justify-end gap-1">
+              <MessageAction
+                icon={<Reply size={13} />}
+                label="Reply"
+                onClick={() => onReply("reply")}
+              />
+              {others > 0 && (
+                <MessageAction
+                  icon={<ReplyAll size={13} />}
+                  label="Reply all"
+                  onClick={() => onReply("replyAll")}
+                />
+              )}
+              <MessageAction
+                icon={<Forward size={13} />}
+                label="Forward"
+                onClick={() => onReply("forward")}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function MessageAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="touch-target relative flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
+    >
+      {icon} {label}
+    </button>
   );
 }
 
@@ -805,16 +985,26 @@ function formatBytes(n: number): string {
 
 // ───────────────────────────── draft card ─────────────────────────────
 
+function savedRecipients(draft: MailMessage): MailRecipients {
+  return mailRecipientsFrom({ to: draft.toEmails, cc: draft.ccEmails, bcc: draft.bccEmails });
+}
+
 function DraftCard({
   draft,
   companyId,
+  companySlug,
   accountId,
+  selfAddress,
+  participants,
   startEditing = false,
   onChanged,
 }: {
   draft: MailMessage;
   companyId: string;
+  companySlug: string;
   accountId: string;
+  selfAddress: string;
+  participants: ReturnType<typeof threadParticipants>;
   /** Open with the editor showing — the Drafts queue's Edit asked for it. */
   startEditing?: boolean;
   onChanged: () => Promise<void>;
@@ -822,7 +1012,13 @@ function DraftCard({
   const background = useBackgroundAction();
   const dialog = useDialog();
   const [editing, setEditing] = React.useState(startEditing);
-  const [to, setTo] = React.useState(draft.toEmails);
+  const [fields, setFields] = React.useState<MailRecipients>(() => savedRecipients(draft));
+  const fieldsRef = React.useRef<MailRecipientFieldsHandle>(null);
+  const blocked = useMailRecipientCheck(
+    companyId,
+    accountId,
+    editing ? fields : savedRecipients(draft),
+  );
   const [subject, setSubject] = React.useState(draft.subject);
   const [body, setBody] = React.useState(draft.bodyText);
   const [busy, setBusy] = React.useState<"save" | "send" | "discard" | null>(null);
@@ -843,21 +1039,31 @@ function DraftCard({
   const attachmentCount = draft.attachments.length;
 
   React.useEffect(() => {
-    setTo(draft.toEmails);
+    setFields(mailRecipientsFrom({ to: draft.toEmails, cc: draft.ccEmails, bcc: draft.bccEmails }));
     setSubject(draft.subject);
     setBody(draft.bodyText);
     setKept(allAttachmentIndexes(attachmentCount));
     clearAttach();
-  }, [draft.id, draft.toEmails, draft.subject, draft.bodyText, attachmentCount, clearAttach]);
+  }, [
+    draft.id,
+    draft.toEmails,
+    draft.ccEmails,
+    draft.bccEmails,
+    draft.subject,
+    draft.bodyText,
+    attachmentCount,
+    clearAttach,
+  ]);
 
-  const save = async (): Promise<string | null> => {
+  const save = async (recipients: MailRecipients = fields): Promise<string | null> => {
     // Returns the (possibly new) draft id — Gmail reissues ids on update.
+    const headers = mailHeaders(recipients);
     const res = await mailApi.updateDraft(companyId, draft.id, {
-      to,
+      to: headers.to,
+      cc: headers.cc,
+      bcc: headers.bcc,
       subject,
       bodyText: body,
-      cc: draft.ccEmails || undefined,
-      bcc: draft.bccEmails || undefined,
       attachmentIds: attach.ids.length ? attach.ids : undefined,
       keepAttachmentIndexes: kept,
     });
@@ -867,21 +1073,38 @@ function DraftCard({
     return res.message.id;
   };
 
-  const dirty = draftEditorIsDirty(draft, {
-    to,
-    subject,
-    bodyText: body,
-    keptIndexes: kept,
-    stagedIds: attach.ids,
-  });
+  const recipientsChanged = (recipients: MailRecipients) =>
+    !sameMailRecipients(recipients, savedRecipients(draft));
+  const dirty =
+    recipientsChanged(fields) ||
+    draftEditorIsDirty(draft, {
+      to: draft.toEmails,
+      subject,
+      bodyText: body,
+      keptIndexes: kept,
+      stagedIds: attach.ids,
+    });
 
   const onSend = () => {
     setError(null);
+    const recipients = editing ? (fieldsRef.current?.commit() ?? fields) : fields;
+    const problem = mailRecipientProblem(recipients);
+    if (problem) {
+      if (!editing) setEditing(true);
+      setError(problem);
+      return;
+    }
+    if (blocked.length > 0) {
+      if (!editing) setEditing(true);
+      setError("Remove the recipients who can’t be emailed first.");
+      return;
+    }
+    const mustSave = dirty || recipientsChanged(recipients);
     setHidden(true);
     background(
       async () => {
         let id = draft.id;
-        if (dirty) id = (await save()) ?? draft.id;
+        if (mustSave) id = (await save(recipients)) ?? draft.id;
         return mailApi.sendDraft(companyId, id);
       },
       {
@@ -961,8 +1184,30 @@ function DraftCard({
           )}
         </div>
       ) : (
-        <div className="space-y-3 border-t border-amber-100 px-4 py-3 dark:border-amber-500/20">
-          <Input label="To" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div
+          className="space-y-3 border-t border-amber-100 px-4 py-3 dark:border-amber-500/20"
+          onKeyDown={(event) => {
+            // The thread's one-key shortcuts stay off while a draft is being
+            // edited, even with focus on one of the editor's buttons.
+            if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              event.stopPropagation();
+            }
+          }}
+        >
+          <div className="rounded-lg border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-900">
+            <MailRecipientFields
+              ref={fieldsRef}
+              companyId={companyId}
+              companySlug={companySlug}
+              accountId={accountId}
+              value={fields}
+              onChange={setFields}
+              participants={participants}
+              selfAddress={selfAddress}
+              blocked={blocked}
+              className="pb-1"
+            />
+          </div>
           <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <Textarea
             label="Message"
@@ -1016,6 +1261,10 @@ function DraftCard({
               onClick={() => {
                 clearAttach();
                 setKept(allAttachmentIndexes(attachmentCount));
+                setFields(savedRecipients(draft));
+                setSubject(draft.subject);
+                setBody(draft.bodyText);
+                setError(null);
                 setEditing(false);
               }}
             >
@@ -1027,10 +1276,16 @@ function DraftCard({
               loading={busy === "save"}
               disabled={busy !== null || attach.uploading || !dirty}
               onClick={async () => {
+                const recipients = fieldsRef.current?.commit() ?? fields;
+                const problem = mailRecipientProblem(recipients);
+                if (problem) {
+                  setError(problem);
+                  return;
+                }
                 setBusy("save");
                 setError(null);
                 try {
-                  await save();
+                  await save(recipients);
                   setEditing(false);
                   await onChanged();
                 } catch (err) {
@@ -1051,168 +1306,6 @@ function DraftCard({
     </div>
   );
 }
-
-// ───────────────────────────── reply composer ─────────────────────────────
-
-/** Lets the thread's `r` and `a` keys open the reply box. */
-type ReplyComposerHandle = { open: (all: boolean) => void };
-
-const ReplyComposer = React.forwardRef<
-  ReplyComposerHandle,
-  {
-    companyId: string;
-    accountId: string;
-    thread: MailThread;
-    onSent: () => Promise<void>;
-    onDraftSaved: () => Promise<void>;
-  }
->(function ReplyComposer({ companyId, accountId, thread, onSent, onDraftSaved }, ref) {
-  const [open, setOpen] = React.useState(false);
-  const [replyAll, setReplyAll] = React.useState(false);
-  React.useImperativeHandle(
-    ref,
-    () => ({
-      open: (all: boolean) => {
-        setReplyAll(all);
-        setOpen(true);
-      },
-    }),
-    [],
-  );
-  const [recipients, setRecipients] = React.useState<{ to: string; cc: string } | null>(null);
-  const [body, setBody] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-  const attach = useMailAttachments(companyId, accountId);
-  // Paste a screenshot or drop a file straight into the reply box.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => attach.addFiles(files));
-
-  React.useEffect(() => {
-    if (!open || recipients) return;
-    mailApi
-      .replyRecipients(companyId, thread.id)
-      .then(setRecipients)
-      .catch(() => setRecipients({ to: "", cc: "" }));
-  }, [open, recipients, companyId, thread.id]);
-
-  if (!open) {
-    return (
-      <div className="mt-3 flex gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            setReplyAll(false);
-            setOpen(true);
-          }}
-        >
-          <Reply size={14} className="mr-1.5" /> Reply
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setReplyAll(true);
-            setOpen(true);
-          }}
-        >
-          <ReplyAll size={14} className="mr-1.5" /> Reply all
-        </Button>
-      </div>
-    );
-  }
-
-  const submit = (kind: "send" | "draft") => {
-    setError(null);
-    const submittedBody = body;
-    const input = {
-      to: recipients?.to ?? "",
-      cc: replyAll ? recipients?.cc || undefined : undefined,
-      bodyText: submittedBody,
-      threadId: thread.id,
-      attachmentIds: attach.ids.length ? attach.ids : undefined,
-    };
-    setBody("");
-    setOpen(false);
-    const request =
-      kind === "send"
-        ? mailApi.send(companyId, accountId, input)
-        : mailApi.createDraft(companyId, accountId, input);
-    request
-      .then(() => {
-        attach.clear();
-        void (kind === "send" ? onSent() : onDraftSaved());
-      })
-      .catch((submitError: unknown) => {
-        const failure = kind === "send" ? "Couldn’t send the reply" : "Couldn’t save the draft";
-        setError(`${failure}: ${errorMessage(submitError, "Request failed")}`);
-        setBody((current) => current || submittedBody);
-        setOpen(true);
-      });
-  };
-
-  return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-        {replyAll ? <ReplyAll size={13} /> : <Reply size={13} />}
-        {recipients === null ? (
-          <Spinner size={12} />
-        ) : (
-          <span className="min-w-0 flex-1 truncate">
-            to {recipients.to || "(unknown)"}
-            {replyAll && recipients.cc ? `, cc ${recipients.cc}` : ""}
-          </span>
-        )}
-        <button
-          className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-          onClick={() => setReplyAll((v) => !v)}
-        >
-          {replyAll ? "Reply only to sender" : "Reply all"}
-        </button>
-      </div>
-      <Textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onPaste={onPaste}
-        {...dragProps}
-        rows={6}
-        placeholder="Write your reply…"
-        autoFocus
-        className={
-          dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined
-        }
-      />
-      <div className="mt-2">
-        <AttachmentBar
-          items={attach.items}
-          uploading={attach.uploading}
-          onAdd={attach.addFiles}
-          onRemove={attach.remove}
-        />
-      </div>
-      <FormError message={error} className="mt-2" />
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={attach.uploading || !body.trim()}
-          onClick={() => submit("draft")}
-        >
-          Save draft
-        </Button>
-        <Button
-          size="sm"
-          disabled={attach.uploading || !body.trim()}
-          onClick={() => submit("send")}
-        >
-          Send
-        </Button>
-      </div>
-    </div>
-  );
-});
 
 // ───────────────────────────── handovers ─────────────────────────────
 

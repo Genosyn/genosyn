@@ -111,6 +111,9 @@ export type OpenOptions = {
   touch?: boolean;
   /** localStorage seeded once, before the first load (reloads keep it). */
   storage?: Record<string, string>;
+  /** Pin the browser's locale and time zone, for checks that read formatted times. */
+  locale?: string;
+  timezoneId?: string;
 };
 
 export type AppView = {
@@ -175,6 +178,8 @@ export async function startApp(title: string) {
       colorScheme: options.scheme ?? "light",
       hasTouch: options.touch ?? false,
       isMobile: options.touch ?? false,
+      ...(options.locale ? { locale: options.locale } : {}),
+      ...(options.timezoneId ? { timezoneId: options.timezoneId } : {}),
     });
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);

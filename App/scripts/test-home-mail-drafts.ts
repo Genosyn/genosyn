@@ -231,6 +231,12 @@ async function open(options: Options = {}) {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     if (request.method() === "POST" && /\/workspace\/ws-token$/.test(url.pathname))
       return route.fulfill({ json: { token: "fixture" } });
+    // The draft editor's recipient chips ask who can be emailed. A read, not a write.
+    if (
+      request.method() === "POST" &&
+      /\/mail\/accounts\/[^/]+\/recipient-check$/.test(url.pathname)
+    )
+      return route.fulfill({ json: { blocked: [] } });
     if (request.method() !== "GET") {
       unexpected.push(`Unexpected write: ${request.method()} ${url.pathname}`);
       return route.fulfill({
@@ -631,9 +637,11 @@ add(
       await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(),
       "Customer update 1",
     );
+    // The recipient is a chip on the To line, ready to edit.
+    await page.getByRole("main").locator('[data-recipient="customer1@example.test"]').waitFor();
     assert.equal(
-      await page.getByRole("textbox", { name: "To", exact: true }).inputValue(),
-      "customer1@example.test",
+      await page.getByRole("combobox", { name: "To recipients", exact: true }).count(),
+      1,
     );
   },
   { savedAccount: "sales" },

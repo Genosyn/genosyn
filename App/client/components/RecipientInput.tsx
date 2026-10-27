@@ -1,18 +1,31 @@
 import React from "react";
 import { AlertCircle, X } from "lucide-react";
-import type { RecipientSuggestion } from "@/lib/api";
 import { passwordManagerProps } from "@/lib/passwordManagers";
-import { matchSuggestions, suggestionLabel, suggestionRecipient } from "@/lib/recipientSuggestions";
+import {
+  matchSuggestions,
+  type RecipientOption,
+  suggestionLabel,
+  suggestionRecipient,
+} from "@/lib/recipientSuggestions";
 import {
   editableRecipient,
   formatRecipient,
   parseRecipients,
   type Recipient,
+  recipientKey,
   recipientLabel,
   splitRecipientText,
   takeTypedRecipients,
 } from "@/lib/recipientTokens";
-import { clsx } from "../ui/clsx";
+import { clsx } from "./ui/clsx";
+
+/**
+ * Something the caller knows about one recipient that the Member should see
+ * before sending — a do-not-email address, a domain a Policy blocks. Keyed by
+ * {@link recipientKey}. The chip turns red and says why on hover; nothing is
+ * removed for the Member.
+ */
+export type RecipientFlag = { reason: string };
 
 export type RecipientInputHandle = {
   /** Close the match list. True when it was open, so the modal's Escape stops there. */
@@ -35,22 +48,36 @@ export type RecipientInputHandle = {
  *
  * The typed text belongs to the caller (`text`), so the dialog can turn it
  * into chips itself when the Member sends without leaving the field.
+ *
+ * Shared by Finance's send dialog (the customer's people) and the email
+ * composer (the mailbox's correspondents), so suggestions are anything with
+ * an address and a name. `variant="bare"` drops the field's own border for a
+ * composer that rules its To, Cc and Bcc rows itself.
  */
 export const RecipientInput = React.forwardRef<
   RecipientInputHandle,
   {
-    /** "To" or "Cc": names the field for assistive technology. */
+    /** "To", "Cc" or "Bcc": names the field for assistive technology. */
     label: string;
     recipients: Recipient[];
     text: string;
     onTextChange: (text: string) => void;
     onAdd: (recipients: Recipient[]) => void;
     onRemove: (email: string) => void;
-    /** The customer's people not on the email yet, best first. */
-    suggestions: RecipientSuggestion[];
+    /** People not on the email yet, best first. */
+    suggestions: RecipientOption[];
+    /** The quiet line under a suggestion's name; defaults to its role. */
+    describeSuggestion?: (suggestion: RecipientOption) => string;
+    /** Recipients to mark, by {@link recipientKey}. */
+    flags?: ReadonlyMap<string, RecipientFlag>;
     placeholder?: string;
     describedBy?: string;
     disabled?: boolean;
+    autoFocus?: boolean;
+    variant?: "field" | "bare";
+    className?: string;
+    /** The box's accessible name, when "<label> recipients" would read wrong. */
+    inputLabel?: string;
   }
 >(function RecipientInput(
   {
@@ -61,9 +88,15 @@ export const RecipientInput = React.forwardRef<
     onAdd,
     onRemove,
     suggestions,
+    describeSuggestion,
+    flags,
     placeholder,
     describedBy,
     disabled,
+    autoFocus,
+    variant = "field",
+    className,
+    inputLabel,
   },
   ref,
 ) {
@@ -113,7 +146,7 @@ export const RecipientInput = React.forwardRef<
     onAdd(parseRecipients(typed));
   }
 
-  function pick(suggestion: RecipientSuggestion) {
+  function pick(suggestion: RecipientOption) {
     setText("");
     onAdd([suggestionRecipient(suggestion)]);
     setActive(0);
@@ -247,16 +280,18 @@ export const RecipientInput = React.forwardRef<
   const optionId = (index: number) => `${listId}-option-${index}`;
 
   return (
-    <div className="relative">
+    <div className={clsx("relative", className)}>
       <div
         ref={fieldRef}
         className={clsx(
-          "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5 shadow-sm",
-          "dark:bg-slate-900",
-          "focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:focus-within:ring-indigo-500/25",
-          recipients.some((chip) => !chip.valid)
-            ? "border-red-400 dark:border-red-800"
-            : "border-slate-200 dark:border-slate-700",
+          "flex min-h-9 w-full flex-wrap items-center gap-1.5",
+          variant === "field" &&
+            "rounded-lg border bg-white px-2 py-1.5 shadow-sm dark:bg-slate-900 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:focus-within:ring-indigo-500/25",
+          variant === "field" &&
+            (recipients.some((chip) => !chip.valid)
+              ? "border-red-400 dark:border-red-800"
+              : "border-slate-200 dark:border-slate-700"),
+          variant === "bare" && "py-1",
           disabled && "opacity-60",
         )}
         // A click on the field's empty space puts the cursor in the box.
@@ -267,59 +302,68 @@ export const RecipientInput = React.forwardRef<
           }
         }}
       >
-        {recipients.map((chip, index) => (
-          <span
-            key={`${chip.email}-${index}`}
-            className={clsx(
-              "inline-flex max-w-full items-center gap-1 rounded-md py-0.5 pl-2 pr-0.5 text-sm",
-              chip.valid
-                ? "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"
-                : "bg-red-50 text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30",
-            )}
-            data-recipient={chip.email}
-            data-valid={chip.valid ? "true" : "false"}
-          >
-            {!chip.valid && <AlertCircle size={12} className="shrink-0" aria-hidden />}
-            <button
-              type="button"
-              tabIndex={-1}
-              // The cursor stays in the box: these act on the chip, they are not a stop.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => edit(index)}
-              disabled={disabled}
-              title={`${formatRecipient(chip)} — click to edit`}
-              className="min-w-0 truncate text-left"
-            >
-              {recipientLabel(chip)}
-            </button>
-            <button
-              type="button"
-              tabIndex={-1}
-              ref={(node) => {
-                chipRefs.current[index] = node;
-              }}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => removeAt(index, "input")}
-              onKeyDown={(event) => onChipKeyDown(event, index)}
-              disabled={disabled}
-              aria-label={`Remove ${formatRecipient(chip)}`}
+        {recipients.map((chip, index) => {
+          const flag = chip.valid ? flags?.get(recipientKey(chip.email)) : undefined;
+          const problem = !chip.valid || Boolean(flag);
+          return (
+            <span
+              key={`${chip.email}-${index}`}
               className={clsx(
-                "shrink-0 rounded p-0.5 focus-visible:outline-none focus-visible:ring-2",
-                chip.valid
-                  ? "text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-focus dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                  : "text-red-400 hover:bg-red-100 hover:text-red-700 focus-visible:ring-red-500/40 dark:hover:bg-red-500/20",
+                "inline-flex max-w-full items-center gap-1 rounded-md py-0.5 pl-2 pr-0.5 text-sm",
+                problem
+                  ? "bg-red-50 text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30"
+                  : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
               )}
+              data-recipient={chip.email}
+              data-valid={chip.valid ? "true" : "false"}
+              data-flagged={flag ? "true" : undefined}
             >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
+              {problem && <AlertCircle size={12} className="shrink-0" aria-hidden />}
+              <button
+                type="button"
+                tabIndex={-1}
+                // The cursor stays in the box: these act on the chip, they are not a stop.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => edit(index)}
+                disabled={disabled}
+                title={
+                  flag
+                    ? `${formatRecipient(chip)} — ${flag.reason}`
+                    : `${formatRecipient(chip)} — click to edit`
+                }
+                className="min-w-0 truncate text-left"
+              >
+                {recipientLabel(chip)}
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                ref={(node) => {
+                  chipRefs.current[index] = node;
+                }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => removeAt(index, "input")}
+                onKeyDown={(event) => onChipKeyDown(event, index)}
+                disabled={disabled}
+                aria-label={`Remove ${formatRecipient(chip)}`}
+                className={clsx(
+                  "shrink-0 rounded p-0.5 focus-visible:outline-none focus-visible:ring-2",
+                  problem
+                    ? "text-red-400 hover:bg-red-100 hover:text-red-700 focus-visible:ring-red-500/40 dark:hover:bg-red-500/20"
+                    : "text-slate-400 hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-focus dark:hover:bg-slate-700 dark:hover:text-slate-200",
+                )}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          );
+        })}
         <input
           ref={inputRef}
           type="text"
           inputMode="email"
           role="combobox"
-          aria-label={`${label} recipients`}
+          aria-label={inputLabel ?? `${label} recipients`}
           aria-autocomplete="list"
           aria-expanded={menuOpen}
           aria-controls={listId}
@@ -332,6 +376,7 @@ export const RecipientInput = React.forwardRef<
           {...passwordManagerProps({})}
           value={text}
           disabled={disabled}
+          autoFocus={autoFocus}
           placeholder={recipients.length === 0 ? placeholder : undefined}
           onChange={(event) => changeText(event.target.value)}
           onKeyDown={onInputKeyDown}
@@ -372,9 +417,9 @@ export const RecipientInput = React.forwardRef<
             >
               <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
                 {suggestionLabel(suggestion)}
-                {suggestion.role && (
+                {(describeSuggestion?.(suggestion) ?? suggestion.role) && (
                   <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    {suggestion.role}
+                    {describeSuggestion?.(suggestion) ?? suggestion.role}
                   </span>
                 )}
               </span>

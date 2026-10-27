@@ -30,7 +30,7 @@ import { useDialog } from "../ui/Dialog";
 import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
 import { Textarea } from "../ui/Textarea";
-import { RecipientInput, type RecipientInputHandle } from "./RecipientInput";
+import { RecipientInput, type RecipientInputHandle } from "../RecipientInput";
 import { RecipientSuggestionList, type SuggestionsState } from "./RecipientSuggestionList";
 
 /** Every one the dialog can show; the server's own ceiling. */

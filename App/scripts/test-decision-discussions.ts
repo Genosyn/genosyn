@@ -476,6 +476,18 @@ async function open(options: FixtureOptions = {}) {
       return route.abort();
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
+    // An email review's recipient chips ask who can be emailed and who the
+    // mailbox knows. Both are reads with no effect, answered empty here.
+    if (
+      request.method() === "POST" &&
+      /^\/api\/companies\/company\/mail\/accounts\/[^/]+\/recipient-check$/.test(url.pathname)
+    )
+      return route.fulfill({ json: { blocked: [] } });
+    if (
+      request.method() === "GET" &&
+      /^\/api\/companies\/company\/mail\/accounts\/[^/]+\/recipient-suggestions$/.test(url.pathname)
+    )
+      return route.fulfill({ json: { suggestions: [] } });
     if (request.method() === "GET") {
       reads.push(url.pathname + url.search);
       if (url.pathname === `${apiBase}/decisions`) {
@@ -2329,9 +2341,16 @@ try {
   await check("Edit email saves only to the stack and Send now uses the new revision", async () => {
     const fixture = await open({ role: "admin", rows: [], reviews: [mailReview()] });
     await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
-    await fixture.page.getByLabel("To", { exact: true }).fill("priya@acme.example");
-    await fixture.page.getByLabel("Cc", { exact: true }).fill("");
-    await fixture.page.getByLabel("Bcc", { exact: true }).fill("audit@genosyn.example");
+    // Recipients are chips: take the old ones off and type the new ones in.
+    const removeChip = fixture.page.getByRole("button", { name: /^Remove .+@/ });
+    while ((await removeChip.count()) > 0) await removeChip.first().click();
+    await fixture.page
+      .getByRole("combobox", { name: "To recipients", exact: true })
+      .fill("priya@acme.example");
+    await fixture.page.getByRole("button", { name: "Add Bcc recipients", exact: true }).click();
+    await fixture.page
+      .getByRole("combobox", { name: "Bcc recipients", exact: true })
+      .fill("audit@genosyn.example");
     await fixture.page.getByLabel("Subject", { exact: true }).fill("Re: Your checkout report");
     await fixture.page
       .getByLabel("Email", { exact: true })
@@ -2369,7 +2388,7 @@ try {
       mailConflictRefreshError: true,
     });
     await fixture.page.getByRole("button", { name: "Edit email", exact: true }).click();
-    const to = fixture.page.getByLabel("To", { exact: true });
+    const to = fixture.page.getByRole("combobox", { name: "To recipients", exact: true });
     const editor = fixture.page.getByLabel("Email", { exact: true });
     assert.equal(await to.evaluate((element) => element === document.activeElement), true);
     await editor.focus();
@@ -2390,7 +2409,8 @@ try {
       .getByText("Email reviews are temporarily unavailable.", { exact: true })
       .waitFor();
     assert.equal(await editor.inputValue(), "My unsaved version must remain visible.");
-    assert.equal(await to.inputValue(), "customer@acme.example");
+    await fixture.page.locator('[data-recipient="customer@acme.example"]').waitFor();
+    assert.equal(await to.inputValue(), "", "the recipient stays a chip, not loose text");
     assert.equal(
       await fixture.page.getByRole("button", { name: "Save changes", exact: true }).isDisabled(),
       true,

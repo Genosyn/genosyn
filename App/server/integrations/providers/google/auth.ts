@@ -81,6 +81,26 @@ export function hasGoogleCalendarScope(scopes: string | string[] | null | undefi
   });
 }
 
+const GOOGLE_CALENDAR_WRITE_SCOPES = new Set([
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.events.owned",
+]);
+
+/**
+ * Creating an event — a meeting scheduled from an email — needs a scope that
+ * writes events. The read-only grants {@link hasGoogleCalendarScope} accepts
+ * are enough to mirror a calendar and not enough to put anything on it, so a
+ * calendar consented that way is not offered for scheduling at all rather
+ * than offered and then refused by Google.
+ */
+export function hasGoogleCalendarWriteScope(scopes: string | string[] | null | undefined): boolean {
+  const tokens = (Array.isArray(scopes) ? scopes : [scopes ?? ""]).flatMap((scope) =>
+    scope.split(/\s+/),
+  );
+  return tokens.some((scope) => GOOGLE_CALENDAR_WRITE_SCOPES.has(scope.trim()));
+}
+
 // ---------- Config shapes (what's stored encrypted on each Connection) ----------
 
 type GoogleOauthTokens = {

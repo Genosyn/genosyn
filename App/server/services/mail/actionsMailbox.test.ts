@@ -26,6 +26,8 @@ import {
 import type { MimeFields } from "./mime.js";
 import { columnHasLabel, columnToLabelIds, labelIdsToColumn } from "./store.js";
 import { SuppressedRecipientError, addSuppression } from "./suppression.js";
+import { MailAttachmentError } from "./attachments.js";
+import { stageAttachment } from "./outbox.js";
 import { SchedulerLeaseLostError } from "../schedulerLeases.js";
 
 /**
@@ -655,6 +657,186 @@ describe("the suppression gate on the send paths", () => {
       await AppDataSource.getRepository(MailMessage).countBy({ accountId: account.id }),
       1,
       "one message, not a phantom draft beside the sent copy",
+    );
+  });
+});
+
+// ─────────────────────────── forwarding with attachments ───────────────────────────
+
+describe("forwarding an email with its attachments", () => {
+  /** An email in the mailbox carrying two files, mirrored and seeded upstream. */
+  async function original(account: MailAccount, mailbox: FakeMailbox): Promise<MailMessage> {
+    const files = [
+      {
+        partId: "2",
+        attachmentId: "att-contract",
+        filename: "contract.pdf",
+        mimeType: "application/pdf",
+        size: 8,
+      },
+      {
+        partId: "3",
+        attachmentId: "att-logo",
+        filename: "logo.png",
+        mimeType: "image/png",
+        size: 4,
+      },
+    ];
+    mailbox.seed({
+      ref: "forward-source",
+      threadRef: "thread-forward-source",
+      attachments: files,
+    });
+    mailbox.attachments.set("att-contract", Buffer.from("%PDF-1.7"));
+    mailbox.attachments.set("att-logo", Buffer.from("\x89PNG"));
+    return insert(MailMessage, {
+      companyId: account.companyId,
+      accountId: account.id,
+      threadId: "thread-forward-source",
+      gmailMessageId: "forward-source",
+      gmailThreadId: "thread-forward-source",
+      fromEmail: COUNTERPARTY,
+      toEmails: SELF,
+      subject: "Signed contract",
+      attachmentsJson: JSON.stringify(files),
+    });
+  }
+
+  test("carries the chosen files, in the original's order, ahead of anything newly attached", async () => {
+    const { account, mailbox, dependencies } = await fixture();
+    const source = await original(account, mailbox);
+    const staged = stageAttachment({
+      accountId: account.id,
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      content: Buffer.from("my notes"),
+    });
+
+    await sendMailMessage(
+      account,
+      {
+        to: "legal@acme.test",
+        subject: "Fwd: Signed contract",
+        bodyText: "See below.",
+        attachmentIds: [staged.id],
+        forwardFrom: { messageId: source.id, attachmentIndexes: [1, 0, 1] },
+      },
+      null,
+      dependencies,
+    );
+
+    const send = mailbox.calls.find((call) => call.method === "sendMessage");
+    assert.ok(send);
+    const mime = send.args[0] as MimeFields;
+    assert.deepEqual(
+      (mime.attachments ?? []).map((file) => [
+        file.filename,
+        file.mimeType,
+        file.content.toString(),
+      ]),
+      [
+        ["logo.png", "image/png", "\x89PNG"],
+        ["contract.pdf", "application/pdf", "%PDF-1.7"],
+        ["notes.txt", "text/plain", "my notes"],
+      ],
+    );
+  });
+
+  test("a draft keeps the forwarded files too", async () => {
+    const { account, mailbox, dependencies } = await fixture();
+    const source = await original(account, mailbox);
+    const draft = await createMailDraft(
+      account,
+      {
+        to: "legal@acme.test",
+        bodyText: "Draft forward",
+        forwardFrom: { messageId: source.id, attachmentIndexes: [0] },
+      },
+      null,
+      {},
+      dependencies,
+    );
+    const create = mailbox.calls.find((call) => call.method === "createDraft");
+    assert.deepEqual(
+      ((create?.args[0] as MimeFields).attachments ?? []).map((file) => file.filename),
+      ["contract.pdf"],
+    );
+    assert.ok(draft.gmailDraftId);
+  });
+
+  test("forwards nothing extra when no file was chosen", async () => {
+    const { account, mailbox, dependencies } = await fixture();
+    const source = await original(account, mailbox);
+    await sendMailMessage(
+      account,
+      {
+        to: "legal@acme.test",
+        bodyText: "Text only",
+        forwardFrom: { messageId: source.id, attachmentIndexes: [] },
+      },
+      null,
+      dependencies,
+    );
+    // No file was read from the original: the mailbox was asked to send, and nothing else.
+    assert.deepEqual(
+      mailbox.calls.map((call) => call.method),
+      ["sendMessage"],
+    );
+    const mime = mailbox.calls[0].args[0] as MimeFields;
+    assert.equal(mime.attachments, undefined);
+  });
+
+  test("refuses an email from another mailbox, and sends nothing", async () => {
+    const { account, mailbox, dependencies } = await fixture();
+    const elsewhere = await insert(MailAccount, {
+      companyId: account.companyId,
+      connectionId: "connection_of_another_mailbox",
+      provider: "imap",
+      address: "other@example.com",
+      status: "active",
+    });
+    const foreign = await original(elsewhere, mailbox);
+    await assert.rejects(
+      sendMailMessage(
+        account,
+        {
+          to: "legal@acme.test",
+          bodyText: "x",
+          forwardFrom: { messageId: foreign.id, attachmentIndexes: [0] },
+        },
+        null,
+        dependencies,
+      ),
+      (error: unknown) =>
+        error instanceof MailAttachmentError &&
+        error.status === 404 &&
+        error.message === "The email being forwarded is not in this mailbox.",
+    );
+    assert.equal(
+      mailbox.calls.some((call) => call.method === "sendMessage"),
+      false,
+    );
+  });
+
+  test("refuses an attachment the email does not have, and sends nothing", async () => {
+    const { account, mailbox, dependencies } = await fixture();
+    const source = await original(account, mailbox);
+    await assert.rejects(
+      sendMailMessage(
+        account,
+        {
+          to: "legal@acme.test",
+          bodyText: "x",
+          forwardFrom: { messageId: source.id, attachmentIndexes: [5] },
+        },
+        null,
+        dependencies,
+      ),
+      /No attachment at index 5 — this email has 2\./,
+    );
+    assert.equal(
+      mailbox.calls.some((call) => call.method === "sendMessage"),
+      false,
     );
   });
 });

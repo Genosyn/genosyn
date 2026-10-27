@@ -13,6 +13,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { redactSensitiveText } from "../approvalRedaction.js";
 import { columnHasLabel } from "./store.js";
+import { formatMeetingRange, isMeetingTimeZone } from "../../../shared/meetingTime.js";
 import {
   isInboundReviewMessage,
   mailReviewEmployee,
@@ -82,6 +83,7 @@ const AUDIT_ACTIONS: Record<
   "mail.analysis.automatic": { kind: "action", title: "Done automatically" },
   "mail.analysis.automatic_failed": { kind: "action", title: "Automatic step failed" },
   "mail.analysis.automatic_undo": { kind: "action", title: "Automatic step undone" },
+  "mail.meeting.schedule": { kind: "action", title: "Meeting scheduled" },
   "note.create": { kind: "action", title: "Note created" },
   "note.update": { kind: "action", title: "Note updated" },
   "revenue.follow_up.create": { kind: "action", title: "Follow-up created" },
@@ -157,6 +159,32 @@ function automaticStepEvent(
     description: parts.join(" "),
     failed: phase === "failed",
   };
+}
+
+/**
+ * "Wed, Oct 28, 3:00 – 3:30 PM GMT+1 · 2 invited · Google Meet" — the slot in
+ * the zone it was booked in, from the figures the scheduler recorded. Null
+ * when the row predates them or they do not read as a time.
+ */
+function meetingScheduledDescription(metadata: Record<string, unknown> | null): string | null {
+  const start = new Date(typeof metadata?.startAt === "string" ? metadata.startAt : "");
+  const end = new Date(typeof metadata?.endAt === "string" ? metadata.endAt : "");
+  const timeZone = metadata?.timeZone;
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    !isMeetingTimeZone(timeZone)
+  ) {
+    return null;
+  }
+  const invited = typeof metadata?.attendeeCount === "number" ? metadata.attendeeCount : 0;
+  return [
+    formatMeetingRange(start, end, timeZone, "en-US"),
+    invited > 0 ? `${invited} invited` : "",
+    metadata?.meetLink === true ? "Google Meet" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function jsonObject(value: string | null): Record<string, unknown> | null {
@@ -636,6 +664,13 @@ export async function mailReviewTimeline(args: {
       continue;
     }
     const metadata = jsonObject(audit.metadataJson);
+    if (audit.action === "mail.meeting.schedule") {
+      add(`action:${audit.id}`, spec.kind, audit.createdAt, spec.title, {
+        employeeId: audit.actorEmployeeId,
+        description: meetingScheduledDescription(metadata),
+      });
+      continue;
+    }
     const automatic = automaticStepEvent(audit.action, metadata);
     if (automatic) {
       add(`action:${audit.id}`, spec.kind, audit.createdAt, automatic.title, {

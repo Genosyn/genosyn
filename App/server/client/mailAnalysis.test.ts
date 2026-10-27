@@ -28,6 +28,7 @@ import {
 } from "../../client/lib/mail.js";
 import type { FinanceAccess } from "../../client/lib/api.js";
 import {
+  MAIL_ANALYSIS_ACTION_KINDS as SERVER_MAIL_ANALYSIS_ACTION_KINDS,
   MAIL_ANALYSIS_CATEGORIES as SERVER_MAIL_ANALYSIS_CATEGORIES,
   MAIL_ANALYSIS_FINANCE_KINDS as SERVER_MAIL_ANALYSIS_FINANCE_KINDS,
 } from "../services/mail/analysis.js";
@@ -76,6 +77,7 @@ const ACTION_KINDS: MailAnalysisAction["kind"][] = [
   "unsubscribe",
   "thread_action",
   "hand_over",
+  "schedule_meeting",
 ];
 
 describe("analysis category labels", () => {
@@ -226,6 +228,33 @@ describe("analysis action detail", () => {
     );
   });
 
+  test("names the slot a Schedule button proposes, in the zone it was proposed in", () => {
+    const detail = analysisActionDetail(
+      analysisAction("schedule_meeting", {
+        start: "2026-10-13T15:00",
+        timeZone: "Europe/Berlin",
+        durationMinutes: 45,
+      }),
+    );
+    assert.ok(detail);
+    assert.match(detail, /Oct 13/);
+    assert.match(detail, /3:00/);
+    assert.match(detail, /3:45/);
+    // Without a time, the verified guests; without either, nothing.
+    assert.equal(
+      analysisActionDetail(analysisAction("schedule_meeting", { targetTo: "felix@assense.com" })),
+      "With felix@assense.com",
+    );
+    assert.equal(analysisActionDetail(analysisAction("schedule_meeting")), null);
+    // A time zone that does not exist is no slot.
+    assert.equal(
+      analysisActionDetail(
+        analysisAction("schedule_meeting", { start: "2026-10-13T15:00", timeZone: "Mars/Base" }),
+      ),
+      null,
+    );
+  });
+
   test("adds up what a money document would come to, with and without a customer", () => {
     for (const kind of ["create_invoice", "create_estimate"] as const) {
       assert.equal(
@@ -287,8 +316,16 @@ describe("analysis action hints", () => {
         "Sends the sender's verified one-click unsubscribe request",
         "Applies the triage action to this thread",
         "Hands this thread to an AI employee to work",
+        "Opens the scheduler with the time and guests filled in — nothing is sent until you press Send invite",
       ],
     );
+  });
+
+  test("knows every kind of button the server can propose", () => {
+    // A kind the server adds without client copy would fall back to the
+    // generic hint — and, for a scheduler button, be sent to the server to
+    // run instead of opening the form.
+    assert.deepEqual([...SERVER_MAIL_ANALYSIS_ACTION_KINDS].sort(), [...ACTION_KINDS].sort());
   });
 
   test("gives every kind its own non-empty hint", () => {
@@ -786,7 +823,14 @@ describe("what an automatic step says", () => {
       ]),
     );
     assert.deepEqual(titles, {
-      star: ["Starring…", "Starring…", "Starred", "Didn’t star", "Couldn’t star", "Starred — undone"],
+      star: [
+        "Starring…",
+        "Starring…",
+        "Starred",
+        "Didn’t star",
+        "Couldn’t star",
+        "Starred — undone",
+      ],
       markRead: [
         "Marking read…",
         "Marking read…",
@@ -881,9 +925,6 @@ describe("what an automatic step says", () => {
   });
 
   test("knows every step the server can take", () => {
-    assert.deepEqual(
-      [...AUTO_KINDS].sort(),
-      [...SERVER_MAIL_ANALYSIS_AUTOMATIC_KINDS].sort(),
-    );
+    assert.deepEqual([...AUTO_KINDS].sort(), [...SERVER_MAIL_ANALYSIS_AUTOMATIC_KINDS].sort());
   });
 });

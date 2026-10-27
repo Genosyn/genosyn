@@ -6,7 +6,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { parseAddressList } from "../../lib/emailAddress.js";
 import { broadcastToCompany } from "../realtime.js";
-import { fetchMailAttachmentsBytes } from "./attachments.js";
+import { MailAttachmentError, fetchMailAttachmentsBytes } from "./attachments.js";
 import { mailboxForAccount } from "./mailbox/index.js";
 import { CANONICAL_LABELS, type Mailbox, type MailboxMessage } from "./mailbox/types.js";
 import type { MimeAttachment, MimeFields } from "./mime.js";
@@ -217,6 +217,13 @@ export type ComposeFields = {
    *  Resources / rendered invoices rather than the staging outbox). Takes
    *  precedence over `attachmentIds`; the two are never mixed on one call. */
   attachments?: MimeAttachment[];
+  /**
+   * Files carried over from an email being forwarded: one message in this same
+   * mailbox, and the positional indexes (the download route's numbering) of
+   * the attachments to keep. The bytes are read from the mail server when the
+   * message is composed, so a forward never depends on a copy cached here.
+   */
+  forwardFrom?: { messageId: string; attachmentIndexes: number[] };
   /** Exact reply headers captured with a reviewed payload. Ordinary compose
    * paths omit this and derive them from the live thread as before. */
   reviewedThreading?: { inReplyTo?: string; references?: string };
@@ -343,7 +350,7 @@ export async function sendMailMessage(
   // send that skips the check. See services/mail/suppression.ts.
   await assertRecipientsAllowed(account.companyId, fields);
   const mailbox = await (dependencies.mailbox ?? mailboxForAccount)(account);
-  const mime = await composeMime(account, fields, thread);
+  const mime = await composeMime(account, fields, thread, [], dependencies);
   await dependencies.onSendAttempt?.();
   const sent = await mailbox.sendMessage({ mime, thread: thread?.gmailThreadId });
   await dependencies.onSendAccepted?.(sent);
@@ -364,7 +371,7 @@ export async function createMailDraft(
   dependencies: MailActionDependencies = {},
 ): Promise<MailMessage> {
   const mailbox = await (dependencies.mailbox ?? mailboxForAccount)(account);
-  const mime = await composeMime(account, fields, thread);
+  const mime = await composeMime(account, fields, thread, [], dependencies);
   const draft = await mailbox.createDraft({ mime, thread: thread?.gmailThreadId });
   releaseAttachments(account.id, fields.attachmentIds ?? []);
   const { row } = await upsertMailMessage(account, draft.message);
@@ -426,7 +433,7 @@ export async function updateMailDraft(
   const thread = await AppDataSource.getRepository(MailThread).findOneBy({
     id: draftRow.threadId,
   });
-  const mime = await composeMime(account, fields, thread, carried);
+  const mime = await composeMime(account, fields, thread, carried, dependencies);
   // Ingest the replacement FIRST, then drop the old row — so a failure
   // fetching the new message can't leave the draft missing from the mirror.
   // Both backends reissue the message's identity on update, so the old row
@@ -524,12 +531,17 @@ export async function discardMailDraft(
  * has actually left. Composing can fail after this point — an expired
  * credential, a mail server that refuses the send — and a person retrying a
  * failed send must not find their attachments gone.
+ *
+ * A forward's own files ({@link ComposeFields.forwardFrom}) come after
+ * `carried` and before anything newly staged, in the order the original held
+ * them, so the recipient sees them the way the sender did.
  */
 async function composeMime(
   account: MailAccount,
   fields: ComposeFields,
   thread: MailThread | null,
   carried: MimeAttachment[] = [],
+  dependencies: MailActionDependencies = {},
 ): Promise<MimeFields> {
   let subject = fields.subject ?? "";
   let inReplyTo: string | undefined;
@@ -548,13 +560,14 @@ async function composeMime(
     }
   }
   if (!to) throw new Error("Recipient (to) is required");
+  const forwarded = await forwardedAttachments(account, fields.forwardFrom, dependencies);
   const added =
     fields.attachments && fields.attachments.length > 0
       ? fields.attachments
       : fields.attachmentIds && fields.attachmentIds.length > 0
         ? readAttachments(account.id, fields.attachmentIds)
         : [];
-  const all = [...carried, ...added];
+  const all = [...carried, ...forwarded, ...added];
   const attachments = all.length > 0 ? all : undefined;
   return {
     to,
@@ -567,6 +580,43 @@ async function composeMime(
     references,
     attachments,
   };
+}
+
+/**
+ * The attachments of the email being forwarded, read from the mail server.
+ *
+ * The message must be in this mailbox: a forward is "send on what this inbox
+ * received", and naming a message from another mailbox — even one the same
+ * company holds — would read a file through a Connection the compose never
+ * named. An unknown message is a 404, an index it does not have the same
+ * error the download route gives.
+ */
+async function forwardedAttachments(
+  account: MailAccount,
+  forwardFrom: ComposeFields["forwardFrom"],
+  dependencies: MailActionDependencies,
+): Promise<MimeAttachment[]> {
+  const indexes = [...new Set(forwardFrom?.attachmentIndexes ?? [])];
+  if (!forwardFrom || indexes.length === 0) return [];
+  const source = await AppDataSource.getRepository(MailMessage).findOneBy({
+    id: forwardFrom.messageId,
+    accountId: account.id,
+    companyId: account.companyId,
+  });
+  if (!source) {
+    throw new MailAttachmentError("The email being forwarded is not in this mailbox.", 404);
+  }
+  const files = await fetchMailAttachmentsBytes(
+    account,
+    source,
+    indexes,
+    dependencies.mailbox ? { mailbox: dependencies.mailbox } : undefined,
+  );
+  return files.map(({ meta, bytes }) => ({
+    filename: meta.filename || "attachment",
+    mimeType: meta.mimeType || "application/octet-stream",
+    content: bytes,
+  }));
 }
 
 // ---------- Refresh helpers ----------

@@ -11,6 +11,8 @@ import {
   MAX_MAIL_ANALYSIS_INSTRUCTION_LINES,
 } from "../../shared/mailAnalysisInstructions";
 import { instructionsEdit, type InstructionsEditState } from "./instructionsEdit";
+import { meetingInstants } from "./mailMeetings";
+import { formatMeetingRange } from "../../shared/meetingTime";
 
 /**
  * Presentation rules for AI triage of inbound mail.
@@ -121,6 +123,14 @@ export function analysisActionDetail(action: MailAnalysisAction): string | null 
     }
     case "thread_action":
       return action.action === "applyLabel" && action.labelName ? action.labelName : null;
+    case "schedule_meeting": {
+      const slot =
+        action.start && action.timeZone
+          ? meetingInstants(action.start, action.durationMinutes ?? 30, action.timeZone)
+          : null;
+      if (slot && action.timeZone) return formatMeetingRange(slot.start, slot.end, action.timeZone);
+      return action.targetTo ? `With ${action.targetTo}` : null;
+    }
     default:
       return null;
   }
@@ -141,6 +151,8 @@ export function analysisActionHint(action: MailAnalysisAction): string {
       return "Applies the triage action to this thread";
     case "hand_over":
       return "Hands this thread to an AI employee to work";
+    case "schedule_meeting":
+      return "Opens the scheduler with the time and guests filled in — nothing is sent until you press Send invite";
     default:
       // Never the model's own label: this string is the safety explanation, so
       // a kind added server-side without touching this file must read as

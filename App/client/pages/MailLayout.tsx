@@ -28,6 +28,18 @@ import {
 } from "../components/SectionRail";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { ConnectMailboxForm } from "../components/mail/ConnectMailbox";
+import {
+  MailRecipientFields,
+  type MailRecipientFieldsHandle,
+  useMailRecipientCheck,
+} from "../components/mail/MailRecipientFields";
+import {
+  emptyMailRecipients,
+  mailHeaders,
+  mailRecipientProblem,
+  mailRecipientsFrom,
+  type MailRecipients,
+} from "../lib/mailRecipients";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -563,9 +575,7 @@ function FolderLink({
   return (
     <Link
       to={view === "inbox" ? base : `${base}?view=${view}`}
-      className={
-        sidebarLinkClassName(isActive)
-      }
+      className={sidebarLinkClassName(isActive)}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -586,9 +596,7 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
   return (
     <Link
       to={`${base}?label=${encodeURIComponent(label.gmailLabelId)}`}
-      className={
-        sidebarLinkClassName(isActive)
-      }
+      className={sidebarLinkClassName(isActive)}
     >
       <Tag size={14} style={label.color ? { color: label.color } : undefined} />
       <span className="min-w-0 flex-1 truncate">{label.name}</span>
@@ -679,12 +687,12 @@ function MailComposeModal({
 }) {
   const dialog = useDialog();
   const navigate = useNavigate();
-  const [to, setTo] = React.useState("");
-  const [cc, setCc] = React.useState("");
+  const [fields, setFields] = React.useState<MailRecipients>(emptyMailRecipients);
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
-  const [showCc, setShowCc] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const fieldsRef = React.useRef<MailRecipientFieldsHandle>(null);
+  const blocked = useMailRecipientCheck(company.id, account.id, fields);
   const recovering = React.useRef(false);
   const activeSession = React.useRef(session);
   const initializedSession = React.useRef(-1);
@@ -703,24 +711,35 @@ function MailComposeModal({
       return;
     }
     recovering.current = false;
-    setTo(init.to ?? "");
-    setCc(init.cc ?? "");
-    setShowCc(Boolean(init.cc));
+    setFields(
+      mailRecipientsFrom({ to: init.to ?? "", cc: init.cc ?? "", bcc: init.bcc ?? "" }, [
+        account.address,
+      ]),
+    );
     setSubject(init.subject ?? "");
     setBody(init.bodyText ?? "");
     setError(null);
     clearAttach();
-  }, [open, init, clearAttach, session]);
+  }, [open, init, clearAttach, session, account.address]);
 
   const submit = (kind: "send" | "draft") => {
     setError(null);
-    if (kind === "send" && !to.trim()) {
-      setError("Add at least one recipient.");
+    const recipients = fieldsRef.current?.commit() ?? fields;
+    const problem = mailRecipientProblem(recipients);
+    if (problem) {
+      setError(problem);
+      fieldsRef.current?.focus("to");
       return;
     }
+    if (kind === "send" && blocked.length > 0) {
+      setError("Remove the recipients who can’t be emailed first.");
+      return;
+    }
+    const headers = mailHeaders(recipients);
     const input: ComposeInput = {
-      to: to.trim(),
-      cc: cc.trim() || undefined,
+      to: headers.to,
+      cc: headers.cc || undefined,
+      bcc: headers.bcc || undefined,
       subject: subject.trim(),
       bodyText: body,
       threadId: init.threadId,
@@ -761,27 +780,40 @@ function MailComposeModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={`New message — ${account.address}`} size="lg">
-      <div className="space-y-3">
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <Input
-              label="To"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="name@example.com, other@example.com"
-            />
-          </div>
-          {!showCc && (
-            <button
-              className="pb-2 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-              onClick={() => setShowCc(true)}
-            >
-              Cc
-            </button>
-          )}
+    <Modal
+      open={open}
+      onClose={onClose}
+      onEscape={() => fieldsRef.current?.closeMenus() ?? false}
+      title={`New message — ${account.address}`}
+      size="lg"
+    >
+      <div
+        className="space-y-3"
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            if (!attach.uploading) submit("send");
+          }
+        }}
+      >
+        <div className="rounded-lg border border-slate-300 px-3 shadow-sm focus-within:border-indigo-500 dark:border-slate-700">
+          <MailRecipientFields
+            ref={fieldsRef}
+            companyId={company.id}
+            companySlug={company.slug}
+            accountId={account.id}
+            value={fields}
+            onChange={setFields}
+            selfAddress={account.address}
+            blocked={blocked}
+            autoFocus={init.to ? undefined : "to"}
+            className="pb-1"
+          />
         </div>
-        {showCc && <Input label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} />}
         <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
         <Textarea
           label="Message"
@@ -790,6 +822,7 @@ function MailComposeModal({
           onPaste={onPaste}
           {...dragProps}
           rows={10}
+          autoFocus={Boolean(init.to)}
           className={
             dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined
           }
@@ -805,7 +838,7 @@ function MailComposeModal({
           <Button variant="secondary" disabled={attach.uploading} onClick={() => submit("draft")}>
             Save draft
           </Button>
-          <Button disabled={attach.uploading} onClick={() => submit("send")}>
+          <Button disabled={attach.uploading} onClick={() => submit("send")} title="Send (⌘↵)">
             Send
           </Button>
         </div>

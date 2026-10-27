@@ -92,6 +92,7 @@ import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { mailRouter } from "./routes/mail.js";
+import { mailMeetingsRouter } from "./routes/mailMeetings.js";
 import { revenueRouter } from "./routes/revenue.js";
 import { meetingsRouter } from "./routes/meetings.js";
 import { revenueOperationsRouter } from "./routes/revenueOperations.js";
@@ -503,6 +504,9 @@ export function createApp(): express.Express {
   // threads, drafts, rules, AI handovers, and per-employee grants. Distinct
   // from the transactional /email/* surface above; see services/mail/.
   app.use("/api/companies/:cid", mailRouter);
+  // Scheduling a meeting from an email: calendars, the AI's proposal, busy
+  // time, and the Google Calendar event with its Meet link and invitations.
+  app.use("/api/companies/:cid", mailMeetingsRouter);
 
   // Revenue section (M32) — contacts, deals, activities, sequences, signals,
   // suppressions and the revenue reports.

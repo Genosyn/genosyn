@@ -24,6 +24,7 @@ import { parseAnalysisActions, type MailAnalysisAction } from "./analysis.js";
 import {
   executeAnalysisAction,
   MailAnalysisActionError,
+  markScheduleMeetingActionDone,
   resolveOrCreateCustomer,
   type MailAnalysisActor,
 } from "./analysisActions.js";
@@ -1050,5 +1051,72 @@ describe("the recipient a prepared reply shows", () => {
     assert.equal(stored.kind, "draft_reply");
     assert.ok(stored.executedAt);
     assert.equal(await countOf(MailMessage, { companyId: COMPANY_ID }), 2);
+  });
+});
+
+describe("schedule_meeting", () => {
+  const MEETING: MailAnalysisAction = {
+    id: "0",
+    kind: "schedule_meeting",
+    label: "Schedule the call",
+    title: "Banner review",
+    start: "2026-11-03T15:00",
+    timeZone: "Europe/Berlin",
+    durationMinutes: 30,
+    attendees: ["ada@northwind-labs.example"],
+    targetTo: "ada@northwind-labs.example",
+  };
+
+  test("never runs on the server, and stays armed for the scheduler", async () => {
+    const { account, analysis } = await scene([MEETING, invoiceAction({ id: "1" })]);
+    await assert.rejects(
+      executeAnalysisAction(account, analysis, "0", ACTOR),
+      (error: unknown) =>
+        error instanceof MailAnalysisActionError &&
+        /press Schedule meeting to choose the time/.test(error.message),
+    );
+    const [meeting] = await storedActions(analysis.id);
+    assert.equal(meeting.executedAt, undefined);
+    assert.equal(await countOf(AuditEvent, { action: "mail.analysis.schedule_meeting" }), 0);
+  });
+
+  test("the scheduler spends it once the meeting exists", async () => {
+    const { account, thread, analysis } = await scene([MEETING, invoiceAction({ id: "1" })]);
+    assert.equal(
+      await markScheduleMeetingActionDone(account, thread.id, {
+        analysisId: analysis.id,
+        actionId: "0",
+      }),
+      true,
+    );
+    const [meeting, invoice] = await storedActions(analysis.id);
+    assert.ok(meeting.executedAt);
+    assert.equal(invoice.executedAt, undefined);
+    // A second schedule from the same button stamps nothing new.
+    assert.equal(
+      await markScheduleMeetingActionDone(account, thread.id, {
+        analysisId: analysis.id,
+        actionId: "0",
+      }),
+      false,
+    );
+  });
+
+  test("can spend only a scheduling button, on that thread, in that mailbox", async () => {
+    const { account, thread, analysis } = await scene([MEETING, invoiceAction({ id: "1" })]);
+    const other = await mailbox();
+    const ref = { analysisId: analysis.id, actionId: "0" };
+    assert.equal(
+      await markScheduleMeetingActionDone(account, thread.id, { ...ref, actionId: "1" }),
+      false,
+    );
+    assert.equal(await markScheduleMeetingActionDone(account, testId("thread"), ref), false);
+    assert.equal(await markScheduleMeetingActionDone(other, thread.id, ref), false);
+    assert.equal(
+      await markScheduleMeetingActionDone(account, thread.id, { ...ref, actionId: "9" }),
+      false,
+    );
+    for (const action of await storedActions(analysis.id))
+      assert.equal(action.executedAt, undefined);
   });
 });

@@ -148,6 +148,10 @@ jobs:
         run: npm run test:mail-review-timeline
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test email recipients, forwarding, and scheduling meetings from email
+        run: npm run test:mail-compose
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test Work session model selection
         run: npm run test:work-session-models
         env:

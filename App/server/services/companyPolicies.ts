@@ -91,12 +91,7 @@ export async function assertRecipientsPolicyAllowed(
   for (const policy of policies) {
     const domains = parseList(policy.blockedRecipientDomains);
     if (domains.length === 0) continue;
-    const blocked = normalized.filter((address) => {
-      const at = address.lastIndexOf("@");
-      if (at < 0) return false;
-      const domain = address.slice(at + 1);
-      return domains.some((d) => domain === d || domain.endsWith(`.${d}`));
-    });
+    const blocked = normalized.filter((address) => addressInBlockedDomain(address, domains));
     if (blocked.length > 0) {
       await recordAudit({
         companyId,
@@ -111,6 +106,43 @@ export async function assertRecipientsPolicyAllowed(
       throw new PolicyBlockedRecipientError(policy.title, blocked);
     }
   }
+}
+
+/** Whether an address's domain is one of `domains` or a subdomain of one. */
+function addressInBlockedDomain(address: string, domains: string[]): boolean {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = address.slice(at + 1);
+  return domains.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+/**
+ * Which of these addresses an enabled Policy blocks, and the policy that does —
+ * for warning a person while they are still choosing recipients.
+ *
+ * It neither refuses nor audits: nothing has been attempted yet, and a
+ * `policy.violation` row for every keystroke in a To field would bury the real
+ * ones. The send itself still goes through {@link assertRecipientsPolicyAllowed}.
+ * Each address is reported once, under the first policy that blocks it.
+ */
+export async function policyBlockedRecipients(
+  companyId: string,
+  addresses: string[],
+): Promise<Array<{ address: string; policyTitle: string }>> {
+  const normalized = [...new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+  if (normalized.length === 0) return [];
+  const blocked: Array<{ address: string; policyTitle: string }> = [];
+  const seen = new Set<string>();
+  for (const policy of await enabledPolicies(companyId)) {
+    const domains = parseList(policy.blockedRecipientDomains);
+    if (domains.length === 0) continue;
+    for (const address of normalized) {
+      if (seen.has(address) || !addressInBlockedDomain(address, domains)) continue;
+      seen.add(address);
+      blocked.push({ address, policyTitle: policy.title });
+    }
+  }
+  return blocked;
 }
 
 /**

@@ -27,7 +27,7 @@ import {
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
 import { effectiveFinanceAccess } from "../middleware/financeAccess.js";
-import { validateBody, validateParams } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
 import { broadcastToCompany } from "../services/realtime.js";
@@ -87,6 +87,13 @@ import {
   summarizeMailAttachments,
 } from "../services/mail/attachments.js";
 import { stageAttachment } from "../services/mail/outbox.js";
+import { loadAccount, loadThread } from "../services/mail/lookup.js";
+import {
+  RECIPIENT_SUGGESTIONS_DEFAULT,
+  RECIPIENT_SUGGESTIONS_MAX,
+  checkRecipients,
+  suggestRecipients,
+} from "../services/mail/recipients.js";
 import {
   createMailHandover,
   handoverGrantError,
@@ -169,27 +176,6 @@ mailRouter.use(
 );
 
 // ───────────────────────────── helpers ─────────────────────────────
-
-async function loadAccount(cid: string, accountId: string): Promise<MailAccount | null> {
-  return AppDataSource.getRepository(MailAccount).findOneBy({
-    id: accountId,
-    companyId: cid,
-  });
-}
-
-async function loadThread(
-  cid: string,
-  threadId: string,
-): Promise<{ thread: MailThread; account: MailAccount } | null> {
-  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
-    id: threadId,
-    companyId: cid,
-  });
-  if (!thread) return null;
-  const account = await loadAccount(cid, thread.accountId);
-  if (!account) return null;
-  return { thread, account };
-}
 
 function serializeThread(t: MailThread, aiReview?: MailReviewSummary) {
   return {
@@ -853,6 +839,69 @@ mailRouter.get("/mail/threads/:tid/reply-recipients", async (req, res) => {
   res.json(recipients);
 });
 
+// ───────────────────────────── recipients ─────────────────────────────
+
+const recipientSuggestionsQuerySchema = z.object({
+  q: z.string().max(320).optional().default(""),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(RECIPIENT_SUGGESTIONS_MAX)
+    .optional()
+    .default(RECIPIENT_SUGGESTIONS_DEFAULT),
+});
+
+/**
+ * The mailbox's address book for the To / Cc / Bcc fields: people it has
+ * exchanged mail with, most frequent first, matching what is being typed.
+ */
+mailRouter.get(
+  "/mail/accounts/:aid/recipient-suggestions",
+  validateQuery(recipientSuggestionsQuerySchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const account = await loadAccount(cid, req.params.aid as string);
+      if (!account) return res.status(404).json({ error: "Mail account not found" });
+      const query = req.query as unknown as z.infer<typeof recipientSuggestionsQuerySchema>;
+      res.json({ suggestions: await suggestRecipients(account, query.q, query.limit) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const recipientCheckSchema = z
+  .object({
+    to: z.string().max(2000).optional(),
+    cc: z.string().max(2000).optional(),
+    bcc: z.string().max(2000).optional(),
+  })
+  .strict();
+
+/**
+ * Which of these recipients a send would refuse, and why — the do-not-email
+ * list, a Contact marked do not contact, or a Policy's blocked domain — so a
+ * composer can mark them before Send. Read-only: nothing is refused or
+ * audited here, and the send path checks again.
+ */
+mailRouter.post(
+  "/mail/accounts/:aid/recipient-check",
+  validateBody(recipientCheckSchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const account = await loadAccount(cid, req.params.aid as string);
+      if (!account) return res.status(404).json({ error: "Mail account not found" });
+      const body = req.body as z.infer<typeof recipientCheckSchema>;
+      res.json({ blocked: await checkRecipients(account.companyId, body) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ───────────────────────────── compose / drafts ─────────────────────────────
 
 const composeSchema = z.object({
@@ -863,7 +912,24 @@ const composeSchema = z.object({
   bodyText: z.string().max(200_000),
   threadId: z.string().uuid().optional(),
   attachmentIds: z.array(z.string().max(64)).max(20).optional(),
+  /**
+   * Forwarding: the email being forwarded (a message in this same mailbox) and
+   * which of its attachments go along, by the download route's index. The
+   * files are read from the mail server when the message is composed.
+   */
+  forwardFrom: z
+    .object({
+      messageId: z.string().uuid(),
+      attachmentIndexes: z.array(z.number().int().min(0)).max(20),
+    })
+    .strict()
+    .optional(),
 });
+
+/** A compose failure as the person should see it: its own status when it carries one. */
+function composeFailureStatus(err: unknown): number {
+  return err instanceof MailAttachmentError ? err.status : 400;
+}
 
 // Outbound attachments are staged in memory, then referenced by token when
 // the message is sent or drafted. 25 MB per file (Gmail's own attachment cap).
@@ -929,7 +995,9 @@ mailRouter.post("/mail/accounts/:aid/send", validateBody(composeSchema), async (
     });
     res.json({ message: serializeMessage(message) });
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
+    res
+      .status(composeFailureStatus(err))
+      .json({ error: err instanceof Error ? err.message : "Send failed" });
   }
 });
 
@@ -946,7 +1014,9 @@ mailRouter.post("/mail/accounts/:aid/drafts", validateBody(composeSchema), async
     });
     res.json({ message: serializeMessage(message) });
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "Draft failed" });
+    res
+      .status(composeFailureStatus(err))
+      .json({ error: err instanceof Error ? err.message : "Draft failed" });
   }
 });
 
@@ -1092,7 +1162,7 @@ async function loadDraft(
   return { draft, account };
 }
 
-const patchDraftSchema = composeSchema.omit({ threadId: true }).extend({
+const patchDraftSchema = composeSchema.omit({ threadId: true, forwardFrom: true }).extend({
   /**
    * Which of the draft's existing attachments to keep, by the same positional
    * index the download route uses. Editing a draft rebuilds it from raw MIME,

@@ -17,6 +17,19 @@ import {
  * are taken off.
  */
 
+/**
+ * The least a suggestion needs to be offered in a To, Cc or Bcc field: the
+ * customer's people in a send dialog, or a mailbox's correspondents in the
+ * email composer.
+ */
+export type RecipientOption = {
+  email: string;
+  /** "" when the address is all there is. */
+  name: string;
+  /** Role or job title, matched last and shown beside the name. */
+  role?: string;
+};
+
 /** How many suggestions show before "Show more". */
 export const SUGGESTIONS_SHOWN = 4;
 /** How many matches the To and Cc fields offer while typing. */
@@ -52,18 +65,18 @@ export function availableSuggestions(
  * that merely contain it, then a role that does — each group in the server's
  * order. Empty until something is typed.
  */
-export function matchSuggestions(
-  available: RecipientSuggestion[],
+export function matchSuggestions<T extends RecipientOption>(
+  available: T[],
   query: string,
   limit = MATCHES_SHOWN,
-): RecipientSuggestion[] {
+): T[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  const scored: Array<{ suggestion: RecipientSuggestion; score: number; index: number }> = [];
+  const scored: Array<{ suggestion: T; score: number; index: number }> = [];
   available.forEach((suggestion, index) => {
     const name = suggestion.name.toLowerCase();
     const email = suggestion.email.toLowerCase();
-    const role = suggestion.role.toLowerCase();
+    const role = (suggestion.role ?? "").toLowerCase();
     let score: number | null = null;
     if (name.startsWith(needle) || email.startsWith(needle)) score = 0;
     else if (
@@ -86,12 +99,12 @@ function wordsOf(value: string): string[] {
 }
 
 /** The chip a suggestion becomes. */
-export function suggestionRecipient(suggestion: RecipientSuggestion): Recipient {
+export function suggestionRecipient(suggestion: RecipientOption): Recipient {
   return { email: suggestion.email, name: suggestion.name, valid: true };
 }
 
 /** The suggestion's headline: the person's name, else the address. */
-export function suggestionLabel(suggestion: RecipientSuggestion): string {
+export function suggestionLabel(suggestion: RecipientOption): string {
   return suggestion.name || suggestion.email;
 }
 

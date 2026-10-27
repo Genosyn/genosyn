@@ -327,6 +327,28 @@ export type ComposeInput = {
   bodyText: string;
   threadId?: string;
   attachmentIds?: string[];
+  /**
+   * Files on a message already in this mailbox to send again — a forward
+   * keeps the original's attachments. The server reads them from the mailbox.
+   */
+  forwardFrom?: { messageId: string; attachmentIndexes: number[] };
+};
+
+/** One of the mailbox's correspondents, offered while typing a recipient. */
+export type MailRecipientSuggestion = {
+  email: string;
+  /** "" when the mail never named them. */
+  name: string;
+  /** How many mirrored messages they are on. */
+  count: number;
+  lastAt: string | null;
+};
+
+/** A recipient the send would be refused for, and why. */
+export type MailBlockedRecipient = {
+  email: string;
+  reason: "suppressed" | "do_not_contact" | "policy";
+  detail: string;
 };
 
 export type UpdateDraftInput = Omit<ComposeInput, "threadId"> & {
@@ -447,7 +469,8 @@ export type MailAnalysisAction = {
     | "create_estimate"
     | "unsubscribe"
     | "thread_action"
-    | "hand_over";
+    | "hand_over"
+    | "schedule_meeting";
   label: string;
   bodyText?: string;
   subject?: string;
@@ -465,6 +488,12 @@ export type MailAnalysisAction = {
   targetEmployeeName?: string;
   targetTotalCents?: number;
   executedAt?: string;
+  /** schedule_meeting: what the email proposed, checked by the server. */
+  title?: string;
+  start?: string;
+  timeZone?: string;
+  durationMinutes?: number;
+  attendees?: string[];
 };
 
 /**
@@ -727,6 +756,20 @@ export const mailApi = {
 
   replyRecipients: (cid: string, tid: string) =>
     api.get<{ to: string; cc: string }>(`${base(cid)}/threads/${tid}/reply-recipients`),
+
+  /** The mailbox's correspondents matching what is typed, most-mailed first. */
+  recipientSuggestions: (cid: string, aid: string, q: string, limit = 8) => {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    return api.get<{ suggestions: MailRecipientSuggestion[] }>(
+      `${base(cid)}/accounts/${aid}/recipient-suggestions?${qs.toString()}`,
+    );
+  },
+  /** Who a send would be refused for — the do-not-email list and Policies. Reads only. */
+  recipientCheck: (cid: string, aid: string, input: { to?: string; cc?: string; bcc?: string }) =>
+    api.post<{ blocked: MailBlockedRecipient[] }>(
+      `${base(cid)}/accounts/${aid}/recipient-check`,
+      input,
+    ),
 
   send: (cid: string, aid: string, input: ComposeInput) =>
     api.post<{ message: MailMessage }>(`${base(cid)}/accounts/${aid}/send`, input),

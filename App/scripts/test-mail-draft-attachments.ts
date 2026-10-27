@@ -108,6 +108,20 @@ const server = await createServer({
           };
           const call: Call = { method: req.method ?? "GET", path: url.pathname };
           state.calls.push(call);
+          // The editor's To, Cc and Bcc chips ask who can be emailed and who
+          // the mailbox knows. Both are reads, answered empty here.
+          if (
+            call.method === "POST" &&
+            url.pathname === `${base}/accounts/account/recipient-check`
+          ) {
+            return json({ blocked: [] });
+          }
+          if (
+            call.method === "GET" &&
+            url.pathname === `${base}/accounts/account/recipient-suggestions`
+          ) {
+            return json({ suggestions: [] });
+          }
           if (call.method === "GET" && url.pathname === `${base}/threads/thread`) {
             return json({
               thread: {
@@ -209,7 +223,12 @@ const cases: Array<{
 const main = (page: Page) => page.getByRole("main");
 const link = (page: Page, index: number, mid = "draft") =>
   main(page).locator(`a[href="${base}/messages/${mid}/attachments/${index}"]`);
-const writes = () => state.calls.filter((call) => call.method !== "GET");
+const writes = () =>
+  state.calls.filter((call) => call.method !== "GET" && !call.path.endsWith("/recipient-check"));
+/** An attachment's × — not a recipient chip's, which is named for the address. */
+const REMOVE_FILE = /^Remove (?!.*@).+$/;
+const toInput = (page: Page) => main(page).getByRole("combobox", { name: "To recipients" });
+const chip = (page: Page, email: string) => main(page).locator(`[data-recipient="${email}"]`);
 const downloads = () => state.calls.filter((call) => call.path.includes("/attachments/"));
 async function edit(page: Page) {
   await main(page).getByRole("button", { name: "Edit", exact: true }).click();
@@ -267,12 +286,7 @@ add(
       );
     }
     assert.equal(downloads().length, 3);
-    assert.equal(
-      await main(page)
-        .getByRole("button", { name: /^Remove / })
-        .count(),
-      3,
-    );
+    assert.equal(await main(page).getByRole("button", { name: REMOVE_FILE }).count(), 3);
     assert.deepEqual(writes(), []);
   },
 );
@@ -289,8 +303,12 @@ add("keyboard Tab reaches an accessible download link and Enter downloads", asyn
 });
 add("repeated downloads preserve unsaved recipient, subject and message", async (page) => {
   await edit(page);
+  // Swap the To recipient: take the saved one off, type the new one.
+  await main(page)
+    .getByRole("button", { name: "Remove recipient@example.test", exact: true })
+    .click();
+  await toInput(page).fill("changed@example.test");
   const edits = {
-    To: "changed@example.test",
     Subject: "Updated quotation",
     Message: "Unsaved draft text\nSecond line.",
   };
@@ -303,6 +321,9 @@ add("repeated downloads preserve unsaved recipient, subject and message", async 
       await main(page).getByRole("textbox", { name: label, exact: true }).inputValue(),
       value,
     );
+  // Leaving the To box turned what was typed into a chip, and kept it.
+  await chip(page, "changed@example.test").waitFor();
+  assert.equal(await chip(page, "recipient@example.test").count(), 0);
   assert.equal(
     await main(page).getByRole("button", { name: "Save", exact: true }).isEnabled(),
     true,
@@ -340,10 +361,7 @@ add("duplicate filenames download distinct contents in either order", async (pag
 add("removing every file and cancelling restores all saved downloads", async (page) => {
   await edit(page);
   for (let index = 0; index < files.length; index++)
-    await main(page)
-      .getByRole("button", { name: /^Remove / })
-      .first()
-      .click();
+    await main(page).getByRole("button", { name: REMOVE_FILE }).first().click();
   assert.equal(await main(page).getByRole("link").count(), 0);
   assert.equal(
     await main(page).getByRole("button", { name: "Save", exact: true }).isEnabled(),
@@ -454,12 +472,7 @@ add(
   async (page) => {
     await edit(page);
     assert.equal(await main(page).getByRole("link").count(), 0);
-    assert.equal(
-      await main(page)
-        .getByRole("button", { name: /^Remove / })
-        .count(),
-      0,
-    );
+    assert.equal(await main(page).getByRole("button", { name: REMOVE_FILE }).count(), 0);
     assert.equal(
       await main(page).getByRole("button", { name: "Attach", exact: true }).isEnabled(),
       true,

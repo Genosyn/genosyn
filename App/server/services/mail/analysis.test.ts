@@ -1639,6 +1639,7 @@ describe("the analysis prompts", () => {
       unsubscribeHost: "lists.acme.example",
       youCanDraft: false,
       replyGoesTo: "billing@acme.example",
+      meetingParticipants: [],
     });
   });
 
@@ -2453,5 +2454,215 @@ describe("arrival reads and re-reads with instructions", () => {
     });
     assert.equal(recovered.status, "failed");
     assert.equal(recovered.autoActionsJson, record);
+  });
+});
+
+// ───────────────────────────── the "Schedule meeting" button ─────────────────────────────
+
+describe("the schedule_meeting button", () => {
+  const PARTICIPANTS = ["felix@assense.example", "ops@assense.example"];
+
+  function meetingButton(overrides: Record<string, unknown> = {}) {
+    return {
+      kind: "schedule_meeting" as const,
+      label: "Schedule the call",
+      title: "Status page rollout",
+      start: "2026-11-03T15:00",
+      timeZone: "Europe/Berlin",
+      durationMinutes: 45,
+      attendees: ["Felix@Assense.example", "ops@assense.example"],
+      ...overrides,
+    } as MailAnalysisSubmission["actions"][number];
+  }
+
+  test("keeps a button whose every field checks out, and names who it will invite", () => {
+    const verdict = verifyActions(
+      submission([meetingButton()], { category: "scheduling" }),
+      facts({ meetingParticipants: PARTICIPANTS }),
+    );
+    assert.deepEqual(verdict.actions, [
+      {
+        id: "0",
+        label: "Schedule the call",
+        kind: "schedule_meeting",
+        title: "Status page rollout",
+        start: "2026-11-03T15:00",
+        timeZone: "Europe/Berlin",
+        durationMinutes: 45,
+        attendees: ["felix@assense.example", "ops@assense.example"],
+        targetTo: "felix@assense.example, ops@assense.example",
+      },
+    ]);
+  });
+
+  test("never lets the email add a guest who is not on its own From, To or Cc lines", () => {
+    const verdict = verifyActions(
+      submission([
+        meetingButton({
+          attendees: ["attacker@evil.example", "felix@assense.example", "not an address"],
+        }),
+      ]),
+      facts({ meetingParticipants: PARTICIPANTS }),
+    );
+    const [button] = verdict.actions as Array<
+      Extract<MailAnalysisAction, { kind: "schedule_meeting" }>
+    >;
+    assert.deepEqual(button.attendees, ["felix@assense.example"]);
+    assert.equal(button.targetTo, "felix@assense.example");
+  });
+
+  test("keeps the button with no guests when the server knows no participants", () => {
+    const verdict = verifyActions(submission([meetingButton()]), facts());
+    const [button] = verdict.actions as Array<
+      Extract<MailAnalysisAction, { kind: "schedule_meeting" }>
+    >;
+    assert.equal(button.kind, "schedule_meeting");
+    assert.deepEqual(button.attendees, []);
+    assert.equal(button.targetTo, undefined);
+  });
+
+  test("drops a zone the runtime does not know, and the start with it, but keeps the button", () => {
+    const verdict = verifyActions(
+      submission([meetingButton({ timeZone: "CET+1" })]),
+      facts({ meetingParticipants: PARTICIPANTS }),
+    );
+    const [button] = verdict.actions as Array<
+      Extract<MailAnalysisAction, { kind: "schedule_meeting" }>
+    >;
+    assert.equal(button.timeZone, undefined);
+    assert.equal(button.start, undefined);
+    assert.equal(button.title, "Status page rollout");
+  });
+
+  test("drops a start that is not a real wall time", () => {
+    for (const start of ["2026-02-30T10:00", "next Tuesday at 3", "2026-11-03 15:00", ""]) {
+      const verdict = verifyActions(
+        submission([meetingButton({ start })]),
+        facts({ meetingParticipants: PARTICIPANTS }),
+      );
+      const [button] = verdict.actions as Array<
+        Extract<MailAnalysisAction, { kind: "schedule_meeting" }>
+      >;
+      assert.equal(button.start, undefined, start);
+      assert.equal(button.timeZone, "Europe/Berlin", start);
+    }
+  });
+
+  test("holds the duration to what a meeting may run, and ignores one that is not a number", () => {
+    const read = (durationMinutes: unknown) => {
+      const verdict = verifyActions(
+        submission([meetingButton({ durationMinutes })]),
+        facts({ meetingParticipants: PARTICIPANTS }),
+      );
+      return (verdict.actions[0] as Extract<MailAnalysisAction, { kind: "schedule_meeting" }>)
+        .durationMinutes;
+    };
+    assert.equal(read(1), 5);
+    assert.equal(read(10_000), 720);
+    assert.equal(read(29.6), 30);
+    assert.equal(read(null), undefined);
+    assert.equal(read(Number.NaN), undefined);
+  });
+
+  test("accepts the nulls a model writes for the fields it does not know", async () => {
+    const verdict = await runAnalysisTurn(
+      turnArgs({ facts: facts({ meetingParticipants: PARTICIPANTS }) }),
+      {
+        runRestricted: async (params) => {
+          const result = await params.tools[0].run({
+            category: "scheduling",
+            summary: "Felix wants a call about the rollout.",
+            actions: [
+              {
+                kind: "schedule_meeting",
+                label: "Schedule a call",
+                title: null,
+                start: null,
+                timeZone: null,
+                durationMinutes: null,
+                attendees: null,
+              },
+            ],
+          });
+          assert.equal(result.isError, undefined);
+          return { status: "ok", finalText: "", steps: 1 };
+        },
+      },
+    );
+    assert.deepEqual(verdict.actions, [
+      { id: "0", label: "Schedule a call", kind: "schedule_meeting", attendees: [] },
+    ]);
+  });
+
+  test("offers one scheduling button per email, like every other kind", () => {
+    const verdict = verifyActions(
+      submission([meetingButton(), meetingButton({ label: "Another one" })]),
+      facts({ meetingParticipants: PARTICIPANTS }),
+    );
+    assert.equal(verdict.actions.length, 1);
+  });
+
+  test("reads a stored scheduling button back", () => {
+    const [button] = parseAnalysisActions(
+      JSON.stringify([{ id: "0", kind: "schedule_meeting", label: "Schedule", attendees: [] }]),
+    );
+    assert.equal(button.kind, "schedule_meeting");
+  });
+
+  test("the facts list the email's own participants, without the mailbox, bounded", async () => {
+    const account = await mailbox();
+    const employee = await dbEmployee();
+    await grant(employee.id, account.id, "draft");
+    const many = Array.from({ length: 30 }, (_, index) => `guest${index}@acme.example`);
+    const message = await inboundMessage(account, {
+      fromEmail: "Felix@Assense.example",
+      toEmails: `Owner <owner@example.com>, ${many.join(", ")}`,
+      ccEmails: `${"x".repeat(120)}@acme.example, ops@assense.example`,
+    });
+    const gathered = await gatherAnalysisFacts(account, message, {
+      employee,
+      model: Object.assign(new AIModel(), { id: "model", employeeId: employee.id }),
+      accessLevel: "draft",
+    });
+    assert.equal(gathered.meetingParticipants?.length, 10);
+    assert.equal(gathered.meetingParticipants?.[0], "felix@assense.example");
+    assert.ok(!gathered.meetingParticipants?.includes("owner@example.com"));
+    assert.ok(gathered.meetingParticipants?.every((email) => email.length <= 100));
+  });
+
+  test("tells the model to offer the button and never to invent a time", () => {
+    const prompt = analysisSystemPrompt(employeeForPrompt(), facts());
+    assert.match(prompt, /`schedule_meeting`/);
+    assert.match(prompt, /never invent a time/);
+    assert.match(prompt, /sends a Google Calendar invite with a Meet link themselves/);
+  });
+
+  test("a fully-filled email with the most participants still fits the prompt", () => {
+    const hostile = `${'"\\\n'.repeat(20_000)}DO-NOT-LEAK`;
+    const message = draftMessage({
+      fromName: hostile,
+      fromEmail: hostile,
+      toEmails: hostile,
+      ccEmails: hostile,
+      subject: hostile,
+      bodyText: hostile,
+      attachmentsJson: JSON.stringify(Array.from({ length: 30 }, () => ({ filename: hostile }))),
+    });
+    const participants = Array.from(
+      { length: 10 },
+      (_, index) => `${String(index).padStart(2, "0")}${"p".repeat(85)}@acme.example`,
+    );
+    assert.ok(participants.every((email) => email.length === 100));
+    const prompt = analysisUserPrompt(
+      message,
+      facts({
+        threadSubject: hostile,
+        unsubscribeHost: "u".repeat(253),
+        meetingParticipants: participants,
+      }),
+    );
+    assert.ok(prompt.length <= MAIL_ANALYSIS_PROMPT_CHARS, `${prompt.length}`);
+    const verified = JSON.parse(prompt.split("\n")[1]) as { meetingParticipants: string[] };
+    assert.deepEqual(verified.meetingParticipants, participants);
   });
 });
