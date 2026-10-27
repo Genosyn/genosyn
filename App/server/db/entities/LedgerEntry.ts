@@ -58,6 +58,11 @@ export type LedgerEntrySource =
   // into a real journal entry.
   | "bank_categorization"
   | "bank_categorization_void"
+  // A card purchase, refund, card bill payment, or Banking's change of a
+  // purchase's category. Named for Brex, the first card provider, and used for
+  // every card (Ramp's too): the card feed says which provider it was, and
+  // everything that reads these — category repair, cash flow, Entry review —
+  // treats every card the same way.
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

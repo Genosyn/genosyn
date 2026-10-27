@@ -8,7 +8,12 @@ import {
   Index,
 } from "typeorm";
 
-export type CardFeedKind = "brex_card";
+/**
+ * Where a card's transactions come from: `brex_card` reads a Brex Connection's
+ * card transactions, `ramp_card` a Ramp Connection's card transactions and the
+ * payments made against its balance (`services/cardExpenses.ts`).
+ */
+export type CardFeedKind = "brex_card" | "ramp_card";
 
 /**
  * One provider-backed corporate card account mapped into the ledger.
@@ -46,7 +51,7 @@ export class CardFeed {
 
   /**
    * When the last sync that succeeded finished, and the next sync's cursor:
-   * it asks Brex for what was posted since a little before it
+   * it asks the provider for what was posted since a little before it
    * (`services/cardExpenses.ts`).
    */
   @Column({ type: dateTimeColumnType, nullable: true })

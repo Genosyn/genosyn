@@ -26,6 +26,7 @@ import {
   unlinkPayments,
 } from "./bankPaymentLinks.js";
 import { bookedLines, findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
+import { syncMercuryAccountFeed } from "./mercuryFeeds.js";
 import { syncWiseBalanceFeed } from "./wiseFeeds.js";
 
 /**
@@ -401,6 +402,7 @@ export async function syncBrexCashTransactions(feed: BankFeed, now = new Date())
 export async function syncBankFeed(feed: BankFeed): Promise<number> {
   if (feed.kind === "stripe_payouts") return syncStripePayouts(feed);
   if (feed.kind === "brex_cash") return syncBrexCashTransactions(feed);
+  if (feed.kind === "mercury_account") return syncMercuryAccountFeed(feed);
   if (feed.kind === "wise_balance") return syncWiseBalanceFeed(feed);
   throw new FeedSyncError("unsupported", "This feed type can only be imported via CSV");
 }

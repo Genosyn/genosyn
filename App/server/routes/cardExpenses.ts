@@ -141,8 +141,8 @@ cardExpensesRouter.post(
   },
 );
 
-// Point the card at another Brex Connection — the way back for one whose
-// Connection was removed. The next sync runs at once.
+// Point the card at another Connection of its provider — the way back for one
+// whose Connection was removed. The next sync runs at once.
 cardExpensesRouter.patch(
   "/card-feeds/:feedId",
   validateParams(feedParamsSchema),

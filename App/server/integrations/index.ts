@@ -5,6 +5,8 @@ import type {
 } from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
 import { brexProvider } from "./providers/brex.js";
+import { mercuryProvider } from "./providers/mercury.js";
+import { rampProvider } from "./providers/ramp.js";
 import { wiseProvider } from "./providers/wise.js";
 import { googleProvider } from "./providers/google.js";
 import { imapProvider } from "./providers/imap.js";
@@ -43,6 +45,8 @@ import { config } from "../../config.js";
 const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
   [brexProvider.catalog.provider]: brexProvider,
+  [mercuryProvider.catalog.provider]: mercuryProvider,
+  [rampProvider.catalog.provider]: rampProvider,
   [wiseProvider.catalog.provider]: wiseProvider,
   [googleProvider.catalog.provider]: googleProvider,
   [imapProvider.catalog.provider]: imapProvider,

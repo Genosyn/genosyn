@@ -19,7 +19,8 @@ export function Banking() {
       <OL>
         <LI>
           <Strong>Add your accounts</Strong> — a bank account you upload statements for, a Brex
-          business account or card, a Wise balance, or Stripe payouts.
+          business account or card, a Mercury account, a Wise balance, a Ramp card, or Stripe
+          payouts.
         </LI>
         <LI>
           <Strong>Bring transactions in</Strong> — import a CSV, or let a connected account{" "}
@@ -33,8 +34,9 @@ export function Banking() {
       </OL>
       <P>
         The accounts sit across the top of the page as cards. Each says what kind of account it is
-        and where it comes from, its balance when the provider reports one (Brex business accounts
-        and Wise balances), how many of its transactions are waiting, and how its sync is doing.
+        and where it comes from, its balance when the provider reports one (Brex business accounts,
+        Mercury accounts and Wise balances), how many of its transactions are waiting, and how its
+        sync is doing.
         Click one to see only its transactions, or <Code>All accounts</Code> to see every account
         together. The list has three tabs: <Code>To review</Code> (nothing explains
         the transaction yet, or a card purchase&apos;s category is waiting for a look),{" "}
@@ -63,12 +65,20 @@ export function Banking() {
             def: "A Brex cash account. Pick the Brex Connection and the account; its transactions start coming in straight away and keep syncing.",
           },
           {
-            term: "Brex card",
-            def: "Brex corporate card purchases, refunds, and card bill payments. Each purchase is filed under the card's default category as it arrives, and waits in To review for you to keep that category or pick another.",
+            term: "Mercury account",
+            def: "A Mercury checking or savings account. Pick the Mercury Connection and the account; its settled transactions start coming in straight away and keep syncing.",
           },
           {
             term: "Wise balance",
             def: "One balance on a Wise business account, in your home currency. Pick the Wise Connection and the balance, and its transactions — fees included — start coming in and keep syncing.",
+          },
+          {
+            term: "Brex card",
+            def: "Brex corporate card purchases, refunds, and card bill payments. Each purchase is filed under the card's default category as it arrives, and waits in To review for you to keep that category or pick another.",
+          },
+          {
+            term: "Ramp card",
+            def: "Ramp card purchases and refunds, and the payments that settle your Ramp bill. Purchases are filed and reviewed the same way as a Brex card's.",
           },
           {
             term: "Stripe payouts",
@@ -77,9 +87,13 @@ export function Banking() {
         ]}
       />
       <P>
-        Brex, Wise, and Stripe accounts need a Connection first: add one under{" "}
+        Brex, Mercury, Wise, Ramp, and Stripe accounts need a Connection first: add one under{" "}
         <DocLink to="/docs/integrations">Finance → Integrations</DocLink>. A Brex card needs a
-        token that can read card transactions (<Code>transactions.card.readonly</Code>).
+        token that can read card transactions (<Code>transactions.card.readonly</Code>), and a Ramp
+        card an app allowed to read transactions, transfers, and cashback (see{" "}
+        <DocLink to="/docs/integrations#ramp">Ramp cards</DocLink>). A Mercury account lists every
+        checking and savings account the token can read; a closed one is greyed out, and since
+        Mercury accounts are in US dollars, they can be added only when your books are in USD.
       </P>
       <P>
         A Wise account lists every balance the token can read, but only balances in your home
@@ -111,14 +125,15 @@ export function Banking() {
 
       <H2 id="sync">Keeping accounts up to date</H2>
       <P>
-        Brex business accounts and cards, Wise balances and Stripe payouts sync on their own every
-        30 minutes (operators change that at{" "}
+        Brex business accounts and cards, Mercury accounts, Wise balances, Ramp cards and Stripe
+        payouts sync on their own every 30 minutes (operators change that at{" "}
         <DocLink to="/docs/self-hosting#runtime-settings">Admin → Runtime → Bank sync</DocLink>),
         and straight away when you add one; <Code>Sync now</Code>, the arrows on a card, syncs one
         at once. Each sync asks for everything posted since a week before the last one that worked
-        — a Wise balance, 30 days, as Wise dates a transaction by when it was created — so nothing
-        that settles late is missed, nothing comes in twice, and an account that missed days while
-        the server was off catches up on all of them. The first sync walks the whole history. New
+        — a Wise balance or a Ramp card, 30 days, as Wise dates a transaction by when it was created
+        and Ramp by when the card was used — so nothing that settles late is missed, nothing comes
+        in twice, and an account that missed days while the server was off catches up on all of
+        them. The first sync walks the whole history. New
         transactions land in <Code>To review</Code>, and a deposit for the same amount as a payment
         already recorded on an invoice, within three days of it, is matched to that payment on the
         way in — when it is the only payment that fits.
@@ -284,9 +299,9 @@ export function Banking() {
         start in <Code>Done</Code>: to go through them, open the card&apos;s <Code>Done</Code>{" "}
         tab, tick them, and send them back to review. A purchase Genosyn couldn&apos;t add to the
         books waits too — the row says why, and <Code>Retry</Code> tries again. Refunds come back
-        under the same category, and card bill payments move what you owe on the card against the
-        bank account that paid it. A bill payment has no category, so it never waits: match it on
-        the bank account&apos;s side rather than categorizing it, or it would count twice.
+        under the same category — so does a Ramp card&apos;s cashback — and card bill payments
+        move what you owe on the card against the bank account that paid it. A bill payment has no category, so it never waits: match it on the
+        bank account&apos;s side rather than categorizing it, or it would count twice.
       </P>
       <P>
         Banking is the only place a card purchase&apos;s category changes. Each change moves the

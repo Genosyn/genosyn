@@ -86,6 +86,12 @@ export type FeedSyncContext = {
   provider: string;
   /** What the provider calls the credential: "token", "API key", "API token". */
   credential: string;
+  /**
+   * What the provider grants permissions to, when that isn't the credential
+   * itself — "this app" for Ramp, whose scopes belong to the developer app.
+   * "this <credential>" when left out.
+   */
+  holder?: string;
   /** What this account reads: "cash transactions", "card transactions", "payouts". */
   reads: string;
 };
@@ -126,6 +132,7 @@ function requestDetail(err: ProviderRequestError): string {
 /** Sort a thrown value into a kind, with the line the card shows and the details behind it. */
 export function describeFeedSyncFailure(err: unknown, context: FeedSyncContext): FeedSyncFailure {
   const { provider, credential, reads } = context;
+  const holder = context.holder ?? `this ${credential}`;
   const failure = (
     kind: FeedSyncErrorKind,
     message: string,
@@ -177,7 +184,7 @@ export function describeFeedSyncFailure(err: unknown, context: FeedSyncContext):
       });
     }
     if (err.status === 403) {
-      return failure("permission", `${provider} won't let this ${credential} read ${reads}`, detail);
+      return failure("permission", `${provider} won't let ${holder} read ${reads}`, detail);
     }
     if (err.status === 404) {
       return failure(
