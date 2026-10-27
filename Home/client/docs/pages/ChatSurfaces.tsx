@@ -78,7 +78,9 @@ export function ChatSurfaces() {
               <>
                 Exactly your own access, and not one step more. The same company context you see in
                 the app, Finance narrowed by your finance access, and the surfaces that are
-                admin-only in Genosyn still admin-only here.
+                admin-only in Genosyn still admin-only here — except in a channel shared with
+                another organization, where it answers{" "}
+                <a href="#shared-channels">without anyone&apos;s access</a>.
               </>
             ),
           },
@@ -182,7 +184,8 @@ export function ChatSurfaces() {
           Under <Strong>OAuth &amp; Permissions</Strong>, add the Bot Token Scopes{" "}
           <Code>app_mentions:read</Code>, <Code>chat:write</Code>, <Code>im:history</Code>,{" "}
           <Code>im:read</Code>, <Code>im:write</Code>, <Code>channels:history</Code>,{" "}
-          <Code>groups:history</Code>, <Code>channels:read</Code> and <Code>reactions:write</Code>.
+          <Code>groups:history</Code>, <Code>channels:read</Code>, <Code>groups:read</Code> and{" "}
+          <Code>reactions:write</Code>.
         </LI>
         <LI>
           Under <Strong>Socket Mode</Strong>, turn it on. That generates an{" "}
@@ -191,7 +194,10 @@ export function ChatSurfaces() {
         </LI>
         <LI>
           Under <Strong>Event Subscriptions</Strong>, turn events on and subscribe the app&apos;s
-          bot user to <Code>app_mention</Code> and <Code>message.im</Code>.
+          bot user to <Code>app_mention</Code> and <Code>message.im</Code> — and to{" "}
+          <Code>message.channels</Code> and <Code>message.groups</Code> if you will link{" "}
+          <DocLink to="/docs/customer-channels">customer channels</DocLink>. The app only ever reads
+          a whole channel once it is linked; everywhere else those events are dropped unread.
         </LI>
         <LI>
           Click <Strong>Install to Workspace</Strong>, then copy the{" "}
@@ -354,7 +360,24 @@ export function ChatSurfaces() {
           history in Genosyn; a transcript several colleagues can read never becomes one
           Member&apos;s private history.
         </LI>
+        <LI>
+          <Strong>A Slack channel linked to a Customer is different.</Strong> The employee reads all
+          of it, writes notes onto that Customer&apos;s record, and answers from the instructions
+          written for that channel rather than with anyone&apos;s access — see{" "}
+          <DocLink to="/docs/customer-channels">Customer channels</DocLink>.
+        </LI>
       </UL>
+
+      <H3 id="shared-channels">Channels shared with another organization</H3>
+      <P>
+        People outside your company read every reply in a Slack Connect channel, so there the
+        employee answers <Strong>without anyone&apos;s access</Strong> — even a linked colleague is
+        answered the way a stranger would be, with a note saying why. Ask in a direct message for
+        anything that needs your access. Genosyn takes Slack&apos;s word for whether a channel is
+        shared, asks Slack when a message does not say, and treats a channel it cannot check as
+        shared. Answers posted before a channel was shared stay in its history, where the other
+        organization may be able to read them.
+      </P>
 
       <H2 id="stays-in-genosyn">What stays in Genosyn, on purpose</H2>
       <P>

@@ -190,6 +190,10 @@ export function Vocabulary() {
             def: "A Twilio number the company reserved and gave to one AI Employee. Owning the number is the employee's whole access to it — there is no separate Grant.",
           },
           {
+            term: "Customer channel",
+            def: "A Slack channel — usually a Slack Connect one — linked to one Customer. The AI Employee working it reads every message, writes notes onto that Customer's timeline, and answers from the instructions written for that channel. Not a Workspace channel, which is a conversation inside Genosyn.",
+          },
+          {
             term: "Genosyn Connect",
             def: "The hosted sign-in service that lets a self-hosted installation create Connections without registering its own OAuth app. Not a Connection, and not how Members log in.",
           },

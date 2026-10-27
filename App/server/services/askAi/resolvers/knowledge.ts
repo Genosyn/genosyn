@@ -28,6 +28,8 @@ import { TodoComment } from "../../../db/entities/TodoComment.js";
 import { User } from "../../../db/entities/User.js";
 import { redactSensitiveText } from "../../approvalRedaction.js";
 import { UUID_RE } from "../../bases.js";
+import { describeBaseChartQuery, fieldsForTables } from "../../baseCharts.js";
+import { parseBaseChartQuery } from "../../../../shared/baseChartQuery.js";
 import { NODE_CATALOG } from "../../pipelines/catalog.js";
 import type { PipelineEdge, PipelineNode } from "../../pipelines/types.js";
 import { hasProjectAccess, listProjectMembers } from "../../projects.js";
@@ -1465,27 +1467,66 @@ function vizSummary(chart: Chart): string {
   return bits.join(" ");
 }
 
-function chartItem(
+/** What each chart reads, loaded once for every chart in a context item. */
+type ChartSources = {
+  connections: Map<string, IntegrationConnection>;
+  bases: Map<string, Base>;
+  tables: Map<string, BaseTable>;
+  fields: Awaited<ReturnType<typeof fieldsForTables>>;
+};
+
+function baseDataSource(base: Base | undefined, table: BaseTable | undefined): string {
+  if (!base) return "its Base no longer exists — the chart cannot run";
+  const where = `${oneLine(base.name, 80)} (Base slug \`${base.slug}\``;
+  if (!table || table.baseId !== base.id) {
+    return `${where}), but its table no longer exists — the chart cannot run`;
+  }
+  const archived = table.archivedAt ? " — archived, so it cannot run for you" : "";
+  return `table ${oneLine(table.name, 80)} in ${where}, table id ${table.id})${archived}`;
+}
+
+/** A SQL chart shows its query; a chart over a Base its question in words. */
+function chartSourceLines(
   chart: Chart,
-  connection: IntegrationConnection | null,
+  sources: ChartSources,
   sqlChars: number,
-): AskAiContextItem {
+): { dataSource: string; query: string[] } {
+  if (chart.baseId) {
+    const query = parseBaseChartQuery(chart.baseQueryJson);
+    const table = query ? sources.tables.get(query.tableId) : undefined;
+    const fields = query ? (sources.fields.get(query.tableId) ?? []) : [];
+    return {
+      dataSource: baseDataSource(sources.bases.get(chart.baseId), table),
+      query: [
+        "### Query",
+        query ? oneLine(describeBaseChartQuery(query, fields), 600) : "(no query yet)",
+      ],
+    };
+  }
+  const connection = chart.connectionId ? sources.connections.get(chart.connectionId) : undefined;
+  return {
+    dataSource: connection
+      ? `${oneLine(connection.label, 80)} (${connection.provider} Connection, id ${connection.id})`
+      : "its Connection no longer exists — the chart cannot run",
+    query: [
+      "### SQL",
+      chart.sql.trim() ? fenced(clip(chart.sql, sqlChars), "sql") : "(no query yet)",
+    ],
+  };
+}
+
+function chartItem(chart: Chart, sources: ChartSources, sqlChars: number): AskAiContextItem {
+  const source = chartSourceLines(chart, sources, sqlChars);
   const parts: string[] = [
     facts([
       ["Chart", `${oneLine(chart.title, 120)} (slug \`${chart.slug}\`, id ${chart.id})`],
       ["Visualization", vizSummary(chart)],
-      [
-        "Data source",
-        connection
-          ? `${oneLine(connection.label, 80)} (${connection.provider} Connection, id ${connection.id})`
-          : "its Connection no longer exists — the chart cannot run",
-      ],
+      ["Data source", source.dataSource],
       ["Updated", stamp(chart.updatedAt)],
     ]),
     ...describedAs(chart.description),
     "",
-    "### SQL",
-    chart.sql.trim() ? fenced(clip(chart.sql, sqlChars), "sql") : "(no query yet)",
+    ...source.query,
   ];
   return {
     kind: "chart",
@@ -1505,24 +1546,50 @@ function chartItem(
   };
 }
 
-async function chartConnections(
-  companyId: string,
-  charts: Chart[],
-): Promise<Map<string, IntegrationConnection>> {
-  const ids = [...new Set(charts.map((c) => c.connectionId).filter((id) => UUID_RE.test(id)))];
-  if (ids.length === 0) return new Map();
-  const rows = await AppDataSource.getRepository(IntegrationConnection).find({
-    where: { id: In(ids), companyId },
-    select: ["id", "label", "provider"],
-  });
-  return new Map(rows.map((r) => [r.id, r]));
+function uuidsOf(values: (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((id): id is string => !!id && UUID_RE.test(id)))];
+}
+
+async function chartSources(companyId: string, charts: Chart[]): Promise<ChartSources> {
+  const connectionIds = uuidsOf(charts.map((c) => c.connectionId));
+  const baseIds = uuidsOf(charts.map((c) => c.baseId));
+  const tableIds = uuidsOf(
+    charts.map((c) => (c.baseId ? parseBaseChartQuery(c.baseQueryJson)?.tableId : null)),
+  );
+  const [connections, bases, tables, fields] = await Promise.all([
+    connectionIds.length
+      ? AppDataSource.getRepository(IntegrationConnection).find({
+          where: { id: In(connectionIds), companyId },
+          select: ["id", "label", "provider"],
+        })
+      : Promise.resolve([]),
+    baseIds.length
+      ? AppDataSource.getRepository(Base).find({
+          where: { id: In(baseIds), companyId },
+          select: ["id", "name", "slug"],
+        })
+      : Promise.resolve([]),
+    tableIds.length
+      ? AppDataSource.getRepository(BaseTable).find({
+          where: { id: In(tableIds) },
+          select: ["id", "name", "baseId", "archivedAt"],
+        })
+      : Promise.resolve([]),
+    fieldsForTables(tableIds),
+  ]);
+  return {
+    connections: new Map(connections.map((r) => [r.id, r])),
+    bases: new Map(bases.map((r) => [r.id, r])),
+    tables: new Map(tables.map((r) => [r.id, r])),
+    fields,
+  };
 }
 
 export const resolveChart: AskAiResolver = async ({ companyId, ref }) => {
   const chart = await findBySlugOrId(Chart, companyId, ref.id);
   if (!chart) return [];
-  const connections = await chartConnections(companyId, [chart]);
-  return [chartItem(chart, connections.get(chart.connectionId) ?? null, CHART_SQL_CHARS)];
+  const sources = await chartSources(companyId, [chart]);
+  return [chartItem(chart, sources, CHART_SQL_CHARS)];
 };
 
 export const resolveDashboard: AskAiResolver = async ({ companyId, ref }) => {
@@ -1541,11 +1608,11 @@ export const resolveDashboard: AskAiResolver = async ({ companyId, ref }) => {
   const chartById = new Map(charts.map((c) => [c.id, c]));
   const ordered = chartIds.flatMap((id) => (chartById.has(id) ? [chartById.get(id)!] : []));
   const related = ordered.slice(0, DASHBOARD_RELATED_CHARTS);
-  const connections = await chartConnections(companyId, related);
+  const sources = await chartSources(companyId, related);
   const chartCards = cards.filter((c) => c.chartId && chartById.has(c.chartId)).length;
   const formulaCards = cards.filter((c) => !c.chartId && c.formulaJson).length;
 
-  // Chart titles, SQL and card labels are not listed here: a Dashboard Grant
+  // Chart titles, queries and card labels are not listed here: a Dashboard Grant
   // is not transitive to its Charts (see `get_dashboard`), so each Chart
   // follows as its own item behind its own Chart gate.
   const parts: string[] = [
@@ -1574,9 +1641,7 @@ export const resolveDashboard: AskAiResolver = async ({ companyId, ref }) => {
       tools: ["get_dashboard", "get_chart", "run_chart"],
       withheldHint: "Share the Dashboard with this AI Employee from its AI access settings.",
     },
-    ...related.map((chart) =>
-      chartItem(chart, connections.get(chart.connectionId) ?? null, RELATED_CHART_SQL_CHARS),
-    ),
+    ...related.map((chart) => chartItem(chart, sources, RELATED_CHART_SQL_CHARS)),
   ];
 };
 

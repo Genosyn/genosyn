@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -45,14 +45,24 @@ import {
   DashboardCardError,
   patchDashboardCard,
 } from "../services/exploreDashboardCards.js";
+import {
+  BaseChartError,
+  baseChartQuerySchema,
+  listExploreBases,
+  loadBaseChartSchema,
+  runBaseChartQuery,
+} from "../services/baseCharts.js";
+import { applyChartSource, ChartSourceError, runChart } from "../services/exploreCharts.js";
+import type { ProjectActor } from "../services/projects.js";
 
 /**
  * Explore — Metabase-style analytics over the company's existing database
- * integrations. Two primitives:
+ * integrations and its own Bases. Two primitives:
  *
  *   - **Chart**: saved SQL + visualization, bound to a postgres/mysql/
- *     clickhouse `IntegrationConnection`. Runs through the same shared
- *     driver pool as the integration tools.
+ *     clickhouse `IntegrationConnection` — or a structured query over one of
+ *     the company's Bases (`services/baseCharts.ts`), answered in the same
+ *     rows-and-columns shape.
  *   - **Dashboard**: grid of Chart cards. Cards carry their own
  *     position+size and optional title override.
  *
@@ -66,6 +76,11 @@ exploreRouter.use(requireAuth);
 exploreRouter.use(requireCompanyMember);
 
 const VIZ_ENUM = ["table", "scalar", "bar", "line", "area", "pie"] as [string, ...string[]];
+
+/** The signed-in Member, so a project link in a Base shows only projects they may see. */
+function memberViewer(req: Request): ProjectActor {
+  return { kind: "user", id: req.userId!, role: req.companyRole! };
+}
 
 // ---------- Connections ----------
 
@@ -114,6 +129,65 @@ exploreRouter.get(
   },
 );
 
+// ---------- Bases ----------
+//
+// A Chart can read one of the company's own Bases instead of a database. The
+// editor lists them beside the Connections, reads one table's columns to
+// build a query, and runs the query as it is built.
+
+exploreRouter.get("/explore/bases", async (req, res) => {
+  const { cid } = params(req);
+  res.json(await listExploreBases(cid));
+});
+
+const baseTableParams = z.object({
+  cid: z.string().uuid(),
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid(),
+});
+
+exploreRouter.get(
+  "/explore/bases/:baseId/tables/:tableId/schema",
+  validateParams(baseTableParams),
+  async (req, res, next) => {
+    const { cid, baseId, tableId } = params(req);
+    try {
+      res.json(await loadBaseChartSchema(cid, baseId, tableId, memberViewer(req)));
+    } catch (err) {
+      if (err instanceof BaseChartError) return res.status(404).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+const baseParams = z.object({ cid: z.string().uuid(), baseId: z.string().uuid() });
+
+const runBaseSchema = z.object({
+  query: baseChartQuerySchema,
+  maxRows: z.number().int().min(1).max(5000).optional(),
+});
+
+exploreRouter.post(
+  "/explore/bases/:baseId/run",
+  validateParams(baseParams),
+  validateBody(runBaseSchema),
+  async (req, res, next) => {
+    const { cid, baseId } = params(req);
+    const body = req.body as z.infer<typeof runBaseSchema>;
+    try {
+      res.json(
+        await runBaseChartQuery(cid, baseId, body.query, {
+          maxRows: body.maxRows,
+          viewer: memberViewer(req),
+        }),
+      );
+    } catch (err) {
+      if (err instanceof BaseChartError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
 // ---------- Ad-hoc run ----------
 
 const runAdhocSchema = z.object({
@@ -158,40 +232,49 @@ exploreRouter.get("/explore/charts", async (req, res) => {
   res.json(rows.map((r) => serializeChart(r)));
 });
 
-const createChartSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
-  connectionId: z.string().uuid(),
-  sql: z.string().min(1).max(50_000),
-  vizType: z.enum(VIZ_ENUM).optional(),
-  vizConfig: z.record(z.unknown()).optional(),
-});
+const createChartSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    connectionId: z.string().uuid().optional(),
+    sql: z.string().min(1).max(50_000).optional(),
+    baseId: z.string().uuid().optional(),
+    baseQuery: baseChartQuerySchema.optional(),
+    vizType: z.enum(VIZ_ENUM).optional(),
+    vizConfig: z.record(z.unknown()).optional(),
+  })
+  .refine(
+    (body) =>
+      body.baseId || body.baseQuery
+        ? Boolean(body.baseId && body.baseQuery && !body.connectionId && !body.sql)
+        : Boolean(body.connectionId && body.sql),
+    { message: "Choose a database Connection and SQL, or a Base and a query" },
+  );
 
-exploreRouter.post("/explore/charts", validateBody(createChartSchema), async (req, res) => {
+exploreRouter.post("/explore/charts", validateBody(createChartSchema), async (req, res, next) => {
   const { cid } = params(req);
   const body = req.body as z.infer<typeof createChartSchema>;
-  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-    id: body.connectionId,
-    companyId: cid,
-  });
-  if (!conn) return res.status(400).json({ error: "Unknown connection" });
-  if (!isExploreProvider(conn.provider)) {
-    return res.status(400).json({ error: "Connection is not a supported Explore source" });
-  }
   const repo = AppDataSource.getRepository(Chart);
-  const slug = await uniqueChartSlug(cid, body.title);
   const row = repo.create({
     companyId: cid,
     title: body.title,
-    slug,
     description: body.description ?? "",
-    connectionId: body.connectionId,
-    sql: body.sql,
+    connectionId: null,
+    sql: "",
+    baseId: null,
+    baseQueryJson: null,
     vizType: (body.vizType ?? "table") as Chart["vizType"],
     vizConfig: JSON.stringify(body.vizConfig ?? {}),
     createdById: req.userId ?? null,
     createdByEmployeeId: null,
   });
+  try {
+    await applyChartSource(row, body);
+  } catch (err) {
+    if (err instanceof ChartSourceError) return res.status(400).json({ error: err.message });
+    return next(err);
+  }
+  row.slug = await uniqueChartSlug(cid, body.title);
   await repo.save(row);
   const granted = await grantChartToAllEmployees(cid, row.id);
   await recordAudit({
@@ -203,7 +286,7 @@ exploreRouter.post("/explore/charts", validateBody(createChartSchema), async (re
     targetLabel: row.title,
     metadata: {
       vizType: row.vizType,
-      connectionId: row.connectionId,
+      ...(row.baseId ? { baseId: row.baseId } : { connectionId: row.connectionId }),
       grantedToEmployees: granted,
     },
   });
@@ -226,50 +309,50 @@ const patchChartSchema = z.object({
   description: z.string().max(2000).optional(),
   connectionId: z.string().uuid().optional(),
   sql: z.string().min(1).max(50_000).optional(),
+  baseId: z.string().uuid().optional(),
+  baseQuery: baseChartQuerySchema.optional(),
   vizType: z.enum(VIZ_ENUM).optional(),
   vizConfig: z.record(z.unknown()).optional(),
 });
 
-exploreRouter.patch("/explore/charts/:slug", validateBody(patchChartSchema), async (req, res) => {
-  const { cid, slug } = params(req);
-  const row = await loadChart(cid, slug);
-  if (!row) return res.status(404).json({ error: "Chart not found" });
-  const body = req.body as z.infer<typeof patchChartSchema>;
-  const fields = Object.keys(body);
-  if (body.title !== undefined) row.title = body.title;
-  if (body.description !== undefined) row.description = body.description;
-  if (body.connectionId !== undefined) {
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: body.connectionId,
-      companyId: cid,
-    });
-    if (!conn) return res.status(400).json({ error: "Unknown connection" });
-    if (!isExploreProvider(conn.provider)) {
-      return res.status(400).json({ error: "Connection is not a supported Explore source" });
+exploreRouter.patch(
+  "/explore/charts/:slug",
+  validateBody(patchChartSchema),
+  async (req, res, next) => {
+    const { cid, slug } = params(req);
+    const row = await loadChart(cid, slug);
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    const body = req.body as z.infer<typeof patchChartSchema>;
+    const fields = Object.keys(body);
+    try {
+      await applyChartSource(row, body);
+    } catch (err) {
+      if (err instanceof ChartSourceError) return res.status(400).json({ error: err.message });
+      return next(err);
     }
-    row.connectionId = body.connectionId;
-  }
-  if (body.sql !== undefined) row.sql = body.sql;
-  if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
-  if (body.vizConfig !== undefined) {
-    row.vizConfig = JSON.stringify(body.vizConfig);
-  }
-  await AppDataSource.getRepository(Chart).save(row);
-  if (fields.length > 0) {
-    // The chart editor saves as the query and visual are tuned; one entry
-    // per stretch of edits, listing the fields only (never the SQL).
-    await recordCoalescedAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "chart.update",
-      targetType: "chart",
-      targetId: row.id,
-      targetLabel: row.title,
-      metadata: { fields },
-    });
-  }
-  res.json(serializeChart(row));
-});
+    if (body.title !== undefined) row.title = body.title;
+    if (body.description !== undefined) row.description = body.description;
+    if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
+    if (body.vizConfig !== undefined) {
+      row.vizConfig = JSON.stringify(body.vizConfig);
+    }
+    await AppDataSource.getRepository(Chart).save(row);
+    if (fields.length > 0) {
+      // The chart editor saves as the query and visual are tuned; one entry
+      // per stretch of edits, listing the fields only (never the SQL).
+      await recordCoalescedAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "chart.update",
+        targetType: "chart",
+        targetId: row.id,
+        targetLabel: row.title,
+        metadata: { fields },
+      });
+    }
+    res.json(serializeChart(row));
+  },
+);
 
 exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
   const { cid, slug } = params(req);
@@ -310,16 +393,10 @@ exploreRouter.post("/explore/charts/:slug/run", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "ValidationError" });
   }
-  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-    id: row.connectionId,
-    companyId: cid,
-  });
-  if (!conn) {
-    return res.status(400).json({ error: "Chart's connection no longer exists" });
-  }
   try {
-    const result = await runSqlAgainstConnection(conn, row.sql, {
+    const result = await runChart(row, {
       maxRows: parsed.data?.maxRows,
+      viewer: memberViewer(req),
     });
     res.json(result);
   } catch (err) {

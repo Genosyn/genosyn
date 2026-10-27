@@ -402,6 +402,95 @@ describe("handleInboundTurn", () => {
     assert.match(sent[0].text, /link-chat/, "and they are invited to prove themselves again");
   });
 
+  test("a linked Member in a channel shared with another organization is answered with nobody's access", async () => {
+    await grant(employee.id);
+    await boundMember();
+    await handleInboundTurn(turn({ group: true, externallyShared: true }));
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].text, /shared with another organization/);
+    assert.match(sent[0].text, /without anyone's Genosyn access/);
+    assert.doesNotMatch(sent[0].text, /link-chat/);
+  });
+
+  test("a linked Member in a channel the platform says is internal keeps their access", async () => {
+    await grant(employee.id);
+    await boundMember();
+    await handleInboundTurn(turn({ group: true, externallyShared: false }));
+    assert.equal(sent.length, 1);
+    assert.doesNotMatch(sent[0].text, /Genosyn access/, "a proven Member is not told anything");
+  });
+
+  test("an unproven sender in a shared channel is told why, not offered a link", async () => {
+    await grant(employee.id);
+    await handleInboundTurn(turn({ group: true, externallyShared: true }));
+    assert.match(sent[0].text, /shared with another organization/);
+    assert.doesNotMatch(sent[0].text, /link this chat/);
+  });
+
+  describe("when the delivery did not say whether the channel is shared", () => {
+    let asked: string[];
+
+    function askingAdapter(answer: () => Promise<boolean>) {
+      setChatSurfaceAdapterForTests("telegram", {
+        ...captureAdapter,
+        async channelSharedExternally({ externalChannelId }) {
+          asked.push(externalChannelId);
+          return answer();
+        },
+      });
+    }
+
+    beforeEach(() => {
+      asked = [];
+    });
+
+    test("the platform is asked before a Member's access rides on the reply", async () => {
+      await grant(employee.id);
+      await boundMember();
+      askingAdapter(async () => true);
+      await handleInboundTurn(turn({ group: true, externalChannelId: "C0SHARED" }));
+      assert.deepEqual(asked, ["C0SHARED"]);
+      assert.match(sent[0].text, /shared with another organization/);
+    });
+
+    test("an internal answer keeps the Member's access", async () => {
+      await grant(employee.id);
+      await boundMember();
+      askingAdapter(async () => false);
+      await handleInboundTurn(turn({ group: true, externalChannelId: "C0INTERNAL" }));
+      assert.deepEqual(asked, ["C0INTERNAL"]);
+      assert.doesNotMatch(sent[0].text, /Genosyn access/);
+    });
+
+    test("a platform that cannot answer is treated as shared", async () => {
+      await grant(employee.id);
+      await boundMember();
+      askingAdapter(async () => {
+        throw new Error("missing_scope");
+      });
+      await handleInboundTurn(turn({ group: true, externalChannelId: "C0UNKNOWN" }));
+      assert.match(sent[0].text, /could not confirm this channel is private/);
+    });
+
+    test("nobody is asked when no Member's access is at stake", async () => {
+      await grant(employee.id);
+      askingAdapter(async () => true);
+      await handleInboundTurn(turn({ group: true, externalChannelId: "C0ANY" }));
+      assert.deepEqual(asked, []);
+      assert.match(sent[0].text, /direct message/);
+    });
+
+    test("nor in a direct message, which only its two parties read", async () => {
+      await grant(employee.id);
+      await boundMember();
+      askingAdapter(async () => true);
+      await handleInboundTurn(turn({ externalChannelId: "D0DM" }));
+      assert.deepEqual(asked, []);
+      assert.equal(sent.length, 1);
+      assert.doesNotMatch(sent[0].text, /Genosyn access/);
+    });
+  });
+
   test("a failing surface does not lose the transcript", async () => {
     await grant(employee.id);
     setChatSurfaceAdapterForTests("telegram", {

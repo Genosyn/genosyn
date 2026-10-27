@@ -56,6 +56,7 @@ import { phoneWebhooksRouter } from "./routes/phoneWebhooks.js";
 import { PHONE_WEBHOOK_MOUNT } from "./services/phone/webhookUrls.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
+import { customerChannelsRouter } from "./routes/customerChannels.js";
 // The mount path is imported rather than repeated: the same constant builds
 // the URL the operator pastes into Microsoft's or Meta's console, and a mount
 // that drifted from it would advertise an endpoint that 404s.
@@ -439,6 +440,10 @@ export function createApp(): express.Express {
   // External chat surfaces (M59) — who is talking to the company's bots, and
   // the webhook URL to paste into Microsoft's or Meta's console.
   app.use("/api/companies/:cid", chatSurfacesRouter);
+  // Customer channels — a Slack channel linked to a Customer, where an AI
+  // Employee keeps notes and answers from the channel's own instructions.
+  // Owner/admin only; see routes/customerChannels.ts.
+  app.use("/api/companies/:cid/customer-channels", customerChannelsRouter);
   // Claiming a binding is deliberately not company-scoped: the human following
   // the one-time link out of Slack has not picked a company yet, and the
   // identity row already names one. Its own auth is attached per route rather

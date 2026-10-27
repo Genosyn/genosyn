@@ -7,6 +7,10 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
+import { Base } from "../db/entities/Base.js";
+import { BaseField } from "../db/entities/BaseField.js";
+import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { BaseTable } from "../db/entities/BaseTable.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Company } from "../db/entities/Company.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
@@ -18,7 +22,8 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { exploreRouter } from "./explore.js";
-import type { DashboardCardDTO } from "../services/explore.js";
+import type { ChartDTO, DashboardCardDTO } from "../services/explore.js";
+import { refreshGoalValue } from "../services/goals.js";
 import type { ExploreFormula } from "../../shared/exploreFormula.js";
 
 let server: Server;
@@ -641,5 +646,270 @@ describe("Explore dashboard formulas", () => {
     );
     assert.equal(board.body.cards.length, 1);
     assert.deepEqual(board.body.cards[0].formula, added.body.formula);
+  });
+});
+
+/** A small CRM Base: a Deals table with a stage, an amount, and a close date. */
+async function seedDealsBase(companyId: string, name = "Sales") {
+  const base = await insert(Base, {
+    companyId,
+    name,
+    slug: name.toLowerCase(),
+    description: "",
+    icon: "Database",
+    color: "emerald",
+    createdById: null,
+  });
+  const deals = await insert(BaseTable, {
+    baseId: base.id,
+    name: "Deals",
+    slug: "deals",
+    sortOrder: 1000,
+  });
+  const archived = await insert(BaseTable, {
+    baseId: base.id,
+    name: "Old deals",
+    slug: "old-deals",
+    sortOrder: 2000,
+    archivedAt: new Date(),
+  });
+  const field = (name: string, type: BaseField["type"], sortOrder: number, config = {}) =>
+    insert(BaseField, {
+      tableId: deals.id,
+      name,
+      type,
+      configJson: JSON.stringify(config),
+      isPrimary: sortOrder === 1000,
+      sortOrder,
+    });
+  const nameField = await field("Name", "text", 1000);
+  const stage = await field("Stage", "select", 2000, {
+    options: [
+      { id: "lead", label: "Lead", color: "slate" },
+      { id: "won", label: "Won", color: "emerald" },
+    ],
+  });
+  const amount = await field("Amount", "number", 3000);
+  const closed = await field("Closed", "date", 4000);
+  const rows: Array<[string, string | null, number, string]> = [
+    ["Acme", "won", 1200, "2026-01-12"],
+    ["Globex", "lead", 300, "2026-01-30"],
+    ["Initech", "won", 800, "2026-02-03"],
+  ];
+  for (const [index, [label, stageId, value, date]] of rows.entries()) {
+    await insert(BaseRecord, {
+      tableId: deals.id,
+      sortOrder: (index + 1) * 1000,
+      dataJson: JSON.stringify({
+        [nameField.id]: label,
+        ...(stageId ? { [stage.id]: stageId } : {}),
+        [amount.id]: value,
+        [closed.id]: date,
+      }),
+    });
+  }
+  return { base, deals, archived, fields: { name: nameField, stage, amount, closed } };
+}
+
+type QueryRows = { fields: { name: string }[]; rows: Record<string, unknown>[]; rowCount: number };
+
+describe("Explore charts over a Base", () => {
+  test("lists the company's Bases and their tables as data sources", async () => {
+    const { base, deals, archived } = await seedDealsBase(company.id);
+    const response = await call<unknown[]>("GET", "/explore/bases");
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, [
+      {
+        id: base.id,
+        name: "Sales",
+        slug: "sales",
+        icon: "Database",
+        color: "emerald",
+        tables: [
+          { id: deals.id, name: "Deals", archived: false },
+          { id: archived.id, name: "Old deals", archived: true },
+        ],
+      },
+    ]);
+  });
+
+  test("describes a table's columns to the builder, but never another company's", async () => {
+    const { base, deals } = await seedDealsBase(company.id);
+    const schema = await call<{ fields: { name: string; type: string }[] }>(
+      "GET",
+      `/explore/bases/${base.id}/tables/${deals.id}/schema`,
+    );
+    assert.equal(schema.status, 200);
+    assert.deepEqual(
+      schema.body.fields.map((field) => [field.name, field.type]),
+      [
+        ["Name", "text"],
+        ["Stage", "select"],
+        ["Amount", "number"],
+        ["Closed", "date"],
+      ],
+    );
+
+    const other = await insert(Company, { name: "Rival", slug: "rival", ownerId: actingUserId! });
+    const theirs = await seedDealsBase(other.id, "Theirs");
+    const hidden = await call<{ error: string }>(
+      "GET",
+      `/explore/bases/${theirs.base.id}/tables/${theirs.deals.id}/schema`,
+    );
+    assert.equal(hidden.status, 404);
+    assert.equal(hidden.body.error, "The chart's Base no longer exists");
+  });
+
+  test("answers a query as it is built, grouped and measured", async () => {
+    const { base, deals, fields } = await seedDealsBase(company.id);
+    const response = await call<QueryRows>("POST", `/explore/bases/${base.id}/run`, {
+      query: {
+        tableId: deals.id,
+        groupBy: { fieldId: fields.stage.id },
+        metrics: [{ aggregate: "count" }, { aggregate: "sum", fieldId: fields.amount.id }],
+      },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.rows, [
+      { Stage: "Lead", Count: 1, "Sum of Amount": 300 },
+      { Stage: "Won", Count: 2, "Sum of Amount": 2000 },
+    ]);
+  });
+
+  test("saves a Base chart that runs, pins to a dashboard, and feeds a goal", async () => {
+    const { base, deals, fields } = await seedDealsBase(company.id);
+    const created = await call<ChartDTO>("POST", "/explore/charts", {
+      title: "Won revenue",
+      baseId: base.id,
+      baseQuery: {
+        tableId: deals.id,
+        filters: [{ id: "won", fieldId: fields.stage.id, operator: "is", value: "won" }],
+        metrics: [{ aggregate: "sum", fieldId: fields.amount.id }],
+      },
+      vizType: "scalar",
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.source, "base");
+    assert.equal(created.body.connectionId, null);
+    assert.equal(created.body.baseId, base.id);
+    assert.equal(created.body.baseQuery?.metrics[0].aggregate, "sum");
+
+    const ran = await call<QueryRows>("POST", `/explore/charts/${created.body.slug}/run`, {});
+    assert.equal(ran.status, 200);
+    assert.deepEqual(ran.body.rows, [{ "Sum of Amount": 2000 }]);
+
+    const dashboard = await createDashboard();
+    const card = await call("POST", `/explore/dashboards/${dashboard.body.slug}/cards`, {
+      chartId: created.body.id,
+    });
+    assert.equal(card.status, 201);
+    const board = await call<{ charts: ChartDTO[] }>(
+      "GET",
+      `/explore/dashboards/${dashboard.body.slug}`,
+    );
+    assert.deepEqual(
+      board.body.charts.map((chart) => [chart.title, chart.source]),
+      [["Won revenue", "base"]],
+    );
+
+    const goal = await insert(Goal, {
+      companyId: company.id,
+      title: "Win $5k",
+      slug: "win-5k",
+      targetValue: 5_000,
+      metricKind: "chart",
+      chartId: created.body.id,
+    });
+    const refreshed = await refreshGoalValue(goal);
+    assert.equal(refreshed.currentValue, 2000);
+    assert.equal(refreshed.currentValueSource, "chart");
+  });
+
+  test("refuses two sources at once, a field the table lacks, or another company's Base", async () => {
+    const { base, deals, fields } = await seedDealsBase(company.id);
+    const both = await call<{ error: string }>("POST", "/explore/charts", {
+      title: "Both",
+      connectionId: connection.id,
+      sql: "SELECT 1",
+      baseId: base.id,
+      baseQuery: { tableId: deals.id },
+    });
+    assert.equal(both.status, 400);
+    assert.equal(both.body.error, "ValidationError");
+
+    const missingField = await call<{ error: string }>("POST", "/explore/charts", {
+      title: "Ghost",
+      baseId: base.id,
+      baseQuery: { tableId: deals.id, groupBy: { fieldId: connection.id } },
+    });
+    assert.equal(missingField.status, 400);
+    assert.match(missingField.body.error, /groups by a field this table no longer has/);
+
+    const wrongType = await call<{ error: string }>("POST", "/explore/charts", {
+      title: "Average name",
+      baseId: base.id,
+      baseQuery: { tableId: deals.id, metrics: [{ aggregate: "avg", fieldId: fields.name.id }] },
+    });
+    assert.equal(wrongType.status, 400);
+    assert.equal(wrongType.body.error, 'Average needs a number field, and "Name" is a text field.');
+
+    const other = await insert(Company, { name: "Rival", slug: "rival", ownerId: actingUserId! });
+    const theirs = await seedDealsBase(other.id, "Theirs");
+    const foreign = await call<{ error: string }>("POST", "/explore/charts", {
+      title: "Theirs",
+      baseId: theirs.base.id,
+      baseQuery: { tableId: theirs.deals.id },
+    });
+    assert.equal(foreign.status, 400);
+    assert.equal(foreign.body.error, "The chart's Base no longer exists");
+    assert.equal(await AppDataSource.getRepository(Chart).count(), 0);
+  });
+
+  test("moves a chart from a database to a Base and back", async () => {
+    const { base, deals } = await seedDealsBase(company.id);
+    const chart = await createChart("Pipeline");
+    const toBase = await call<ChartDTO>("PATCH", `/explore/charts/${chart.body.slug}`, {
+      baseId: base.id,
+      baseQuery: { tableId: deals.id },
+    });
+    assert.equal(toBase.status, 200);
+    assert.equal(toBase.body.source, "base");
+    assert.equal(toBase.body.connectionId, null);
+    assert.equal(toBase.body.sql, "");
+
+    const sqlWithoutConnection = await call<{ error: string }>(
+      "PATCH",
+      `/explore/charts/${chart.body.slug}`,
+      { sql: "SELECT 2" },
+    );
+    assert.equal(sqlWithoutConnection.status, 400);
+    assert.equal(sqlWithoutConnection.body.error, "Choose the database Connection the chart reads");
+
+    const back = await call<ChartDTO>("PATCH", `/explore/charts/${chart.body.slug}`, {
+      connectionId: connection.id,
+      sql: "SELECT 2",
+    });
+    assert.equal(back.status, 200);
+    assert.equal(back.body.source, "connection");
+    assert.equal(back.body.baseId, null);
+    assert.equal(back.body.baseQuery, null);
+    assert.equal(back.body.sql, "SELECT 2");
+  });
+
+  test("says when a saved chart's table is gone instead of charting nothing", async () => {
+    const { base, deals } = await seedDealsBase(company.id);
+    const created = await call<ChartDTO>("POST", "/explore/charts", {
+      title: "Every deal",
+      baseId: base.id,
+      baseQuery: { tableId: deals.id },
+    });
+    await AppDataSource.getRepository(BaseTable).delete({ id: deals.id });
+    const ran = await call<{ error: string }>(
+      "POST",
+      `/explore/charts/${created.body.slug}/run`,
+      {},
+    );
+    assert.equal(ran.status, 400);
+    assert.equal(ran.body.error, "The chart's table no longer exists in its Base");
   });
 });

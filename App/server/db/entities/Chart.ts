@@ -23,10 +23,15 @@ import {
 export type ChartVizType = "table" | "scalar" | "bar" | "line" | "area" | "pie";
 
 /**
- * A saved SQL query + visualization config bound to an
- * `IntegrationConnection` of provider `postgres` / `mysql` / `clickhouse`.
- * Re-uses the existing connection's encrypted credentials so an Explore
- * Chart needs no separate auth.
+ * A saved query + visualization config. It reads one of two sources, and
+ * exactly one of `connectionId` / `baseId` is set:
+ *
+ *  - **SQL** over an `IntegrationConnection` of provider `postgres` / `mysql`
+ *    / `clickhouse`, re-using the connection's encrypted credentials so an
+ *    Explore Chart needs no separate auth.
+ *  - **A Base** — one of the company's own Bases, asked a structured question
+ *    (`baseQueryJson`, a `BaseChartQuery` from `shared/baseChartQuery.ts`) that
+ *    the server answers in the same rows-and-columns shape.
  *
  * `vizConfig` is a typed JSON blob whose shape varies by `vizType`. Keep
  * it on a `text` column (not a JSON column) so the SQLite and Postgres
@@ -44,6 +49,7 @@ export type ChartVizType = "table" | "scalar" | "bar" | "line" | "area" | "pie";
 @Entity("charts")
 @Index(["companyId", "slug"], { unique: true })
 @Index(["companyId", "connectionId"])
+@Index(["companyId", "baseId"])
 export class Chart {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -60,16 +66,28 @@ export class Chart {
   @Column({ type: "text", default: "" })
   description!: string;
 
-  /** FK to `IntegrationConnection`. We don't define an explicit relation
-   * because the connection lives on a different lifecycle and deletes
-   * cascade-by-hand at the route layer when needed. */
-  @Column({ type: "varchar" })
-  connectionId!: string;
+  /** FK to `IntegrationConnection` for a SQL chart; null for a chart over a
+   * Base. We don't define an explicit relation because the connection lives
+   * on a different lifecycle and deletes cascade-by-hand at the route layer
+   * when needed. */
+  @Column({ type: "varchar", nullable: true })
+  connectionId!: string | null;
 
   /** The SQL the chart runs. Parameter substitution is reserved for a
-   * later phase; today this is verbatim SQL with no `$1` placeholders. */
+   * later phase; today this is verbatim SQL with no `$1` placeholders.
+   * Empty for a chart over a Base. */
   @Column({ type: "text", default: "" })
   sql!: string;
+
+  /** FK to `Base` for a chart over one of the company's own Bases; null for
+   * a SQL chart. Like `connectionId`, no relation: a chart whose Base was
+   * deleted stays, and says so when it runs. */
+  @Column({ type: "varchar", nullable: true })
+  baseId!: string | null;
+
+  /** JSON-encoded `BaseChartQuery` when `baseId` is set, null otherwise. */
+  @Column({ type: "text", nullable: true })
+  baseQueryJson!: string | null;
 
   @Column({ type: "varchar", default: "table" })
   vizType!: ChartVizType;

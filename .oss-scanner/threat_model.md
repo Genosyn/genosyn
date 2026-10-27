@@ -68,6 +68,22 @@ trusted-origin check, is in `App/server/index.ts`.
      `App/server/routes/webhooks.ts`. Chat surfaces (Slack, Microsoft Teams,
      WhatsApp), which verify the platform's signature:
      `App/server/routes/chatSurfaceWebhooks.ts`.
+   - **Customer channels**: a Slack channel (often Slack Connect, shared with
+     another organization) an owner or admin linked to a Customer
+     (`App/server/services/customerChannels/`). Every human message posted
+     there is kept, and the people in it are strangers whatever workspace they
+     are in: their words reach the channel's AI Employee only as untrusted
+     JSON in restricted turns (`customerChannels/turns.ts`) — a reply turn
+     whose one tool skips the reply, composed from the channel's
+     Member-written instructions and never the employee's Soul, Memory, Skills
+     or company tools, even when a linked Member asked; and a notes turn whose
+     one tool submits notes the server files on the linked Customer. Messages
+     in channels that are not linked are dropped unread. In any group
+     conversation the platform says another organization can read — linked or
+     not — a reply carries no Member's authority, and a channel that cannot be
+     checked is treated as shared (`groupAudience` in
+     `App/server/services/chatSurfaces/inbound.ts`). A linked Member's turn
+     reaching company tools in such a channel is a finding.
    - Phone number webhooks from Twilio (incoming texts and calls, call turns,
      delivery and call statuses), which verify `X-Twilio-Signature` with the
      Auth Token of the Connection that owns the number before acting:

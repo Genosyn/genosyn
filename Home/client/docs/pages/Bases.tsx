@@ -153,6 +153,14 @@ export function Bases() {
         Views are shared: everyone in the company sees the same tabs.
       </P>
 
+      <H2 id="charts">Chart a table</H2>
+      <P>
+        Click <Strong>Chart</Strong> at the top of a Base to open a new{" "}
+        <DocLink to="/docs/explore#bases">Explore Chart</DocLink> on the table you are viewing.
+        Filter its rows, count or sum them by any field — stage, owner, close month — and pin the
+        result to a Dashboard. The Chart reads the live rows every time it runs.
+      </P>
+
       <H2 id="forms">Collect rows with Forms</H2>
       <P>
         A <DocLink to="/docs/forms">Form</DocLink> turns selected fields from an active table into a

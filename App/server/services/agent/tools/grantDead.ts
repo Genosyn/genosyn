@@ -439,11 +439,10 @@ const PHONE_GATED_TOOLS = new Set([
 ]);
 
 /** Explore's ad-hoc database tools need at least one Connection Grant. */
-const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
-  "get_explore_schema",
-  "run_explore_query",
-  "create_chart",
-]);
+const EXPLORE_CONNECTION_GATED_TOOLS = new Set(["get_explore_schema", "run_explore_query"]);
+
+/** A Chart is authored over a granted database Connection or a granted Base. */
+const CHART_AUTHORING_TOOLS = new Set(["create_chart"]);
 
 /**
  * Fail at boot if any gated name has drifted away from the manifest.
@@ -469,6 +468,7 @@ export function assertGrantSetsResolve(): void {
     ...RESOURCE_WRITE_GATED_TOOLS,
     ...ROUTINE_WRITE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
+    ...CHART_AUTHORING_TOOLS,
     ...PHONE_GATED_TOOLS,
   ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
@@ -602,6 +602,7 @@ export async function deadToolNames(employeeId: string, strict = false): Promise
       : 0;
     if (exploreConnections === 0) {
       for (const tool of EXPLORE_CONNECTION_GATED_TOOLS) dead.add(tool);
+      if (bases === 0) for (const tool of CHART_AUTHORING_TOOLS) dead.add(tool);
     }
     const phoneNumbers = await AppDataSource.getRepository(PhoneNumber).count({
       where: { employeeId },

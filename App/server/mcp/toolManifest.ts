@@ -20,6 +20,13 @@
  * Nothing else needs to change — both transports pick it up automatically.
  */
 
+import { BASE_FILTER_OPERATORS } from "../../shared/baseFilters.js";
+import {
+  BASE_CHART_AGGREGATES,
+  BASE_CHART_DATE_BUCKETS,
+  BASE_CHART_SORT_KEYS,
+} from "../../shared/baseChartQuery.js";
+
 /** A JSON-Schema object describing a tool's arguments. Intentionally loose:
  * individual tools use enums, nullable unions, nested objects, etc. */
 export type McpToolInputSchema = {
@@ -646,6 +653,81 @@ const PIPELINE_GRAPH_PROPERTY = {
     },
   },
   required: ["nodes", "edges"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * Explore: the question a Chart over a Base asks of one table, shared by
+ * `create_chart` and `update_chart`. Field and table ids come from `get_base`;
+ * the shape mirrors `BaseChartQuery` in `shared/baseChartQuery.ts`.
+ */
+const BASE_CHART_QUERY_SCHEMA = {
+  type: "object",
+  description:
+    "What a Base chart reads. No metrics and no groupBy lists the matching rows; groupBy with no metrics counts rows per group; metrics with no groupBy is one row of totals (a scalar).",
+  properties: {
+    tableId: { type: "string", description: "Table id from get_base." },
+    filters: {
+      type: "array",
+      maxItems: 20,
+      description:
+        "Rows must match every rule — the same rules a Base view uses. Choice and link values are option / record ids.",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Any short id unique within the list." },
+          fieldId: { type: "string" },
+          operator: { type: "string", enum: [...BASE_FILTER_OPERATORS] },
+          value: { description: "Omit for isEmpty / isNotEmpty / isChecked / isUnchecked." },
+        },
+        required: ["id", "fieldId", "operator"],
+        additionalProperties: false,
+      },
+    },
+    groupBy: {
+      type: ["object", "null"],
+      properties: {
+        fieldId: { type: "string" },
+        bucket: {
+          type: ["string", "null"],
+          enum: [...BASE_CHART_DATE_BUCKETS, null],
+          description: "For a date field only; null groups by the exact day.",
+        },
+      },
+      required: ["fieldId"],
+      additionalProperties: false,
+    },
+    metrics: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        properties: {
+          aggregate: { type: "string", enum: [...BASE_CHART_AGGREGATES] },
+          fieldId: {
+            type: ["string", "null"],
+            description: "A number field; null for count.",
+          },
+        },
+        required: ["aggregate"],
+        additionalProperties: false,
+      },
+    },
+    sort: {
+      type: ["object", "null"],
+      description:
+        "group = the grouping's own order (dates in time order), metric = the first metric's value, field = listed rows by fieldId.",
+      properties: {
+        by: { type: "string", enum: [...BASE_CHART_SORT_KEYS] },
+        fieldId: { type: ["string", "null"] },
+        direction: { type: "string", enum: ["asc", "desc"] },
+      },
+      required: ["by", "direction"],
+      additionalProperties: false,
+    },
+    limit: { type: ["integer", "null"], minimum: 1, maximum: 5000 },
+  },
+  required: ["tableId"],
   additionalProperties: false,
 } as const;
 
@@ -4462,13 +4544,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_charts",
     description:
-      "List every saved Chart you have access to. A Chart is a saved SQL query + visualization (table / scalar / bar / line / area / pie) bound to a postgres / mysql / clickhouse Integration Connection. You start at `read` on every chart and `write` on the ones you author; humans manage per-employee grants from the chart's share modal.",
+      "List every saved Chart you have access to. A Chart is a saved query + visualization (table / scalar / bar / line / area / pie) over either a postgres / mysql / clickhouse Integration Connection (`source: \"connection\"`, SQL) or one of the company's Bases (`source: \"base\"`, a `baseQuery`). You start at `read` on every chart and `write` on the ones you author; humans manage per-employee grants from the chart's share modal.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "get_chart",
     description:
-      "Fetch one Chart by slug — returns title, description, SQL, viz config, and the connection it runs against. Pair with `run_chart` to actually execute the query.",
+      "Fetch one Chart by slug — returns title, description, viz config, and what it reads: SQL and its connectionId, or a baseId and its `baseQuery`. Pair with `run_chart` to actually execute it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4484,7 +4566,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "run_chart",
     description:
-      "Execute a saved Chart and return its rows. SQL runs against the chart's bound database Connection with a 30s timeout and 5,000-row cap. Use this when a teammate asks 'what's our MRR' / 'which orgs signed up last week' — find a Chart with `list_charts`, run it, summarise the result.",
+      "Execute a saved Chart and return its rows. A SQL chart runs against its database Connection with a 30s timeout; a Base chart answers its query from the Base's rows. Either returns at most 5,000 rows. Use this when a teammate asks 'what's our MRR' / 'how many deals are open' — find a Chart with `list_charts`, run it, summarise the result.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4506,7 +4588,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_chart",
     description:
-      "Author a new Chart after validating its SQL with run_explore_query. Use the connectionId from list_explore_connections; you must hold a Grant on that Connection. `vizType` defaults to 'table'; for `scalar` the first cell of the first row is shown, for `bar` / `line` / `area` set `vizConfig.dimension` to the X-axis column and `vizConfig.measures` to one or more numeric column names. For `pie` use `dimension` + a single `measure`.",
+      "Author a new Chart. Over a database: validate the SQL with run_explore_query, then pass `connectionId` (from list_explore_connections; you need a Grant on it) and `sql`. Over a Base: pass `baseSlug` (from list_bases; you need a Grant on it) and a `baseQuery` built from the table and field ids `get_base` returns — e.g. sum Amount by month: { tableId, groupBy: { fieldId, bucket: 'month' }, metrics: [{ aggregate: 'sum', fieldId }] }; check it with run_chart. `vizType` defaults to 'table'; for `scalar` the first cell of the first row is shown, for `bar` / `line` / `area` set `vizConfig.dimension` to the X-axis column and `vizConfig.measures` to one or more numeric column names. For `pie` use `dimension` + a single `measure`. A Base chart's columns are the grouped field's name, then each metric's ('Count', 'Sum of Amount').",
     inputSchema: {
       type: "object",
       properties: {
@@ -4516,6 +4598,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "UUID of an Integration Connection (postgres / mysql / clickhouse).",
         },
         sql: { type: "string", description: "The SQL the chart runs." },
+        baseSlug: { type: "string", description: "Base slug from list_bases, for a Base chart." },
+        baseQuery: BASE_CHART_QUERY_SCHEMA,
         description: {
           type: "string",
           description: "Optional short description shown next to the title.",
@@ -4532,14 +4616,14 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           additionalProperties: true,
         },
       },
-      required: ["title", "connectionId", "sql"],
+      required: ["title"],
       additionalProperties: false,
     },
   },
   {
     name: "update_chart",
     description:
-      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the Chart; changing SQL also requires a Grant on its Connection, so validate the query with run_explore_query first. A Chart that supplies a Goal's number refuses SQL changes — only a person can make them.",
+      "Edit an existing Chart's title, description, query, or visualization. Pass only the fields you want to change. Requires `write` access on the Chart. A SQL chart takes `sql`, which also requires a Grant on its Connection, so validate the query with run_explore_query first; a Base chart takes a whole new `baseQuery`, which requires a Grant on its Base. A Chart that supplies a Goal's number refuses query changes — only a person can make them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4547,6 +4631,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         title: { type: "string" },
         description: { type: "string" },
         sql: { type: "string" },
+        baseQuery: BASE_CHART_QUERY_SCHEMA,
         vizType: {
           type: "string",
           enum: ["table", "scalar", "bar", "line", "area", "pie"],

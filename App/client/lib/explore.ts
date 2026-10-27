@@ -1,3 +1,5 @@
+import type { BaseField, BaseLinkOption, BaseResourceOption } from "./api";
+
 export type VizType = "table" | "scalar" | "bar" | "line" | "area" | "pie";
 
 export type QueryResult = {
@@ -37,6 +39,30 @@ export function exploreScalarMeasure(
 }
 
 export type ExploreProvider = "postgres" | "mysql" | "clickhouse";
+
+export type {
+  BaseChartAggregate,
+  BaseChartDateBucket,
+  BaseChartMetric,
+  BaseChartQuery,
+} from "../../shared/baseChartQuery";
+
+/** A Base as the chart editor lists it: its tables, without their rows. */
+export type ExploreBase = {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string;
+  color: string;
+  tables: { id: string; name: string; archived: boolean }[];
+};
+
+/** One table's columns and the labels its filter pickers offer. */
+export type ExploreBaseSchema = {
+  fields: BaseField[];
+  linkOptions: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
+};
 
 export type ExploreSchemaColumn = {
   name: string;
