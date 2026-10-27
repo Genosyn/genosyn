@@ -15,6 +15,7 @@ import { budgetsRouter } from "../routes/budgets.js";
 import { cardExpensesRouter } from "../routes/cardExpenses.js";
 import { careersRouter } from "../routes/careers.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "../routes/chatSurfaces.js";
+import { customerChannelsRouter } from "../routes/customerChannels.js";
 import { companiesRouter } from "../routes/companies.js";
 import { companyMcpRouter } from "../routes/companyMcp.js";
 import { connectedAppsRouter } from "../routes/connectedApps.js";
@@ -198,6 +199,11 @@ export const AREAS: readonly Area[] = [
     name: "Chat surfaces",
     description: "Slack, Microsoft Teams, WhatsApp and Telegram identities.",
   },
+  {
+    name: "Customer channels",
+    description:
+      "Slack channels linked to a Customer, where an AI Employee keeps notes and answers.",
+  },
   { name: "Tasks", description: "Projects, todos and their comments." },
   { name: "Notes", description: "Notebooks and notes." },
   { name: "Resources", description: "The library AI Employees read from, and its Folders." },
@@ -345,6 +351,7 @@ function areaRules(): AreaRule[] {
     { router: workspaceDiscussionsRouter, area: "Workspace chat" },
     { router: chatSurfacesRouter, area: "Chat surfaces" },
     { router: chatSurfaceBindRouter, area: "Chat surfaces" },
+    { router: customerChannelsRouter, area: "Customer channels" },
     { router: projectsRouter, area: "Tasks" },
     { router: notebooksRouter, area: "Notes" },
     { router: notesRouter, area: "Notes" },

@@ -147,6 +147,93 @@ export async function slackFetch<T = SlackEnvelope>(
   return parsed as unknown as T;
 }
 
+/** One channel as a customer channel's picker and link step need it. */
+export type SlackChannelSummary = {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  /** Shared with another organization — a Slack Connect channel. */
+  isShared: boolean;
+  isMember: boolean;
+  isArchived: boolean;
+};
+
+type SlackConversation = {
+  id?: unknown;
+  name?: unknown;
+  is_private?: unknown;
+  is_ext_shared?: unknown;
+  is_pending_ext_shared?: unknown;
+  is_member?: unknown;
+  is_archived?: unknown;
+  is_im?: unknown;
+  is_mpim?: unknown;
+};
+
+function summarizeConversation(
+  raw: SlackConversation,
+  memberByDefault: boolean,
+): SlackChannelSummary | null {
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  // A DM or a group DM is a conversation with people, not a channel a
+  // customer account could be linked to.
+  if (!id || raw.is_im === true || raw.is_mpim === true) return null;
+  return {
+    id,
+    name: typeof raw.name === "string" ? raw.name.trim() : "",
+    isPrivate: raw.is_private === true,
+    isShared: raw.is_ext_shared === true || raw.is_pending_ext_shared === true,
+    isMember: typeof raw.is_member === "boolean" ? raw.is_member : memberByDefault,
+    isArchived: raw.is_archived === true,
+  };
+}
+
+/** Pages read before the list stops growing. 200 a page, so a thousand channels. */
+const MEMBER_CHANNEL_PAGES = 5;
+
+/**
+ * The channels this app's bot is in — public, private and Slack Connect.
+ *
+ * `users.conversations` rather than `conversations.list`: a Slack Connect
+ * channel is most often private, and the bot can only ever work a channel it
+ * was invited to, so listing the workspace would be a long list of channels
+ * nobody can pick.
+ */
+export async function listSlackMemberChannels(botToken: string): Promise<SlackChannelSummary[]> {
+  const out: SlackChannelSummary[] = [];
+  let cursor = "";
+  for (let page = 0; page < MEMBER_CHANNEL_PAGES; page += 1) {
+    const res = await slackFetch<{
+      channels?: SlackConversation[];
+      response_metadata?: { next_cursor?: unknown };
+    }>("users.conversations", botToken, {
+      types: "public_channel,private_channel",
+      exclude_archived: true,
+      limit: 200,
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const raw of res.channels ?? []) {
+      const summary = summarizeConversation(raw, true);
+      if (summary) out.push(summary);
+    }
+    const next = res.response_metadata?.next_cursor;
+    cursor = typeof next === "string" ? next.trim() : "";
+    if (!cursor) break;
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** One channel as Slack describes it now, or an error naming Slack's own code. */
+export async function getSlackChannel(
+  botToken: string,
+  channelId: string,
+): Promise<SlackChannelSummary | null> {
+  const res = await slackFetch<{ channel?: SlackConversation }>("conversations.info", botToken, {
+    channel: channelId,
+  });
+  return res.channel ? summarizeConversation(res.channel, false) : null;
+}
+
 function requireString(v: unknown, name: string): string {
   if (typeof v !== "string" || !v.trim()) {
     throw new Error(`${name} is required`);
@@ -171,7 +258,7 @@ export const slackProvider: IntegrationProvider = {
     category: "Communication",
     tagline: "Talk to your AI Employees in Slack.",
     description:
-      "Connect a Slack app so people can reach an AI Employee from the channel they are already in — DM it, or @-mention it in a thread and the answer lands in that thread. Paste the bot token, add an app-level token and Genosyn opens a Socket Mode connection that needs no public URL. Granted employees also get outbound tools (post, edit, react, list channels) so they can push updates without being asked.",
+      "Connect a Slack app so people can reach an AI Employee from the channel they are already in — DM it, or @-mention it in a thread and the answer lands in that thread. Link a channel you share with a customer to their Customer record and the employee reads it, writes notes onto their timeline, and can answer them. Paste the bot token, add an app-level token and Genosyn opens a Socket Mode connection that needs no public URL. Granted employees also get outbound tools (post, edit, react, list channels) so they can push updates without being asked.",
     icon: "Slack",
     authMode: "apikey",
     fields: [

@@ -138,6 +138,20 @@ describe("promotion eligibility", () => {
     assert.equal(await computeAutonomyPromotions(), 0);
   });
 
+  test("work handed to continuations still earns promotion; it is not a failed Run", async () => {
+    const routine = await seedCleanRecord();
+    for (let n = 0; n < 8; n++) {
+      await insert(Run, {
+        routineId: routine.id,
+        status: "continued",
+        logContent: "",
+        triggerKind: n % 2 ? "continuation" : "schedule",
+        startedAt: new Date(),
+      });
+    }
+    assert.equal(await computeAutonomyPromotions(), 1);
+  });
+
   test("an Error in the window disqualifies promotions", async () => {
     const routine = await seedCleanRecord();
     await insert(Run, {
@@ -371,6 +385,23 @@ describe("routineAutonomyEvidence", () => {
   });
   const run = (over: Partial<Run>): Pick<Run, "status" | "outcomeVerdict" | "checksVerdict"> =>
     ({ status: "completed", outcomeVerdict: "achieved", checksVerdict: "passed", ...over }) as Run;
+
+  test("a hand-off is judged by its continuation, never as a Run that did not complete", () => {
+    const evidence = routineAutonomyEvidence({
+      runs: [
+        run({ status: "continued", outcomeVerdict: null, checksVerdict: null }),
+        run({ status: "continued", outcomeVerdict: null, checksVerdict: null }),
+        run({}),
+        run({ status: "continued", outcomeVerdict: null, checksVerdict: null }),
+        run({}),
+      ],
+      hasCriteria: true,
+      hasChecks: true,
+    });
+    assert.equal(evidence.terminalRuns, 2);
+    assert.equal(evidence.verified, 2);
+    assert.equal(evidence.promotable, true, evidence.reason);
+  });
 
   test("a Routine measured by nothing says so in plain English", () => {
     const evidence = routineAutonomyEvidence({

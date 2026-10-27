@@ -215,7 +215,8 @@ export function Introduction() {
         appears under <Strong>Pages</Strong>, beside Routines; &ldquo;members&rdquo; opens Settings →
         Members, &ldquo;drafts&rdquo; opens your Email drafts, and &ldquo;new invoice&rdquo; starts
         a new invoice. Each page shows the section it belongs to, and whichever group holds the
-        closest match comes first, so <Code>↵</Code> opens it. Add the section&apos;s name to narrow
+        closest match comes first, so <Code>↵</Code> opens it when no AI Employee matches (see
+        below). Add the section&apos;s name to narrow
         things down: &ldquo;revenue accounts&rdquo; finds Revenue&apos;s Accounts and not
         Finance&apos;s Chart of accounts. Pages only appear when you can open them, here and in each
         section&apos;s sidebar alike: a Member doesn&apos;t see admin-only pages such as Usage,
@@ -256,10 +257,13 @@ export function Introduction() {
       </P>
       <P>
         The palette searches your company&apos;s content too, not just sections and pages. Type two or
-        more characters and matching AI Employees, skills, routines, notebooks, notes, bases,
-        channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear
-        grouped beneath them, with <Strong>Product areas</Strong> such as Estimates or Workspace
-        alongside. It matches <em>names</em> — plus a few fields you&apos;d
+        more characters and matching <Strong>AI Employees</Strong> come first, above sections and
+        pages, so typing an employee&apos;s name and pressing <Code>↵</Code> opens them. They can land a
+        moment after the rest; if you have already moved down the list, the row you chose stays
+        highlighted. Matching skills, routines, notebooks, notes, bases, channels, projects, todos,
+        customers, charts, dashboards, repositories, and pipelines appear grouped beneath sections and
+        pages, with <Strong>Product areas</Strong> such as Estimates or Workspace alongside. It
+        matches <em>names</em> — plus a few fields you&apos;d
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
         employee&apos;s role — never document bodies. Press <Code>↵</Code> to open a result; a todo
         takes you to its project&apos;s board, ticket number in hand. Results respect what you can

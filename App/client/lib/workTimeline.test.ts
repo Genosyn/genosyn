@@ -1665,6 +1665,7 @@ describe("an entry in sentences", () => {
   });
 
   const stopped = [
+    ["continued", "This run saved its progress and a continuation took over the rest of its work."],
     ["failed", "This run failed to complete its intended work. Open the run log for details."],
     ["error", "This run encountered a model or runtime error. Open the run log for details."],
     ["timeout", "This run encountered an error: it ran out of time before it finished."],

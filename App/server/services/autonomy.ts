@@ -7,7 +7,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
-import { Run } from "../db/entities/Run.js";
+import { Run, type RunStatus } from "../db/entities/Run.js";
 import { recordAudit } from "./audit.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { createNotifications, notifyApprovalPending } from "./notifications.js";
@@ -107,6 +107,13 @@ type EmployeeRecord = {
   checksFailed: number;
 };
 
+/**
+ * Runs that are not a finished unit of work to judge: still going, a review
+ * that carried out nothing, or a hand-off whose continuation carries the
+ * outcome — counting one would charge a chain's progress as a failure.
+ */
+const UNJUDGED_RUN_STATUSES: RunStatus[] = ["queued", "running", "reviewed", "continued"];
+
 const EMPTY_RECORD: EmployeeRecord = {
   terminalRuns: 0,
   failed: 0,
@@ -141,7 +148,7 @@ async function employeeRecord(employeeId: string, since: Date): Promise<Employee
     where: { routineId: In(routines.map((r) => r.id)), startedAt: MoreThan(since) },
     select: { routineId: true, status: true, outcomeVerdict: true, checksVerdict: true },
   });
-  const terminal = runs.filter((r) => !["queued", "running", "reviewed"].includes(r.status));
+  const terminal = runs.filter((r) => !UNJUDGED_RUN_STATUSES.includes(r.status));
   return {
     terminalRuns: terminal.length,
     failed: terminal.filter((r) => ["failed", "error", "timeout", "interrupted"].includes(r.status))
@@ -184,7 +191,7 @@ export function routineAutonomyEvidence(args: {
   hasCriteria: boolean;
   hasChecks: boolean;
 }): RoutineAutonomyEvidence {
-  const terminal = args.runs.filter((r) => !["queued", "running", "reviewed"].includes(r.status));
+  const terminal = args.runs.filter((r) => !UNJUDGED_RUN_STATUSES.includes(r.status));
   const verified = terminal.filter(
     (r) =>
       r.status === "completed" && r.outcomeVerdict === "achieved" && r.checksVerdict !== "failed",

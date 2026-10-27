@@ -67,6 +67,8 @@ import { AskAiConversation } from "./entities/AskAiConversation.js";
 import { AskAiMessage } from "./entities/AskAiMessage.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
 import { ExternalChatIdentity } from "./entities/ExternalChatIdentity.js";
+import { CustomerChannel } from "./entities/CustomerChannel.js";
+import { CustomerChannelMessage } from "./entities/CustomerChannelMessage.js";
 import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
 import { EmployeeMemory } from "./entities/EmployeeMemory.js";
 import { Channel } from "./entities/Channel.js";
@@ -325,6 +327,8 @@ const entities = [
   AskAiMessage,
   EmployeeConnectionGrant,
   ExternalChatIdentity,
+  CustomerChannel,
+  CustomerChannelMessage,
   EmployeeBaseGrant,
   EmployeeMemory,
   Channel,

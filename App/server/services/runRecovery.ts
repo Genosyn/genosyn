@@ -30,7 +30,7 @@ import {
 import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 import { notifyRunFailure } from "./runAlerts.js";
 import { readRunDiagnostics } from "./runDiagnostics.js";
-import { readRunCheckpoint } from "./runContinuation.js";
+import { CONTINUATION_CANCELLED_REASON, readRunCheckpoint } from "./runContinuation.js";
 import {
   hasLiveRoutineRunLease,
   ownsRoutineRunClaim,
@@ -181,7 +181,14 @@ export async function cancelPendingRetry(runId: string): Promise<CancelPendingRe
     if (isRetryDispatchClaimed(run.retryAt)) return "dispatching";
     const result = await repo.update(
       { id: run.id, retryAt: run.retryAt },
-      { routineId: run.routineId, retryAt: null },
+      {
+        routineId: run.routineId,
+        retryAt: null,
+        // Cancelling a hand-off's continuation leaves its work unfinished.
+        ...(run.status === "continued"
+          ? { status: "failed" as const, continuationStopReason: CONTINUATION_CANCELLED_REASON }
+          : {}),
+      },
     );
     if (result.affected === 1) return "cancelled";
   }

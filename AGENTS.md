@@ -229,6 +229,7 @@ code, UI copy, commits, and docs.
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
 | **Phone number** (a Twilio number the company reserved and gave to one AI Employee — `PhoneNumber`; its texts are `PhoneMessage`, its calls `PhoneCall`) | Line, DID, Connection, Integration (of the number) |
+| **Customer channel** (a Slack channel — usually a Slack Connect one — linked to one Customer, where an AI Employee keeps notes on that Customer's timeline and answers from Member-written instructions — `CustomerChannel`; the messages it keeps are `CustomerChannelMessage`) | Shared channel, Customer room, Connection (of the row); never a Workspace `Channel` |
 | **Decision** (a consequential choice an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
@@ -315,6 +316,28 @@ treats a caller as a Member, give those turns company tools, or hang texting
 tools off the Twilio Connection. Texting and calling are delivery: they sit
 beside `send_mail` in the taint sinks and the mail-delivery send ceiling.
 
+**A customer channel is read for the customer and answered for the
+customer.** Linking a Slack channel to a Customer (`services/customerChannels/`)
+is the only thing that makes the Slack app read a whole channel: every human
+message there is kept as a `CustomerChannelMessage`, and a message overheard in
+an unlinked channel is dropped unread before any identity sighting. Everyone in
+the room is a stranger — a customer is not a Member, and Slack proves nothing —
+so every reply there is a restricted turn on the channel's Member-written
+instructions whose one tool skips the reply, never the employee's Soul, Memory,
+Skills or company tools, even when a linked Member asked: the audience, not the
+asker, sets the authority. Notes come from a restricted one-tool turn whose
+submission the server files as a `note` Activity on the linked Customer, plus
+Follow-ups only under the employee's own Revenue write; the model never chooses
+the record or reaches a tool. The audience rule reaches shared channels nobody
+linked as well: `groupAudience` (`services/chatSurfaces/inbound.ts`) drops a
+linked Member's authority from any group turn the platform says another
+organization can read (Slack's `is_ext_shared_channel`), asks the platform
+when the delivery did not say, and treats a channel it cannot check as shared.
+Do not route a customer channel's turns through `chatWithEmployee`, offer a bind
+link in one, give either turn a company tool, let an unprompted reply go to the
+company's own people, or let a Member's authority into a reply that people
+outside the company read.
+
 **A Check is not a health check, and a Standdown is not `Routine.enabled`.**
 The word "check" had a second meaning in this codebase — one named condition on
 the System Health page — so M58 renamed those to **probes** (`HealthProbe`,
@@ -370,6 +393,19 @@ off-goal. The employee can report only its own active Run, with a durable
 `failureReason`; it cannot change Checks, grading, or another Run. Check and
 outcome verdicts remain separate evidence, and an unverified assessment never
 becomes success. Legacy `timeout` and `interrupted` statuses display as Error.
+
+**"Continued" is not "Failed" either.** A Run that saved a continue checkpoint
+and handed its unfinished work to an automatic continuation ends `continued`
+(the batch hand-off past two million tokens is the common case). It is the
+planned hand-off, not a failure: the last Run in the chain carries the outcome,
+so alerts, failure counts, Usage completion, earned autonomy and the letter to
+the board never count a `continued` Run against anyone. Only a continuation
+that is actually queued earns the status, and a Run whose employee reported a
+failure (`mark_run_failed`) keeps `failed` while its work continues. One
+cancelled, stopped at dispatch
+or skipped before it starts returns its parent to `failed` with the reason
+(`revertUnstartedContinuation`), so unfinished work nothing will continue stays
+visible. Do not reuse `failed` as the "resumable" marker again.
 
 **"Decision" and "Approval" are not synonyms**, and the split is the whole
 point of both. An **Approval** is the *system* interposing on an action an

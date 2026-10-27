@@ -714,7 +714,7 @@ try {
       retryAt: string | null;
       content: string;
     }>(`/api/companies/${company.id}/runs/${parent.id}/log`);
-    assert.equal(parentLog.status, "failed");
+    assert.equal(parentLog.status, "continued");
     assert.equal(parentLog.continuationPending, true);
     assert.equal(parentLog.continuationCount, 0);
     assert(parentLog.retryAt);

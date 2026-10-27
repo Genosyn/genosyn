@@ -18,6 +18,7 @@ import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
 import { bootMeetings } from "./services/meetings/boot.js";
 import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
+import { bootCustomerChannels } from "./services/customerChannels/boot.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailAddressIndex } from "./services/mail/addressIndex.js";
 import { bootMailSearchIndex } from "./services/mail/searchIndex.js";
@@ -60,6 +61,7 @@ import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { matchCardCategoriesToBooks } from "./services/cardCategoryRepair.js";
+import { backfillContinuedRuns } from "./services/runContinuedBackfill.js";
 import { createApp } from "./app.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -110,6 +112,14 @@ async function main() {
   // their category changes: Banking shows the category their books hold.
   // Purchases split across several categories wait for a person on Banking.
   await matchCardCategoriesToBooks();
+  // A Run that handed its work to a continuation used to be stored as Failed.
+  // Read that history as the progress it was before the scheduler, the board
+  // letter or earned autonomy count it. Never blocks startup: it retries on
+  // the next boot.
+  await backfillContinuedRuns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[runs] reclassifying continued Runs failed:", err);
+  });
   await bootProactiveDefaults();
   // Recruiting: which custom domains serve a careers site, and the queue of
   // Applications waiting for their AI screen (resumed after a restart).
@@ -170,6 +180,9 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[chat-surface] boot failed:", err);
   });
+  // Customer channels: the heartbeat that writes notes for a linked Slack
+  // channel once it goes quiet. Synchronous — it only installs a timer.
+  bootCustomerChannels();
   // Phone numbers: fetch the texts Twilio cannot push to this install, and
   // re-point numbers' webhooks when the public URL changes. Also registers the
   // automatic text reply, so it must run before any webhook can arrive.

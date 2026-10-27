@@ -31,8 +31,11 @@ import type {
  *
  * The rule that shapes normalization: **a bot must never answer itself.** A
  * DM answers every message; a channel answers only an @-mention, in the
- * thread the mention was in. Everything else — edits, joins, file shares,
- * anything wearing a `bot_id` — is dropped on the floor.
+ * thread the mention was in. Everything else — edits, joins, anything wearing
+ * a `bot_id` — is dropped on the floor. The one exception is a person's
+ * ordinary message in a channel, which is handed over marked `overheard`: the
+ * core keeps it when the channel is a customer channel and drops it unread
+ * everywhere else.
  */
 
 /**
@@ -43,6 +46,19 @@ const SLACK_TEXT_LIMIT = 3800;
 
 /** Slack's own replay window for the v0 signature. */
 export const SIGNATURE_WINDOW_SECONDS = 5 * 60;
+
+/**
+ * How long Slack's answer to "is this channel shared with another
+ * organization?" is reused. Short, because sharing a channel is something a
+ * workspace admin can do at any moment.
+ */
+export const SHARED_CHANNEL_CACHE_MS = 5 * 60_000;
+const SHARED_CHANNEL_CACHE_LIMIT = 1_000;
+const sharedChannelCache = new Map<string, { shared: boolean; at: number }>();
+
+export function clearSlackSharedChannelCacheForTests(): void {
+  sharedChannelCache.clear();
+}
 
 /** How often the socket loop notices that the worker asked it to stop. */
 const CANCEL_POLL_MS = 250;
@@ -267,6 +283,7 @@ const slackUserProfileSchema = z
     display_name: z.string().max(300).nullish(),
     real_name: z.string().max(300).nullish(),
     name: z.string().max(300).nullish(),
+    team: z.string().max(64).nullish(),
   })
   .passthrough();
 
@@ -289,6 +306,11 @@ const slackEventSchema = z
     channel: z.string().max(64).nullish(),
     channel_type: z.string().max(32).nullish(),
     user_profile: slackUserProfileSchema.nullish(),
+    // The sender's own workspace. Slack Connect is the reason it exists, and
+    // the reason a customer channel can tell the customer from the company.
+    user_team: z.string().max(64).nullish(),
+    source_team: z.string().max(64).nullish(),
+    team: z.string().max(64).nullish(),
   })
   .passthrough();
 
@@ -299,6 +321,14 @@ export type NormalizeSlackEventArgs = {
   companyId: string;
   /** The bot's own user id from the Connection config. */
   botUserId: string | null | undefined;
+  /** The app's own workspace, from the Connection config. */
+  teamId?: string | null;
+  /**
+   * The envelope's `is_ext_shared_channel`: whether Slack says the event
+   * happened in a channel shared with another organization. Absent when the
+   * delivery did not say.
+   */
+  sharedChannel?: boolean | null;
   /** The `event` object out of Slack's envelope. */
   event: unknown;
 };
@@ -323,6 +353,49 @@ function isDirectMessageChannel(channelType: unknown, channel: string): boolean 
   // `app_mention` does not always carry `channel_type`, and Slack's id
   // prefixes answer the same question: D is a DM, C a channel, G a group.
   return channel.startsWith("D");
+}
+
+/** Slack's `ts` is seconds with a microsecond fraction, and also the message's id. */
+export function slackTsToDate(ts: string): Date | null {
+  const seconds = Number(ts);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(Math.round(seconds * 1000));
+}
+
+/**
+ * True when the sender's account belongs to another workspace than the app's —
+ * someone from a customer's organization in a Slack Connect channel. Unknown
+ * is not outside: a message that names no team was written in the app's own
+ * workspace, which is the only place Slack leaves the field off.
+ */
+function fromAnotherWorkspace(event: SlackEvent, teamId: string | null | undefined): boolean {
+  const own = trimmed(teamId);
+  if (!own) return false;
+  const sender =
+    trimmed(event.user_team) ||
+    trimmed(event.user_profile?.team) ||
+    trimmed(event.source_team) ||
+    trimmed(event.team);
+  return Boolean(sender) && sender !== own;
+}
+
+/**
+ * Whether people outside the company can read this channel: Slack's own word
+ * from the envelope, or a sender from another workspace, which only a shared
+ * channel can have. Undefined when neither says — the core then asks Slack
+ * before it lets a Member's authority into a reply there.
+ */
+function sharedWithAnotherOrganization(
+  event: SlackEvent,
+  args: Pick<NormalizeSlackEventArgs, "teamId" | "sharedChannel">,
+): boolean | undefined {
+  if (fromAnotherWorkspace(event, args.teamId)) return true;
+  return typeof args.sharedChannel === "boolean" ? args.sharedChannel : undefined;
+}
+
+function mentionPattern(botUserId: string): RegExp {
+  const escaped = botUserId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`<@${escaped}(?:\\|[^>]*)?>`);
 }
 
 /**
@@ -392,7 +465,92 @@ export function normalizeSlackEvent(args: NormalizeSlackEventArgs): InboundChatT
       : // Answer in the thread. A long reply pasted into the channel is the
         // difference between a helpful colleague and a nuisance.
         { channel, thread_ts: threadTs ?? ts },
+    ...(direct
+      ? {}
+      : {
+          externalChannelId: channel,
+          externalThreadId: threadTs ?? ts,
+          sentAt: slackTsToDate(ts),
+          outsideWorkspace: fromAnotherWorkspace(event, args.teamId),
+          externallyShared: sharedWithAnotherOrganization(event, args),
+        }),
   };
+}
+
+/**
+ * Subtypes that are still a person talking. A reply also sent to the channel
+ * is one; a message with a file attached is another, and its words are what a
+ * note wants. Edits, deletions, joins and topic changes are not.
+ */
+const OVERHEARD_SUBTYPES = new Set(["thread_broadcast", "file_share"]);
+
+/**
+ * A person's ordinary message in a channel, handed over marked `overheard`.
+ *
+ * The other half of the rule in {@link normalizeSlackEvent}, which answers
+ * only a mention in a channel. A customer channel has to read the rest of the
+ * room as well, so every human message posted there reaches the core — which
+ * keeps it when the channel is a customer channel and drops it unread
+ * everywhere else. It is never a DM (a DM is already a conversation, answered
+ * message by message) and never anything a bot wrote, for the same reason as
+ * there: a bot must never answer itself, and a bot it overheard is a loop.
+ *
+ * A message that names the app arrives a second time as an `app_mention`,
+ * which is the copy that gets answered. This one says so, and is only kept.
+ */
+export function normalizeSlackChannelMessage(
+  args: NormalizeSlackEventArgs,
+): InboundChatTurn | null {
+  const parsed = slackEventSchema.safeParse(args.event);
+  if (!parsed.success) return null;
+  const event = parsed.data;
+  if (event.type !== "message") return null;
+  if (trimmed(event.bot_id)) return null;
+  if (event.hidden === true) return null;
+  const subtype = trimmed(event.subtype);
+  if (subtype && !OVERHEARD_SUBTYPES.has(subtype)) return null;
+
+  const user = trimmed(event.user);
+  if (!user) return null;
+  const botUserId = trimmed(args.botUserId);
+  if (botUserId && user === botUserId) return null;
+
+  const channel = trimmed(event.channel);
+  const ts = trimmed(event.ts);
+  if (!channel || !ts) return null;
+  if (isDirectMessageChannel(event.channel_type, channel)) return null;
+
+  const raw = typeof event.text === "string" ? event.text : "";
+  const words = slackWireToPlainText(stripLeadingBotMention(raw, botUserId || null)).trim();
+  const text = words || (subtype === "file_share" ? "(shared a file)" : "");
+  if (!text) return null;
+
+  const threadTs = trimmed(event.thread_ts) || null;
+  return {
+    provider: "slack",
+    connectionId: args.connectionId,
+    companyId: args.companyId,
+    externalKey: `${channel}:${threadTs ?? ts}`,
+    externalUserId: user,
+    externalUserLabel: bestLabel(event),
+    threadTitle: null,
+    text,
+    group: true,
+    externalMessageId: `${channel}:${ts}`,
+    replyTo: { channel, thread_ts: threadTs ?? ts },
+    externalChannelId: channel,
+    externalThreadId: threadTs ?? ts,
+    sentAt: slackTsToDate(ts),
+    outsideWorkspace: fromAnotherWorkspace(event, args.teamId),
+    externallyShared: sharedWithAnotherOrganization(event, args),
+    overheard: true,
+    mentionsEmployee: botUserId ? mentionPattern(botUserId).test(raw) : false,
+  };
+}
+
+/** One Slack event → the turn it makes, addressed or overheard, or null. */
+export function normalizeSlackInbound(args: NormalizeSlackEventArgs): InboundChatTurn | null {
+  return normalizeSlackEvent(args) ?? normalizeSlackChannelMessage(args);
 }
 
 /* ------------------------------------------------------------------ *
@@ -462,6 +620,9 @@ const slackWebhookBodySchema = z
     type: z.string().max(64).nullish(),
     challenge: z.string().max(4000).nullish(),
     event: z.unknown().optional(),
+    // Read leniently: a malformed flag means "Slack did not say", which the
+    // core answers by asking Slack, never by assuming the channel is private.
+    is_ext_shared_channel: z.unknown().optional(),
   })
   .passthrough();
 
@@ -506,8 +667,14 @@ const eventCallbackSchema = z
   .object({
     type: z.string().max(64).nullish(),
     event: z.unknown().optional(),
+    is_ext_shared_channel: z.unknown().optional(),
   })
   .passthrough();
+
+/** The envelope's word on the channel, or null when it gave none worth reading. */
+function envelopeSharedFlag(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
 
 function logSlackError(connectionId: string | undefined, label: string, err: unknown): void {
   const tag = connectionId ? `[slack ${connectionId}]` : "[slack]";
@@ -549,6 +716,8 @@ type SocketPumpArgs = {
   connectionId: string;
   companyId: string;
   botUserId: string | null;
+  /** The app's own workspace, so a Slack Connect sender can be told apart. */
+  teamId?: string | null;
   isCancelled: () => boolean;
   deliver: (turn: InboundChatTurn) => Promise<void>;
   /** Injectable so the loop can be driven by a fake socket in a test. */
@@ -671,10 +840,12 @@ export function pumpSocketMode(args: SocketPumpArgs): Promise<void> {
 
       const callback = eventCallbackSchema.safeParse(payload);
       if (!callback.success) return;
-      const turn = normalizeSlackEvent({
+      const turn = normalizeSlackInbound({
         connectionId: args.connectionId,
         companyId: args.companyId,
         botUserId: args.botUserId,
+        teamId: args.teamId ?? null,
+        sharedChannel: envelopeSharedFlag(callback.data.is_ext_shared_channel),
         event: callback.data.event,
       });
       if (!turn) return;
@@ -701,6 +872,28 @@ export const slackChatSurface: ChatSurfaceAdapter = {
   textLimit: SLACK_TEXT_LIMIT,
   requiresPublicUrl: false,
 
+  /**
+   * Slack's own description of the channel. A pending Slack Connect
+   * invitation counts as shared: once it is accepted the other organization
+   * can read what was already said.
+   */
+  async channelSharedExternally({ connectionId, config, externalChannelId }) {
+    const key = `${connectionId}:${externalChannelId}`;
+    const cached = sharedChannelCache.get(key);
+    if (cached && Date.now() - cached.at < SHARED_CHANNEL_CACHE_MS) return cached.shared;
+    const botToken = trimmed((config as SlackConfig).botToken);
+    if (!botToken) throw new Error("Slack connection has no bot token.");
+    const info = await slackFetch<{
+      channel?: { is_ext_shared?: unknown; is_pending_ext_shared?: unknown };
+    }>("conversations.info", botToken, { channel: externalChannelId });
+    if (!info.channel) throw new Error("Slack described no channel.");
+    const shared =
+      info.channel.is_ext_shared === true || info.channel.is_pending_ext_shared === true;
+    if (sharedChannelCache.size >= SHARED_CHANNEL_CACHE_LIMIT) sharedChannelCache.clear();
+    sharedChannelCache.set(key, { shared, at: Date.now() });
+    return shared;
+  },
+
   async send({ config, replyTo, text }) {
     const cfg = config as SlackConfig;
     const botToken = trimmed(cfg.botToken);
@@ -710,11 +903,15 @@ export const slackChatSurface: ChatSurfaceAdapter = {
     const channel = trimmed(replyTo.channel);
     if (!channel) throw new Error("Slack reply target carries no channel.");
     const threadTs = trimmed(replyTo.thread_ts);
-    await slackFetch("chat.postMessage", botToken, {
+    const posted = await slackFetch<{ ts?: unknown }>("chat.postMessage", botToken, {
       channel,
       text: toSlackMrkdwn(text),
       ...(threadTs ? { thread_ts: threadTs } : {}),
     });
+    const ts = trimmed(posted.ts);
+    // The same `<channel>:<ts>` shape an inbound message is keyed on, so a
+    // reply a customer channel keeps can never be kept twice.
+    return { externalMessageId: ts ? `${channel}:${ts}` : null };
   },
 
   /**
@@ -748,6 +945,7 @@ export const slackChatSurface: ChatSurfaceAdapter = {
       connectionId,
       companyId: loaded.companyId,
       botUserId: trimmed(loaded.config.botUserId) || null,
+      teamId: trimmed(loaded.config.teamId) || null,
       isCancelled,
       deliver,
     });
@@ -787,10 +985,12 @@ export const slackChatSurface: ChatSurfaceAdapter = {
       }
       if (parsed.data.type !== "event_callback") return { kind: "turns", turns: [] };
 
-      const turn = normalizeSlackEvent({
+      const turn = normalizeSlackInbound({
         connectionId,
         companyId,
         botUserId: cfg.botUserId ?? null,
+        teamId: cfg.teamId ?? null,
+        sharedChannel: envelopeSharedFlag(parsed.data.is_ext_shared_channel),
         event: parsed.data.event,
       });
       return { kind: "turns", turns: turn ? [turn] : [] };

@@ -1223,6 +1223,8 @@ routinesRouter.post(
       targetLabel: found.routine.name,
       metadata: { routineId: found.routine.id, attempt: run.attempt },
     });
-    res.json(publicRun({ ...run, retryAt: null }));
+    // Cancelling a hand-off's continuation also returns it to Failed.
+    const cancelled = await runRepo.findOneBy({ id: run.id });
+    res.json(publicRun(cancelled ?? { ...run, retryAt: null }));
   },
 );

@@ -216,6 +216,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Reach an AI Employee from Slack, Microsoft Teams, WhatsApp, or Telegram — and link your account so it answers as you.",
       },
       {
+        path: "/docs/customer-channels",
+        title: "Customer channels",
+        blurb:
+          "Put an AI Employee in the Slack channels you share with customers — it takes notes onto their record and answers their questions.",
+      },
+      {
         path: "/docs/phone-numbers",
         title: "Phone numbers",
         blurb:

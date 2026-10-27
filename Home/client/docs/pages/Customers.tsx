@@ -205,7 +205,9 @@ export function Customers() {
         <LI>
           <Strong>Activity</Strong> — the account&apos;s whole timeline: emails, calls, meetings,
           notes, tasks, deal moves, and sequence touches, including activity recorded against its
-          contacts and deals before they were linked to the account.
+          contacts and deals before they were linked to the account. An AI Employee working a{" "}
+          <DocLink to="/docs/customer-channels">customer channel</DocLink> in Slack writes its
+          notes here too.
         </LI>
         <LI>
           <Strong>Deals</Strong> — every deal with the account, open deals first, with stage,

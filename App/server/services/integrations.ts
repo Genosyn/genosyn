@@ -31,6 +31,7 @@ import {
 // `notifyConnectionChanged` below resolves it at call time instead.
 import { isChatSurfaceProvider } from "./chatSurfaces/types.js";
 import { deleteIdentitiesForConnection } from "./chatSurfaces/identity.js";
+import { deleteCustomerChannelsForConnection } from "./customerChannels/cleanup.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
@@ -720,6 +721,10 @@ export async function deleteConnection(companyId: string, id: string): Promise<b
   // that ever came back — a restore, a re-import, a uuid collision — would
   // hand a stranger on the new bot the authority the old bot's owner proved.
   await deleteIdentitiesForConnection(id);
+  // A customer channel is a channel heard through this Connection; with the
+  // Connection gone there is nothing left to hear it with. Notes already on
+  // the Customer's timeline stay.
+  await deleteCustomerChannelsForConnection(id);
   await repo.delete({ id });
   notifyConnectionChanged(id, existing.provider, { deleted: true });
   return true;

@@ -64,13 +64,14 @@ import { clsx } from "./ui/clsx";
  * Two modes, one list:
  *   - empty query  → browse, grouped like the catalog reads, listing every
  *     section this person can open
- *   - typing       → navigation first (it is the palette's primary job):
+ *   - typing       → AI Employees first: the people a company runs on are who
+ *     a search most often means. Then navigation (the palette's other job):
  *     sections ranked by `searchSections`, and the pages inside them — Finance
  *     → Recurring invoices, Settings → Members — ranked by `searchSubpages`
  *     over the same catalogue the section rails draw. Whichever group holds the
- *     single best match leads, so ↵ opens the best destination. Entity hits
- *     from `/search` — employees, notes, bases, channels, … — follow, grouped
- *     by kind underneath.
+ *     single best match leads, so with no employee matching ↵ opens the best
+ *     destination. The rest of `/search` — notes, bases, channels, … — follows,
+ *     grouped by kind underneath.
  * Either way the keyboard walks a single flat index in visual order, so ↓↓↵
  * means the same thing in both.
  */
@@ -398,6 +399,13 @@ function entryId(entry: PaletteEntry): string {
   }
 }
 
+/** Entity hits of one kind, under that kind's header. */
+type EntityGroup = { label: string; hits: CompanySearchResult[] };
+
+function entityEntries(groups: EntityGroup[]): PaletteEntry[] {
+  return groups.flatMap((g) => g.hits.map((hit): PaletteEntry => ({ type: "entity", hit })));
+}
+
 function CommandPalette({
   companyId,
   companySlug,
@@ -415,7 +423,11 @@ function CommandPalette({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
   const [query, setQuery] = React.useState("");
-  const [active, setActive] = React.useState(0);
+  // The highlighted row, held by identity rather than position: AI Employees
+  // arrive from the server after navigation has drawn, above it, and must not
+  // slide another row under the cursor. Null is the top row, where ↵ goes
+  // until the person moves.
+  const [activeId, setActiveId] = React.useState<string | null>(null);
 
   // Browsing and typing both cover every section this person can open.
   const browseGroups = React.useMemo(
@@ -481,36 +493,39 @@ function CommandPalette({
   );
 
   // Entity hits arrive score-ordered; the palette files each under its kind's
-  // header, first-hit order deciding which group comes first. Flattening the
-  // groups back out gives the keyboard index in exactly the rendered order.
+  // header, first-hit order deciding which group comes first. AI Employees are
+  // set apart to lead the whole list. Flattening the groups back out gives the
+  // keyboard index in exactly the rendered order.
   const entityGroups = React.useMemo(() => {
-    if (!searching) return [];
-    const list: { label: string; hits: CompanySearchResult[] }[] = [];
-    const byLabel = new Map<string, { label: string; hits: CompanySearchResult[] }>();
+    const employees: EntityGroup[] = [];
+    const rest: EntityGroup[] = [];
+    if (!searching) return { employees, rest };
+    const byLabel = new Map<string, EntityGroup>();
     for (const hit of entityHits) {
       const label = KIND_META[hit.kind].group;
       let g = byLabel.get(label);
       if (!g) {
         g = { label, hits: [] };
         byLabel.set(label, g);
-        list.push(g);
+        (hit.kind === "employee" ? employees : rest).push(g);
       }
       g.hits.push(hit);
     }
-    return list;
+    return { employees, rest };
   }, [entityHits, searching]);
 
-  // The single flat index the keyboard walks: navigation first — the palette
-  // is primarily how you move around — then entity groups in order. Within
-  // navigation, sections and pages keep their own groups, and whichever holds
-  // the best match leads.
+  // The single flat index the keyboard walks: AI Employees first, then
+  // navigation — the palette is how you move around — then the other entity
+  // groups in order. Within navigation, sections and pages keep their own
+  // groups, and whichever holds the best match leads.
   const entries = React.useMemo<PaletteEntry[]>(() => {
     const sections = matches.map((match): PaletteEntry => ({ type: "section", match }));
     const pages = pageMatches.map((match): PaletteEntry => ({ type: "page", match }));
     return [
       ...commandMatches.map((command): PaletteEntry => ({ type: "command", command })),
+      ...entityEntries(entityGroups.employees),
       ...(pagesFirst ? [...pages, ...sections] : [...sections, ...pages]),
-      ...entityGroups.flatMap((g) => g.hits.map((hit): PaletteEntry => ({ type: "entity", hit }))),
+      ...entityEntries(entityGroups.rest),
     ];
   }, [commandMatches, matches, pageMatches, pagesFirst, entityGroups]);
 
@@ -520,19 +535,22 @@ function CommandPalette({
     () => new Map(entries.map((entry, i) => [entryId(entry), i])),
     [entries],
   );
+  // A highlighted row that has left the list hands the cursor back to the top.
+  const active = (activeId === null ? undefined : indexByEntryId.get(activeId)) ?? 0;
+
+  /** Highlight whichever row sits at `i` now. */
+  const highlight = (i: number) => {
+    const entry = entries[i];
+    setActiveId(entry ? entryId(entry) : null);
+  };
 
   React.useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   React.useEffect(() => {
-    setActive(0);
+    setActiveId(null);
   }, [query]);
-
-  // Late-arriving entity results can shrink the list under the cursor.
-  React.useEffect(() => {
-    setActive((i) => Math.min(i, Math.max(0, entries.length - 1)));
-  }, [entries.length]);
 
   React.useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: "nearest" });
@@ -565,10 +583,10 @@ function CommandPalette({
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => (entries.length ? (i + 1) % entries.length : 0));
+      if (entries.length) highlight((active + 1) % entries.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => (entries.length ? (i - 1 + entries.length) % entries.length : 0));
+      if (entries.length) highlight((active - 1 + entries.length) % entries.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
       const entry = entries[active];
@@ -600,7 +618,7 @@ function CommandPalette({
             index={i}
             active={i === active}
             isCurrent={m.item.key === currentKey}
-            onHover={setActive}
+            onHover={highlight}
             onSelect={() => select({ type: "section", match: m })}
           />
         );
@@ -619,8 +637,27 @@ function CommandPalette({
             index={i}
             active={i === active}
             isCurrent={isCurrentSubpage(m.page, companySlug, location)}
-            onHover={setActive}
+            onHover={highlight}
             onSelect={() => select({ type: "page", match: m })}
+          />
+        );
+      })}
+    </div>
+  );
+  const entityGroupView = (g: EntityGroup) => (
+    <div key={g.label} className="mb-1 last:mb-0">
+      <GroupHeader>{g.label}</GroupHeader>
+      {g.hits.map((hit) => {
+        const i = idxOf({ type: "entity", hit });
+        return (
+          <EntityRow
+            key={`${hit.kind}-${hit.id}`}
+            hit={hit}
+            query={query}
+            index={i}
+            active={i === active}
+            onHover={highlight}
+            onSelect={() => select({ type: "entity", hit })}
           />
         );
       })}
@@ -651,7 +688,7 @@ function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search sections, pages, employees, notes…"
+            placeholder="Search employees, sections, pages, notes…"
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus-visible:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
             role="combobox"
             aria-expanded="true"
@@ -692,7 +729,7 @@ function CommandPalette({
                         command={command}
                         index={i}
                         active={i === active}
-                        onHover={setActive}
+                        onHover={highlight}
                         onSelect={() => select({ type: "command", command })}
                       />
                     );
@@ -701,26 +738,9 @@ function CommandPalette({
               )}
               {searching ? (
                 <>
+                  {entityGroups.employees.map(entityGroupView)}
                   {pagesFirst ? [pageGroup, sectionGroup] : [sectionGroup, pageGroup]}
-                  {entityGroups.map((g) => (
-                    <div key={g.label} className="mb-1 last:mb-0">
-                      <GroupHeader>{g.label}</GroupHeader>
-                      {g.hits.map((hit) => {
-                        const i = idxOf({ type: "entity", hit });
-                        return (
-                          <EntityRow
-                            key={`${hit.kind}-${hit.id}`}
-                            hit={hit}
-                            query={query}
-                            index={i}
-                            active={i === active}
-                            onHover={setActive}
-                            onSelect={() => select({ type: "entity", hit })}
-                          />
-                        );
-                      })}
-                    </div>
-                  ))}
+                  {entityGroups.rest.map(entityGroupView)}
                   {entityPending && entityHits.length === 0 && (
                     <div className="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">
                       Searching your company…
@@ -741,7 +761,7 @@ function CommandPalette({
                           index={i}
                           active={i === active}
                           isCurrent={item.key === currentKey}
-                          onHover={setActive}
+                          onHover={highlight}
                           onSelect={() => select({ type: "section", match })}
                         />
                       );

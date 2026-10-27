@@ -467,7 +467,8 @@ describe("pausing a running Run", () => {
     assert.equal(finished.id, accepted.id);
     assert.match(resumedMessage, /Resume from: Open the April folder and continue from message 1\./);
     // Its checkpoint says work remains, so the Run ends as unfinished work handed on, never lost.
-    assert.equal(finished.status, "failed");
+    assert.equal(finished.status, "continued");
+    assert.ok(finished.retryAt, "a continuation takes over the remaining work");
     assert.equal(finished.errorKind, null);
   });
 
