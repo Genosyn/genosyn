@@ -585,7 +585,7 @@ export default function MailThreadList() {
                 "Select all"
               )}
             </span>
-            <span className="ml-auto hidden text-[11px] text-slate-400 sm:block">
+            <span className="ml-auto hidden text-xs text-slate-500 sm:block dark:text-slate-400">
               <Kbd>j</Kbd> <Kbd>k</Kbd> move · <Kbd>x</Kbd> select · <Kbd>e</Kbd> archive ·{" "}
               <Kbd>s</Kbd> star
             </span>
@@ -938,13 +938,13 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
                   appendOperator(op);
                 }}
                 title={hint}
-                className="rounded-md border border-slate-200 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+                className="rounded-md border border-slate-200 px-1.5 py-0.5 font-mono text-xs text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
               >
                 {op}
               </button>
             ))}
           </div>
-          <div className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+          <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
             Terms combine (AND), &quot;quotes&quot; match phrases, and searches cover every message
             body across all mail.
           </div>
@@ -1089,12 +1089,19 @@ export function ThreadRow({
       >
         <span
           className={clsx(
-            "min-w-0 truncate text-sm sm:w-32 sm:shrink-0 lg:w-40",
+            "relative min-w-0 truncate text-sm sm:w-32 sm:shrink-0 lg:w-40",
             thread.unread
               ? "font-semibold text-slate-900 dark:text-slate-100"
               : "text-slate-600 dark:text-slate-400",
           )}
         >
+          {thread.unread && (
+            <span
+              className="mr-1.5 inline-block h-2 w-2 rounded-full bg-indigo-500 align-middle dark:bg-indigo-400"
+              aria-label="Unread"
+              role="img"
+            />
+          )}
           {thread.participants ? (
             <Highlight text={thread.participants} terms={highlightTerms} />
           ) : (
@@ -1135,7 +1142,14 @@ export function ThreadRow({
             aria-label="Has attachments"
           />
         )}
-        <span className="col-start-2 row-start-1 shrink-0 text-right text-[11px] tabular-nums text-slate-400 sm:w-16 sm:text-xs">
+        <span
+          className={clsx(
+            "col-start-2 row-start-1 shrink-0 text-right text-xs tabular-nums sm:w-16",
+            thread.unread
+              ? "font-semibold text-slate-900 dark:text-slate-100"
+              : "text-slate-500 dark:text-slate-400",
+          )}
+        >
           {shortMailDate(thread.lastMessageAt)}
         </span>
       </Link>

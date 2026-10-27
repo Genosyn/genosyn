@@ -594,6 +594,40 @@ await app.check("New message: chips for To and Bcc, ⌘↵ sends", async () => {
   await page.close();
 });
 
+await app.check("a long conversation folds its middle into “N earlier messages”", async () => {
+  const s = store();
+  s.messages = Array.from({ length: 7 }, (_, index) =>
+    inbound({
+      id: `m-${index}`,
+      gmailMessageId: `gm-${index}`,
+      fromName: index % 2 === 0 ? "Felix Menzel" : "",
+      fromEmail: index % 2 === 0 ? FELIX : ACCOUNT.address,
+      snippet: `Message number ${index + 1}`,
+      bodyText: `Message number ${index + 1}`,
+      sentAt: hoursAgo(70 - index * 10),
+      attachments: [],
+    }),
+  );
+  const view = await openThread(s);
+  const { page } = view;
+  const main = page.getByRole("main");
+  // Where it began, the fold, and the two newest.
+  await main.getByText("Message number 1", { exact: true }).waitFor();
+  const fold = main.getByRole("button", { name: "4 earlier messages", exact: true });
+  await fold.waitFor();
+  assert.equal(await main.getByText("Message number 3", { exact: true }).count(), 0);
+  await main.getByText("Message number 6", { exact: true }).waitFor();
+  await main.getByText("Message number 7", { exact: true }).first().waitFor();
+  // The mailbox's own messages are "me", not the address's initials.
+  assert.equal((await main.getByLabel("Me", { exact: true }).count()) > 0, true);
+  await view.click(fold);
+  await main.getByText("Message number 3", { exact: true }).waitFor();
+  assert.equal(await fold.count(), 0);
+  // Header: how long the conversation is and who is on it.
+  await main.getByText("7 messages", { exact: true }).waitFor();
+  await page.close();
+});
+
 await app.check("quoted history is folded under a message until asked for", async () => {
   const s = store();
   const view = await openThread(s);

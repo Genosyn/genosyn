@@ -48,6 +48,7 @@ import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { Avatar } from "../components/ui/Avatar";
+import { Badge, type BadgeTone } from "../components/ui/Badge";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import {
   MailRecipientFields,
@@ -457,7 +458,7 @@ export default function MailThreadView() {
             >
               <ArrowLeft size={16} />
             </button>
-            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h1 className="min-w-0 flex-1 break-words text-lg font-semibold tracking-tight text-slate-900 sm:text-xl dark:text-slate-100">
               {thread.subject || "(no subject)"}
             </h1>
             <div className="ml-auto flex w-full shrink-0 flex-wrap items-center justify-end gap-0.5 sm:w-auto">
@@ -546,19 +547,32 @@ export default function MailThreadView() {
             </div>
           </div>
 
-          {/* Label chips */}
-          {threadUserLabels.length > 0 && (
-            <div className="mb-3 ml-9 flex flex-wrap gap-1.5">
-              {threadUserLabels.map((l) => (
+          {/* Who is on the conversation, how long it is, and its labels */}
+          <div className="mb-4 ml-9 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="tabular-nums">
+              {sentMessages.length} {sentMessages.length === 1 ? "message" : "messages"}
+            </span>
+            {participants.length > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
                 <span
-                  key={l.id}
-                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                  className="min-w-0 max-w-full truncate"
+                  title={participants.map((p) => p.email).join(", ")}
                 >
-                  {l.name}
+                  {participantNames(participants)}
                 </span>
-              ))}
-            </div>
-          )}
+              </>
+            )}
+            {threadUserLabels.map((l) => (
+              <Badge
+                key={l.id}
+                capitalize={false}
+                icon={<Tag style={l.color ? { color: l.color } : undefined} />}
+              >
+                {l.name}
+              </Badge>
+            ))}
+          </div>
 
           {/* A refresh that failed after the thread was already on screen */}
           {loadError && (
@@ -637,38 +651,45 @@ export default function MailThreadView() {
             </div>
           )}
 
-          {/* Messages */}
-          <div className="space-y-2">
-            {messages.map((m) =>
-              m.isDraft ? (
+          {/* Messages: the conversation as one card, drafts on their own */}
+          <div className="space-y-3">
+            {conversationRuns(messages).map((run) =>
+              run.kind === "draft" ? (
                 <DraftCard
-                  key={m.id}
-                  draft={m}
+                  key={run.message.id}
+                  draft={run.message}
                   companyId={company.id}
                   companySlug={company.slug}
                   accountId={account.id}
                   selfAddress={account.address}
                   participants={participants}
-                  startEditing={m.id === editDraftId}
+                  startEditing={run.message.id === editDraftId}
                   onChanged={load}
                 />
               ) : (
-                <MessageCard
-                  key={m.id}
-                  message={m}
-                  companyId={company.id}
-                  selfAddress={account.address}
-                  expanded={expanded.has(m.id)}
-                  onReply={(mode) => replyRef.current?.open(mode, m)}
-                  canReply={canReply}
-                  onToggle={() =>
-                    setExpanded((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(m.id)) next.delete(m.id);
-                      else next.add(m.id);
-                      return next;
-                    })
-                  }
+                <ConversationCard
+                  key={run.messages[0].id}
+                  messages={run.messages}
+                  expanded={expanded}
+                  renderMessage={(m) => (
+                    <MessageCard
+                      key={m.id}
+                      message={m}
+                      companyId={company.id}
+                      selfAddress={account.address}
+                      expanded={expanded.has(m.id)}
+                      onReply={(mode) => replyRef.current?.open(mode, m)}
+                      canReply={canReply}
+                      onToggle={() =>
+                        setExpanded((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(m.id)) next.delete(m.id);
+                          else next.add(m.id);
+                          return next;
+                        })
+                      }
+                    />
+                  )}
                 />
               ),
             )}
@@ -738,6 +759,97 @@ function HeaderAction({
     >
       {children}
     </button>
+  );
+}
+
+// ───────────────────────────── conversation ─────────────────────────────
+
+type ConversationRun =
+  | { kind: "messages"; messages: MailMessage[] }
+  | { kind: "draft"; message: MailMessage };
+
+/** Consecutive sent and received messages share one card; a draft stands on its own. */
+function conversationRuns(messages: MailMessage[]): ConversationRun[] {
+  const runs: ConversationRun[] = [];
+  for (const message of messages) {
+    if (message.isDraft) {
+      runs.push({ kind: "draft", message });
+      continue;
+    }
+    const last = runs[runs.length - 1];
+    if (last?.kind === "messages") last.messages.push(message);
+    else runs.push({ kind: "messages", messages: [message] });
+  }
+  return runs;
+}
+
+/** "Felix Menzel, Dana Lee and 3 others" — who is on a conversation besides the mailbox. */
+function participantNames(people: Array<{ email: string; name: string }>): string {
+  const names = people.map((person) => person.name || person.email);
+  if (names.length <= 3) return names.join(", ");
+  const rest = names.length - 2;
+  return `${names.slice(0, 2).join(", ")} and ${rest} others`;
+}
+
+/** Messages a long conversation folds away by default: the closed middle of it. */
+export function foldedMessageIds(messages: MailMessage[], expanded: Set<string>): Set<string> {
+  // Short conversations show every header; the first message and the two
+  // newest always stay, so the thread reads as where it began and where it is.
+  if (messages.length <= 4) return new Set();
+  const middle = messages.slice(1, -2).filter((message) => !expanded.has(message.id));
+  return middle.length >= 2 ? new Set(middle.map((message) => message.id)) : new Set();
+}
+
+/**
+ * One conversation, one card: each message a row, the closed middle of a
+ * long thread folded into "3 earlier messages" the way mail clients do, so
+ * the newest message is never a long scroll away — least of all on a phone.
+ */
+function ConversationCard({
+  messages,
+  expanded,
+  renderMessage,
+}: {
+  messages: MailMessage[];
+  expanded: Set<string>;
+  renderMessage: (message: MailMessage) => React.ReactNode;
+}) {
+  const [unfolded, setUnfolded] = React.useState(false);
+  const folded = unfolded ? new Set<string>() : foldedMessageIds(messages, expanded);
+  const rows: React.ReactNode[] = [];
+  let run: MailMessage[] = [];
+  const flush = () => {
+    if (run.length === 0) return;
+    const count = run.length;
+    rows.push(
+      <button
+        key={`fold-${run[0].id}`}
+        type="button"
+        onClick={() => setUnfolded(true)}
+        className="group flex w-full items-center gap-3 px-4 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/40"
+      >
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 tabular-nums group-hover:border-indigo-300 group-hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:group-hover:border-indigo-500/50 dark:group-hover:text-indigo-300">
+          {count} earlier {count === 1 ? "message" : "messages"}
+        </span>
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+      </button>,
+    );
+    run = [];
+  };
+  for (const message of messages) {
+    if (folded.has(message.id)) {
+      run.push(message);
+      continue;
+    }
+    flush();
+    rows.push(renderMessage(message));
+  }
+  flush();
+  return (
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+      {rows}
+    </div>
   );
 }
 
@@ -833,13 +945,16 @@ function MessageCard({
   const sentAtTitle = message.sentAt ? new Date(message.sentAt).toLocaleString() : undefined;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div data-message-id={message.id}>
       <button
         onClick={onToggle}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className={clsx(
+          "flex w-full items-center gap-3 px-4 py-3 text-left",
+          !expanded && "hover:bg-slate-50 dark:hover:bg-slate-800/40",
+        )}
       >
-        <Avatar name={message.fromName || message.fromEmail} size="md" />
+        <Avatar name={isSelf ? "Me" : message.fromName || message.fromEmail} size="md" />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -1120,17 +1235,16 @@ function DraftCard({
 
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
-      <div className="flex items-center gap-2 px-4 py-2.5">
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 inline-block first-letter:uppercase">
-          Draft
-        </span>
-        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+        <Badge tone="warning">Draft</Badge>
+        {/* Wide enough to read the addresses; on a phone the buttons wrap below. */}
+        <div className="min-w-0 flex-1 basis-48 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
           <div className="break-words">to {draft.toEmails || "(no recipient yet)"}</div>
           {draft.ccEmails && <div className="break-words">cc {draft.ccEmails}</div>}
           {draft.bccEmails && <div className="break-words">bcc {draft.bccEmails}</div>}
         </div>
         {!editing && (
-          <>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
               Edit
             </Button>
@@ -1159,7 +1273,7 @@ function DraftCard({
             >
               Discard
             </Button>
-          </>
+          </div>
         )}
       </div>
       {!editing ? (
@@ -1323,11 +1437,11 @@ function HandoverCard({
   const dialog = useDialog();
   const [showResult, setShowResult] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
-  const statusStyle: Record<MailHandover["status"], string> = {
-    pending: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-    running: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
-    completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-    failed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+  const statusTone: Record<MailHandover["status"], BadgeTone> = {
+    pending: "neutral",
+    running: "accent",
+    completed: "success",
+    failed: "danger",
   };
   const progressLabel =
     handover.sourceKind === "rule" && handover.mode !== "triage"
@@ -1355,14 +1469,12 @@ function HandoverCard({
           {progressLabel}
           {handover.sourceKind === "rule" && <span className="text-slate-400"> · via rule</span>}
         </span>
-        <span
-          className={clsx(
-            "rounded-full px-2 py-0.5 text-xs font-medium inline-block first-letter:uppercase",
-            statusStyle[handover.status],
-          )}
+        <Badge
+          tone={statusTone[handover.status]}
+          icon={handover.status === "running" ? <Spinner size={9} /> : undefined}
         >
-          {handover.status === "running" && <Spinner size={9} />} {handover.status}
-        </span>
+          {handover.status}
+        </Badge>
         {handover.status === "failed" && (
           <Button
             size="sm"

@@ -217,9 +217,13 @@ export function Email() {
         <Strong>Resume</Strong> when you come back.
       </P>
       <P>
-        In a message you read, the quoted history at the bottom — the earlier emails other clients
-        paste under a reply — is folded behind <Strong>•••</Strong> too, so a long conversation
-        reads as the new words in each message. Forwarded messages are never folded.
+        A conversation reads as one card. Its header says how many messages it holds and who is on
+        it, and in a long one the closed messages in the middle fold into{" "}
+        <Strong>N earlier messages</Strong> between the first and the two newest, so the latest
+        reply is never a long scroll away. In a message you read, the quoted history at the bottom —
+        the earlier emails other clients paste under a reply — is folded behind{" "}
+        <Strong>•••</Strong> too, so the conversation reads as the new words in each message.
+        Forwarded messages are never folded.
       </P>
       <P>
         Click an attachment on a saved draft to download it, including while editing the draft.

@@ -42,6 +42,7 @@ import {
 } from "../lib/mailRecipients";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
+import { CountBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -579,11 +580,7 @@ function FolderLink({
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge != null && badge > 0 && (
-        <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
-          {badge}
-        </span>
-      )}
+      {badge != null && badge > 0 && <CountBadge count={badge} tone="accent" />}
     </Link>
   );
 }
@@ -601,7 +598,9 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
       <Tag size={14} style={label.color ? { color: label.color } : undefined} />
       <span className="min-w-0 flex-1 truncate">{label.name}</span>
       {label.threadCount > 0 && (
-        <span className="text-[10px] tabular-nums text-slate-400">{label.threadCount}</span>
+        <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+          {label.threadCount}
+        </span>
       )}
     </Link>
   );
