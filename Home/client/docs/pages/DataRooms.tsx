@@ -255,9 +255,12 @@ export function DataRooms() {
             def: (
               <>
                 Also create rooms, file documents from a Resource or a file it holds — an email
-                attachment, a converted PDF — and draft answers for a Member (
-                <Code>create_data_room</Code>, <Code>add_data_room_document</Code>,{" "}
-                <Code>draft_data_room_answer</Code>). Nobody outside the company is contacted.
+                attachment, a converted PDF — rename, move, or remove them, and draft answers for a
+                Member (<Code>create_data_room</Code>, <Code>add_data_room_document</Code>,{" "}
+                <Code>update_data_room_document</Code>, <Code>remove_data_room_document</Code>,{" "}
+                <Code>draft_data_room_answer</Code>). Nobody outside the company is contacted, but
+                moving a document into a folder shows it to that folder&apos;s guests at once, so a
+                move after reading a guest&apos;s question waits for an owner or admin.
               </>
             ),
           },

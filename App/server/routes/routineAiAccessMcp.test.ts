@@ -308,6 +308,7 @@ describe("reading Routines and Runs never answers to the setting", () => {
       "get_participating_routine",
       "get_routine",
       "get_run_report",
+      "list_routine_triggers",
       "list_routines",
       "list_runs",
     ]);
@@ -1055,9 +1056,13 @@ describe("find_tools and the working set see the level", () => {
       // find_tools tells the model before it spends a call.
       const findTools = tools.registry.resolve("find_tools");
       assert.ok(findTools, "find_tools is available");
-      const found = await findTools.run({ domain: "routines" });
+      // The domain spans more than one page now that Triggers live in it.
+      const pages = await Promise.all(
+        [1, 2, 3].map((page) => findTools.run({ domain: "routines", page })),
+      );
+      const listing = pages.map((found) => found.content).join("\n");
       for (const name of ROUTINE_WRITE_TOOLS) {
-        const section = found.content.split("### ").find((entry) => entry.startsWith(`${name}\n`));
+        const section = listing.split("### ").find((entry) => entry.startsWith(`${name}\n`));
         assert.ok(section, `${name} is listed`);
         assert.match(section, /you hold no grant for this today/);
       }

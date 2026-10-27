@@ -51,6 +51,10 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "update_routine",
       "delete_routine",
       "run_routine_now",
+      "list_routine_triggers",
+      "create_routine_trigger",
+      "update_routine_trigger",
+      "delete_routine_trigger",
     ],
   },
   runs: {
@@ -122,8 +126,16 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   meetings: {
     label: "meetings",
-    blurb: "Recorded calls, attendees, and what was said.",
-    tools: ["list_meetings", "get_meeting", "get_meeting_transcript", "start_notetaker"],
+    blurb: "Book meetings and check availability; recorded calls, attendees, and what was said.",
+    tools: [
+      "list_scheduling_calendars",
+      "check_calendar_availability",
+      "schedule_meeting",
+      "list_meetings",
+      "get_meeting",
+      "get_meeting_transcript",
+      "start_notetaker",
+    ],
   },
   decisions: {
     label: "decisions",
@@ -229,6 +241,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "list_signature_envelopes",
       "get_signature_envelope",
       "draft_signature_envelope",
+      "update_signature_envelope_draft",
       "send_signature_envelope",
       "remind_signature_recipient",
       "void_signature_envelope",
@@ -558,6 +571,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "get_data_room_activity",
       "create_data_room",
       "add_data_room_document",
+      "update_data_room_document",
+      "remove_data_room_document",
       "draft_data_room_answer",
       "answer_data_room_question",
       "invite_data_room_guest",
@@ -606,6 +621,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     tools: [
       "list_repositories",
       "start_repository_work_session",
+      "revise_repository_work_session",
       "get_repository_work_session",
       "push_repository_work_session",
       "open_repository_work_session_pull_request",
@@ -632,6 +648,24 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
  * vocabulary an operator would type, not the vocabulary the code uses.
  */
 export const TOOL_KEYWORDS: Record<string, string[]> = {
+  list_scheduling_calendars: ["calendars", "which calendar", "book on"],
+  check_calendar_availability: ["availability", "free slot", "when am i free", "free busy", "open time"],
+  schedule_meeting: [
+    "schedule a meeting",
+    "book a meeting",
+    "set up a call",
+    "send a calendar invite",
+    "book a time",
+  ],
+  update_data_room_document: ["move document", "rename document", "refile document", "data room folder"],
+  remove_data_room_document: ["remove document", "delete document from data room", "take down document"],
+  update_signature_envelope_draft: [
+    "edit envelope",
+    "change signer",
+    "fix signature draft",
+    "add a recipient",
+    "move signature field",
+  ],
   list_members: [
     "members",
     "people",
@@ -1011,7 +1045,18 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "unenroll",
     "take out of the campaign",
   ],
-  run_routine_now: ["run now", "trigger routine", "test the routine", "run it again", "kick off"],
+  run_routine_now: ["run now", "test the routine", "run it again", "kick off"],
+  list_routine_triggers: ["routine triggers", "event triggers", "what fires this routine"],
+  create_routine_trigger: [
+    "trigger",
+    "run when",
+    "whenever a new",
+    "on new transactions",
+    "event driven",
+    "react to changes",
+  ],
+  update_routine_trigger: ["pause trigger", "trigger interval", "resume trigger"],
+  delete_routine_trigger: ["remove trigger", "stop firing"],
   get_sequence: ["campaign details", "sequence steps", "cadence"],
   create_sequence: ["new outbound sequence", "create campaign", "cadence"],
   update_sequence: ["edit campaign", "sequence settings", "pause outbound"],
@@ -1826,6 +1871,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   // What somebody types here is the job ("fix the bug", "send me a PR"), never
   // "work session" — they do not know that is the thing standing between the
   // employee and the code.
+  revise_repository_work_session: [
+    "review feedback",
+    "make changes to the work",
+    "address comments",
+    "another pass",
+    "fix the branch",
+  ],
   start_repository_work_session: [
     "repo",
     "code",

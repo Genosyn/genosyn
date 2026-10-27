@@ -16,8 +16,10 @@ import { recordAudit } from "../services/audit.js";
 import {
   RoutineTriggerError,
   assertValidTriggerKind,
+  createRoutineTrigger,
+  deleteRoutineTrigger,
   listTriggersForRoutine,
-  normalizeMinInterval,
+  updateRoutineTrigger,
 } from "../services/routineTriggers.js";
 import { WakeupError, cancelWakeup, listWakeups } from "../services/wakeups.js";
 import {
@@ -129,16 +131,13 @@ reactivityRouter.post(
       assertValidTriggerKind(body.kind);
       const routine = await loadCompanyRoutine(cid, body.routineId);
       if (!routine) return res.status(404).json({ error: "Routine not found" });
-      const repo = AppDataSource.getRepository(RoutineTrigger);
-      const trigger = await repo.save(
-        repo.create({
-          companyId: cid,
-          routineId: routine.id,
-          kind: body.kind,
-          scopeId: body.scopeId ?? null,
-          minIntervalSec: normalizeMinInterval(body.minIntervalSec),
-        }),
-      );
+      const trigger = await createRoutineTrigger({
+        companyId: cid,
+        routineId: routine.id,
+        kind: body.kind,
+        scopeId: body.scopeId,
+        minIntervalSec: body.minIntervalSec,
+      });
       await recordAudit({
         companyId: cid,
         actorUserId: req.userId ?? null,
@@ -176,12 +175,7 @@ reactivityRouter.patch(
     const repo = AppDataSource.getRepository(RoutineTrigger);
     const trigger = await repo.findOneBy({ id: req.params.tid, companyId: cid });
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
-    if (body.enabled !== undefined) trigger.enabled = body.enabled;
-    if (body.minIntervalSec !== undefined) {
-      trigger.minIntervalSec = normalizeMinInterval(body.minIntervalSec);
-    }
-    if (body.scopeId !== undefined) trigger.scopeId = body.scopeId;
-    res.json(serializeTrigger(await repo.save(trigger)));
+    res.json(serializeTrigger(await updateRoutineTrigger(trigger, body)));
   },
 );
 
@@ -193,7 +187,7 @@ reactivityRouter.delete(
     const repo = AppDataSource.getRepository(RoutineTrigger);
     const trigger = await repo.findOneBy({ id: req.params.tid, companyId: cid });
     if (!trigger) return res.status(404).json({ error: "Trigger not found" });
-    await repo.delete({ id: trigger.id, companyId: cid });
+    await deleteRoutineTrigger(trigger);
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,

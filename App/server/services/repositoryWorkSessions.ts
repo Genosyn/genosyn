@@ -410,13 +410,16 @@ export type StartWorkSessionArgs = WorkSessionAuthority & {
   runChat?: typeof chatWithEmployee;
 };
 
-export type ReviseWorkSessionArgs = {
+/**
+ * A revision is asked for by a Member, or by the employee that owns the
+ * session, through `revise_repository_work_session`. The employee's turn runs
+ * as itself — it needs a write Grant and never borrows a Member's authority.
+ */
+export type ReviseWorkSessionArgs = WorkSessionAuthority & {
   companyId: string;
   sessionId: string;
   instruction: string;
   attachmentIds?: string[];
-  requesterUserId: string;
-  requesterSessionVersion: number;
   runChat?: typeof chatWithEmployee;
 };
 
@@ -645,7 +648,15 @@ async function prepareWorkSessionRevisionUnlocked(
       companyId: args.companyId,
     });
     if (!repo) throw new Error("Repository not found.");
-    const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
+    const employee = await loadWorkingEmployee(
+      args.companyId,
+      session.employeeId,
+      repo,
+      args.toolAuthority === "employee" ? "write" : "read",
+    );
+    if (args.toolAuthority === "employee" && args.attachmentIds?.length) {
+      throw new Error("Employee-started work sessions accept instructions, not Member attachments.");
+    }
     const model = await requireWorkSessionModel(employee, session.modelId);
     requireModelEffort(model, session.effort);
     const instruction = validateWorkSessionInstruction(args);
@@ -673,23 +684,24 @@ async function prepareWorkSessionRevisionUnlocked(
     // spares the Member the two-step of restoring a session before they are
     // allowed to talk to it.
     session.archivedAt = null;
-    session.requestedByUserId = args.requesterUserId;
+    session.requestedByUserId = args.requesterUserId ?? null;
     await manager.getRepository(RepositoryWorkSession).save(session);
-    const turn = await appendTurn(session, instruction, args.requesterUserId, manager);
-    await bindWorkSessionAttachments({
-      attachmentIds: args.attachmentIds ?? [],
-      turnId: turn.id,
-      companyId: args.companyId,
-      userId: args.requesterUserId,
-      manager,
-    });
+    const turn = await appendTurn(session, instruction, args.requesterUserId ?? null, manager);
+    if (args.requesterUserId) {
+      await bindWorkSessionAttachments({
+        attachmentIds: args.attachmentIds ?? [],
+        turnId: turn.id,
+        companyId: args.companyId,
+        userId: args.requesterUserId,
+        manager,
+      });
+    }
     return {
       session,
       turn,
       repo,
       employee,
-      requesterUserId: args.requesterUserId,
-      requesterSessionVersion: args.requesterSessionVersion,
+      ...workSessionAuthority(args),
       runChat: args.runChat,
     };
   });

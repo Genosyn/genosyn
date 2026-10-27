@@ -16,6 +16,8 @@ import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
+import { Routine } from "../db/entities/Routine.js";
+import { RoutineTrigger } from "../db/entities/RoutineTrigger.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Sequence } from "../db/entities/Sequence.js";
 import { SequenceEnrollment } from "../db/entities/SequenceEnrollment.js";
@@ -24,7 +26,13 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { upsertDashboardGrant } from "../services/explore.js";
-import { isTokenTainted, issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { setRoutineAccess } from "../services/routineAccess.js";
+import {
+  isTokenTainted,
+  issueMcpToken,
+  markTokenTainted,
+  revokeMcpToken,
+} from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
@@ -325,4 +333,50 @@ test("one person comes out of a Sequence while everyone else stays in", async ()
 test("running a Routine now names an unknown Routine rather than starting anything", async () => {
   const result = await callTool("run_routine_now", { routineId: "no-such-routine" });
   assert.equal(result.status, 404);
+});
+
+test("a Routine runs on new bank transactions through a Trigger the employee sets up", async () => {
+  const routine = await insert(Routine, {
+    employeeId: employee.id,
+    name: "Clear Banking",
+    slug: "clear-banking",
+    cronExpr: "0 9 * * *",
+    enabled: true,
+    body: "Categorize everything waiting in Banking.",
+  });
+  const tooFast = await callTool("create_routine_trigger", {
+    routineId: "clear-banking",
+    kind: "reconcile",
+    minIntervalSec: 60,
+  });
+  assert.equal(tooFast.status, 400);
+  const ownRuns = await callTool("create_routine_trigger", { routineId: "clear-banking", kind: "run" });
+  assert.equal(ownRuns.status, 400, "a trigger may not fire on the family its own work writes");
+
+  const created = await callTool("create_routine_trigger", {
+    routineId: "clear-banking",
+    kind: "reconcile",
+  });
+  assert.equal(created.status, 200, created.body.error);
+  const trigger = created.body.trigger as { id: string; minIntervalSec: number; scopeId: null };
+  assert.equal(trigger.minIntervalSec, 900);
+  assert.equal(trigger.scopeId, null);
+
+  const listed = await callTool("list_routine_triggers", { routineId: routine.id });
+  assert.equal((listed.body.triggers as unknown[]).length, 1);
+
+  const paused = await callTool("update_routine_trigger", { triggerId: trigger.id, enabled: false });
+  assert.equal(paused.status, 200, paused.body.error);
+  assert.equal((paused.body.trigger as { enabled: boolean }).enabled, false);
+
+  // Read + run takes away changing when Routines fire, exactly as changing them.
+  await setRoutineAccess(company.id, employee.id, "run");
+  assert.equal((await callTool("delete_routine_trigger", { triggerId: trigger.id })).status, 403);
+  await setRoutineAccess(company.id, employee.id, "write");
+
+  // After reading the web, a new foothold waits for a person.
+  markTokenTainted(token);
+  const held = await callTool("create_routine_trigger", { routineId: "clear-banking", kind: "deal" });
+  assert.equal(held.body.status, "pending_approval");
+  assert.equal(await AppDataSource.getRepository(RoutineTrigger).countBy({ kind: "deal" }), 0);
 });

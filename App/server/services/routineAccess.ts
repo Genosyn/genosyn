@@ -37,6 +37,18 @@ import {
 export const ROUTINE_WRITE_TOOLS = ["create_routine", "update_routine", "delete_routine"] as const;
 
 /**
+ * The tools that change when a Routine fires. A Trigger is recurring work by
+ * another name, so a read + run employee is refused these exactly as it is the
+ * Routine writers — but they are reached through `find_tools`, not kept in
+ * every working set like the three above.
+ */
+export const ROUTINE_TRIGGER_WRITE_TOOLS = [
+  "create_routine_trigger",
+  "update_routine_trigger",
+  "delete_routine_trigger",
+] as const;
+
+/**
  * The tools that run a Routine without changing it. Running is what both
  * levels share — a read + run employee's Routines keep running — so they
  * never consult this setting either.
@@ -53,6 +65,7 @@ export const ROUTINE_READ_TOOLS = [
   "list_runs",
   "get_run_report",
   "get_participating_routine",
+  "list_routine_triggers",
 ] as const;
 
 /**

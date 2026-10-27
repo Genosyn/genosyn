@@ -178,7 +178,7 @@ async function assertNoWorkStarted(): Promise<void> {
 test("proactive preparation rejects unbounded edits, code work, delivery and deferred work", async () => {
   for (const name of [
     "start_repository_work_session",
-    "continue_repository_work_session",
+    "revise_repository_work_session",
     "open_repository_work_session_pull_request",
     "repository_write_file",
     "repository_run_command",

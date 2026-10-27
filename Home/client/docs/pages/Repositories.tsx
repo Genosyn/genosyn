@@ -556,7 +556,9 @@ export function Repositories() {
       <P>
         Authorize delivery in the Soul or Routine and give the employee a{" "}
         <Strong>write Grant</Strong> on the Repository. It starts a Work session, checks the final
-        report, then can push that session&apos;s completed branch with{" "}
+        report, asks for another round on the same branch with{" "}
+        <Code>revise_repository_work_session</Code> when review feedback comes in, then can push
+        that session&apos;s completed branch with{" "}
         <Code>push_repository_work_session</Code>. A stored SSH key or HTTPS token stays on the
         server and can push without a forge Connection. The credential must have write access on the
         remote. Repositories that use a Connection for Git also need that exact Connection selected

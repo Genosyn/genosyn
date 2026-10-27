@@ -97,6 +97,8 @@ export const COLLABORATION_READ_TOOLS = [
   "get_mail_thread",
   "get_mail_message",
   "list_meetings",
+  "list_scheduling_calendars",
+  "check_calendar_availability",
   "get_meeting",
   "get_meeting_transcript",
   // Finance.
@@ -134,6 +136,7 @@ export const COLLABORATION_READ_TOOLS = [
   "list_deal_stages",
   "list_sequences",
   "list_sequence_enrollments",
+  "list_routine_triggers",
   "get_sequence",
   "list_signals",
   "get_signal",

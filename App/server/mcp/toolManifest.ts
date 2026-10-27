@@ -733,6 +733,67 @@ const BASE_CHART_QUERY_SCHEMA = {
 
 export const STATIC_TOOLS: McpToolSpec[] = [
   {
+    name: "list_scheduling_calendars",
+    readOnly: true,
+    description:
+      "List the calendars you can book a meeting on from a mailbox: ids like `mailbox` (the mailbox's own Google calendar) or `calendar:<id>` (a company calendar you are granted), with labels and time zones. Use an id as calendarId for check_calendar_availability and schedule_meeting. Needs Read access to the mailbox.",
+    inputSchema: {
+      type: "object",
+      properties: { accountId: { type: "string", description: "Mailbox id; omit when you hold one." } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "check_calendar_availability",
+    readOnly: true,
+    description:
+      "Get the busy intervals on a scheduling calendar between start and end (at most 24 hours, ISO datetimes with an offset), to pick a free slot before schedule_meeting. Needs Read access to the mailbox.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        calendarId: { type: "string" },
+        start: { type: "string" },
+        end: { type: "string" },
+      },
+      required: ["calendarId", "start", "end"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_meeting",
+    description:
+      "Book a meeting on a scheduling calendar, as Schedule meeting on an email does: the event with its guests and, by default, a Google Meet link. With sendInvites (default true) Google emails every guest an invitation, so this is delivery like send_mail and needs the mailbox's Send access. start is local wall time YYYY-MM-DDTHH:mm in timeZone (an IANA zone). Pass threadId to file it on the conversation. Guests on the do-not-email list or a blocked domain are refused.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        calendarId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        start: { type: "string", description: "Local wall time, YYYY-MM-DDTHH:mm." },
+        timeZone: { type: "string", description: "IANA zone, e.g. Europe/Berlin." },
+        durationMinutes: { type: "integer", minimum: 5, maximum: 720 },
+        attendees: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: { email: { type: "string" }, name: { type: "string" } },
+            required: ["email"],
+            additionalProperties: false,
+          },
+        },
+        addMeet: { type: "boolean", default: true },
+        sendInvites: { type: "boolean", default: true },
+        threadId: { type: "string", description: "The mail thread this meeting answers." },
+      },
+      required: ["calendarId", "title", "start", "timeZone", "durationMinutes", "attendees"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_meetings",
     description:
       "List recorded and upcoming meetings from the Meetings section (M44) — title, when it happened, status, and whether a transcript is ready. Filter by `customerId` or `contactId` to answer 'when did we last speak to them'. Needs a Grant to the calendar the meeting came from.",
@@ -1020,6 +1081,62 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_routine_triggers",
+    readOnly: true,
+    description:
+      "List a Routine's Triggers — the record families whose changes fire it, besides its schedule — with each one's minimum interval, whether it is on, and when it last fired, plus the families you may subscribe to. Routine is an id or slug; pass employeeSlug for a teammate's.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: { type: "string" },
+        employeeSlug: { type: "string" },
+      },
+      required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_routine_trigger",
+    description:
+      "Make a Routine run whenever a family of the company's records changes — new bank transactions (reconcile) or card purchases (cardexpense), an invoice, bill, deal, todo, application — instead of only on its schedule. It fires at most once per minIntervalSec (default 900, at least 300) and never carries the record itself: the Run reads current state through your tools. Event Runs prepare and stage work for review; a Standdown or an approval gate on the Routine still applies. Needs write access to Routines.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: { type: "string" },
+        employeeSlug: { type: "string" },
+        kind: { type: "string", enum: ["activity", "base", "baserecord", "bill", "cardexpense", "contact", "customer", "data_room_question", "deal", "decision", "enrollment", "estimate", "goal", "handoff", "invoice", "note", "partnership", "project", "reconcile", "recruiting_application", "recruiting_opening", "recurringinvoice", "resource", "revenuedocument", "signal", "signalevent", "signature", "todo", "vendor"] },
+        minIntervalSec: { type: "integer", minimum: 300, maximum: 604800 },
+      },
+      required: ["routineId", "kind"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_routine_trigger",
+    description:
+      "Pause or resume a Routine Trigger (enabled), or change how often it may fire (minIntervalSec, at least 300). triggerId comes from list_routine_triggers. Needs write access to Routines.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        triggerId: { type: "string" },
+        enabled: { type: "boolean" },
+        minIntervalSec: { type: "integer", minimum: 300, maximum: 604800 },
+      },
+      required: ["triggerId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_routine_trigger",
+    description: "Remove a Routine Trigger; the Routine keeps its schedule. Needs write access to Routines.",
+    inputSchema: {
+      type: "object",
+      properties: { triggerId: { type: "string" } },
+      required: ["triggerId"],
       additionalProperties: false,
     },
   },
@@ -2999,6 +3116,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "revise_repository_work_session",
+    description:
+      "Ask for another round of work in one of your own Repository Work sessions — review feedback, a failing check, a missed requirement — on the same working copy and branch, with the earlier turns as context. Refused while a turn is running, and for a session already published or discarded (start a new one). Check the result with get_repository_work_session before reporting anything done. Needs a write Grant on the Repository when you act on your own.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        instruction: { type: "string", description: "What to change, as you would tell a colleague." },
+      },
+      required: ["sessionId", "instruction"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_repository_work_session",
     readOnly: true,
     description:
@@ -3597,6 +3728,76 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "update_signature_envelope_draft",
+    description:
+      "Edit a signature envelope that is still a draft — its title, message, routing, expiry, or recipients and their fields — instead of voiding it and drafting again. recipients replaces the whole list, each recipient with its own fields as in draft_signature_envelope. Pass the envelope's updatedAt from get_signature_envelope as expectedUpdatedAt; a draft changed since is refused. Nothing is emailed. Needs Draft signing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        envelopeId: { type: "string" },
+        expectedUpdatedAt: { type: "string" },
+        title: { type: "string" },
+        message: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        routingMode: { type: "string", enum: ["parallel", "ordered"] },
+        expiresAt: { type: ["string", "null"], description: "ISO datetime with offset; null clears it." },
+        recipients: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              email: { type: "string" },
+              role: {
+                type: "string",
+                enum: ["signer", "copy"],
+                description: "A `copy` recipient receives the final document and has no fields.",
+              },
+              routingOrder: {
+                type: "integer",
+                minimum: 0,
+                maximum: 10000,
+                description:
+                  "Zero-based step used by ordered routing; defaults to this recipient's array position.",
+              },
+              fields: {
+                type: "array",
+                maxItems: 100,
+                description:
+                  "Fields assigned to this signer. Every signer needs at least one required `signature` field; omit for copy recipients.",
+                items: {
+                  type: "object",
+                  properties: {
+                    type: {
+                      type: "string",
+                      enum: ["signature", "initials", "name", "email", "date", "text", "checkbox"],
+                    },
+                    label: { type: "string" },
+                    placeholder: { type: "string" },
+                    required: { type: "boolean" },
+                    pageNumber: { type: "integer", minimum: 1 },
+                    x: { type: "number", minimum: 0, maximum: 1 },
+                    y: { type: "number", minimum: 0, maximum: 1 },
+                    width: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+                    height: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+                  },
+                  required: ["type", "pageNumber", "x", "y", "width", "height"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["name", "email", "role"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["envelopeId", "expectedUpdatedAt"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_signature_envelope",
     description:
       "Send a reviewed draft signature envelope to its recipients. This starts the evidence trail and sends real invitation emails, so first call `get_signature_envelope` and verify recipients, routing, expiry, and required-field setup. The tool cannot read the source PDF: a Member must verify document meaning and field placement. Needs `send` signing access. The AI Employee may dispatch the request but can never consent or sign for a recipient.",
@@ -3736,6 +3937,33 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         welcomeMessage: { type: "string", description: "Shown to every guest at the top of the room." },
       },
       required: ["name", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_data_room_document",
+    description:
+      "Rename a document in a data room, move it to another folder (folder: a folder's name or id, or null for the room's top level), or reorder it. Moving a document shows it at once to every guest who can open the target folder. documentId comes from get_data_room. Needs Prepare data room access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string" },
+        title: { type: "string" },
+        folder: { type: ["string", "null"] },
+        position: { type: "integer", minimum: 0 },
+      },
+      required: ["documentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remove_data_room_document",
+    description:
+      "Remove a document from a data room for good — say, one its brief flagged for personal data. Its file is deleted and no guest can open it again. Needs Prepare data room access.",
+    inputSchema: {
+      type: "object",
+      properties: { documentId: { type: "string" } },
+      required: ["documentId"],
       additionalProperties: false,
     },
   },

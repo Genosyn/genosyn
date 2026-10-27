@@ -90,6 +90,7 @@ import {
   REPOSITORY_SESSION_TOOLS,
   createToolRepositoryWorkSession,
   resolveSessionCheckout,
+  prepareWorkSessionRevision,
   runRepositoryWorkSession,
   sessionCommit,
   noteSessionCommit,
@@ -202,8 +203,11 @@ import {
 import {
   addDocumentFromBytes as addDataRoomDocumentFromBytes,
   addDocumentFromResource as addDataRoomDocumentFromResource,
+  deleteDocument,
   readDocumentText as readDataRoomDocumentText,
+  updateDocument,
 } from "../services/dataRooms/documents.js";
+import { serializeDocument as serializeDataRoomDocument } from "../services/dataRooms/serialize.js";
 import { isDataRoomError } from "../services/dataRooms/errors.js";
 import { dataRoomAccessAtLeast, getDataRoomGrant } from "../services/dataRooms/grants.js";
 import { inviteGuest as inviteDataRoomGuest } from "../services/dataRooms/guests.js";
@@ -278,6 +282,7 @@ import {
   findRoutineParticipation,
 } from "../services/routineParticipation.js";
 import {
+  ROUTINE_TRIGGER_WRITE_TOOLS,
   ROUTINE_WRITE_TOOLS,
   routineWriteRefusalForActor,
   routineWriteRefusalForOwner,
@@ -407,6 +412,18 @@ import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { DashboardCardError, patchDashboardCard } from "../services/exploreDashboardCards.js";
+import {
+  calendarAvailability,
+  listSchedulingCalendars,
+  MeetingSchedulingError,
+  scheduleMeeting,
+} from "../services/mail/meetingScheduling.js";
+import {
+  isMeetingTimeZone,
+  LOCAL_DATE_TIME,
+  MAX_MEETING_MINUTES,
+  MIN_MEETING_MINUTES,
+} from "../../shared/meetingTime.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Team } from "../db/entities/Team.js";
 import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
@@ -467,6 +484,7 @@ import {
   SigningNotFoundError,
   SigningValidationError,
   createSignatureEnvelopeFromResource,
+  updateSignatureEnvelopeDraft,
   getSignatureEnvelopeDetail,
   listSignatureEnvelopes,
   remindSignatureRecipient,
@@ -713,6 +731,15 @@ import {
 import { startManualRoutineRun } from "../services/runner.js";
 import { ManualRoutineStartError } from "../services/routineManualStart.js";
 import { StanddownError } from "../services/standdowns.js";
+import { RoutineTrigger } from "../db/entities/RoutineTrigger.js";
+import {
+  AI_TRIGGER_KINDS,
+  AI_TRIGGER_MIN_INTERVAL_SEC,
+  createRoutineTrigger,
+  deleteRoutineTrigger,
+  listTriggersForRoutine,
+  updateRoutineTrigger,
+} from "../services/routineTriggers.js";
 import {
   archiveSignal,
   createSignal,
@@ -10376,7 +10403,12 @@ async function resolveRoutine(
  * rule holds even for a dispatch this middleware does not recognize.
  */
 async function routineWriteRefusal(req: McpRequest, toolName: string): Promise<string | null> {
-  if (!(ROUTINE_WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
+  if (
+    !(ROUTINE_WRITE_TOOLS as readonly string[]).includes(toolName) &&
+    !(ROUTINE_TRIGGER_WRITE_TOOLS as readonly string[]).includes(toolName)
+  ) {
+    return null;
+  }
   const self = req.mcpEmployee!;
   const co = req.mcpCompany!;
   const actorRefusal = await routineWriteRefusalForActor(self.id);
@@ -10390,6 +10422,8 @@ async function routineWriteRefusal(req: McpRequest, toolName: string): Promise<s
   } else if (typeof body.routineId === "string") {
     const found = await resolveRoutine(co, self, body.routineId, employeeSlug);
     owner = found.ok ? found.owner : null;
+  } else if (typeof body.triggerId === "string") {
+    owner = (await loadToolTrigger(co, body.triggerId))?.owner ?? null;
   }
   if (!owner || owner.id === self.id) return null;
   return routineWriteRefusalForOwner(owner);
@@ -10700,6 +10734,178 @@ mcpInternalRouter.post(
         ? { note: "This was its first brief, so the routine is now switched on and scheduled." }
         : {}),
     });
+  },
+);
+
+/** A trigger in this company with its Routine and the Routine's employee. */
+async function loadToolTrigger(
+  co: Company,
+  triggerId: string,
+): Promise<{ trigger: RoutineTrigger; routine: Routine; owner: AIEmployee } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(triggerId)) return null;
+  const trigger = await AppDataSource.getRepository(RoutineTrigger).findOneBy({
+    id: triggerId,
+    companyId: co.id,
+  });
+  if (!trigger) return null;
+  const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: trigger.routineId });
+  if (!routine) return null;
+  const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: routine.employeeId,
+    companyId: co.id,
+  });
+  return owner ? { trigger, routine, owner } : null;
+}
+
+function serializeToolTrigger(trigger: RoutineTrigger) {
+  return {
+    id: trigger.id,
+    routineId: trigger.routineId,
+    kind: trigger.kind,
+    scopeId: trigger.scopeId,
+    minIntervalSec: trigger.minIntervalSec,
+    enabled: trigger.enabled,
+    lastFiredAt: trigger.lastFiredAt,
+  };
+}
+
+const routineRefShape = {
+  routineId: z.string().min(1).max(200),
+  employeeSlug: z.string().min(1).max(120).optional(),
+};
+
+mcpInternalRouter.post(
+  "/tools/list_routine_triggers",
+  validateBody(z.object(routineRefShape).strict()),
+  async (req: McpRequest, res) => {
+    const body = req.body as { routineId: string; employeeSlug?: string };
+    const found = await resolveRoutine(req.mcpCompany!, req.mcpEmployee!, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const triggers = await listTriggersForRoutine(req.mcpCompany!.id, found.routine.id);
+    res.json({
+      routine: { id: found.routine.id, name: found.routine.name },
+      triggers: triggers.map(serializeToolTrigger),
+      kindsYouMaySubscribe: AI_TRIGGER_KINDS,
+    });
+  },
+);
+
+const createRoutineTriggerSchema = z
+  .object({
+    ...routineRefShape,
+    kind: z.enum(AI_TRIGGER_KINDS),
+    minIntervalSec: z
+      .number()
+      .int()
+      .min(AI_TRIGGER_MIN_INTERVAL_SEC)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+  })
+  .strict();
+
+// Fire a Routine whenever a family of business records changes, as a
+// Routine's Triggers settings do. Its Runs are event Runs, so they prepare and
+// stage rather than deliver, and a Standdown or a requiresApproval gate still
+// holds them.
+mcpInternalRouter.post(
+  "/tools/create_routine_trigger",
+  validateBody(createRoutineTriggerSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createRoutineTriggerSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const refusal = await routineOwnerWriteRefusal(self, found.owner);
+    if (refusal) return res.status(403).json({ error: refusal });
+    try {
+      const trigger = await createRoutineTrigger({
+        companyId: co.id,
+        routineId: found.routine.id,
+        kind: body.kind,
+        minIntervalSec: body.minIntervalSec,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "routine.trigger.create",
+        targetType: "routine",
+        targetId: found.routine.id,
+        targetLabel: found.routine.name,
+        metadata: { via: "mcp", kind: trigger.kind, scopeId: null },
+      });
+      await journal(
+        found.owner.id,
+        `${self.name} made "${found.routine.name}" run when ${trigger.kind} records change`,
+        `At most once every ${Math.round(trigger.minIntervalSec / 60)} minutes.`,
+      );
+      res.json({ trigger: serializeToolTrigger(trigger) });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const updateRoutineTriggerSchema = z
+  .object({
+    triggerId: z.string().uuid(),
+    enabled: z.boolean().optional(),
+    minIntervalSec: z
+      .number()
+      .int()
+      .min(AI_TRIGGER_MIN_INTERVAL_SEC)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_routine_trigger",
+  validateBody(updateRoutineTriggerSchema),
+  async (req: McpRequest, res) => {
+    const { triggerId, ...fields } = req.body as z.infer<typeof updateRoutineTriggerSchema>;
+    const self = req.mcpEmployee!;
+    const found = await loadToolTrigger(req.mcpCompany!, triggerId);
+    if (!found) return res.status(404).json({ error: "Trigger not found" });
+    const refusal = await routineOwnerWriteRefusal(self, found.owner);
+    if (refusal) return res.status(403).json({ error: refusal });
+    const trigger = await updateRoutineTrigger(found.trigger, fields);
+    await recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: self.id,
+      action: "routine.trigger.update",
+      targetType: "routine",
+      targetId: found.routine.id,
+      targetLabel: found.routine.name,
+      metadata: { via: "mcp", triggerId, ...fields },
+    });
+    res.json({ trigger: serializeToolTrigger(trigger) });
+  },
+);
+
+const deleteRoutineTriggerSchema = z.object({ triggerId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_routine_trigger",
+  validateBody(deleteRoutineTriggerSchema),
+  async (req: McpRequest, res) => {
+    const { triggerId } = req.body as z.infer<typeof deleteRoutineTriggerSchema>;
+    const self = req.mcpEmployee!;
+    const found = await loadToolTrigger(req.mcpCompany!, triggerId);
+    if (!found) return res.status(404).json({ error: "Trigger not found" });
+    const refusal = await routineOwnerWriteRefusal(self, found.owner);
+    if (refusal) return res.status(403).json({ error: refusal });
+    await deleteRoutineTrigger(found.trigger);
+    await recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: self.id,
+      action: "routine.trigger.delete",
+      targetType: "routine",
+      targetId: found.routine.id,
+      targetLabel: found.routine.name,
+      metadata: { via: "mcp", kind: found.trigger.kind },
+    });
+    res.json({ ok: true });
   },
 );
 
@@ -16859,6 +17065,78 @@ mcpInternalRouter.post(
   },
 );
 
+const reviseRepositoryWorkSessionSchema = z
+  .object({
+    sessionId: z.string().uuid(),
+    instruction: z.string().trim().min(1).max(20_000),
+  })
+  .strict();
+
+// Ask for another round of work in a session the employee owns — review
+// feedback, a failing check, a change of plan — on the same worktree and
+// branch, as a Member's follow-up on the session page does. Published and
+// discarded sessions are refused; a running one must finish first.
+mcpInternalRouter.post(
+  "/tools/revise_repository_work_session",
+  validateBody(reviseRepositoryWorkSessionSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof reviseRepositoryWorkSessionSchema>;
+    const authority =
+      req.mcpAuthority === "employee"
+        ? { toolAuthority: "employee" as const }
+        : req.mcpAuthority === "member" &&
+            req.mcpRequesterUserId &&
+            req.mcpRequesterSessionVersion !== null &&
+            req.mcpRequesterSessionVersion !== undefined
+          ? {
+              requesterUserId: req.mcpRequesterUserId,
+              requesterSessionVersion: req.mcpRequesterSessionVersion,
+            }
+          : null;
+    if (!authority) return res.status(403).json({ error: "Trusted work authority is required." });
+    try {
+      // Only its own session, and a write Grant for an unattended follow-up.
+      const { repo } = await employeeRepositoryWorkSession({
+        companyId: co.id,
+        employeeId: self.id,
+        sessionId: body.sessionId,
+        access: "toolAuthority" in authority ? "write" : "read",
+      });
+      const prepared = await prepareWorkSessionRevision({
+        companyId: co.id,
+        sessionId: body.sessionId,
+        instruction: body.instruction,
+        ...authority,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorUserId: req.mcpRequesterUserId,
+        actorEmployeeId: self.id,
+        action: "repository.work_session_revise",
+        targetType: "repository",
+        targetId: repo.id,
+        targetLabel: repo.name,
+        metadata: { employeeId: self.id, sessionId: prepared.session.id, revisedBy: "tool" },
+      });
+      runRepositoryWorkSession(prepared).catch((error) => {
+        console.error("[repository-session] revision failed:", error);
+      });
+      const reviewUrl = `/c/${co.slug}/repositories/${repo.slug}/ai/${prepared.session.id}`;
+      res.json({
+        sessionId: prepared.session.id,
+        status: prepared.session.status,
+        turn: prepared.turn.ordinal,
+        reviewUrl,
+        note: "Another round has started on the same branch. Check its result with get_repository_work_session before reporting anything as done.",
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
 const getRepositoryWorkSessionSchema = z.object({ sessionId: z.string().uuid() }).strict();
 
 mcpInternalRouter.post(
@@ -18164,6 +18442,45 @@ const draftSignatureRecipientSchema = z
   })
   .strict();
 
+/** What every draft's recipients must satisfy, whether drafted or edited. */
+function refineSignatureRecipients(
+  body: { recipients?: z.infer<typeof draftSignatureRecipientSchema>[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (!body.recipients) return;
+  const fieldCount = body.recipients.reduce(
+    (total, recipient) => total + (recipient.fields?.length ?? 0),
+    0,
+  );
+  if (fieldCount > 500) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["recipients"],
+      message: "An envelope can contain at most 500 fields",
+    });
+  }
+  for (let index = 0; index < body.recipients.length; index += 1) {
+    const recipient = body.recipients[index];
+    if (recipient.role === "copy" && recipient.fields?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recipients", index, "fields"],
+        message: "Copy recipients cannot own signing fields",
+      });
+    }
+    if (
+      recipient.role === "signer" &&
+      !recipient.fields?.some((field) => field.type === "signature" && field.required !== false)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recipients", index, "fields"],
+        message: "Every signer needs at least one required signature field",
+      });
+    }
+  }
+}
+
 const draftSignatureEnvelopeSchema = z
   .object({
     resourceSlug: z.string().trim().min(1).max(160),
@@ -18175,39 +18492,7 @@ const draftSignatureEnvelopeSchema = z
     recipients: z.array(draftSignatureRecipientSchema).min(1).max(50),
   })
   .strict()
-  .superRefine((body, ctx) => {
-    const fieldCount = body.recipients.reduce(
-      (total, recipient) => total + (recipient.fields?.length ?? 0),
-      0,
-    );
-    if (fieldCount > 500) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["recipients"],
-        message: "An envelope can contain at most 500 fields",
-      });
-    }
-    for (let index = 0; index < body.recipients.length; index += 1) {
-      const recipient = body.recipients[index];
-      if (recipient.role === "copy" && recipient.fields?.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["recipients", index, "fields"],
-          message: "Copy recipients cannot own signing fields",
-        });
-      }
-      if (
-        recipient.role === "signer" &&
-        !recipient.fields?.some((field) => field.type === "signature" && field.required !== false)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["recipients", index, "fields"],
-          message: "Every signer needs at least one required signature field",
-        });
-      }
-    }
-  });
+  .superRefine(refineSignatureRecipients);
 
 mcpInternalRouter.post(
   "/tools/draft_signature_envelope",
@@ -18245,6 +18530,67 @@ mcpInternalRouter.post(
       res.json({
         ...serializeSignatureDetailForAi(detail),
         note: "Draft prepared. Nothing was emailed; a Member can review it before sending.",
+      });
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const updateSignatureEnvelopeDraftSchema = z
+  .object({
+    envelopeId: z.string().uuid(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    title: z.string().trim().min(1).max(255).optional(),
+    message: z.string().trim().max(10_000).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    routingMode: z.enum(["parallel", "ordered"]).optional(),
+    expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+    recipients: z.array(draftSignatureRecipientSchema).min(1).max(50).optional(),
+  })
+  .strict()
+  .superRefine(refineSignatureRecipients)
+  .refine(
+    (body) =>
+      Object.keys(body).some((key) => key !== "envelopeId" && key !== "expectedUpdatedAt"),
+    { message: "Pass at least one change to the draft" },
+  );
+
+// Edit a draft before it goes out — its recipients and their fields, message,
+// routing, or expiry — as the envelope's draft editor does. Recipients replace
+// the whole list with their fields; a draft someone changed since you read it
+// is refused (expectedUpdatedAt), and a sent envelope cannot change.
+mcpInternalRouter.post(
+  "/tools/update_signature_envelope_draft",
+  validateBody(updateSignatureEnvelopeDraftSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireSigning(req, res, "draft"))) return;
+    const employee = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof updateSignatureEnvelopeDraftSchema>;
+    try {
+      const detail = await updateSignatureEnvelopeDraft({
+        companyId: req.mcpCompany!.id,
+        envelopeId: body.envelopeId,
+        expectedUpdatedAt: body.expectedUpdatedAt,
+        title: body.title,
+        message: body.message,
+        customerId: body.customerId,
+        routingMode: body.routingMode,
+        expiresAt: body.expiresAt,
+        recipients: body.recipients?.map((recipient, index) => ({
+          ...recipient,
+          routingOrder: recipient.routingOrder ?? index,
+        })),
+        actor: { actorKind: "ai", actorId: employee.id },
+      });
+      await journal(
+        employee.id,
+        `${employee.name} edited signature envelope draft "${detail.envelope.title}"`,
+        "Nothing was emailed.",
+      );
+      res.json({
+        ...serializeSignatureDetailForAi(detail),
+        note: "Draft updated. Nothing was emailed. Pass the new updatedAt as expectedUpdatedAt next time.",
       });
     } catch (error) {
       if (!respondToSigningError(res, error)) throw error;
@@ -18513,6 +18859,72 @@ mcpInternalRouter.post(
       ...(await aiRoomDetail(req.mcpCompany!.id, room.id)),
       note: "Nobody is invited yet. File documents with add_data_room_document.",
     });
+  }),
+);
+
+const updateDataRoomDocumentSchema = z
+  .object({
+    documentId: z.string().uuid(),
+    title: z.string().trim().min(1).max(DATA_ROOM_LIMITS.documentTitleChars).optional(),
+    folder: z.string().trim().min(1).max(200).nullable().optional(),
+    position: z.number().int().min(0).max(100_000).optional(),
+  })
+  .strict();
+
+// Rename, re-file, or reorder a filed document, as the room's document list
+// does. Moving one into a folder shows it at once to every guest who can open
+// that folder, so this is a taint sink like inviting a guest.
+mcpInternalRouter.post(
+  "/tools/update_data_room_document",
+  validateBody(updateDataRoomDocumentSchema),
+  dataRoomTool(async (req, res) => {
+    if (!(await requireDataRoomAccess(req, res, "prepare"))) return;
+    const body = req.body as z.infer<typeof updateDataRoomDocumentSchema>;
+    const companyId = req.mcpCompany!.id;
+    const document = await requireDocumentInCompany(companyId, body.documentId);
+    const folderId =
+      body.folder === undefined
+        ? undefined
+        : body.folder === null
+          ? null
+          : (await resolveFolderRefs(document.roomId, [body.folder]))[0];
+    const updated = await updateDocument({
+      companyId,
+      roomId: document.roomId,
+      documentId: document.id,
+      title: body.title,
+      folderId,
+      position: body.position,
+      actor: dataRoomActor(req),
+    });
+    await journal(
+      req.mcpEmployee!.id,
+      `${req.mcpEmployee!.name} updated data room document "${updated.title}"`,
+    );
+    res.json({ document: serializeDataRoomDocument(updated) });
+  }),
+);
+
+// Take a document out of a room for good — its file is deleted, and no guest
+// can open it again.
+mcpInternalRouter.post(
+  "/tools/remove_data_room_document",
+  validateBody(z.object({ documentId: z.string().uuid() }).strict()),
+  dataRoomTool(async (req, res) => {
+    if (!(await requireDataRoomAccess(req, res, "prepare"))) return;
+    const companyId = req.mcpCompany!.id;
+    const document = await requireDocumentInCompany(companyId, req.body.documentId);
+    await deleteDocument({
+      companyId,
+      roomId: document.roomId,
+      documentId: document.id,
+      actor: dataRoomActor(req),
+    });
+    await journal(
+      req.mcpEmployee!.id,
+      `${req.mcpEmployee!.name} removed "${document.title}" from a data room`,
+    );
+    res.json({ ok: true });
   }),
 );
 
@@ -20903,6 +21315,150 @@ mcpInternalRouter.post(
  * When `accountId` is omitted and the employee holds exactly one grant, that
  * account is used. Writes the error response itself and returns null on
  * failure. */
+// ----- Meetings from a mailbox: the scheduling calendars, free/busy, booking -----
+//
+// The same service Mail's Schedule meeting runs. A booking emails Google's
+// invitation to every guest, so it is delivery — refused under a review-only
+// ceiling, held for approval in a tainted turn, and it needs the mailbox's Send
+// Grant like send_mail. A company calendar also needs the employee's calendar
+// Grant, so one mailbox Grant never reaches every calendar the company has.
+
+/** Whether the employee may use a scheduling calendar the mailbox offers. */
+async function employeeMayUseSchedulingCalendar(
+  employeeId: string,
+  calendarId: string,
+): Promise<boolean> {
+  if (calendarId === "mailbox") return true;
+  const accountId = calendarId.startsWith("calendar:") ? calendarId.slice("calendar:".length) : "";
+  return !!accountId && hasCalendarAccess(employeeId, accountId, "read");
+}
+
+function meetingSchedulingFailure(res: Response, err: unknown): void {
+  res
+    .status(err instanceof MeetingSchedulingError ? err.status : 400)
+    .json({ error: (err as Error).message });
+}
+
+const schedulingCalendarsSchema = z.object({ accountId: z.string().uuid().optional() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_scheduling_calendars",
+  validateBody(schedulingCalendarsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof schedulingCalendarsSchema>;
+    const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
+    if (!account) return;
+    try {
+      const list = await listSchedulingCalendars(account);
+      const usable = [];
+      for (const calendar of list.calendars) {
+        if (await employeeMayUseSchedulingCalendar(req.mcpEmployee!.id, calendar.id)) {
+          usable.push(calendar);
+        }
+      }
+      res.json({ calendars: usable, setupHint: list.setupHint });
+    } catch (err) {
+      meetingSchedulingFailure(res, err);
+    }
+  },
+);
+
+const calendarAvailabilitySchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    calendarId: z.string().min(1).max(200),
+    start: z.string().datetime({ offset: true }),
+    end: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .refine((value) => new Date(value.end).getTime() > new Date(value.start).getTime(), {
+    message: "end must be after start",
+    path: ["end"],
+  })
+  .refine(
+    (value) => new Date(value.end).getTime() - new Date(value.start).getTime() <= 24 * 60 * 60 * 1000,
+    { message: "Ask about at most 24 hours at a time", path: ["end"] },
+  );
+
+mcpInternalRouter.post(
+  "/tools/check_calendar_availability",
+  validateBody(calendarAvailabilitySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof calendarAvailabilitySchema>;
+    const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
+    if (!account) return;
+    if (!(await employeeMayUseSchedulingCalendar(req.mcpEmployee!.id, body.calendarId))) {
+      return res.status(403).json({
+        error: "No grant: you need access to that calendar under Meetings → AI access.",
+      });
+    }
+    try {
+      res.json(
+        await calendarAvailability(account, {
+          calendarId: body.calendarId,
+          start: new Date(body.start),
+          end: new Date(body.end),
+        }),
+      );
+    } catch (err) {
+      meetingSchedulingFailure(res, err);
+    }
+  },
+);
+
+const scheduleMeetingToolSchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    calendarId: z.string().min(1).max(200),
+    title: z.string().trim().min(1).max(300),
+    description: z.string().max(8_000).optional(),
+    start: z.string().regex(LOCAL_DATE_TIME, "Use local wall time, YYYY-MM-DDTHH:mm"),
+    timeZone: z
+      .string()
+      .max(64)
+      .refine(isMeetingTimeZone, "Use an IANA time zone such as Europe/Berlin"),
+    durationMinutes: z.number().int().min(MIN_MEETING_MINUTES).max(MAX_MEETING_MINUTES),
+    attendees: z
+      .array(
+        z
+          .object({ email: z.string().trim().email().max(320), name: z.string().max(200).optional() })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    addMeet: z.boolean().default(true),
+    sendInvites: z.boolean().default(true),
+    threadId: z.string().uuid().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/schedule_meeting",
+  validateBody(scheduleMeetingToolSchema),
+  async (req: McpRequest, res) => {
+    const { accountId, ...input } = req.body as z.infer<typeof scheduleMeetingToolSchema>;
+    const self = req.mcpEmployee!;
+    const account = await loadGrantedMailAccount(req, res, accountId, "send");
+    if (!account) return;
+    if (!(await employeeMayUseSchedulingCalendar(self.id, input.calendarId))) {
+      return res.status(403).json({
+        error: "No grant: you need access to that calendar under Meetings → AI access.",
+      });
+    }
+    try {
+      const meeting = await scheduleMeeting(account, input, { userId: null, employeeId: self.id });
+      await journal(
+        self.id,
+        `${self.name} scheduled "${meeting.title}"`,
+        `${meeting.start} with ${meeting.attendees.length} guest(s)${meeting.invitesSent ? "; invitations sent" : ""}.`,
+      );
+      res.json({ meeting });
+    } catch (err) {
+      meetingSchedulingFailure(res, err);
+    }
+  },
+);
+
 async function loadGrantedMailAccount(
   req: McpRequest,
   res: Response,

@@ -63,6 +63,8 @@ const DATA_ROOM_TOOLS = [
   "get_data_room_activity",
   "create_data_room",
   "add_data_room_document",
+  "update_data_room_document",
+  "remove_data_room_document",
   "draft_data_room_answer",
   "answer_data_room_question",
   "invite_data_room_guest",
@@ -391,4 +393,43 @@ describe("the tools", () => {
     assert.equal(answered.body.question.status, "answered");
     assert.equal(answered.body.question.citations.length, 1);
   });
+});
+
+test("a filed document is renamed, moved between folders, and removed at the prepare level", async () => {
+  const { room, document } = await seedRoom();
+  const { createFolder } = await import("../services/dataRooms/rooms.js");
+  await createFolder({
+    companyId: company.id,
+    roomId: room.id,
+    name: "Financials",
+    actor: { kind: "user", userId: owner.id },
+  });
+  await grant("read");
+  assert.equal((await tool("update_data_room_document", { documentId: document.id, title: "x" })).status, 403);
+
+  await grant("prepare");
+  const unknownFolder = await tool("update_data_room_document", {
+    documentId: document.id,
+    folder: "Nope",
+  });
+  assert.equal(unknownFolder.status, 400);
+  assert.match(unknownFolder.body.error ?? "", /Financials/);
+
+  const moved = await tool<{ document: { title: string; folderId: string | null } }>(
+    "update_data_room_document",
+    { documentId: document.id, title: "Operating model", folder: "Financials" },
+  );
+  assert.equal(moved.status, 200, moved.body.error);
+  assert.equal(moved.body.document.title, "Operating model");
+  assert.ok(moved.body.document.folderId);
+
+  const back = await tool<{ document: { folderId: string | null } }>("update_data_room_document", {
+    documentId: document.id,
+    folder: null,
+  });
+  assert.equal(back.body.document.folderId, null);
+
+  const removed = await tool("remove_data_room_document", { documentId: document.id });
+  assert.equal(removed.status, 200, removed.body.error);
+  assert.equal((await tool("read_data_room_document", { documentId: document.id })).status, 404);
 });

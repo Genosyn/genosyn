@@ -217,7 +217,13 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // no write path at all when the footer showed none; the names must be there to
 // be found. About 1,900 characters remain at the minimum result cap, which only
 // a model with a context window under 14k tokens ever gets.
-const DOMAIN_FOOTER_CHARS_MAX = 6_100;
+// Raised to 6,400 for the `payables` domain (vendors, bills, bill payments) and
+// the Trigger, Work session revision, meeting booking, data room document and
+// signature draft tools — 24 names, about 250 characters. Payables is a domain
+// of its own because "bill" also means billing a customer, and a footer that
+// listed only invoices read as the company paying nobody. About 1,600 characters
+// remain at the minimum result cap.
+const DOMAIN_FOOTER_CHARS_MAX = 6_400;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
@@ -409,6 +415,7 @@ describe("catalogue invariants", () => {
       "list_signature_envelopes",
       "get_signature_envelope",
       "draft_signature_envelope",
+      "update_signature_envelope_draft",
       "send_signature_envelope",
       "remind_signature_recipient",
       "void_signature_envelope",

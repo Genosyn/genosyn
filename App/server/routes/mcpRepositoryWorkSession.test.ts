@@ -666,6 +666,93 @@ describe("commands in a package directory", () => {
  * run. It cuts a real worktree and shells out to git, and doing that alongside
  * the refusal tests above stalls the loop enough to reset their connections.
  */
+describe("revising a session from a tool call", () => {
+  async function readySession(): Promise<RepositoryWorkSession> {
+    return insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: repository.id,
+      employeeId: employee.id,
+      requestedByUserId: null,
+      instruction: "Update the plan",
+      status: "ready",
+    });
+  }
+
+  test("an unattended follow-up needs a write Grant and its own session", async () => {
+    const session = await readySession();
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: repository.id,
+      accessLevel: "read",
+    });
+    const employeeAuthority = issueMcpToken(employee.id, company.id, { authority: "employee" });
+    try {
+      const refused = await callWith(employeeAuthority, "revise_repository_work_session", {
+        sessionId: session.id,
+        instruction: "Tighten the summary",
+      });
+      assert.equal(refused.status, 400);
+      assert.match(refused.body.error ?? "", /write Grant/);
+
+      const teammate = await insert(AIEmployee, {
+        companyId: company.id,
+        name: "Bob",
+        slug: "bob",
+        role: "Engineer",
+        soulBody: "",
+      });
+      const theirs = await insert(RepositoryWorkSession, {
+        companyId: company.id,
+        repositoryId: repository.id,
+        employeeId: teammate.id,
+        requestedByUserId: null,
+        instruction: "Their work",
+        status: "ready",
+      });
+      const notMine = await callWith(employeeAuthority, "revise_repository_work_session", {
+        sessionId: theirs.id,
+        instruction: "Change it",
+      });
+      assert.equal(notMine.status, 400);
+      assert.match(notMine.body.error ?? "", /not found/);
+    } finally {
+      revokeMcpToken(employeeAuthority);
+    }
+  });
+
+  test("a running session cannot be talked over", async () => {
+    await grantAccess();
+    const session = await runningSession();
+    const res = await callWith(token, "revise_repository_work_session", {
+      sessionId: session.id,
+      instruction: "Also do this",
+    });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error ?? "", /still working/);
+  });
+
+  test("a ready session takes another round as the employee, not as a Member", async () => {
+    await grantAccess();
+    const session = await readySession();
+    const employeeAuthority = issueMcpToken(employee.id, company.id, { authority: "employee" });
+    try {
+      const res = await callWith(employeeAuthority, "revise_repository_work_session", {
+        sessionId: session.id,
+        instruction: "Address the review: shorten section two",
+      });
+      assert.equal(res.status, 200, res.body.error);
+      assert.equal(res.body.sessionId, session.id);
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+        id: session.id,
+      });
+      assert.equal(row.requestedByUserId, null);
+      await settle(session.id);
+    } finally {
+      revokeMcpToken(employeeAuthority);
+    }
+  });
+});
+
 describe("a session that really starts", () => {
   test("trusted unattended work starts using its own Grant and records no fictional Member", async () => {
     await grantAccess();

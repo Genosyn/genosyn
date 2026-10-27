@@ -427,7 +427,8 @@ export function inviteList(
 export async function scheduleMeeting(
   account: MailAccount,
   input: ScheduleMeetingInput,
-  actor: { userId: string | null },
+  /** The Member who booked it, or the AI Employee through `schedule_meeting`. */
+  actor: { userId: string | null; employeeId?: string },
   dependencies: MeetingSchedulingDependencies = {},
 ): Promise<ScheduledMeeting> {
   const now = dependencies.now?.() ?? new Date();
@@ -567,6 +568,7 @@ export async function scheduleMeeting(
     recordAudit({
       companyId: account.companyId,
       actorUserId: actor.userId,
+      actorEmployeeId: actor.employeeId ?? null,
       action: "mail.meeting.schedule",
       targetType: thread ? "mail_thread" : "mail_account",
       targetId: thread?.id ?? account.id,

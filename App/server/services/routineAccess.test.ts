@@ -17,6 +17,7 @@ import { captureRecoveryGrants } from "./agent/workRecoveryScope.js";
 import {
   ROUTINE_READ_TOOLS,
   ROUTINE_RUN_TOOLS,
+  ROUTINE_TRIGGER_WRITE_TOOLS,
   ROUTINE_RUN_ONLY_ERROR,
   ROUTINE_SCHEDULE_TRIGGER_REFUSAL,
   ROUTINE_WRITE_TOOLS,
@@ -136,6 +137,7 @@ describe("the Routine tools", () => {
     // writer would ship ungated by Routines → AI access.
     const classified = new Set<string>([
       ...ROUTINE_WRITE_TOOLS,
+      ...ROUTINE_TRIGGER_WRITE_TOOLS,
       ...ROUTINE_READ_TOOLS,
       ...ROUTINE_RUN_TOOLS,
     ]);
@@ -143,7 +145,7 @@ describe("the Routine tools", () => {
       assert.ok(classified.has(name), `${name} must be classified as a Routine read, run or write`);
     }
     assert.deepEqual(
-      [...ROUTINE_WRITE_TOOLS].sort(),
+      [...ROUTINE_WRITE_TOOLS, ...ROUTINE_TRIGGER_WRITE_TOOLS].sort(),
       TOOL_DOMAINS.routines.tools
         .filter((name) => !name.startsWith("list_") && !name.startsWith("get_"))
         .filter((name) => !(ROUTINE_RUN_TOOLS as readonly string[]).includes(name))

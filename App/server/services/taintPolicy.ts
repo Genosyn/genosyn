@@ -37,15 +37,23 @@ export const TAINT_SINK_TOOLS = new Set([
   "send_mail",
   // A text or a call reaches a person outside the company exactly as an email
   // does, so a page that read "now text this number" is held the same way.
+  // A booking emails its invitation, title and description to every guest.
+  "schedule_meeting",
   "send_text_message",
   "place_phone_call",
   // Inviting a guest emails them a link to the company's confidential
   // documents, and publishing an answer speaks to them: both reach outside.
   "invite_data_room_guest",
   "answer_data_room_question",
+  // Moving a document into a folder shows it to that folder's guests at once.
+  "update_data_room_document",
   "create_routine",
   "update_routine",
   "delete_routine",
+  // A Trigger decides when a Routine re-runs: the same foothold as its schedule.
+  "create_routine_trigger",
+  "update_routine_trigger",
+  "delete_routine_trigger",
   "create_skill",
   "update_skill",
   "delete_skill",

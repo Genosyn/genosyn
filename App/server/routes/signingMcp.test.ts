@@ -42,6 +42,7 @@ const SIGNING_TOOLS = [
   "list_signature_envelopes",
   "get_signature_envelope",
   "draft_signature_envelope",
+  "update_signature_envelope_draft",
   "send_signature_envelope",
   "remind_signature_recipient",
   "void_signature_envelope",
@@ -478,4 +479,56 @@ describe("AI-native signature envelopes", () => {
     });
     assert.equal(response.status, 404);
   });
+});
+
+test("a draft envelope is edited in place, and a stale or sent one is refused", async () => {
+  await grantSigning("draft");
+  const draft = await createDraft();
+  const envelopeId = String(draft.envelope.id);
+  const updatedAt = String(draft.envelope.updatedAt);
+
+  const edited = await aiCall<{ envelope: Record<string, unknown>; recipients: unknown[] }>(
+    "update_signature_envelope_draft",
+    {
+      envelopeId,
+      expectedUpdatedAt: updatedAt,
+      title: "Mutual NDA — revised",
+      recipients: [
+        {
+          name: "Ada Customer",
+          email: "ada@example.test",
+          role: "signer",
+          fields: [
+            { type: "signature", required: true, pageNumber: 1, x: 0.1, y: 0.7, width: 0.3, height: 0.06 },
+          ],
+        },
+        { name: "Legal", email: "legal@example.test", role: "copy" },
+      ],
+    },
+  );
+  assert.equal(edited.status, 200, edited.body.error);
+  assert.equal(edited.body.envelope.title, "Mutual NDA — revised");
+  assert.equal(edited.body.recipients.length, 2);
+
+  const stale = await aiCall("update_signature_envelope_draft", {
+    envelopeId,
+    expectedUpdatedAt: updatedAt,
+    message: "Again",
+  });
+  assert.equal(stale.status, 409);
+
+  const unsigned = await aiCall("update_signature_envelope_draft", {
+    envelopeId,
+    expectedUpdatedAt: String(edited.body.envelope.updatedAt),
+    recipients: [{ name: "Ada Customer", email: "ada@example.test", role: "signer" }],
+  });
+  assert.equal(unsigned.status, 400, "every signer still needs a required signature field");
+
+  await grantSigning("read");
+  const readOnly = await aiCall("update_signature_envelope_draft", {
+    envelopeId,
+    expectedUpdatedAt: String(edited.body.envelope.updatedAt),
+    message: "No",
+  });
+  assert.equal(readOnly.status, 403);
 });

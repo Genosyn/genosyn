@@ -1557,7 +1557,7 @@ test("AI signing grants are company-scoped, rank ordered, contextual, and never 
   assert.match(context, /prepare new drafts/);
   assert.match(
     context,
-    /cannot read the source PDF attached to an envelope or edit an existing draft/,
+    /cannot read the source PDF attached to an envelope\. A draft can be edited with update_signature_envelope_draft/,
   );
   assert.match(context, /must never consent, draw, type, or submit a signature/);
   await upsertSigningGrant({

@@ -46,6 +46,90 @@ export function normalizeMinInterval(sec: number | undefined): number {
   return Math.max(MIN_INTERVAL_FLOOR_SEC, Math.round(sec ?? MIN_INTERVAL_DEFAULT_SEC));
 }
 
+/**
+ * The families an AI Employee may subscribe a Routine to: the company's
+ * business records. Left out are the families a Routine's own work writes —
+ * Runs, the audit log, journals, Routines — which would let a trigger fire on
+ * its own fire, and the ones whose timing alone says something the employee
+ * may not be granted (secrets, Vault items, Members, Grants, Connections). An
+ * AI trigger is company-wide: a scope is checked by nobody, so none is taken.
+ */
+export const AI_TRIGGER_KINDS = [
+  "activity",
+  "base",
+  "baserecord",
+  "bill",
+  "cardexpense",
+  "contact",
+  "customer",
+  "data_room_question",
+  "deal",
+  "decision",
+  "enrollment",
+  "estimate",
+  "goal",
+  "handoff",
+  "invoice",
+  "note",
+  "partnership",
+  "project",
+  "reconcile",
+  "recruiting_application",
+  "recruiting_opening",
+  "recurringinvoice",
+  "resource",
+  "revenuedocument",
+  "signal",
+  "signalevent",
+  "signature",
+  "todo",
+  "vendor",
+] as const;
+
+/** An AI-made trigger fires at most this often, so no family can hot-loop it. */
+export const AI_TRIGGER_MIN_INTERVAL_SEC = 300;
+
+/** Subscribe a Routine to a family. The kind must be one the live-sync spine emits. */
+export async function createRoutineTrigger(args: {
+  companyId: string;
+  routineId: string;
+  kind: string;
+  scopeId?: string | null;
+  minIntervalSec?: number;
+}): Promise<RoutineTrigger> {
+  assertValidTriggerKind(args.kind);
+  const repo = AppDataSource.getRepository(RoutineTrigger);
+  return repo.save(
+    repo.create({
+      companyId: args.companyId,
+      routineId: args.routineId,
+      kind: args.kind,
+      scopeId: args.scopeId ?? null,
+      minIntervalSec: normalizeMinInterval(args.minIntervalSec),
+    }),
+  );
+}
+
+/** Pause, resume, re-scope, or slow a trigger. Its kind and Routine never change. */
+export async function updateRoutineTrigger(
+  trigger: RoutineTrigger,
+  fields: { enabled?: boolean; minIntervalSec?: number; scopeId?: string | null },
+): Promise<RoutineTrigger> {
+  if (fields.enabled !== undefined) trigger.enabled = fields.enabled;
+  if (fields.minIntervalSec !== undefined) {
+    trigger.minIntervalSec = normalizeMinInterval(fields.minIntervalSec);
+  }
+  if (fields.scopeId !== undefined) trigger.scopeId = fields.scopeId;
+  return AppDataSource.getRepository(RoutineTrigger).save(trigger);
+}
+
+export async function deleteRoutineTrigger(trigger: RoutineTrigger): Promise<void> {
+  await AppDataSource.getRepository(RoutineTrigger).delete({
+    id: trigger.id,
+    companyId: trigger.companyId,
+  });
+}
+
 /** Wired once at boot; deliveries arrive after each coalesced flush. */
 export function bootRoutineTriggers(): void {
   registerRoutineTriggerSink((companyId, kind, scopeIds) => {

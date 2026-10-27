@@ -391,7 +391,11 @@ export function Email() {
         Google calendar when its Google sign-in includes Calendar access. With more than one, pick it
         in the form; the mailbox&apos;s own calendar is chosen first. With none, the form says where
         to connect one. Scheduling is open to every Member who can use the mailbox, like sending
-        mail, and each meeting is recorded in the audit log.
+        mail, and each meeting is recorded in the audit log. An AI Employee books one the same way
+        with <Code>schedule_meeting</Code>, after checking free time with{" "}
+        <Code>check_calendar_availability</Code>. The invitation is an email, so it needs the
+        mailbox&apos;s <Strong>Send</Strong> Grant, and a company calendar also needs its calendar
+        Grant.
       </Callout>
 
       <H2 id="suppressed">Sending refuses suppressed recipients</H2>

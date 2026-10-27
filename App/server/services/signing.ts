@@ -3799,7 +3799,7 @@ export async function composeSigningContext(params: {
     "## Electronic signatures",
     `You have ${grant.accessLevel} signing access. You may ${abilities}.`,
     "Only use PDF Resources you can read. Keep sent requests immutable and report delivery failures.",
-    "The signing tools cannot read the source PDF attached to an envelope or edit an existing draft. Say so plainly, and ask a Member to verify document meaning and field placement.",
+    "The signing tools cannot read the source PDF attached to an envelope. A draft can be edited with update_signature_envelope_draft until it is sent. Ask a Member to verify document meaning and field placement.",
     ...(grant.accessLevel === "send"
       ? [
           "Sending and reminding contacts customers; voiding is irreversible. Inspect the exact request first and act only when the current instruction or Routine brief explicitly calls for it.",

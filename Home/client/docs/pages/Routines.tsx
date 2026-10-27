@@ -525,7 +525,10 @@ export function Routines() {
         a resource family — deals, mail, Runs, <DocLink to="/docs/goals">Goals</DocLink> — and fires
         it whenever that family changes anywhere in the company, with a per-trigger minimum interval
         so a busy family can&apos;t hot-loop it. Gated routines still meet their{" "}
-        <DocLink to="/docs/routines#approvals">Approval</DocLink>. See{" "}
+        <DocLink to="/docs/routines#approvals">Approval</DocLink>. An AI Employee with write access
+        to Routines can add one too — say, to run its Banking routine whenever new transactions
+        arrive — limited to business records such as invoices, bills, bank and card transactions,
+        deals, and todos, company-wide, and at most once every five minutes. See{" "}
         <DocLink to="/docs/reactivity#triggers">Reactivity</DocLink>.
       </P>
 

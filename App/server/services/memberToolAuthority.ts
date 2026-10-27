@@ -23,6 +23,7 @@ const MEMBER_TOOLS = [
   "list_skills",
   "list_routines",
   "get_routine",
+  "list_routine_triggers",
   // Reading run history is member-level on the human route too:
   // `routes/routines.ts` admin-gates the mutations and leaves
   // `GET /routines/:rid/runs` and the run log open to every Member. These two
@@ -103,6 +104,7 @@ const MEMBER_TOOLS = [
   // turn this is, only at a repository that employee already holds a Grant
   // for, and only onto a branch the same Member-only review step governs.
   "start_repository_work_session",
+  "revise_repository_work_session",
   "get_repository_work_session",
   // The repository work-session tools are bounded by the session on the turn's
   // MCP token, not by their arguments: they act on one worktree, they have no
@@ -145,6 +147,7 @@ const MEMBER_TOOLS = [
   "list_signature_envelopes",
   "get_signature_envelope",
   "draft_signature_envelope",
+  "update_signature_envelope_draft",
   "send_signature_envelope",
   "remind_signature_recipient",
   "void_signature_envelope",
@@ -159,6 +162,9 @@ const MEMBER_TOOLS = [
   "mail_block_sender",
   "mail_unsubscribe",
   "send_mail",
+  "list_scheduling_calendars",
+  "check_calendar_availability",
+  "schedule_meeting",
   "suggest_mail_actions",
   // Meetings (M44): every Member may read meetings and manually start the
   // notetaker from the human route. Calendar Record Grants still govern which
@@ -332,6 +338,10 @@ const ADMIN_TOOLS = [
   "delete_routine",
   // Run now is a Routine mutation on the human route, admin-gated with the rest.
   "run_routine_now",
+  // Trigger writes are admin-only on the human route (routes/reactivity.ts).
+  "create_routine_trigger",
+  "update_routine_trigger",
+  "delete_routine_trigger",
   // Progress reports mutate a Goal, and every Goal mutation on the human
   // route is admin-gated (`routes/goals.ts`).
   "update_goal_progress",
@@ -424,6 +434,8 @@ const ADMIN_TOOLS = [
   "get_data_room_activity",
   "create_data_room",
   "add_data_room_document",
+  "update_data_room_document",
+  "remove_data_room_document",
   "draft_data_room_answer",
   "answer_data_room_question",
   "invite_data_room_guest",

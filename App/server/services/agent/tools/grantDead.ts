@@ -45,7 +45,7 @@ import { IntegrationConnection } from "../../../db/entities/IntegrationConnectio
 import { PhoneNumber } from "../../../db/entities/PhoneNumber.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
 import { RESOURCE_WRITE_TOOLS } from "../../resourceLibraryAccess.js";
-import { ROUTINE_WRITE_TOOLS } from "../../routineAccess.js";
+import { ROUTINE_TRIGGER_WRITE_TOOLS, ROUTINE_WRITE_TOOLS } from "../../routineAccess.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -125,6 +125,9 @@ const MAIL_TOOL_ACCESS: Record<string, MailAccessLevel> = {
   edit_mail_draft: "draft",
   update_mail_thread: "draft",
   send_mail: "send",
+  list_scheduling_calendars: "read",
+  check_calendar_availability: "read",
+  schedule_meeting: "send",
   mail_block_sender: "draft",
   mail_unsubscribe: "draft",
   suggest_mail_actions: "read",
@@ -222,6 +225,7 @@ const SIGNING_TOOL_ACCESS: Record<string, SigningAccessLevel> = {
   list_signature_envelopes: "read",
   get_signature_envelope: "read",
   draft_signature_envelope: "draft",
+  update_signature_envelope_draft: "draft",
   send_signature_envelope: "send",
   remind_signature_recipient: "send",
   void_signature_envelope: "send",
@@ -399,6 +403,8 @@ const DATA_ROOM_TOOL_ACCESS: Record<string, DataRoomAccessLevel> = {
   get_data_room_activity: "read",
   create_data_room: "prepare",
   add_data_room_document: "prepare",
+  update_data_room_document: "prepare",
+  remove_data_room_document: "prepare",
   draft_data_room_answer: "prepare",
   answer_data_room_question: "share",
   invite_data_room_guest: "share",
@@ -422,7 +428,10 @@ const RESOURCE_WRITE_GATED_TOOLS = new Set<string>(RESOURCE_WRITE_TOOLS);
  * every step to an employee that can only be refused it. The read tools never
  * appear: both levels read every Routine and Run.
  */
-const ROUTINE_WRITE_GATED_TOOLS = new Set<string>(ROUTINE_WRITE_TOOLS);
+const ROUTINE_WRITE_GATED_TOOLS = new Set<string>([
+  ...ROUTINE_WRITE_TOOLS,
+  ...ROUTINE_TRIGGER_WRITE_TOOLS,
+]);
 
 /**
  * The phone tools: every one of them starts from the numbers assigned to the

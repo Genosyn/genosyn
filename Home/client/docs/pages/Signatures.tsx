@@ -158,7 +158,8 @@ export function Signatures() {
             def: (
               <>
                 Everything in Read only, plus create a new request from a PDF Resource shared with
-                that employee, configure recipients, and place fields. It cannot contact anyone.
+                that employee, configure recipients, and place fields, and edit a draft until it is
+                sent. It cannot contact anyone.
               </>
             ),
           },

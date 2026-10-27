@@ -19,6 +19,8 @@ const SEND_TOOLS = new Set([
   // A data room invitation is an email to an outsider; an answer emails them too.
   "invite_data_room_guest",
   "answer_data_room_question",
+  // Google emails each guest an invitation: an email to an outsider.
+  "schedule_meeting",
   "send_sequence_step",
   "send_campaign",
 ]);
@@ -30,6 +32,8 @@ const DEFERRED_AUTHORITY_TOOLS = new Set([
   "schedule_wakeup",
   "create_routine",
   "update_routine",
+  "create_routine_trigger",
+  "update_routine_trigger",
   "create_pipeline",
   "update_pipeline",
   "create_sequence",

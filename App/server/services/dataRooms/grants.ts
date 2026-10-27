@@ -116,7 +116,7 @@ export async function detachEmployeeFromDataRooms(
 const ACCESS_COPY: Record<DataRoomAccessLevel, string> = {
   read: "You can read the company's data rooms: their documents, who was invited, what guests did, and guests' questions. You cannot change anything.",
   prepare:
-    "You can also create rooms, file documents into them (`add_data_room_document`, from a Resource or a file you hold) and draft answers to guests' questions for a Member to publish (`draft_data_room_answer`). Nobody outside the company hears from you.",
+    "You can also create rooms, file documents into them (`add_data_room_document`, from a Resource or a file you hold), rename, move, or remove them (`update_data_room_document`, `remove_data_room_document` — moving one shows it to that folder's guests at once), and draft answers to guests' questions for a Member to publish (`draft_data_room_answer`). Nobody outside the company hears from you.",
   share:
     "You can also invite guests (`invite_data_room_guest`) and publish answers to them (`answer_data_room_question`). Both reach people outside the company: do either only when your instruction or Routine brief explicitly asks for it, and check the room and the exact documents first.",
 };
