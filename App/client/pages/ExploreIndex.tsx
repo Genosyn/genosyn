@@ -98,8 +98,8 @@ export default function ExploreIndex({ company }: { company: Company }) {
             <BarChart3 size={20} className="text-indigo-500" /> Explore
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Chart connected databases and your own Bases, or ask an AI Employee to inspect the
-            schema, validate SQL, create Charts, and assemble Dashboards for the team.
+            Chart connected databases and your own Bases, or ask an AI Employee to inspect either
+            one, create Charts, and assemble Dashboards for the team.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -239,7 +239,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
         ) : dashboards.length === 0 ? (
           <EmptyState
             title="No dashboards yet"
-            description="Create one yourself, or ask an AI Employee to inspect a database and build the first version."
+            description="Create one yourself, or ask an AI Employee to inspect a database or Base and build the first version."
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => setAiBuilderOpen(true)}>
@@ -326,7 +326,8 @@ export default function ExploreIndex({ company }: { company: Company }) {
       <ExploreAiBuilder
         open={aiBuilderOpen}
         company={company}
-        connections={connections ?? []}
+        connections={connections}
+        bases={bases}
         onClose={() => setAiBuilderOpen(false)}
       />
     </div>

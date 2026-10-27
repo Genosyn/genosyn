@@ -52,9 +52,9 @@ export function Explore() {
           column name, or preview a table without writing the starter query yourself.
         </LI>
         <LI>
-          <Strong>AI-native workflow</Strong> — grant an AI Employee a database Connection, then ask
-          them to inspect its schema, validate SQL, save Charts, and assemble a Dashboard that
-          appears in the same Explore UI Members use.
+          <Strong>AI-native workflow</Strong> — grant an AI Employee a database Connection or a
+          Base, then ask them to inspect it, check each query, save Charts, and assemble a
+          Dashboard that appears in the same Explore UI Members use.
         </LI>
       </UL>
 
@@ -65,8 +65,8 @@ export function Explore() {
         <Code>clickhouse</Code>. Set one up under <Code>Explore → Integrations</Code>, then it shows
         up in the Data source picker inside Explore. Bases need nothing connected: every Base in the
         company is already a data source. To delegate analytics, click{" "}
-        <Code>Build with AI</Code>, choose the Connection and an AI Employee, and Genosyn can create
-        the Connection Grant before opening Chat.
+        <Code>Build with AI</Code>, choose a Connection or a Base and an AI Employee, and Genosyn
+        can create the Connection or Base Grant before opening Chat.
       </P>
       <Callout kind="warn" title="Connect with a least-privileged role.">
         Read-only enforcement is <em>not</em> baked into the executor — if you give Explore a
@@ -81,17 +81,23 @@ export function Explore() {
           Open <Code>Explore</Code> and click <Code>Build with AI</Code>.
         </LI>
         <LI>
-          Choose a connected database and an AI Employee. If they do not already hold its Connection
-          Grant, the action is labelled <Code>Grant &amp; open chat</Code> and creates it before
-          continuing.
+          Under <Code>Data source</Code>, choose a connected database or a Base with at least one
+          active table, then choose an AI Employee. If they do not already hold that
+          Connection&apos;s or Base&apos;s Grant, the action is labelled{" "}
+          <Code>Grant &amp; open chat</Code> and creates it before continuing. A Base Grant is the
+          same one <Strong>Base settings → AI access</Strong> gives, so the employee can also read
+          and edit that Base&apos;s records and fields.
         </LI>
         <LI>
           Review or edit the starter request. Chat opens with the request as a draft; no model runs
           and no data is queried until you send it.
         </LI>
         <LI>
-          The employee lists its granted Explore Connections, inspects the selected schema,
-          validates each query, saves reusable Charts, creates a Dashboard, and pins the Charts in a
+          For a database, the employee lists its granted Explore Connections, inspects the selected
+          schema, and validates each SQL query. For a Base, the request has it read the table and
+          field ids with <Code>get_base</Code>, build each Chart&apos;s <Code>baseQuery</Code> from
+          them for <Code>create_chart</Code>, and check the Chart with <Code>run_chart</Code>.
+          Either way it saves reusable Charts, creates a Dashboard, and pins the Charts in a
           readable order. The results appear immediately in Explore and every write carries the AI
           employee in its audit trail.
         </LI>
@@ -265,7 +271,8 @@ export function Explore() {
         level, revoke a grant, or invite an employee who didn&apos;t default to access. Manage a
         database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{" "}
         <Code>Manage access</Code> view, or the employee&apos;s{" "}
-        <Strong>Settings → Connections</Strong>.
+        <Strong>Settings → Connections</Strong>. Give a Base Grant from <Code>Build with AI</Code>{" "}
+        or <Strong>Base settings → AI access</Strong>, where it is also revoked.
       </P>
 
       <H3 id="mcp-tools">MCP tools</H3>
