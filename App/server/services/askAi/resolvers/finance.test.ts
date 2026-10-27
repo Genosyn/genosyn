@@ -976,7 +976,7 @@ describe("resolveTransaction / resolveJournalEntry", () => {
     assert.match(item.body, /2020-01-04 · \$120\.00 · Operating account · ACH CREDIT ACME CORP/);
     assert.doesNotMatch(item.body, /000123456789/, "raw bank payloads never reach the model");
     assert.ok(item.tools?.includes("review_finance_transaction"));
-    assert.match(item.briefing!("full"), /never posts or approves/);
+    assert.match(item.briefing!("full"), /your approval is final/);
     assert.match(item.briefing!("read"), /needs the full Finance level/);
     assertFencedHostile(item.body);
   });

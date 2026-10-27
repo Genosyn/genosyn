@@ -41,6 +41,8 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Bills</Strong> — the AP mirror of invoices, for what your company owes vendors.
+          An AI Employee with <DocLink to="/docs/finance#ai-access">Full accounting</DocLink>{" "}
+          access can enter a bill a vendor emailed, issue it, and record its payment.
         </LI>
         <LI>
           <Strong>Vendors</Strong> — the counterparties you purchase from, each with billing
@@ -1057,8 +1059,9 @@ export function Finance() {
         categories it was filed under. Open a row to see each line with its debits and credits.
         Income and expense lines have a category picker; control accounts such as Bank, Accounts
         Receivable, and Card Payable stay visible but cannot be casually recategorized. Owners and
-        admins click <Code>Approve</Code> for final sign-off. Entry review is optional: nothing on
-        Banking waits for it.
+        admins click <Code>Approve</Code> for final sign-off, and so can an AI Employee with{" "}
+        <DocLink to="/docs/finance#ai-access">Full accounting</DocLink> access. Entry review is
+        optional: nothing on Banking waits for it.
       </P>
       <P>
         Category corrections are append-only. Approval writes a balanced reclassification entry and
@@ -1168,17 +1171,20 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Invoicing</Strong> — everything in Read, plus the full accounts-receivable loop:
-          create estimate drafts; create and manage recurring invoice schedules; create, issue,
-          email, and void invoices; create and update customers; and record payments to mark an
-          invoice paid. Estimate drafts do not affect the ledger and remain unissued for a Member to
+          create estimate drafts and turn an accepted estimate into an invoice; create and manage
+          recurring invoice schedules; create, edit, issue, email, and void invoices, and delete a
+          draft; create and update customers; record payments to mark an invoice paid; and mark
+          invoices paid from a deposit on Banking. Estimate drafts do not affect the ledger and remain unissued for a Member to
           review; an authorized employee can attach a clearly marked draft quotation to email.
           Issuing an invoice mints its number and posts it to the ledger; sending emails it to the
           customer on file.
         </LI>
         <LI>
-          <Strong>Full accounting</Strong> — everything in Invoicing, plus staging ledger
-          re-categorizations for a human to approve (below). Final approval always stays with a
-          human.
+          <Strong>Full accounting</Strong> — everything in Invoicing, plus the bookkeeping:
+          categorize, match, and undo bank and card transactions on Banking, post journal entries,
+          approve entries in Entry review (below), and run payables — add vendors, enter, issue,
+          and void bills, and record or reverse bill payments. The employee&apos;s approval is
+          final, like an owner&apos;s.
         </LI>
       </UL>
       <P>
@@ -1277,17 +1283,24 @@ export function Finance() {
         the attachment before sending.
       </P>
 
-      <H3 id="ai-transaction-review">AI transaction review</H3>
+      <H3 id="ai-transaction-review">AI bookkeeping</H3>
       <P>
-        At the <Strong>Full accounting</Strong> level an employee can also inspect posted
-        transactions and semi-approve one with a concise review note and optional category
-        proposals. The proposal does not change the ledger. It moves the transaction to{" "}
-        <Strong>AI reviewed</Strong> and notifies company owners/admins, who accept the proposal,
-        change it, or return the transaction for another look. AI Employees cannot issue final
-        approval. An entry whose category doesn&apos;t change in Entry review takes no category
-        proposal: a bank or card transaction, whose category is changed on Banking, a reversal,
-        or an entry reversed since. The employee reviews it as it is and names the category it
-        would use in its note.
+        At the <Strong>Full accounting</Strong> level an employee does the bookkeeping itself, with
+        nobody signing off after it. On <DocLink to="/docs/banking">Banking</DocLink> it reads the{" "}
+        <Strong>To review</Strong> queue, files bank transactions and card purchases under a
+        category (many at once), keeps a card purchase&apos;s default category, matches a bank line
+        to a payment or entry already in the books, and undoes or sends one back to review. In
+        Entry review it approves transactions one at a time or in bulk, optionally moving an income
+        or expense line to another category; the reclassification posts at once and the entry
+        locks, exactly as an owner&apos;s approval does. The entry shows{" "}
+        <Strong>Approved by</Strong> the employee. Every change goes through the same rules as
+        yours — closed periods, balanced entries, a card purchase&apos;s category changing only on
+        Banking — and lands in the audit log and the employee&apos;s journal.
+      </P>
+      <P>
+        An entry still under <Strong>AI reviewed</Strong> holds a category change an employee
+        staged before its approval became final. Approving it, by a person or the employee, applies
+        that change.
       </P>
     </>
   );

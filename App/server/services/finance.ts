@@ -1006,6 +1006,31 @@ export async function reverseInvoicePayment(
   });
 }
 
+/** Thrown when a delete is refused; `status` is the HTTP answer. */
+export class InvoiceDeleteError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "InvoiceDeleteError";
+  }
+}
+
+/**
+ * Delete a draft invoice and its lines. A draft has no number and nothing in
+ * the books, so nothing else refers to it; an issued invoice is voided
+ * instead, which keeps its number and reverses its postings.
+ */
+export async function deleteDraftInvoice(invoice: Invoice): Promise<void> {
+  if (invoice.status !== "draft") {
+    throw new InvoiceDeleteError("Only drafts can be deleted — void issued invoices instead", 409);
+  }
+  await AppDataSource.getRepository(InvoiceLineItem).delete({ invoiceId: invoice.id });
+  await AppDataSource.getRepository(InvoicePayment).delete({ invoiceId: invoice.id });
+  await AppDataSource.getRepository(Invoice).delete({ id: invoice.id });
+}
+
 export async function voidInvoice(
   invoice: Invoice,
   actorUserId: string | null = null,

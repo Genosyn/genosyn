@@ -1259,7 +1259,7 @@ const LEDGER_SOURCE_LABELS: Partial<Record<LedgerEntry["source"], string>> = {
 
 const REVIEW_LABELS: Record<LedgerEntry["reviewStatus"], string> = {
   unreviewed: "needs review",
-  ai_reviewed: "AI reviewed — waiting for a human's final approval",
+  ai_reviewed: "AI reviewed — staged changes waiting to be approved",
   approved: "approved",
 };
 
@@ -1444,7 +1444,7 @@ async function ledgerBody(
   if (entry.reviewChanges.length) {
     parts.push(
       "",
-      "### Staged category changes (not posted until a human approves)",
+      "### Staged category changes (posted when the transaction is approved)",
       ...entry.reviewChanges.slice(0, MAX_LIST_ROWS).map((c) => {
         const line = lineById.get(c.lineId);
         const amount = line
@@ -1497,7 +1497,7 @@ export const resolveTransaction: AskAiResolver = async ({ companyId, member, ref
         `### Transaction ${entry.id}`,
         `The teammate has this accounting transaction open on the review queue. Your Finance access level is "${level}".`,
         level === "full"
-          ? "`review_finance_transaction` only stages your category proposal (or confirms the current categories) for an owner or admin to approve — it never posts or approves anything. Use account ids from `list_finance_accounts`, and only when the teammate asks for a review. Never describe a staged proposal as approved."
+          ? "`review_finance_transaction` approves the transaction, and your approval is final: any category change posts its reclassification at once and the entry locks. Use account ids from `list_finance_accounts`. When its categoryLock is card or bank, change the category on Banking with `categorize_banking_transactions` and approve the entry here with no changes."
           : "Reviewing transactions needs the full Finance level, which you do not have: explain what you would recategorize and why instead.",
       ]),
       withheldHint: WITHHELD_HINT,

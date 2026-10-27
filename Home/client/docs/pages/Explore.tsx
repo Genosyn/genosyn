@@ -262,7 +262,9 @@ export function Explore() {
         <LI>
           <Code>list_dashboards</Code>, <Code>get_dashboard</Code>, <Code>create_dashboard</Code>,
           {" "}
-          <Code>add_dashboard_card</Code> — dashboard authoring.
+          <Code>add_dashboard_card</Code>, <Code>update_dashboard_card</Code> (move, resize,
+          retitle), and <Code>remove_dashboard_card</Code> — dashboard authoring, with{" "}
+          <Code>write</Code> on the Dashboard.
         </LI>
       </UL>
       <P>

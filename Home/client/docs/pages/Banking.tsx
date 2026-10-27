@@ -390,6 +390,25 @@ export function Banking() {
         account, how its sync is doing, and every transaction and what explains it, without any of
         those controls. Reconnecting a Connection is for owners and admins.
       </P>
+
+      <H2 id="ai-employees">AI Employees on Banking</H2>
+      <P>
+        An AI Employee works the same queue you do once an owner or admin gives it{" "}
+        <DocLink to="/docs/finance#ai-access">finance access</DocLink>. Ask it to clear{" "}
+        <Strong>To review</Strong> and it reads every bank line and card purchase waiting there,
+        files each one under a category — many at once, grouped by category — keeps the card
+        default where it is right, matches bank lines to payments or entries already in the books,
+        and marks invoices paid from a deposit. It can also undo a transaction, send it back to
+        review, post a failed card purchase again, and sync an account before it starts. Nobody
+        has to approve what it did.
+      </P>
+      <P>
+        Reading takes <Strong>Read only</Strong>; marking invoices paid from a deposit takes{" "}
+        <Strong>Invoicing</Strong>; everything else takes <Strong>Full accounting</Strong>. Each
+        change follows the rules your own clicks do — a closed period refuses it, a transaction
+        already done is skipped with the reason — and lands in the audit log as the employee. In a
+        chat, the employee can do only what the Member it is talking to could do here.
+      </P>
     </>
   );
 }

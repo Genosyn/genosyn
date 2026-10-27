@@ -75,7 +75,7 @@ test("preflight requires send access for email and draft access for human-review
   await assert.rejects(preflight(["send_mail"]), /send_mail/);
 });
 
-test("invoice access can perform receivables work but cannot stage accounting review", async () => {
+test("invoice access can perform receivables work but cannot approve accounting review", async () => {
   await insert(EmployeeFinanceGrant, {
     companyId,
     employeeId: employee.id,

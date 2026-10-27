@@ -249,7 +249,15 @@ export function Sequences() {
             term: "stopped_bounced",
             def: <>The address is dead. Fix your data before mailing that domain again.</>,
           },
-          { term: "stopped_manual", def: <>Somebody pressed Stop.</> },
+          {
+            term: "stopped_manual",
+            def: (
+              <>
+                Somebody pressed Stop, or an AI Employee with Revenue write access took the person
+                out with <Code>stop_sequence_enrollment</Code>. Everyone else stays in.
+              </>
+            ),
+          },
           {
             term: "failed",
             def: (

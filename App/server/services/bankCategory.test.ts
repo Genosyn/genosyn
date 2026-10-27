@@ -18,7 +18,6 @@ import {
   approveLedgerReview,
   bulkLedgerReview,
   getLedgerEntryForReview,
-  stageAiLedgerReview,
 } from "./transactionReviews.js";
 
 /**
@@ -151,7 +150,7 @@ describe("a bank transaction's category, changed from both pages in any order", 
       );
       await categorizeBankTransaction(transaction, travel.id, "u1");
     },
-    // An owner picking a category, or an AI Employee proposing one.
+    // An owner picking a category, or an AI Employee approving one.
     "Entry review": async ({ software }) => {
       for (const entry of await bankEntries()) {
         const changes = [{ lineId: (await categoryLine(entry.id))!.id, accountId: software.id }];
@@ -160,9 +159,10 @@ describe("a bank transaction's category, changed from both pages in any order", 
           { message: BANK_REASON },
         );
         await assert.rejects(
-          stageAiLedgerReview({
+          approveLedgerReview({
             companyId: CO,
             entryId: entry.id,
+            userId: null,
             employeeId: "employee-1",
             changes,
           }),
@@ -235,27 +235,24 @@ describe("Entry review signs a bank transaction off as it is", () => {
     assert.equal(await categoryOnBanking(txn.id), "6200");
   });
 
-  test("an AI Employee reviews it without proposing a category", async () => {
+  test("an AI Employee approves it as categorized, and its approval is final", async () => {
     const { txn, general } = await setup();
     const categorized = await categorizeBankTransaction(txn, general.id, "u1");
     const entryId = categorized.matchedLedgerEntryId!;
 
-    const reviewed = await stageAiLedgerReview({
+    const approved = await approveLedgerReview({
       companyId: CO,
       entryId,
+      userId: null,
       employeeId: "employee-1",
       changes: [],
-      note: "GitHub is software. Undo it on Banking and file it under Software.",
+      note: "General is right for this one.",
     });
 
-    assert.equal(reviewed.reviewStatus, "ai_reviewed");
-    const result = await bulkLedgerReview({
-      companyId: CO,
-      userId: "u1",
-      action: "approve",
-      entryIds: [entryId],
-    });
-    assert.deepEqual(result.succeeded, [entryId]);
+    assert.equal(approved.reviewStatus, "approved");
+    assert.equal(approved.approvedById, null);
+    assert.equal(approved.reviewedByEmployeeId, "employee-1");
+    assert.ok(approved.approvedAt);
     await assertFiledAsBankingShows(txn.id);
   });
 });

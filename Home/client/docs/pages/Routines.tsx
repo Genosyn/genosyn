@@ -91,7 +91,9 @@ export function Routines() {
         <Strong>Run now</Strong> at the top of its page — one click, no Save. It is the only pause
         control: Settings does not repeat it, and saving Settings never changes it. While a{" "}
         <DocLink to="/docs/standdowns">Standdown</DocLink> covers the routine,{" "}
-        <Strong>Run now</Strong> is disabled and its tooltip names the Standdown.
+        <Strong>Run now</Strong> is disabled and its tooltip names the Standdown. An AI Employee
+        can start a Run the same way with <Code>run_routine_now</Code> — to try a fix or do the
+        work early — at either Routines access level; a Standdown refuses it too.
       </P>
       <P>
         If the list, employee roster, or folders cannot refresh, Genosyn keeps the last loaded

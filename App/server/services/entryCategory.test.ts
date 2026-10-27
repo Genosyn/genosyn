@@ -39,7 +39,6 @@ import {
   approveLedgerReview,
   bulkLedgerReview,
   getLedgerEntryForReview,
-  stageAiLedgerReview,
 } from "./transactionReviews.js";
 import {
   createVendorCreditFromBill,
@@ -448,14 +447,21 @@ describe("Entry review won't re-file what nothing would take back", () => {
     const { customer } = await setup();
     const invoice = await issuedInvoice(customer.id);
     const issue = await entryFor("invoice_issue", invoice.id);
-    await stageAiLedgerReview({
-      companyId: CO,
-      entryId: issue.id,
-      employeeId: "employee-1",
-      changes: [
-        { lineId: (await lineOn(issue, "4000")).id, accountId: (await account("4900")).id },
-      ],
-    });
+    // Staged before an AI Employee's review was final, straight onto the row.
+    await AppDataSource.getRepository(LedgerEntry).update(
+      { id: issue.id },
+      {
+        reviewStatus: "ai_reviewed",
+        reviewedByEmployeeId: "employee-1",
+        reviewChangesJson: JSON.stringify([
+          {
+            lineId: (await lineOn(issue, "4000")).id,
+            fromAccountId: (await account("4000")).id,
+            toAccountId: (await account("4900")).id,
+          },
+        ]),
+      },
+    );
     await voidInvoice(await reload(Invoice, invoice.id));
 
     const bulk = await bulkLedgerReview({

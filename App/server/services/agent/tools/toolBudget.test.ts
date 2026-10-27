@@ -209,7 +209,15 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // and an employer for but no address is the exact miss that reads as "we can't
 // email anyone here", so both must stay findable by name in the footer. About
 // 2,400 characters remain at the minimum result cap.
-const DOMAIN_FOOTER_CHARS_MAX = 5_600;
+// Raised to 6,100 for the work an AI Employee could only describe: the
+// `banking` domain (the To review queue of bank lines and card purchases,
+// categorizing, matching deposits) and the bookkeeping, invoicing, workspace,
+// todo, dashboard, Routine and Sequence tools beside it — 23 names, about 410
+// characters. "It says a lot of transactions to review" read as Finance having
+// no write path at all when the footer showed none; the names must be there to
+// be found. About 1,900 characters remain at the minimum result cap, which only
+// a model with a context window under 14k tokens ever gets.
+const DOMAIN_FOOTER_CHARS_MAX = 6_100;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

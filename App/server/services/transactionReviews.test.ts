@@ -6,7 +6,7 @@ import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { stageAiLedgerReview } from "./transactionReviews.js";
+import { approveLedgerReview } from "./transactionReviews.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -47,9 +47,10 @@ describe("a proposed category change across account types", () => {
       const to = await account("4000", other);
       const { entry, line } = await lineOn(from);
       await assert.rejects(
-        stageAiLedgerReview({
+        approveLedgerReview({
           companyId: CO,
           entryId: entry.id,
+          userId: null,
           employeeId: "employee-1",
           changes: [{ lineId: line.id, accountId: to.id }],
         }),
@@ -68,9 +69,10 @@ describe("a proposed category change across account types", () => {
     const to = await account("1010", "asset");
     const { entry, line } = await lineOn(from);
     await assert.rejects(
-      stageAiLedgerReview({
+      approveLedgerReview({
         companyId: CO,
         entryId: entry.id,
+        userId: null,
         employeeId: "employee-1",
         changes: [{ lineId: line.id, accountId: to.id }],
       }),

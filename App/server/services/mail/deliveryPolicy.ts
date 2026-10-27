@@ -46,6 +46,7 @@ const DEFERRED_AUTHORITY_TOOLS = new Set([
   "send_message",
   "send_workspace_message",
   "run_pipeline",
+  "run_routine_now",
   "replace_sequence_steps",
   "test_signal",
   "restore_signal",

@@ -106,14 +106,15 @@ export class LedgerEntry {
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
 
-  /** Human-in-the-loop bookkeeping review. AI employees may move an entry
-   *  to `ai_reviewed` with staged category changes; only an owner/admin can
-   *  apply those changes and move it to `approved`. */
+  /** Bookkeeping review. An owner/admin, or an AI Employee with full
+   *  Finance access, applies any category changes and moves the entry to
+   *  `approved`. `ai_reviewed` is left only by staged reviews from before AI
+   *  approval was final; approving one applies its staged changes. */
   @Column({ type: "varchar", default: "unreviewed" })
   reviewStatus!: LedgerReviewStatus;
 
-  /** JSON array of staged `{lineId,fromAccountId,toAccountId}` category
-   *  changes. They do not affect the ledger until human approval. */
+  /** JSON array of `{lineId,fromAccountId,toAccountId}` category changes:
+   *  staged on an `ai_reviewed` entry, and the ones applied once approved. */
   @Column({ type: "text", nullable: true })
   reviewChangesJson!: string | null;
 

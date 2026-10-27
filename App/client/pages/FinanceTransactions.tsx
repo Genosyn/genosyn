@@ -56,12 +56,12 @@ const STATUS_TABS: Array<{
   {
     value: "ai_reviewed",
     label: "AI reviewed",
-    description: "An AI Employee checked it and may suggest a different category",
+    description: "An AI Employee staged a category change; approving applies it",
   },
   {
     value: "approved",
     label: "Approved",
-    description: "Signed off by an owner or admin",
+    description: "Signed off by an owner, an admin, or an AI Employee with full Finance access",
   },
 ];
 
@@ -73,6 +73,11 @@ const STATUS_STYLE: Record<LedgerReviewStatus, string> = {
   approved:
     "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300",
 };
+
+/** An AI Employee gave this entry its final approval: no Member approved it. */
+function approvedByAi(entry: Pick<LedgerEntry, "reviewStatus" | "approvedById" | "reviewedByEmployee">): boolean {
+  return entry.reviewStatus === "approved" && !entry.approvedById && !!entry.reviewedByEmployee;
+}
 
 function statusLabel(status: LedgerReviewStatus): string {
   if (status === "ai_reviewed") return "AI reviewed";
@@ -535,7 +540,8 @@ export default function FinanceTransactions() {
                             <>
                               <span>·</span>
                               <span className="text-violet-600 dark:text-violet-300">
-                                Reviewed by {entry.reviewedByEmployee.name}
+                                {approvedByAi(entry) ? "Approved" : "Reviewed"} by{" "}
+                                {entry.reviewedByEmployee.name}
                               </span>
                             </>
                           )}
@@ -920,11 +926,13 @@ function TransactionReviewModal({
       {entry.reviewedByEmployee && (
         <div className="mt-5 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-500/10 dark:text-violet-200">
           <div className="flex items-center gap-2 font-medium">
-            <Sparkles size={14} /> {entry.reviewedByEmployee.name} semi-approved this
+            <Sparkles size={14} /> {entry.reviewedByEmployee.name}{" "}
+            {approvedByAi(entry) ? "approved this" : "reviewed this"}
           </div>
           <p className="mt-1 text-xs text-violet-700 dark:text-violet-300">
-            Any category changes below are only suggestions. They reach the books when an owner or
-            admin approves the entry.
+            {approvedByAi(entry)
+              ? "Its category changes are posted to the books, as an owner's or admin's approval would post them."
+              : "Its category changes below are staged. They reach the books when the entry is approved."}
           </p>
         </div>
       )}

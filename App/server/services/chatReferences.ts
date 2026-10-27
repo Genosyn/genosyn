@@ -264,7 +264,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/finance/bills",
     description: "Vendor bills and accounts payable",
     keywords: ["bill", "vendor", "supplier", "payable", "ap"],
-    toolHints: [],
+    toolHints: ["list_bills", "get_bill", "create_bill", "issue_bill", "record_bill_payment", "list_vendors"],
     access: FINANCE_READ,
   },
   {
@@ -273,7 +273,12 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/finance/transactions",
     description: "Posted journal entries and their review status",
     keywords: ["transaction", "ledger", "entry", "books", "journal", "review", "approve"],
-    toolHints: ["list_finance_transactions", "get_finance_transaction"],
+    toolHints: [
+      "list_finance_transactions",
+      "get_finance_transaction",
+      "review_finance_transaction",
+      "review_finance_transactions",
+    ],
     access: FINANCE_READ,
   },
   {
@@ -302,7 +307,13 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
       "categorize",
       "match",
     ],
-    toolHints: [],
+    toolHints: [
+      "list_banking_transactions",
+      "categorize_banking_transactions",
+      "mark_banking_transactions_reviewed",
+      "get_bank_transaction_matches",
+      "pay_invoices_from_bank_transaction",
+    ],
     access: FINANCE_READ,
   },
 ] as const;

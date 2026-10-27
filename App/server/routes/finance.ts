@@ -31,13 +31,14 @@ import { validateBody, validateParams, validateQuery } from "../middleware/valid
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { toSlug } from "../lib/slug.js";
-import { formatMoney } from "../lib/money.js";
 import {
   createInvoiceDraft,
+  deleteDraftInvoice,
   discountOf,
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
+  InvoiceDeleteError,
   InvoiceEditError,
   type InvoiceSendResult,
   issueInvoice,
@@ -253,20 +254,25 @@ import {
 } from "../services/exports.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { Bill } from "../db/entities/Bill.js";
-import { BillLineItem } from "../db/entities/BillLineItem.js";
-import { BillPayment, BillPaymentMethod } from "../db/entities/BillPayment.js";
 import {
   billDisplayStatus,
   hydrateBills,
   issueBill,
   loadBillBySlug,
   loadVendorBySlug,
-  postBillPayment,
-  recomputeBillTotals,
-  replaceBillLines,
-  reverseBillPayment,
   voidBill,
 } from "../services/bills.js";
+import {
+  createBillDraft,
+  createVendor,
+  deleteDraftBill,
+  deleteVendor,
+  PayablesError,
+  recordBillPayment,
+  removeBillPayment,
+  updateBill,
+  updateVendor,
+} from "../services/payables.js";
 import { hydrateCustomers, listCustomers } from "../services/customers.js";
 import { listCustomerMail } from "../services/customerMail.js";
 import {
@@ -1303,18 +1309,12 @@ financeRouter.delete("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  if (inv.status !== "draft") {
-    return res
-      .status(409)
-      .json({ error: "Only drafts can be deleted — void issued invoices instead" });
+  try {
+    await deleteDraftInvoice(inv);
+  } catch (err) {
+    if (err instanceof InvoiceDeleteError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  await AppDataSource.getRepository(InvoiceLineItem).delete({
-    invoiceId: inv.id,
-  });
-  await AppDataSource.getRepository(InvoicePayment).delete({
-    invoiceId: inv.id,
-  });
-  await AppDataSource.getRepository(Invoice).delete({ id: inv.id });
   await auditFinance(req, "finance.invoice.delete", {
     type: "invoice",
     id: inv.id,
@@ -4185,17 +4185,6 @@ financeRouter.get("/exports/trial-balance.csv", async (req, res) => {
 
 // ─────────────────────────── Vendors (Phase G) ─────────────────────────
 
-async function uniqueVendorSlug(companyId: string, base: string): Promise<string> {
-  const repo = AppDataSource.getRepository(Vendor);
-  let slug = base || "vendor";
-  let n = 1;
-  while (await repo.findOneBy({ companyId, slug })) {
-    n += 1;
-    slug = `${base}-${n}`;
-  }
-  return slug;
-}
-
 financeRouter.get("/vendors", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const includeArchived = String(req.query.archived ?? "") === "true";
@@ -4219,22 +4208,7 @@ const vendorWriteSchema = z.object({
 financeRouter.post("/vendors", validateBody(vendorWriteSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof vendorWriteSchema>;
-  const slug = await uniqueVendorSlug(cid, toSlug(body.name));
-  const repo = AppDataSource.getRepository(Vendor);
-  const v = repo.create({
-    companyId: cid,
-    name: body.name,
-    slug,
-    email: body.email ?? "",
-    phone: body.phone ?? "",
-    address: body.address ?? "",
-    taxNumber: body.taxNumber ?? "",
-    currency: body.currency ?? "USD",
-    notes: body.notes ?? "",
-    createdById: req.userId ?? null,
-  });
-  await repo.save(v);
-  res.json(v);
+  res.json(await createVendor(cid, body, req.userId ?? null));
 });
 
 financeRouter.patch(
@@ -4247,18 +4221,7 @@ financeRouter.patch(
     const body = req.body as Partial<z.infer<typeof vendorWriteSchema>> & {
       archived?: boolean;
     };
-    if (body.name !== undefined) v.name = body.name;
-    if (body.email !== undefined) v.email = body.email;
-    if (body.phone !== undefined) v.phone = body.phone;
-    if (body.address !== undefined) v.address = body.address;
-    if (body.taxNumber !== undefined) v.taxNumber = body.taxNumber;
-    if (body.currency !== undefined) v.currency = body.currency;
-    if (body.notes !== undefined) v.notes = body.notes;
-    if (body.archived !== undefined) {
-      v.archivedAt = body.archived ? new Date() : null;
-    }
-    await AppDataSource.getRepository(Vendor).save(v);
-    res.json(v);
+    res.json(await updateVendor(v, body));
   },
 );
 
@@ -4266,28 +4229,16 @@ financeRouter.delete("/vendors/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const v = await loadVendorBySlug(cid, req.params.slug);
   if (!v) return res.status(404).json({ error: "Vendor not found" });
-  const billCount = await AppDataSource.getRepository(Bill).count({
-    where: { companyId: cid, vendorId: v.id },
-  });
-  if (billCount > 0) {
-    return res
-      .status(409)
-      .json({ error: "Vendor has bills. Archive instead or delete the bills first." });
+  try {
+    await deleteVendor(v);
+  } catch (err) {
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  await AppDataSource.getRepository(Vendor).delete({ id: v.id });
   res.json({ ok: true });
 });
 
 // ─────────────────────────── Bills ─────────────────────────────────────
-
-async function draftBillSlug(companyId: string): Promise<string> {
-  const repo = AppDataSource.getRepository(Bill);
-  for (let i = 0; i < 16; i += 1) {
-    const slug = `bdraft-${Math.random().toString(36).slice(2, 8)}`;
-    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
-  }
-  return `bdraft-${Date.now().toString(36)}`;
-}
 
 const billLineDraftSchema = z.object({
   expenseAccountId: z.string().uuid().nullable().optional(),
@@ -4334,36 +4285,22 @@ financeRouter.get("/bills", async (req, res) => {
 financeRouter.post("/bills", validateBody(billCreateSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof billCreateSchema>;
-  const vendor = await AppDataSource.getRepository(Vendor).findOneBy({
-    id: body.vendorId,
-    companyId: cid,
-  });
-  if (!vendor) return res.status(400).json({ error: "Invalid vendor" });
-  const repo = AppDataSource.getRepository(Bill);
-  const slug = await draftBillSlug(cid);
-  const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
-  const dueDate = body.dueDate
-    ? new Date(body.dueDate)
-    : new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const b = repo.create({
-    companyId: cid,
-    vendorId: vendor.id,
-    slug,
-    numberSeq: 0,
-    number: "",
-    vendorRef: body.vendorRef ?? "",
-    status: "draft",
-    issueDate,
-    dueDate,
-    currency: body.currency ?? vendor.currency ?? "USD",
-    notes: body.notes ?? "",
-    createdById: req.userId ?? null,
-  });
-  await repo.save(b);
-  if (body.lines && body.lines.length > 0) {
-    await replaceBillLines(b, body.lines);
+  let b: Bill;
+  try {
+    b = await createBillDraft(
+      cid,
+      {
+        ...body,
+        issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+      },
+      req.userId ?? null,
+    );
+  } catch (err) {
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  const recomputed = await recomputeBillTotals(b);
+  const recomputed = b;
   await auditFinance(req, "finance.bill.create", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
     totalCents: recomputed.totalCents,
     currency: recomputed.currency,
@@ -4412,36 +4349,18 @@ financeRouter.patch("/bills/:slug", validateBody(billPatchSchema), async (req, r
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  if (b.status === "void") {
-    return res.status(409).json({ error: "Voided bills cannot be edited" });
-  }
   const body = req.body as z.infer<typeof billPatchSchema>;
-  const draftOnly =
-    body.vendorId !== undefined ||
-    body.issueDate !== undefined ||
-    body.currency !== undefined ||
-    body.lines !== undefined;
-  if (draftOnly && b.status !== "draft") {
-    return res
-      .status(409)
-      .json({ error: "Lines and header (vendor/date/currency) are draft-only" });
-  }
-  if (body.notes !== undefined) b.notes = body.notes;
-  if (body.vendorRef !== undefined) b.vendorRef = body.vendorRef;
-  if (body.dueDate !== undefined) b.dueDate = new Date(body.dueDate);
-  if (body.vendorId !== undefined) {
-    const v = await AppDataSource.getRepository(Vendor).findOneBy({
-      id: body.vendorId,
-      companyId: cid,
+  let recomputed: Bill;
+  try {
+    recomputed = await updateBill(b, {
+      ...body,
+      issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+      dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
     });
-    if (!v) return res.status(400).json({ error: "Invalid vendor" });
-    b.vendorId = v.id;
+  } catch (err) {
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  if (body.issueDate !== undefined) b.issueDate = new Date(body.issueDate);
-  if (body.currency !== undefined) b.currency = body.currency;
-  await AppDataSource.getRepository(Bill).save(b);
-  if (body.lines !== undefined) await replaceBillLines(b, body.lines);
-  const recomputed = await recomputeBillTotals(b);
   await auditFinance(req, "finance.bill.update", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
     fields: changedKeys(body),
     totalCents: recomputed.totalCents,
@@ -4454,14 +4373,12 @@ financeRouter.delete("/bills/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  if (b.status !== "draft") {
-    return res
-      .status(409)
-      .json({ error: "Only drafts can be deleted — void issued bills instead" });
+  try {
+    await deleteDraftBill(b);
+  } catch (err) {
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  await AppDataSource.getRepository(BillLineItem).delete({ billId: b.id });
-  await AppDataSource.getRepository(BillPayment).delete({ billId: b.id });
-  await AppDataSource.getRepository(Bill).delete({ id: b.id });
   await auditFinance(req, "finance.bill.delete", { type: "bill", id: b.id, label: b.number || "Draft bill" });
   res.json({ ok: true });
 });
@@ -4508,45 +4425,19 @@ financeRouter.post("/bills/:slug/payments", validateBody(billPaymentSchema), asy
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  if (b.status === "draft") {
-    return res.status(409).json({ error: "Issue the bill before paying" });
-  }
-  if (b.status === "void") {
-    return res.status(409).json({ error: "Voided bills cannot be paid" });
-  }
   const body = req.body as z.infer<typeof billPaymentSchema>;
-  // Refuse overpayment: paying past the balance drives Accounts Payable
-  // negative with no vendor-credit tracking. Cap at the balance due.
-  if (body.amountCents > b.balanceCents) {
-    return res.status(400).json({
-      error:
-        b.balanceCents <= 0
-          ? "This bill is already fully paid."
-          : `Payment exceeds the ${formatMoney(b.balanceCents, b.currency)} balance due. Record at most that amount.`,
-    });
-  }
-  const repo = AppDataSource.getRepository(BillPayment);
-  const p = await repo.save(
-    repo.create({
-      billId: b.id,
-      amountCents: body.amountCents,
-      currency: body.currency ?? b.currency,
-      paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
-      method: (body.method ?? "other") as BillPaymentMethod,
-      reference: body.reference ?? "",
-      notes: body.notes ?? "",
-      createdById: req.userId ?? null,
-    }),
-  );
+  let recorded: Awaited<ReturnType<typeof recordBillPayment>>;
   try {
-    await postBillPayment(b, p, req.userId ?? null);
+    recorded = await recordBillPayment(
+      b,
+      { ...body, paidAt: body.paidAt ? new Date(body.paidAt) : undefined },
+      req.userId ?? null,
+    );
   } catch (err) {
-    // Roll back the payment row if the ledger post fails (typical
-    // cause: a closed period covers the payment date).
-    await repo.delete({ id: p.id });
-    return res.status(400).json({ error: (err as Error).message });
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  const recomputed = await recomputeBillTotals(b);
+  const { bill: recomputed, payment: p } = recorded;
   await auditFinance(req, "finance.bill.payment", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
     amountCents: p.amountCents,
     method: p.method,
@@ -4562,19 +4453,14 @@ financeRouter.delete("/bills/:slug/payments/:pid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  // Voiding already reversed every payment posting; deleting one now would
-  // reverse it a second time and double-debit Bank. Block it.
-  if (b.status === "void") {
-    return res.status(409).json({
-      error: "This bill is voided — its payments were already reversed and can't be deleted.",
-    });
+  let removed: Awaited<ReturnType<typeof removeBillPayment>>;
+  try {
+    removed = await removeBillPayment(b, req.params.pid, req.userId ?? null);
+  } catch (err) {
+    if (err instanceof PayablesError) return res.status(err.status).json({ error: err.message });
+    throw err;
   }
-  const repo = AppDataSource.getRepository(BillPayment);
-  const p = await repo.findOneBy({ id: req.params.pid, billId: b.id });
-  if (!p) return res.status(404).json({ error: "Payment not found" });
-  await reverseBillPayment(b, p, req.userId ?? null);
-  await repo.delete({ id: p.id });
-  const recomputed = await recomputeBillTotals(b);
+  const { bill: recomputed, payment: p } = removed;
   await auditFinance(req, "finance.bill.payment.delete", { type: "bill", id: b.id, label: b.number || "Draft bill" }, {
     amountCents: p.amountCents,
     balanceCents: recomputed.balanceCents,

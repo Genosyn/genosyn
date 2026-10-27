@@ -18,10 +18,10 @@ import {
  *                 customers; record and reverse payments (mark an invoice
  *                 paid). This is the tier for an AI that keeps invoicing
  *                 moving on its own.
- *   - `full`    → invoice + accounting review: stage general-ledger
- *                 re-categorizations for a human to approve
- *                 (`review_finance_transaction`). Still no final approval —
- *                 that stays with a human owner/admin.
+ *   - `full`    → invoice + bookkeeping: categorize and match bank and
+ *                 card transactions on Banking, and approve transactions in
+ *                 Entry review (`review_finance_transaction`), posting any
+ *                 category change. The approval is final, like an owner's.
  *
  * The order matters: `FINANCE_ACCESS_RANK` encodes it so a single comparison
  * covers "needs at least invoice" without a cascade of equality checks —

@@ -19,6 +19,7 @@ export type MemberToolPolicy =
 const MEMBER_TOOLS = [
   "get_self",
   "list_employees",
+  "list_members",
   "list_skills",
   "list_routines",
   "get_routine",
@@ -189,6 +190,8 @@ const MEMBER_TOOLS = [
   "archive_deal_stage",
   "list_sequences",
   "get_sequence",
+  "list_sequence_enrollments",
+  "stop_sequence_enrollment",
   "create_sequence",
   "update_sequence",
   "replace_sequence_steps",
@@ -314,6 +317,10 @@ const MEMBER_TOOLS = [
 const ADMIN_TOOLS = [
   // Review plans can contain the same restricted details as the Approvals inbox.
   "list_work_reviews",
+  // Approving in Entry review is owner/admin on the human route
+  // (`canApproveFinance`), and an AI Employee's approval is just as final.
+  "review_finance_transaction",
+  "review_finance_transactions",
   // External delivery requires the same Member authority as a forge Connection.
   "open_repository_work_session_pull_request",
   "push_repository_work_session",
@@ -323,6 +330,8 @@ const ADMIN_TOOLS = [
   "create_routine",
   "update_routine",
   "delete_routine",
+  // Run now is a Routine mutation on the human route, admin-gated with the rest.
+  "run_routine_now",
   // Progress reports mutate a Goal, and every Goal mutation on the human
   // route is admin-gated (`routes/goals.ts`).
   "update_goal_progress",
@@ -384,6 +393,8 @@ const ADMIN_TOOLS = [
   "get_dashboard",
   "create_dashboard",
   "add_dashboard_card",
+  "update_dashboard_card",
+  "remove_dashboard_card",
   // These Revenue enrichment tools can expose Connection-, mailbox-, or
   // Finance-derived evidence selected at runtime. There is no single
   // Member-resource ACL to intersect before inspecting the payload.
@@ -439,6 +450,13 @@ const FINANCE_READ_TOOLS = [
   "list_finance_transactions",
   "get_finance_transaction",
   "get_finance_report",
+  "list_banking_accounts",
+  "list_banking_transactions",
+  "get_bank_transaction_matches",
+  "list_tax_rates",
+  "list_vendors",
+  "list_bills",
+  "get_bill",
   "list_estimates",
   "get_estimate",
   "list_finance_products",
@@ -452,7 +470,28 @@ const FINANCE_READ_TOOLS = [
 ] as const;
 
 const FINANCE_WRITE_TOOLS = [
-  "review_finance_transaction",
+  "categorize_banking_transactions",
+  "mark_banking_transactions_reviewed",
+  "send_banking_transactions_to_review",
+  "match_bank_transaction",
+  "undo_bank_transaction",
+  "pay_invoices_from_bank_transaction",
+  "retry_card_transaction",
+  "sync_banking_account",
+  "update_invoice",
+  "issue_invoice",
+  "delete_invoice",
+  "convert_estimate_to_invoice",
+  "create_finance_transaction",
+  "create_vendor",
+  "update_vendor",
+  "create_bill",
+  "update_bill",
+  "issue_bill",
+  "void_bill",
+  "delete_bill",
+  "record_bill_payment",
+  "reverse_bill_payment",
   "create_customer",
   "update_customer",
   "create_estimate",
@@ -473,6 +512,7 @@ const PROJECT_TOOLS = [
   "get_todo",
   "create_todo",
   "update_todo",
+  "add_todo_comment",
 ] as const;
 /**
  * The open web carries no company data in either direction, so it needs no
@@ -504,6 +544,7 @@ const ATTACHMENT_TOOLS = [
  */
 const CHANNEL_TOOLS = [
   "list_workspace_channels",
+  "list_workspace_messages",
   "create_workspace_channel",
   "rename_workspace_channel",
   "archive_workspace_channel",

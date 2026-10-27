@@ -732,6 +732,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "list_members",
+    readOnly: true,
+    description:
+      "List the company's human Members with their user ids, names, emails, and roles (owner, admin, member). Use a userId to assign or review a todo (assigneeUserId, reviewerUserId) or to DM someone (dmUser).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "list_employees",
     description:
       "List every AI employee in this company — useful for finding a teammate to delegate work to, or to answer questions about the team.",
@@ -929,6 +936,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description:
             "false pauses the routine without deleting it (run history is kept); true resumes it.",
         },
+      },
+      required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_routine_now",
+    description:
+      "Start one Run of a Routine now, as Run now on its page does, instead of waiting for its schedule — to test a fix, or to do the work early. The Run is queued and executes like a scheduled one; read its outcome with get_run_report. A repeated request returns the Run already accepted. Refused while a Standdown covers the Routine or its employee. Routine is an id or slug; pass employeeSlug for a teammate's Routine.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: { type: "string", description: "Routine id or slug." },
+        employeeSlug: { type: "string", description: "The owning teammate, when it is not you." },
       },
       required: ["routineId"],
       additionalProperties: false,
@@ -1561,13 +1582,29 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "add_todo_comment",
+    description:
+      "Post a comment on a todo's discussion as yourself: a progress note, a question for the assignee, findings, or a hand-back. Needs write access to the todo's project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        body: { type: "string", description: "Markdown." },
+      },
+      required: ["todoId", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "create_todo",
     description:
-      "Add a Todo to a Project you can edit. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off. To break a big todo into steps, pass `parentTodoId` to create a subtask (one level deep; subtasks keep their own status and assignee).",
+      "Add a Todo to a Project you can edit. The assignee defaults to you; delegate with `assigneeEmployeeSlug` or a Member's `assigneeUserId` (list_members), or pass `assigneeEmployeeSlug: null` to leave it unassigned. A reviewer (`reviewerEmployeeSlug` or `reviewerUserId`) signs it off once it is `in_review`. `parentTodoId` makes it a subtask, one level deep.",
     inputSchema: {
       type: "object",
       properties: {
         projectSlug: { type: "string" },
+        assigneeUserId: { type: "string" },
+        reviewerUserId: { type: "string" },
         title: { type: "string" },
         description: { type: "string" },
         status: {
@@ -1608,11 +1645,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_todo",
     description:
-      'Update a Todo by id, in a Project you can edit — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: "in_review"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.',
+      'Update a Todo by id in a Project you can edit: status, priority, title, description, due date, assignee or reviewer (an AI by slug, a Member by user id). Finished a todo assigned to you? Set `status: "in_review"` so its reviewer signs it off instead of marking it done.',
     inputSchema: {
       type: "object",
       properties: {
         todoId: { type: "string", description: "UUID of the todo." },
+        assigneeUserId: { type: ["string", "null"] },
+        reviewerUserId: { type: ["string", "null"] },
         title: { type: "string" },
         description: { type: "string" },
         status: {
@@ -2561,6 +2600,23 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["decisionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workspace_messages",
+    readOnly: true,
+    description:
+      "Read recent messages in a Workspace channel, group chat, or one of your DMs, oldest first: who wrote each, what it says, its thread parent, and attached files. Use it to catch up on a conversation before replying with send_workspace_message. Pass exactly one of channel (slug or id), dmEmployee (a teammate's slug), or dmUser (a Member's user id). Private channels and group chats need you to be in them. Page back with before.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: { type: "string" },
+        dmEmployee: { type: "string" },
+        dmUser: { type: "string" },
+        before: { type: "string", description: "ISO datetime; returns messages older than this." },
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "Default 30." },
+      },
       additionalProperties: false,
     },
   },
@@ -4574,7 +4630,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_finance_transactions",
     description:
-      "List posted accounting transactions and every debit/credit line. Filter by review status to find work: `unreviewed` needs an AI or human check, `ai_reviewed` is waiting for final human approval, and `approved` is final. Category proposals do not affect the ledger until a human approves them.",
+      "List posted accounting transactions (Finance → Transactions, the journal behind Entry review) and every debit/credit line. Filter by review status to find work: `unreviewed` still needs review, `ai_reviewed` holds a category change staged before AI approval was final (approve it with review_finance_transaction), and `approved` is final. Bank lines and card purchases waiting on Finance → Banking are a different queue: use list_banking_transactions for those.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4593,7 +4649,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_finance_transaction",
     description:
-      "Fetch one accounting transaction with all debit/credit lines, current review state, and any staged category proposal.",
+      "Fetch one accounting transaction with all debit/credit lines, its review state, any staged category change, and categoryLock (why its categories can only be approved as posted here).",
     inputSchema: {
       type: "object",
       properties: {
@@ -4606,7 +4662,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "review_finance_transaction",
     description:
-      "Semi-approve an accounting transaction as an AI employee. Inspect the full debit/credit entry first. Pass zero category changes when it is already correct, or stage expense/revenue line moves to another account of the same type. This never posts a reclassification or gives final approval: it notifies owners/admins and waits for a human decision. Stage no change for a transaction whose categoryLock is set — a card purchase or bank transaction (card, bank), whose category is changed only on Finance → Banking, or a reversal or an entry reversed since (reversal, reversed): review it as it is and name the category you would use in your note.",
+      "Approve one accounting transaction in Entry review. Your approval is final, exactly like an owner's: category changes post their reclassification immediately and the entry locks. Inspect the debit/credit lines first. Omit changes to approve it as posted (or, on an `ai_reviewed` entry, with the changes staged on it); pass [] to approve it as posted regardless; or move expense/revenue lines to another account of the same type. When categoryLock is set, approve with no changes: a card purchase's or bank transaction's category (card, bank) is changed on Banking with categorize_banking_transactions, and a reversal's or reversed entry's categories (reversal, reversed) stay as posted. To approve many at once use review_finance_transactions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4615,7 +4671,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "array",
           maxItems: 20,
           description:
-            "Proposed category changes. Omit or pass [] when the current categories are correct, and when the transaction's categoryLock is set.",
+            "Category changes to post. Omit or pass [] when the current categories are correct, and always when the transaction's categoryLock is set.",
           items: {
             type: "object",
             properties: {
@@ -4631,10 +4687,35 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         note: {
           type: "string",
-          description: "Concise rationale and any uncertainty for the human reviewer.",
+          description: "Concise rationale, kept on the transaction for anyone who reads it later.",
         },
       },
       required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "review_finance_transactions",
+    description:
+      "Approve many accounting transactions in Entry review at once — the fast way to clear the review queue. Without toAccountId each is approved as posted (an `ai_reviewed` one with its staged changes); with toAccountId each transaction's single expense or revenue line moves to that category and the transaction is approved. Approval is final. Each transaction is handled on its own: one that cannot be approved (already approved, a locked category with toAccountId, two candidate lines, a closed period) is skipped with a reason and the rest go through.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionIds: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 200,
+          description: "Ledger transaction UUIDs from list_finance_transactions.",
+        },
+        toAccountId: {
+          type: "string",
+          description:
+            "Optional expense or revenue account id from list_finance_accounts to move each transaction's single line of that type to.",
+        },
+        note: { type: "string", description: "Rationale kept on every transaction approved." },
+      },
+      required: ["transactionIds"],
       additionalProperties: false,
     },
   },
@@ -4654,6 +4735,499 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         asOf: { type: "string", description: "ISO date/datetime snapshot date." },
       },
       required: ["report"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_tax_rates",
+    readOnly: true,
+    description:
+      "List the company's tax rates with ids, names, percentages, and whether the rate is included in prices. Pass a rate's id as taxRateId on invoice, estimate, and recurring invoice lines. Archived rates are hidden unless includeArchived is true. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { includeArchived: { type: "boolean", default: false } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_invoice",
+    description:
+      "Edit an invoice: a draft freely, or an issued invoice to correct and resend it under the same number (the books are adjusted to match). Pass only what changes; lines replace the whole list. Amounts are integer cents; taxRateId comes from list_tax_rates. Some changes are refused once an invoice is paid or partly paid, with the reason. Needs Invoice finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceSlug: { type: "string" },
+        customerSlug: { type: "string", description: "Move a draft to another customer." },
+        subsidiaryId: { type: ["string", "null"], description: "Issuing entity from list_subsidiaries; null for the company." },
+        currency: { type: "string", description: "3-letter ISO code." },
+        issueDate: { type: "string", description: "ISO datetime." },
+        dueDate: { type: "string", description: "ISO datetime." },
+        notes: { type: "string" },
+        footer: { type: "string" },
+        discountPercent: { type: "number", minimum: 0, maximum: 100 },
+        discountAmountCents: { type: "integer", minimum: 0 },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          description: "The full new list of line items.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number", minimum: 0 },
+              unitPriceCents: { type: "integer" },
+              taxRateId: { type: ["string", "null"] },
+              productId: { type: ["string", "null"] },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "issue_invoice",
+    description:
+      "Issue a draft invoice without emailing it: assigns its permanent number, locks the lines, and posts it to the books. Use send_invoice instead to issue and email the customer in one step. Needs Invoice finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { invoiceSlug: { type: "string" } },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_invoice",
+    description:
+      "Delete a draft invoice that should not exist (a duplicate, a mistake). Only drafts can be deleted; an issued invoice is voided with void_invoice instead. Needs Invoice finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { invoiceSlug: { type: "string" } },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "convert_estimate_to_invoice",
+    description:
+      "Turn an issued estimate the customer agreed to into an issued invoice with the same lines and discount: it gets its permanent number and posts to the books, and the estimate is marked accepted and linked to it. Nothing is emailed — call send_invoice to email it. Refused for a draft, declined, or void estimate, or one already converted. Needs Invoice finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        estimateSlug: { type: "string" },
+        dueInDays: { type: "integer", minimum: 0, maximum: 365, description: "Payment terms for the invoice." },
+      },
+      required: ["estimateSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_finance_transaction",
+    description:
+      "Post a manual journal entry to the general ledger, as Finance → Journal's New entry does: an accrual, a correction, a transfer between accounts, an owner contribution. At least two lines, each with exactly one of debitCents or creditCents, debits equal to credits, accounts from list_finance_accounts, dated in an open period. It lands in Entry review like any other entry. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "ISO datetime the transaction happened; default now." },
+        memo: { type: "string" },
+        lines: {
+          type: "array",
+          minItems: 2,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              accountId: { type: "string" },
+              debitCents: { type: "integer", minimum: 0 },
+              creditCents: { type: "integer", minimum: 0 },
+              description: { type: "string" },
+            },
+            required: ["accountId"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["memo", "lines"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_vendors",
+    readOnly: true,
+    description:
+      "List the company's vendors (suppliers it pays) with slugs, contact details, tax numbers, and default currency. Archived vendors are hidden unless includeArchived is true. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { includeArchived: { type: "boolean", default: false } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_vendor",
+    description:
+      "Add a vendor — a supplier the company receives bills from — so its bills can be entered with create_bill. Check list_vendors first to avoid a duplicate. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        address: { type: "string" },
+        taxNumber: { type: "string" },
+        currency: { type: "string", description: "3-letter ISO code; the default for its bills." },
+        notes: { type: "string" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_vendor",
+    description:
+      "Change a vendor's details, or archive it (archived: true) so it stops appearing for new bills. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        vendorSlug: { type: "string" },
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        address: { type: "string" },
+        taxNumber: { type: "string" },
+        currency: { type: "string", description: "3-letter ISO code; the default for its bills." },
+        notes: { type: "string" },
+        archived: { type: "boolean" },
+      },
+      required: ["vendorSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_bills",
+    readOnly: true,
+    description:
+      "List bills the company owes vendors (accounts payable), soonest due first: slug, number, status (draft, sent, overdue, paid, void), vendor, the vendor's own invoice reference, dates, total, paid, and balance due. Filter by status or vendorSlug. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["draft", "sent", "paid", "void"] },
+        vendorSlug: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_bill",
+    readOnly: true,
+    description:
+      "Fetch one bill with its lines (expense account and tax per line) and the payments recorded against it. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { billSlug: { type: "string" } },
+      required: ["billSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_bill",
+    description:
+      "Enter a bill a vendor sent the company — from an emailed PDF, say — as a draft: the vendor, its reference, dates, and lines in integer cents, each with an expense account. Due in 14 days unless dueDate is given; in the vendor's currency unless currency is given. Nothing is in the books until issue_bill. Use the returned slug from here on. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        vendorSlug: { type: "string" },
+        vendorRef: { type: "string", description: "The vendor's own invoice number." },
+        issueDate: { type: "string", description: "ISO datetime on the bill." },
+        dueDate: { type: "string" },
+        currency: { type: "string" },
+        notes: { type: "string" },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number", minimum: 0 },
+              unitPriceCents: { type: "integer" },
+              expenseAccountId: {
+                type: ["string", "null"],
+                description: "Expense account id from list_finance_accounts; every line needs one before issue_bill.",
+              },
+              taxRateId: { type: ["string", "null"], description: "From list_tax_rates." },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["vendorSlug", "lines"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_bill",
+    description:
+      "Edit a bill. Notes, the vendor's reference, and the due date change on any bill that isn't void; the vendor, issue date, currency, and lines only on a draft (lines replace the whole list). Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        billSlug: { type: "string" },
+        vendorSlug: { type: "string" },
+        vendorRef: { type: "string" },
+        issueDate: { type: "string" },
+        dueDate: { type: "string" },
+        currency: { type: "string" },
+        notes: { type: "string" },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number", minimum: 0 },
+              unitPriceCents: { type: "integer" },
+              expenseAccountId: {
+                type: ["string", "null"],
+                description: "Expense account id from list_finance_accounts; every line needs one before issue_bill.",
+              },
+              taxRateId: { type: ["string", "null"], description: "From list_tax_rates." },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["billSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "issue_bill",
+    description:
+      "Issue a draft bill: it gets its BIL number and posts to the books (each line's expense against Accounts Payable). Every line needs an expense account. The returned slug may change. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { billSlug: { type: "string" } },
+      required: ["billSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "void_bill",
+    description:
+      "Void an issued bill entered by mistake, reversing its posting. Refused once payments are recorded (reverse them first) or when it was issued in a closed period. A draft is deleted with delete_bill instead. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { billSlug: { type: "string" } },
+      required: ["billSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_bill",
+    description: "Delete a draft bill that should not exist. Only drafts can be deleted. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { billSlug: { type: "string" } },
+      required: ["billSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "record_bill_payment",
+    description:
+      "Record a payment the company already made to a vendor against an issued bill, posting it (Accounts Payable against Bank). It does not move money. At most the balance due; a bill is paid once payments cover it. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        billSlug: { type: "string" },
+        amountCents: { type: "integer", minimum: 1 },
+        paidAt: { type: "string", description: "ISO datetime the money left; default now." },
+        method: { type: "string", enum: ["cash", "bank_transfer", "stripe", "lightning", "other"] },
+        reference: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["billSlug", "amountCents"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "reverse_bill_payment",
+    description:
+      "Take a payment recorded by mistake off a bill and reverse its posting; the bill owes that amount again. paymentId comes from get_bill. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { billSlug: { type: "string" }, paymentId: { type: "string" } },
+      required: ["billSlug", "paymentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_banking_accounts",
+    readOnly: true,
+    description:
+      "List the company's bank accounts and cards on Finance → Banking: each one's feedId, name, how many transactions wait in To review, the ledger account it posts to (a card's liability, with its default purchase category), its last sync and any sync error, and the balance its provider reported. Needs Read finance access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_banking_transactions",
+    readOnly: true,
+    description:
+      "List bank transactions and card purchases from Finance → Banking, newest first — by default the To review queue a teammate sees there. Each row has kind (bank or card), id, date, a signed amountCents (money in positive, money out negative, so a card purchase is negative), currency, description, the account it came from, status (review or done), the category it is filed under, and for bank rows the invoice payments or posted entry that explain it. A card purchase arrives already filed under its card's default category and waits until someone keeps or changes it; a bank line waits until it is categorized, matched, or pays invoices. Then use categorize_banking_transactions, mark_banking_transactions_reviewed, get_bank_transaction_matches, or pay_invoices_from_bank_transaction. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["review", "done", "all"],
+          description: "review (default) is the To review queue; done is explained and in the books.",
+        },
+        kind: { type: "string", enum: ["bank", "card"], description: "Only bank lines or only card purchases." },
+        feedId: { type: "string", description: "One bank account or card, from list_banking_accounts." },
+        limit: { type: "integer", minimum: 1, maximum: 500, description: "Default 100." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "categorize_banking_transactions",
+    description:
+      "Categorize bank transactions and card purchases on Finance → Banking — the fix for a Banking To review queue. Files every listed transaction under one category and takes it out of To review: a bank line posts its entry against the account it came from, and a card purchase is reclassified to that expense category (or kept, when it is already there) and marked reviewed. Pass up to 200 ids across both lists; group transactions by the category they belong in and call once per category. One that can't take it — already done (send it back first), in a closed period, a card bill payment, or a card purchase with a non-expense category — is skipped with a reason and the rest go through. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: {
+          type: "string",
+          description: "The category: an account id from list_finance_accounts. Card purchases take an expense account.",
+        },
+        bankTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+        cardTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+      },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "mark_banking_transactions_reviewed",
+    description:
+      "Keep the categories card purchases are already filed under and move them out of Banking's To review, up to 200 at once. Use it when a purchase's card default category is right. A bank line has no category until it is categorized or matched, so bank ids already done are confirmed and others are skipped with a reason. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+        cardTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_banking_transactions_to_review",
+    description:
+      "Put done Banking transactions back in To review, up to 200 at once, so they can be filed somewhere else. A card purchase keeps its category until you categorize it again. A bank line is undone: its category entry is reversed or its match unlinked. A deposit that paid invoices is skipped here; use undo_bank_transaction for it. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+        cardTransactionIds: { type: "array", items: { type: "string" }, maxItems: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_bank_transaction_matches",
+    readOnly: true,
+    description:
+      "For one bank transaction, list what it could be: invoice payments and posted ledger entries (bill payments, transfers, card settlements, manual entries) it may match, best first, and — for money in — the open invoices it could pay plus sets of one customer's invoices that add up to exactly the deposit. Use before match_bank_transaction or pay_invoices_from_bank_transaction. Needs Read finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionId: { type: "string", description: "Bank transaction id from list_banking_transactions." },
+      },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "match_bank_transaction",
+    description:
+      "Explain a bank transaction by matching it to what is already in the books — one invoice payment (paymentId) or one posted ledger entry (ledgerEntryId) from get_bank_transaction_matches — and move it out of To review. Nothing new is posted. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionId: { type: "string" },
+        paymentId: { type: "string", description: "An invoice payment candidate's paymentId." },
+        ledgerEntryId: { type: "string", description: "A ledger entry candidate's ledgerEntryId." },
+      },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "pay_invoices_from_bank_transaction",
+    description:
+      "Mark invoices paid with a deposit in one step: records a payment on each invoice for its share, dated the day the money arrived and linked to the deposit, and moves the deposit out of To review. Shares must add up to the deposit and none may exceed what is still due. All or nothing. Find candidates with get_bank_transaction_matches. Needs Invoice finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionId: { type: "string", description: "The deposit's bank transaction id." },
+        invoices: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          items: {
+            type: "object",
+            properties: {
+              invoiceSlug: { type: "string" },
+              amountCents: { type: "integer", minimum: 1, description: "This invoice's share of the deposit." },
+            },
+            required: ["invoiceSlug", "amountCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["transactionId", "invoices"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "undo_bank_transaction",
+    description:
+      "Undo whatever explains one bank transaction and put it back in To review: a category entry is reversed, a match is unlinked, and every payment Banking recorded from a deposit comes off its invoice again (the result lists them). A payment recorded on the invoice itself stays. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { transactionId: { type: "string" } },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "retry_card_transaction",
+    description:
+      "Post a card transaction to the books again after its posting failed (postingError on list_banking_transactions) — once the cause, such as an archived category, a missing exchange rate, or a closed period, is fixed. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { transactionId: { type: "string", description: "Card transaction id." } },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "sync_banking_account",
+    description:
+      "Sync one bank account or card from its provider now, as Sync now on Banking does, so a review starts from the latest transactions. Answers with what came in; a long first sync carries on after answering. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { feedId: { type: "string", description: "From list_banking_accounts." } },
+      required: ["feedId"],
       additionalProperties: false,
     },
   },
@@ -5149,7 +5723,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_invoice",
     description:
-      "Create a DRAFT invoice for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. Optionally attach a `taxRateId` per line (from list_finance_accounts is NOT it — tax rates are configured by a human; omit for no tax). This does not issue or email anything — call send_invoice next. Needs `invoice` finance access.",
+      "Create a DRAFT invoice for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. Optionally attach a `taxRateId` per line from list_tax_rates (omit for no tax). This does not issue or email anything — call send_invoice to issue and email it, or issue_invoice to issue it without emailing. Needs `invoice` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5276,6 +5850,36 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         invoiceSlug: { type: "string" },
       },
       required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_dashboard_card",
+    description:
+      "Move, resize, or retitle a card on a dashboard (12-column grid: x 0-11, w 1-12, h in rows). Card ids come from get_dashboard. Needs write access to the dashboard.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboardSlug: { type: "string" },
+        cardId: { type: "string" },
+        x: { type: "integer", minimum: 0, maximum: 11 },
+        y: { type: "integer", minimum: 0 },
+        w: { type: "integer", minimum: 1, maximum: 12 },
+        h: { type: "integer", minimum: 1, maximum: 40 },
+        titleOverride: { type: "string", description: "Empty string restores the chart's own title." },
+      },
+      required: ["dashboardSlug", "cardId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remove_dashboard_card",
+    description:
+      "Take a card off a dashboard. The chart it showed is kept. Needs write access to the dashboard.",
+    inputSchema: {
+      type: "object",
+      properties: { dashboardSlug: { type: "string" }, cardId: { type: "string" } },
+      required: ["dashboardSlug", "cardId"],
       additionalProperties: false,
     },
   },
@@ -6088,6 +6692,50 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: { sequenceId: { type: "string" } },
       required: ["sequenceId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_sequence_enrollments",
+    readOnly: true,
+    description:
+      "List who is enrolled in a Sequence and where each person stands: status (active, paused, completed, stopped_*, failed), the step they are on, when the next touch is due, and why one stopped. Filter by status or contactId. Needs Revenue read access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sequenceId: { type: "string" },
+        status: {
+          type: "string",
+          enum: [
+            "active",
+            "paused",
+            "completed",
+            "stopped_replied",
+            "stopped_bounced",
+            "stopped_unsubscribed",
+            "stopped_manual",
+            "failed",
+          ],
+        },
+        contactId: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["sequenceId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stop_sequence_enrollment",
+    description:
+      "Take one person out of a Sequence: no further touches go to them, and everyone else keeps going. Use it when someone asked to stop, booked a meeting, or should not hear more from this Sequence; archive_sequence stops everyone and suppress_email blocks an address for good. Needs Revenue write access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enrollmentId: { type: "string", description: "From list_sequence_enrollments." },
+        reason: { type: "string", maxLength: 200 },
+      },
+      required: ["enrollmentId"],
       additionalProperties: false,
     },
   },

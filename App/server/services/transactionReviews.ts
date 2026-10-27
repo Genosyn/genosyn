@@ -8,8 +8,6 @@ import {
   type LedgerReviewStatus,
 } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
-import { Membership } from "../db/entities/Membership.js";
-import { Company } from "../db/entities/Company.js";
 import {
   ENTRY_CATEGORY_LOCK_REASON,
   type EntryCategoryLock,
@@ -17,7 +15,6 @@ import {
   reversalKey,
 } from "../../shared/entryCategory.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
-import { createNotifications } from "./notifications.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
 export type LedgerReviewChange = {
@@ -277,34 +274,20 @@ async function validateReviewChanges(
   return validated;
 }
 
-export async function stageAiLedgerReview(args: {
-  companyId: string;
-  entryId: string;
-  employeeId: string;
-  changes: LedgerReviewChangeInput[];
-  note?: string;
-}): Promise<HydratedLedgerEntry> {
-  const repo = AppDataSource.getRepository(LedgerEntry);
-  const entry = await repo.findOneBy({ id: args.entryId, companyId: args.companyId });
-  if (!entry) throw new Error("Transaction not found");
-  if (entry.reviewStatus === "approved") {
-    throw new Error("This transaction already has final human approval");
-  }
-  const changes = await validateReviewChanges(args.companyId, entry, args.changes);
-  entry.reviewStatus = "ai_reviewed";
-  entry.reviewChangesJson = JSON.stringify(changes);
-  entry.reviewNote = args.note?.trim() || null;
-  entry.reviewedByEmployeeId = args.employeeId;
-  entry.reviewedAt = new Date();
-  await repo.save(entry);
-  await notifyFinanceReviewReady(entry, args.employeeId);
-  return (await getLedgerEntryForReview(args.companyId, entry.id))!;
-}
-
+/**
+ * Approve a transaction's categories, applying any changes. An owner or admin
+ * approves from Entry review; an AI Employee with full Finance access approves
+ * through `review_finance_transaction`, and its approval is just as final —
+ * the reclassification posts and the entry locks. An AI approval leaves
+ * `approvedById` null and names the employee in `reviewedByEmployeeId`.
+ */
 export async function approveLedgerReview(args: {
   companyId: string;
   entryId: string;
-  userId: string;
+  /** The approving Member, or null when an AI Employee approves. */
+  userId: string | null;
+  /** The approving AI Employee, when one approves. */
+  employeeId?: string;
   changes?: LedgerReviewChangeInput[];
   note?: string;
 }): Promise<HydratedLedgerEntry> {
@@ -359,11 +342,16 @@ export async function approveLedgerReview(args: {
     }
   }
 
+  const now = new Date();
   entry.reviewStatus = "approved";
   entry.reviewChangesJson = JSON.stringify(changes);
   if (args.note !== undefined) entry.reviewNote = args.note.trim() || null;
   entry.approvedById = args.userId;
-  entry.approvedAt = new Date();
+  entry.approvedAt = now;
+  if (args.employeeId) {
+    entry.reviewedByEmployeeId = args.employeeId;
+    entry.reviewedAt = now;
+  }
   await repo.save(entry);
   return (await getLedgerEntryForReview(args.companyId, entry.id))!;
 }
@@ -405,7 +393,10 @@ export type BulkReviewResult = {
  */
 export async function bulkLedgerReview(args: {
   companyId: string;
-  userId: string;
+  /** The Member acting, or null when an AI Employee acts. */
+  userId: string | null;
+  /** The AI Employee acting, when one does. */
+  employeeId?: string;
   action: BulkReviewAction;
   entryIds: string[];
   toAccountId?: string;
@@ -426,6 +417,7 @@ export async function bulkLedgerReview(args: {
           companyId: args.companyId,
           entryId: id,
           userId: args.userId,
+          employeeId: args.employeeId,
           note: args.note,
         });
       } else if (args.action === "return") {
@@ -468,14 +460,15 @@ async function deleteLedgerEntry(companyId: string, entryId: string): Promise<vo
 
 /** Move every selected transaction's single expense/revenue line to one target
  *  category and approve it in the same step (posting a reclass is itself the
- *  human sign-off). Transactions whose editable line does not match the target
+ *  sign-off). Transactions whose editable line does not match the target
  *  account type, or that carry more than one such line, are skipped so the
  *  owner can open them and decide by hand. Entries whose categories can't
  *  change here — bank and card transactions, reversals, and entries reversed
  *  since — are skipped too (`shared/entryCategory.ts`). */
 async function recategorizeBatch(args: {
   companyId: string;
-  userId: string;
+  userId: string | null;
+  employeeId?: string;
   entryIds: string[];
   toAccountId?: string;
   note?: string;
@@ -524,6 +517,7 @@ async function recategorizeBatch(args: {
         companyId: args.companyId,
         entryId: id,
         userId: args.userId,
+        employeeId: args.employeeId,
         changes: [{ lineId: candidates[0].id, accountId: target.id }],
         note: args.note,
       });
@@ -533,29 +527,4 @@ async function recategorizeBatch(args: {
     }
   }
   return { action: "recategorize", succeeded, skipped };
-}
-
-async function notifyFinanceReviewReady(entry: LedgerEntry, employeeId: string): Promise<void> {
-  const [company, employee, memberships] = await Promise.all([
-    AppDataSource.getRepository(Company).findOneBy({ id: entry.companyId }),
-    AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId }),
-    AppDataSource.getRepository(Membership).find({
-      where: { companyId: entry.companyId, role: In(["owner", "admin"]) },
-    }),
-  ]);
-  if (!company || !employee || memberships.length === 0) return;
-  await createNotifications(
-    memberships.map((membership) => ({
-      companyId: entry.companyId,
-      userId: membership.userId,
-      kind: "finance_review_ready" as const,
-      title: `${employee.name} reviewed a finance transaction`,
-      body: entry.memo || `Transaction ${entry.id.slice(0, 8)} is ready for final approval.`,
-      link: `/c/${company.slug}/finance/transactions?status=ai_reviewed`,
-      actorKind: "ai" as const,
-      actorId: employee.id,
-      entityKind: "ledger_entry" as const,
-      entityId: entry.id,
-    })),
-  );
 }

@@ -124,10 +124,13 @@ export function Tasks() {
       <P>
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
-        <Code>create_todo</Code>, and <Code>update_todo</Code> — subject to each project&apos;s{" "}
+        <Code>create_todo</Code>, <Code>update_todo</Code>, and <Code>add_todo_comment</Code> —
+        subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
-        returns the projects an employee can reach, and <Code>create_todo</Code> and{" "}
-        <Code>update_todo</Code> require <Strong>&quot;Can edit&quot;</Strong>. When an employee
+        returns the projects an employee can reach, and the writes require{" "}
+        <Strong>&quot;Can edit&quot;</Strong>. An employee can hand a todo to a person as well as
+        to a teammate — <Code>list_members</Code> gives it each Member&apos;s user id — and that
+        person must be able to open the project. When an employee
         creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to
         decompose a big item into subtasks — so &quot;plan the launch&quot; in chat turns into a
         tracked checklist you can watch from the <DocLink to="/docs">Home page</DocLink>.

@@ -17,7 +17,6 @@ import { accountByCode, postLedgerEntry, seedChartOfAccounts } from "./ledger.js
 import {
   approveLedgerReview,
   bulkLedgerReview,
-  stageAiLedgerReview,
 } from "./transactionReviews.js";
 
 /**
@@ -246,15 +245,16 @@ describe("Entry review signs a card purchase off as it is", () => {
     assert.equal((await reload(LedgerEntry, entry.id)).reviewStatus, "unreviewed");
   });
 
-  test("an AI Employee reviews it without proposing a category", async () => {
+  test("an AI Employee approves it without changing its category here", async () => {
     const { feed, travel } = await setup();
     const { entry } = await purchase(feed);
     const [line] = await categoryLines(entry.id);
 
     await assert.rejects(
-      stageAiLedgerReview({
+      approveLedgerReview({
         companyId: CO,
         entryId: entry.id,
+        userId: null,
         employeeId: "employee-1",
         changes: [{ lineId: line.id, accountId: travel.id }],
       }),
@@ -262,21 +262,17 @@ describe("Entry review signs a card purchase off as it is", () => {
     );
     assert.equal((await reload(LedgerEntry, entry.id)).reviewStatus, "unreviewed");
 
-    const reviewed = await stageAiLedgerReview({
+    const approved = await approveLedgerReview({
       companyId: CO,
       entryId: entry.id,
+      userId: null,
       employeeId: "employee-1",
       changes: [],
-      note: "A flight — Travel fits better. Change it on Banking.",
+      note: "Filed as Banking shows it.",
     });
-    assert.equal(reviewed.reviewStatus, "ai_reviewed");
-    const result = await bulkLedgerReview({
-      companyId: CO,
-      userId: "u1",
-      action: "approve",
-      entryIds: [entry.id],
-    });
-    assert.deepEqual(result.succeeded, [entry.id]);
+    assert.equal(approved.reviewStatus, "approved");
+    assert.equal(approved.approvedById, null);
+    assert.equal(approved.reviewedByEmployeeId, "employee-1");
     assert.deepEqual(await balances(), { "2300": -AMOUNT, "6000": AMOUNT });
   });
 

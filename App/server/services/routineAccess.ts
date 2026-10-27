@@ -37,6 +37,13 @@ import {
 export const ROUTINE_WRITE_TOOLS = ["create_routine", "update_routine", "delete_routine"] as const;
 
 /**
+ * The tools that run a Routine without changing it. Running is what both
+ * levels share — a read + run employee's Routines keep running — so they
+ * never consult this setting either.
+ */
+export const ROUTINE_RUN_TOOLS = ["run_routine_now"] as const;
+
+/**
  * The Routine and Run tools that only read. They never consult this setting:
  * reading Routines and Runs is what both levels share.
  */

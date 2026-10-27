@@ -76,6 +76,7 @@ import {
 import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
+import { TodoComment } from "../db/entities/TodoComment.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   getJournalEvidence,
@@ -397,12 +398,15 @@ import {
   findChannelBySlugOrId,
   findOrCreateDM,
   listChannelsForEmployee,
+  listMessages,
   postMessage,
   renameChannel,
   userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
+import { ChannelMessage } from "../db/entities/ChannelMessage.js";
+import { DashboardCardError, patchDashboardCard } from "../services/exploreDashboardCards.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Team } from "../db/entities/Team.js";
 import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
@@ -487,20 +491,65 @@ import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
-import { seedChartOfAccounts, trialBalance } from "../services/ledger.js";
+import { postLedgerEntry, seedChartOfAccounts, trialBalance } from "../services/ledger.js";
 import { balanceSheet, cashFlow, financialTrends, incomeStatement } from "../services/reports.js";
 import {
+  approveLedgerReview,
+  bulkLedgerReview,
   getLedgerEntryForReview,
+  hydrateLedgerEntries,
   listLedgerEntriesForReview,
-  stageAiLedgerReview,
 } from "../services/transactionReviews.js";
+import { reviseAction } from "../services/documentRevisions.js";
+import type { EntryCategoryLock } from "../../shared/entryCategory.js";
+import { BankTransaction } from "../db/entities/BankTransaction.js";
+import { CardFeed } from "../db/entities/CardFeed.js";
+import { CardTransaction } from "../db/entities/CardTransaction.js";
+import {
+  hydrateBankTransactions,
+  openInvoicesForBankTransaction,
+  payInvoicesFromBankTransaction,
+  undoBankTransaction,
+} from "../services/banking.js";
+import { BANKING_BULK_MAX, type BankingBulkAction, bulkBanking } from "../services/bankingBulk.js";
+import { bankingAccounts, bankingQueue } from "../services/bankingQueue.js";
+import { FeedNotFoundError, syncFeedForRequest, syncResponse } from "../services/bankingSync.js";
+import { retryCardTransaction } from "../services/cardExpenses.js";
+import { FeedSyncError } from "../services/feedSyncErrors.js";
+import { InvoicePaymentError } from "../services/invoicePayments.js";
+import { Bill } from "../db/entities/Bill.js";
+import { Vendor } from "../db/entities/Vendor.js";
+import {
+  billDisplayStatus,
+  type HydratedBill,
+  hydrateBills,
+  issueBill,
+  loadBillBySlug,
+  loadVendorBySlug,
+  voidBill,
+} from "../services/bills.js";
+import {
+  type BillFields,
+  createBillDraft,
+  createVendor,
+  deleteDraftBill,
+  PayablesError,
+  recordBillPayment,
+  removeBillPayment,
+  updateBill,
+  updateVendor,
+} from "../services/payables.js";
+import { findMatchCandidates, manualMatch } from "../services/reconcile.js";
 import {
   assertPaymentNotRecorded,
   createInvoiceDraft,
+  deleteDraftInvoice,
   discountOf,
   displayStatus,
   DuplicatePaymentError,
   hydrateInvoices,
+  InvoiceDeleteError,
+  InvoiceEditError,
   issueInvoice,
   loadCustomerBySlug,
   loadInvoiceBySlug,
@@ -511,6 +560,7 @@ import {
   resolveInvoiceRecipients,
   sendInvoiceEmail,
   uniqueCustomerSlug,
+  updateInvoice,
   voidInvoice,
 } from "../services/finance.js";
 import {
@@ -527,9 +577,11 @@ import {
 import { RECURRING_INVOICE_NAME_MAX_LENGTH } from "../../shared/recurringInvoiceName.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import {
+  convertEstimateToInvoice,
   createEstimateDraft,
   displayEstimateStatus,
   hydrateEstimates,
+  loadEstimateBySlug,
   type HydratedEstimate,
 } from "../services/estimates.js";
 import {
@@ -645,13 +697,22 @@ import {
   createSequence,
   getSequence,
   hydrateSequences,
+  listEnrollments,
   listSteps,
   listSequences,
   parseSendWindow,
   replaceSteps,
+  stopEnrollment,
   updateSequence,
   type HydratedSequence,
 } from "../services/revenue/sequences.js";
+import {
+  ENROLLMENT_STATUSES,
+  type EnrollmentStatus,
+} from "../db/entities/SequenceEnrollment.js";
+import { startManualRoutineRun } from "../services/runner.js";
+import { ManualRoutineStartError } from "../services/routineManualStart.js";
+import { StanddownError } from "../services/standdowns.js";
 import {
   archiveSignal,
   createSignal,
@@ -1503,6 +1564,33 @@ mcpInternalRouter.post("/tools/get_self", async (req: McpRequest, res) => {
   });
 });
 
+// The company's human Members — who an AI Employee can assign a todo to, DM,
+// or name as a reviewer. Every Member sees this roster on the human route.
+mcpInternalRouter.post(
+  "/tools/list_members",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res) => {
+    const memberships = await AppDataSource.getRepository(Membership).find({
+      where: { companyId: req.mcpCompany!.id },
+    });
+    const users = memberships.length
+      ? await AppDataSource.getRepository(User).find({
+          where: { id: In(memberships.map((membership) => membership.userId)) },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const byId = new Map(users.map((user) => [user.id, user]));
+    res.json({
+      members: memberships.map((membership) => ({
+        userId: membership.userId,
+        name: byId.get(membership.userId)?.name ?? null,
+        email: byId.get(membership.userId)?.email ?? null,
+        role: membership.role,
+      })),
+    });
+  },
+);
+
 mcpInternalRouter.post("/tools/list_employees", async (req: McpRequest, res) => {
   const co = req.mcpCompany!;
   const all = await AppDataSource.getRepository(AIEmployee).find({
@@ -1960,6 +2048,19 @@ const financeReviewSchema = z
   })
   .strict();
 
+/**
+ * Where a locked entry's category does change, for the tool that tried to
+ * change it here: Banking owns bank and card transactions' categories.
+ */
+const FINANCE_LOCK_HINT: Partial<Record<EntryCategoryLock, string>> = {
+  card: "Change a card purchase's category with categorize_banking_transactions, then approve this entry with no changes.",
+  bank: "Send the bank transaction back with send_banking_transactions_to_review and categorize it again with categorize_banking_transactions, then approve the new entry with no changes.",
+};
+
+// The AI Employee's review is final, as an owner's or admin's is: category
+// changes post their reclassification now and the entry locks. Same
+// validation as Entry review (`approveLedgerReview`), so a locked entry still
+// keeps its categories and the books stay balanced.
 mcpInternalRouter.post(
   "/tools/review_finance_transaction",
   validateBody(financeReviewSchema),
@@ -1968,33 +2069,96 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof financeReviewSchema>;
     const company = req.mcpCompany!;
     const employee = req.mcpEmployee!;
+    const entry = await getLedgerEntryForReview(company.id, body.transactionId);
+    if (!entry) return res.status(404).json({ error: "Transaction not found" });
+    if (entry.reviewStatus === "approved") {
+      return res.json({ transaction: entry, status: "already_approved" });
+    }
     try {
-      const transaction = await stageAiLedgerReview({
+      const transaction = await approveLedgerReview({
         companyId: company.id,
-        entryId: body.transactionId,
+        entryId: entry.id,
+        userId: null,
         employeeId: employee.id,
-        changes: body.changes ?? [],
+        changes: body.changes,
+        note: body.note,
+      });
+      const changed = transaction.reviewChanges.length;
+      await aiWriteTrail(req, {
+        action: "finance.transaction.approve",
+        targetType: "ledger_entry",
+        targetId: transaction.id,
+        targetLabel: transaction.memo,
+        journalTitle: `${employee.name} approved finance transaction ${transaction.id.slice(0, 8)}`,
+        journalBody: changed
+          ? `${changed} category change(s) posted.`
+          : "Categories approved as posted.",
+        metadata: { categoryChanges: transaction.reviewChanges },
+      });
+      res.json({ transaction, status: "approved" });
+    } catch (err) {
+      const hint = entry.categoryLock ? FINANCE_LOCK_HINT[entry.categoryLock] : undefined;
+      res.status(400).json({ error: [(err as Error).message, hint].filter(Boolean).join(". ") });
+    }
+  },
+);
+
+const financeBulkReviewSchema = z
+  .object({
+    transactionIds: z.array(z.string().uuid()).min(1).max(200),
+    toAccountId: z.string().uuid().optional(),
+    note: z.string().max(2000).optional(),
+  })
+  .strict();
+
+// Entry review's bulk bar for an AI Employee: approve many transactions as
+// they are, or move each one's single expense/revenue line to one category and
+// approve it. Each goes through `approveLedgerReview`; one that can't is
+// skipped with a reason and the rest still go through.
+mcpInternalRouter.post(
+  "/tools/review_finance_transactions",
+  validateBody(financeBulkReviewSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof financeBulkReviewSchema>;
+    const company = req.mcpCompany!;
+    const employee = req.mcpEmployee!;
+    const action = body.toAccountId ? "recategorize" : "approve";
+    try {
+      const result = await bulkLedgerReview({
+        companyId: company.id,
+        userId: null,
+        employeeId: employee.id,
+        action,
+        entryIds: body.transactionIds,
+        toAccountId: body.toAccountId,
         note: body.note,
       });
       await recordAudit({
         companyId: company.id,
         actorEmployeeId: employee.id,
-        action: "finance.transaction.ai_review",
+        action: `finance.transaction.bulk_${action}`,
         targetType: "ledger_entry",
-        targetId: transaction.id,
-        targetLabel: transaction.memo,
-        metadata: { categoryChanges: transaction.reviewChanges, via: "mcp" },
+        targetId: result.succeeded[0] ?? null,
+        targetLabel: `${result.succeeded.length} transaction(s)`,
+        metadata: {
+          requested: body.transactionIds.length,
+          succeeded: result.succeeded.length,
+          skipped: result.skipped.length,
+          toAccountId: body.toAccountId ?? null,
+          via: "mcp",
+        },
       });
-      await journal(
-        employee.id,
-        `${employee.name} reviewed finance transaction ${transaction.id.slice(0, 8)}`,
-        `${transaction.reviewChanges.length} category change(s) staged for final human approval.`,
-      );
-      res.json({
-        transaction,
-        status: "waiting_for_human_approval",
-        note: "The proposed categories are staged only. An owner or admin has been notified for final approval.",
-      });
+      if (result.succeeded.length > 0) {
+        await journal(
+          employee.id,
+          `${employee.name} approved ${result.succeeded.length} finance transaction(s)`,
+          body.toAccountId
+            ? `Each was moved to one category and approved; ${result.skipped.length} skipped.`
+            : `Approved as posted; ${result.skipped.length} skipped.`,
+        );
+      }
+      res.json({ approved: result.succeeded, skipped: result.skipped });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
@@ -2039,6 +2203,437 @@ mcpInternalRouter.post(
             : await financialTrends(companyId, from, to);
       res.json({ report: body.report, data: report });
     } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ---- Banking (read: view the queue; invoice: pay invoices from deposits; full: bookkeeping) ----
+//
+// Every write goes through the helper the transaction's own row on Banking
+// uses, so closed periods, matched payments and card bill payments are refused
+// for an AI Employee exactly as for a Member, and each skip says why.
+
+mcpInternalRouter.post(
+  "/tools/list_banking_accounts",
+  validateBody(emptyToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    res.json({ accounts: await bankingAccounts(req.mcpCompany!.id) });
+  },
+);
+
+const bankingListSchema = z
+  .object({
+    status: z.enum(["review", "done", "all"]).default("review"),
+    kind: z.enum(["bank", "card"]).optional(),
+    feedId: z.string().uuid().optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_banking_transactions",
+  validateBody(bankingListSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof bankingListSchema>;
+    res.json(
+      await bankingQueue(req.mcpCompany!.id, {
+        status: body.status === "all" ? undefined : body.status,
+        kind: body.kind,
+        feedId: body.feedId,
+        limit: body.limit,
+      }),
+    );
+  },
+);
+
+const bankingSelectionShape = {
+  bankTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+  cardTransactionIds: z.array(z.string().uuid()).max(BANKING_BULK_MAX).default([]),
+};
+
+function selectsBankingTransactions(body: {
+  bankTransactionIds: string[];
+  cardTransactionIds: string[];
+}): boolean {
+  const count = body.bankTransactionIds.length + body.cardTransactionIds.length;
+  return count > 0 && count <= BANKING_BULK_MAX;
+}
+
+const bankingSelectionMessage = {
+  message: `Pass between 1 and ${BANKING_BULK_MAX} bankTransactionIds and cardTransactionIds together`,
+};
+
+const bankingCategorizeSchema = z
+  .object({ accountId: z.string().uuid(), ...bankingSelectionShape })
+  .strict()
+  .refine(selectsBankingTransactions, bankingSelectionMessage);
+
+const bankingSelectionSchema = z
+  .object(bankingSelectionShape)
+  .strict()
+  .refine(selectsBankingTransactions, bankingSelectionMessage);
+
+/** Banking's bulk bar, run by an AI Employee: the same audit rows a Member's leaves. */
+async function runBankingBulk(
+  req: McpRequest,
+  res: Response,
+  action: BankingBulkAction,
+  body: { accountId?: string; bankTransactionIds: string[]; cardTransactionIds: string[] },
+): Promise<void> {
+  const company = req.mcpCompany!;
+  const employee = req.mcpEmployee!;
+  let outcome: Awaited<ReturnType<typeof bulkBanking>>;
+  try {
+    outcome = await bulkBanking({
+      companyId: company.id,
+      actorUserId: null,
+      action,
+      accountId: body.accountId,
+      bankTransactionIds: body.bankTransactionIds,
+      cardTransactionIds: body.cardTransactionIds,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
+  for (const txn of outcome.categorized) {
+    await recordAudit({
+      companyId: company.id,
+      actorEmployeeId: employee.id,
+      action: "finance.bank_transaction.categorize",
+      targetType: "bank_transaction",
+      targetId: txn.id,
+      targetLabel: txn.description || txn.reference || txn.id,
+      metadata: { accountId: body.accountId, amountCents: txn.amountCents, bulk: true, via: "mcp" },
+    });
+  }
+  const succeeded = outcome.succeeded.bank.length + outcome.succeeded.card.length;
+  await recordAudit({
+    companyId: company.id,
+    actorEmployeeId: employee.id,
+    action: `finance.banking.bulk_${action}`,
+    targetType: "bank_transaction",
+    targetId: null,
+    targetLabel: `${succeeded} transaction${succeeded === 1 ? "" : "s"}`,
+    metadata: {
+      accountId: body.accountId ?? null,
+      bank: outcome.succeeded.bank.length,
+      card: outcome.succeeded.card.length,
+      skipped: outcome.skipped.length,
+      via: "mcp",
+    },
+  });
+  if (succeeded > 0) {
+    const verb =
+      action === "categorize"
+        ? "categorized"
+        : action === "mark_reviewed"
+          ? "marked reviewed"
+          : "sent back to review";
+    await journal(
+      employee.id,
+      `${employee.name} ${verb} ${succeeded} banking transaction${succeeded === 1 ? "" : "s"}`,
+      outcome.skipped.length ? `${outcome.skipped.length} skipped.` : "",
+    );
+  }
+  res.json({ action: outcome.action, succeeded: outcome.succeeded, skipped: outcome.skipped });
+}
+
+mcpInternalRouter.post(
+  "/tools/categorize_banking_transactions",
+  validateBody(bankingCategorizeSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    await runBankingBulk(req, res, "categorize", req.body as z.infer<typeof bankingCategorizeSchema>);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/mark_banking_transactions_reviewed",
+  validateBody(bankingSelectionSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    await runBankingBulk(req, res, "mark_reviewed", req.body as z.infer<typeof bankingSelectionSchema>);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/send_banking_transactions_to_review",
+  validateBody(bankingSelectionSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    await runBankingBulk(
+      req,
+      res,
+      "send_to_review",
+      req.body as z.infer<typeof bankingSelectionSchema>,
+    );
+  },
+);
+
+const bankTransactionToolSchema = z.object({ transactionId: z.string().uuid() }).strict();
+
+async function loadToolBankTransaction(
+  req: McpRequest,
+  res: Response,
+  id: string,
+): Promise<BankTransaction | null> {
+  const txn = await AppDataSource.getRepository(BankTransaction).findOneBy({
+    id,
+    companyId: req.mcpCompany!.id,
+  });
+  if (!txn) res.status(404).json({ error: "Bank transaction not found" });
+  return txn;
+}
+
+// What a bank line could be: payments and posted entries it may match, and —
+// for money in — the open invoices it could pay, best guess first.
+mcpInternalRouter.post(
+  "/tools/get_bank_transaction_matches",
+  validateBody(bankTransactionToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof bankTransactionToolSchema>;
+    const txn = await loadToolBankTransaction(req, res, body.transactionId);
+    if (!txn) return;
+    const [hydrated] = await hydrateBankTransactions(req.mcpCompany!.id, [txn]);
+    res.json({
+      transaction: hydrated,
+      candidates: await findMatchCandidates(txn),
+      openInvoices: txn.amountCents > 0 ? await openInvoicesForBankTransaction(txn) : null,
+    });
+  },
+);
+
+const matchBankTransactionSchema = z
+  .object({
+    transactionId: z.string().uuid(),
+    paymentId: z.string().uuid().optional(),
+    ledgerEntryId: z.string().uuid().optional(),
+  })
+  .strict()
+  .refine((body) => !!body.paymentId !== !!body.ledgerEntryId, {
+    message: "Pass exactly one of paymentId or ledgerEntryId",
+  });
+
+mcpInternalRouter.post(
+  "/tools/match_bank_transaction",
+  validateBody(matchBankTransactionSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof matchBankTransactionSchema>;
+    const txn = await loadToolBankTransaction(req, res, body.transactionId);
+    if (!txn) return;
+    try {
+      const fresh = await manualMatch(
+        txn,
+        { paymentId: body.paymentId ?? null, ledgerEntryId: body.ledgerEntryId ?? null },
+        null,
+      );
+      await aiWriteTrail(req, {
+        action: "finance.bank_transaction.match",
+        targetType: "bank_transaction",
+        targetId: txn.id,
+        targetLabel: txn.description || txn.reference || txn.id,
+        journalTitle: `${req.mcpEmployee!.name} matched a bank transaction`,
+        metadata: {
+          paymentId: body.paymentId ?? null,
+          ledgerEntryId: body.ledgerEntryId ?? null,
+          amountCents: txn.amountCents,
+        },
+      });
+      const [hydrated] = await hydrateBankTransactions(req.mcpCompany!.id, [fresh]);
+      res.json({ transaction: hydrated });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// Undo whatever explains a bank line, as its own Undo on Banking does: a
+// category is reversed, and each payment Banking recorded from the deposit
+// comes off its invoice again.
+mcpInternalRouter.post(
+  "/tools/undo_bank_transaction",
+  validateBody(bankTransactionToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof bankTransactionToolSchema>;
+    const txn = await loadToolBankTransaction(req, res, body.transactionId);
+    if (!txn) return;
+    let undone: Awaited<ReturnType<typeof undoBankTransaction>>;
+    try {
+      undone = await undoBankTransaction(txn, null);
+    } catch (err) {
+      return res
+        .status(err instanceof InvoicePaymentError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+    for (const { invoice, payment } of undone.removedPayments) {
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: "finance.invoice.payment.delete",
+        targetType: "invoice",
+        targetId: invoice.id,
+        targetLabel: invoice.number || "Invoice",
+        metadata: {
+          amountCents: payment.amountCents,
+          balanceCents: invoice.balanceCents,
+          via: "mcp",
+        },
+      });
+    }
+    await aiWriteTrail(req, {
+      action: "finance.bank_transaction.undo",
+      targetType: "bank_transaction",
+      targetId: txn.id,
+      targetLabel: txn.description || txn.reference || txn.id,
+      journalTitle: `${req.mcpEmployee!.name} sent a bank transaction back to review`,
+      metadata: { removedPayments: undone.removedPayments.length, amountCents: txn.amountCents },
+    });
+    const [hydrated] = await hydrateBankTransactions(req.mcpCompany!.id, [undone.transaction]);
+    res.json({
+      transaction: hydrated,
+      removedPayments: undone.removedPayments.map(({ invoice, payment }) => ({
+        invoiceNumber: invoice.number,
+        invoiceSlug: invoice.slug,
+        amountCents: payment.amountCents,
+      })),
+    });
+  },
+);
+
+const payInvoicesFromDepositSchema = z
+  .object({
+    transactionId: z.string().uuid(),
+    invoices: z
+      .array(
+        z
+          .object({
+            invoiceSlug: z.string().min(1).max(200),
+            amountCents: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
+
+// Mark invoices paid with a deposit in one step, as Banking does: a payment on
+// each invoice for its share, linked to the deposit, and the deposit done.
+mcpInternalRouter.post(
+  "/tools/pay_invoices_from_bank_transaction",
+  validateBody(payInvoicesFromDepositSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof payInvoicesFromDepositSchema>;
+    const txn = await loadToolBankTransaction(req, res, body.transactionId);
+    if (!txn) return;
+    const shares: Array<{ invoiceId: string; amountCents: number }> = [];
+    for (const share of body.invoices) {
+      const invoice = await loadInvoiceBySlug(cid, share.invoiceSlug);
+      if (!invoice) {
+        return res.status(404).json({ error: `Invoice "${share.invoiceSlug}" not found` });
+      }
+      shares.push({ invoiceId: invoice.id, amountCents: share.amountCents });
+    }
+    let result: Awaited<ReturnType<typeof payInvoicesFromBankTransaction>>;
+    try {
+      result = await payInvoicesFromBankTransaction(txn, shares, null);
+    } catch (err) {
+      return res
+        .status(err instanceof InvoicePaymentError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+    for (const { invoice, recorded } of result.paid) {
+      await aiWriteTrail(req, {
+        action: "finance.invoice.payment",
+        targetType: "invoice",
+        targetId: invoice.id,
+        targetLabel: invoice.number || "Invoice",
+        journalTitle: `${req.mcpEmployee!.name} recorded a payment on invoice ${invoice.number || invoice.slug} from a bank deposit`,
+        metadata: {
+          amountCents: recorded.payment.amountCents,
+          currency: recorded.payment.currency,
+          bankTransactionId: txn.id,
+        },
+      });
+    }
+    const [hydrated] = await hydrateBankTransactions(cid, [result.transaction]);
+    res.json({ transaction: hydrated });
+  },
+);
+
+const cardTransactionToolSchema = z.object({ transactionId: z.string().uuid() }).strict();
+
+// Post a card purchase whose posting failed again, after its cause — a missing
+// exchange rate, an archived category, a closed period — has been fixed.
+mcpInternalRouter.post(
+  "/tools/retry_card_transaction",
+  validateBody(cardTransactionToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof cardTransactionToolSchema>;
+    const txn = await AppDataSource.getRepository(CardTransaction).findOneBy({
+      id: body.transactionId,
+      companyId: req.mcpCompany!.id,
+    });
+    if (!txn) return res.status(404).json({ error: "Card transaction not found" });
+    try {
+      const retried = await retryCardTransaction(txn);
+      await aiWriteTrail(req, {
+        action: "finance.card_transaction.retry",
+        targetType: "card_transaction",
+        targetId: txn.id,
+        targetLabel: txn.description || txn.externalId,
+        journalTitle: `${req.mcpEmployee!.name} posted a card transaction to the books`,
+      });
+      res.json({
+        transaction: {
+          id: retried.id,
+          ledgerEntryId: retried.ledgerEntryId,
+          postingError: retried.postingError,
+          needsReview: retried.needsReview,
+        },
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const syncBankingAccountSchema = z.object({ feedId: z.string().uuid() }).strict();
+
+// Sync a bank account or card now, as Sync now on Banking does, so a review
+// starts from what the provider holds. A long first sync carries on after the
+// answer and says so.
+mcpInternalRouter.post(
+  "/tools/sync_banking_account",
+  validateBody(syncBankingAccountSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof syncBankingAccountSchema>;
+    const companyId = req.mcpCompany!.id;
+    const isCard = await AppDataSource.getRepository(CardFeed).existsBy({
+      id: body.feedId,
+      companyId,
+    });
+    try {
+      const { status, body: answer } = syncResponse(
+        await syncFeedForRequest({ kind: isCard ? "card" : "bank", companyId, id: body.feedId }),
+      );
+      res.status(status).json(answer);
+    } catch (err) {
+      if (err instanceof FeedNotFoundError) {
+        return res.status(404).json({ error: "Banking account not found" });
+      }
+      if (err instanceof FeedSyncError) return res.status(400).json({ error: err.message });
       res.status(400).json({ error: (err as Error).message });
     }
   },
@@ -3261,6 +3856,762 @@ mcpInternalRouter.post(
   },
 );
 
+// ---- More of Finance a Member can do: tax rates, invoice edits, conversions, journal entries ----
+
+const listTaxRatesSchema = z.object({ includeArchived: z.boolean().default(false) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_tax_rates",
+  validateBody(listTaxRatesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const { includeArchived } = req.body as z.infer<typeof listTaxRatesSchema>;
+    const rates = await AppDataSource.getRepository(TaxRate).find({
+      where: { companyId: req.mcpCompany!.id },
+      order: { createdAt: "ASC" },
+    });
+    res.json({
+      taxRates: rates
+        .filter((rate) => includeArchived || !rate.archivedAt)
+        .map((rate) => ({
+          id: rate.id,
+          name: rate.name,
+          ratePercent: rate.ratePercent,
+          inclusive: rate.inclusive,
+          archived: !!rate.archivedAt,
+        })),
+    });
+  },
+);
+
+const updateInvoiceToolSchema = z
+  .object({
+    invoiceSlug: z.string().min(1).max(200),
+    customerSlug: z.string().min(1).max(200).optional(),
+    subsidiaryId: z.string().uuid().nullable().optional(),
+    currency: isoCurrency.optional(),
+    issueDate: z.string().datetime().optional(),
+    dueDate: z.string().datetime().optional(),
+    notes: z.string().max(4000).optional(),
+    footer: z.string().max(1000).optional(),
+    lines: z.array(invoiceLineSchema).min(1).max(200).optional(),
+    ...toolDiscountFields,
+  })
+  .strict();
+
+// Edit a draft, or correct an issued invoice under the same number, exactly as
+// the invoice page does: `updateInvoice` owns what an issued invoice may still
+// change and the journal entry that keeps the books in line with it.
+mcpInternalRouter.post(
+  "/tools/update_invoice",
+  validateBody(updateInvoiceToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof updateInvoiceToolSchema>;
+    const inv = await loadInvoiceBySlug(cid, body.invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    let customerId: string | undefined;
+    if (body.customerSlug) {
+      const customer = await loadCustomerBySlug(cid, body.customerSlug);
+      if (!customer) {
+        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+      }
+      customerId = customer.id;
+    }
+    if (body.lines) {
+      const missing = await unknownTaxRateIds(cid, body.lines);
+      if (missing.length > 0) {
+        return res.status(400).json({ error: `Unknown tax rate id(s): ${missing.join(", ")}` });
+      }
+    }
+    try {
+      const result = await updateInvoice(
+        inv,
+        {
+          subsidiaryId: body.subsidiaryId,
+          customerId,
+          issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+          dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+          currency: body.currency,
+          notes: body.notes,
+          footer: body.footer,
+          lines: body.lines,
+          discountPercent: body.discountPercent,
+          discountAmountCents: body.discountAmountCents,
+        },
+        null,
+      );
+      const updated = result.invoice;
+      if (result.changed.length > 0) {
+        await aiWriteTrail(req, {
+          action: result.afterIssue ? reviseAction("invoice") : "finance.invoice.update",
+          targetType: "invoice",
+          targetId: updated.id,
+          targetLabel: updated.number || "Draft invoice",
+          journalTitle: `${req.mcpEmployee!.name} ${result.afterIssue ? "corrected" : "edited"} invoice ${updated.number || updated.slug}`,
+          metadata: {
+            fields: result.changed,
+            totalCents: updated.totalCents,
+            previousTotalCents: result.previousTotalCents,
+          },
+        });
+      }
+      const [hydrated] = await hydrateInvoices(cid, [updated]);
+      res.json({ invoice: serializeInvoiceFull(hydrated), changed: result.changed });
+    } catch (err) {
+      res
+        .status(err instanceof InvoiceEditError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+  },
+);
+
+const invoiceSlugToolSchema = z.object({ invoiceSlug: z.string().min(1).max(200) }).strict();
+
+// Issue without emailing: mint the number, lock the lines, post it to the
+// books. send_invoice issues and emails in one step.
+mcpInternalRouter.post(
+  "/tools/issue_invoice",
+  validateBody(invoiceSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const { invoiceSlug } = req.body as z.infer<typeof invoiceSlugToolSchema>;
+    const inv = await loadInvoiceBySlug(cid, invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    if (inv.status !== "draft") return res.status(409).json({ error: "Already issued" });
+    if (inv.totalCents <= 0) {
+      return res.status(400).json({
+        error: `Cannot issue an invoice with a non-positive total (${inv.totalCents} ${inv.currency}). Add positive line items first.`,
+      });
+    }
+    try {
+      const issued = await issueInvoice(inv, null);
+      await aiWriteTrail(req, {
+        action: "finance.invoice.issue",
+        targetType: "invoice",
+        targetId: issued.id,
+        targetLabel: issued.number || "Invoice",
+        journalTitle: `${req.mcpEmployee!.name} issued invoice ${issued.number}`,
+        metadata: { totalCents: issued.totalCents },
+      });
+      const [hydrated] = await hydrateInvoices(cid, [issued]);
+      res.json({ invoice: serializeInvoiceFull(hydrated) });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/delete_invoice",
+  validateBody(invoiceSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const { invoiceSlug } = req.body as z.infer<typeof invoiceSlugToolSchema>;
+    const inv = await loadInvoiceBySlug(req.mcpCompany!.id, invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    try {
+      await deleteDraftInvoice(inv);
+    } catch (err) {
+      return res
+        .status(err instanceof InvoiceDeleteError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+    await aiWriteTrail(req, {
+      action: "finance.invoice.delete",
+      targetType: "invoice",
+      targetId: inv.id,
+      targetLabel: inv.number || "Draft invoice",
+      journalTitle: `${req.mcpEmployee!.name} deleted a draft invoice`,
+    });
+    res.json({ ok: true });
+  },
+);
+
+const convertEstimateToolSchema = z
+  .object({
+    estimateSlug: z.string().min(1).max(200),
+    dueInDays: z.number().int().min(0).max(365).optional(),
+  })
+  .strict();
+
+// An accepted (or sent) estimate becomes an issued invoice with the same lines,
+// as the estimate page's Convert does; send_invoice then emails it.
+mcpInternalRouter.post(
+  "/tools/convert_estimate_to_invoice",
+  validateBody(convertEstimateToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof convertEstimateToolSchema>;
+    const est = await loadEstimateBySlug(cid, body.estimateSlug);
+    if (!est) return res.status(404).json({ error: "Estimate not found" });
+    try {
+      const { estimate, invoice } = await convertEstimateToInvoice(est, null, {
+        dueInDays: body.dueInDays,
+      });
+      await aiWriteTrail(req, {
+        action: "finance.estimate.convert.invoice",
+        targetType: "estimate",
+        targetId: estimate.id,
+        targetLabel: estimate.number || "Estimate",
+        journalTitle: `${req.mcpEmployee!.name} turned estimate ${estimate.number} into an invoice`,
+        metadata: { invoiceId: invoice.id, totalCents: invoice.totalCents },
+      });
+      const [hydrated] = await hydrateInvoices(cid, [invoice]);
+      res.json({
+        invoice: serializeInvoiceFull(hydrated),
+        note: "The invoice is issued and in the books but has not been emailed. Call send_invoice to email it to the customer.",
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const createFinanceTransactionSchema = z
+  .object({
+    date: z.string().datetime().optional(),
+    memo: z.string().min(1).max(1000),
+    lines: z
+      .array(
+        z
+          .object({
+            accountId: z.string().uuid(),
+            debitCents: z.number().int().min(0).max(2_000_000_000).optional(),
+            creditCents: z.number().int().min(0).max(2_000_000_000).optional(),
+            description: z.string().max(500).optional(),
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(50),
+  })
+  .strict();
+
+// A hand-posted journal entry, as Finance → Journal's New entry posts one:
+// balanced, into an open period, onto live accounts (`postLedgerEntry`). It
+// lands in Entry review like any other entry.
+mcpInternalRouter.post(
+  "/tools/create_finance_transaction",
+  validateBody(createFinanceTransactionSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createFinanceTransactionSchema>;
+    try {
+      const { entry } = await postLedgerEntry({
+        companyId: cid,
+        date: body.date ? new Date(body.date) : new Date(),
+        memo: body.memo,
+        source: "manual",
+        sourceRefId: null,
+        createdById: null,
+        lines: body.lines,
+      });
+      const [hydrated] = await hydrateLedgerEntries([entry]);
+      await aiWriteTrail(req, {
+        action: "finance.ledger_entry.create",
+        targetType: "ledger_entry",
+        targetId: entry.id,
+        targetLabel: entry.memo,
+        journalTitle: `${req.mcpEmployee!.name} posted a journal entry`,
+        journalBody: entry.memo,
+        metadata: { totalCents: hydrated.totalCents },
+      });
+      res.json({ transaction: hydrated });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ---- Payables: vendors, bills, bill payments (read: view; full: bookkeeping) ----
+//
+// Every write goes through `services/payables.ts` or `services/bills.ts`, the
+// same code Finance → Bills runs, so a draft-only field, a paid bill's void, a
+// payment over the balance or into a closed period is refused for an AI
+// Employee exactly as for a Member.
+
+function serializeToolVendor(vendor: Vendor) {
+  return {
+    id: vendor.id,
+    slug: vendor.slug,
+    name: vendor.name,
+    email: vendor.email,
+    phone: vendor.phone,
+    address: vendor.address,
+    taxNumber: vendor.taxNumber,
+    currency: vendor.currency,
+    notes: vendor.notes,
+    archived: !!vendor.archivedAt,
+  };
+}
+
+function serializeToolBill(bill: HydratedBill, withDetail = true) {
+  const base = {
+    slug: bill.slug,
+    number: bill.number,
+    status: billDisplayStatus(bill),
+    vendor: bill.vendor ? { name: bill.vendor.name, slug: bill.vendor.slug } : null,
+    vendorRef: bill.vendorRef,
+    issueDate: bill.issueDate,
+    dueDate: bill.dueDate,
+    currency: bill.currency,
+    totalCents: bill.totalCents,
+    paidCents: bill.paidCents,
+    balanceCents: bill.balanceCents,
+  };
+  if (!withDetail) return base;
+  return {
+    ...base,
+    subtotalCents: bill.subtotalCents,
+    taxCents: bill.taxCents,
+    notes: bill.notes,
+    lines: bill.lines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      expenseAccountId: line.expenseAccountId,
+      taxRateId: line.taxRateId,
+      lineTotalCents: line.lineTotalCents,
+    })),
+    payments: bill.payments.map((payment) => ({
+      id: payment.id,
+      amountCents: payment.amountCents,
+      paidAt: payment.paidAt,
+      method: payment.method,
+      reference: payment.reference,
+    })),
+  };
+}
+
+/** The bill a tool names, hydrated for its answer; writes the 404 itself. */
+async function loadToolBill(req: McpRequest, res: Response, slug: string): Promise<Bill | null> {
+  const bill = await loadBillBySlug(req.mcpCompany!.id, slug);
+  if (!bill) res.status(404).json({ error: `Bill "${slug}" not found` });
+  return bill;
+}
+
+async function answerWithBill(req: McpRequest, res: Response, bill: Bill): Promise<void> {
+  const [hydrated] = await hydrateBills(req.mcpCompany!.id, [bill]);
+  res.json({ bill: serializeToolBill(hydrated) });
+}
+
+function payablesFailure(res: Response, err: unknown): void {
+  res
+    .status(err instanceof PayablesError ? err.status : 400)
+    .json({ error: (err as Error).message });
+}
+
+const vendorFieldsShape = {
+  email: z.string().email().max(200).or(z.literal("")).optional(),
+  phone: z.string().max(60).optional(),
+  address: z.string().max(2000).optional(),
+  taxNumber: z.string().max(60).optional(),
+  currency: isoCurrency.optional(),
+  notes: z.string().max(2000).optional(),
+};
+
+mcpInternalRouter.post(
+  "/tools/list_vendors",
+  validateBody(z.object({ includeArchived: z.boolean().default(false) }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const { includeArchived } = req.body as { includeArchived: boolean };
+    const vendors = await AppDataSource.getRepository(Vendor).find({
+      where: { companyId: req.mcpCompany!.id },
+      order: { name: "ASC" },
+    });
+    res.json({
+      vendors: vendors
+        .filter((vendor) => includeArchived || !vendor.archivedAt)
+        .map(serializeToolVendor),
+    });
+  },
+);
+
+const createVendorToolSchema = z
+  .object({ name: z.string().min(1).max(120), ...vendorFieldsShape })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_vendor",
+  validateBody(createVendorToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof createVendorToolSchema>;
+    const vendor = await createVendor(req.mcpCompany!.id, body, null);
+    await aiWriteTrail(req, {
+      action: "finance.vendor.create",
+      targetType: "vendor",
+      targetId: vendor.id,
+      targetLabel: vendor.name,
+      journalTitle: `${req.mcpEmployee!.name} added vendor ${vendor.name}`,
+    });
+    res.json({ vendor: serializeToolVendor(vendor) });
+  },
+);
+
+const updateVendorToolSchema = z
+  .object({
+    vendorSlug: z.string().min(1).max(200),
+    name: z.string().min(1).max(120).optional(),
+    archived: z.boolean().optional(),
+    ...vendorFieldsShape,
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_vendor",
+  validateBody(updateVendorToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const { vendorSlug, ...fields } = req.body as z.infer<typeof updateVendorToolSchema>;
+    const vendor = await loadVendorBySlug(req.mcpCompany!.id, vendorSlug);
+    if (!vendor) return res.status(404).json({ error: `Vendor "${vendorSlug}" not found` });
+    const updated = await updateVendor(vendor, fields);
+    await aiWriteTrail(req, {
+      action: "finance.vendor.update",
+      targetType: "vendor",
+      targetId: updated.id,
+      targetLabel: updated.name,
+      journalTitle: `${req.mcpEmployee!.name} updated vendor ${updated.name}`,
+      metadata: { fields: Object.keys(fields) },
+    });
+    res.json({ vendor: serializeToolVendor(updated) });
+  },
+);
+
+const listBillsToolSchema = z
+  .object({
+    status: z.enum(["draft", "sent", "paid", "void"]).optional(),
+    vendorSlug: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_bills",
+  validateBody(listBillsToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listBillsToolSchema>;
+    const where: Record<string, unknown> = { companyId: cid };
+    if (body.status) where.status = body.status;
+    if (body.vendorSlug) {
+      const vendor = await loadVendorBySlug(cid, body.vendorSlug);
+      if (!vendor) return res.status(404).json({ error: `Vendor "${body.vendorSlug}" not found` });
+      where.vendorId = vendor.id;
+    }
+    const bills = await AppDataSource.getRepository(Bill).find({
+      where,
+      order: { dueDate: "ASC" },
+      take: body.limit ?? 50,
+    });
+    const hydrated = await hydrateBills(cid, bills);
+    res.json({ bills: hydrated.map((bill) => serializeToolBill(bill, false)) });
+  },
+);
+
+const billSlugToolSchema = z.object({ billSlug: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_bill",
+  validateBody(billSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const bill = await loadToolBill(req, res, (req.body as { billSlug: string }).billSlug);
+    if (bill) await answerWithBill(req, res, bill);
+  },
+);
+
+const billLineToolSchema = z
+  .object({
+    description: z.string().min(1).max(500),
+    quantity: z.number().min(0).max(1_000_000),
+    unitPriceCents: z.number().int().min(-2_000_000_000).max(2_000_000_000),
+    expenseAccountId: z.string().uuid().nullable().optional(),
+    taxRateId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+const billFieldsShape = {
+  vendorRef: z.string().max(120).optional(),
+  issueDate: z.string().datetime().optional(),
+  dueDate: z.string().datetime().optional(),
+  currency: isoCurrency.optional(),
+  notes: z.string().max(4000).optional(),
+};
+
+/** The service's fields from a tool's body: the vendor by slug, dates parsed. */
+async function billFieldsFromTool(
+  req: McpRequest,
+  res: Response,
+  body: {
+    vendorSlug?: string;
+    vendorRef?: string;
+    issueDate?: string;
+    dueDate?: string;
+    currency?: string;
+    notes?: string;
+    lines?: z.infer<typeof billLineToolSchema>[];
+  },
+): Promise<BillFields | null> {
+  const cid = req.mcpCompany!.id;
+  let vendorId: string | undefined;
+  if (body.vendorSlug) {
+    const vendor = await loadVendorBySlug(cid, body.vendorSlug);
+    if (!vendor) {
+      res.status(404).json({ error: `Vendor "${body.vendorSlug}" not found` });
+      return null;
+    }
+    vendorId = vendor.id;
+  }
+  if (body.lines) {
+    const missing = await unknownTaxRateIds(cid, body.lines);
+    if (missing.length > 0) {
+      res.status(400).json({ error: `Unknown tax rate id(s): ${missing.join(", ")}` });
+      return null;
+    }
+  }
+  return {
+    vendorId,
+    vendorRef: body.vendorRef,
+    issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+    dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+    currency: body.currency,
+    notes: body.notes,
+    lines: body.lines,
+  };
+}
+
+const createBillToolSchema = z
+  .object({
+    vendorSlug: z.string().min(1).max(200),
+    ...billFieldsShape,
+    lines: z.array(billLineToolSchema).min(1).max(200),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_bill",
+  validateBody(createBillToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const fields = await billFieldsFromTool(req, res, req.body as z.infer<typeof createBillToolSchema>);
+    if (!fields) return;
+    try {
+      const bill = await createBillDraft(
+        req.mcpCompany!.id,
+        { ...fields, vendorId: fields.vendorId! },
+        null,
+      );
+      await aiWriteTrail(req, {
+        action: "finance.bill.create",
+        targetType: "bill",
+        targetId: bill.id,
+        targetLabel: "Draft bill",
+        journalTitle: `${req.mcpEmployee!.name} entered a bill`,
+        metadata: { totalCents: bill.totalCents, currency: bill.currency },
+      });
+      await answerWithBill(req, res, bill);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
+const updateBillToolSchema = z
+  .object({
+    billSlug: z.string().min(1).max(200),
+    vendorSlug: z.string().min(1).max(200).optional(),
+    ...billFieldsShape,
+    lines: z.array(billLineToolSchema).min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_bill",
+  validateBody(updateBillToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof updateBillToolSchema>;
+    const bill = await loadToolBill(req, res, body.billSlug);
+    if (!bill) return;
+    const fields = await billFieldsFromTool(req, res, body);
+    if (!fields) return;
+    try {
+      const updated = await updateBill(bill, fields);
+      await aiWriteTrail(req, {
+        action: "finance.bill.update",
+        targetType: "bill",
+        targetId: updated.id,
+        targetLabel: updated.number || "Draft bill",
+        journalTitle: `${req.mcpEmployee!.name} edited bill ${updated.number || updated.slug}`,
+        metadata: {
+          fields: Object.keys(body).filter((key) => key !== "billSlug"),
+          totalCents: updated.totalCents,
+        },
+      });
+      await answerWithBill(req, res, updated);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/delete_bill",
+  validateBody(billSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const bill = await loadToolBill(req, res, (req.body as { billSlug: string }).billSlug);
+    if (!bill) return;
+    try {
+      await deleteDraftBill(bill);
+    } catch (err) {
+      return payablesFailure(res, err);
+    }
+    await aiWriteTrail(req, {
+      action: "finance.bill.delete",
+      targetType: "bill",
+      targetId: bill.id,
+      targetLabel: bill.number || "Draft bill",
+      journalTitle: `${req.mcpEmployee!.name} deleted a draft bill`,
+    });
+    res.json({ ok: true });
+  },
+);
+
+// Issue: mint the BIL number and post it (DR each line's expense / CR
+// Accounts Payable). Every line needs an expense account first.
+mcpInternalRouter.post(
+  "/tools/issue_bill",
+  validateBody(billSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const bill = await loadToolBill(req, res, (req.body as { billSlug: string }).billSlug);
+    if (!bill) return;
+    if (bill.status !== "draft") return res.status(409).json({ error: "Already issued" });
+    try {
+      const issued = await issueBill(bill, null);
+      await aiWriteTrail(req, {
+        action: "finance.bill.issue",
+        targetType: "bill",
+        targetId: issued.id,
+        targetLabel: issued.number || "Bill",
+        journalTitle: `${req.mcpEmployee!.name} issued bill ${issued.number}`,
+        metadata: { totalCents: issued.totalCents },
+      });
+      await answerWithBill(req, res, issued);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/void_bill",
+  validateBody(billSlugToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const bill = await loadToolBill(req, res, (req.body as { billSlug: string }).billSlug);
+    if (!bill) return;
+    try {
+      const voided = await voidBill(bill, null);
+      await aiWriteTrail(req, {
+        action: "finance.bill.void",
+        targetType: "bill",
+        targetId: voided.id,
+        targetLabel: voided.number || "Bill",
+        journalTitle: `${req.mcpEmployee!.name} voided bill ${voided.number}`,
+      });
+      await answerWithBill(req, res, voided);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
+const recordBillPaymentToolSchema = z
+  .object({
+    billSlug: z.string().min(1).max(200),
+    amountCents: z.number().int().min(1).max(2_000_000_000),
+    paidAt: z.string().datetime().optional(),
+    method: z.enum(["cash", "bank_transfer", "stripe", "lightning", "other"]).optional(),
+    reference: z.string().max(200).optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .strict();
+
+// Record a payment already made to the vendor; it does not move money.
+mcpInternalRouter.post(
+  "/tools/record_bill_payment",
+  validateBody(recordBillPaymentToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const { billSlug, paidAt, ...fields } = req.body as z.infer<typeof recordBillPaymentToolSchema>;
+    const bill = await loadToolBill(req, res, billSlug);
+    if (!bill) return;
+    try {
+      const { bill: paid, payment } = await recordBillPayment(
+        bill,
+        { ...fields, paidAt: paidAt ? new Date(paidAt) : undefined },
+        null,
+      );
+      await aiWriteTrail(req, {
+        action: "finance.bill.payment",
+        targetType: "bill",
+        targetId: paid.id,
+        targetLabel: paid.number || "Bill",
+        journalTitle: `${req.mcpEmployee!.name} recorded a payment on bill ${paid.number}`,
+        metadata: {
+          amountCents: payment.amountCents,
+          method: payment.method,
+          balanceCents: paid.balanceCents,
+          status: paid.status,
+        },
+      });
+      await answerWithBill(req, res, paid);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
+const reverseBillPaymentToolSchema = z
+  .object({ billSlug: z.string().min(1).max(200), paymentId: z.string().uuid() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/reverse_bill_payment",
+  validateBody(reverseBillPaymentToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof reverseBillPaymentToolSchema>;
+    const bill = await loadToolBill(req, res, body.billSlug);
+    if (!bill) return;
+    try {
+      const { bill: updated, payment } = await removeBillPayment(bill, body.paymentId, null);
+      await aiWriteTrail(req, {
+        action: "finance.bill.payment.delete",
+        targetType: "bill",
+        targetId: updated.id,
+        targetLabel: updated.number || "Bill",
+        journalTitle: `${req.mcpEmployee!.name} reversed a payment on bill ${updated.number}`,
+        metadata: { amountCents: payment.amountCents, balanceCents: updated.balanceCents },
+      });
+      await answerWithBill(req, res, updated);
+    } catch (err) {
+      payablesFailure(res, err);
+    }
+  },
+);
+
 // ----- Revenue -----
 //
 // The revenue tools are grant-gated per employee via `EmployeeRevenueGrant`
@@ -3918,6 +5269,85 @@ mcpInternalRouter.post(
       },
       steps,
     });
+  },
+);
+
+const listSequenceEnrollmentsSchema = z
+  .object({
+    sequenceId: z.string().uuid(),
+    status: z.enum(ENROLLMENT_STATUSES as [EnrollmentStatus, ...EnrollmentStatus[]]).optional(),
+    contactId: z.string().uuid().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+// Who is in a Sequence and where each one stands — the enrollment list on the
+// Sequence page, with each contact's name and email.
+mcpInternalRouter.post(
+  "/tools/list_sequence_enrollments",
+  validateBody(listSequenceEnrollmentsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listSequenceEnrollmentsSchema>;
+    if (!(await getSequence(cid, body.sequenceId))) {
+      return res.status(404).json({ error: "Sequence not found" });
+    }
+    const { rows, total } = await listEnrollments(cid, body);
+    const contacts = rows.length
+      ? await AppDataSource.getRepository(Contact).find({
+          where: { companyId: cid, id: In(rows.map((row) => row.contactId)) },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const byId = new Map(contacts.map((contact) => [contact.id, contact]));
+    res.json({
+      enrollments: rows.map((row) => ({
+        id: row.id,
+        contact: byId.get(row.contactId) ?? { id: row.contactId },
+        status: row.status,
+        currentStepOrder: row.currentStepOrder,
+        nextRunAt: row.nextRunAt,
+        stoppedReason: row.stoppedReason,
+        updatedAt: row.updatedAt,
+      })),
+      total,
+    });
+  },
+);
+
+const stopSequenceEnrollmentSchema = z
+  .object({
+    enrollmentId: z.string().uuid(),
+    reason: z.string().max(200).optional(),
+  })
+  .strict();
+
+// Take one person out of a Sequence without archiving it for everyone or
+// suppressing their address. The status is always `stopped_manual`: replied,
+// bounced and unsubscribed are claims about the recipient that only the
+// events themselves may record.
+mcpInternalRouter.post(
+  "/tools/stop_sequence_enrollment",
+  validateBody(stopSequenceEnrollmentSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof stopSequenceEnrollmentSchema>;
+    const enrollment = await stopEnrollment(cid, body.enrollmentId, "stopped_manual", body.reason ?? "");
+    if (!enrollment) return res.status(404).json({ error: "Enrollment not found" });
+    const sequence = await getSequence(cid, enrollment.sequenceId);
+    await aiWriteTrail(req, {
+      action: "revenue.enrollment.stop",
+      targetType: "sequence",
+      targetId: enrollment.sequenceId,
+      targetLabel: sequence?.name ?? "Sequence",
+      journalTitle: `${req.mcpEmployee!.name} stopped a Sequence enrollment`,
+      journalBody: body.reason ?? "",
+      metadata: { enrollmentId: enrollment.id, contactId: enrollment.contactId },
+    });
+    res.json({ enrollment: { id: enrollment.id, status: enrollment.status } });
   },
 );
 
@@ -9266,6 +10696,52 @@ mcpInternalRouter.post(
   },
 );
 
+const runRoutineNowSchema = z
+  .object({
+    routineId: z.string().min(1).max(200),
+    employeeSlug: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+
+// Run a Routine once now, as its page's Run now does, instead of waiting for
+// its schedule. Running is what both Routine access levels share, so this
+// asks no write access; a Standdown over the Routine or its employee still
+// refuses the start, and a repeated request opens the Run already accepted.
+mcpInternalRouter.post(
+  "/tools/run_routine_now",
+  validateBody(runRoutineNowSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof runRoutineNowSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { routine, owner } = found;
+    try {
+      const run = await startManualRoutineRun(routine, co.id);
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "routine.run.manual",
+        targetType: "routine",
+        targetId: routine.id,
+        targetLabel: routine.name,
+        metadata: { via: "mcp", employeeId: owner.id, runId: run.id },
+      });
+      res.json({
+        run: { id: run.id, status: run.status, routineId: routine.id, createdAt: run.createdAt },
+        note: "The Run is queued. Read its outcome later with get_run_report.",
+      });
+    } catch (err) {
+      if (err instanceof StanddownError) return res.status(409).json({ error: err.message });
+      if (err instanceof ManualRoutineStartError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
 const deleteRoutineSchema = z
   .object({
     routineId: z.string().min(1).max(200),
@@ -10759,6 +12235,56 @@ const TODO_RECURRENCES: [TodoRecurrence, ...TodoRecurrence[]] = [
   "yearly",
 ];
 
+const addTodoCommentSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    body: z.string().trim().min(1).max(10_000),
+  })
+  .strict();
+
+// Comment on a todo's discussion as the employee, the way a Member comments:
+// a question, a status note, a hand-back. It needs write access to the
+// project, as commenting does on the human route.
+mcpInternalRouter.post(
+  "/tools/add_todo_comment",
+  validateBody(addTodoCommentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof addTodoCommentSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const todo = await AppDataSource.getRepository(Todo).findOneBy({ id: body.todoId });
+    if (!todo) return res.status(404).json({ error: "Todo not found" });
+    const project = await AppDataSource.getRepository(Project).findOneBy({
+      id: todo.projectId,
+      companyId: co.id,
+    });
+    if (!project) return res.status(404).json({ error: "Todo not found" });
+    if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
+    const repo = AppDataSource.getRepository(TodoComment);
+    const comment = await repo.save(
+      repo.create({
+        todoId: todo.id,
+        authorUserId: null,
+        authorEmployeeId: self.id,
+        body: body.body,
+        pending: false,
+      }),
+    );
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "todo.comment.create",
+      targetType: "todo",
+      targetId: todo.id,
+      targetLabel: todo.title,
+      metadata: { via: "mcp", commentId: comment.id },
+    });
+    res.json({ comment: { id: comment.id, todoId: todo.id, createdAt: comment.createdAt } });
+  },
+);
+
 const createTodoSchema = z
   .object({
     projectSlug: z.string().min(1).max(120),
@@ -10768,6 +12294,8 @@ const createTodoSchema = z
     priority: z.enum(TODO_PRIORITIES).optional(),
     assigneeEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
+    assigneeUserId: z.string().uuid().optional(),
+    reviewerUserId: z.string().uuid().optional(),
     dueAt: z.string().datetime().nullable().optional(),
     recurrence: z.enum(TODO_RECURRENCES).optional(),
     parentTodoId: z.string().uuid().nullable().optional(),
@@ -10812,6 +12340,15 @@ mcpInternalRouter.post(
       if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
       reviewerId = rv.id;
     }
+    // A Member as assignee or reviewer, instead of an AI Employee. They must
+    // be able to open the project, or the todo would point them at a 403.
+    for (const userId of [body.assigneeUserId, body.reviewerUserId]) {
+      if (userId && !(await reviewerCanSeeProject(co.id, userId, project))) {
+        return res.status(400).json({ error: "That Member can't open this project" });
+      }
+    }
+    if (body.assigneeUserId) assigneeId = null;
+    if (body.reviewerUserId) reviewerId = null;
 
     if (body.parentTodoId) {
       const parentErr = await validateParentTodo(project.id, body.parentTodoId);
@@ -10837,7 +12374,9 @@ mcpInternalRouter.post(
       status,
       priority: body.priority ?? "none",
       assigneeEmployeeId: assigneeId,
+      assigneeUserId: body.assigneeUserId ?? null,
       reviewerEmployeeId: reviewerId,
+      reviewerUserId: body.reviewerUserId ?? null,
       createdById: null,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
       sortOrder,
@@ -10887,6 +12426,8 @@ const updateTodoSchema = z
     priority: z.enum(TODO_PRIORITIES).optional(),
     assigneeEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
+    assigneeUserId: z.string().uuid().nullable().optional(),
+    reviewerUserId: z.string().uuid().nullable().optional(),
     dueAt: z.string().datetime().nullable().optional(),
     parentTodoId: z.string().uuid().nullable().optional(),
   })
@@ -10937,6 +12478,19 @@ mcpInternalRouter.post(
         t.reviewerEmployeeId = rv.id;
         t.reviewerUserId = null;
       }
+    }
+    for (const userId of [body.assigneeUserId, body.reviewerUserId]) {
+      if (userId && !(await reviewerCanSeeProject(co.id, userId, project))) {
+        return res.status(400).json({ error: "That Member can't open this project" });
+      }
+    }
+    if (body.assigneeUserId !== undefined) {
+      t.assigneeUserId = body.assigneeUserId;
+      if (body.assigneeUserId) t.assigneeEmployeeId = null;
+    }
+    if (body.reviewerUserId !== undefined) {
+      t.reviewerUserId = body.reviewerUserId;
+      if (body.reviewerUserId) t.reviewerEmployeeId = null;
     }
     if (body.title !== undefined) t.title = body.title;
     if (body.description !== undefined) t.description = body.description;
@@ -12821,6 +14375,121 @@ mcpInternalRouter.post(
 );
 
 // ─────────────────── Workspace messages (AI ↔ AI / AI → human) ──────────
+
+const listWorkspaceMessagesSchema = z
+  .object({
+    channel: z.string().min(1).max(120).optional(),
+    dmEmployee: z.string().min(1).max(120).optional(),
+    dmUser: z.string().uuid().optional(),
+    before: z.string().datetime({ offset: true }).optional(),
+    limit: z.number().int().min(1).max(100).default(30),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      [v.channel, v.dmEmployee, v.dmUser].filter((x) => typeof x === "string" && x.length > 0)
+        .length === 1,
+    { message: "Specify exactly one of: channel, dmEmployee, dmUser." },
+  );
+
+// Read a channel's, group chat's or DM's recent messages, oldest first, as the
+// Workspace shows them. The same rooms as sending: any public channel, a
+// private one or group chat the employee is in, and its own DMs — and in a
+// Member's chat, only what that Member can open too. Words a tainted turn
+// wrote taint this turn, as replaying them anywhere else does.
+mcpInternalRouter.post(
+  "/tools/list_workspace_messages",
+  validateBody(listWorkspaceMessagesSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listWorkspaceMessagesSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    let channel: Channel;
+    if (body.channel) {
+      const ch = await findChannelBySlugOrId(co.id, body.channel);
+      if (!ch || ch.kind === "dm") return res.status(404).json({ error: "Channel not found" });
+      if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
+      if (ch.kind !== "public") {
+        const member = await AppDataSource.getRepository(ChannelMember).findOneBy({
+          channelId: ch.id,
+          memberKind: "ai",
+          employeeId: self.id,
+        });
+        if (!member) return res.status(404).json({ error: "Channel not found" });
+      }
+      channel = ch;
+    } else if (body.dmEmployee) {
+      if (req.mcpAuthority === "member") {
+        return res.status(403).json({
+          error: "A delegated Member cannot read a private DM they cannot access.",
+        });
+      }
+      const target = await findEmployeeBySlugOrId(co.id, body.dmEmployee);
+      if (!target || target.id === self.id) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      channel = await findOrCreateDM({
+        companyId: co.id,
+        from: { kind: "ai", employeeId: self.id },
+        target: { kind: "ai", employeeId: target.id },
+      });
+    } else {
+      if (req.mcpAuthority === "member" && req.mcpRequesterUserId !== body.dmUser) {
+        return res.status(403).json({
+          error: "A delegated Member can only read their own DM with this AI Employee.",
+        });
+      }
+      const member = await AppDataSource.getRepository(Membership).findOneBy({
+        companyId: co.id,
+        userId: body.dmUser!,
+      });
+      if (!member) return res.status(404).json({ error: "User not found" });
+      channel = await findOrCreateDM({
+        companyId: co.id,
+        from: { kind: "ai", employeeId: self.id },
+        target: { kind: "user", userId: body.dmUser! },
+      });
+    }
+    let messages: Awaited<ReturnType<typeof listMessages>>;
+    try {
+      messages = await listMessages({
+        channelId: channel.id,
+        companyId: co.id,
+        viewerUserId: req.mcpRequesterUserId ?? "",
+        before: body.before,
+        limit: body.limit,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    if (messages.length > 0) {
+      const tainted = await AppDataSource.getRepository(ChannelMessage).count({
+        where: { id: In(messages.map((message) => message.id)), tainted: true },
+      });
+      if (tainted > 0) markTokenTainted(req.mcpToken!);
+    }
+    res.json({
+      channel: { id: channel.id, slug: channel.slug, name: channel.name, kind: channel.kind },
+      messages: messages
+        .filter((message) => !message.deletedAt)
+        .map((message) => ({
+          id: message.id,
+          author: message.author
+            ? { kind: message.authorKind, name: message.author.name }
+            : { kind: message.authorKind },
+          content: message.content,
+          parentMessageId: message.parentMessageId,
+          createdAt: message.createdAt,
+          editedAt: message.editedAt,
+          attachments: message.attachments.map((attachment) => ({
+            id: attachment.id,
+            name: attachment.filename,
+          })),
+        })),
+      note: "Oldest first. Pass the first message's createdAt as before to read further back.",
+    });
+  },
+);
 
 const sendWorkspaceMessageSchema = z
   .object({
@@ -19044,6 +20713,100 @@ mcpInternalRouter.post(
       metadata: { via: "mcp", chartId: chart.id },
     });
     res.json({ card: serializeCard(card) });
+  },
+);
+
+const dashboardCardRefShape = {
+  dashboardSlug: z.string().min(1).max(120),
+  cardId: z.string().uuid(),
+};
+
+const updateDashboardCardSchema = z
+  .object({
+    ...dashboardCardRefShape,
+    x: z.number().int().min(0).max(11).optional(),
+    y: z.number().int().min(0).max(10_000).optional(),
+    w: z.number().int().min(1).max(12).optional(),
+    h: z.number().int().min(1).max(40).optional(),
+    titleOverride: z.string().max(200).optional(),
+  })
+  .strict();
+
+/** The dashboard a card tool names, when the employee may edit it. Writes the refusal itself. */
+async function loadWritableDashboard(
+  req: McpRequest,
+  res: Response,
+  slug: string,
+): Promise<Dashboard | null> {
+  const dashboard = await AppDataSource.getRepository(Dashboard).findOneBy({
+    companyId: req.mcpCompany!.id,
+    slug,
+  });
+  if (!dashboard) {
+    res.status(404).json({ error: "Dashboard not found" });
+    return null;
+  }
+  if (!(await hasDashboardAccess(req.mcpEmployee!.id, dashboard.id, "write"))) {
+    res.status(403).json({ error: "Write access required to edit that dashboard" });
+    return null;
+  }
+  return dashboard;
+}
+
+// Move, resize or retitle a card, as dragging it on the dashboard does.
+mcpInternalRouter.post(
+  "/tools/update_dashboard_card",
+  validateBody(updateDashboardCardSchema),
+  async (req: McpRequest, res) => {
+    const { dashboardSlug, cardId, ...layout } = req.body as z.infer<
+      typeof updateDashboardCardSchema
+    >;
+    const dashboard = await loadWritableDashboard(req, res, dashboardSlug);
+    if (!dashboard) return;
+    try {
+      const card = await patchDashboardCard(dashboard, cardId, layout);
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorEmployeeId: req.mcpEmployee!.id,
+        action: "dashboard.card.update",
+        targetType: "dashboard",
+        targetId: dashboard.id,
+        targetLabel: dashboard.title,
+        metadata: { via: "mcp", cardId },
+      });
+      res.json({ card: serializeCard(card) });
+    } catch (err) {
+      res
+        .status(err instanceof DashboardCardError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
+  },
+);
+
+const removeDashboardCardSchema = z.object(dashboardCardRefShape).strict();
+
+// Take a card off a dashboard; the chart it showed stays.
+mcpInternalRouter.post(
+  "/tools/remove_dashboard_card",
+  validateBody(removeDashboardCardSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof removeDashboardCardSchema>;
+    const dashboard = await loadWritableDashboard(req, res, body.dashboardSlug);
+    if (!dashboard) return;
+    const repo = AppDataSource.getRepository(DashboardCard);
+    const card = await repo.findOneBy({ id: body.cardId, dashboardId: dashboard.id });
+    if (!card) return res.status(404).json({ error: "Card not found" });
+    await repo.delete({ id: card.id });
+    await recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action: "dashboard.card.remove",
+      targetType: "dashboard",
+      targetId: dashboard.id,
+      targetLabel: dashboard.title,
+      metadata: { via: "mcp", cardId: card.id },
+    });
+    res.json({ ok: true });
   },
 );
 
