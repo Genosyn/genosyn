@@ -19,10 +19,17 @@ describe("chat product reference catalogue", () => {
   });
 
   test("finds Revenue by the name people give its dashboard", () => {
-    const [top] = searchChatProductReferences("revenue dashboard");
-    assert.equal(top?.key, "revenue");
-    assert.equal(top?.label, "Revenue");
-    assert.equal(top?.path, "/revenue");
+    for (const query of [
+      "revenue dashboard",
+      "revenue dashboards",
+      "revenue dash",
+      "dashboard revenue",
+    ]) {
+      const [top] = searchChatProductReferences(query);
+      assert.equal(top?.key, "revenue", query);
+      assert.equal(top?.label, "Revenue", query);
+      assert.equal(top?.path, "/revenue", query);
+    }
   });
 
   test("finds product areas through natural synonyms", () => {
