@@ -18,6 +18,13 @@ describe("chat product reference catalogue", () => {
     assert.ok(matches.some((match) => match.key === "finance"));
   });
 
+  test("finds Revenue by the name people give its dashboard", () => {
+    const [top] = searchChatProductReferences("revenue dashboard");
+    assert.equal(top?.key, "revenue");
+    assert.equal(top?.label, "Revenue");
+    assert.equal(top?.path, "/revenue");
+  });
+
   test("finds product areas through natural synonyms", () => {
     assert.equal(searchChatProductReferences("quotation")[0]?.key, "estimates");
     assert.equal(searchChatProductReferences("bill customer")[0]?.key, "invoices");

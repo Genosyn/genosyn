@@ -2,9 +2,18 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Chart } from "../db/entities/Chart.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
+import { Dashboard } from "../db/entities/Dashboard.js";
 import type { FinanceAccess, Role } from "../db/entities/Membership.js";
+import { Note } from "../db/entities/Note.js";
+import { Notebook } from "../db/entities/Notebook.js";
+import { Product } from "../db/entities/Product.js";
+import { Project } from "../db/entities/Project.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Skill } from "../db/entities/Skill.js";
+import { Todo } from "../db/entities/Todo.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { searchCompany, type CompanySearchResult } from "./search.js";
 
@@ -346,5 +355,293 @@ describe("company search customer hits follow finance access", () => {
       "Acme Labs": "Biotech",
       "Acme Holdings": null,
     });
+  });
+});
+
+/**
+ * A kind word is a qualifier, not a title token. "revenue dashboard" asks for
+ * the Dashboard whose title says revenue — requiring both words in the title
+ * made an exact dashboard name unreachable from the phrase people actually
+ * type.
+ */
+describe("company search treats a kind word as a qualifier", () => {
+  let companyId: string;
+
+  beforeEach(async () => {
+    const company = await insert(Company, {
+      name: "Northwind",
+      slug: "northwind",
+      ownerId: "owner-1",
+    });
+    companyId = company.id;
+    await insert(Dashboard, { companyId, title: "Revenue", slug: "revenue" });
+    await insert(Dashboard, { companyId, title: "Pipeline", slug: "pipeline" });
+    await insert(Chart, { companyId, title: "Revenue", slug: "revenue-chart" });
+    const employee = await insert(AIEmployee, {
+      companyId,
+      name: "Ada",
+      slug: "ada",
+      role: "Analyst",
+    });
+    await insert(Skill, {
+      employeeId: employee.id,
+      name: "Revenue analysis",
+      slug: "revenue-analysis",
+    });
+    await insert(Routine, {
+      employeeId: employee.id,
+      name: "Revenue review",
+      slug: "revenue-review",
+      cronExpr: "0 9 * * *",
+    });
+    const notebook = await insert(Notebook, {
+      companyId,
+      title: "Handbook",
+      slug: "handbook",
+    });
+    await insert(Note, {
+      companyId,
+      notebookId: notebook.id,
+      title: "Revenue notes",
+      slug: "revenue-notes",
+    });
+    const project = await insert(Project, {
+      companyId,
+      name: "Revenue rollout",
+      slug: "revenue-rollout",
+      key: "REV",
+    });
+    await insert(Todo, {
+      projectId: project.id,
+      number: 1,
+      title: "Revenue review",
+    });
+  });
+
+  async function search(query: string): Promise<CompanySearchResult[]> {
+    return searchCompany({
+      companyId,
+      userId: "owner-1",
+      role: "owner",
+      financeAccess: "full",
+      query,
+    });
+  }
+
+  test("finds a Dashboard called Revenue by 'revenue dashboard'", async () => {
+    const hits = await search("revenue dashboard");
+    const dashboards = hits.filter((hit) => hit.kind === "dashboard");
+    assert.deepEqual(
+      dashboards.map((hit) => [hit.label, hit.path]),
+      [["Revenue", "/explore/dashboards/revenue"]],
+    );
+    assert.equal(
+      hits.some((hit) => hit.kind === "chart"),
+      false,
+      "the dashboard word does not pull in charts",
+    );
+  });
+
+  test("answers the same way whichever order the words arrive in", async () => {
+    const hits = await search("dashboard revenue");
+    assert.ok(hits.some((hit) => hit.kind === "dashboard" && hit.label === "Revenue"));
+  });
+
+  test("keeps each kind word with its own kind", async () => {
+    const charts = await search("revenue chart");
+    assert.deepEqual(
+      charts.filter((hit) => hit.kind === "chart").map((hit) => hit.label),
+      ["Revenue"],
+    );
+    assert.equal(
+      charts.some((hit) => hit.kind === "dashboard"),
+      false,
+      "a chart word does not list dashboards",
+    );
+  });
+
+  test("a kind word on its own lists that kind", async () => {
+    const hits = await search("dashboards");
+    assert.deepEqual(
+      hits.filter((hit) => hit.kind === "dashboard").map((hit) => hit.label).sort(),
+      ["Pipeline", "Revenue"],
+    );
+  });
+
+  test("still requires the remaining words to match the title", async () => {
+    assert.equal(
+      (await search("revenue quarterly dashboard")).some((hit) => hit.kind === "dashboard"),
+      false,
+    );
+  });
+
+  test("applies the same rule to the kinds with their own queries", async () => {
+    const cases: Array<[query: string, kind: CompanySearchResult["kind"], label: string]> = [
+      ["revenue skill", "skill", "Revenue analysis"],
+      ["revenue routine", "routine", "Revenue review"],
+      ["revenue notes", "note", "Revenue notes"],
+      ["revenue project", "project", "Revenue rollout"],
+      ["revenue tasks", "todo", "Revenue review"],
+    ];
+    for (const [query, kind, label] of cases) {
+      const hits = await search(query);
+      assert.ok(
+        hits.some((hit) => hit.kind === kind && hit.label === label),
+        `${query} should find ${kind} ${label}`,
+      );
+    }
+  });
+
+  test("a kind word alone lists the bespoke kinds too", async () => {
+    const notes = await search("notes");
+    assert.deepEqual(
+      notes.filter((hit) => hit.kind === "note").map((hit) => hit.label),
+      ["Revenue notes"],
+    );
+    const tasks = await search("tasks");
+    assert.deepEqual(
+      tasks.filter((hit) => hit.kind === "todo").map((hit) => hit.label),
+      ["Revenue review"],
+    );
+  });
+});
+
+/**
+ * Finance products are records, not the Products & services area. Their names
+ * should be searchable like any other record — and only by someone who can
+ * open the catalogue.
+ */
+describe("company search finds Finance products by name", () => {
+  let companyId: string;
+  let starter: Product;
+
+  beforeEach(async () => {
+    const company = await insert(Company, {
+      name: "Northwind",
+      slug: "northwind",
+      ownerId: "owner-1",
+    });
+    companyId = company.id;
+    starter = await insert(Product, {
+      companyId,
+      name: "Starter plan",
+      slug: "starter-plan",
+      description: "Monthly plan for small teams",
+      unitPriceCents: 4900,
+      currency: "USD",
+    });
+    await insert(Product, {
+      companyId,
+      name: "Growth plan",
+      slug: "growth-plan",
+      description: "For teams that need more seats",
+    });
+    await insert(Product, {
+      companyId,
+      name: "Starter plan (legacy)",
+      slug: "starter-plan-legacy",
+      archivedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const other = await insert(Company, {
+      name: "Other Co",
+      slug: "other-co",
+      ownerId: "owner-2",
+    });
+    await insert(Product, {
+      companyId: other.id,
+      name: "Starter plan",
+      slug: "starter-plan",
+    });
+  });
+
+  async function hitsFor(
+    role: Role,
+    financeAccess: FinanceAccess | undefined,
+    query: string,
+  ): Promise<CompanySearchResult[]> {
+    const results = await searchCompany({
+      companyId,
+      userId: `${role}-1`,
+      role,
+      financeAccess,
+      query,
+    });
+    return results.filter((result) => result.kind === "catalogProduct");
+  }
+
+  test("returns the product with a link to the catalogue filtered to it", async () => {
+    const [hit] = await hitsFor("owner", "none", "starter plan");
+    assert.deepEqual(hit, {
+      kind: "catalogProduct",
+      id: starter.id,
+      label: "Starter plan",
+      sublabel: "Monthly plan for small teams",
+      path: "/finance/products?q=Starter%20plan",
+    });
+  });
+
+  test("matches every word across the name and description", async () => {
+    assert.deepEqual(
+      (await hitsFor("owner", "full", "small teams")).map((hit) => hit.label),
+      ["Starter plan"],
+    );
+    assert.deepEqual(
+      (await hitsFor("owner", "full", "plan")).map((hit) => hit.label).sort(),
+      ["Growth plan", "Starter plan"],
+    );
+  });
+
+  test("leaves archived products, and other companies' products, out", async () => {
+    const hits = await hitsFor("owner", "full", "starter");
+    assert.deepEqual(
+      hits.map((hit) => hit.label),
+      ["Starter plan"],
+    );
+  });
+
+  test("Full and Read-only Members may open the catalogue and see its products", async () => {
+    for (const financeAccess of ["full", "read"] as const) {
+      assert.deepEqual(
+        (await hitsFor("member", financeAccess, "starter")).map((hit) => hit.label),
+        ["Starter plan"],
+        financeAccess,
+      );
+    }
+  });
+
+  test("a Member with None never sees a product name", async () => {
+    for (const financeAccess of ["none", undefined] as const) {
+      const label = financeAccess ?? "no level";
+      assert.deepEqual(await hitsFor("member", financeAccess, "starter"), [], label);
+      const everything = await searchCompany({
+        companyId,
+        userId: "member-1",
+        role: "member",
+        financeAccess,
+        query: "starter",
+      });
+      assert.equal(JSON.stringify(everything).includes("Starter plan"), false, label);
+    }
+  });
+
+  test("owners and admins see products even when their membership row says None", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      assert.deepEqual(
+        (await hitsFor(role, "none", "starter")).map((hit) => hit.label),
+        ["Starter plan"],
+        role,
+      );
+    }
+  });
+
+  test("still offers the Products & services area itself", async () => {
+    const hits = await searchCompany({
+      companyId,
+      userId: "owner-1",
+      role: "owner",
+      financeAccess: "full",
+      query: "products",
+    });
+    assert.ok(hits.some((hit) => hit.kind === "product" && hit.id === "product:products"));
   });
 });

@@ -226,6 +226,13 @@ export function Introduction() {
         and admins can open it, rather than failing to load.
       </P>
       <P>
+        A product&apos;s name works too. Type <Code>starter plan</Code> and Finance&apos;s{" "}
+        <Strong>Products &amp; services</Strong> opens filtered to it, price and description in
+        view. Type <Code>revenue dashboard</Code> and <Strong>Revenue</Strong> is the first row,
+        even when an Explore Dashboard is also called Revenue — the kind word says where to look,
+        and the rest says which one.
+      </P>
+      <P>
         <Strong>Each sidebar leads with what you come for.</Strong> Pages you open now and then sit
         under <Strong>Advanced</Strong> at the bottom of their section&apos;s sidebar, closed until
         you open it: Settings keeps <Strong>Tags</Strong>, <Strong>Single sign-on</Strong>,{" "}

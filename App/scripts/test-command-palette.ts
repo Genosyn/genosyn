@@ -54,6 +54,29 @@ const CUSTOMER: CompanySearchResult = {
   sublabel: "billing@samesystem.test",
   path: "/customers/samesystem",
 };
+/** An Explore Dashboard called Revenue, and the area it belongs to. */
+const REVENUE_DASHBOARD: CompanySearchResult = {
+  kind: "dashboard",
+  id: "dashboard-revenue",
+  label: "Revenue",
+  sublabel: "The board's monthly numbers",
+  path: "/explore/dashboards/revenue",
+};
+const REVENUE_AREA: CompanySearchResult = {
+  kind: "product",
+  id: "product:revenue",
+  label: "Revenue",
+  sublabel: "Contacts, Deals, outbound, and signals",
+  path: "/revenue",
+};
+/** A Finance product, opened in its catalogue filtered to its name. */
+const STARTER_PRODUCT: CompanySearchResult = {
+  kind: "catalogProduct",
+  id: "product-starter",
+  label: "Starter plan",
+  sublabel: "Monthly plan for small teams",
+  path: "/finance/products?q=Starter%20plan",
+};
 /** Holds the "sam" answer back while a check moves the cursor. */
 let samAnswer: Promise<void> = Promise.resolve();
 
@@ -67,6 +90,13 @@ await context.route("**/api/**", async (route) => {
     else if (q.toLowerCase().includes("sam")) {
       await samAnswer;
       results = [CUSTOMER, EMPLOYEE];
+    } else if (q.toLowerCase().startsWith("revenue dash")) {
+      // What the server returns for the phrase, however far the kind word has
+      // been typed: the dashboard leads on its exact name, then the product
+      // area that answers to it.
+      results = [REVENUE_DASHBOARD, REVENUE_AREA];
+    } else if (q.toLowerCase().includes("starter")) {
+      results = [STARTER_PRODUCT];
     }
     return route.fulfill({ json: { results } });
   }
@@ -122,6 +152,34 @@ async function search(page: Page, query: string) {
     );
     await page.waitForFunction(
       () => !document.getElementById("command-palette-list")?.textContent?.includes("Searching"),
+    );
+  }
+}
+
+/**
+ * Press a key and wait for the highlighted row's label *and* context. Two
+ * rows can share a label once an Explore dashboard and its section are both
+ * called Revenue; the context is what tells them apart.
+ */
+async function pressToRow(page: Page, key: string, label: string, context: string) {
+  await page.keyboard.press(key);
+  try {
+    await page.waitForFunction(
+      ([wantLabel, wantContext]) => {
+        const el = document.querySelector('[role="option"][aria-selected="true"]');
+        const spans = el?.querySelectorAll(":scope > span.min-w-0 > span");
+        return (
+          spans?.[0]?.textContent === wantLabel &&
+          (spans?.[1]?.textContent ?? "").trim() === wantContext
+        );
+      },
+      [label, context],
+      { timeout: 5_000 },
+    );
+  } catch {
+    const selected = (await snapshot(page)).rows.find((r) => r.selected);
+    assert.fail(
+      `${key} should highlight "${label} · ${context}", but "${selected?.label} · ${selected?.context}" is highlighted`,
     );
   }
 }
@@ -301,7 +359,56 @@ try {
     ["Insights · Revenue"],
   );
 
+  // ── "revenue dashboard" finds the dashboard called Revenue ──
+  await search(owner, "revenue dashboard");
+  await owner.locator("#command-palette-opt-ent-dashboard-dashboard-revenue").waitFor();
+  view = await snapshot(owner);
+  assert.deepEqual(view.groups, ["Sections", "Dashboards", "Product areas"]);
+  assert.deepEqual(
+    view.rows.map((r) => `${r.label} · ${r.context}`),
+    [
+      "Revenue · Deals, contacts, outbound, and signals.",
+      `Revenue · ${REVENUE_DASHBOARD.sublabel}`,
+      `Revenue · ${REVENUE_AREA.sublabel}`,
+    ],
+  );
+  assert.equal(view.rows[0].selected, true, "the section's dashboard is ready for ↵");
+  // The first "Revenue" is the section; the next is the Explore dashboard.
+  await pressToRow(owner, "ArrowDown", "Revenue", REVENUE_DASHBOARD.sublabel ?? "");
+  await owner.keyboard.press("Enter");
+  await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
+  await expectLocation(owner, "/c/acme/explore/dashboards/revenue");
+
+  // The same phrase plural, and while the kind word is still being typed.
+  for (const query of ["revenue dashboards", "revenue dash"]) {
+    await openPalette(owner);
+    await search(owner, query);
+    view = await snapshot(owner);
+    assert.equal(view.rows[1]?.label, "Revenue", query);
+    assert.equal(view.rows[1]?.context, REVENUE_DASHBOARD.sublabel, query);
+    await owner.keyboard.press("Escape");
+    await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
+  }
+
+  // ── a Finance product name opens its catalogue, filtered ──
+  await openPalette(owner);
+  await search(owner, "starter");
+  await owner.getByText(STARTER_PRODUCT.label, { exact: true }).waitFor();
+  view = await snapshot(owner);
+  assert.deepEqual(view.groups, ["Products & services"]);
+  assert.deepEqual(view.rows[0], {
+    id: "command-palette-opt-ent-catalogProduct-product-starter",
+    label: STARTER_PRODUCT.label,
+    context: STARTER_PRODUCT.sublabel ?? "",
+    selected: true,
+    current: false,
+  });
+  await owner.keyboard.press("Enter");
+  await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
+  await expectLocation(owner, "/c/acme/finance/products?q=Starter%20plan");
+
   // ── case, spacing, and accents don't matter ──
+  await openPalette(owner);
   await search(owner, "  RÉCURRING   Invoices ");
   assert.equal((await snapshot(owner)).rows[0]?.label, "Recurring invoices");
 

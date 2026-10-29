@@ -444,6 +444,11 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "churn",
           "forecast",
           "gtm",
+          // The section opens on its dashboard, and that is what people type.
+          "dashboard",
+          "dashboards",
+          "revenue dashboard",
+          "revenue dashboards",
         ],
       },
       {

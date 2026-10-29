@@ -14,6 +14,7 @@ import {
   type LucideIcon,
   MessageSquare,
   NotebookText,
+  Package,
   Search,
   SearchX,
   Table2,
@@ -126,6 +127,11 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
     group: "Product areas",
     icon: WalletCards,
     iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  catalogProduct: {
+    group: "Products & services",
+    icon: Package,
+    iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
   },
   employee: {
     group: "AI Employees",
