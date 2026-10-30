@@ -44,6 +44,9 @@ export type ChannelMessageDiscussionRole =
 
 @Entity("channel_messages")
 @Index(["channelId", "createdAt"])
+// A channel's messages that are not deleted, newest first: what
+// `list_workspace_messages` pages (keyset on createdAt, id) and counts.
+@Index(["channelId", "deletedAt", "createdAt", "id"])
 @Index(["discussionId", "createdAt"])
 export class ChannelMessage {
   @PrimaryGeneratedColumn("uuid")
