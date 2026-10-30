@@ -2,6 +2,7 @@
 
 import type { ContextUsage } from "./contextUsage.js";
 import type { ApiKeyFailover } from "./apiKeyRing.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 
 export type { ContextUsage } from "./contextUsage.js";
 export type { ApiKeyFailover } from "./apiKeyRing.js";
@@ -144,6 +145,13 @@ export type StreamCallbacks = {
    */
   onApiKeyFailover?: (change: ApiKeyFailover) => void;
   /**
+   * Fired once when the AI Model refused the thinking parameters the turn
+   * sent and the turn carried on without them, at the model's own default
+   * (`opencodeProxy.ts`, `codexRuntime.ts`). `level` is the thinking level
+   * that was sent, or null when only a thinking summary had been asked for.
+   */
+  onThinkingFallback?: (fallback: ThinkingFallback) => void;
+  /**
    * Fired when a work turn stopped with no reply and no tool call, just before
    * the runtime asks the model in the same session to continue or report.
    */
@@ -194,6 +202,9 @@ export type StreamCallbacks = {
    */
   onToolsDeferred?: (info: ToolDeferralInfo) => void;
 };
+
+/** The thinking level an AI Model refused; see `StreamCallbacks.onThinkingFallback`. */
+export type ThinkingFallback = { level: ModelEffort | null };
 
 /**
  * A wait outside the employee's control. `cause` is open-ended so a new kind
