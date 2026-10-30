@@ -339,7 +339,9 @@ export function Security() {
       <P>
         Narrow the log by actor kind, by one AI Employee, by action prefix —{" "}
         <Code>invoice.</Code> matches every invoice change — or by start date, then choose{" "}
-        <Strong>Load older events</Strong> to page further back. Every Member can see one
+        <Strong>Load older events</Strong> to page further back. Each page carries on from the
+        oldest event already shown, so the many events one bulk action records in the same instant
+        all appear, once each. Every Member can see one
         employee&apos;s recorded work on its{" "}
         <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and a Run&apos;s own
         effects in its Run log.
