@@ -110,9 +110,13 @@ function rawDate(v: unknown): Date | null {
 }
 
 /**
- * Fetch-window ordering: prefix matches on the primary column first, so a
- * table with more than `FETCH_WINDOW` substring hits can't starve the rows
- * the ranker would put on top anyway. Recency (or name) breaks ties.
+ * Fetch-window ordering: prefix matches on the primary column first, then
+ * rows whose primary column contains the query anywhere, so a table with more
+ * than `FETCH_WINDOW` candidates can't starve the rows the ranker would put
+ * on top anyway. The middle tier matters most for a kind-only query ("data"
+ * lists Bases): no word is left to filter on, every row of the kind
+ * qualifies, and "Marketing data" must not lose its place to twenty names
+ * that sort ahead of it. Recency (or name) breaks ties.
  */
 function orderByPrefixFirst<T extends object>(
   qb: SelectQueryBuilder<T>,
@@ -120,9 +124,15 @@ function orderByPrefixFirst<T extends object>(
   q: string,
   recencyCol: string | null,
 ): SelectQueryBuilder<T> {
+  const literal = escapeLike(q);
   qb = qb
-    .setParameter("prefix", `${escapeLike(q)}%`)
-    .orderBy(`CASE WHEN LOWER(${col}) LIKE :prefix ESCAPE '\\' THEN 0 ELSE 1 END`, "ASC");
+    .setParameter("prefix", `${literal}%`)
+    .setParameter("contains", `%${literal}%`)
+    .orderBy(
+      `CASE WHEN LOWER(${col}) LIKE :prefix ESCAPE '\\' THEN 0 ` +
+        `WHEN LOWER(${col}) LIKE :contains ESCAPE '\\' THEN 1 ELSE 2 END`,
+      "ASC",
+    );
   // NULLS LAST: postgres sorts NULL as largest (first under DESC), sqlite
   // as smallest — without this, never-touched rows would hog the window on
   // postgres only. Matters for the one nullable recency column
@@ -261,7 +271,7 @@ async function searchApplicants(ctx: Ctx): Promise<Scored[]> {
     label: row.candidateName,
     sublabel: row.candidateEmail,
     path: `/recruiting/applicants/${row.id}`,
-    score: scoreKindLabel(row.candidateName, q, tokens),
+    score: scoreKindLabel(ctx, row.candidateName, q, tokens),
     updatedAt: row.updatedAt,
   }));
 }
@@ -345,13 +355,30 @@ function splitKindTokens(
 }
 
 /**
- * Rank a title on the words that survived the kind split. A kind-only query
- * still ranks a row whose title carries the word ("Dashboard") above the rest,
- * which fall back to {@link KIND_ONLY_SCORE} rather than to a description hit.
+ * How far below the same tier a title ranks when it answers the query only
+ * once the kind word is set aside. One point is enough for "Sales dashboard"
+ * to lead "Sales" on "sales dashboard", and never enough to drop a name below
+ * a looser tier: "Revenue" (99 on "revenue dashboard") still leads a title
+ * that merely starts with the whole phrase (90).
  */
-function scoreKindLabel(label: string, q: string, tokens: Token[]): number {
-  const score = scoreLabel(label, q, tokens);
-  return tokens.length ? score : Math.max(KIND_ONLY_SCORE, score);
+const QUALIFIED_MATCH_DISCOUNT = 1;
+
+/**
+ * Rank a title on the words that survived the kind split, never below what
+ * the words as typed earn. A title that says the whole phrase keeps its full
+ * score, so it leads one that answers only without the kind word. A kind-only
+ * query still ranks a row whose title carries the word ("Dashboard") above the
+ * rest, which fall back to {@link KIND_ONLY_SCORE} rather than to a
+ * description hit.
+ */
+function scoreKindLabel(ctx: Ctx, label: string, q: string, tokens: Token[]): number {
+  // Spacing folded the way the split joins its words, so "sales   dashboard"
+  // is still the whole phrase.
+  const phrase = ctx.tokens.map((token) => token.lo).join(" ");
+  const literal = scoreLabel(label, phrase, ctx.tokens);
+  if (tokens.length === ctx.tokens.length) return literal;
+  if (tokens.length === 0) return Math.max(KIND_ONLY_SCORE, literal);
+  return Math.max(literal, scoreLabel(label, q, tokens) - QUALIFIED_MATCH_DISCOUNT);
 }
 
 async function searchSimple(ctx: Ctx, spec: SimpleSpec): Promise<Scored[]> {
@@ -374,7 +401,7 @@ async function searchSimple(ctx: Ctx, spec: SimpleSpec): Promise<Scored[]> {
     label: r[spec.nameCol],
     sublabel: spec.sublabel(r),
     path: spec.path(r),
-    score: scoreKindLabel(r[spec.nameCol], q, tokens),
+    score: scoreKindLabel(ctx, r[spec.nameCol], q, tokens),
     updatedAt: spec.hasUpdatedAt
       ? (r as Record<string, unknown>).updatedAt as Date
       : null,
@@ -401,7 +428,7 @@ async function searchProjects(
     label: p.name,
     sublabel: p.key || null,
     path: `/tasks/p/${p.slug}`,
-    score: scoreKindLabel(p.name, q, tokens),
+    score: scoreKindLabel(ctx, p.name, q, tokens),
     updatedAt: null,
   }));
 }
@@ -440,7 +467,7 @@ async function searchTodos(
     label: r.label,
     sublabel: `${r.projectKey}-${r.number} · ${r.projectName}`,
     path: `/tasks/p/${r.projectSlug}`,
-    score: scoreKindLabel(r.label, q, tokens),
+    score: scoreKindLabel(ctx, r.label, q, tokens),
     updatedAt: rawDate(r.updatedAt),
   }));
 }
@@ -469,7 +496,7 @@ async function searchEmployeeChildren(
     label: r.label,
     sublabel: r.empName || null,
     path: `/${kind === "skill" ? "skills" : "routines"}/${r.empSlug}/${r.slug}`,
-    score: scoreKindLabel(r.label, q, tokens),
+    score: scoreKindLabel(ctx, r.label, q, tokens),
     updatedAt: null,
   }));
 }
@@ -497,7 +524,7 @@ async function searchNotes(ctx: Ctx): Promise<Scored[]> {
     label: r.label,
     sublabel: r.nbTitle || null,
     path: `/notes/${r.nbSlug}/${r.slug}`,
-    score: scoreKindLabel(r.label, q, tokens),
+    score: scoreKindLabel(ctx, r.label, q, tokens),
     updatedAt: rawDate(r.updatedAt),
   }));
 }
@@ -539,7 +566,7 @@ async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
     sublabel: r.topic || null,
     path: `/workspace/${r.id}`,
     // Score against the bare name — the query won't carry our # prefix.
-    score: scoreKindLabel(r.label, q, tokens),
+    score: scoreKindLabel(ctx, r.label, q, tokens),
     updatedAt: rawDate(r.lastMessageAt),
   }));
 }
