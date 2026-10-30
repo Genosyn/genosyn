@@ -26,6 +26,13 @@ export type CardAccountingKind = "expense" | "refund" | "payment";
 @Index(["feedId"])
 @Index(["companyId", "feedId", "postedAt"])
 @Index(["feedId", "externalId"], { unique: true })
+// Banking's list across every card, newest first, one keyset page at a time
+// (`services/bankingQueue.ts`): a page reads its own rows, not the whole history.
+@Index(["companyId", "postedAt", "id"])
+// What waits in To review, answered from the index alone: `needsReview` is
+// stored after `raw`, so a filter on it would otherwise read every purchase's
+// provider JSON to count the queue.
+@Index(["companyId", "needsReview", "ledgerEntryId"])
 export class CardTransaction {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

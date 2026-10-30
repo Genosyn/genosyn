@@ -21,6 +21,9 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 @Index(["companyId", "feedId", "date"])
 @Index(["companyId", "reconciledAt"])
 @Index(["feedId", "externalId"])
+// Banking's list across every account, newest first, one keyset page at a time
+// (`services/bankingQueue.ts`): a page reads its own rows, not the whole history.
+@Index(["companyId", "date", "id"])
 export class BankTransaction {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

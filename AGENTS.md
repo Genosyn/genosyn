@@ -963,6 +963,16 @@ in a Work session instead of leaving them stranded as local commits.
   outside — so it is audience-bound without a JWT. It is a bearer credential
   like a key: a guard that refuses API keys checks `usesBearerCredential(req)`
   (`middleware/auth.ts`), so it refuses connected apps too.
+- **Lists page; they never stop at a fixed count.** A list that can grow — an
+  AI tool or the route beside it — takes `limit` (cut to its maximum, not
+  refused) and `cursor`, and answers `total`, `hasMore`, `nextCursor` and a
+  `note`, ahead of its rows, through `services/listPaging.ts`: a keyset cursor
+  bound to the list and its filters, ending in a unique id, so work done between
+  pages never skips a row. An AI tool's page also ends early rather than
+  overflow a tool result (`TOOL_PAGE_BUDGET_CHARS`). Give it the filters its
+  domain needs (Finance dates are UTC calendar days, `dateRange`) and an index
+  that bounds the rows a page reads. A mailbox search is the one list without
+  `total`, because counting it reads the whole mailbox.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small
