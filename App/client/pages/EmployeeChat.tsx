@@ -47,13 +47,15 @@ import {
   useEmployeeSession,
 } from "../lib/chatSessions";
 import { focusOnArrival } from "../lib/composerFocus";
-import { MODEL_EFFORT_LABELS } from "../../shared/modelEffort";
+import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import {
-  type ComposerEffortOverride,
-  type ComposerModelOverride,
-  resolveComposerEffort,
-  resolveComposerModelId,
-} from "../lib/composerModel";
+  chosenThinkingLevel,
+  composerThinking,
+  replyThinkingLine,
+  type ComposerThinking,
+  type NewThreadThinking,
+} from "../lib/thinkingLevel";
+import { ThinkingLevelPicker } from "../components/chat/ThinkingLevelPicker";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
@@ -145,8 +147,14 @@ export default function EmployeeChat() {
    * rather than an override keyed to the not-yet-existing conversation.
    */
   const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
-  /** Effort picked by hand, scoped like `modelOverride` and to the model it was picked for. */
-  const [effortOverride, setEffortOverride] = React.useState<ComposerEffortOverride | null>(null);
+  /**
+   * The thinking level picked before a new conversation exists; the first
+   * message creates the conversation at it. An existing conversation keeps its
+   * level on the server (`ConversationSummary.effort`).
+   */
+  const [newThreadThinking, setNewThreadThinking] = React.useState<NewThreadThinking | null>(
+    null,
+  );
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const [creatingConversation, setCreatingConversation] = React.useState(false);
   const [archivingConvId, setArchivingConvId] = React.useState<string | null>(null);
@@ -556,7 +564,9 @@ export default function EmployeeChat() {
       clearInput: !messageOverride,
       attachments: atts,
       modelId: selectedModelId,
-      effort: selectedEffort,
+      // The level a conversation this message creates starts at; an existing
+      // one already holds its own.
+      effort: activeConvId ? undefined : chosenEffort,
       interrupt: opts?.interrupt,
     });
     if (err) {
@@ -666,17 +676,29 @@ export default function EmployeeChat() {
     threadModelId: activeConv?.lastModelId ?? null,
     override: modelOverride,
   });
-  // How hard that model thinks follows the same rule, and only ever offers the
-  // levels the model supports. See `resolveComposerEffort`.
-  const effortLevels = chatModels.find((model) => model.id === selectedModelId)?.effortLevels ?? [];
-  const selectedEffort = resolveComposerEffort({
-    modelId: selectedModelId,
-    effortLevels,
+  // How hard the AI Model thinks belongs to the conversation, and is resolved
+  // against the model the next message goes to — the same rule the server
+  // runs, so the composer shows the level the reply will actually use.
+  const chosenEffort = chosenThinkingLevel({
     activeConvId,
-    threadModelId: activeConv?.lastModelId ?? null,
-    threadEffort: activeConv?.lastEffort ?? null,
-    override: effortOverride,
+    threadEffort: activeConv?.effort,
+    newThread: newThreadThinking,
+    newConversationIntent,
   });
+  const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
+  const thinking = selectedChatModel
+    ? composerThinking({ model: selectedChatModel.thinking ?? null, chosen: chosenEffort })
+    : null;
+
+  async function changeThinking(effort: ModelEffort | null) {
+    setComposerError(null);
+    if (!activeConvId) {
+      setNewThreadThinking({ intent: newConversationIntent, effort });
+      return;
+    }
+    const err = await actions.setConversationEffort(company.id, emp.id, activeConvId, effort);
+    if (err) setComposerError(err);
+  }
   // Show a skeleton while bootstrapping or while the active thread is still
   // loading — otherwise there's a visible EmptyState flash between the
   // conv-list fetch and the messages fetch.
@@ -911,17 +933,12 @@ export default function EmployeeChat() {
             models={chatModels}
             selectedModelId={selectedModelId}
             onModelChange={(modelId) => {
+              // The conversation's thinking level stays; the composer shows how
+              // the new model runs it.
               setModelOverride({ convId: activeConvId, modelId });
-              // An effort is a setting of one model; a new model starts at its own default.
-              setEffortOverride(null);
             }}
-            effortLevels={effortLevels}
-            selectedEffort={selectedEffort}
-            onEffortChange={(effort) => {
-              if (selectedModelId) {
-                setEffortOverride({ convId: activeConvId, modelId: selectedModelId, effort });
-              }
-            }}
+            thinking={thinking}
+            onThinkingChange={(effort) => void changeThinking(effort)}
             contextUsage={visibleContextUsage}
             employeeSlug={emp.slug}
           />
@@ -1310,6 +1327,9 @@ function TurnBubble({
   // it is: everything the employee said before the stop is real work, and only
   // the badge marks that there was more coming.
   const isInterrupted = message.status === "interrupted";
+  // The level the reply actually ran at, quietly, with why it moved if it did.
+  const thinkingLine =
+    message.status === "ok" || isInterrupted ? replyThinkingLine(message.thinking) : null;
 
   return (
     <div className="flex justify-start gap-2.5">
@@ -1413,8 +1433,25 @@ function TurnBubble({
             onInspect={onInspectAction}
           />
         )}
-        <div className="mt-1 pl-1 text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
-          {formatTime(message.createdAt)}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-1">
+          {thinkingLine && (
+            <span
+              data-reply-thinking={message.thinking?.level ?? "default"}
+              title={thinkingLine.note ?? undefined}
+              className="inline-flex items-start gap-1 text-xs text-slate-400 dark:text-slate-500"
+            >
+              <Lightbulb size={12} aria-hidden="true" className="mt-0.5 shrink-0" />
+              <span>
+                {thinkingLine.label}
+                {thinkingLine.note && (
+                  <span className="text-amber-700 dark:text-amber-300"> · {thinkingLine.note}</span>
+                )}
+              </span>
+            </span>
+          )}
+          <span className="text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
+            {formatTime(message.createdAt)}
+          </span>
         </div>
       </div>
     </div>
@@ -1613,9 +1650,8 @@ function Composer({
   models,
   selectedModelId,
   onModelChange,
-  effortLevels,
-  selectedEffort,
-  onEffortChange,
+  thinking,
+  onThinkingChange,
   contextUsage,
   employeeSlug,
 }: {
@@ -1642,11 +1678,9 @@ function Composer({
   models: AIModel[];
   selectedModelId: string | null;
   onModelChange: (modelId: string) => void;
-  /** Efforts the selected model supports; empty hides the picker. */
-  effortLevels: ModelEffort[];
-  /** Null is the selected model's default effort. */
-  selectedEffort: ModelEffort | null;
-  onEffortChange: (effort: ModelEffort | null) => void;
+  /** The conversation's thinking level on the selected model; null when there is no model. */
+  thinking: ComposerThinking | null;
+  onThinkingChange: (effort: ModelEffort | null) => void;
   contextUsage: ChatContextUsage | null;
   employeeSlug: string;
 }) {
@@ -1960,31 +1994,10 @@ function Composer({
               </Select>
             </label>
           )}
-          {/* Shown whenever the selected model supports effort, even when it is
-              the employee's only model and the model picker is hidden. */}
-          {effortLevels.length > 0 && (
-            <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-              <Lightbulb size={12} aria-hidden="true" />
-              <span aria-hidden="true">Effort</span>
-              <Select
-                aria-label="Effort for this message"
-                title="How hard the AI Model thinks before it answers. Higher effort can take longer and use more tokens."
-                value={selectedEffort ?? ""}
-                onChange={(event) =>
-                  onEffortChange(effortLevels.find((level) => level === event.target.value) ?? null)
-                }
-                containerClassName="w-40"
-                className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 outline-none max-sm:min-h-8 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
-              >
-                <option value="">Model default</option>
-                {effortLevels.map((effort) => (
-                  <option key={effort} value={effort}>
-                    {MODEL_EFFORT_LABELS[effort]}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
+          {/* Always shown while there is an AI Model to send to, even when it
+              is the employee's only model and the model picker is hidden: the
+              level the next reply runs at is never a guess. */}
+          {thinking && <ThinkingLevelPicker thinking={thinking} onChange={onThinkingChange} />}
         </span>
       </div>
     </form>

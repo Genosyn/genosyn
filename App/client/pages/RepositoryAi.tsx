@@ -51,6 +51,8 @@ import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import { WorkSessionModelPicker } from "@/components/repositories/WorkSessionModelPicker";
 import { resolveWorkSessionModelId, type WorkSessionModelOverride } from "@/lib/workSessionModel";
 import { MODEL_EFFORT_LABELS } from "../../shared/modelEffort";
+import { allowedThinkingLevels } from "../../shared/thinkingLevels";
+import { workSessionDefaultLabel } from "@/lib/thinkingLevel";
 import type { ChatAttachment, ModelEffort } from "@/lib/api";
 import { firstBracketPlaceholder } from "@/lib/composerFocus";
 import { useRepositoriesContext } from "./RepositoriesLayout";
@@ -789,7 +791,9 @@ export function NewSessionPane({
         override: modelOverride,
       })
     : null;
-  const effortLevels = selected?.models.find((model) => model.id === selectedModelId)?.effortLevels;
+  const selectedWorkModel = selected?.models.find((model) => model.id === selectedModelId);
+  const effortLevels = selectedWorkModel?.effortLevels;
+  const workThinking = selectedWorkModel?.thinking ?? null;
   const selectedEffort =
     effortOverride &&
     effortOverride.employeeId === selected?.id &&
@@ -1036,7 +1040,7 @@ export function NewSessionPane({
               />
               {!!effortLevels?.length && (
                 <Select
-                  label="Effort"
+                  label="Thinking level"
                   value={selectedEffort ?? ""}
                   disabled={starting}
                   containerClassName="w-full min-w-0 sm:w-44"
@@ -1050,9 +1054,14 @@ export function NewSessionPane({
                     setStartError(null);
                   }}
                 >
-                  <option value="">Model default</option>
+                  <option value="">{workSessionDefaultLabel(workThinking)}</option>
                   {effortLevels.map((effort) => (
-                    <option key={effort} value={effort}>
+                    <option
+                      key={effort}
+                      value={effort}
+                      // Over the highest level the model's owners allow.
+                      disabled={!!workThinking && !allowedThinkingLevels(workThinking).includes(effort)}
+                    >
                       {MODEL_EFFORT_LABELS[effort]}
                     </option>
                   ))}

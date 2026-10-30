@@ -688,7 +688,7 @@ export function SessionPane({
               <Clock3 size={11} /> {formatRelative(session.createdAt)}
             </span>
             <span title="Used for this session and every follow-up">
-              Effort: {session.effort ? MODEL_EFFORT_LABELS[session.effort] : "Model default"}
+              Thinking: {session.effort ? MODEL_EFFORT_LABELS[session.effort] : "Default"}
             </span>
             {session.branch && (
               <span

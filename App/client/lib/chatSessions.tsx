@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { latestContextUsage, parseContextUsageEvent } from "./chatContextUsage";
 import { EMPTY_LIVE_TURN, reduceLiveTurn, type LiveTurnState } from "./chatActivity";
+import { errorMessage } from "./errors";
 
 /**
  * Per-employee chat state held at the company-shell level so it survives
@@ -99,7 +100,10 @@ export type QueuedChatMessage = {
   newConversationIntent: number;
   /** AI Model captured when this message entered the follow-up queue. */
   modelId: string | null;
-  /** Effort captured with `modelId`; null keeps that model's default. */
+  /**
+   * The thinking level a conversation this message creates starts at; null is
+   * Default. An existing conversation keeps its own level.
+   */
   effort: ModelEffort | null;
   content: string;
   attachments: ChatAttachment[];
@@ -251,6 +255,16 @@ type ChatActions = {
   deleteConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   archiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   unarchiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
+  /**
+   * Set a conversation's thinking level (null is Default), shown at once and
+   * put back if the server refuses. Resolves with an error message, or null.
+   */
+  setConversationEffort: (
+    companyId: string,
+    empId: string,
+    convId: string,
+    effort: ModelEffort | null,
+  ) => Promise<string | null>;
   loadArchived: (companyId: string, empId: string) => Promise<void>;
   /** Resolves with an error message on failure, or null on success. */
   send: (
@@ -261,6 +275,10 @@ type ChatActions = {
       clearInput?: boolean;
       attachments?: ChatAttachment[];
       modelId?: string | null;
+      /**
+       * The thinking level the conversation starts at, when this message
+       * creates it. An existing conversation keeps the level set on it.
+       */
       effort?: ModelEffort | null;
       /**
        * Stop the reply already in flight in this thread and put this message at
@@ -850,6 +868,42 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
     [update],
   );
 
+  const setConversationEffort = React.useCallback(
+    async (
+      companyId: string,
+      empId: string,
+      convId: string,
+      effort: ModelEffort | null,
+    ): Promise<string | null> => {
+      const base = `/api/companies/${companyId}/employees/${empId}`;
+      const current = [
+        ...(sessionsRef.current[empId]?.convs ?? []),
+        ...(sessionsRef.current[empId]?.archivedConvs ?? []),
+      ].find((conversation) => conversation.id === convId);
+      const previous = current?.effort ?? null;
+      const apply = (value: ModelEffort | null) =>
+        update(empId, (s) => ({
+          ...s,
+          convs: withConversationEffort(s.convs, convId, value),
+          archivedConvs: withConversationEffort(s.archivedConvs, convId, value),
+        }));
+      // Shown at once; put back if the server says no.
+      apply(effort);
+      try {
+        const saved = await api.put<ConversationSummary>(
+          `${base}/conversations/${convId}/thinking`,
+          { effort },
+        );
+        apply(saved.effort ?? null);
+        return null;
+      } catch (err) {
+        apply(previous);
+        return errorMessage(err, "Couldn’t change the thinking level");
+      }
+    },
+    [update],
+  );
+
   const sendTurn = React.useCallback(
     async (
       companyId: string,
@@ -940,7 +994,11 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         // Lazy-create a conversation on first send so never-chatted
         // employees don't accumulate empty threads in the sidebar.
         if (!convId) {
-          const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
+          // The level picked before the thread existed becomes the thread's.
+          const created = await api.post<ConversationSummary>(
+            `${base}/conversations`,
+            opts?.effort ? { effort: opts.effort } : {},
+          );
           convId = created.id;
           // The thread now has a real id, so move its worker, its pending
           // queue, and its flight onto the id-based key in one synchronous
@@ -1053,11 +1111,12 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         try {
           await api.stream(
             `${base}/conversations/${streamConvId}/messages`,
+            // No thinking level here: the message goes at the conversation's
+            // own, which the composer sets on the conversation itself.
             {
               message: msg,
               attachmentIds: attachments.map((a) => a.id),
               modelId: opts?.modelId ?? null,
-              effort: opts?.effort ?? null,
             },
             (event, data) => {
               if (event === "user") {
@@ -1685,6 +1744,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       deleteConversation,
       archiveConversation,
       unarchiveConversation,
+      setConversationEffort,
       loadArchived,
       send,
       removeQueuedMessage,
@@ -1704,6 +1764,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       deleteConversation,
       archiveConversation,
       unarchiveConversation,
+      setConversationEffort,
       loadArchived,
       send,
       removeQueuedMessage,
@@ -1717,6 +1778,19 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   const value = React.useMemo<ChatSessionsCtx>(() => ({ sessions, actions }), [sessions, actions]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** The list with one thread's thinking level set; the same array when it isn't there. */
+export function withConversationEffort(
+  list: ConversationSummary[],
+  convId: string,
+  effort: ModelEffort | null,
+): ConversationSummary[] {
+  const index = list.findIndex((conversation) => conversation.id === convId);
+  if (index === -1 || (list[index].effort ?? null) === effort) return list;
+  const next = [...list];
+  next[index] = { ...list[index], effort };
+  return next;
 }
 
 /**
@@ -1735,6 +1809,7 @@ function withRefreshedSummary(
     current.title === fresh.title &&
     current.lastModelId === fresh.lastModelId &&
     current.lastEffort === fresh.lastEffort &&
+    (current.effort ?? null) === (fresh.effort ?? null) &&
     current.updatedAt === fresh.updatedAt &&
     current.lastMessageAt === fresh.lastMessageAt &&
     current.archivedAt === fresh.archivedAt &&

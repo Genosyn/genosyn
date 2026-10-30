@@ -1,5 +1,3 @@
-import type { ModelEffort } from "../../shared/modelEffort";
-
 /**
  * Which AI Model the dedicated employee-chat composer shows for the thread the
  * human is currently looking at.
@@ -60,47 +58,4 @@ export function resolveComposerModelId(args: {
 export function connectedModelId(models: ComposerModelOption[], id: string | null): string | null {
   if (!id) return null;
   return models.some((model) => model.id === id) ? id : null;
-}
-
-export type ComposerEffortOverride = {
-  /** Thread the human picked this effort on; null for a not-yet-created thread. */
-  convId: string | null;
-  /** The model it was picked for. An effort is a setting of one model. */
-  modelId: string;
-  /** Null is an explicit Model default, which outranks the thread's own effort. */
-  effort: ModelEffort | null;
-};
-
-/**
- * Which effort the composer shows for the model the next message goes to; null
- * is that model's default.
- *
- * The model's rule again: a past thread reopens at the effort its last turn
- * used (`ConversationSummary.lastEffort`), so a conversation that was thinking
- * hard does not quietly drop back to the default. That effort belongs to the
- * thread's own model, so it applies only while the composer is on that model,
- * and only while the model still supports it. A hand-picked effort speaks only
- * for the thread and model it was picked on.
- */
-export function resolveComposerEffort(args: {
-  /** The model the next message goes to; null when there is none. */
-  modelId: string | null;
-  /** Efforts that model supports. Empty means it only runs at its default. */
-  effortLevels: readonly ModelEffort[];
-  /** Thread being viewed; null before the first conversation exists. */
-  activeConvId: string | null;
-  /** The model this thread last ran a turn on, and the effort that turn used. */
-  threadModelId: string | null;
-  threadEffort: ModelEffort | null;
-  /** The human's hand-picked effort, scoped to the thread and model it was picked on. */
-  override: ComposerEffortOverride | null;
-}): ModelEffort | null {
-  const { modelId, effortLevels, activeConvId, threadModelId, threadEffort, override } = args;
-  if (!modelId) return null;
-  const supported = (effort: ModelEffort | null) =>
-    effort !== null && effortLevels.includes(effort) ? effort : null;
-  if (override && override.convId === activeConvId && override.modelId === modelId) {
-    return supported(override.effort);
-  }
-  return threadModelId === modelId ? supported(threadEffort) : null;
 }

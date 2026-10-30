@@ -114,8 +114,26 @@ function chatRoutes(options: { held?: ReturnType<typeof gate> } = {}): ApiRoute[
           isActive: true,
           connectedAt: hoursAgo(100),
           name: "Claude",
+          // Thinks only when asked; the company allows up to High.
+          thinking: {
+            levels: ["none", "low", "medium", "high", "xhigh", "max"],
+            nativeDefault: "none",
+            defaultLevel: null,
+            ceiling: "high",
+            unavailableReason: null,
+          },
         },
       ],
+    ],
+    [
+      "PUT",
+      /^\/api\/companies\/company\/employees\/alex\/conversations\/([^/]+)\/thinking$/,
+      ({ match, body }) => {
+        const thread = threads.find((t) => t.id === match[1]);
+        if (!thread) return { error: "Not found" };
+        thread.effort = (body.effort as ConversationSummary["effort"]) ?? null;
+        return thread;
+      },
     ],
     ["GET", /^\/api\/companies\/company\/member-browsers\/for-employee\/[^/]+$/, () => []],
     [
@@ -133,6 +151,9 @@ function chatRoutes(options: { held?: ReturnType<typeof gate> } = {}): ApiRoute[
           options.held ? "I had started on the renewal terms" : "On it.",
           options.held ? "interrupted" : "ok",
         );
+        // The reply records the level its thread ran it at.
+        const effort = threads.find((t) => t.id === id)?.effort ?? null;
+        reply.thinking = { level: effort ?? "none", requested: effort, adjusted: null };
         sent.push(reply);
         return sse([
           ["user", user],
@@ -268,6 +289,53 @@ await app.check(
     await waitForFocus(composer(page), "the cursor is back in the box for a correction");
     await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
     assert.equal(view.clicks(), 1);
+    await page.close();
+  },
+);
+
+// ───────────────────────────── Thinking level ─────────────────────────────
+
+await app.check(
+  "the thinking level is always on show and changes in two clicks, unavailable levels explained",
+  async () => {
+    const view = await app.open({ path: "/c/acme/employees/alex/chat", routes: chatRoutes() });
+    const { page } = view;
+    await waitForFocus(composer(page));
+    // The model thinks only when asked, so Default reads Off — never a guess.
+    const button = page.getByRole("button", { name: /^Thinking level: Off \(default\)\./ });
+    await button.waitFor();
+    await view.click(button);
+    const menu = page.getByRole("group", { name: "Thinking level" });
+    await menu.waitFor();
+    await menu.getByText("The AI Model's own setting").waitFor();
+    // Over the company's ceiling: listed, greyed out, and said why.
+    for (const level of ["Extra high", "Max"]) {
+      const row = menu.getByRole("menuitemradio", { name: new RegExp(`^${level}`) });
+      assert.equal(await row.isDisabled(), true, `${level} is unavailable`);
+    }
+    assert.equal(
+      await menu.getByText("Your company allows up to High on this AI Model.").count(),
+      2,
+    );
+    await view.click(menu.getByRole("menuitemradio", { name: /^High/ }));
+    await page.getByRole("button", { name: /^Thinking level: High\./ }).waitFor();
+    const write = await view.waitForWrite((w) => w.path.endsWith("/thinking"));
+    assert.equal(write.path, "/api/companies/company/employees/alex/conversations/thread-renewal/thinking");
+    assert.deepEqual(write.body, { effort: "high" });
+    assert.equal(view.clicks(), 2, "open the menu, pick the level");
+
+    // The next reply says, quietly, the level it ran at.
+    await composer(page).click();
+    await page.keyboard.type("Compare the two quotes");
+    await page.keyboard.press("Enter");
+    await page.getByText("On it.", { exact: true }).waitFor();
+    await page.getByText("Thinking: High", { exact: true }).waitFor();
+    // The level stuck to the thread: the message carried none of its own.
+    assert.equal(
+      Object.hasOwn(view.writes.filter((w) => w.path.endsWith("/messages")).at(-1)!.body, "effort"),
+      false,
+    );
+    await noSidewaysScroll(page, "chat with the thinking menu used");
     await page.close();
   },
 );
