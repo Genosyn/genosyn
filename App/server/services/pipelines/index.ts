@@ -302,6 +302,11 @@ async function tickPipelines(): Promise<void> {
   }
 }
 
+/** One heartbeat pass — the stale-run sweep and the due schedules. A seam for tests. */
+export async function runPipelineHeartbeatPass(): Promise<void> {
+  await tickPipelines();
+}
+
 export async function bootPipelineCron(): Promise<void> {
   // Boot sweep: fill in nextRunAt for any enabled+scheduled row missing one.
   const repo = AppDataSource.getRepository(Pipeline);
