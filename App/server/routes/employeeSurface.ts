@@ -33,7 +33,11 @@ import {
   interruptDurableChatTurn,
   retryDurableChatTurn,
 } from "../services/durableChatTurns.js";
-import { supportsModelEffort } from "../services/modelEffort.js";
+import {
+  chatTurnThinking,
+  conversationEffortForMessage,
+  setConversationEffort,
+} from "../services/chatThinking.js";
 import { resolveChatModel } from "../services/models.js";
 import {
   attachmentsForMessages,
@@ -151,8 +155,12 @@ const conversationListQuerySchema = z.object({
   archived: z.enum(["0", "1"]).optional().default("0"),
   surface: conversationSurfaceSchema.optional().default("web"),
 });
+/** A conversation's thinking level: how hard the AI Model thinks; null is Default. */
+const conversationEffortSchema = z.enum(MODEL_EFFORT_VALUES).nullable();
 const createConversationSchema = z.object({
   surface: conversationSurfaceSchema.optional().default("web"),
+  /** The thinking level the new conversation starts at; omitted is Default. */
+  effort: conversationEffortSchema.optional(),
 });
 
 employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
@@ -200,9 +208,46 @@ employeeSurfaceRouter.post(
       ownerUserId: req.userId!,
       title: null,
       source: body.surface as ConversationSource,
+      effort: body.effort ?? null,
     });
     await repo.save(conv);
     res.json(serializeConversation(conv));
+  },
+);
+
+const conversationParamsSchema = z.object({
+  cid: z.string().min(1),
+  eid: z.string().min(1),
+  convId: z.string().min(1),
+});
+const conversationThinkingSchema = z.object({ effort: conversationEffortSchema }).strict();
+
+/**
+ * Set how hard the AI Model thinks in this conversation — its thinking level,
+ * or null for Default (the AI Model's default for chat). It sticks to the
+ * conversation, across AI Models: each message resolves it against the model
+ * it runs on, moving to the nearest level that model offers and the company
+ * allows, and the reply records the level it ran at. Only the conversation's
+ * owner sets it, from a signed-in browser, like sending to it. A level changes
+ * how hard the model thinks, never what the turn may do.
+ */
+employeeSurfaceRouter.put(
+  "/:eid/conversations/:convId/thinking",
+  validateParams(conversationParamsSchema),
+  validateBody(conversationThinkingSchema),
+  async (req, res) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const { effort } = req.body as z.infer<typeof conversationThinkingSchema>;
+    const conv = await setConversationEffort({
+      conversationId: convId,
+      employeeId: eid,
+      ownerUserId: req.userId!,
+      effort,
+    });
+    if (!conv) return res.status(404).json({ error: "Not found" });
+    res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelChoice(eid, conv.id)));
   },
 );
 
@@ -415,8 +460,11 @@ const sendSchema = z.object({
   message: z.string().max(8000).default(""),
   attachmentIds: z.array(z.string().uuid()).max(20).optional().default([]),
   modelId: z.string().uuid().nullable().optional().default(null),
-  /** How hard the selected AI Model thinks for this turn; null keeps its default. */
-  effort: z.enum(MODEL_EFFORT_VALUES).nullable().optional().default(null),
+  /**
+   * The conversation's thinking level, set by this message (null is Default).
+   * Omitted, the message goes at the level the conversation already has.
+   */
+  effort: conversationEffortSchema.optional(),
 });
 
 /**
@@ -516,17 +564,17 @@ employeeSurfaceRouter.post(
         writeEvent("done", {});
         return res.end();
       }
-      // An effort is a setting of one model, so it is checked against the
-      // model this turn will run on. Refused rather than dropped: a Member who
-      // asked for more thinking must not silently get the default.
-      if (body.effort && !(selectedModel && supportsModelEffort(selectedModel, body.effort))) {
-        writeEvent("error", {
-          message:
-            "The selected AI Model does not support this effort. Choose another effort or Model default, then send the message again.",
-        });
-        writeEvent("done", {});
-        return res.end();
-      }
+      // The conversation's thinking level, resolved against the model this
+      // turn runs on: the nearest level it offers, within the company's
+      // ceiling. Moved rather than refused, and never silently — the composer
+      // showed the same result, and the reply records it.
+      const requestedEffort = await conversationEffortForMessage({
+        conversationId: convId,
+        employeeId: eid,
+        ownerUserId: req.userId!,
+        effort: body.effort,
+      });
+      const { effort, thinking } = chatTurnThinking(selectedModel, requestedEffort);
 
       // User row, input attachments, durable assistant job and conversation
       // timestamp commit together. Once this returns, browser loss and process
@@ -538,13 +586,14 @@ employeeSurfaceRouter.post(
         message: body.message,
         attachmentIds: body.attachmentIds,
         modelId: selectedModel?.id ?? null,
-        effort: body.effort,
+        effort,
+        thinking,
         requesterUserId: req.userId!,
         requesterSessionVersion: req.session!.sessionVersion!,
       });
       acceptedTurn = true;
-      // The accepted turn is now this thread's newest one, so its model and
-      // effort are what the composer must reopen on. Resolved once here because
+      // The accepted turn is now this thread's newest one, so its model is
+      // what the composer must reopen on. Resolved once here because
       // `onFinal` is synchronous and executing the turn never changes the
       // persisted choice.
       const threadChoice = await lastChatModelChoice(eid, enqueued.conversation.id);

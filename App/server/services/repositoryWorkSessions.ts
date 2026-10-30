@@ -13,7 +13,8 @@ import {
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee, type ChatTurn } from "./chat.js";
 import { requireWorkSessionModel } from "./repositoryWorkSessionModels.js";
-import { requireModelEffort } from "./modelEffort.js";
+import { requireAllowedEffort, requireModelEffort } from "./modelEffort.js";
+import { chatTurnThinking } from "./chatThinking.js";
 import type { ModelEffort } from "../../shared/modelEffort.js";
 import { hasRepositoryAccess } from "./repositories.js";
 import {
@@ -506,7 +507,7 @@ export async function createRepositoryWorkSession(
     throw new Error("Employee-started work sessions accept instructions, not Member attachments.");
   }
   const model = await requireWorkSessionModel(employee, args.modelId);
-  const effort = requireModelEffort(model, args.effort);
+  const effort = requireAllowedEffort(model, args.effort);
   const instruction = validateWorkSessionInstruction(args);
   const { session, turn } = await withSerializedTransaction(async (manager) => {
     const sessionRepo = manager.getRepository(RepositoryWorkSession);
@@ -824,7 +825,10 @@ export async function runRepositoryWorkSession(
       prepared.toolAuthority === "employee" ? "write" : "read",
     );
     const model = await requireWorkSessionModel(employee, session.modelId);
-    const effort = requireModelEffort(model, session.effort);
+    requireModelEffort(model, session.effort);
+    // Default takes the model's default for chat; a level over a ceiling set
+    // since the session started is held to it.
+    const { effort } = chatTurnThinking(model, session.effort);
     await ensureRepositoryWorkspace(repo);
     // Always before work starts, never after: `ensureRepositoryWorkspace` has
     // just refreshed `origin/*`, and this is what turns that fetch into a

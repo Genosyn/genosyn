@@ -1,5 +1,6 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 
 export type Provider = "anthropic" | "openai" | "custom";
 export type AuthMode = "apikey" | "subscription" | "customEndpoint";
@@ -117,6 +118,34 @@ export class AIModel {
    */
   @Column({ type: "integer", nullable: true })
   maxConcurrentRuns!: number | null;
+
+  /**
+   * The thinking level chat on this model starts at when a conversation is
+   * left on Default — one of the levels the model offers
+   * (`services/modelEffort.ts`). Null leaves the model at its own default.
+   * Set by owners and admins at Settings → AI Models; it applies to chat,
+   * Help and Repository work sessions, never to Routines.
+   */
+  @Column({ type: "varchar", nullable: true })
+  defaultEffort!: ModelEffort | null;
+
+  /**
+   * The highest thinking level a Member may choose on this model, for cost.
+   * Null is no limit. A conversation set higher runs at this level, and says
+   * so; Default on a model whose own default is higher is held to it too.
+   */
+  @Column({ type: "varchar", nullable: true })
+  effortCeiling!: ModelEffort | null;
+
+  /**
+   * A custom endpoint whose owners turned on thinking levels: chat may then
+   * send `reasoning_effort` (Off, Low, Medium, High), which servers such as
+   * vLLM and Ollama honour for some models. Off by default, because a
+   * compatible API says nothing about whether the server reads the field.
+   * Ignored on every other kind of model.
+   */
+  @Column({ type: "boolean", default: false })
+  customThinkingLevels!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;

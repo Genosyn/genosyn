@@ -275,14 +275,15 @@ export function Repositories() {
           <DocLink to="/docs/models#multiple-models">active model</DocLink>.
         </LI>
         <LI>
-          Choose <Strong>Effort</Strong> to control how much work the selected AI Model puts into
-          each response. This control appears for models that support it, including when the
-          employee has only one model, and lists only that model&apos;s supported choices. Higher
-          effort can take more time and tokens. <Strong>Model default</Strong> uses the AI
-          Model&apos;s normal setting. The effort you choose stays with the session for every
-          follow-up and appears in its header. Changing the employee or AI Model resets the choice
-          to Model default. Custom endpoints and models without known effort support use their
-          normal setting.
+          Choose a <Strong>Thinking level</Strong> to control how hard the selected AI Model thinks
+          before each response. This control appears for models that offer levels, including when
+          the employee has only one model, and lists only that model&apos;s levels; levels above the
+          highest your company allows on the model are greyed out. Higher levels can take more time
+          and tokens. <Strong>Default</Strong> — shown with the level it means, such as{" "}
+          <em>Default (Medium)</em> — uses the model&apos;s default for chat and work sessions. The
+          level you choose stays with the session for every follow-up and appears in its header.
+          Changing the employee or AI Model resets the choice to Default. See{" "}
+          <DocLink to="/docs/models#thinking-level">Thinking levels</DocLink>.
         </LI>
         <LI>
           Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}

@@ -1,5 +1,6 @@
 import type { AIModel, AuthMode, Company, Provider } from "./api";
 import { apiKeyConnectionLine, apiKeyNotes } from "./modelApiKeys";
+import { thinkingTuningNotes } from "./thinkingLevel";
 
 /**
  * How an AI Model is described to a Member.
@@ -126,11 +127,20 @@ export function tuningNotes(
     AIModel,
     "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
   > &
-    Partial<Pick<AIModel, "provider" | "apiKeys">>,
+    Partial<Pick<AIModel, "provider" | "apiKeys" | "thinking" | "customThinkingLevels">>,
 ): string[] {
-  // A ChatGPT sign-in has neither control, and an unconnected model has no
-  // settings worth reporting yet.
-  if (model.status !== "connected" || model.authMode === "subscription") return [];
+  // An unconnected model has no settings worth reporting yet.
+  if (model.status !== "connected") return [];
+  // A thinking level moved off its default, on any kind of model.
+  const thinking = model.thinking
+    ? thinkingTuningNotes({
+        authMode: model.authMode,
+        thinking: model.thinking,
+        customThinkingLevels: model.customThinkingLevels ?? false,
+      })
+    : [];
+  // A ChatGPT sign-in has no context window or Run limit control.
+  if (model.authMode === "subscription") return thinking;
   // The keys sessions are spread across, and any the provider is refusing,
   // come first: a dead key is the one thing in here an owner should not have
   // to go looking for.
@@ -140,7 +150,7 @@ export function tuningNotes(
     notes.push("Context window unknown");
   }
   if (model.maxConcurrentRuns !== null) notes.push(runLimitNote(model.maxConcurrentRuns));
-  return notes;
+  return [...notes, ...thinking];
 }
 
 /**
@@ -169,7 +179,7 @@ export function modelAdvancedSummary(
     AIModel,
     "authMode" | "status" | "contextWindow" | "contextWindowSource" | "maxConcurrentRuns"
   > &
-    Partial<Pick<AIModel, "provider" | "apiKeys">>,
+    Partial<Pick<AIModel, "provider" | "apiKeys" | "thinking" | "customThinkingLevels">>,
 ): string {
   const notes = tuningNotes(model);
   return notes.length > 0 ? notes.join(" · ") : modelAdvancedHint(model);

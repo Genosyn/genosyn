@@ -18,6 +18,7 @@ import { OpenCodeEvents, openCodeActivityError, providerErrorDetail } from "./op
 import { openCodeToolNames, serveOpenCodeTools } from "./opencodeMcp.js";
 import { runOpenCodeSession, type OpenCodeTurnParams } from "./opencodeRuntime.js";
 import { endOnUserTurn, serveOpenCodeModel } from "./opencodeProxy.js";
+import { ADAPTIVE_THINKING_OUTPUT_LIMIT, openCodeThinking } from "./thinkingParams.js";
 import { openCodeModelLimits } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
@@ -108,34 +109,53 @@ test("unlimited turns omit OpenCode's native step ceiling", () => {
   assert.equal(cfg.compaction?.auto, true);
 });
 
-test("provider mapping preserves Responses, Anthropic effort and endpoint model IDs", () => {
-  for (const provider of ["openai", "anthropic"] as const) {
+test("provider mapping preserves Responses, Anthropic thinking and endpoint model IDs", () => {
+  for (const [provider, id] of [
+    ["openai", "gpt-5.5"],
+    ["anthropic", "claude-opus-4-7"],
+  ] as const) {
     const cfg = buildOpenCodeConfig({
-      model: { ...model, provider, id: "company/model" },
-      effort: "high",
+      model: { ...model, provider, id, contextWindow: 200_000 },
+      thinking: openCodeThinking({ provider, model: id }, "high"),
       maxSteps: 4,
       nativeCoding: false,
       mcp: { url: "http://localhost/mcp", token: "secret" },
     });
     const mapped = cfg.provider?.[provider === "openai" ? "openai" : "genosyn-model"];
     assert.equal(mapped?.npm, `@ai-sdk/${provider}`);
-    assert.equal(mapped?.models?.["company/model"].id, "company/model");
-    if (provider === "openai") assert.equal(mapped?.models?.["company/model"].limit, undefined);
-    assert.deepEqual(
-      mapped?.models?.["company/model"].options,
-      provider === "openai" ? { store: false, reasoningEffort: "high" } : { effort: "high" },
-    );
-  }
-  assert.throws(
-    () =>
-      buildOpenCodeConfig({
-        model,
+    assert.equal(mapped?.models?.[id].id, id);
+    if (provider === "openai") {
+      assert.equal(mapped?.models?.[id].limit, undefined);
+      assert.deepEqual(mapped?.models?.[id].options, {
+        store: false,
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+      });
+    } else {
+      assert.deepEqual(mapped?.models?.[id].options, {
+        thinking: { type: "adaptive", display: "summarized" },
         effort: "high",
-        maxSteps: 1,
-        nativeCoding: false,
-        mcp: { url: "", token: "" },
-      }),
-    /default effort/,
+      });
+      // Thinking counts against max_tokens, so an adaptive level gets room.
+      assert.deepEqual(mapped?.models?.[id].limit, {
+        context: 200_000,
+        output: ADAPTIVE_THINKING_OUTPUT_LIMIT,
+      });
+    }
+  }
+  // A turn at the model's own default sends no thinking options and keeps 8K.
+  const plain = buildOpenCodeConfig({
+    model: { ...model, provider: "anthropic", id: "claude-opus-4-7", contextWindow: 200_000 },
+    maxSteps: 4,
+    nativeCoding: false,
+    mcp: { url: "http://localhost/mcp", token: "secret" },
+  }).provider?.["genosyn-model"].models?.["claude-opus-4-7"];
+  assert.deepEqual(plain?.options, {});
+  assert.deepEqual(plain?.limit, { context: 200_000, output: 8192 });
+  // A level for a model Genosyn cannot send one to is refused, never dropped.
+  assert.throws(
+    () => openCodeThinking({ provider: "custom", model: "fixture" }, "high"),
+    /doesn't offer thinking levels/,
   );
 });
 

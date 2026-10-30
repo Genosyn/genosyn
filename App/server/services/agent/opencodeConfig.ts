@@ -4,7 +4,7 @@ import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { readApiKeys } from "../modelApiKeys.js";
 import { apiKeyRingFor, type ApiKeyRing } from "./apiKeyRing.js";
-import type { ModelEffort } from "../../../shared/modelEffort.js";
+import type { OpenCodeThinking } from "./thinkingParams.js";
 import type { AgentMessage } from "./types.js";
 
 export const OPENCODE_PROVIDER = "genosyn-model";
@@ -145,19 +145,17 @@ export function openCodePermissions(
 
 export function buildOpenCodeConfig(args: {
   model: OpenCodeModel;
-  effort?: ModelEffort | null;
+  /**
+   * The turn's thinking level as this model's options, from
+   * `openCodeThinking` (`thinkingParams.ts`). Omitted: the model's own default.
+   */
+  thinking?: OpenCodeThinking;
   maxSteps: number | null;
   nativeCoding: boolean;
   mcp: { url: string; token: string };
 }): Config {
-  const { model, effort, nativeCoding } = args;
-  if (effort === "ultra")
-    throw new Error("Ultra effort requires a supported ChatGPT subscription AI Model.");
-  if (model.provider === "custom" && effort != null)
-    throw new Error("Custom AI Models use their default effort.");
-  if (model.provider === "anthropic" && (effort === "none" || effort === "minimal")) {
-    throw new Error("The selected effort is not supported by this Anthropic AI Model.");
-  }
+  const { model, nativeCoding } = args;
+  const thinking = args.thinking ?? { options: {} };
   const providerId = openCodeProviderId(model.provider);
   const modelRef = `${providerId}/${model.id}`;
   const outputLimit =
@@ -165,13 +163,11 @@ export function buildOpenCodeConfig(args: {
       ? 4096
       : model.provider === "custom" && model.contextWindow
         ? CUSTOM_MODEL_OUTPUT_LIMIT
-        : 8192;
-  const options =
-    model.provider === "openai"
-      ? { store: false, ...(effort ? { reasoningEffort: effort } : {}) }
-      : model.provider === "anthropic" && effort
-        ? { effort }
-        : {};
+        : Math.max(8192, thinking.outputLimit ?? 0);
+  const options = {
+    ...(model.provider === "openai" ? { store: false } : {}),
+    ...thinking.options,
+  };
   return {
     logLevel: "ERROR",
     share: "disabled",
