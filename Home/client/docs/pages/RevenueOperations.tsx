@@ -59,6 +59,13 @@ export function RevenueOperations() {
         are saved as the moment you picked in your own time zone.
       </P>
       <P>
+        A follow-up task saved without a due date is still work to pick up, so the queue lists it
+        after every dated row, oldest first, marked <Strong>No due date</Strong>. The{" "}
+        <Strong>No due date</Strong> filter shows them alone or leaves them out; Overdue, Today,
+        Upcoming and any due-date range leave them out on their own, since an undated task is never
+        due in a window.
+      </P>
+      <P>
         Filter by arbitrary assignee or unassigned, priority, resource type and ID, status, due-date
         range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel, reassign,
         reprioritize, or reschedule them together. For filter-wide dry runs and rollback, use{" "}
@@ -183,6 +190,14 @@ export function RevenueOperations() {
         relationship; Activities is the audit and cleanup surface.
       </P>
       <P>
+        One export file holds at most 10,000 activities, newest first. When more match, the{" "}
+        <Code>X-Export-Next-Cursor</Code> response header carries on: send it back as{" "}
+        <Code>cursor</Code> with the same filters for the next file, which starts after the last
+        activity of the one before, so activities logged meanwhile never shift it. An AI Employee
+        exports the same way in smaller parts, each one a CSV with its header row that fits what it
+        can read and attach.
+      </P>
+      <P>
         Notes, calls, meetings, and task activities can be corrected or deleted. Mail, Deal Stage,
         Sequence, suppression, and Signal activities are immutable because reports and compliance
         use them as evidence of what the system did. Correcting a manual activity recalculates the
@@ -200,6 +215,11 @@ export function RevenueOperations() {
         Add multiple Revenue contacts, choose one primary contact, and mark every address that
         belongs on Reply-All. Those explicit rules stop a partner conversation from silently
         dropping the technical, channel, or commercial stakeholder.
+      </P>
+      <P>
+        The list puts the soonest follow-up first and partnerships with none last. An archived
+        partnership is not a status: it is hidden until you include archived records, which an AI
+        Employee does too, and it can filter partnerships by a custom field like any other record.
       </P>
 
       <H2 id="imports">Base and file migration</H2>
@@ -282,6 +302,15 @@ export function RevenueOperations() {
         duplicate, domain, commercial-value, and Gmail document evidence; export native and
         immutable Revenue datasets; and preview, run, reconcile, attach, or roll back Base, CSV,
         JSON, NDJSON, linked, and historical Deal migrations.
+      </P>
+      <P>
+        Long lists reach every row. Listing or searching contacts answers a page at a time with
+        the total and a cursor to the next page, in the contact list&apos;s own order (most
+        recently touched first, never-touched last); logging an activity between pages moves a
+        contact to the top without making the employee skip anyone else. The follow-up queue
+        includes tasks with no due date, the activity export continues past 10,000 rows, and a
+        custom-field filter matching thousands of records is answered by the database rather than
+        a list of every match.
       </P>
       <UL>
         <LI>
