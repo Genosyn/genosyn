@@ -601,7 +601,18 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       label: "Insights",
       path: "/revenue",
       icon: BarChart3,
-      keywords: ["revenue reports", "metrics", "forecast", "mrr"],
+      keywords: [
+        "revenue reports",
+        "metrics",
+        "forecast",
+        "mrr",
+        // The page is the Revenue dashboard; "revenue dashboard" is the
+        // phrase the palette must answer to for the section row to appear.
+        "dashboard",
+        "dashboards",
+        "revenue dashboard",
+        "revenue dashboards",
+      ],
     },
     {
       label: "Follow-ups",

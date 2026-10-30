@@ -368,7 +368,9 @@ export function Revenue() {
 
       <H2 id="insights">Insights</H2>
       <P>
-        <Code>Revenue → Insights</Code> reports over a period you choose, defaulting to the trailing
+        <Code>Revenue → Insights</Code> is the section&apos;s dashboard; typing{" "}
+        <Code>revenue dashboard</Code> in <Code>⌘K</Code> opens it. It reports over a period you
+        choose, defaulting to the trailing
         twelve months. Recurring revenue: <Strong>MRR movement</Strong> split into new, expansion,
         contraction, churn and reactivation (the waterfall is guaranteed to add up),{" "}
         <Strong>ARR</Strong>, and <Strong>NRR / GRR</Strong> retention. Pipeline:{" "}

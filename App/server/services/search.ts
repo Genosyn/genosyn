@@ -12,6 +12,7 @@ import { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
+import { Product } from "../db/entities/Product.js";
 import { RecruitingApplication } from "../db/entities/RecruitingApplication.js";
 import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
 import { Project } from "../db/entities/Project.js";
@@ -29,6 +30,8 @@ import {
 import type { Token } from "./likeSearch.js";
 import { canOpenProductReference, searchChatProductReferences } from "./chatReferences.js";
 import { listAccessibleProjectIds } from "./projects.js";
+import { financeProductPath } from "../../shared/financeProducts.js";
+import { KIND_MATCH_SCORE, matchKindToken } from "../../shared/searchKinds.js";
 
 /**
  * Company-wide quick search — the data source behind the ⌘K palette's
@@ -66,7 +69,9 @@ export type SearchResultKind =
   /** A customer row opened as its Revenue account — see {@link ACCOUNT_SPEC}. */
   | "account"
   | "opening"
-  | "applicant";
+  | "applicant"
+  /** A row from Finance → Products & services, opened filtered to its name. */
+  | "catalogProduct";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;
@@ -169,6 +174,7 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     kind: "base",
     entity: Base,
     nameCol: "name",
+    secondaryCols: ["t.description"],
     path: (r) => `/bases/${r.slug}`,
     sublabel: (r) => r.description || null,
   },
@@ -192,6 +198,7 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     kind: "chart",
     entity: Chart,
     nameCol: "title",
+    secondaryCols: ["t.description"],
     hasUpdatedAt: true,
     path: (r) => `/explore/charts/${r.slug}`,
     sublabel: (r) => r.description || null,
@@ -200,6 +207,7 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     kind: "dashboard",
     entity: Dashboard,
     nameCol: "title",
+    secondaryCols: ["t.description"],
     hasUpdatedAt: true,
     path: (r) => `/explore/dashboards/${r.slug}`,
     sublabel: (r) => r.description || null,
@@ -208,6 +216,7 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     kind: "repository",
     entity: Repository,
     nameCol: "name",
+    secondaryCols: ["t.description"],
     hasUpdatedAt: true,
     path: (r) => `/repositories/${r.slug}`,
     sublabel: (r) => r.gitUrl || null,
@@ -216,6 +225,7 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     kind: "pipeline",
     entity: Pipeline,
     nameCol: "name",
+    secondaryCols: ["t.description"],
     hasUpdatedAt: true,
     path: (r) => `/pipelines/${r.slug}`,
     sublabel: (r) => r.description || null,
@@ -237,12 +247,13 @@ const SIMPLE_SPECS: SimpleSpec[] = [
  * inside the same fetch window every kind uses.
  */
 async function searchApplicants(ctx: Ctx): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, "applicant");
   let qb = AppDataSource.getRepository(RecruitingApplication)
     .createQueryBuilder("a")
     .select(["a.id", "a.candidateName", "a.candidateEmail", "a.stage", "a.updatedAt"])
     .where("a.companyId = :cid", { cid: ctx.companyId });
-  qb = andWhereTokens(qb, ["a.candidateName", "a.candidateEmail"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "a.candidateName", ctx.q, "a.updatedAt");
+  qb = andWhereTokens(qb, ["a.candidateName", "a.candidateEmail"], tokens);
+  qb = orderByPrefixFirst(qb, "a.candidateName", q, "a.updatedAt");
   const rows = await qb.getMany();
   return rows.map((row) => ({
     kind: "applicant" as const,
@@ -250,7 +261,7 @@ async function searchApplicants(ctx: Ctx): Promise<Scored[]> {
     label: row.candidateName,
     sublabel: row.candidateEmail,
     path: `/recruiting/applicants/${row.id}`,
-    score: scoreLabel(row.candidateName, ctx.q, ctx.tokens),
+    score: scoreKindLabel(row.candidateName, q, tokens),
     updatedAt: row.updatedAt,
   }));
 }
@@ -290,20 +301,70 @@ const ACCOUNT_SPEC: SimpleSpec = {
   sublabel: (r) => r.domain || r.industry || null,
 };
 
+/**
+ * A Finance product is a reusable line item, not a product area. It opens the
+ * catalogue at `?q=<its name>`, where the same word rules filter the table, so
+ * a search hit lands on the row instead of somewhere to hunt for it.
+ *
+ * Only offered when Finance access is not None: the catalogue is served by the
+ * finance routes, and a result that can only answer 403 is not a result.
+ */
+const PRODUCT_SPEC: SimpleSpec = {
+  kind: "catalogProduct",
+  entity: Product,
+  nameCol: "name",
+  secondaryCols: ["t.description"],
+  softDeletes: true,
+  hasUpdatedAt: true,
+  path: (r) => financeProductPath(r.name),
+  sublabel: (r) => r.description || null,
+};
+
+/** A query made only of a kind word is a request for that kind, not a title. */
+const KIND_ONLY_SCORE = KIND_MATCH_SCORE.exact;
+
+/**
+ * Split a query into the words that must appear in the row and the words that
+ * name the row's kind. "revenue dashboard" asks for a Dashboard whose title
+ * says revenue, not for a title containing both words; "revenue quarterly"
+ * still requires both. A kind word works in the singular, the plural, its
+ * synonyms, and as far as the person has typed it ("revenue dash"), because
+ * the table of kind words is shared with the rest of search
+ * (`shared/searchKinds.ts`). A query made only of kind words keeps its raw
+ * text for ordering and scoring, so a row named for the kind still leads.
+ */
+function splitKindTokens(
+  ctx: Ctx,
+  kind: SearchResultKind,
+): { tokens: Token[]; q: string } {
+  const kept = ctx.tokens.filter((token) => matchKindToken(kind, token.lo) === null);
+  // A kind-only query keeps its raw words for ordering and scoring: a row
+  // literally called "Dashboard" should lead the dashboards, not fall back to
+  // recency just because the qualifier was also the whole query.
+  return { tokens: kept, q: kept.length ? kept.map((token) => token.lo).join(" ") : ctx.q };
+}
+
+/**
+ * Rank a title on the words that survived the kind split. A kind-only query
+ * still ranks a row whose title carries the word ("Dashboard") above the rest,
+ * which fall back to {@link KIND_ONLY_SCORE} rather than to a description hit.
+ */
+function scoreKindLabel(label: string, q: string, tokens: Token[]): number {
+  const score = scoreLabel(label, q, tokens);
+  return tokens.length ? score : Math.max(KIND_ONLY_SCORE, score);
+}
+
 async function searchSimple(ctx: Ctx, spec: SimpleSpec): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, spec.kind);
   let qb = AppDataSource.getRepository(spec.entity)
     .createQueryBuilder("t")
     .where("t.companyId = :cid", { cid: ctx.companyId });
   if (spec.softDeletes) qb = qb.andWhere("t.archivedAt IS NULL");
-  qb = andWhereTokens(
-    qb,
-    [`t.${spec.nameCol}`, ...(spec.secondaryCols ?? [])],
-    ctx.tokens,
-  );
+  qb = andWhereTokens(qb, [`t.${spec.nameCol}`, ...(spec.secondaryCols ?? [])], tokens);
   qb = orderByPrefixFirst(
     qb,
     `t.${spec.nameCol}`,
-    ctx.q,
+    q,
     spec.hasUpdatedAt ? "t.updatedAt" : null,
   );
   const rows: Record<string, string>[] = await qb.getMany();
@@ -313,7 +374,7 @@ async function searchSimple(ctx: Ctx, spec: SimpleSpec): Promise<Scored[]> {
     label: r[spec.nameCol],
     sublabel: spec.sublabel(r),
     path: spec.path(r),
-    score: scoreLabel(r[spec.nameCol], ctx.q, ctx.tokens),
+    score: scoreKindLabel(r[spec.nameCol], q, tokens),
     updatedAt: spec.hasUpdatedAt
       ? (r as Record<string, unknown>).updatedAt as Date
       : null,
@@ -326,12 +387,13 @@ async function searchProjects(
   accessibleIds: Set<string>,
 ): Promise<Scored[]> {
   if (accessibleIds.size === 0) return [];
+  const { tokens, q } = splitKindTokens(ctx, "project");
   let qb = AppDataSource.getRepository(Project)
     .createQueryBuilder("p")
     .where("p.companyId = :cid", { cid: ctx.companyId })
     .andWhere("p.id IN (:...pids)", { pids: [...accessibleIds] });
-  qb = andWhereTokens(qb, ["p.name", "p.key"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "p.name", ctx.q, null);
+  qb = andWhereTokens(qb, ["p.name", "p.key"], tokens);
+  qb = orderByPrefixFirst(qb, "p.name", q, null);
   const rows = await qb.getMany();
   return rows.map((p) => ({
     kind: "project" as const,
@@ -339,7 +401,7 @@ async function searchProjects(
     label: p.name,
     sublabel: p.key || null,
     path: `/tasks/p/${p.slug}`,
-    score: scoreLabel(p.name, ctx.q, ctx.tokens),
+    score: scoreKindLabel(p.name, q, tokens),
     updatedAt: null,
   }));
 }
@@ -355,14 +417,15 @@ async function searchTodos(
   accessibleIds: Set<string>,
 ): Promise<Scored[]> {
   if (accessibleIds.size === 0) return [];
+  const { tokens, q } = splitKindTokens(ctx, "todo");
   let qb = AppDataSource.getRepository(Todo)
     .createQueryBuilder("t")
     .innerJoin(Project, "p", "CAST(p.id AS text) = t.projectId")
     .where("p.companyId = :cid", { cid: ctx.companyId })
     .andWhere("t.projectId IN (:...pids)", { pids: [...accessibleIds] })
     .andWhere("t.status != 'cancelled'");
-  qb = andWhereTokens(qb, ["t.title"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "t.title", ctx.q, "t.updatedAt")
+  qb = andWhereTokens(qb, ["t.title"], tokens);
+  qb = orderByPrefixFirst(qb, "t.title", q, "t.updatedAt")
     .select("t.id", "id")
     .addSelect("t.title", "label")
     .addSelect("t.number", "number")
@@ -377,7 +440,7 @@ async function searchTodos(
     label: r.label,
     sublabel: `${r.projectKey}-${r.number} · ${r.projectName}`,
     path: `/tasks/p/${r.projectSlug}`,
-    score: scoreLabel(r.label, ctx.q, ctx.tokens),
+    score: scoreKindLabel(r.label, q, tokens),
     updatedAt: rawDate(r.updatedAt),
   }));
 }
@@ -387,12 +450,13 @@ async function searchEmployeeChildren(
   ctx: Ctx,
   kind: "skill" | "routine",
 ): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, kind);
   let qb = AppDataSource.getRepository(kind === "skill" ? Skill : Routine)
     .createQueryBuilder("s")
     .innerJoin(AIEmployee, "e", "CAST(e.id AS text) = s.employeeId")
     .where("e.companyId = :cid", { cid: ctx.companyId });
-  qb = andWhereTokens(qb, ["s.name"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "s.name", ctx.q, null)
+  qb = andWhereTokens(qb, ["s.name"], tokens);
+  qb = orderByPrefixFirst(qb, "s.name", q, null)
     .select("s.id", "id")
     .addSelect("s.name", "label")
     .addSelect("s.slug", "slug")
@@ -405,20 +469,21 @@ async function searchEmployeeChildren(
     label: r.label,
     sublabel: r.empName || null,
     path: `/${kind === "skill" ? "skills" : "routines"}/${r.empSlug}/${r.slug}`,
-    score: scoreLabel(r.label, ctx.q, ctx.tokens),
+    score: scoreKindLabel(r.label, q, tokens),
     updatedAt: null,
   }));
 }
 
 /** Notes link through their notebook (the URL carries both slugs). */
 async function searchNotes(ctx: Ctx): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, "note");
   let qb = AppDataSource.getRepository(Note)
     .createQueryBuilder("n")
     .innerJoin(Notebook, "nb", "CAST(nb.id AS text) = n.notebookId")
     .where("n.companyId = :cid", { cid: ctx.companyId })
     .andWhere("n.archivedAt IS NULL");
-  qb = andWhereTokens(qb, ["n.title"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "n.title", ctx.q, "n.updatedAt")
+  qb = andWhereTokens(qb, ["n.title"], tokens);
+  qb = orderByPrefixFirst(qb, "n.title", q, "n.updatedAt")
     .select("n.id", "id")
     .addSelect("n.title", "label")
     .addSelect("n.slug", "slug")
@@ -432,7 +497,7 @@ async function searchNotes(ctx: Ctx): Promise<Scored[]> {
     label: r.label,
     sublabel: r.nbTitle || null,
     path: `/notes/${r.nbSlug}/${r.slug}`,
-    score: scoreLabel(r.label, ctx.q, ctx.tokens),
+    score: scoreKindLabel(r.label, q, tokens),
     updatedAt: rawDate(r.updatedAt),
   }));
 }
@@ -445,6 +510,7 @@ async function searchNotes(ctx: Ctx): Promise<Scored[]> {
  * match.
  */
 async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, "channel");
   let qb = AppDataSource.getRepository(Channel)
     .createQueryBuilder("c")
     .leftJoin(
@@ -458,8 +524,8 @@ async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
     .andWhere("c.kind != 'dm'")
     .andWhere("c.name IS NOT NULL")
     .andWhere("(c.kind = 'public' OR cm.id IS NOT NULL)");
-  qb = andWhereTokens(qb, ["c.name", "c.topic"], ctx.tokens);
-  qb = orderByPrefixFirst(qb, "c.name", ctx.q, "c.lastMessageAt")
+  qb = andWhereTokens(qb, ["c.name", "c.topic"], tokens);
+  qb = orderByPrefixFirst(qb, "c.name", q, "c.lastMessageAt")
     .select("c.id", "id")
     .addSelect("c.name", "label")
     .addSelect("c.kind", "kind")
@@ -473,7 +539,7 @@ async function searchChannels(ctx: Ctx, userId: string): Promise<Scored[]> {
     sublabel: r.topic || null,
     path: `/workspace/${r.id}`,
     // Score against the bare name — the query won't carry our # prefix.
-    score: scoreLabel(r.label, ctx.q, ctx.tokens),
+    score: scoreKindLabel(r.label, q, tokens),
     updatedAt: rawDate(r.lastMessageAt),
   }));
 }
@@ -510,6 +576,8 @@ export async function searchCompany(opts: {
   const perKind = await Promise.all([
     ...SIMPLE_SPECS.map((spec) => searchSimple(ctx, spec)),
     searchSimple(ctx, customerSpec),
+    // Products & services is a Finance page; None means no catalogue to open.
+    ...(financeAccess === "none" ? [] : [searchSimple(ctx, PRODUCT_SPEC)]),
     searchEmployeeChildren(ctx, "skill"),
     searchEmployeeChildren(ctx, "routine"),
     searchNotes(ctx),

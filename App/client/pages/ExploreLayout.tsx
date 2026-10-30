@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { BarChart3, LayoutGrid, LineChart as LineIcon, Plus, Search } from "lucide-react";
 import { api, Company } from "../lib/api";
+import { searchExploreItems } from "../lib/exploreSearch";
 import { errorMessage } from "../lib/errors";
 import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
@@ -116,14 +117,15 @@ export default function ExploreLayout({ company }: { company: Company }) {
     [charts, dashboards, error, reload, createDashboard],
   );
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return { charts: charts ?? [], dashboards: dashboards ?? [] };
-    return {
-      charts: (charts ?? []).filter((c) => c.title.toLowerCase().includes(q)),
-      dashboards: (dashboards ?? []).filter((d) => d.title.toLowerCase().includes(q)),
-    };
-  }, [charts, dashboards, query]);
+  const filtered = React.useMemo(
+    () => ({
+      // "revenue dashboard" is a name and the list it lives in, not one
+      // literal string in a title — see `searchExploreItems`.
+      charts: searchExploreItems(charts ?? [], "chart", query),
+      dashboards: searchExploreItems(dashboards ?? [], "dashboard", query),
+    }),
+    [charts, dashboards, query],
+  );
 
   const totalCount = (charts?.length ?? 0) + (dashboards?.length ?? 0);
 

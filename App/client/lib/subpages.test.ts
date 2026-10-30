@@ -513,6 +513,29 @@ describe("subpage search", () => {
     assert.equal(pages[0].page.path, "/revenue/imports");
   });
 
+  test("finds the Revenue dashboard by the phrase people call it", () => {
+    for (const query of [
+      "revenue dashboard",
+      "revenue dashboards",
+      "revenue dash",
+      "revenue dashb",
+      "dashboard revenue",
+      "REVENUE DASHBOARD",
+    ]) {
+      const { sections, pages } = palette(query);
+      assert.equal(sections[0]?.item.key, "revenue", query);
+      assert.equal(sections[0]?.item.label, "Revenue", query);
+      assert.ok(sections[0].score >= MATCH_SCORE.keywordPrefix, query);
+      // The section row already lands on /revenue, so the palette must not
+      // repeat its Insights page underneath.
+      assert.equal(
+        pages.some((match) => match.page.path === "/revenue"),
+        false,
+        query,
+      );
+    }
+  });
+
   test("matches the parent section only at the start of a word", () => {
     // "count" sits inside "Account", but must not list the Account section's pages.
     const matches = searchSubpages(PALETTE_SUBPAGES, "count", { viewer: OWNER, limit: 500 });

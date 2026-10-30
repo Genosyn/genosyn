@@ -1,7 +1,8 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
-import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { useOutletContext, useSearchParams } from "react-router-dom";
+import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { api, formatMoney, parseMoneyToCents, Product, TaxRate } from "../lib/api";
+import { matchesFinanceProduct } from "../../shared/financeProducts";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
@@ -31,10 +32,32 @@ export default function FinanceProducts() {
   const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = React.useState<Product[] | null>(null);
   const [taxRates, setTaxRates] = React.useState<TaxRate[]>([]);
   const [showArchived, setShowArchived] = React.useState(false);
   const [editing, setEditing] = React.useState<Product | "new" | null>(null);
+  const [query, setQuery] = React.useState(() => searchParams.get("q") ?? "");
+  const requestedQuery = searchParams.get("q") ?? "";
+
+  // A ⌘K product hit opens this page with `?q=<name>`. Keep the box in step
+  // when that link lands while the page is already open.
+  React.useEffect(() => {
+    setQuery(requestedQuery);
+  }, [requestedQuery]);
+
+  const visibleProducts = React.useMemo(
+    () => products?.filter((product) => matchesFinanceProduct(product, query)) ?? null,
+    [products, query],
+  );
+
+  function changeQuery(next: string) {
+    setQuery(next);
+    const params = new URLSearchParams(searchParams);
+    if (next.trim()) params.set("q", next);
+    else params.delete("q");
+    setSearchParams(params, { replace: true });
+  }
 
   const reload = React.useCallback(async () => {
     const [p, t] = await Promise.all([
@@ -139,6 +162,27 @@ export default function FinanceProducts() {
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-64 flex-1">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-3 text-slate-400 dark:text-slate-500"
+          />
+          <Input
+            aria-label="Search products"
+            placeholder="Search name or description"
+            value={query}
+            onChange={(event) => changeQuery(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+        {query && (
+          <Button variant="secondary" onClick={() => changeQuery("")}>
+            Clear search
+          </Button>
+        )}
+      </div>
+
       {products === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
@@ -161,6 +205,20 @@ export default function FinanceProducts() {
             </>
           )}
         </div>
+      ) : visibleProducts && visibleProducts.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            No products match “{query}”
+          </h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Search names and descriptions, or clear the search to see every product.
+          </p>
+          <div className="mt-4">
+            <Button variant="secondary" onClick={() => changeQuery("")}>
+              Clear search
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <table className="w-full text-sm">
@@ -173,7 +231,7 @@ export default function FinanceProducts() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {products.map((p) => (
+              {(visibleProducts ?? []).map((p) => (
                 <tr key={p.id} className={p.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
                     {canWrite ? (

@@ -54,8 +54,10 @@ export function Finance() {
           snapshotted onto every line so editing a product never rewrites historical documents,
           and <Code>Currencies</Code>, whose exchange rates fill themselves from the European
           Central Bank (see{" "}
-          <DocLink to="/docs/finance#currencies">Currencies and exchange rates</DocLink>). Click a
-          product&apos;s, tax rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
+          <DocLink to="/docs/finance#currencies">Currencies and exchange rates</DocLink>). The
+          catalogue searches names and descriptions, and typing a product&apos;s name in{" "}
+          <Code>⌘K</Code> opens it filtered to that product. Click a product&apos;s, tax
+          rate&apos;s, vendor&apos;s, or account&apos;s name to open it.
         </LI>
         <LI>
           <Strong>Banking</Strong> — your bank accounts and cards with every transaction on them:

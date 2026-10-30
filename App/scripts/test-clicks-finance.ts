@@ -110,6 +110,15 @@ const PRODUCT = {
   updatedAt: hoursAgo(300),
 } as unknown as Product;
 
+const GROWTH_PRODUCT = {
+  ...PRODUCT,
+  id: "product-growth",
+  name: "Growth plan",
+  slug: "growth-plan",
+  description: "More seats for a growing team.",
+  unitPriceCents: 9900,
+} as unknown as Product;
+
 await app.check("Products: the name opens it for editing — one click, not two", async () => {
   const view = await app.open({
     path: "/c/acme/finance/products",
@@ -121,6 +130,24 @@ await app.check("Products: the name opens it for editing — one click, not two"
   await dialog.waitFor();
   assert.equal(await dialog.getByLabel("Name", { exact: true }).inputValue(), "Seat licence");
   assert.equal(view.clicks(), 1);
+  await page.close();
+});
+
+await app.check("Products: a ⌘K hit's ?q= and the search box filter the catalogue", async () => {
+  const view = await app.open({
+    path: "/c/acme/finance/products?q=Seat%20licence",
+    routes: [["GET", `${API}/products`, () => [PRODUCT, GROWTH_PRODUCT]], ...financeBase],
+  });
+  const { page } = view;
+  await page.getByText("Seat licence", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Growth plan", { exact: true }).count(), 0);
+  // Clearing the filter brings the rest back…
+  await view.click(page.getByRole("button", { name: "Clear search" }));
+  await page.getByText("Growth plan", { exact: true }).waitFor();
+  // …and typing again narrows to what the words match.
+  await page.getByLabel("Search products").fill("growth team");
+  await page.getByText("Growth plan", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Seat licence", { exact: true }).count(), 0);
   await page.close();
 });
 
@@ -214,6 +241,64 @@ await app.check("Explore: Add chart works on a dashboard without entering Edit m
     "still out of Edit mode",
   );
   assert.equal(view.clicks(), 1);
+  await page.close();
+});
+
+await app.check("Explore: 'revenue dashboard' finds the Dashboard, not the Chart", async () => {
+  const view = await app.open({
+    path: "/c/acme/explore",
+    routes: [
+      [
+        "GET",
+        `${API}/explore/charts`,
+        () => [
+          {
+            id: "chart-revenue",
+            slug: "revenue",
+            title: "Revenue",
+            vizType: "line",
+            updatedAt: hoursAgo(5),
+          },
+        ],
+      ],
+      [
+        "GET",
+        `${API}/explore/dashboards`,
+        () => [
+          { id: "dash-revenue", slug: "revenue", title: "Revenue", cardCount: 2, updatedAt: hoursAgo(4) },
+          { id: "dash-pipeline", slug: "pipeline", title: "Pipeline", cardCount: 1, updatedAt: hoursAgo(3) },
+        ],
+      ],
+      ["GET", `${API}/explore/connections`, () => []],
+      ["GET", `${API}/explore/bases`, () => []],
+    ],
+  });
+  const { page } = view;
+  const sidebar = page
+    .locator("aside")
+    .filter({ has: page.getByLabel("Search charts and dashboards") })
+    .first();
+  const box = sidebar.getByLabel("Search charts and dashboards");
+  await box.waitFor();
+  const dashboard = sidebar.locator('a[href="/c/acme/explore/dashboards/revenue"]');
+  const pipeline = sidebar.locator('a[href="/c/acme/explore/dashboards/pipeline"]');
+  const chart = sidebar.locator('a[href="/c/acme/explore/charts/revenue"]');
+  await box.fill("revenue dashboard");
+  await dashboard.waitFor();
+  assert.equal(
+    await pipeline.count(),
+    0,
+    "the kind word keeps the Dashboards list to the one called Revenue",
+  );
+  assert.equal(
+    await chart.count(),
+    0,
+    "a dashboard search does not list the Chart called Revenue",
+  );
+  // Clearing the box puts both lists back, in their existing order.
+  await box.fill("");
+  await pipeline.waitFor();
+  await chart.waitFor();
   await page.close();
 });
 

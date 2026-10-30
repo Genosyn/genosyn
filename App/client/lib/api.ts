@@ -6554,7 +6554,9 @@ export type SearchResultKind =
   /** A customer opened as its Revenue account, for a Member without finance access. */
   | "account"
   | "opening"
-  | "applicant";
+  | "applicant"
+  /** A Finance → Products & services row, opened filtered to its name. */
+  | "catalogProduct";
 
 export type CompanySearchResult = {
   kind: SearchResultKind;

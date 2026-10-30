@@ -146,7 +146,21 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     label: "Revenue",
     path: "/revenue",
     description: "Contacts, Deals, outbound, and signals",
-    keywords: ["sales", "crm", "lead", "pipeline", "outbound", "growth"],
+    // "dashboard" is what people call the section's landing page, and the
+    // whole phrase is a strong synonym: "revenue dashboard" should reach
+    // Revenue without requiring the word in a title.
+    keywords: [
+      "sales",
+      "crm",
+      "lead",
+      "pipeline",
+      "outbound",
+      "growth",
+      "dashboard",
+      "dashboards",
+      "revenue dashboard",
+      "revenue dashboards",
+    ],
     toolHints: ["list_contacts", "list_deals", "list_follow_ups"],
   },
   {
