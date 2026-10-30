@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { PALETTE_SUBPAGES } from "../../client/lib/subpages.js";
+import { financeProductPath } from "../../shared/financeProducts.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import {
   CHAT_PRODUCT_REFERENCES,
@@ -30,6 +31,43 @@ describe("chat product reference catalogue", () => {
       assert.equal(top?.label, "Revenue", query);
       assert.equal(top?.path, "/revenue", query);
     }
+  });
+
+  test("leaves a bare 'dashboard' to the Dashboards area", () => {
+    for (const query of ["dashboard", "dashboards", "Dashboard"]) {
+      const matches = searchChatProductReferences(query);
+      assert.equal(matches[0]?.key, "dashboards", query);
+      const revenue = matches.find((match) => match.key === "revenue");
+      // The phrase keyword still contains the word, but never as an exact or
+      // leading match that could tie the Dashboards area.
+      assert.ok(!revenue || revenue.score < matches[0].score, query);
+    }
+  });
+
+  test("reads a tagged Finance product back, whatever its name holds", () => {
+    for (const name of ["Option A)", "Smile :)", "Support (hourly)", "Starter plan"]) {
+      const message = `Check [#${name}](/c/acme${financeProductPath(name)}) before Friday`;
+      const references = extractTaggedChatReferences(message, "acme");
+      assert.deepEqual(
+        references.map((reference) => [reference.label, reference.path, reference.product?.key]),
+        [[`#${name}`, "/finance/products", "products"]],
+        name,
+      );
+      assert.match(
+        composeTaggedChatReferenceContext(message, "acme"),
+        /Products & services/,
+        name,
+      );
+    }
+  });
+
+  test("ranks Revenue below an exact Dashboard name on the server's scale", () => {
+    // Company search ranks records on 0–100; an Explore Dashboard named
+    // Revenue scores 99 for "revenue dashboard" once the kind word is set
+    // aside. The product area has to stay below that so the record leads.
+    const [top] = searchChatProductReferences("revenue dashboard");
+    assert.equal(top?.key, "revenue");
+    assert.ok(top.score < 99, `scored ${top.score}`);
   });
 
   test("finds product areas through natural synonyms", () => {

@@ -444,11 +444,10 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "churn",
           "forecast",
           "gtm",
-          // The section opens on its dashboard, and that is what people type.
-          "dashboard",
-          "dashboards",
-          "revenue dashboard",
-          "revenue dashboards",
+          // Not "dashboard": ⌘K lists sections above records, so the word
+          // would put Revenue above the Explore Dashboard someone named in
+          // "revenue dashboard". Search offers Revenue below it as a product
+          // area (`server/services/chatReferences.ts`).
         ],
       },
       {
