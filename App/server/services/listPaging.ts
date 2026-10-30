@@ -215,6 +215,14 @@ export type KeysetColumn =
  * The condition "comes after `after` in this order", for a query builder's
  * `andWhere`. Constant columns are decided here, so they never reach SQL.
  * Returns null when every row qualifies.
+ *
+ * When the columns left to compare all sort the same way, the condition is
+ * one row-value comparison — `(t.date, t.id) < (:k0, :k1)` — which SQLite and
+ * Postgres both answer as a single range on an index over those columns, so a
+ * page deep in a long list starts at the cursor. The equivalent
+ * `a < x OR (a = x AND b < y)` led SQLite to walk the index from the top, or
+ * to merge two scans and sort everything after the cursor. Columns sorting
+ * different ways keep that OR form, which a row value cannot express.
  */
 export function keysetCondition(
   keys: KeysetColumn[],
@@ -222,31 +230,51 @@ export function keysetCondition(
   prefix: string,
 ): { sql: string; params: Record<string, CursorValue> } | null {
   if (after.length !== keys.length) throw new ListCursorError(CURSOR_INVALID);
+  keys.forEach((key, index) => {
+    const value = after[index];
+    const valid =
+      "literal" in key || key.type === "number"
+        ? typeof value === "number"
+        : typeof value === "string";
+    if (!valid) throw new ListCursorError(CURSOR_INVALID);
+  });
   const params: Record<string, CursorValue> = {};
-  const build = (index: number): string | boolean => {
-    if (index === keys.length) return false;
+  // The columns still compared, in order, and whether a row equal to the
+  // cursor on all of them comes after it — which only a constant column
+  // decides, when it differs from the cursor's.
+  const compared: Array<{ column: string; direction: "ASC" | "DESC"; name: string }> = [];
+  let orEqual = false;
+  for (let index = 0; index < keys.length; index++) {
     const key = keys[index];
     const value = after[index];
     if ("literal" in key) {
-      if (typeof value !== "number") throw new ListCursorError(CURSOR_INVALID);
-      if (key.literal === value) return build(index + 1);
-      return key.direction === "ASC" ? key.literal > value : key.literal < value;
-    }
-    if (key.type === "number" ? typeof value !== "number" : typeof value !== "string") {
-      throw new ListCursorError(CURSOR_INVALID);
+      if (key.literal === value) continue;
+      orEqual = key.direction === "ASC" ? key.literal > Number(value) : key.literal < Number(value);
+      break;
     }
     const name = `${prefix}${index}`;
     params[name] = value;
-    const rest = build(index + 1);
-    const strict = key.direction === "DESC" ? "<" : ">";
-    if (rest === false) return `${key.column} ${strict} :${name}`;
-    if (rest === true) return `${key.column} ${strict}= :${name}`;
-    return `(${key.column} ${strict} :${name} OR (${key.column} = :${name} AND ${rest}))`;
+    compared.push({ column: key.column, direction: key.direction, name });
+  }
+  if (compared.length === 0) return orEqual ? null : { sql: "1 = 0", params };
+  const comparison = (direction: "ASC" | "DESC", equal: boolean) =>
+    `${direction === "DESC" ? "<" : ">"}${equal ? "=" : ""}`;
+  const direction = compared[0].direction;
+  if (compared.every((column) => column.direction === direction)) {
+    const operator = comparison(direction, orEqual);
+    if (compared.length === 1) {
+      return { sql: `${compared[0].column} ${operator} :${compared[0].name}`, params };
+    }
+    const columns = compared.map((column) => column.column).join(", ");
+    const values = compared.map((column) => `:${column.name}`).join(", ");
+    return { sql: `(${columns}) ${operator} (${values})`, params };
+  }
+  const chain = (index: number): string => {
+    const { column, direction: way, name } = compared[index];
+    if (index === compared.length - 1) return `${column} ${comparison(way, orEqual)} :${name}`;
+    return `(${column} ${comparison(way, false)} :${name} OR (${column} = :${name} AND ${chain(index + 1)}))`;
   };
-  const sql = build(0);
-  if (sql === true) return null;
-  if (sql === false) return { sql: "1 = 0", params };
-  return { sql, params };
+  return { sql: chain(0), params };
 }
 
 /** One fetched row and the sort key a cursor after it carries. */
@@ -420,14 +448,23 @@ export async function keysetPage<T extends ObjectLiteral & { id: string }, Out>(
   limits: PageLimits;
   page: PageRequest & { budgetChars?: number };
   present: (rows: T[]) => Promise<Out[]> | Out[];
+  /**
+   * Rows to pass over before the first page, for an older Skill that still
+   * pages by offset. Ignored with a cursor, which already says where to go
+   * on; the page's own cursor carries on by keyset either way.
+   */
+  skip?: number;
 }): Promise<Page<Out>> {
   const after = args.page.cursor
     ? decodeCursor(args.scope, args.fingerprint, args.page.cursor)
     : null;
   const limit = pageLimit(args.page.limit, args.limits);
+  const skip = !after && args.skip && args.skip > 0 ? Math.trunc(args.skip) : 0;
+  const rowsQuery = args.query();
+  if (skip > 0) rowsQuery.offset(skip);
   const [total, fetched] = await Promise.all([
     args.query().getCount(),
-    keysetRows(args.query(), { keys: args.keys, after, limit, prefix: "page" }),
+    keysetRows(rowsQuery, { keys: args.keys, after, limit, prefix: "page" }),
   ]);
   const kept = fetched.slice(0, limit).map((entry) => entry.row);
   const presented = await args.present(kept);

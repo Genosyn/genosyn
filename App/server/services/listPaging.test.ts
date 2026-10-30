@@ -148,7 +148,7 @@ describe("keysetCondition", () => {
 
   test("reads 'after this row' in a descending order", () => {
     assert.deepEqual(keysetCondition(keys, ["2023-07-01", "id-5"], "k"), {
-      sql: "(t.date < :k0 OR (t.date = :k0 AND t.id < :k1))",
+      sql: "(t.date, t.id) < (:k0, :k1)",
       params: { k0: "2023-07-01", k1: "id-5" },
     });
   });
@@ -160,7 +160,7 @@ describe("keysetCondition", () => {
     ];
     assert.equal(
       keysetCondition(ascending, ["2023-07-01", "id-5"], "k")?.sql,
-      "(b.dueDate > :k0 OR (b.dueDate = :k0 AND b.id > :k1))",
+      "(b.dueDate, b.id) > (:k0, :k1)",
     );
   });
 
@@ -178,14 +178,56 @@ describe("keysetCondition", () => {
     // After a bank line: later bank lines that day, and every card purchase that day.
     assert.equal(
       keysetCondition(bank, ["d", 0, "id"], "k")?.sql,
-      "(t.date < :k0 OR (t.date = :k0 AND t.id < :k2))",
+      "(t.date, t.id) < (:k0, :k2)",
     );
     assert.equal(keysetCondition(card, ["d", 0, "id"], "k")?.sql, "t.postedAt <= :k0");
     // After a card purchase: no more bank lines that day.
     assert.equal(keysetCondition(bank, ["d", 1, "id"], "k")?.sql, "t.date < :k0");
     assert.equal(
       keysetCondition(card, ["d", 1, "id"], "k")?.sql,
-      "(t.postedAt < :k0 OR (t.postedAt = :k0 AND t.id < :k2))",
+      "(t.postedAt, t.id) < (:k0, :k2)",
+    );
+  });
+
+  test("compares every column left as one row value, so an index starts at the cursor", () => {
+    const three: KeysetColumn[] = [
+      { column: "t.sortOrder", direction: "ASC", type: "number" },
+      { column: "t.createdAt", direction: "ASC", type: "timestamp" },
+      { column: "t.id", direction: "ASC", type: "string" },
+    ];
+    assert.deepEqual(keysetCondition(three, [2, "2026-01-01", "id-9"], "k"), {
+      sql: "(t.sortOrder, t.createdAt, t.id) > (:k0, :k1, :k2)",
+      params: { k0: 2, k1: "2026-01-01", k2: "id-9" },
+    });
+    // A constant column that differs from the cursor's lets rows equal on the
+    // columns before it through.
+    const ranked: KeysetColumn[] = [
+      { column: "t.a", direction: "DESC", type: "timestamp" },
+      { column: "t.b", direction: "DESC", type: "string" },
+      { literal: 1, direction: "ASC" },
+      { column: "t.id", direction: "DESC", type: "string" },
+    ];
+    assert.equal(keysetCondition(ranked, ["x", "y", 0, "z"], "k")?.sql, "(t.a, t.b) <= (:k0, :k1)");
+    assert.equal(keysetCondition(ranked, ["x", "y", 2, "z"], "k")?.sql, "(t.a, t.b) < (:k0, :k1)");
+    assert.equal(
+      keysetCondition(ranked, ["x", "y", 1, "z"], "k")?.sql,
+      "(t.a, t.b, t.id) < (:k0, :k1, :k3)",
+    );
+    // A leading constant decides everything: all rows, or none.
+    const leading: KeysetColumn[] = [{ literal: 1, direction: "ASC" }, keys[1]];
+    assert.equal(keysetCondition(leading, [0, "id"], "k"), null);
+    assert.equal(keysetCondition(leading, [2, "id"], "k")?.sql, "1 = 0");
+  });
+
+  test("keeps the OR form when the columns sort different ways", () => {
+    const mixed: KeysetColumn[] = [
+      { column: "rank", direction: "ASC", type: "number" },
+      { column: "t.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "t.id", direction: "DESC", type: "string" },
+    ];
+    assert.equal(
+      keysetCondition(mixed, [1, "2026-01-01", "id-3"], "k")?.sql,
+      "(rank > :k0 OR (rank = :k0 AND (t.createdAt < :k1 OR (t.createdAt = :k1 AND t.id < :k2))))",
     );
   });
 
