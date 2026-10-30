@@ -384,6 +384,7 @@ export async function listRevenueAccounts(
   const total = await qb.clone().getCount();
   const accounts = await qb
     .orderBy("a.updatedAt", "DESC")
+    .addOrderBy("a.id", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 50, 1), 200))
     .getMany();

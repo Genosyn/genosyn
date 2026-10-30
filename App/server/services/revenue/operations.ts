@@ -217,7 +217,10 @@ export async function listRevenueOperations(
   }
   if (opts.status) qb.andWhere("operation.status = :status", { status: opts.status });
   const total = await qb.clone().getCount();
-  const rows = await qb.orderBy("operation.createdAt", "DESC").skip(offset).take(limit).getMany();
+  const rows = await qb
+    .orderBy("operation.createdAt", "DESC")
+    .addOrderBy("operation.id", "DESC")
+    .skip(offset).take(limit).getMany();
   return { rows, total };
 }
 

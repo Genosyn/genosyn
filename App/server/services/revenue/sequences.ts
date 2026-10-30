@@ -739,7 +739,7 @@ export async function listEnrollments(
   if (opts.status) qb.andWhere("e.status = :status", { status: opts.status });
 
   const total = await qb.clone().getCount();
-  const rows = await qb.orderBy("e.updatedAt", "DESC").skip(offset).take(limit).getMany();
+  const rows = await qb.orderBy("e.updatedAt", "DESC").addOrderBy("e.id", "DESC").skip(offset).take(limit).getMany();
   return { rows, total };
 }
 
