@@ -36,6 +36,15 @@ export function DecisionPickup({ decision }: { decision: Decision }) {
     );
   }
 
+  if (decision.pickupStatus === "waiting") {
+    return (
+      <p className="text-slate-600 dark:text-slate-300">
+        {employee}&apos;s AI Model is unavailable, so the work waits for it. It starts by itself
+        as soon as the model is back.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {decision.pickupStatus === "done" ? (

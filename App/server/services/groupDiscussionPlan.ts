@@ -87,6 +87,12 @@ export type DiscussionState = {
   added: Array<{ employeeId: string; by: string | null; round: number }>;
   /** Member messages written into the discussion that the driver has folded in. */
   inputsSeen: string[];
+  /**
+   * When the discussion began waiting for an unavailable AI Model — nobody
+   * left to speak this round, or to write the outcome, could reach theirs.
+   * Null while it is not waiting. The wall clock keeps running.
+   */
+  modelWaitSince: string | null;
 };
 
 /** Most Member inputs remembered; older ones were folded in long ago. */
@@ -105,6 +111,7 @@ export function emptyDiscussionState(): DiscussionState {
     extraRounds: 0,
     added: [],
     inputsSeen: [],
+    modelWaitSince: null,
   };
 }
 
@@ -147,6 +154,10 @@ export function parseDiscussionState(raw: string | null | undefined): Discussion
         )
       : [],
     inputsSeen: strings(p.inputsSeen).slice(-INPUTS_SEEN_MAX),
+    modelWaitSince:
+      typeof p.modelWaitSince === "string" && Number.isFinite(Date.parse(p.modelWaitSince))
+        ? p.modelWaitSince
+        : null,
   };
 }
 
@@ -338,6 +349,19 @@ export function budgetStop(args: {
     return "time_limit";
   }
   return null;
+}
+
+/**
+ * How much of its wall clock a discussion has left. A discussion waiting for
+ * an unavailable AI Model waits only this long: past it, the discussion ends
+ * with what was said, or — when the outcome itself cannot be written — without
+ * one, saying why.
+ */
+export function discussionTimeLeftMs(startedAt: Date, now: Date): number {
+  return Math.max(
+    0,
+    GROUP_DISCUSSION_LIMITS.discussionTimeoutMs - (now.getTime() - startedAt.getTime()),
+  );
 }
 
 // ─────────────────────────── Reading a turn ───────────────────────────

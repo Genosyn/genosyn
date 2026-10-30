@@ -5,6 +5,7 @@ import type { Company } from "../../db/entities/Company.js";
 import type { Customer } from "../../db/entities/Customer.js";
 import type { CustomerChannel } from "../../db/entities/CustomerChannel.js";
 import type { CustomerChannelMessage } from "../../db/entities/CustomerChannelMessage.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
 import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
 import { jsonBoundedString } from "../mail/promptBounds.js";
@@ -186,7 +187,11 @@ export async function runReplyTurn(args: {
     maxSteps: TURN_MAX_STEPS,
     signal: args.signal ?? AbortSignal.timeout(TURN_TIMEOUT_MS),
   });
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    // The caller waits for an unavailable AI Model and answers when it is back.
+    if (result.unavailable) throw new ModelUnavailableError(result.error, result.unavailable);
+    throw new Error(result.error);
+  }
   if (skipped) return null;
   const text = result.finalText.trim();
   return text || null;
@@ -320,6 +325,9 @@ export async function runNotesTurn(args: {
     signal: args.signal ?? AbortSignal.timeout(TURN_TIMEOUT_MS),
   });
   if (submitted) return submitted;
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    if (result.unavailable) throw new ModelUnavailableError(result.error, result.unavailable);
+    throw new Error(result.error);
+  }
   throw new Error(`${args.employee.name} did not submit any notes.`);
 }

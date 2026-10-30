@@ -40,6 +40,7 @@ import {
   forgetModelAvailability,
   startModelAvailabilityWatcher,
 } from "./modelAvailability.js";
+import { startModelWaits, stopModelWaits } from "./modelWaits.js";
 import { finalizeInterruptedAskAiTurns } from "./askAi/assistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./tldrQuestions.js";
 import {
@@ -1558,8 +1559,9 @@ export async function restoreFromBackup(id: string): Promise<{
     stopCron();
     stopDurableChatTurnRecovery();
     // AI Model outages are rows in the database being replaced; the restored
-    // ones are loaded again below.
+    // ones are loaded again below. So is the work waiting for them.
     forgetModelAvailability();
+    stopModelWaits();
     // The context-window sweep is three-hourly, so it will rarely land here —
     // but a tick that did would query the destroyed DataSource for the whole
     // extract window. Cheap to take down; re-registered below.
@@ -1625,6 +1627,7 @@ export async function restoreFromBackup(id: string): Promise<{
 
     // Rebuild in-memory schedules from the restored DB rows.
     await startModelAvailabilityWatcher();
+    await startModelWaits();
     await bootCron();
     await bootDurableChatTurnRecovery();
     // Ask AI answers captured mid-turn by the archive have no process behind

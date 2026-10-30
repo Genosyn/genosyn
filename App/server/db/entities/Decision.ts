@@ -13,6 +13,9 @@ export type DecisionUrgency = "low" | "normal" | "high";
  *  - `none` — nobody has answered yet, or the row was dismissed/expired.
  *  - `running` — a work session is executing right now.
  *  - `done` — the session finished and left a report in `pickupSummary`.
+ *  - `waiting` — the session is ready to start, but the asker's AI Model is
+ *    unavailable; it starts by itself when the model answers again
+ *    (`services/modelWaits.ts`), under the authority it was given.
  *  - `failed` — the session errored; `pickupSummary` says how.
  *  - `skipped` — we deliberately did not start one (no AI Model connected,
  *    for instance). The answer still reaches the employee through its journal
@@ -20,7 +23,7 @@ export type DecisionUrgency = "low" | "normal" | "high";
  *    Preparation-only work sets this when asking, before the human answers,
  *    so neither AI routing nor an answer starts a less restricted session.
  */
-export type DecisionPickupStatus = "none" | "running" | "done" | "failed" | "skipped";
+export type DecisionPickupStatus = "none" | "running" | "waiting" | "done" | "failed" | "skipped";
 
 /**
  * One option on a Decision — a button a human can press.

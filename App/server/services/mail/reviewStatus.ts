@@ -77,11 +77,14 @@ export function summarizeMailReview(args: {
       status:
         analysis.status === "running"
           ? "reviewing"
-          : analysis.status === "succeeded"
-            ? "reviewed"
-            : "needs_attention",
+          : // Waiting for its AI Model to come back: queued, never a problem.
+            analysis.status === "waiting"
+            ? "queued"
+            : analysis.status === "succeeded"
+              ? "reviewed"
+              : "needs_attention",
       at:
-        analysis.status === "running"
+        analysis.status === "running" || analysis.status === "waiting"
           ? analysis.updatedAt
           : (analysis.finishedAt ?? analysis.updatedAt),
       employeeId: analysis.employeeId,

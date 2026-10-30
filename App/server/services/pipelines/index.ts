@@ -277,6 +277,15 @@ async function tickPipelines(): Promise<void> {
         const graph = parseGraph(p.graphJson);
         const scheduleNode = findScheduleNode(graph, p.cronExpr);
         if (!scheduleNode) continue;
+        // A run of this Pipeline is paused waiting for its AI Model: the slot
+        // folds into it, as a Routine's scheduled slot folds into the Run
+        // already waiting, rather than piling up paused runs that would all
+        // carry on at once when the model is back.
+        const waiting = await AppDataSource.getRepository(PipelineRun).findOne({
+          where: { pipelineId: p.id, status: "paused" },
+          select: { id: true },
+        });
+        if (waiting) continue;
         runPipeline({
           pipeline: p,
           triggerKind: "schedule",

@@ -99,8 +99,10 @@ export async function runDefaultMailEffects(
     // mailbox's instructions. A person's "read again" never is.
     { arrival: true },
   ).catch((error) => {
-    // Triage is an enrichment. A mailbox whose model is down still gets its
+    // Triage is an enrichment. A mailbox whose model fails still gets its
     // rules and its Pipelines; the analysis row already recorded the failure.
+    // (A model that is unavailable is not a failure: the read waits, as this
+    // arrival, and is carried on — instructions and all — when it is back.)
     // eslint-disable-next-line no-console
     console.error(`[mail] AI analysis for message ${message.id} failed:`, error);
     return null;

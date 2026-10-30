@@ -1,11 +1,14 @@
 import { IsNull, LessThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import type { AIModelWait } from "../db/entities/AIModelWait.js";
 import { Decision } from "../db/entities/Decision.js";
 import { DecisionPolicy } from "../db/entities/DecisionPolicy.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Routine } from "../db/entities/Routine.js";
 import { chatWithEmployee } from "./chat.js";
+import { isModelAvailable } from "./modelAvailability.js";
+import { waitForModel, type ModelWaitHandler, type ModelWaitResult } from "./modelWaits.js";
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
 import { notifyDecisionPending, parseDecisionOptions } from "./decisions.js";
@@ -118,7 +121,7 @@ export async function kickoffRoutedDecision(args: {
   decisionId: string;
   /** Test seam, mirroring the other kickoffs' `runChat` injection. */
   runChat?: typeof chatWithEmployee;
-}): Promise<void> {
+}): Promise<"waiting" | "ran" | "not_started"> {
   const repo = AppDataSource.getRepository(Decision);
   const decision = await repo.findOneBy({ id: args.decisionId, companyId: args.companyId });
   if (
@@ -126,7 +129,8 @@ export async function kickoffRoutedDecision(args: {
     decision.status !== "pending" ||
     decision.pickupStatus !== "none" ||
     !decision.routedToEmployeeId
-  ) return;
+  )
+    return "not_started";
   const [decider, asker] = await Promise.all([
     AppDataSource.getRepository(AIEmployee).findOneBy({
       id: decision.routedToEmployeeId,
@@ -139,8 +143,25 @@ export async function kickoffRoutedDecision(args: {
   ]);
   if (!decider) {
     await unrouteDecision(decision, "the routed decider no longer exists");
-    return;
+    return "not_started";
   }
+  // The decider's AI Model is unavailable. That says nothing about the
+  // question, so it is not handed back to people — the decision policy chose
+  // the decider — and nobody is paged: the session waits for the model and
+  // starts when it is back. The fuse still hands it to people if the wait
+  // outlasts it.
+  const model = await getActiveModel(decider.id).catch(() => null);
+  const wait = async (): Promise<"waiting"> => {
+    await waitForModel({
+      kind: "decision_routing",
+      targetId: decision.id,
+      companyId: args.companyId,
+      employeeId: decider.id,
+      model,
+    });
+    return "waiting";
+  };
+  if (model && !modelAnswers(model)) return wait();
   try {
     const runChat = args.runChat ?? chatWithEmployee;
     const result = await runChat(
@@ -160,6 +181,7 @@ export async function kickoffRoutedDecision(args: {
       fresh.routedToEmployeeId === decider.id &&
       result.status !== "ok"
     ) {
+      if (result.status === "error" && result.unavailable) return wait();
       await unrouteDecision(fresh, `the decider session failed: ${result.reply.slice(0, 300)}`);
     }
   } catch (err) {
@@ -171,7 +193,51 @@ export async function kickoffRoutedDecision(args: {
       );
     }
   }
+  return "ran";
 }
+
+function modelAnswers(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The AI decider's session for a routed Decision, started once the decider's
+ * AI Model is back — if the Decision is still pending and still routed to
+ * that decider. A Decision the fuse handed to people meanwhile, or that a
+ * person answered, has nothing waiting. Given up after ten outages: the
+ * question goes to people, with the bell routing skipped.
+ */
+export const decisionRoutingWait: ModelWaitHandler = {
+  concurrency: 2,
+  resume: async (wait: AIModelWait): Promise<ModelWaitResult> => {
+    const decision = await AppDataSource.getRepository(Decision).findOneBy({
+      id: wait.targetId,
+      companyId: wait.companyId,
+    });
+    if (!decision || decision.status !== "pending" || decision.routedToEmployeeId !== wait.employeeId) {
+      return { status: "done" };
+    }
+    const outcome = await kickoffRoutedDecision({
+      companyId: wait.companyId,
+      decisionId: wait.targetId,
+    });
+    return outcome === "waiting" ? { status: "waiting" } : { status: "done" };
+  },
+  abandon: async (wait) => {
+    const decision = await AppDataSource.getRepository(Decision).findOneBy({
+      id: wait.targetId,
+      companyId: wait.companyId,
+    });
+    if (!decision || decision.status !== "pending" || decision.routedToEmployeeId !== wait.employeeId) {
+      return;
+    }
+    await unrouteDecision(decision, "the decider's AI Model kept becoming unavailable");
+  },
+};
 
 async function composeDeciderBrief(
   decision: Decision,

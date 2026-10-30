@@ -368,6 +368,13 @@ export const RUN_STATUS_META: Record<
     dot: "animate-pulse bg-amber-500",
     description: "The pipeline is still working through its steps.",
   },
+  paused: {
+    label: "Paused",
+    tone: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-500/10 dark:text-sky-200",
+    dot: "bg-sky-500",
+    description:
+      "A step's AI Model is unavailable. The run waits there and carries on by itself when the model is back.",
+  },
   skipped: {
     label: "Skipped",
     tone: "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",

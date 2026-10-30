@@ -31,7 +31,7 @@ import {
 /** 50 Runs a page by default, at most 200. */
 export const PIPELINE_RUN_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
 
-export const PIPELINE_RUN_STATUSES = ["running", "completed", "failed", "skipped"] as const;
+export const PIPELINE_RUN_STATUSES = ["running", "paused", "completed", "failed", "skipped"] as const;
 export const PIPELINE_TRIGGER_KINDS = ["manual", "schedule", "webhook", "event"] as const;
 
 export type PipelineRunFilter = {

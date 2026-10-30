@@ -1,3 +1,4 @@
+import { onModelAvailabilityChange } from "../modelAvailability.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { runCustomerChannelNotesPass } from "./notes.js";
 
@@ -17,6 +18,7 @@ const LEASE_TTL_MS = 15 * 60_000;
 
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
+let unsubscribe: (() => void) | null = null;
 
 export function customerChannelNotesTick(): void {
   if (ticking) return;
@@ -37,9 +39,17 @@ export function bootCustomerChannels(): void {
   if (timer) clearInterval(timer);
   timer = setInterval(customerChannelNotesTick, TICK_MS);
   timer.unref();
+  // Notes that waited for an unavailable AI Model are written as soon as it
+  // answers again, rather than at the next tick.
+  unsubscribe?.();
+  unsubscribe = onModelAvailabilityChange((change) => {
+    if (change.available) customerChannelNotesTick();
+  });
 }
 
 export function stopCustomerChannels(): void {
   if (timer) clearInterval(timer);
   timer = null;
+  unsubscribe?.();
+  unsubscribe = null;
 }

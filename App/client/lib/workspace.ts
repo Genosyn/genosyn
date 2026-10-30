@@ -90,7 +90,8 @@ export type DiscussionActionItem = {
     | null;
   ownerLabel: string;
   action: string;
-  status?: "queued" | "working" | "done" | "failed" | "skipped";
+  /** `waiting`: the owner's AI Model is unavailable; its share starts when it is back. */
+  status?: "queued" | "working" | "waiting" | "done" | "failed" | "skipped";
   detail?: string;
 };
 
@@ -129,6 +130,8 @@ export type GroupDiscussion = {
   tokensUsed: number;
   tokenBudget: number;
   currentEmployeeId: string | null;
+  /** Since when it has waited for an unavailable AI Model; null when not waiting. */
+  waitingForModelSince?: string | null;
   passes: Array<{ employeeId: string; round: number; reason: "pass" | "agree" | "repeat" }>;
   skipped: Array<{ employeeId: string; round: number; reason: string; detail?: string }>;
   outcome: DiscussionOutcome | null;

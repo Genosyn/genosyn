@@ -108,7 +108,8 @@ export type PhoneCallRow = {
     | "no-answer"
     | "failed"
     | "canceled";
-  handling: "employee" | "forwarded" | "declined" | "unavailable";
+  /** `message`: the AI Model was unavailable, so the employee took a message. */
+  handling: "employee" | "forwarded" | "declined" | "unavailable" | "message";
   answeredAt: string | null;
   endedAt: string | null;
   durationSec: number | null;
@@ -221,7 +222,9 @@ export function callStatusLabel(call: PhoneCallRow): string {
           ? "Forwarded"
           : call.handling === "unavailable"
             ? "Not taken"
-            : "Ended";
+            : call.handling === "message"
+              ? "Message taken"
+              : "Ended";
     case "busy":
       return "Busy";
     case "no-answer":

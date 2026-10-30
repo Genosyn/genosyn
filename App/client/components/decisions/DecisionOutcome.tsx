@@ -91,7 +91,8 @@ export function DecisionOutcome({
                 {/* Once the line says how it went, the answer itself moves here. */}
                 {decision.status === "decided" &&
                   decision.pickupStatus !== "none" &&
-                  decision.pickupStatus !== "running" && (
+                  decision.pickupStatus !== "running" &&
+                  decision.pickupStatus !== "waiting" && (
                     <>
                       {answeredBy(decision, viewerId)} chose “
                       {decision.chosenOptionLabel ?? "an answer"}” ·{" "}

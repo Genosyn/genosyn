@@ -11,6 +11,7 @@ import {
   type PublicModelAvailability,
 } from "../../shared/modelAvailability.js";
 import { modelAvailabilityState, type AvailabilityModel } from "./modelAvailability.js";
+import { waitsByModel } from "./modelWaits.js";
 import { attachedModelsByEmployee } from "./models.js";
 
 /**
@@ -19,9 +20,9 @@ import { attachedModelsByEmployee } from "./models.js";
  * paused on it and the chat messages it has yet to answer.
  */
 
-export type WaitingWork = { runs: number; chats: number };
+export type WaitingWork = { runs: number; chats: number; other: number };
 
-const NOTHING: WaitingWork = { runs: 0, chats: 0 };
+const NOTHING: WaitingWork = { runs: 0, chats: 0, other: 0 };
 
 /** Keep each `IN (…)` list well under every driver's parameter limit. */
 const IN_CHUNK = 500;
@@ -131,6 +132,14 @@ export async function waitingWorkByModel(
       const modelId = modelFor(employeeId, message.modelId);
       if (modelId && wanted.has(modelId)) result.get(modelId)!.chats += 1;
     }
+  }
+
+  // Everything else that waits for it: an email's read, a paused Pipeline
+  // run, a Decision's pickup, an answer owed on Slack or by text.
+  const others = await waitsByModel(companyId, modelIds);
+  for (const [modelId, count] of others) {
+    const entry = result.get(modelId);
+    if (entry) entry.other += count;
   }
   return result;
 }
