@@ -1417,7 +1417,14 @@ revenueRouter.get(
     if (reason) qb.andWhere("s.reason = :reason", { reason });
 
     const total = await qb.clone().getCount();
-    const rows = await qb.orderBy("s.createdAt", "DESC").skip(offset).take(limit).getMany();
+    // Addresses suppressed together (a bounce sweep, an import) keep one
+    // order, so pages never repeat or pass over one among them.
+    const rows = await qb
+      .orderBy("s.createdAt", "DESC")
+      .addOrderBy("s.id", "DESC")
+      .skip(offset)
+      .take(limit)
+      .getMany();
     return res.json({ rows, total });
   }),
 );
