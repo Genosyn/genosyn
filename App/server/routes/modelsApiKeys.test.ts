@@ -25,7 +25,9 @@ import {
   readApiKeys,
   writeApiKeys,
 } from "../services/modelApiKeys.js";
-import { resetKeyHealthMemory } from "../services/modelKeyHealth.js";
+import { apiKeyRingFor } from "../services/agent/apiKeyRing.js";
+import { resetKeyHealthMemory, settleKeySessionWrites } from "../services/modelKeyHealth.js";
+import { resetKeyPoolMemory } from "../services/modelKeyPool.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { persistTestSession } from "../test/userSession.js";
@@ -33,10 +35,11 @@ import { companyModelsRouter } from "./companyModels.js";
 import { modelsRouter } from "./models.js";
 
 /**
- * Backup API keys on an AI Model, through the real company models router:
- * adding, reordering and removing keys, who may, and that no key ever comes
- * back. A model belongs to the company, so its keys are reached by the model
- * alone, never through an employee.
+ * An AI Model's API keys — the pool its sessions are spread across — through
+ * the real company models router: adding, ordering and removing keys, what the
+ * card shows about each, who may, and that no key ever comes back. A model
+ * belongs to the company, so its keys are reached by the model alone, never
+ * through an employee.
  */
 
 type PublicKey = {
@@ -49,6 +52,7 @@ type PublicKey = {
   lastErrorKind: string | null;
   lastError: string | null;
   restingUntil: string | null;
+  sessionsLast24h: number;
 };
 type PublicModel = {
   id: string;
@@ -148,6 +152,7 @@ async function makeEmployee(companyId: string, name: string): Promise<AIEmployee
 beforeEach(async () => {
   await resetTestDb();
   resetKeyHealthMemory();
+  resetKeyPoolMemory({ random: () => 0 });
   owner = await makeUser("Owner");
   actingUser = owner;
   company = await makeCompany("Acme", owner.id);
@@ -220,15 +225,20 @@ async function claudeModel(
   });
 }
 
+/** Whether each connection test asked to be a session in the key pool. */
+let keySessions: Array<boolean | undefined> = [];
+
 /** Stub the connection test: every key passes unless `refuse` says otherwise. */
 function stubVerification(
   t: TestContext,
   refuse: (keys: string[]) => number | null = () => null,
 ): Array<{ keys: string[]; model: string }> {
   const calls: Array<{ keys: string[]; model: string }> = [];
+  keySessions = [];
   t.mock.method(agentRuntime, "run", async (params: Parameters<typeof agentRuntime.run>[0]) => {
     const keys = decryptApiKeys(params.model.configJson).map((key) => key.apiKey);
     calls.push({ keys, model: params.model.model });
+    keySessions.push(params.keySession);
     const status = refuse(keys);
     if (status) throw Object.assign(new Error("The AI Model request failed."), { status });
     await params.registry.resolve("connection_test")!.run({ ok: true });
@@ -248,8 +258,19 @@ const savedKeys = async (id: string) =>
   decryptApiKeys((await savedModel(id)).configJson).map((key) => key.apiKey);
 const audits = (action: string) => AppDataSource.getRepository(AuditEvent).findBy({ action });
 
-describe("adding backup keys", () => {
-  test("an owner adds a backup key: tested on its own, stored encrypted, shown as a preview", async (t) => {
+/** Open `n` sessions on the saved model, as turns do; the key each opened on. */
+async function openSessions(modelId: string, n: number): Promise<string[]> {
+  const opened: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const ring = await apiKeyRingFor(await savedModel(modelId), { session: true });
+    opened.push(ring!.attemptOrder()[0].apiKey);
+  }
+  await settleKeySessionWrites();
+  return opened;
+}
+
+describe("adding keys", () => {
+  test("an owner adds a key: tested on its own, stored encrypted, shown as a preview", async (t) => {
     const calls = stubVerification(t);
     const model = await claudeModel();
     const response = await addKey(model.id, backupKey(1));
@@ -259,15 +280,18 @@ describe("adding backup keys", () => {
       [maskSecret(PRIMARY), maskSecret(backupKey(1))],
     );
     assert.ok(response.body.apiKeys[1].addedAt);
-    // Tested with that key alone: the primary could not have answered for it.
+    assert.equal(response.body.apiKeys[1].sessionsLast24h, 0);
+    // Tested with that key alone: the other key could not have answered for it.
     assert.deepEqual(calls, [{ keys: [backupKey(1)], model: "claude-opus-5-5" }]);
+    // The test is not work: it took no turn in the pool.
+    assert.deepEqual(keySessions, [false]);
     const row = await savedModel(model.id);
     const cfg = JSON.parse(row.configJson);
     assert.equal(cfg.backupKeys.length, 1);
     assert.match(cfg.backupKeys[0].apiKeyEncrypted, /^v2\./);
     assert.equal(decryptSecret(cfg.backupKeys[0].apiKeyEncrypted), backupKey(1));
     assert.ok(!row.configJson.includes(backupKey(1)));
-    // The primary is untouched.
+    // The key it already had is untouched.
     assert.equal(decryptSecret(cfg.apiKeyEncrypted), PRIMARY);
     const [audit] = await audits("model.apikey.add");
     assert.ok(audit);
@@ -277,7 +301,20 @@ describe("adding backup keys", () => {
     assert.equal(metadata.keyCount, 2);
   });
 
-  test("there is no limit: thirty backup keys, kept in the order they were added", async (t) => {
+  test("a key added through the card joins the turns at once, and is never starved", async (t) => {
+    stubVerification(t);
+    const model = await claudeModel([PRIMARY, backupKey(1)]);
+    assert.deepEqual(await openSessions(model.id, 4), [PRIMARY, backupKey(1), PRIMARY, backupKey(1)]);
+    assert.equal((await addKey(model.id, backupKey(2))).status, 200);
+    const next = await openSessions(model.id, 9);
+    assert.equal(next[0], backupKey(2), "every other key already had its turn");
+    assert.deepEqual(
+      [PRIMARY, backupKey(1), backupKey(2)].map((key) => next.filter((k) => k === key).length),
+      [3, 3, 3],
+    );
+  });
+
+  test("there is no limit: thirty more keys, kept in the order they were added", async (t) => {
     stubVerification(t);
     const model = await claudeModel();
     for (let n = 1; n <= 30; n++) assert.equal((await addKey(model.id, backupKey(n))).status, 200);
@@ -326,7 +363,7 @@ describe("adding backup keys", () => {
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
 
-  test("an older model's primary, saved before keys had ids, gains backups", async (t) => {
+  test("an older model's key, saved before keys had ids, gains company in the pool", async (t) => {
     stubVerification(t);
     const model = await insertEmployeeModel({
       employeeId: employee.id,
@@ -347,14 +384,14 @@ describe("adding backup keys", () => {
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(3)]);
   });
 
-  test("OpenAI API-key models take backup keys too", async (t) => {
+  test("OpenAI API-key models take several keys too", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY], { provider: "openai", model: "gpt-5.4" });
     assert.equal((await addKey(model.id, backupKey(4))).status, 200);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(4)]);
   });
 
-  test("models that don't connect with an API key refuse backup keys", async (t) => {
+  test("models that don't connect with an API key refuse more keys", async (t) => {
     const calls = stubVerification(t);
     const custom = await insertEmployeeModel({
       employeeId: employee.id,
@@ -411,10 +448,11 @@ describe("adding backup keys", () => {
   });
 });
 
-describe("reordering keys", () => {
-  test("moving a backup to the top makes it the primary", async (t) => {
+describe("ordering keys, kept for compatibility", () => {
+  test("an order can still be set: it changes the listing, never which keys take turns", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
+    assert.deepEqual(await openSessions(model.id, 3), [PRIMARY, backupKey(1), backupKey(2)]);
     const ids = readApiKeys(model.configJson).map((key) => key.id);
     const response = await call("POST", `/${model.id}/keys/reorder`, {
       orderedIds: [ids[2], ids[0], ids[1]],
@@ -429,8 +467,10 @@ describe("reordering keys", () => {
     assert.equal(
       decryptSecret(cfg.apiKeyEncrypted),
       backupKey(2),
-      "the new primary is where every reader looks",
+      "the first-listed key is where a reader wanting one key looks",
     );
+    // Sessions keep taking every key in turn, as before the reorder.
+    assert.deepEqual(await openSessions(model.id, 3), [PRIMARY, backupKey(1), backupKey(2)]);
     assert.equal(response.body.status, "connected");
     const [audit] = await audits("model.apikey.reorder");
     const metadata = JSON.parse(String(audit.metadataJson ?? "{}"));
@@ -469,9 +509,9 @@ describe("reordering keys", () => {
     }
   });
 
-  test("an older primary is named `primary` in an order", async (t) => {
+  test("an older key is named `primary` in an order", async (t) => {
     stubVerification(t);
-    // A primary saved before keys had ids, with a backup added since.
+    // A key saved before keys had ids, with another added since.
     const legacy = JSON.stringify({
       apiKeyEncrypted: encryptSecret(PRIMARY, company.id),
       apiKeyPreview: maskSecret(PRIMARY),
@@ -499,7 +539,7 @@ describe("reordering keys", () => {
 });
 
 describe("removing keys", () => {
-  test("removing a backup leaves the rest, in order, and forgets its health", async (t) => {
+  test("removing a key leaves the rest, in order, and forgets its health", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
     const ids = readApiKeys(model.configJson).map((key) => key.id);
@@ -525,7 +565,21 @@ describe("removing keys", () => {
     assert.equal(metadata.keyCount, 2);
   });
 
-  test("removing the primary makes the next key the primary", async (t) => {
+  test("a key removed mid-rotation takes no more sessions; the rest carry on", async (t) => {
+    stubVerification(t);
+    const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
+    assert.deepEqual(await openSessions(model.id, 2), [PRIMARY, backupKey(1)]);
+    const [, second] = readApiKeys(model.configJson);
+    assert.equal((await call("DELETE", `/${model.id}/keys/${second.id}`)).status, 200);
+    assert.deepEqual(await openSessions(model.id, 4), [
+      backupKey(2),
+      PRIMARY,
+      backupKey(2),
+      PRIMARY,
+    ]);
+  });
+
+  test("removing the first-listed key leaves the next one first", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const [primary, backup] = readApiKeys(model.configJson);
@@ -561,8 +615,8 @@ describe("removing keys", () => {
   });
 });
 
-describe("replacing the primary keeps the backups", () => {
-  test("a new primary is tested alone and the backups stay behind it", async (t) => {
+describe("setting a key from the connect and edit forms keeps the rest of the pool", () => {
+  test("a key set in place of the first is tested alone, and the other keys stay", async (t) => {
     const calls = stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
     const [oldPrimary] = readApiKeys(model.configJson);
@@ -585,9 +639,9 @@ describe("replacing the primary keeps the backups", () => {
     );
   });
 
-  test("a primary that would only answer through a backup is not accepted", async (t) => {
-    // The backup works, the new primary doesn't: tested together, the backup
-    // would have vouched for it.
+  test("a key that would only answer through another key is not accepted", async (t) => {
+    // The other key works, the new one doesn't: tested together, the other
+    // key would have vouched for it.
     stubVerification(t, (keys) => (keys.includes(backupKey(1)) ? null : 401));
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const bad = "sk-ant-api03-replacement-that-is-dead-01";
@@ -597,15 +651,18 @@ describe("replacing the primary keeps the backups", () => {
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
 
-  test("one of the backups can't also become the primary", async (t) => {
+  test("a key already in the pool can't be set again", async (t) => {
     stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const response = await call("POST", `/${model.id}/apikey`, { apiKey: backupKey(1) });
     assert.equal(response.status, 400);
-    assert.match((response.body as unknown as { error: string }).error, /Move it to the top/);
+    assert.equal(
+      (response.body as unknown as { error: string }).error,
+      "This key is already one of this AI Model's API keys.",
+    );
   });
 
-  test("changing only the model tests every key, as a Run would, and keeps them", async (t) => {
+  test("changing only the model tests the whole pool, taking no turn, and keeps every key", async (t) => {
     const calls = stubVerification(t);
     const model = await claudeModel([PRIMARY, backupKey(1)]);
     const response = await call("PUT", `/${model.id}`, {
@@ -615,6 +672,7 @@ describe("replacing the primary keeps the backups", () => {
     });
     assert.equal(response.status, 200);
     assert.deepEqual(calls, [{ keys: [PRIMARY, backupKey(1)], model: "claude-sonnet-5-5" }]);
+    assert.deepEqual(keySessions, [false]);
     assert.deepEqual(await savedKeys(model.id), [PRIMARY, backupKey(1)]);
   });
 
@@ -735,6 +793,58 @@ describe("each key's health in the model's settings", () => {
     assert.equal(listed.apiKeys[1].lastUsedAt, new Date(now - 5_000).toISOString());
     assert.equal(listed.apiKeys[1].restingUntil, null);
     assert.equal(listed.apiKeys[2].lastUsedAt, null);
+  });
+
+  test("shows the sessions each key carried in the last 24 hours, spread across the pool", async (t) => {
+    stubVerification(t);
+    const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
+    await openSessions(model.id, 9);
+    const [listed] = (await call<PublicModel[]>("GET", "")).body;
+    assert.deepEqual(
+      listed.apiKeys.map((key) => key.sessionsLast24h),
+      [3, 3, 3],
+    );
+    // The same model, read on an employee's Model page by a Member.
+    await actAs("member");
+    const [onEmployee] = (await call<PublicModel[]>("GET", "", undefined, { employee })).body;
+    assert.deepEqual(
+      onEmployee.apiKeys.map((key) => key.sessionsLast24h),
+      [3, 3, 3],
+    );
+  });
+
+  test("counts only the last 24 hours, and reads a malformed count as none", async (t) => {
+    stubVerification(t);
+    const model = await claudeModel([PRIMARY, backupKey(1), backupKey(2)]);
+    const ids = readApiKeys(model.configJson).map((key) => key.id);
+    const hour = Math.floor(Date.now() / 3_600_000);
+    await insert(AIModelKeyHealth, {
+      modelId: model.id,
+      keyId: ids[0],
+      sessionsByHour: JSON.stringify([
+        [hour - 30, 50],
+        [hour - 2, 4],
+        [hour, 3],
+      ]),
+    });
+    await insert(AIModelKeyHealth, { modelId: model.id, keyId: ids[1], sessionsByHour: "{oops" });
+    const [listed] = (await call<PublicModel[]>("GET", "")).body;
+    assert.deepEqual(
+      listed.apiKeys.map((key) => key.sessionsLast24h),
+      [7, 0, 0],
+    );
+  });
+
+  test("a connection test counts no session on any key", async (t) => {
+    stubVerification(t);
+    const model = await claudeModel([PRIMARY, backupKey(1)]);
+    const tested = await call<{ ok: boolean; model: PublicModel }>("POST", `/${model.id}/test`);
+    assert.equal(tested.status, 200);
+    assert.deepEqual(keySessions, [false]);
+    assert.deepEqual(
+      tested.body.model.apiKeys.map((key) => key.sessionsLast24h),
+      [0, 0],
+    );
   });
 
   test("removing the AI Model removes its keys' health", async (t) => {

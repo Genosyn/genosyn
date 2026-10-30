@@ -1287,8 +1287,9 @@ export type SubscriptionDeviceSession = {
 /** Why a provider refused one of an AI Model's API keys. */
 export type ApiKeyFailureKind = "auth" | "permission" | "billing" | "quota" | "rate_limit";
 /**
- * One of an API-key AI Model's keys, as a masked preview with its health. The
- * key itself never leaves the server.
+ * One of an API-key AI Model's keys — an equal member of the pool its sessions
+ * are spread across — as a masked preview with its health. The key itself
+ * never leaves the server.
  */
 export type AIModelApiKey = {
   id: string;
@@ -1302,8 +1303,10 @@ export type AIModelApiKey = {
   lastErrorStatus: number | null;
   lastErrorKind: ApiKeyFailureKind | null;
   lastError: string | null;
-  /** While in the future, requests try the AI Model's other keys first. */
+  /** While in the future, sessions skip it and requests try the other keys first. */
   restingUntil: string | null;
+  /** Sessions it carried in the last 24 hours — opened on it in turn, or moved to it. */
+  sessionsLast24h: number;
 };
 /** One AI Employee using an AI Model, and whether it is that employee's active model. */
 export type ModelUser = {
@@ -1335,8 +1338,8 @@ export type AIModel = {
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
   /**
-   * An API-key model's keys in the order requests try them: the primary, then
-   * every backup key. Empty for subscription and custom-endpoint models.
+   * An API-key model's keys, the pool its sessions are spread across, in the
+   * order they are stored. Empty for subscription and custom-endpoint models.
    */
   apiKeys: AIModelApiKey[];
   /** Env var the provider conventionally reads (informational), or null. */

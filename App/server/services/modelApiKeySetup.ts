@@ -15,20 +15,23 @@ import { verifyOpenCodeModel, withOnlyKey } from "./modelSetup.js";
 
 /**
  * Adding, removing and reordering an API-key AI Model's keys (the storage is
- * `modelApiKeys.ts`; what happens at run time is `agent/apiKeyRing.ts`).
+ * `modelApiKeys.ts`; how sessions are spread across them at run time is
+ * `agent/apiKeyRing.ts`).
  *
  * A key is tested before it is added, alone, with the same real tool-use reply
  * a new AI Model gets — the other keys must not answer for it — and nothing is
- * saved unless that test passes. There is no limit on how many keys an AI
- * Model holds. Every edit re-reads the row in its own short transaction and
- * applies to what is there now, so two edits made at once never undo each
- * other; the slow connection test runs before it, outside any transaction.
+ * saved unless that test passes. A key added joins the pool at once: having
+ * never had a turn, it goes ahead of the keys that have. There is no limit on how
+ * many keys an AI Model holds. Every edit re-reads the row in its own short
+ * transaction and applies to what is there now, so two edits made at once
+ * never undo each other; the slow connection test runs before it, outside any
+ * transaction.
  */
 
 function requireApiKeyModel(model: AIModel): void {
   if (!holdsApiKeys(model)) {
     throw new ModelSetupError(
-      "Only Claude (Anthropic) and OpenAI AI Models connected with an API key hold backup keys.",
+      "Only Claude (Anthropic) and OpenAI AI Models connected with an API key hold several API keys.",
       400,
     );
   }
@@ -77,10 +80,10 @@ async function editKeys(
 }
 
 /**
- * Test `apiKey` on its own and, when it answers, add it as the last backup.
- * A key the AI Model already holds is refused.
+ * Test `apiKey` on its own and, when it answers, add it to the AI Model's
+ * keys. A key the AI Model already holds is refused.
  */
-export async function addBackupKey(
+export async function addApiKey(
   model: AIModel,
   apiKey: string,
   companyId: string,
@@ -98,7 +101,7 @@ export async function addBackupKey(
 }
 
 /**
- * Remove one key. Removing the primary makes the next key the primary; the
+ * Remove one key; sessions are spread across the others from then on. The
  * last remaining key can't be removed — remove the AI Model instead.
  */
 export async function removeApiKey(
@@ -122,9 +125,12 @@ export async function removeApiKey(
 }
 
 /**
- * Put the keys in the order given, which must name every key exactly once;
- * the first becomes the primary. A list that no longer matches the saved keys
- * — one was added or removed meanwhile — is refused rather than guessed at.
+ * Put the keys in the order given, which must name every key exactly once. The
+ * order decides nothing about which key a session uses — sessions take every
+ * key in turn — only the order the keys are listed in and where a connection
+ * test starts; it is kept so a stored order can still be set. A list that no
+ * longer matches the saved keys — one was added or removed meanwhile — is
+ * refused rather than guessed at.
  */
 export async function reorderApiKeys(
   model: AIModel,

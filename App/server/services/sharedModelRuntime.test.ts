@@ -8,6 +8,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import { attachExistingModel } from "../test/modelFixtures.js";
+import { resolveOpenCodeModel } from "./agent/opencodeConfig.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { subscriptionModelBusy, withSubscriptionModelLock } from "./codexSubscription.js";
 import { newStoredApiKey, readApiKeys, writeApiKeys } from "./modelApiKeys.js";
@@ -18,6 +19,7 @@ import {
   recordKeyRefusal,
   resetKeyHealthMemory,
 } from "./modelKeyHealth.js";
+import { resetKeyPoolMemory } from "./modelKeyPool.js";
 import {
   modelRunCapacity,
   modelRunSlotsInUse,
@@ -28,9 +30,10 @@ import { attachedModels, detachModel, getActiveModel, resolveRoutineModel } from
 
 /**
  * What one AI Model shared by several AI Employees means at run time: every
- * employee resolves the same row, so they share its Run slots, its keys'
- * health and rests, and — for a ChatGPT sign-in — its one-turn-at-a-time
- * lock. Detaching an employee takes it out of all of that at once.
+ * employee resolves the same row, so they share its Run slots, one pool of
+ * keys with one turn order, its keys' health and rests, and — for a ChatGPT
+ * sign-in — its one-turn-at-a-time lock. Detaching an employee takes it out of
+ * all of that at once.
  */
 
 const security = config.security as { encryptionSecret: string };
@@ -164,6 +167,27 @@ describe("a shared API-key model", () => {
     // Grace's next turn starts knowing the rest Ada's turn saved.
     await loadKeyRests(graces.id);
     assert.ok(keyRestingUntil(graces.id, primary.id) >= restUntil - 1_000);
+  });
+
+  test("its keys are one pool: every employee's turns take the keys in turn together", async () => {
+    resetKeyPoolMemory({ random: () => 0 });
+    const companyId = testCompanyId();
+    const ada = await employee(companyId, "Ada");
+    const grace = await employee(companyId, "Grace");
+    const linus = await employee(companyId, "Linus");
+    const model = await hosted(companyId, null);
+    await sharedBy(model, ada, grace, linus);
+    const opened: string[] = [];
+    for (const member of [ada, grace, linus, ada]) {
+      const resolved = await resolveOpenCodeModel((await getActiveModel(member.id))!);
+      opened.push(resolved.apiKey);
+    }
+    assert.deepEqual(opened, [
+      "sk-ant-api03-shared-runtime-aaaa0001",
+      "sk-ant-api03-shared-runtime-bbbb0002",
+      "sk-ant-api03-shared-runtime-aaaa0001",
+      "sk-ant-api03-shared-runtime-bbbb0002",
+    ]);
   });
 
   test("detaching one employee leaves the others on the model and its slots", async () => {

@@ -28,7 +28,7 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
  * One AI Model, whole: what it is and whether it is connected, what to do with
  * it, and, inside the same card, an Advanced section closed by default that
  * holds that model's own settings. Its closed line names whatever has been
- * changed in it ("2 backup API keys · 4 concurrent Runs"), so nothing set is
+ * changed in it ("3 API keys · 4 concurrent Runs"), so nothing set is
  * hidden by being folded away, and nothing about this model lives anywhere but
  * this card.
  *

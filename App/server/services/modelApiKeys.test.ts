@@ -189,7 +189,7 @@ describe("API key storage", () => {
     assert.equal(findApiKey(stored, secrets[1].replace("backup", "bakcup")), undefined);
   });
 
-  test("only Claude and OpenAI API-key models hold backup keys", () => {
+  test("only Claude and OpenAI API-key models hold a pool of API keys", () => {
     assert.equal(holdsApiKeys({ provider: "anthropic", authMode: "apikey" }), true);
     assert.equal(holdsApiKeys({ provider: "openai", authMode: "apikey" }), true);
     assert.equal(holdsApiKeys({ provider: "openai", authMode: "subscription" }), false);
@@ -249,6 +249,31 @@ describe("the keys a Member sees", () => {
     for (const secret of secrets) assert.ok(!wire.includes(secret));
     for (const key of stored) assert.ok(!wire.includes(key.apiKeyEncrypted));
     assert.doesNotMatch(wire, /apiKeyEncrypted|v2\./);
+  });
+
+  test("each key's sessions in the last 24 hours, and none for a key with no count yet", () => {
+    const { stored } = keys(3);
+    const now = Date.parse("2026-10-23T12:30:00.000Z");
+    const hour = Math.floor(now / 3_600_000);
+    const shown = publicApiKeys(
+      model(writeApiKeys("{}", stored)),
+      [
+        health({
+          keyId: stored[0].id,
+          sessionsByHour: JSON.stringify([
+            [hour - 24, 9],
+            [hour - 23, 2],
+            [hour, 5],
+          ]),
+        }),
+        health({ keyId: stored[1].id, sessionsByHour: "not json" }),
+      ],
+      { now },
+    );
+    assert.deepEqual(
+      shown.map((key) => key.sessionsLast24h),
+      [7, 0, 0],
+    );
   });
 
   test("a rest this process knows about shows even before it is saved", () => {

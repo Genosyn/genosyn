@@ -118,18 +118,28 @@ export function endOnUserTurn(request: Record<string, unknown>): Record<string, 
   return { ...request, messages: [...messages.slice(0, -1), { ...last, role: "user" }] };
 }
 
-/** What one request sent on an AI Model's API keys came back with. */
+/**
+ * What one request sent on an AI Model's API keys came back with. A key
+ * refused and the service failing are kept apart: `refused` is about the
+ * keys — every one of them was turned away, for reasons that belong to the
+ * keys — while `error` is the provider answering about the request or the
+ * service itself (a bad request, an unknown model, a 5xx or 529), which no
+ * other key would change.
+ */
 export type KeyRingOutcome =
   /** An answer to stream on, its body still unread. */
   | { kind: "response"; response: Response }
-  /** An error to send on as it is, already read. */
-  | { kind: "error"; status: number; headers: Headers; body: string };
+  /** The provider answered about the request or the service: sent on as it is, already read. */
+  | { kind: "error"; status: number; headers: Headers; body: string }
+  /** Every key was refused: the refusal {@link surfacedRefusal} picks, already read. */
+  | { kind: "refused"; refusal: KeyRefusal; status: number; headers: Headers; body: string };
 
 /**
- * Send one model request on an AI Model's API keys in turn (see
- * `apiKeyRing.ts`). When the provider refuses the key itself, the key rests
- * and the very same request goes out on the next key; any other answer —
- * success, or an error about the request or the service — ends it there.
+ * Send one model request on the session's API key (see `apiKeyRing.ts`).
+ * When the provider refuses the key itself, the key rests and the very same
+ * request goes out on the next key in turn; any other answer — success, or an
+ * error about the request or the service — ends it there, and the session
+ * stays on the key that gave it.
  *
  * Nothing reaches the caller until the outcome is settled: a success comes
  * back with its body unread, for the caller to stream, so a request only ever
@@ -158,8 +168,12 @@ export async function sendOnKeyRing(args: {
       body,
       headers: response.headers,
     });
-    if (!refusal)
+    if (!refusal) {
+      // About the request or the service, not the key: another key would get
+      // the same answer, and this one is still good for the session.
+      args.ring.answered(key);
       return { kind: "error", status: response.status, headers: response.headers, body };
+    }
     void args.ring.refused(key, refusal);
     refused.push({ refusal, status: response.status, headers: response.headers, body });
     const next = order[index + 1];
@@ -170,7 +184,13 @@ export async function sendOnKeyRing(args: {
       );
   }
   const surfaced = surfacedRefusal(refused);
-  return { kind: "error", status: surfaced.status, headers: surfaced.headers, body: surfaced.body };
+  return {
+    kind: "refused",
+    refusal: surfaced.refusal,
+    status: surfaced.status,
+    headers: surfaced.headers,
+    body: surfaced.body,
+  };
 }
 
 /** The headers of a provider's answer that OpenCode is told about. */
@@ -190,9 +210,10 @@ function forwardedHeaders(headers: Headers): Record<string, string> {
  * coding commands. OpenCode still owns the provider SDK and complete model
  * loop; this endpoint only authenticates and forwards bytes for one turn.
  *
- * An API-key AI Model's requests go out on its key ring: a key the provider
- * refuses — invalid, forbidden, out of credit, rate-limited — hands the same
- * request to the next key before anything reaches OpenCode (see
+ * An API-key AI Model's requests go out on its key ring — one session, on the
+ * key whose turn it was: a key the provider refuses — invalid, forbidden, out
+ * of credit, rate-limited — hands the same request to the next key before
+ * anything reaches OpenCode, and the session carries on there (see
  * `sendOnKeyRing`). `onKeyFailover` hears each such move once per key and
  * turn, by preview; every key is redacted from what the provider says back.
  *
@@ -341,9 +362,11 @@ export async function serveOpenCodeModel(
       if (model.keys) {
         const ring = model.keys;
         const outcome = await sendOnKeyRing({ ring, send, onFailover: reportFailover });
-        if (outcome.kind === "error") {
-          // OpenCode keeps an error's body to report what the provider said, and
-          // a provider may quote the key it was sent. Every key stays in Genosyn.
+        if (outcome.kind !== "response") {
+          // Every key refused, or the service answering with an error: either
+          // way OpenCode gets the provider's own answer. It keeps an error's
+          // body to report what the provider said, and a provider may quote the
+          // key it was sent. Every key stays in Genosyn.
           res
             .writeHead(outcome.status, forwardedHeaders(outcome.headers))
             .end(ring.redact(outcome.body));

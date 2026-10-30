@@ -22,12 +22,17 @@ import {
 } from "./modelApiKeys.js";
 import { pruneKeyHealth } from "./modelKeyHealth.js";
 
-/** Exercise the same OpenCode runtime as employee Runs using one harmless tool. */
+/**
+ * Exercise the same OpenCode runtime as employee Runs using one harmless tool.
+ * A test is not work: it takes no turn in the AI Model's key pool and counts
+ * no session on a key, so it starts on the first key that isn't resting.
+ */
 export async function verifyOpenCodeModel(model: AIModel): Promise<void> {
   let verified = false;
   try {
     await agentRuntime.run({
       model,
+      keySession: false,
       system:
         "This is a connection test. Call connection_test exactly once with ok set to true. Do not do anything else.",
       messages: [{ role: "user", content: [{ type: "text", text: "Test the connection now." }] }],
@@ -67,32 +72,30 @@ export async function verifyOpenCodeModel(model: AIModel): Promise<void> {
 }
 
 /**
- * `configJson` with `apiKey` as the AI Model's primary key, and that key.
- * Backup keys stay as they are. Entering the current primary again keeps its
- * id, so its health carries on; entering one of the backups is refused, since
- * one key twice would only be refused twice — move it to the top instead.
+ * `configJson` with `apiKey` in place of the AI Model's first-listed key — its
+ * only key, for a model still waiting for one or switching service — and that
+ * key. Every other key stays in the pool as it is. Entering the first key
+ * again keeps its id, so its health carries on; entering another key the model
+ * already holds is refused, since one key twice would only be refused twice.
  */
 export function configWithApiKey(
   configJson: string,
   apiKey: string,
   companyId: string,
 ): { configJson: string; key: StoredApiKey } {
-  const [current, ...backups] = readApiKeys(configJson);
-  if (backups.some((backup) => decryptApiKey(backup) === apiKey)) {
-    throw new ModelSetupError(
-      "This key is already one of this AI Model's backup keys. Move it to the top of the API keys instead.",
-      400,
-    );
+  const [current, ...others] = readApiKeys(configJson);
+  if (others.some((other) => decryptApiKey(other) === apiKey)) {
+    throw new ModelSetupError("This key is already one of this AI Model's API keys.", 400);
   }
   const key =
     current && decryptApiKey(current) === apiKey ? current : newStoredApiKey(apiKey, companyId);
-  return { configJson: writeApiKeys(configJson, [key, ...backups]), key };
+  return { configJson: writeApiKeys(configJson, [key, ...others]), key };
 }
 
 /**
  * A copy of `model` holding `key` alone, for a connection test that proves
- * that key works — with the backups on it, another key answering after it was
- * refused would vouch for it.
+ * that key works — with the model's other keys on it, another key answering
+ * after it was refused would vouch for it.
  */
 export function withOnlyKey(model: AIModel, key: StoredApiKey): AIModel {
   return Object.assign(new AIModel(), model, { configJson: writeApiKeys(model.configJson, [key]) });
@@ -129,7 +132,11 @@ export async function connectApiModel(options: {
   return saveNewModel(model, options.attachTo ?? []);
 }
 
-/** Replace the primary key, keeping the backups; the new key is tested alone. */
+/**
+ * Set the AI Model's key — the one a model waiting for a key connects with —
+ * in place of its first-listed key, keeping any others; the new key is tested
+ * alone.
+ */
 export async function replaceApiKey(
   model: AIModel,
   apiKey: string,
@@ -147,10 +154,10 @@ export async function replaceApiKey(
 /**
  * The models a connected Claude or OpenAI AI Model's own keys can reach, so
  * changing which model it runs is a pick from a list rather than an ID typed
- * from memory, and no key is pasted again. The keys are tried in the order
- * requests use them: a primary the provider now refuses does not hide the list
- * a backup can still read. When every key fails, the primary's reason is the
- * one reported. Listing models stores nothing.
+ * from memory, and no key is pasted again. The keys are tried one after
+ * another, as stored: a key the provider now refuses does not hide the list
+ * another key can still read. When every key fails, the first key's reason is
+ * the one reported. Listing models stores nothing and takes no turn.
  */
 export async function discoverStoredApiModels(model: AIModel): Promise<ModelCatalog> {
   if (
@@ -246,8 +253,9 @@ export async function editApiModel(
       ? { contextWindow: null, contextWindowSource: null }
       : {}),
   });
-  // A new key is tested alone. A model-only change is tested on every key, as
-  // a Run would send it: the question is whether this AI Model answers.
+  // A new key is tested alone. A model-only change is tested on the model's
+  // keys, failing over as a session would: the question is whether this AI
+  // Model answers.
   let tested: AIModel = candidate;
   if (options.apiKey) {
     const edited = configWithApiKey(candidate.configJson, options.apiKey, options.companyId);
@@ -261,7 +269,7 @@ export async function editApiModel(
   const saved = await saveVerifiedModel(previous, candidate, {
     resetContext: changedAuth || options.model !== previous.model,
   });
-  // A new service starts with no keys of the old one; a replaced primary goes.
+  // A new service starts with no keys of the old one; a replaced key goes.
   await pruneKeyHealth(saved);
   return saved;
 }

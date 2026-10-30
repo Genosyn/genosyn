@@ -118,6 +118,12 @@ export type StreamCallbacks = {
    */
   onServedModelChange?: (change: { from: string; to: string }) => void;
   /**
+   * Fired once as a turn opens on an API-key AI Model that holds more than one
+   * key: the key the session took in turn, by preview only, and how many keys
+   * the model spreads its sessions across.
+   */
+  onApiKeySession?: (session: { preview: string; keys: number }) => void;
+  /**
    * Fired the first time in a turn a provider refuses one of an API-key AI
    * Model's keys and the request moves on to the next key — by preview only.
    */

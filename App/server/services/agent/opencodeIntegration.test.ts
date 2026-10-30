@@ -11,6 +11,7 @@ import type { AIModel } from "../../db/entities/AIModel.js";
 import type { AgentMessage, AgentTool, ModelOutage } from "./types.js";
 import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { buildOpenCodeConfig, type OpenCodeModel } from "./opencodeConfig.js";
+import { resetKeyPoolMemory } from "../modelKeyPool.js";
 import { ApiKeyRing, type ApiKeyFailover } from "./apiKeyRing.js";
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { serveOpenCodeModel } from "./opencodeProxy.js";
@@ -862,28 +863,110 @@ test(
   },
 );
 
-const DEAD_PRIMARY = "sk-ant-api03-dead-primary-key-0000001";
-const LIVE_BACKUP = "sk-ant-api03-live-backup-key-00000002";
+const DEAD_KEY = "sk-ant-api03-dead-pool-key-000000001";
+const LIVE_KEY = "sk-ant-api03-live-pool-key-000000002";
 
-function backupKeyModel(baseURL: string, modelId = "backup-key-model"): OpenCodeModel {
+function twoKeyModel(baseURL: string, modelId = "two-key-model"): OpenCodeModel {
   return {
     ...claudeFixtureModel(baseURL),
-    apiKey: DEAD_PRIMARY,
+    apiKey: DEAD_KEY,
     keys: new ApiKeyRing(modelId, [
-      { id: "primary", apiKey: DEAD_PRIMARY, preview: "sk-…0001" },
-      { id: "backup", apiKey: LIVE_BACKUP, preview: "sk-…0002" },
+      { id: "dead", apiKey: DEAD_KEY, preview: "sk-…0001" },
+      { id: "live", apiKey: LIVE_KEY, preview: "sk-…0002" },
     ]),
   };
 }
 
+const POOL_KEYS = [1, 2, 3].map((n) => ({
+  id: `pool-${n}`,
+  apiKey: `sk-ant-api03-pool-turn-key-00000000${n}`,
+  preview: `sk-…000${n}`,
+}));
+
+/** One turn's model as `runOpenCodeTurn` resolves it: a session on the next key in turn. */
+function poolTurnModel(baseURL: string, modelId: string): OpenCodeModel {
+  const keys = new ApiKeyRing(modelId, POOL_KEYS, { session: true });
+  return { ...claudeFixtureModel(baseURL), apiKey: keys.attemptOrder()[0].apiKey, keys };
+}
+
 test(
-  "pinned OpenCode finishes a Claude turn on a backup key when the primary is refused",
+  "pinned OpenCode turns are sessions spread across the pool: each sends every request on its own key",
+  { timeout: 180_000 },
+  async () => {
+    resetKeyPoolMemory({ random: () => 0 });
+    const calls: Array<Record<string, unknown>> = [];
+    // Each turn: a tool call, then the reply after its result.
+    const fixture = await fakeProvider((_body, index) =>
+      index % 2 === 0 ? { name: "genosyn_fixture_echo", input: { value: "turn" } } : "OK",
+    );
+    try {
+      for (let turn = 0; turn < 3; turn++) {
+        const result = await realTurn(poolTurnModel(fixture.baseURL, "pool-turns"), [
+          echoTool(calls),
+        ]);
+        assert.equal(result.finalText, "OK");
+      }
+      assert.equal(calls.length, 3);
+      assert.deepEqual(
+        fixture.requests.map((request) => request.auth),
+        POOL_KEYS.flatMap((key) => [key.apiKey, key.apiKey]),
+        "every request of a turn on that turn's key; the next turn on the next key",
+      );
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode moves a turn to the next key when its key is refused mid-turn, and finishes there",
+  { timeout: 180_000 },
+  async () => {
+    resetKeyPoolMemory({ random: () => 0 });
+    const failovers: ApiKeyFailover[] = [];
+    const calls: Array<Record<string, unknown>> = [];
+    const [first, second] = POOL_KEYS;
+    const fixture = await fakeProvider((_body, index, auth) => {
+      if (auth === first.apiKey && index >= 1)
+        return {
+          reject: {
+            status: 429,
+            body: { type: "error", error: { type: "rate_limit_error", message: "Slow down." } },
+          },
+        };
+      return index === 0 ? { name: "genosyn_fixture_echo", input: { value: "mid" } } : "OK";
+    });
+    try {
+      const model = poolTurnModel(fixture.baseURL, "mid-turn-refusal");
+      const result = await realTurn(model, [echoTool(calls)], {}, undefined, {
+        onKeyFailover: (change) => failovers.push(change),
+      });
+      assert.equal(result.finalText, "OK");
+      assert.deepEqual(calls, [{ value: "mid" }]);
+      // The first step on its own key, the second refused there and resent on
+      // the next key, where the rest of the turn stays.
+      assert.deepEqual(
+        fixture.requests.map((request) => request.auth),
+        [first.apiKey, first.apiKey, second.apiKey],
+      );
+      assert.deepEqual(failovers, [
+        { from: first.preview, to: second.preview, status: 429, kind: "rate_limit" },
+      ]);
+      assert.equal(model.keys?.key.id, second.id);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "pinned OpenCode finishes a Claude turn on another key when its key is refused",
   { timeout: 180_000 },
   async () => {
     const failovers: ApiKeyFailover[] = [];
     const calls: Array<Record<string, unknown>> = [];
     const fixture = await fakeProvider((_body, index, auth) => {
-      if (auth === DEAD_PRIMARY)
+      if (auth === DEAD_KEY)
         return {
           reject: {
             status: 401,
@@ -897,7 +980,7 @@ test(
     });
     try {
       const result = await realTurn(
-        backupKeyModel(fixture.baseURL),
+        twoKeyModel(fixture.baseURL),
         [echoTool(calls)],
         {},
         undefined,
@@ -906,11 +989,11 @@ test(
       // The AI Employee's turn ran as if nothing happened: tool call, reply.
       assert.equal(result.finalText, "OK");
       assert.deepEqual(calls, [{ value: "actual tool" }]);
-      // First request refused on the primary and resent on the backup; the
-      // primary then rests, so the next step goes straight to the backup.
+      // First request refused on the turn's key and resent on the other; the
+      // turn stays there, so the next step goes straight to it.
       assert.deepEqual(
         fixture.requests.map((request) => request.auth),
-        [DEAD_PRIMARY, LIVE_BACKUP, LIVE_BACKUP],
+        [DEAD_KEY, LIVE_KEY, LIVE_KEY],
       );
       assert.deepEqual(fixture.requests[0].body, fixture.requests[1].body);
       assert.deepEqual(failovers, [
@@ -938,10 +1021,10 @@ test(
     }));
     try {
       await assert.rejects(
-        realTurn(backupKeyModel(fixture.baseURL, "every-key-refused"), []),
+        realTurn(twoKeyModel(fixture.baseURL, "every-key-refused"), []),
         (error: Error & { status?: number; providerDetail?: string }) => {
           assert.equal(error.status, 401);
-          for (const key of [DEAD_PRIMARY, LIVE_BACKUP]) {
+          for (const key of [DEAD_KEY, LIVE_KEY]) {
             assert.ok(!error.message.includes(key));
             assert.ok(!(error.providerDetail ?? "").includes(key));
           }
@@ -951,7 +1034,7 @@ test(
       );
       assert.deepEqual(
         fixture.requests.map((request) => request.auth),
-        [DEAD_PRIMARY, LIVE_BACKUP],
+        [DEAD_KEY, LIVE_KEY],
         "both keys tried once; a 401 is not retried",
       );
     } finally {
