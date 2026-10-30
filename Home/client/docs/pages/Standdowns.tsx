@@ -134,6 +134,12 @@ export function Standdowns() {
         or admin lifts them.
       </P>
       <P>
+        An <DocLink to="/docs/models#unavailable">unavailable AI Model</DocLink> places no
+        Standdown either: its work waits and carries on by itself once the model is back. The two
+        compose — work a Standdown placed meanwhile covers stays held until it is lifted, and
+        lifting a Standdown starts nothing on a model that is still unavailable.
+      </P>
+      <P>
         New and resumed Runs use the current Standdown state. An old Journal entry or saved progress
         checkpoint describing a Standdown is history and does not require another lift after that
         Standdown has been lifted. Any other active Standdown covering the Routine still applies:

@@ -234,6 +234,7 @@ code, UI copy, commits, and docs.
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
 | **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
+| **Unavailable** (an AI Model whose service can't be reached, is failing or overloaded, or keeps every key rate-limited; its work waits and carries on by itself — one `AIModelOutage` row per spell, `services/modelAvailability.ts`) | Down, Offline, Broken, Tripped, Circuit breaker (in product copy); never a Standdown |
 | **Effects** (what a Run actually changed, read back from the audit rows its own token wrote — `services/runEffects.ts`) | Trace, Log, Activity, History |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
@@ -374,6 +375,32 @@ change or retry, and must never be counted as a failure. A Standdown placed
 while a Run is paused still defers it; a Standdown that lands while a Run is
 pausing wins, and the Run ends interrupted. Do not reuse the pause to stop work
 on purpose — that is what a Standdown is for.
+
+**An unavailable AI Model is not a failure, and not a Standdown.** When an AI
+Model's service can't be reached, fails, is overloaded, or keeps every key
+rate-limited, the model is **unavailable** for every AI Employee it is attached
+to (`services/modelAvailability.ts`). `services/agent/modelOutage.ts` tells that
+apart from a refused key — invalid, revoked, out of credit or quota, which the
+key ring handles (`classifyKeyRefusal`) and a person must fix — and from a
+request the model rejects, which is the work's own problem; neither makes a
+model unavailable, because no amount of waiting fixes them. While it is
+unavailable the queue starts none of its Runs; a Run that meets it pauses as
+itself (`pauseReason: "outage"`, counted in `outagePauses` and never toward the
+restart cap) and resumes first, with the time it had left, when a check or real
+work finds the model answering; a chat message stays `working`, unclaimed, and
+is answered then (waiting cause `model_unavailable`); background AI work —
+grading, Wakeups, TLDRs, letters, meetings, screening, data rooms, Sequences —
+defers. Like a restart pause, nobody decided it: it records no verdict, failure
+count, journal entry, failure alert, autonomy change or retry, and an outage
+must never be graded — a checker that could not run because its model was
+down leaves the Run ungraded, not `unverified`. Owners and admins hear once
+when a check confirms it and once when it ends, never once per Run. A
+Standdown composes both ways: one placed during an outage still holds the work
+after recovery, and lifting a Standdown starts nothing on a model that is still
+unavailable. Product copy calls the state "unavailable", never "down",
+"offline" or "circuit breaker" — the retired automatic Standdown left
+`source: "breaker"` rows behind ("The failure breaker placed it"), and the word
+must not come back to mean something else.
 
 **"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they
 are not interchangeable. `unclear` is a judgement — the checker looked at the
@@ -928,6 +955,24 @@ in a Work session instead of leaving them stranded as local commits.
   never merged silently. All of it is owners and admins from a signed-in
   browser: no API key, Genosyn MCP client or AI Employee tool attaches,
   detaches, switches or removes a model.
+- **An AI Model's availability is shared, persisted state.** Every model
+  failure is classified once (`services/agent/modelOutage.ts`): the runtime's
+  error, the per-turn proxy's view of each upstream answer (`opencodeProxy.ts`
+  `onUpstream`, including an error event inside a 200 stream and every key
+  rate-limited), a Codex error notification. `services/modelAvailability.ts`
+  is the breaker, keyed like `modelRunCapacity` within a company: in memory
+  on the hot path, and one `AIModelOutage` row per spell (a partial unique
+  index allows one open row per key) so a restart and every replica see it —
+  replicas re-read open rows every 15 seconds. Checks
+  (`services/modelAvailabilityProbe.ts`) run on the server with the model's
+  own credentials, one at a time per model (a scheduler lease on Postgres),
+  on a jittered doubling backoff from `runtime.modelAvailability`, and log
+  neither a key nor a response body. Notices are claimed on the row
+  (`notifiedAt`), so a restart or a second replica never sends one twice.
+  New AI work follows the same rule: work that starts on its own asks
+  `isModelAvailable` first and defers; work that gets
+  `{ status: "error", unavailable }` back from a turn defers rather than
+  recording a result, spending an attempt or alerting anyone.
 - **A chat turn's activity belongs to its conversation.** While an AI Employee
   answers in direct chat or Help, every tool call and result, the AI Model's
   thinking summary (`StreamCallbacks.onReasoning`), progress milestones and

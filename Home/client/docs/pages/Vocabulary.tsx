@@ -137,7 +137,10 @@ export function Vocabulary() {
                 A brain AI Employees run on — an Anthropic or OpenAI API connection, a custom
                 OpenAI-compatible endpoint, or an OpenAI subscription connection through the
                 official Codex app-server. It belongs to the company and is attached to any number
-                of employees; an employee can have several attached and keeps one active. See{" "}
+                of employees; an employee can have several attached and keeps one active. While its
+                service can&apos;t be reached, is failing or overloaded, or keeps every key
+                rate-limited, it is <Strong>unavailable</Strong>: its work waits and carries on by
+                itself once it is back — never an Error, and never a Standdown. See{" "}
                 <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),

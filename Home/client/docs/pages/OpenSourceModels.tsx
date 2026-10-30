@@ -505,10 +505,12 @@ llama-server \\
           it came back.
         </LI>
         <LI>
-          <Strong>A restart does not cost the queue.</Strong> When a Run fails because the model
-          server stopped answering for longer than that, the queue asks the server before starting
-          the next Run on it and keeps waiting Runs queued until it answers again, instead of
-          starting each one only to fail.
+          <Strong>A longer outage does not cost the work either.</Strong> When the model server
+          stays unreachable for longer than that, the model counts as{" "}
+          <DocLink to="/docs/models#unavailable">unavailable</DocLink>: the Run pauses instead of
+          failing, Genosyn asks the server for its model list on a growing interval, and the queue
+          keeps waiting Runs queued until it answers again, instead of starting each one only to
+          fail. Then the paused Run continues where it stopped, ahead of the rest.
         </LI>
         <LI>
           <Strong>No backlog of the same Routine.</Strong> When a Routine&apos;s next scheduled

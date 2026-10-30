@@ -178,11 +178,12 @@ export function Routines() {
         <Strong>High</Strong> mark. A Run waits while its AI Model already serves as many Runs as it
         allows (see <DocLink to="/docs/routines#concurrent-runs">Concurrent Routine Runs</DocLink>),
         while a <DocLink to="/docs/standdowns">Standdown</DocLink> covers it — its row then says{" "}
-        <Strong>Stood down</Strong> and takes no place in line — or while Genosyn restarts for an
-        upgrade. A Run paused for a restart reads <Strong>Resuming</Strong>, is first in line, and
-        continues where it stopped. Open a row for its Run log: a Run waiting for its AI Model or
-        for an upgrade says so there. A long queue lists its first 100 Runs and says how many wait
-        in all.
+        <Strong>Stood down</Strong> and takes no place in line — while its AI Model is{" "}
+        <DocLink to="/docs/models#unavailable">unavailable</DocLink>, or while Genosyn restarts for
+        an upgrade. A Run paused for a restart, or while its AI Model was unavailable, reads{" "}
+        <Strong>Resuming</Strong>, is first in line, and continues where it stopped. Open a row for
+        its Run log: a Run waiting for its AI Model or for an upgrade says so there. A long queue
+        lists its first 100 Runs and says how many wait in all.
       </P>
       <P>
         <Strong>Ran today</Strong> shows each Routine&apos;s latest finished Run and how many times
@@ -598,7 +599,7 @@ Post it to the #morning channel.`}</Pre>
         you can set a limit on any model. Runs beyond it wait in the queue — Routines →{" "}
         <Strong>Running</Strong> lists them under <Strong>Queued</Strong>, and the Run log says
         which model they are waiting for — and start when a Run on that model finishes, in queue
-        order, with their whole time limit. Runs paused for a restart resume first, continuations
+        order, with their whole time limit. Paused Runs resume first, continuations
         of unfinished work start ahead of new work, and their wait does not count against the time
         their earlier Run left; among the rest, <DocLink to="/docs/routines#priority">High
         priority</DocLink> Routines go first and otherwise the oldest Run does. See{" "}
@@ -639,7 +640,8 @@ Post it to the #morning channel.`}</Pre>
       <P>Waiting Runs start in this order, the same order Running and an employee&apos;s day show:</P>
       <UL>
         <LI>
-          <Strong>Runs paused for a restart</Strong>, which were already working and resume first.
+          <Strong>Paused Runs</Strong> — paused for a restart, or while their AI Model was
+          unavailable — which were already working and resume first.
         </LI>
         <LI>
           <Strong>Continuations</Strong> of unfinished work, which finish what a Run began.
@@ -1172,7 +1174,35 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <DocLink to="/docs/standdowns">Standdown</DocLink> either — a Standdown placed while a Run
         is paused still holds it in the queue until it is lifted. A Routine disabled or removed
         while one of its Runs was paused ends that Run with an interruption reason, keeping its
-        transcript. A Run Genosyn has to pause more than five times ends instead of resuming again.
+        transcript. A Run Genosyn has to pause for a restart more than five times ends instead of
+        resuming again.
+      </P>
+
+      <H3 id="paused-for-unavailable-model">Paused while its AI Model was unavailable</H3>
+      <P>
+        When a Run&apos;s <DocLink to="/docs/models#unavailable">AI Model is unavailable</DocLink> —
+        its service can&apos;t be reached, is failing or overloaded, or every key is rate-limited —
+        the Run does not end in an Error. A Run that was working pauses the way it does for a
+        restart: it goes back to the queue as the same Run with its transcript, tokens, saved
+        progress and Effects, and the time it had left. Its status reads <Strong>Resuming</Strong>,
+        and a <Code>[paused]</Code> line in its log says what the model answered. A Run that had not
+        started simply waits in the queue, its log saying which model it waits for; its time limit
+        starts when it does.
+      </P>
+      <P>
+        Once a check or any other work finds the model answering again, the paused Runs continue
+        where they stopped — first in line, a few seconds apart — with a <Code>[resumed]</Code>{" "}
+        line, and the queued ones follow. A scheduled slot that comes due meanwhile is covered by the
+        Routine&apos;s scheduled Run that is already waiting rather than queueing another, and
+        Triggers and Wakeups that fire meanwhile wait too, so nothing is dropped and no backlog
+        builds up.
+      </P>
+      <P>
+        Like a restart pause, it is not a failure: no failure count, alert, Journal entry, retry,
+        outcome verdict or change to the employee&apos;s Waivers. A Standdown placed meanwhile still
+        holds the Run until it is lifted. A Run whose model becomes unavailable more than ten times
+        ends as an <Strong>Error</Strong> instead of pausing again; these pauses never count toward
+        the five restarts.
       </P>
 
       <H3 id="crash-mid-run">The server stopped mid-run</H3>
@@ -1331,7 +1361,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         OpenCode manages temporary model-request retries for API-key and custom AI Models; the Codex
         app-server manages subscription retries. These attempts remain inside the current Run. If
         the runtime cannot complete the request, the same Run ends
-        <Strong> Error</Strong>. Stopping the Run or reaching its deadline stops the runtime. See{" "}
+        <Strong> Error</Strong> — unless its AI Model is unavailable, when it{" "}
+        <a href="#paused-for-unavailable-model">pauses</a> instead and owes no retry. Stopping the
+        Run or reaching its deadline stops the runtime. See{" "}
         <DocLink to="/docs/models#model-errors">model errors</DocLink> for the other model failures
         and subscription behavior.
       </P>
@@ -1398,6 +1430,12 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <LI>
           <Strong>Runs waiting to retry</Strong> — an in-progress retry chain, so it&apos;s visible
           rather than silent. Nothing to do.
+        </LI>
+        <LI>
+          <Strong>AI Models unavailable</Strong> — models whose service can&apos;t be reached, is
+          failing or overloaded, or keeps every key rate-limited, with since when and what waits
+          for them. Nothing to do: the work carries on by itself once a check finds the model back
+          (see <DocLink to="/docs/models#unavailable">AI Models</DocLink>).
         </LI>
         <LI>
           <Strong>Stuck</Strong> runs — still <Code>running</Code> after 8 hours. Crash recovery
