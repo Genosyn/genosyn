@@ -357,6 +357,22 @@ describe("listing the company's AI Models", () => {
     assert.deepEqual(byId.get(otherKey.id)!.duplicateIds, []);
     assert.deepEqual(byId.get(otherModel.id)!.duplicateIds, []);
   });
+
+  test("the same pool of keys in another order is still a duplicate: order means nothing", async () => {
+    const first = await claudeModel([KEY_A, KEY_B, BACKUP], [{ employee: ada }], {
+      createdAt: new Date("2026-10-01T10:00:00.000Z"),
+    });
+    const reordered = await claudeModel([BACKUP, KEY_A, KEY_B], [{ employee: grace }], {
+      createdAt: new Date("2026-10-02T10:00:00.000Z"),
+    });
+    const fewer = await claudeModel([KEY_A, KEY_B], [{ employee: linus }]);
+    const byId = new Map(
+      (await call<PublicModel[]>("GET", "")).body.map((model) => [model.id, model]),
+    );
+    assert.deepEqual(byId.get(first.id)!.duplicateIds, [reordered.id]);
+    assert.deepEqual(byId.get(reordered.id)!.duplicateIds, [first.id]);
+    assert.deepEqual(byId.get(fewer.id)!.duplicateIds, []);
+  });
 });
 
 describe("who may manage the company's AI Models", () => {
@@ -777,6 +793,45 @@ describe("merging exact duplicates", () => {
     assert.equal(rows[0].lastErrorKind, "billing");
   });
 
+  test("folds health key by key, whatever order each copy lists its keys in, sessions added up", async () => {
+    const kept = await claudeModel([KEY_A, KEY_B], [{ employee: ada }]);
+    const copy = await claudeModel([KEY_B, KEY_A], [{ employee: grace }]);
+    const [keptA, keptB] = readApiKeys(kept.configJson).map((key) => key.id);
+    const [copyB, copyA] = readApiKeys(copy.configJson).map((key) => key.id);
+    const hour = Math.floor(Date.now() / 3_600_000);
+    await insert(AIModelKeyHealth, {
+      modelId: kept.id,
+      keyId: keptA,
+      sessionsByHour: JSON.stringify([[hour, 2]]),
+    });
+    await insert(AIModelKeyHealth, {
+      modelId: copy.id,
+      keyId: copyA,
+      sessionsByHour: JSON.stringify([[hour, 3]]),
+    });
+    await insert(AIModelKeyHealth, {
+      modelId: copy.id,
+      keyId: copyB,
+      lastErrorAt: new Date("2026-10-07T10:00:00.000Z"),
+      lastErrorStatus: 401,
+      lastErrorKind: "auth",
+      lastErrorMessage: "invalid x-api-key",
+    });
+    assert.equal(
+      (await call("POST", `/${kept.id}/merge`, { duplicateIds: [copy.id] })).status,
+      200,
+    );
+    const rows = await AppDataSource.getRepository(AIModelKeyHealth).find();
+    const byKey = new Map(rows.map((row) => [row.keyId, row]));
+    assert.ok(rows.every((row) => row.modelId === kept.id));
+    // KEY_A's sessions from both copies, on KEY_A — not on whatever sat in its place.
+    assert.equal(byKey.get(keptA)?.sessionsByHour, JSON.stringify([[hour, 5]]));
+    assert.equal(byKey.get(keptA)?.lastErrorStatus ?? null, null);
+    // KEY_B's refusal lands on KEY_B.
+    assert.equal(byKey.get(keptB)?.lastErrorStatus, 401);
+    assert.equal(byKey.get(keptB)?.lastErrorKind, "auth");
+  });
+
   test("custom endpoints with the same server, model and key are duplicates too", async () => {
     const kept = await endpointModel();
     const copy = await endpointModel();
@@ -803,7 +858,7 @@ describe("merging exact duplicates", () => {
     assert.match(refused.body.error, /no longer exact duplicates/);
     assert.ok(await AppDataSource.getRepository(AIModel).findOneBy({ id: differentKey.id }));
     assert.equal((await flaggedActiveModel(grace.id))?.id, differentKey.id);
-    // A copy with an extra backup key is a different setup.
+    // A copy with an extra key in its pool is a different setup.
     const withBackup = await claudeModel([KEY_A, BACKUP]);
     assert.equal(
       (await call("POST", `/${kept.id}/merge`, { duplicateIds: [withBackup.id] })).status,
@@ -840,7 +895,7 @@ describe("merging exact duplicates", () => {
 });
 
 describe("a shared model's settings serve everyone on it", () => {
-  test("a backup key added once is every employee's backup key", async (t) => {
+  test("a key added once is in every employee's pool", async (t) => {
     const calls = stubProvider(t);
     const shared = await claudeModel([KEY_A], [{ employee: ada }, { employee: grace }]);
     const added = await call("POST", `/${shared.id}/keys`, { apiKey: BACKUP });

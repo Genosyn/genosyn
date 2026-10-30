@@ -2,7 +2,7 @@ import { AppDataSource } from "../../db/datasource.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
-import { orderedApiKeys } from "../agent/apiKeyRing.js";
+import { sessionApiKey } from "../agent/apiKeyRing.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { getActiveModel } from "../models.js";
 import { getMeetingsSettings } from "../runtimeSettings.js";
@@ -97,9 +97,9 @@ export async function resolveTranscriptionTarget(
     if (typeof raw !== "string" || !raw) {
       return { error: "The OpenAI model has no stored API key. Reconnect it." };
     }
-    // The key a Run would try first right now: a backup while the primary
-    // rests after being refused.
-    const [key] = await orderedApiKeys(model);
+    // A transcription is work on the model's keys like a session: it takes the
+    // next key in turn, skipping one that rests after being refused.
+    const key = await sessionApiKey(model);
     if (!key) {
       return { error: "The OpenAI API key could not be decrypted." };
     }

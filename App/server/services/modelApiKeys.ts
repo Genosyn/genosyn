@@ -2,30 +2,34 @@ import { randomUUID } from "node:crypto";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { AIModelKeyHealth, ApiKeyFailureKind } from "../db/entities/AIModelKeyHealth.js";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret.js";
+import { sessionsInWindow } from "./modelKeySessions.js";
 
 /**
- * The API keys an API-key AI Model holds: a primary key, which every request
- * tries first, and any number of backup keys, tried in order when a provider
- * refuses the key a request was sent with (see `agent/apiKeyRing.ts`). There
- * is no cap on how many.
+ * The API keys an API-key AI Model holds: a pool of equal keys that its
+ * sessions are spread across — each session opens on the next key in turn and
+ * moves to another when the provider refuses its key (see
+ * `agent/apiKeyRing.ts`). There is no cap on how many.
  *
  * They live in `AIModel.configJson` beside every other credential, each one
- * encrypted with the company's scope exactly like the primary always was. The
- * primary stays where it has always been — `apiKeyEncrypted` / `apiKeyPreview`
- * at the top level — so every reader that predates backup keys (connection
- * status, reuse, the context-window probe, transcription) keeps working; the
- * backups follow it in `backupKeys`, in the order they are tried:
+ * encrypted with the company's scope. The storage predates the pool, when one
+ * key was the primary and the others its backups, and keeps that shape so no
+ * stored config needs rewriting: the first key stays where the only key has
+ * always been — `apiKeyEncrypted` / `apiKeyPreview` at the top level — so
+ * every reader that wants just one key (connection status, the context-window
+ * probe) keeps working, and the others follow it in `backupKeys`:
  *
  *   { apiKeyEncrypted, apiKeyPreview, apiKeyId?, apiKeyAddedAt?,
  *     backupKeys?: [{ id, apiKeyEncrypted, apiKeyPreview, addedAt? }] }
  *
- * A key's `id` stays with it when the keys are reordered and names its health
- * row (`AIModelKeyHealth`). A primary saved before backup keys existed has no
- * stored id and is always called {@link LEGACY_PRIMARY_KEY_ID}. Only the
- * masked preview ever leaves the server.
+ * The order no longer decides which key a session uses; it is only the order
+ * the keys are listed, the turn order's tie-break, and where a check that
+ * takes no turn starts. A key's `id` stays with it whatever the order and
+ * names its health row (`AIModelKeyHealth`). A key saved before keys had ids
+ * has no stored id and is always called {@link LEGACY_PRIMARY_KEY_ID}. Only
+ * the masked preview ever leaves the server.
  */
 
-/** The id of a primary key saved before keys had ids of their own. */
+/** The id of the key saved before keys had ids of their own. */
 export const LEGACY_PRIMARY_KEY_ID = "primary";
 
 /** One API key as it is stored, never decrypted. */
@@ -33,7 +37,7 @@ export type StoredApiKey = {
   id: string;
   apiKeyEncrypted: string;
   apiKeyPreview: string;
-  /** ISO time the key was added; null for a primary saved before backup keys. */
+  /** ISO time the key was added; null for a key saved before keys had ids. */
   addedAt: string | null;
 };
 
@@ -55,7 +59,10 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-/** Every key, primary first, in the order requests try them. */
+/**
+ * Every key, in the order they are stored — the top-level key first, then the
+ * rest — read tolerantly: a malformed or repeated entry is skipped.
+ */
 export function readApiKeys(configJson: string | null | undefined): StoredApiKey[] {
   const cfg = parseConfig(configJson);
   const keys: StoredApiKey[] = [];
@@ -87,8 +94,8 @@ export function readApiKeys(configJson: string | null | undefined): StoredApiKey
 }
 
 /**
- * `configJson` holding exactly `keys` — the first as the primary, the rest as
- * backups in order. Every other field is kept as it was.
+ * `configJson` holding exactly `keys`, in order — the first at the top level,
+ * the rest in `backupKeys`. Every other field is kept as it was.
  */
 export function writeApiKeys(
   configJson: string | null | undefined,
@@ -100,16 +107,16 @@ export function writeApiKeys(
   delete cfg.apiKeyId;
   delete cfg.apiKeyAddedAt;
   delete cfg.backupKeys;
-  const [primary, ...backups] = keys;
-  if (primary) {
-    cfg.apiKeyEncrypted = primary.apiKeyEncrypted;
-    cfg.apiKeyPreview = primary.apiKeyPreview;
-    // A legacy primary keeps no stored id, so it reads back as itself.
-    if (primary.id !== LEGACY_PRIMARY_KEY_ID) cfg.apiKeyId = primary.id;
-    if (primary.addedAt) cfg.apiKeyAddedAt = primary.addedAt;
+  const [first, ...rest] = keys;
+  if (first) {
+    cfg.apiKeyEncrypted = first.apiKeyEncrypted;
+    cfg.apiKeyPreview = first.apiKeyPreview;
+    // A legacy key keeps no stored id, so it reads back as itself.
+    if (first.id !== LEGACY_PRIMARY_KEY_ID) cfg.apiKeyId = first.id;
+    if (first.addedAt) cfg.apiKeyAddedAt = first.addedAt;
   }
-  if (backups.length > 0) {
-    cfg.backupKeys = backups.map((key) => ({
+  if (rest.length > 0) {
+    cfg.backupKeys = rest.map((key) => ({
       id: key.id,
       apiKeyEncrypted: key.apiKeyEncrypted,
       apiKeyPreview: key.apiKeyPreview,
@@ -159,7 +166,7 @@ export function findApiKey(
   return keys.find((key) => decryptApiKey(key) === apiKey);
 }
 
-/** Does this AI Model take API keys — and so backup keys? */
+/** Does this AI Model take API keys — a pool of them, as many as an owner adds? */
 export function holdsApiKeys(model: Pick<AIModel, "authMode" | "provider">): boolean {
   return (
     model.authMode === "apikey" && (model.provider === "anthropic" || model.provider === "openai")
@@ -179,14 +186,19 @@ export type PublicApiKey = {
   lastErrorStatus: number | null;
   lastErrorKind: ApiKeyFailureKind | null;
   lastError: string | null;
-  /** While set, requests try the other keys first. */
+  /** While set, sessions skip this key and requests try the other keys first. */
   restingUntil: string | null;
+  /**
+   * Sessions this key carried in the last 24 hours — opened on it in turn, or
+   * moved to it when another key was refused.
+   */
+  sessionsLast24h: number;
 };
 
 /**
- * The keys of an API-key AI Model for the wire, in the order they are tried,
- * each with its health. Empty for every other kind of AI Model — a custom
- * endpoint's optional key is not part of this.
+ * The keys of an API-key AI Model for the wire, in the order they are stored,
+ * each with its health and its share of the sessions. Empty for every other
+ * kind of AI Model — a custom endpoint's optional key is not part of this.
  */
 export function publicApiKeys(
   model: Pick<AIModel, "authMode" | "provider" | "configJson">,
@@ -212,6 +224,7 @@ export function publicApiKeys(
       lastErrorKind: row?.lastErrorKind ?? null,
       lastError: row?.lastErrorMessage ?? null,
       restingUntil: resting > now ? new Date(resting).toISOString() : null,
+      sessionsLast24h: sessionsInWindow(row?.sessionsByHour, now),
     };
   });
 }

@@ -1,19 +1,36 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { inspect } from "node:util";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
+import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { AIModelKeyHealth } from "../../db/entities/AIModelKeyHealth.js";
+import { encryptSecret, maskSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
-import { insertEmployeeModel } from "../../test/modelFixtures.js";
-import { decryptApiKeys, newStoredApiKey, writeApiKeys } from "../modelApiKeys.js";
+import { attachExistingModel, insertEmployeeModel } from "../../test/modelFixtures.js";
+import {
+  LEGACY_PRIMARY_KEY_ID,
+  decryptApiKeys,
+  newStoredApiKey,
+  publicApiKeys,
+  readApiKeys,
+  writeApiKeys,
+  type ApiKeySecret,
+} from "../modelApiKeys.js";
 import {
   LAST_USED_WRITE_INTERVAL_MS,
   keyRestingUntil,
+  listKeyHealth,
   loadKeyRests,
+  pruneKeyHealth,
   resetKeyHealthMemory,
+  restKey,
+  settleKeySessionWrites,
 } from "../modelKeyHealth.js";
+import { resetKeyPoolMemory } from "../modelKeyPool.js";
+import { getActiveModel } from "../models.js";
 import {
   ApiKeyRing,
   MAX_RATE_LIMIT_REST_MS,
@@ -27,6 +44,7 @@ import {
   orderedApiKeys,
   refusalWords,
   retryAfterMs,
+  sessionApiKey,
   surfacedRefusal,
   type KeyRefusal,
 } from "./apiKeyRing.js";
@@ -37,8 +55,12 @@ before(async () => {
   security.encryptionSecret = "api-key-ring-tests-encryption-secret-0123456789";
   await initTestDb();
 });
-// Rests live in this process's memory; each test starts with none.
-beforeEach(() => resetKeyHealthMemory());
+// Rests and turns live in this process's memory; each test starts with none,
+// and a new pool's random starting place is its first key unless a test says.
+beforeEach(() => {
+  resetKeyHealthMemory();
+  resetKeyPoolMemory({ random: () => 0 });
+});
 after(async () => {
   await closeTestDb();
   security.encryptionSecret = originalSecret;
@@ -573,5 +595,502 @@ describe("what a ring remembers about each key", () => {
     });
     assert.equal(await apiKeyRingFor(model), null);
     assert.deepEqual(await orderedApiKeys(model), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The keys are a pool: sessions are spread across them, in turn.
+// ---------------------------------------------------------------------------
+
+/** `n` keys k1…kn, as the proxy holds them. */
+function poolKeys(n: number): ApiKeySecret[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `k${i + 1}`,
+    apiKey: `sk-ant-api03-pool-key-${String(i + 1).padStart(4, "0")}-secret`,
+    preview: `sk-…${String(i + 1).padStart(4, "0")}`,
+  }));
+}
+
+/** Open `n` sessions on one model, one after another; the key each opened on. */
+function openSessions(
+  modelId: string,
+  keys: readonly ApiKeySecret[],
+  n: number,
+  now?: () => number,
+): string[] {
+  return Array.from(
+    { length: n },
+    () => new ApiKeyRing(modelId, keys, { session: true, now }).key.id,
+  );
+}
+
+const refusedFor = (kind: KeyRefusal["kind"], retryAfterMs: number | null = null): KeyRefusal => ({
+  kind,
+  status: kind === "rate_limit" ? 429 : kind === "billing" ? 402 : 401,
+  message: null,
+  retryAfterMs,
+});
+
+describe("sessions are spread across the keys, in turn", () => {
+  test("N sessions on N keys: every key opens exactly one session per cycle", () => {
+    const keys = poolKeys(7);
+    const opened = openSessions("seven-keys", keys, 21);
+    const ids = keys.map((key) => key.id);
+    assert.deepEqual(opened, [...ids, ...ids, ...ids]);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      assert.equal(new Set(opened.slice(cycle * 7, cycle * 7 + 7)).size, 7);
+    }
+  });
+
+  test("the first session opens at a random place in the pool", () => {
+    resetKeyPoolMemory({ random: () => 0.5 });
+    assert.deepEqual(openSessions("from-the-middle", poolKeys(4), 5), [
+      "k3",
+      "k4",
+      "k1",
+      "k2",
+      "k3",
+    ]);
+    const firsts = new Set<string>();
+    for (let restart = 0; restart < 400; restart++) {
+      resetKeyPoolMemory();
+      firsts.add(openSessions("restarted", poolKeys(4), 1)[0]);
+    }
+    // With 400 fresh starts the chance a key is never first is about 4 × (3/4)^400.
+    assert.deepEqual([...firsts].sort(), ["k1", "k2", "k3", "k4"]);
+  });
+
+  test("a session stays on its key for every request, whatever other sessions open meanwhile", async () => {
+    const keys = poolKeys(3);
+    const session = new ApiKeyRing("sticky", keys, { session: true });
+    assert.equal(session.key.id, "k1");
+    for (let request = 0; request < 50; request++) {
+      // Other sessions keep taking turns between this session's requests.
+      new ApiKeyRing("sticky", keys, { session: true });
+      const [first] = session.attemptOrder();
+      assert.equal(first.id, "k1", `request ${request + 1}`);
+      await session.succeeded(first);
+    }
+    assert.equal(session.key.id, "k1");
+  });
+
+  test("its other keys wait behind it, the next in turn first, as failover candidates", () => {
+    const keys = poolKeys(4);
+    const session = new ApiKeyRing("candidates", keys, { session: true });
+    new ApiKeyRing("candidates", keys, { session: true }); // another session takes k2
+    assert.deepEqual(
+      session.attemptOrder().map((key) => key.id),
+      ["k1", "k3", "k4", "k2"],
+    );
+  });
+
+  test("a model shared by many employees is one pool: their sessions take turns together", () => {
+    const keys = poolKeys(3);
+    // Three employees on one model row: their sessions share one turn order.
+    const ada = openSessions("one-shared-row", keys, 1);
+    const grace = openSessions("one-shared-row", keys, 1);
+    const linus = openSessions("one-shared-row", keys, 1);
+    assert.deepEqual([...ada, ...grace, ...linus], ["k1", "k2", "k3"]);
+    // Another model with the very same keys keeps its own turns.
+    assert.deepEqual(openSessions("a-copy-of-it", keys, 2), ["k1", "k2"]);
+  });
+
+  test("a single-key model opens every session on its key, exactly as before", async () => {
+    const [only] = poolKeys(1);
+    assert.deepEqual(openSessions("single", [only], 5), ["k1", "k1", "k1", "k1", "k1"]);
+    const session = new ApiKeyRing("single", [only], { session: true });
+    await session.refused(only, refusedFor("auth"));
+    assert.deepEqual(
+      session.attemptOrder().map((key) => key.id),
+      ["k1"],
+      "a resting only key is still tried",
+    );
+    assert.deepEqual(
+      new ApiKeyRing("single", [only]).attemptOrder().map((key) => key.id),
+      ["k1"],
+    );
+  });
+
+  test("a ring that is not a session takes no turn: it starts on the first key that isn't resting", () => {
+    const keys = poolKeys(3);
+    for (let i = 0; i < 5; i++) {
+      const check = new ApiKeyRing("checked", keys);
+      assert.equal(check.isSession, false);
+      assert.equal(check.key.id, "k1");
+    }
+    restKey("checked", "k1", Date.now() + 60_000);
+    assert.equal(new ApiKeyRing("checked", keys).key.id, "k2");
+    // None of those checks took a turn: the first session opens where the pool starts,
+    // skipping k1 only because it rests.
+    assert.deepEqual(openSessions("checked", keys, 2), ["k2", "k3"]);
+  });
+});
+
+describe("a refused key, mid-session", () => {
+  test("the request moves to the next key in turn, and the rest of the session stays there", async () => {
+    let now = 1_000_000;
+    const keys = poolKeys(3);
+    const session = new ApiKeyRing("failover", keys, { session: true, now: () => now });
+    assert.equal(session.key.id, "k1");
+    await session.refused(keys[0], refusedFor("rate_limit", 30_000));
+    const order = session.attemptOrder();
+    assert.deepEqual(
+      order.map((key) => key.id),
+      ["k2", "k3", "k1"],
+    );
+    await session.succeeded(order[0]);
+    assert.equal(session.key.id, "k2");
+    // Long after k1's rest has run out, the session keeps the key that answered.
+    now += 10 * 60_000;
+    for (let request = 0; request < 10; request++) {
+      const [first] = session.attemptOrder();
+      assert.equal(first.id, "k2");
+      await session.succeeded(first);
+    }
+  });
+
+  test("the key a session moves to takes that turn, so the next new session goes elsewhere", async () => {
+    const keys = poolKeys(3);
+    const session = new ApiKeyRing("handed-over", keys, { session: true });
+    await session.refused(keys[0], refusedFor("auth"));
+    await session.succeeded(session.attemptOrder()[0]);
+    assert.equal(session.key.id, "k2");
+    // k1 rests and k2 now carries the moved session: k3 is next.
+    assert.deepEqual(openSessions("handed-over", keys, 1), ["k3"]);
+  });
+
+  test("an error about the request or the service keeps the session where it answered", async () => {
+    const keys = poolKeys(3);
+    const session = new ApiKeyRing("answered", keys, { session: true });
+    await session.refused(keys[0], refusedFor("billing"));
+    const [next] = session.attemptOrder();
+    session.answered(next); // e.g. a 529: the provider is overloaded, not the key
+    assert.equal(session.key.id, "k2");
+    session.answered(keys[1]);
+    assert.equal(session.key.id, "k2");
+  });
+
+  test("a session whose key another session got refused moves on with its next request", () => {
+    const keys = poolKeys(3);
+    const session = new ApiKeyRing("refused-elsewhere", keys, { session: true });
+    assert.equal(session.key.id, "k1");
+    // Another session on the same model was just refused on k1.
+    restKey("refused-elsewhere", "k1", Date.now() + 60_000);
+    assert.notEqual(session.attemptOrder()[0].id, "k1");
+    assert.equal(session.attemptOrder().at(-1)?.id, "k1", "still a last resort");
+  });
+
+  test("a key that keeps being refused is tried once per rest, not once per request", async () => {
+    let now = 2_000_000;
+    const keys = poolKeys(2);
+    const session = new ApiKeyRing("dead-key", keys, { session: true, now: () => now });
+    await session.refused(keys[0], refusedFor("auth"));
+    await session.succeeded(keys[1]);
+    for (let request = 0; request < 20; request++) {
+      now += 1_000;
+      assert.equal(session.attemptOrder()[0].id, "k2");
+    }
+  });
+});
+
+describe("new sessions skip a resting key", () => {
+  test("round-robin goes over the keys that aren't resting, and a woken key takes its turn at once", () => {
+    let now = 3_000_000;
+    const clock = () => now;
+    const keys = poolKeys(3);
+    restKey("skipping", "k2", now + 60_000, now);
+    assert.deepEqual(openSessions("skipping", keys, 4, clock), ["k1", "k3", "k1", "k3"]);
+    now += 60_000;
+    assert.deepEqual(openSessions("skipping", keys, 4, clock), ["k2", "k1", "k3", "k2"]);
+  });
+
+  test("every key resting: the session opens on the one whose rest ends soonest, and still tries every key", () => {
+    const now = 4_000_000;
+    const keys = poolKeys(3);
+    restKey("all-resting", "k1", now + 300_000, now);
+    restKey("all-resting", "k2", now + 60_000, now);
+    restKey("all-resting", "k3", now + 120_000, now);
+    const session = new ApiKeyRing("all-resting", keys, { session: true, now: () => now });
+    assert.equal(session.key.id, "k2");
+    assert.deepEqual(
+      session.attemptOrder().map((key) => key.id),
+      ["k2", "k3", "k1"],
+    );
+  });
+
+  test("resting keys tied on when they wake take turns among themselves", () => {
+    const now = 5_000_000;
+    const keys = poolKeys(3);
+    for (const key of keys) restKey("tied", key.id, now + 60_000, now);
+    assert.deepEqual(openSessions("tied", keys, 3, () => now), ["k1", "k2", "k3"]);
+  });
+});
+
+describe("keys added or removed mid-rotation", () => {
+  test("a key added after a full cycle takes the very next session, and is never starved", () => {
+    const three = poolKeys(3);
+    openSessions("growing", three, 30);
+    const four = [...three, poolKeys(4)[3]];
+    const next = openSessions("growing", four, 12);
+    assert.equal(next[0], "k4");
+    assert.equal(next.filter((id) => id === "k4").length, 3);
+  });
+
+  test("a removed key drops out, and an in-flight session on it is not cut off", () => {
+    const keys = poolKeys(3);
+    const inFlight = new ApiKeyRing("shrinking", keys, { session: true });
+    new ApiKeyRing("shrinking", keys, { session: true });
+    assert.equal(inFlight.key.id, "k1");
+    const withoutK1 = keys.filter((key) => key.id !== "k1");
+    assert.deepEqual(openSessions("shrinking", withoutK1, 4), ["k3", "k2", "k3", "k2"]);
+    // The session that opened before the removal finishes on the key it had.
+    assert.equal(inFlight.attemptOrder()[0].id, "k1");
+  });
+
+  test("every key replaced at once: sessions carry on across the new keys", () => {
+    openSessions("replaced", poolKeys(2), 3);
+    const fresh = ["n1", "n2", "n3"].map((id) => ({
+      id,
+      apiKey: `sk-ant-${id}-replacement-key`,
+      preview: id,
+    }));
+    assert.deepEqual(openSessions("replaced", fresh, 6), ["n1", "n2", "n3", "n1", "n2", "n3"]);
+  });
+});
+
+describe("a saved AI Model's pool", () => {
+  beforeEach(() => resetTestDb());
+  const COMPANY = "company";
+  const plaintext = (n: number) => `sk-ant-api03-saved-pool-key-${String(n).padStart(6, "0")}`;
+
+  async function savedPool(count: number, employeeId = "employee"): Promise<AIModel> {
+    return insertEmployeeModel({
+      employeeId,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      authMode: "apikey",
+      configJson: writeApiKeys(
+        "{}",
+        Array.from({ length: count }, (_, i) => newStoredApiKey(plaintext(i + 1), COMPANY)),
+      ),
+      connectedAt: new Date(),
+      isActive: true,
+    });
+  }
+
+  test("sessions that start at the same moment never take the same key", async () => {
+    const model = await savedPool(7);
+    const rings = await Promise.all(
+      Array.from({ length: 7 }, () => apiKeyRingFor(model, { session: true })),
+    );
+    const opened = rings.map((ring) => ring!.key.id);
+    assert.equal(new Set(opened).size, 7, `7 simultaneous sessions, 7 keys: ${opened.join(",")}`);
+    // Three times as many at once: every key carries exactly three.
+    const more = await Promise.all(
+      Array.from({ length: 21 }, () => apiKeyRingFor(model, { session: true })),
+    );
+    const counts = new Map<string, number>();
+    for (const ring of more) counts.set(ring!.key.id, (counts.get(ring!.key.id) ?? 0) + 1);
+    assert.deepEqual([...counts.values()], [3, 3, 3, 3, 3, 3, 3]);
+  });
+
+  test("sessions skip a key another replica saved as resting", async () => {
+    const model = await savedPool(3);
+    const [first] = readApiKeys(model.configJson);
+    await insert(AIModelKeyHealth, {
+      modelId: model.id,
+      keyId: first.id,
+      coolDownUntil: new Date(Date.now() + 120_000),
+      lastErrorAt: new Date(),
+      lastErrorStatus: 429,
+      lastErrorKind: "rate_limit",
+    });
+    const opened: string[] = [];
+    for (let i = 0; i < 4; i++) opened.push((await apiKeyRingFor(model, { session: true }))!.key.id);
+    assert.ok(!opened.includes(first.id), "the resting key opened no session");
+    assert.equal(new Set(opened).size, 2);
+  });
+
+  test("each session is counted on its key; a session that moves is counted on both", async () => {
+    const model = await savedPool(3);
+    const ids = readApiKeys(model.configJson).map((key) => key.id);
+    for (let i = 0; i < 6; i++) await apiKeyRingFor(model, { session: true });
+    const moving = (await apiKeyRingFor(model, { session: true }))!;
+    assert.equal(moving.key.id, ids[0]);
+    await moving.refused(moving.attemptOrder()[0], refusedFor("auth"));
+    await moving.succeeded(moving.attemptOrder()[0]);
+    assert.equal(moving.key.id, ids[1]);
+    await settleKeySessionWrites();
+    const shown = publicApiKeys(model, await listKeyHealth([model.id]));
+    assert.deepEqual(
+      shown.map((key) => key.sessionsLast24h),
+      [3, 3, 2],
+      "the first key opened three, the second two plus the one that moved to it, the third two",
+    );
+  });
+
+  test("a burst of sessions on one key is counted in full", async () => {
+    const model = await savedPool(1);
+    await Promise.all(Array.from({ length: 25 }, () => apiKeyRingFor(model, { session: true })));
+    await settleKeySessionWrites();
+    const [shown] = publicApiKeys(model, await listKeyHealth([model.id]));
+    assert.equal(shown.sessionsLast24h, 25);
+  });
+
+  test("a check takes no turn and counts no session", async () => {
+    const model = await savedPool(3);
+    for (let i = 0; i < 4; i++) {
+      const check = (await apiKeyRingFor(model))!;
+      assert.equal(check.isSession, false);
+      await check.succeeded(check.attemptOrder()[0]);
+    }
+    await orderedApiKeys(model);
+    await settleKeySessionWrites();
+    const shown = publicApiKeys(model, await listKeyHealth([model.id]));
+    assert.deepEqual(
+      shown.map((key) => key.sessionsLast24h),
+      [0, 0, 0],
+    );
+    assert.equal(
+      (await apiKeyRingFor(model, { session: true }))!.key.id,
+      readApiKeys(model.configJson)[0].id,
+      "the first session still opens where the pool starts",
+    );
+  });
+
+  test("a key removed from the model leaves the turn order and its count behind", async () => {
+    const model = await savedPool(3);
+    const ids = readApiKeys(model.configJson).map((key) => key.id);
+    for (let i = 0; i < 3; i++) await apiKeyRingFor(model, { session: true });
+    await settleKeySessionWrites();
+    const trimmed = Object.assign(new AIModel(), model, {
+      configJson: writeApiKeys(
+        model.configJson,
+        readApiKeys(model.configJson).filter((key) => key.id !== ids[1]),
+      ),
+    });
+    await AppDataSource.getRepository(AIModel).update(
+      { id: model.id },
+      { configJson: trimmed.configJson },
+    );
+    await pruneKeyHealth(trimmed);
+    const opened: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      opened.push((await apiKeyRingFor(trimmed, { session: true }))!.key.id);
+    }
+    assert.deepEqual(opened, [ids[0], ids[2], ids[0], ids[2]]);
+    await settleKeySessionWrites();
+    const rows = await listKeyHealth([model.id]);
+    assert.ok(!rows.some((row) => row.keyId === ids[1]));
+  });
+
+  test("a session on a key that was removed meanwhile counts nothing", async () => {
+    const model = await savedPool(2);
+    const keys = decryptApiKeys(model.configJson);
+    const ghost = { id: randomUUID(), apiKey: plaintext(99), preview: "sk-…0099" };
+    const session = new ApiKeyRing(model.id, [ghost, ...keys], { session: true });
+    assert.equal(session.key.id, ghost.id);
+    await settleKeySessionWrites();
+    assert.equal(
+      await AppDataSource.getRepository(AIModelKeyHealth).countBy({ keyId: ghost.id }),
+      0,
+    );
+  });
+
+  test("a model shared by several employees is one pool across all of them", async () => {
+    const companyId = "shared-company";
+    const people: AIEmployee[] = [];
+    for (const name of ["Ada", "Grace", "Linus"]) {
+      people.push(
+        await insert(AIEmployee, {
+          companyId,
+          name,
+          slug: `${name.toLowerCase()}-${randomUUID()}`,
+          role: "Engineer",
+        }),
+      );
+    }
+    const model = await savedPool(3, people[0].id);
+    for (const person of people.slice(1)) {
+      await attachExistingModel({ employeeId: person.id, modelId: model.id, isActive: true });
+    }
+    const opened: string[] = [];
+    for (let round = 0; round < 2; round++) {
+      for (const person of people) {
+        const active = await getActiveModel(person.id);
+        assert.equal(active?.id, model.id);
+        opened.push((await apiKeyRingFor(active!, { session: true }))!.key.id);
+      }
+    }
+    const ids = readApiKeys(model.configJson).map((key) => key.id);
+    assert.deepEqual(opened, [...ids, ...ids]);
+  });
+
+  test("a stored config from before the pool — a primary plus backups — needs no step", async () => {
+    const legacy = JSON.stringify({
+      apiKeyEncrypted: encryptSecret(plaintext(1), COMPANY),
+      apiKeyPreview: maskSecret(plaintext(1)),
+      backupKeys: [
+        { id: "b1", apiKeyEncrypted: encryptSecret(plaintext(2), COMPANY), apiKeyPreview: "p2" },
+        { id: "b2", apiKeyEncrypted: encryptSecret(plaintext(3), COMPANY), apiKeyPreview: "p3" },
+        { apiKeyEncrypted: encryptSecret(plaintext(4), COMPANY) },
+        { id: "b1", apiKeyEncrypted: encryptSecret(plaintext(5), COMPANY) },
+        "junk",
+      ],
+      unrelated: "kept",
+    });
+    const model = await insertEmployeeModel({
+      employeeId: "employee",
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      authMode: "apikey",
+      configJson: legacy,
+      connectedAt: new Date(),
+      isActive: true,
+    });
+    const opened: string[] = [];
+    for (let i = 0; i < 6; i++) opened.push((await apiKeyRingFor(model, { session: true }))!.key.id);
+    assert.deepEqual(opened, [LEGACY_PRIMARY_KEY_ID, "b1", "b2", LEGACY_PRIMARY_KEY_ID, "b1", "b2"]);
+    const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id });
+    assert.equal(stored.configJson, legacy, "nothing about the stored config was rewritten");
+  });
+
+  test("a key that no longer decrypts is left out of the pool", async () => {
+    const model = await insertEmployeeModel({
+      employeeId: "employee",
+      provider: "openai",
+      model: "gpt-5.4",
+      authMode: "apikey",
+      configJson: JSON.stringify({
+        apiKeyEncrypted: "v2.no.longer.decrypts",
+        apiKeyId: "broken",
+        backupKeys: [
+          { id: "ok1", apiKeyEncrypted: encryptSecret(plaintext(1), COMPANY) },
+          { id: "ok2", apiKeyEncrypted: encryptSecret(plaintext(2), COMPANY) },
+        ],
+      }),
+      connectedAt: new Date(),
+      isActive: true,
+    });
+    const opened: string[] = [];
+    for (let i = 0; i < 4; i++) opened.push((await apiKeyRingFor(model, { session: true }))!.key.id);
+    assert.deepEqual(opened, ["ok1", "ok2", "ok1", "ok2"]);
+  });
+
+  test("one plain request of work takes the next key in turn, like a session", async () => {
+    const model = await savedPool(3);
+    const ids = readApiKeys(model.configJson).map((key) => key.id);
+    const taken: string[] = [];
+    for (let i = 0; i < 4; i++) taken.push((await sessionApiKey(model))!.id);
+    assert.deepEqual(taken, [ids[0], ids[1], ids[2], ids[0]]);
+    const broken = await insertEmployeeModel({
+      employeeId: "other",
+      provider: "openai",
+      model: "gpt-5.4",
+      authMode: "apikey",
+      configJson: JSON.stringify({ apiKeyEncrypted: "v2.broken" }),
+      isActive: true,
+    });
+    assert.equal(await sessionApiKey(broken), null);
   });
 });

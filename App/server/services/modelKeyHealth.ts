@@ -3,19 +3,24 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIModelKeyHealth, type ApiKeyFailureKind } from "../db/entities/AIModelKeyHealth.js";
 import { readApiKeys } from "./modelApiKeys.js";
+import { forgetKeyTurns } from "./modelKeyPool.js";
+import { addSession, readSessionsByHour } from "./modelKeySessions.js";
 
 /**
  * How each of an AI Model's API keys has been doing — the memory behind
- * backup-key failover (`agent/apiKeyRing.ts`) and the health an owner reads in
- * the model's settings.
+ * spreading sessions across the keys and failing over between them
+ * (`agent/apiKeyRing.ts`), and the health an owner reads in the model's
+ * settings.
  *
  * Two layers. A key that was just refused **rests** in this process's memory,
- * so the requests right behind it start on another key instead of hitting the
- * refused one first; that is the hot path, read on every model request, and
- * never waits on the database. The same rest, and when each key last worked or
- * was refused and why, is also written to `AIModelKeyHealth` — for the
- * settings page, and so another App replica, or this one after a restart,
- * starts a turn already knowing ({@link loadKeyRests}).
+ * so sessions skip it and the requests right behind it go to another key
+ * instead of hitting the refused one first; that is the hot path, read on
+ * every model request, and never waits on the database. The same rest, and
+ * when each key last worked or was refused and why, is also written to
+ * `AIModelKeyHealth` — for the settings page, and so another App replica, or
+ * this one after a restart, starts a session already knowing
+ * ({@link loadKeyRests}). So is how many sessions each key carried in the last
+ * day ({@link recordKeySession}), which shows the owner the spread.
  *
  * Writes are best effort and never throw: a model request must not fail
  * because its key's health could not be saved. "Last used" is written at most
@@ -31,6 +36,8 @@ const SWEEP_AT = 1_000;
 
 const rests = new Map<string, number>();
 const lastUsedWrites = new Map<string, number>();
+/** Each key's session count is written one session at a time, so none is lost. */
+const sessionWrites = new Map<string, Promise<void>>();
 
 function slot(modelId: string, keyId: string): string {
   return `${modelId}\u0000${keyId}`;
@@ -124,6 +131,43 @@ export async function recordKeyRefusal(
   });
 }
 
+/**
+ * Count a session on this key: one that opened on it in turn, or moved to it
+ * after another key was refused (`modelKeySessions.ts` keeps the count). Saved in the background, one session at a
+ * time per key, so sessions that open on one key at once are all counted;
+ * resolves once saved, and never throws.
+ */
+export function recordKeySession(modelId: string, keyId: string, at = new Date()): Promise<void> {
+  const entry = slot(modelId, keyId);
+  const written = (sessionWrites.get(entry) ?? Promise.resolve()).then(() =>
+    writeSession(modelId, keyId, at),
+  );
+  sessionWrites.set(entry, written);
+  const done = () => {
+    if (sessionWrites.get(entry) === written) sessionWrites.delete(entry);
+  };
+  void written.then(done, done);
+  return written;
+}
+
+async function writeSession(modelId: string, keyId: string, at: Date): Promise<void> {
+  if (!AppDataSource.isInitialized) return;
+  try {
+    const row = await AppDataSource.getRepository(AIModelKeyHealth).findOne({
+      where: { modelId, keyId },
+      select: { id: true, sessionsByHour: true },
+    });
+    const byHour = addSession(readSessionsByHour(row?.sessionsByHour), at.getTime());
+    await writeHealth(modelId, keyId, { sessionsByHour: JSON.stringify(byHour) });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[model-keys] could not count a session on an API key:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 type HealthValues = Partial<
   Pick<
     AIModelKeyHealth,
@@ -133,6 +177,7 @@ type HealthValues = Partial<
     | "lastErrorKind"
     | "lastErrorMessage"
     | "coolDownUntil"
+    | "sessionsByHour"
   >
 >;
 
@@ -168,14 +213,16 @@ export async function listKeyHealth(modelIds: readonly string[]): Promise<AIMode
   });
 }
 
-function forgetMemory(modelId: string, keep: ReadonlySet<string> = new Set()): void {
-  for (const memory of [rests, lastUsedWrites]) {
-    for (const entry of memory.keys()) {
-      if (modelOf(entry) === modelId && !keep.has(entry.slice(modelId.length + 1))) {
+/** Forget what this process remembers about the model's keys — all but `keep`, or every one. */
+function forgetMemory(modelId: string, keep?: ReadonlySet<string>): void {
+  for (const memory of [rests, lastUsedWrites, sessionWrites]) {
+    for (const entry of [...memory.keys()]) {
+      if (modelOf(entry) === modelId && !keep?.has(entry.slice(modelId.length + 1))) {
         memory.delete(entry);
       }
     }
   }
+  forgetKeyTurns(modelId, keep);
 }
 
 /**
@@ -191,7 +238,7 @@ export async function pruneKeyHealth(
     AIModelKeyHealth,
     live.length === 0 ? { modelId: model.id } : { modelId: model.id, keyId: Not(In(live)) },
   );
-  forgetMemory(model.id, new Set(live));
+  forgetMemory(model.id, live.length === 0 ? undefined : new Set(live));
 }
 
 /** Drop every key's health for these AI Models, which are being deleted. */
@@ -204,8 +251,17 @@ export async function deleteKeyHealth(
   for (const modelId of modelIds) forgetMemory(modelId);
 }
 
-/** Tests only: forget every rest and write throttle held in memory. */
+/**
+ * Tests only: forget every rest and write throttle held in memory. The turn
+ * order sessions take keys in has its own reset (`resetKeyPoolMemory`).
+ */
 export function resetKeyHealthMemory(): void {
   rests.clear();
   lastUsedWrites.clear();
+  sessionWrites.clear();
+}
+
+/** Tests only: every session count still being saved has been. */
+export async function settleKeySessionWrites(): Promise<void> {
+  await Promise.all([...sessionWrites.values()]);
 }

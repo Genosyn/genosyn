@@ -120,7 +120,7 @@ function answers(
 }
 
 describe("testing an API-key AI Model", () => {
-  test("it answers on every key in order, as a Run would send it, and says how long it took", async (t) => {
+  test("it answers on the whole pool, failing over as a session would, and says how long it took", async (t) => {
     const calls = answers(t);
     const model = await claude([PRIMARY, BACKUP]);
     const result = await testModelConnection(await saved(model.id), clock(1_000, 3_400));
@@ -130,6 +130,8 @@ describe("testing an API-key AI Model", () => {
       decryptApiKeys(calls[0].model.configJson).map((key) => key.apiKey),
       [PRIMARY, BACKUP],
     );
+    // A test is not work: it takes no turn in the key pool and counts no session.
+    assert.equal(calls[0].keySession, false);
     // The harmless tool is the only one offered, and coding stays off.
     assert.deepEqual(
       calls[0].registry.resident.map((tool) => tool.name),

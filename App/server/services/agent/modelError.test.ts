@@ -53,28 +53,32 @@ describe("formatModelError classification", () => {
     );
   });
 
-  test("a refused key reaching the Run says whether backup keys were tried", () => {
-    const backups = JSON.stringify({
-      apiKeyEncrypted: "v2.primary",
+  test("a refused key reaching the Run says whether every key in the pool was tried", () => {
+    const pool = JSON.stringify({
+      apiKeyEncrypted: "v2.first",
       apiKeyId: "k1",
-      backupKeys: [{ id: "k2", apiKeyEncrypted: "v2.backup" }],
+      backupKeys: [{ id: "k2", apiKeyEncrypted: "v2.second" }],
     });
-    const single = JSON.stringify({ apiKeyEncrypted: "v2.primary" });
+    const single = JSON.stringify({ apiKeyEncrypted: "v2.only" });
     for (const error of [
       { status: 401, message: "invalid x-api-key" },
       { status: 429, message: "slow down" },
     ]) {
-      const tried = formatModelError(model("anthropic", { configJson: backups }), error);
+      const tried = formatModelError(model("anthropic", { configJson: pool }), error);
       assert.match(tried, /Every API key on this AI Model was tried/);
-      assert.doesNotMatch(tried, /Add a backup API key/);
+      assert.doesNotMatch(tried, /Add more API keys/);
       const alone = formatModelError(model("openai", { configJson: single }), error);
-      assert.match(alone, /Add a backup API key under Advanced in Settings → Model/);
+      assert.match(
+        alone,
+        /Add more API keys under Advanced in Settings → Model: sessions are spread across them/,
+      );
       assert.doesNotMatch(alone, /Every API key/);
+      for (const out of [tried, alone]) assert.doesNotMatch(out, /backup|primary/i);
     }
-    // Neither a ChatGPT sign-in nor a custom endpoint holds backup keys.
+    // Neither a ChatGPT sign-in nor a custom endpoint holds a pool of API keys.
     for (const other of [model("openai", { authMode: "subscription" }), model("custom")]) {
       const out = formatModelError(other, { status: 401, message: "no" });
-      assert.doesNotMatch(out, /backup API key|Every API key/);
+      assert.doesNotMatch(out, /Add more API keys|Every API key/);
     }
   });
 

@@ -15,9 +15,11 @@ export type ApiKeyFailureKind = "auth" | "permission" | "billing" | "quota" | "r
 
 /**
  * How one of an AI Model's API keys has been doing: when it last answered,
- * when and why a provider last refused it, and until when it rests after that
- * refusal. One row per key, written by the per-turn model proxy as requests go
- * out, read by the model's settings so an owner can see which key is dead.
+ * when and why a provider last refused it, until when it rests after that
+ * refusal, and how many sessions it carried in the last day. One row per key,
+ * written by the per-turn model proxy as sessions open and requests go out,
+ * read by the model's settings so an owner can see the sessions spread across
+ * the keys and which key is dead.
  *
  * Deliberately not in `AIModel.configJson`, where the keys themselves are:
  * credential edits save `configJson` only if nobody changed it meanwhile, and
@@ -38,7 +40,7 @@ export class AIModelKeyHealth {
   @Column({ type: "varchar" })
   modelId!: string;
 
-  /** The key's id in `configJson` — `primary` for a key saved before backup keys. */
+  /** The key's id in `configJson` — `primary` for a key saved before keys had ids. */
   @Column({ type: "varchar" })
   keyId!: string;
 
@@ -67,6 +69,15 @@ export class AIModelKeyHealth {
    */
   @Column({ type: dateTimeColumnType, nullable: true })
   coolDownUntil!: Date | null;
+
+  /**
+   * The sessions this key carried — opened on it in turn, or moved to it when
+   * another key was refused — counted by the hour for the last 24 hours, as
+   * JSON `[[epochHour, sessions], …]` (`services/modelKeyHealth.ts`). Null
+   * until the key's first session.
+   */
+  @Column({ type: "text", nullable: true })
+  sessionsByHour!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
