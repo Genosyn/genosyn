@@ -15,7 +15,7 @@ import {
   classificationValue,
   listRevenueClassifications,
 } from "./classifications.js";
-import { matchingResourceIds } from "./customFields.js";
+import { andWhereCustomFieldMatches, resolveCustomFieldFilter } from "./customFields.js";
 import { liveDealHistoryKey, recordDealHistoryEvent } from "./dealHistory.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 import { findMergedRecordRedirect } from "./operations.js";
@@ -117,14 +117,14 @@ export async function listDeals(
     qb.andWhere("d.ownerEmployeeId = :oeid", { oeid: opts.ownerEmployeeId });
   }
   if (opts.customFieldKey && opts.customFieldValue !== undefined) {
-    const ids = await matchingResourceIds(
+    const customField = await resolveCustomFieldFilter(
       companyId,
       "deal",
       opts.customFieldKey,
       opts.customFieldValue,
     );
-    if (ids.length === 0) return { rows: [], total: 0 };
-    qb.andWhere("d.id IN (:...customIds)", { customIds: ids });
+    if (!customField) return { rows: [], total: 0 };
+    andWhereCustomFieldMatches(qb, "d.id", customField);
   }
 
   const total = await qb.clone().getCount();

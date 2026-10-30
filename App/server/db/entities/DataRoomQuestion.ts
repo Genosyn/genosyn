@@ -22,7 +22,10 @@ import { dateTimeColumnType } from "./columnTypes.js";
  * every quote checked out. Only the guest who asked ever sees either.
  */
 @Entity("data_room_questions")
-@Index(["roomId", "status", "createdAt"])
+// A room's questions newest first, with a status or without: the pages of
+// `list_data_room_questions` (keyset on createdAt, id).
+@Index(["roomId", "status", "createdAt", "id"])
+@Index(["roomId", "createdAt", "id"])
 @Index(["guestId", "createdAt"])
 @Index(["companyId"])
 export class DataRoomQuestion {

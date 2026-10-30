@@ -3565,17 +3565,25 @@ financeRouter.get("/banking/accounts", async (req, res) => {
 // Bank lines and card purchases in one list, newest first, one page at a time
 // with the bookkeeper's filters — the list the `list_banking_transactions` AI
 // tool reads, from the same function, so an API client and an AI Employee
-// reach exactly the same transactions.
+// reach exactly the same transactions. Finance → Banking reads it too, with
+// `view=records` for the whole transaction its rows act on.
 financeRouter.get(
   "/banking/transactions",
   validateQuery(bankingQueueQuerySchema),
   async (req, res, next) => {
     const cid = (req.params as Record<string, string>).cid;
-    const { limit, cursor, ...filters } = req.query as unknown as z.infer<
+    const { limit, cursor, view, ...filters } = req.query as unknown as z.infer<
       typeof bankingQueueQuerySchema
     >;
     try {
-      res.json(await bankingQueue(cid, bankingFilterFrom(filters), { limit, cursor }));
+      res.json(
+        await bankingQueue(
+          cid,
+          bankingFilterFrom(filters),
+          { limit, cursor },
+          { records: view === "records" },
+        ),
+      );
     } catch (err) {
       if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
       next(err);

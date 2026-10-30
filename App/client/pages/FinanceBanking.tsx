@@ -2,12 +2,14 @@ import React from "react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
+  ChevronDown,
   CreditCard,
   Inbox,
   Landmark,
   Plus,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Upload,
   Wallet,
 } from "lucide-react";
@@ -17,12 +19,9 @@ import {
   ApiError,
   BankFeed,
   BankingAccount,
-  BankingStatus,
-  BankTransaction,
   BrexCashAccount,
   CardCategoryDrift,
   CardFeed,
-  CardTransaction,
   Company,
   CompanyFinanceSettings,
   FeedSyncResponse,
@@ -31,12 +30,27 @@ import {
   MercuryAccountChoice,
   WiseBalanceChoice,
 } from "../lib/api";
+import {
+  appliedFilterCount,
+  type BankingFilters,
+  bankingListQuery,
+  type BankingPageResponse,
+  bankingPageUrl,
+  type BankingTab,
+  createBankingList,
+  describeFilters,
+  filterProblems,
+  NO_FILTERS,
+  narrowedBy,
+  panelFiltersActive,
+} from "../lib/bankingPages";
 import { describeSync, isCsvAccount, syncNotice, type SyncViewer } from "../lib/bankingSync";
 import { errorMessage } from "../lib/errors";
 import { canWriteFinance } from "../lib/subpages";
 import { useNow } from "../lib/useNow";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { CountBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
 import { Disclosure } from "../components/ui/Disclosure";
@@ -83,17 +97,36 @@ import { BankTransactionRow, CardTransactionRow } from "./FinanceBankingTransact
  * sends back to review all of them at once. Bank and card accounts are
  * `BankFeed`s and `CardFeed`s underneath.
  *
+ * Every transaction is reachable, however old: the list comes a page at a
+ * time from `GET …/banking/transactions` — the list, filters and cursors an
+ * AI Employee's `list_banking_transactions` reads — and Load older follows the
+ * cursor to the next page (`lib/bankingPages.ts`). The search box and Filters
+ * (dates, money in or out, amount, category) narrow it on the server.
+ *
  * A read-only Member sees every account, its sync status and every
  * transaction, without the controls that add accounts, sync, import, explain,
  * tick, or undo.
  */
 
-type Tab = BankingStatus | "all";
+type Tab = BankingTab;
 
 type Row = BankingRow;
 
 /** One empty list while the transactions load, so the selection isn't recomputed each render. */
 const NO_ROWS: Row[] = [];
+
+/** How long the search box and the filters wait for typing to pause before reading the list. */
+const FILTER_DEBOUNCE_MS = 300;
+
+/** `value`, once it has stopped changing for `ms`. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 /** How often the page looks again while an account it shows is syncing. */
 const SYNC_POLL_MS = 4_000;
@@ -122,10 +155,18 @@ export default function FinanceBanking() {
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [retrying, setRetrying] = React.useState(false);
-  const [bankTxns, setBankTxns] = React.useState<BankTransaction[] | null>(null);
-  const [cardTxns, setCardTxns] = React.useState<CardTransaction[] | null>(null);
-  const [listError, setListError] = React.useState<string | null>(null);
-  const [search, setSearch] = React.useState("");
+  const list = React.useMemo(
+    () =>
+      createBankingList({
+        describeError: (err) => errorMessage(err, "Couldn't load the transactions"),
+      }),
+    [],
+  );
+  const listState = React.useSyncExternalStore(list.subscribe, list.getSnapshot);
+  /** The search box and Filters as typed; the list reads them once typing pauses. */
+  const [filters, setFilters] = React.useState<BankingFilters>(NO_FILTERS);
+  const applied = useSettled(filters, FILTER_DEBOUNCE_MS);
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [openId, setOpenId] = React.useState<string | null>(null);
   /** The Add account form, open on this kind of account. */
   const [adding, setAdding] = React.useState<NewAccountKind | null>(null);
@@ -139,15 +180,14 @@ export default function FinanceBanking() {
   const [notice, setNotice] = React.useState<string | null>(null);
   const [cardFixes, setCardFixes] = React.useState<CardCategoryDrift[]>([]);
 
-  const loadedOnce = accounts !== null;
   const reloadAccounts = React.useCallback(async () => {
     try {
-      const [list, chart, settings] = await Promise.all([
+      const [found, chart, settings] = await Promise.all([
         api.get<BankingAccount[]>(`/api/companies/${company.id}/banking/accounts`),
         api.get<Account[]>(`/api/companies/${company.id}/accounts`),
         api.get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`),
       ]);
-      setAccounts(list);
+      setAccounts(found);
       setLedger(chart);
       setHomeCurrency(settings.homeCurrency);
       setLoadError(null);
@@ -166,42 +206,27 @@ export default function FinanceBanking() {
   }, [reloadAccounts]);
 
   const selected = accounts?.find((account) => account.feed.id === selectedId) ?? null;
-  // Which lists to load: the selected account's kind, or every kind there is.
-  const wantBank = selected ? selected.kind === "bank" : !!accounts?.some((a) => a.kind === "bank");
-  const wantCard = selected ? selected.kind === "card" : !!accounts?.some((a) => a.kind === "card");
   const feedId = selected?.feed.id ?? "";
+  const hasAccounts = !!accounts?.length;
 
-  const reloadTransactions = React.useCallback(async () => {
-    if (!loadedOnce) return;
-    const query = new URLSearchParams();
-    if (feedId) query.set("feedId", feedId);
-    if (tab !== "all") query.set("status", tab);
-    const qs = query.toString() ? `?${query.toString()}` : "";
-    try {
-      const [bank, card] = await Promise.all([
-        wantBank
-          ? api.get<BankTransaction[]>(`/api/companies/${company.id}/bank-transactions${qs}`)
-          : Promise.resolve([]),
-        wantCard
-          ? api.get<CardTransaction[]>(`/api/companies/${company.id}/card-transactions${qs}`)
-          : Promise.resolve([]),
-      ]);
-      setBankTxns(bank);
-      setCardTxns(card);
-      setListError(null);
-    } catch (err) {
-      setBankTxns([]);
-      setCardTxns([]);
-      setListError(errorMessage(err, "Couldn't load the transactions"));
-    }
-  }, [loadedOnce, company.id, feedId, tab, wantBank, wantCard]);
-
+  // The list's query: the account, the tab and the settled filters. Another
+  // one is another view, read from its first page.
+  const listQuery = React.useMemo(
+    () => bankingListQuery({ feedId, tab, filters: applied }).toString(),
+    [feedId, tab, applied],
+  );
   React.useEffect(() => {
-    setBankTxns(null);
-    setCardTxns(null);
+    if (!hasAccounts) return;
     setOpenId(null);
-    void reloadTransactions();
-  }, [reloadTransactions]);
+    const query = new URLSearchParams(listQuery);
+    void list.show((request) =>
+      api.get<BankingPageResponse>(bankingPageUrl(company.id, query, request)),
+    );
+  }, [list, hasAccounts, company.id, listQuery]);
+
+  // After anything changes, the rows on screen are read again from the top, so
+  // they and the cursor to what follows come from one reading.
+  const reloadTransactions = React.useCallback(() => list.refresh(), [list]);
 
   const reloadAll = React.useCallback(async () => {
     await Promise.all([reloadAccounts(), reloadTransactions()]);
@@ -296,49 +321,17 @@ export default function FinanceBanking() {
     [accounts],
   );
 
-  const loaded = React.useMemo<Row[] | null>(() => {
-    if (bankTxns === null || cardTxns === null) return null;
-    return [
-      ...bankTxns.map((txn) => ({ kind: "bank" as const, id: txn.id, date: txn.date, txn })),
-      ...cardTxns.map((txn) => ({ kind: "card" as const, id: txn.id, date: txn.postedAt, txn })),
-    ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [bankTxns, cardTxns]);
-
-  const rows = React.useMemo<Row[] | null>(() => {
-    if (loaded === null) return null;
-    const needle = search.trim().toLowerCase();
-    if (!needle) return loaded;
-    const accountName = (id: string | null | undefined) =>
-      ledger.find((account) => account.id === id)?.name ?? "";
-    return loaded.filter((row) => {
-      const text =
-        row.kind === "bank"
-          ? [
-              row.txn.description,
-              row.txn.reference,
-              nameById.get(row.txn.feedId),
-              row.txn.match?.kind === "payments"
-                ? row.txn.match.payments
-                    .map((payment) => `${payment.invoiceNumber} ${payment.customerName}`)
-                    .join(" ")
-                : accountName(row.txn.match?.categoryAccountId),
-              formatMoney(Math.abs(row.txn.amountCents), homeCurrency),
-            ]
-          : [
-              row.txn.description,
-              nameById.get(row.txn.feedId),
-              accountName(row.txn.expenseAccountId),
-              formatMoney(Math.abs(row.txn.amountCents), row.txn.currency),
-            ];
-      return text.join(" ").toLowerCase().includes(needle);
-    });
-  }, [homeCurrency, ledger, loaded, nameById, search]);
+  // The rows on screen: the pages read so far, newest first, narrowed on the
+  // server by the account, the tab, the search box and Filters.
+  const rows = listState.rows;
+  const narrowed = narrowedBy(applied);
 
   const bulk = useBankingBulk({
     company,
     rows: rows ?? NO_ROWS,
-    loaded: loaded ?? NO_ROWS,
-    view: `${selectedId}|${tab}`,
+    loaded: rows ?? NO_ROWS,
+    // Another account, tab, search or filter is a fresh selection.
+    view: `${selectedId}|${listQuery}`,
     onChanged: reloadAll,
   });
   const ticking = bulk.enabled;
@@ -538,25 +531,42 @@ export default function FinanceBanking() {
                   </button>
                 ))}
               </div>
-              <label className="relative block sm:w-72">
-                <Search
-                  size={14}
-                  className="pointer-events-none absolute left-3 top-2.5 text-slate-400"
+              <div className="flex gap-2 sm:w-auto">
+                <label className="relative block min-w-0 flex-1 sm:w-72 sm:flex-none">
+                  <Search
+                    size={14}
+                    className="pointer-events-none absolute left-3 top-2.5 text-slate-400"
+                  />
+                  <input
+                    type="search"
+                    value={filters.q}
+                    onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
+                    aria-label="Search transactions"
+                    placeholder="Search description or reference"
+                    maxLength={200}
+                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+                <FiltersToggle
+                  open={filtersOpen}
+                  count={appliedFilterCount(filters)}
+                  onToggle={() => setFiltersOpen((current) => !current)}
                 />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  aria-label="Search transactions"
-                  placeholder="Search description, amount, invoice…"
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
-                />
-              </label>
+              </div>
             </div>
+            <FiltersPanel
+              open={filtersOpen}
+              filters={filters}
+              ledger={ledger}
+              homeCurrency={homeCurrency}
+              onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+              onClear={() => setFilters((current) => ({ ...NO_FILTERS, q: current.q }))}
+            />
 
-            {listError ? (
+            {listState.error && (rows === null || rows.length === 0) ? (
               <div className="space-y-3 p-4">
-                <FormError message={listError} />
-                <Button size="sm" variant="secondary" onClick={() => void reloadTransactions()}>
+                <FormError message={listState.error} />
+                <Button size="sm" variant="secondary" onClick={() => void list.retry()}>
                   <RefreshCw size={14} /> Try again
                 </Button>
               </div>
@@ -565,14 +575,32 @@ export default function FinanceBanking() {
             ) : rows.length === 0 ? (
               <EmptyList
                 tab={tab}
-                searching={!!search.trim()}
+                narrowed={narrowed}
                 selected={selected}
                 syncing={!!selected && (selected.sync.syncing || pending.has(accountKey(selected)))}
                 canWrite={canWrite}
               />
             ) : (
               <>
-                {ticking && <BankingSelectAll bulk={bulk} searching={!!search.trim()} />}
+                {listState.error && (
+                  // A refresh that failed: the last good reading stays on screen.
+                  <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center dark:border-slate-800">
+                    <FormError
+                      message={`${listState.error.replace(/\.?$/, ".")} What’s shown may be out of date.`}
+                      className="flex-1"
+                    />
+                    <Button size="sm" variant="secondary" onClick={() => void list.retry()}>
+                      <RefreshCw size={14} /> Try again
+                    </Button>
+                  </div>
+                )}
+                {ticking && (
+                  <BankingSelectAll
+                    bulk={bulk}
+                    searching={narrowed !== null}
+                    partial={listState.hasMore}
+                  />
+                )}
                 <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                   {rows.map((row) => {
                     const selection = ticking
@@ -584,7 +612,7 @@ export default function FinanceBanking() {
                       : undefined;
                     return row.kind === "bank" ? (
                       <BankTransactionRow
-                        key={row.id}
+                        key={rowKey(row)}
                         company={company}
                         txn={row.txn}
                         accountName={nameById.get(row.txn.feedId) ?? null}
@@ -603,7 +631,7 @@ export default function FinanceBanking() {
                       />
                     ) : (
                       <CardTransactionRow
-                        key={row.id}
+                        key={rowKey(row)}
                         company={company}
                         txn={row.txn}
                         accountName={nameById.get(row.txn.feedId) ?? null}
@@ -614,14 +642,18 @@ export default function FinanceBanking() {
                     );
                   })}
                 </ul>
+                <ListFooter
+                  shown={rows.length}
+                  total={listState.total}
+                  hasMore={listState.hasMore}
+                  narrowed={narrowed !== null}
+                  loading={listState.loadingOlder}
+                  error={listState.olderError}
+                  onLoadOlder={() => void list.loadOlder()}
+                />
               </>
             )}
           </section>
-          {rows && rows.length >= 500 && (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Showing the newest 500 of each kind. Pick an account or search to narrow the list.
-            </p>
-          )}
         </>
       )}
 
@@ -717,6 +749,229 @@ function ListSkeleton({ className }: { className?: string }) {
   );
 }
 
+/** The toolbar button that opens Filters, with how many are set. */
+function FiltersToggle({
+  open,
+  count,
+  onToggle,
+}: {
+  open: boolean;
+  count: number;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls="banking-filters"
+      className={clsx(
+        "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+        open || count > 0
+          ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
+          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800",
+      )}
+    >
+      <SlidersHorizontal size={14} aria-hidden="true" />
+      Filters
+      {count > 0 && <CountBadge count={count} tone="accent" />}
+      <ChevronDown
+        size={14}
+        aria-hidden="true"
+        className={clsx("transition-transform", open && "rotate-180")}
+      />
+    </button>
+  );
+}
+
+function FieldProblem({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 text-xs text-red-600 dark:text-red-400">{children}</p>;
+}
+
+/**
+ * Filters: the dates, money in or out, amount and category the list is
+ * narrowed by on the server. Closed, it still says what is set — "Filtered by
+ * Jan 1 – Mar 31, 2023 · Money out" — so a filter is never applied unseen.
+ */
+function FiltersPanel({
+  open,
+  filters,
+  ledger,
+  homeCurrency,
+  onChange,
+  onClear,
+}: {
+  open: boolean;
+  filters: BankingFilters;
+  ledger: Account[];
+  homeCurrency: string;
+  onChange: (patch: Partial<BankingFilters>) => void;
+  onClear: () => void;
+}) {
+  // Something typed, so there is something to clear — applied or not.
+  const typed = panelFiltersActive(filters);
+  const summary = describeFilters(filters, { homeCurrency, ledger });
+  const problems = filterProblems(filters);
+  if (!open) {
+    // Closed, it names what narrows the list — or that something typed there
+    // narrows nothing yet, so no setting is ever hidden.
+    if (!typed) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-2 text-xs dark:border-slate-800">
+        {appliedFilterCount(filters) > 0 ? (
+          <span className="min-w-0 text-slate-700 dark:text-slate-200">
+            <span className="text-slate-500 dark:text-slate-400">Filtered by </span>
+            {summary}
+          </span>
+        ) : (
+          <span className="min-w-0 text-amber-700 dark:text-amber-400">
+            A filter can&apos;t be applied as typed. Open Filters to fix it.
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onClear}
+          className="touch-target relative font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Clear filters
+        </button>
+      </div>
+    );
+  }
+  const categories = [...ledger].sort((a, b) => a.code.localeCompare(b.code));
+  return (
+    <div
+      id="banking-filters"
+      role="group"
+      aria-label="Filters"
+      className="border-b border-slate-100 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-800/20"
+    >
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Input
+          type="date"
+          label="From"
+          value={filters.from}
+          max={filters.to || undefined}
+          onChange={(event) => onChange({ from: event.target.value })}
+        />
+        <div>
+          <Input
+            type="date"
+            label="To"
+            value={filters.to}
+            min={filters.from || undefined}
+            invalid={!!problems.to}
+            onChange={(event) => onChange({ to: event.target.value })}
+          />
+          {problems.to && <FieldProblem>{problems.to}</FieldProblem>}
+        </div>
+        <Select
+          label="Money in or out"
+          value={filters.direction}
+          onChange={(event) =>
+            onChange({ direction: event.target.value as BankingFilters["direction"] })
+          }
+        >
+          <option value="">In and out</option>
+          <option value="in">Money in</option>
+          <option value="out">Money out</option>
+        </Select>
+        <div>
+          <Input
+            label={`Smallest amount (${homeCurrency})`}
+            inputMode="decimal"
+            placeholder="0.00"
+            value={filters.minAmount}
+            invalid={!!problems.minAmount}
+            onChange={(event) => onChange({ minAmount: event.target.value })}
+          />
+          {problems.minAmount && <FieldProblem>{problems.minAmount}</FieldProblem>}
+        </div>
+        <div>
+          <Input
+            label={`Largest amount (${homeCurrency})`}
+            inputMode="decimal"
+            placeholder="Any"
+            value={filters.maxAmount}
+            invalid={!!problems.maxAmount}
+            onChange={(event) => onChange({ maxAmount: event.target.value })}
+          />
+          {problems.maxAmount && <FieldProblem>{problems.maxAmount}</FieldProblem>}
+        </div>
+        <Select
+          label="Category"
+          value={filters.categoryAccountId}
+          onChange={(event) => onChange({ categoryAccountId: event.target.value })}
+          searchPlaceholder="Search categories"
+        >
+          <option value="">Any category</option>
+          {categories.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.code} {account.name}
+              {account.archivedAt ? " (archived)" : ""}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Days are calendar days in UTC, as the list shows them. An amount matches money in and
+          out alike.
+        </p>
+        <Button size="sm" variant="ghost" onClick={onClear} disabled={!typed}>
+          Clear filters
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Under the list: how much of it is on screen, and Load older for the next
+ * page. A Load older that fails says so here, beside the button that retries.
+ */
+function ListFooter({
+  shown,
+  total,
+  hasMore,
+  narrowed,
+  loading,
+  error,
+  onLoadOlder,
+}: {
+  shown: number;
+  total: number;
+  hasMore: boolean;
+  narrowed: boolean;
+  loading: boolean;
+  error: string | null;
+  onLoadOlder: () => void;
+}) {
+  if (!hasMore && !(narrowed && shown > 0)) return null;
+  return (
+    <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
+      <p
+        className="text-xs tabular-nums text-slate-500 dark:text-slate-400"
+        aria-live="polite"
+        data-testid="banking-list-count"
+      >
+        {hasMore
+          ? `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`
+          : `${total.toLocaleString()} matching`}
+      </p>
+      {hasMore && (
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+          <FormError message={error} />
+          <Button size="sm" variant="secondary" loading={loading} onClick={onLoadOlder}>
+            {error ? <RefreshCw size={14} /> : <ChevronDown size={14} />}
+            {error ? "Try again" : "Load older"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Where a company usually starts, each opening Add account on that kind. */
 const STARTING_POINTS: ReadonlyArray<{
   kind: NewAccountKind;
@@ -802,13 +1057,14 @@ function NoAccounts({
 
 function EmptyList({
   tab,
-  searching,
+  narrowed,
   selected,
   syncing,
   canWrite,
 }: {
   tab: Tab;
-  searching: boolean;
+  /** What narrowed the list to nothing: the search box, or Filters too. */
+  narrowed: "search" | "filters" | null;
   selected: BankingAccount | null;
   syncing: boolean;
   canWrite: boolean;
@@ -816,9 +1072,13 @@ function EmptyList({
   let icon = <CheckCircle2 size={26} className="mx-auto text-slate-300 dark:text-slate-600" />;
   let title = "No transactions yet";
   let description = "";
-  if (searching) {
+  if (narrowed) {
     icon = <Search size={24} className="mx-auto text-slate-300 dark:text-slate-600" />;
-    title = "No transactions match your search";
+    title =
+      narrowed === "filters"
+        ? "No transactions match these filters"
+        : "No transactions match your search";
+    description = tab === "all" ? "" : "Only this tab is searched. All includes every transaction.";
   } else if (syncing && selected && selected.total === 0) {
     icon = <Spinner size={22} />;
     title = `Bringing in ${selected.feed.name}'s transactions`;

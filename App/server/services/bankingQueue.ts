@@ -109,7 +109,20 @@ export type BankingQueueFilter = {
   categoryAccountId?: string;
 };
 
+/**
+ * A row with its whole transaction beside it, for the Banking page: the bank
+ * line with what explains it, exactly as `GET /bank-transactions` answers it,
+ * or the card purchase as `GET /card-transactions` does. The page's rows act
+ * on those records; an AI Employee reads the compact row alone.
+ */
+export type BankingQueueRecordRow = BankingQueueRow & {
+  record: HydratedBankTransaction | CardTransaction;
+};
+
 export type BankingQueuePage = PageInfo & { transactions: BankingQueueRow[] };
+
+/** {@link bankingQueue} with `records`: every row carries its record. */
+export type BankingQueueRecordPage = PageInfo & { transactions: BankingQueueRecordRow[] };
 
 /** 50 by default, at most 200 at once. */
 export const BANKING_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
@@ -178,6 +191,12 @@ export const bankingQueueQuerySchema = z
     categoryAccountId: bankingFilterShape.categoryAccountId.describe(
       "Only transactions filed under this chart-of-accounts account.",
     ),
+    view: z
+      .enum(["summary", "records"])
+      .optional()
+      .describe(
+        "summary (default) answers the compact rows. records also gives each row its record: the bank line with what explains it, as GET /bank-transactions answers it, or the card purchase, as GET /card-transactions does. It changes only what a row shows, so a cursor carries over between the two.",
+      ),
     limit: z.coerce
       .number()
       .int()
@@ -471,17 +490,44 @@ async function assertFilterTargets(companyId: string, filter: BankingQueueFilter
   }
 }
 
+/** What a page of {@link bankingQueue} shows beside each row. */
+export type BankingQueueOptions = {
+  /** Give every row its whole transaction as `record` (the Banking page's view). */
+  records?: boolean;
+};
+
 /**
  * Banking's transactions, newest first, one page at a time. `status` unset is
  * both states; the To review queue is `review`. Follow `nextCursor` with the
  * same filters until `hasMore` is false to read every one. `budgetChars`
  * ends a page early when its rows would not fit an AI Employee's tool result.
+ * `records` changes only what each row carries, never which rows a page holds,
+ * so a cursor from either view continues the other.
  */
 export async function bankingQueue(
   companyId: string,
   filter: BankingQueueFilter,
+  page?: PageRequest & { budgetChars?: number },
+  options?: BankingQueueOptions & { records?: false },
+): Promise<BankingQueuePage>;
+export async function bankingQueue(
+  companyId: string,
+  filter: BankingQueueFilter,
+  page: PageRequest & { budgetChars?: number },
+  options: BankingQueueOptions & { records: true },
+): Promise<BankingQueueRecordPage>;
+export async function bankingQueue(
+  companyId: string,
+  filter: BankingQueueFilter,
+  page?: PageRequest & { budgetChars?: number },
+  options?: BankingQueueOptions,
+): Promise<BankingQueuePage | BankingQueueRecordPage>;
+export async function bankingQueue(
+  companyId: string,
+  filter: BankingQueueFilter,
   page: PageRequest & { budgetChars?: number } = {},
-): Promise<BankingQueuePage> {
+  options: BankingQueueOptions = {},
+): Promise<BankingQueuePage | BankingQueueRecordPage> {
   if (
     filter.minAmountCents !== undefined &&
     filter.maxAmountCents !== undefined &&
@@ -553,7 +599,7 @@ export async function bankingQueue(
     ),
     ...shown.map((entry) => (entry.row.kind === "card" ? entry.row.txn.expenseAccountId : null)),
   ]);
-  const present = (entry: Fetched): BankingQueueRow =>
+  const summary = (entry: Fetched): BankingQueueRow =>
     entry.kind === "bank"
       ? bankRow(
           hydratedById.get(entry.txn.id)!,
@@ -562,6 +608,13 @@ export async function bankingQueue(
           categories,
         )
       : cardRow(entry.txn, names.get(entry.txn.feedId) ?? "", categories);
+  const present = (entry: Fetched): BankingQueueRow | BankingQueueRecordRow =>
+    options.records
+      ? {
+          ...summary(entry),
+          record: entry.kind === "bank" ? hydratedById.get(entry.txn.id)! : entry.txn,
+        }
+      : summary(entry);
 
   const { rows, ...info } = finishPage({
     fetched: merged,

@@ -1,4 +1,4 @@
-import { In, IsNull, MoreThanOrEqual } from "typeorm";
+import { IsNull, MoreThanOrEqual, type SelectQueryBuilder } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { PhoneMessage, type PhoneMessageStatus } from "../../db/entities/PhoneMessage.js";
 import { PhoneNumber } from "../../db/entities/PhoneNumber.js";
@@ -14,6 +14,14 @@ import {
   normalizePhoneNumber,
 } from "../../../shared/phone.js";
 import { recordAudit } from "../audit.js";
+import { andWhereTokens, type Token } from "../likeSearch.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { workBlocked } from "../standdowns.js";
 import { twilioAccountForNumber, withTwilioAccount } from "./credentials.js";
 import { PhoneError } from "./errors.js";
@@ -86,7 +94,8 @@ function mediaCount(json: string): number {
 // Reading
 // ---------------------------------------------------------------------------
 
-export type TextQuery = {
+/** Which texts a read covers. Every field narrows; they combine. */
+export type TextFilter = {
   phoneNumberIds: string[];
   /**
    * Only texts this AI Employee may read: those sent or received while the
@@ -95,47 +104,95 @@ export type TextQuery = {
    */
   visibleToEmployeeId?: string;
   direction?: "inbound" | "outbound";
-  /** The other party's number, either direction. */
+  /** Text the other party's number or sender name contains, any case. */
   counterpart?: string;
-  /** Case-insensitive text the body must contain. */
+  /** Text the body must contain, any case. */
   contains?: string;
+  /** At or after this instant. */
   since?: Date;
-  limit: number;
 };
 
+export type TextQuery = TextFilter & { limit: number };
+
+/** The whole string as one LIKE term: `contains` is a substring, not a set of words. */
+function wholeTerm(value: string | undefined): Token[] {
+  const raw = value?.trim() ?? "";
+  return raw ? [{ raw, lo: raw.toLowerCase() }] : [];
+}
+
 /**
- * Newest first. Reads through the `(phoneNumberId, occurredAt)` index and
- * filters the body in memory over a bounded window — texts are short, and a
- * `LIKE` would be case-sensitive on one database and not the other.
+ * The texts a filter covers, unordered. Every filter — visibility included —
+ * runs in SQL, so a page or a `limit` is cut from exactly the matching texts,
+ * never from a window of the newest ones. Text matches fold case the same way
+ * on both databases (`likeSearch.ts`).
+ */
+function textsQuery(filter: TextFilter): SelectQueryBuilder<PhoneMessage> {
+  const qb = AppDataSource.getRepository(PhoneMessage).createQueryBuilder("m");
+  if (filter.phoneNumberIds.length === 0) qb.where("1 = 0");
+  else {
+    qb.where("m.phoneNumberId IN (:...phoneNumberIds)", { phoneNumberIds: filter.phoneNumberIds });
+  }
+  if (filter.visibleToEmployeeId) {
+    qb.andWhere("(m.employeeId = :viewerId OR m.employeeId IS NULL)", {
+      viewerId: filter.visibleToEmployeeId,
+    });
+  }
+  if (filter.direction) qb.andWhere("m.direction = :direction", { direction: filter.direction });
+  if (filter.since) qb.andWhere("m.occurredAt >= :since", { since: filter.since });
+  andWhereTokens(qb, ["m.body"], wholeTerm(filter.contains), "textBody");
+  // The other party is the sender of a text that came in and the recipient of
+  // one that went out.
+  andWhereTokens(
+    qb,
+    ["CASE WHEN m.direction = 'inbound' THEN m.fromNumber ELSE m.toNumber END"],
+    wholeTerm(filter.counterpart),
+    "textParty",
+  );
+  return qb;
+}
+
+/**
+ * Newest first, at most `limit`, through the `(phoneNumberId, occurredAt, id)`
+ * index — the read Settings → Phone numbers and an employee's waits use.
  */
 export async function listTexts(query: TextQuery): Promise<PhoneMessage[]> {
   if (query.phoneNumberIds.length === 0) return [];
-  const window = query.contains || query.counterpart ? 500 : query.limit;
-  const base = {
-    phoneNumberId: In(query.phoneNumberIds),
-    ...(query.direction ? { direction: query.direction } : {}),
-    ...(query.since ? { occurredAt: MoreThanOrEqual(query.since) } : {}),
-  };
-  const rows = await AppDataSource.getRepository(PhoneMessage).find({
-    where: query.visibleToEmployeeId
-      ? [
-          { ...base, employeeId: query.visibleToEmployeeId },
-          { ...base, employeeId: IsNull() },
-        ]
-      : base,
-    order: { occurredAt: "DESC" },
-    take: window,
+  return textsQuery(query)
+    .orderBy("m.occurredAt", "DESC")
+    .addOrderBy("m.id", "DESC")
+    .limit(query.limit)
+    .getMany();
+}
+
+/** 20 texts by default, at most 50 a page. */
+export const TEXT_PAGE: PageLimits = { defaultLimit: 20, maxLimit: 50 };
+
+/**
+ * Texts newest first, one page at a time (`services/listPaging.ts`): every
+ * text the filter covers is reachable by following `nextCursor`, and texts
+ * arriving between pages never make a page skip one. `fingerprint` carries
+ * what the caller asked for, so a cursor is refused with other filters.
+ */
+export async function pageTexts<Out>(args: {
+  companyId: string;
+  filter: TextFilter;
+  fingerprint: Record<string, unknown>;
+  page: PageRequest & { budgetChars?: number };
+  present: (rows: PhoneMessage[]) => Out[];
+}): Promise<Page<Out>> {
+  return keysetPage({
+    query: () => textsQuery(args.filter),
+    keys: [
+      { column: "m.occurredAt", direction: "DESC", type: "timestamp" },
+      { column: "m.id", direction: "DESC", type: "string" },
+    ],
+    scope: "phone.texts",
+    fingerprint: filterFingerprint(args.companyId, args.fingerprint),
+    noun: "texts",
+    limits: TEXT_PAGE,
+    page: args.page,
+    present: args.present,
   });
-  const needle = query.contains?.trim().toLowerCase();
-  const counterpart = query.counterpart?.trim();
-  return rows
-    .filter((row) => !needle || row.body.toLowerCase().includes(needle))
-    .filter(
-      (row) =>
-        !counterpart ||
-        (row.direction === "inbound" ? row.fromNumber : row.toNumber).includes(counterpart),
-    )
-    .slice(0, query.limit);
 }
 
 /** The conversation between a number and one other party, oldest first. */

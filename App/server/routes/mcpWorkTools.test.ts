@@ -127,7 +127,14 @@ async function channel(kind: "public" | "private", slug: string): Promise<Channe
   });
 }
 
+/**
+ * A second apart, each after the last: SQLite stamps a message to the second,
+ * and messages sharing one come back in id order, not the order written.
+ */
+let messageClock = Date.UTC(2026, 0, 1);
+
 async function message(ch: Channel, content: string, tainted = false): Promise<ChannelMessage> {
+  messageClock += 1_000;
   return insert(ChannelMessage, {
     channelId: ch.id,
     authorKind: "user",
@@ -136,6 +143,7 @@ async function message(ch: Channel, content: string, tainted = false): Promise<C
     content,
     parentMessageId: null,
     tainted,
+    createdAt: new Date(messageClock),
   });
 }
 

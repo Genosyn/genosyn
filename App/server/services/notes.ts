@@ -1,4 +1,4 @@
-import { In, IsNull } from "typeorm";
+import { In, IsNull, type ObjectLiteral, type SelectQueryBuilder } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Note } from "../db/entities/Note.js";
 import { notePreview } from "../../shared/notePreview.js";
@@ -103,12 +103,100 @@ export async function hasNoteAccess(
 }
 
 /**
+ * Which notes an AI Employee may read, in a form a query applies inside its
+ * WHERE: every note in a notebook it holds a Grant to — a subquery on the
+ * Grants, so a granted notebook of ten thousand pages binds no ids — plus the
+ * pages it reaches through a Grant on a page (that page and everything
+ * beneath it) outside those notebooks, which travel as ids.
+ *
+ * `list_notes` and `search_notes` page through it, so the Grant is applied
+ * before the page is cut, never after.
+ */
+export type NoteReadScope = {
+  employeeId: string;
+  /** Holds at least one notebook Grant. */
+  hasNotebookGrants: boolean;
+  /** Pages reached through a page Grant and not already in a granted notebook. */
+  noteIds: string[];
+};
+
+export async function noteReadScope(companyId: string, employeeId: string): Promise<NoteReadScope> {
+  const [noteGrants, notebookGrants] = await Promise.all([
+    AppDataSource.getRepository(EmployeeNoteGrant).find({
+      where: { employeeId },
+      select: ["noteId"],
+    }),
+    AppDataSource.getRepository(EmployeeNotebookGrant).find({
+      where: { employeeId },
+      select: ["notebookId"],
+    }),
+  ]);
+  const scope: NoteReadScope = {
+    employeeId,
+    hasNotebookGrants: notebookGrants.length > 0,
+    noteIds: [],
+  };
+  if (noteGrants.length === 0) return scope;
+  const grantedNotebooks = new Set(notebookGrants.map((grant) => grant.notebookId));
+  const all = await AppDataSource.getRepository(Note).find({
+    where: { companyId },
+    select: ["id", "parentId", "notebookId"],
+  });
+  const byId = new Map(all.map((note) => [note.id, note]));
+  const childrenByParent = new Map<string, string[]>();
+  for (const note of all) {
+    if (!note.parentId) continue;
+    const list = childrenByParent.get(note.parentId);
+    if (list) list.push(note.id);
+    else childrenByParent.set(note.parentId, [note.id]);
+  }
+  const reached = new Set<string>();
+  const queue = noteGrants.map((grant) => grant.noteId).filter((id) => byId.has(id));
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (reached.has(id)) continue;
+    reached.add(id);
+    for (const child of childrenByParent.get(id) ?? []) queue.push(child);
+  }
+  scope.noteIds = [...reached].filter((id) => !grantedNotebooks.has(byId.get(id)!.notebookId));
+  return scope;
+}
+
+/** The scope reads nothing: no Grant on a notebook, and none on a page of this company. */
+export function noteScopeIsEmpty(scope: NoteReadScope): boolean {
+  return !scope.hasNotebookGrants && scope.noteIds.length === 0;
+}
+
+/** Narrow a query on `alias` (a `Note`) to what the scope may read. */
+export function andWhereNoteReadable<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  alias: string,
+  scope: NoteReadScope,
+): SelectQueryBuilder<T> {
+  const clauses: string[] = [];
+  if (scope.hasNotebookGrants) {
+    const granted = qb
+      .subQuery()
+      .select("grant.notebookId")
+      .from(EmployeeNotebookGrant, "grant")
+      .where("grant.employeeId = :noteScopeEmployee")
+      .getQuery();
+    clauses.push(`${alias}.notebookId IN ${granted}`);
+  }
+  if (scope.noteIds.length > 0) clauses.push(`${alias}.id IN (:...noteScopeIds)`);
+  if (clauses.length === 0) return qb.andWhere("1 = 0");
+  return qb.andWhere(`(${clauses.join(" OR ")})`, {
+    noteScopeEmployee: scope.employeeId,
+    noteScopeIds: scope.noteIds,
+  });
+}
+
+/**
  * Return the full set of note ids the employee can see in this company —
  * directly granted notes plus every descendant, plus every note in any
  * notebook the employee has been granted.
  *
- * Used by `list_notes` / `search_notes` to filter results without doing
- * one access check per row.
+ * Used to filter results without doing one access check per row.
  */
 export async function listAccessibleNoteIds(
   companyId: string,

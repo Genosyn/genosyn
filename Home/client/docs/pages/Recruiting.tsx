@@ -342,6 +342,12 @@ export function Recruiting() {
         someone applies, give a <DocLink to="/docs/reactivity#triggers">Trigger</DocLink> on{" "}
         <Code>recruiting_application</Code> to one of its Routines.
       </P>
+      <P>
+        However many Openings and applicants there are, the employee reaches all of them a page
+        at a time: Openings come open first, then drafts, then closed, and applications newest
+        first, oldest first or by score with unscored ones last. Moving people to another stage
+        while it works through a list never makes it skip anyone.
+      </P>
       <Callout kind="warn" title="Reading an application is reading outside content.">
         An AI Employee that lists or opens applications has read text strangers wrote, so the{" "}
         <DocLink to="/docs/policies#taint-policy">taint policy</DocLink> holds the email, text or

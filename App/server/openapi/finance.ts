@@ -824,6 +824,13 @@ const bankingTransactionRow = z
       .describe("Bank lines: the posted entry it matched, when that is not a Banking category."),
     cardKind: z.enum(["expense", "refund", "payment"]).optional(),
     postingError: z.string().optional().describe("Card purchases: why posting it failed."),
+    record: z
+      .object({ id: z.string().uuid(), feedId: z.string().uuid() })
+      .passthrough()
+      .optional()
+      .describe(
+        "With view=records only: the whole transaction — a bank line with match (what explains it), as GET /bank-transactions answers it, or a card purchase, as GET /card-transactions does.",
+      ),
   })
   .openapi("BankingTransaction");
 
@@ -832,7 +839,7 @@ registry.registerPath({
   path: "/api/companies/{cid}/banking/transactions",
   summary: "List Banking transactions",
   description:
-    "Requires Read Finance access. Bank lines and card purchases in one list, newest first (a bank line before a card purchase at the same instant, then by id): the list the list_banking_transactions AI tool reads. status defaults to review, the To review queue. Every transaction is reachable: a page holds up to limit rows (default 50, at most 200), total counts every match, and while hasMore is true sending nextCursor back as cursor with the same filters reads the next page. A cursor is a keyset position, so filing transactions between pages never skips any. Dates are UTC calendar days, as Banking shows them.",
+    "Requires Read Finance access. Bank lines and card purchases in one list, newest first (a bank line before a card purchase at the same instant, then by id): the list the list_banking_transactions AI tool reads. status defaults to review, the To review queue. Every transaction is reachable: a page holds up to limit rows (default 50, at most 200), total counts every match, and while hasMore is true sending nextCursor back as cursor with the same filters reads the next page. A cursor is a keyset position, so filing transactions between pages never skips any. Dates are UTC calendar days, as Banking shows them. view=records adds each row's whole transaction as record, the way Finance → Banking reads the list.",
   tags: ["Finance"],
   security: defaultSecurity,
   request: { params: companyParams, query: bankingQueueQuerySchema },

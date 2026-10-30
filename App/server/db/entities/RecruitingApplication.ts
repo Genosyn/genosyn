@@ -41,7 +41,10 @@ export type ResumeTextStatus = "none" | "extracted" | "unreadable";
  * indexed columns above (AGENTS.md §7).
  */
 @Entity("recruiting_applications")
-@Index(["companyId", "createdAt"])
+// `list_applications` pages a company's, or one Opening's, Applications by
+// (createdAt, id).
+@Index(["companyId", "createdAt", "id"])
+@Index(["openingId", "createdAt", "id"])
 @Index(["openingId", "stage", "createdAt"])
 @Index(["openingId", "clientSubmissionId"], { unique: true })
 @Index(["companyId", "candidateEmail"])

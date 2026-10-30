@@ -42,7 +42,9 @@ export type PhoneMessageStatus =
  * a verification code is as sensitive as the account it unlocks.
  */
 @Entity("phone_messages")
-@Index(["phoneNumberId", "occurredAt"])
+// Ends in `id`, so a page of one number's texts newest first — keyset on
+// (occurredAt, id) — is read in index order, ties and all.
+@Index(["phoneNumberId", "occurredAt", "id"])
 @Index(["companyId", "occurredAt"])
 @Index(["providerSid"], { unique: true, where: '"providerSid" IS NOT NULL' })
 export class PhoneMessage {

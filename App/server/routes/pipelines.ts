@@ -3,7 +3,13 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
+import { ListQueryError } from "../services/listPaging.js";
+import {
+  pagePipelineRuns,
+  pipelineRunQuery,
+  pipelineRunsQuerySchema,
+} from "../services/pipelines/runHistory.js";
 import {
   requireAuth,
   requireCompanyMember,
@@ -320,41 +326,48 @@ pipelinesRouter.post("/pipelines/:idOrSlug/run", validateBody(runSchema), async 
 
 // ─── Run history ────────────────────────────────────────────────────────────
 
-pipelinesRouter.get("/pipelines/:idOrSlug/runs", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const p = await loadPipeline(cid, req.params.idOrSlug);
-  if (!p) return res.status(404).json({ error: "Not found" });
-  const runs = await AppDataSource.getRepository(PipelineRun)
-    .createQueryBuilder("r")
-    .select([
-      "r.id",
-      "r.pipelineId",
-      "r.startedAt",
-      "r.finishedAt",
-      "r.status",
-      "r.triggerKind",
-      "r.triggerNodeId",
-      "r.errorMessage",
-      "r.createdAt",
-    ])
-    .where("r.pipelineId = :pid", { pid: p.id })
-    .orderBy("r.startedAt", "DESC")
-    .take(50)
-    .getMany();
-  res.json(
-    runs.map((r) => ({
-      id: r.id,
-      pipelineId: r.pipelineId,
-      startedAt: r.startedAt.toISOString(),
-      finishedAt: r.finishedAt?.toISOString() ?? null,
-      status: r.status,
-      triggerKind: r.triggerKind,
-      triggerLabel: eventTriggerLabel(p, r),
-      triggerNodeId: r.triggerNodeId,
-      errorMessage: r.errorMessage,
-    })),
-  );
-});
+// The newest 50 Runs as a plain array, as the Pipelines page reads them; or,
+// when a page is asked for (limit or cursor), the whole history one page at a
+// time — the list the `list_pipeline_runs` AI tool reads.
+pipelinesRouter.get(
+  "/pipelines/:idOrSlug/runs",
+  validateQuery(pipelineRunsQuerySchema),
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadPipeline(cid, req.params.idOrSlug);
+    if (!p) return res.status(404).json({ error: "Not found" });
+    const { limit, cursor, ...filter } = req.query as unknown as z.infer<
+      typeof pipelineRunsQuerySchema
+    >;
+    const present = (runs: PipelineRun[]) =>
+      runs.map((r) => ({
+        id: r.id,
+        pipelineId: r.pipelineId,
+        startedAt: r.startedAt.toISOString(),
+        finishedAt: r.finishedAt?.toISOString() ?? null,
+        status: r.status,
+        triggerKind: r.triggerKind,
+        triggerLabel: eventTriggerLabel(p, r),
+        triggerNodeId: r.triggerNodeId,
+        errorMessage: r.errorMessage,
+      }));
+    try {
+      if (limit !== undefined || cursor !== undefined) {
+        const { rows, ...info } = await pagePipelineRuns(cid, p.id, filter, { limit, cursor }, present);
+        return res.json({ ...info, runs: rows });
+      }
+      const runs = await pipelineRunQuery(p.id, filter)
+        .orderBy("run.startedAt", "DESC")
+        .addOrderBy("run.id", "DESC")
+        .take(50)
+        .getMany();
+      res.json(present(runs));
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 pipelinesRouter.get("/pipeline-runs/:runId", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;

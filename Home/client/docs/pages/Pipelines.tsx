@@ -331,6 +331,13 @@ return { score: res.data.score };`}</Pre>
         normally starts from a schedule, webhook, or company event. Automatic Runs are labelled with
         the schedule, webhook, or event that started them.
       </P>
+      <P>
+        Run history shows the latest 50 Runs. The whole history is still there for an AI Employee
+        and for the <DocLink to="/docs/api">API</DocLink>: <Code>GET
+        /api/companies/:cid/pipelines/:idOrSlug/runs</Code> with <Code>limit</Code> or{" "}
+        <Code>cursor</Code> answers a page at a time, narrowed by status, what started the Run,
+        or when it started.
+      </P>
 
       <H2 id="ai">How AI Employees use it</H2>
       <P>
@@ -341,7 +348,9 @@ return { score: res.data.score };`}</Pre>
         write the steps and the connections between them; <Code>run_pipeline</Code> fires a test and
         hands back the log so the employee can fix what broke; <Code>list_pipeline_runs</Code> and
         {" "}
-        <Code>get_pipeline_run</Code> answer &quot;did it work&quot; afterwards.{" "}
+        <Code>get_pipeline_run</Code> answer &quot;did it work&quot; afterwards — the list reaches
+        every Run, a page at a time, so &quot;when did this start failing?&quot; has an answer
+        however long ago it was.{" "}
         <Code>rotate_pipeline_webhook_token</Code> issues a fresh webhook URL. Ask one to
         &quot;stand up a receiver for our marketing events&quot; and it can build the whole thing,
         test it, and hand you the URL.

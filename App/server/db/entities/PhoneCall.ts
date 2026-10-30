@@ -72,11 +72,13 @@ export type PhoneCallTranscriptTurn = {
  * call runs on.
  *
  * `transcriptJson` sits after every column a list filters or sorts on, and the
- * list reads through the `(phoneNumberId, createdAt)` index, so a long
- * transcript is never read to build a page of calls.
+ * list reads through the `(phoneNumberId, createdAt, id)` index without
+ * selecting it, so a long transcript is never read to build a page of calls.
  */
 @Entity("phone_calls")
-@Index(["phoneNumberId", "createdAt"])
+// Ends in `id`, so a page of one number's calls — keyset on (createdAt, id) —
+// is read in index order, ties and all.
+@Index(["phoneNumberId", "createdAt", "id"])
 @Index(["companyId", "createdAt"])
 @Index(["providerSid"], { unique: true, where: '"providerSid" IS NOT NULL' })
 export class PhoneCall {
