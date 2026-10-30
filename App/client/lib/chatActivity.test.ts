@@ -280,6 +280,55 @@ describe("the steps of a turn", () => {
     assert.equal(steps[0].target, "“spot GPUs”");
   });
 
+  test("a step shown without its details says why, and its result keeps its status and time", () => {
+    const steps = buildActivitySteps([
+      event(1, "tool_use", 0, {
+        name: "search_mail",
+        callId: "c1",
+        detail: { input: null, withheld: "steps" },
+      }),
+      event(2, "tool_result", 1_200, {
+        name: "search_mail",
+        callId: "c1",
+        isError: true,
+        detail: { output: null, durationMs: 1_200, withheld: "steps" },
+      }),
+      event(3, "reasoning", 1_500, { detail: { text: "", block: "b1", withheld: "steps" } }),
+    ]);
+    const [tool, thought] = steps as [ToolStep, Extract<(typeof steps)[number], { kind: "thinking" }>];
+    assert.equal(tool.withheld, "steps");
+    assert.equal(tool.status, "failed");
+    assert.equal(tool.output, null);
+    assert.equal(tool.durationMs, 1_200);
+    assert.equal(tool.target, "", "nothing a tool was asked is named");
+    assert.equal(thought.kind, "thinking");
+    assert.equal(thought.withheld, "steps");
+    assert.equal(thought.text, "");
+  });
+
+  test("a bound discussion's step says its details were never kept", () => {
+    const [tool] = buildActivitySteps([
+      event(1, "tool_use", 0, {
+        name: "read_decision",
+        callId: "c1",
+        detail: { input: {}, withheld: "discussion" },
+      }),
+      event(2, "tool_result", 300, {
+        name: "read_decision",
+        callId: "c1",
+        detail: { output: null, durationMs: 300, withheld: "discussion" },
+      }),
+    ]) as ToolStep[];
+    assert.equal(tool.withheld, "discussion");
+    assert.equal(tool.status, "done");
+    assert.equal(
+      buildActivitySteps([use(1, 0, "bash", "c1", { command: "ls" })])[0].kind === "tool" &&
+        (buildActivitySteps([use(1, 0, "bash", "c1", { command: "ls" })])[0] as ToolStep).withheld,
+      null,
+      "an ordinary step withholds nothing",
+    );
+  });
+
   test("a turn_finished event closes everything at its time when no end is given", () => {
     const steps = buildActivitySteps([
       use(1, 0, "bash", "c", { command: "sleep 100" }),

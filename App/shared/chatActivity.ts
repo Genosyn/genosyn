@@ -836,6 +836,9 @@ function SALIENT_QUERY_PRESENT(args: Record<string, unknown>): boolean {
   return [...QUERY_KEYS].some((key) => typeof args[key] === "string" && String(args[key]).trim());
 }
 
+/** A label's last word that only leads into its target: "Searching email for". */
+const LEADS_INTO_TARGET = /\s+(?:for|to|in|matching)$/;
+
 function finish(
   family: ChatToolFamily,
   verb: Verb,
@@ -843,7 +846,10 @@ function finish(
   target: { text: string; code: boolean },
   worker: string | null,
 ): ChatToolDescription {
-  const tail = object ? ` ${object}` : "";
+  // Without its target — none was given, or the reader is not shown it — the
+  // label ends where its object does: "Searching email", not "…email for".
+  const said = target.text ? object : object.replace(LEADS_INTO_TARGET, "");
+  const tail = said ? ` ${said}` : "";
   return {
     family,
     active: `${verb.active}${tail}`,

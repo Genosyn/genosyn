@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  MODEL_RESUMING_WAIT_CAUSE,
+  MODEL_RESUMING_WAIT_LABEL,
   MODEL_UNAVAILABLE_WAIT_CAUSE,
   MODEL_UNAVAILABLE_WAIT_LABEL,
   type ChatActivityEvent,
@@ -216,6 +218,45 @@ describe("what a running turn is doing", () => {
     assert.equal(words.title, "The AI Model is unavailable — this will be answered when it is back");
     assert.match(words.detail ?? "", /^Nothing to resend: Sam answers it .* Stop it to cancel\.$/);
     assert.equal(words.tone, "warning");
+  });
+
+  test("a Workspace reply taking its turn once the AI Model is back says so", () => {
+    const phase = deriveLivePhase(
+      input(20_000, {
+        events: [
+          event(1, "waiting", 1_000, {
+            name: MODEL_RESUMING_WAIT_CAUSE,
+            detail: {
+              cause: MODEL_RESUMING_WAIT_CAUSE,
+              state: "waiting",
+              label: MODEL_RESUMING_WAIT_LABEL,
+            },
+          }),
+        ],
+      }),
+    );
+    assert.equal(phase.kind, "waiting");
+    const words = describeLivePhase(phase, "Ada", T0 + 20_000);
+    assert.equal(words.title, "Starting again now the AI Model is back");
+    assert.match(words.detail ?? "", /one at a time/);
+    assert.equal(words.tone, "waiting");
+  });
+
+  test("a step the room sees without its details still drives the status line", () => {
+    const phase = deriveLivePhase(
+      input(3_000, {
+        events: [
+          started,
+          event(2, "tool_use", 1_000, {
+            name: "search_mail",
+            callId: "c1",
+            detail: { input: null, withheld: "steps" },
+          }),
+        ],
+      }),
+    );
+    assert.equal(phase.kind, "tool");
+    assert.equal(describeLivePhase(phase, "Ada", T0 + 3_000).title, "Searching email");
   });
 
   test("a wait that ended is no longer the state", () => {
