@@ -17,11 +17,13 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { UUID_RE } from "./bases.js";
+import { z } from "zod";
 import {
   filterFingerprint,
   keysetPage,
   type Page,
   type PageLimits,
+  pageQueryShape,
   type PageRequest,
 } from "./listPaging.js";
 import { broadcastToCompany } from "./realtime.js";
@@ -999,6 +1001,14 @@ export async function softDeleteMessage(params: {
   }
 }
 
+/**
+ * The newest `limit` messages of a channel, or those written before an
+ * instant, oldest first — `GET …/channels/:channelId/messages`, kept for the
+ * API clients that read it. A timestamp cannot say where to go on among
+ * messages sharing it, so paging back with `before` can pass over some of
+ * them; the Workspace reads {@link pageChannelMessages} instead, whose cursor
+ * names the message itself.
+ */
 export async function listMessages(params: {
   channelId: string;
   companyId: string;
@@ -1011,6 +1021,8 @@ export async function listMessages(params: {
     .createQueryBuilder("m")
     .where("m.channelId = :channelId", { channelId: params.channelId })
     .orderBy("m.createdAt", "DESC")
+    // Messages sharing a second keep one order, the one every page reads.
+    .addOrderBy("m.id", "DESC")
     .take(params.limit);
   if (params.before) {
     qb.andWhere("m.createdAt < :before", {
@@ -1026,18 +1038,57 @@ export async function listMessages(params: {
 export const CHANNEL_MESSAGE_PAGE: PageLimits = { defaultLimit: 30, maxLimit: 100 };
 
 /**
+ * The Workspace's own history pages: 50 by default and at most 200, what
+ * `GET …/messages` has always allowed, so the Home peek can still open on a
+ * long unread run in one read.
+ */
+export const CHANNEL_HISTORY_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
+
+/** `GET …/channels/:channelId/messages`: the newest messages, or those before an instant. */
+export const channelMessagesQuerySchema = z.object({
+  before: z
+    .string()
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      "Only messages written before this instant (ISO timestamp). Messages sharing it with the oldest one already read can be passed over; page with GET …/history instead.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(50)
+    .describe("How many of the newest matching messages, 50 by default."),
+});
+
+/** `GET …/channels/:channelId/history`: one page of a channel's messages. */
+export const channelHistoryQuerySchema = z.object({
+  ...pageQueryShape,
+  before: z
+    .string()
+    .datetime({ offset: true })
+    .optional()
+    .describe("Only messages written before this instant (ISO timestamp)."),
+});
+
+/**
  * A channel's messages, newest first, one page at a time
  * (`services/listPaging.ts`) — what an AI Employee reads with
- * `list_workspace_messages`. Each page is handed back oldest first, the way
- * the Workspace shows a conversation, and its cursor reads further back.
+ * `list_workspace_messages`, and, with `includeDeleted`, what the Workspace
+ * and the Home peek scroll back through (`GET …/channels/:channelId/history`).
+ * Each page is handed back oldest first, the way the Workspace shows a
+ * conversation, and its cursor reads further back.
  *
  * Keyset on (createdAt, id): SQLite stamps a message to the second, so a
  * busy channel has many messages sharing a timestamp, and the `before`
  * timestamp this replaces skipped every one of them that fell on a page
- * boundary. Deleted messages are left out in the query, so a page is never
- * short of messages while more follow; `before` still narrows to messages
- * written before an instant. `tainted` is whether any message the page shows
- * was written by a turn that had read outside content.
+ * boundary. An AI Employee's pages leave deleted messages out in the query,
+ * so a page is never short of messages while more follow; the Workspace keeps
+ * them as the "message deleted" line it shows in their place, and its cursors
+ * are its own (a filter in their fingerprint). `before` still narrows to
+ * messages written before an instant. `tainted` is whether any message the
+ * page shows was written by a turn that had read outside content.
  */
 export async function pageChannelMessages<Out>(params: {
   channelId: string;
@@ -1045,6 +1096,10 @@ export async function pageChannelMessages<Out>(params: {
   viewerUserId: string;
   /** Only messages written before this instant (ISO timestamp). */
   before?: string;
+  /** Keep deleted messages, as the Workspace shows them. */
+  includeDeleted?: boolean;
+  /** {@link CHANNEL_MESSAGE_PAGE} unless said otherwise. */
+  limits?: PageLimits;
   page: PageRequest & { budgetChars?: number };
   present: (message: MessageSummary) => Out;
 }): Promise<Page<Out> & { tainted: boolean }> {
@@ -1054,8 +1109,8 @@ export async function pageChannelMessages<Out>(params: {
   const query = () => {
     const qb = repos()
       .messages.createQueryBuilder("m")
-      .where("m.channelId = :channelId", { channelId: params.channelId })
-      .andWhere("m.deletedAt IS NULL");
+      .where("m.channelId = :channelId", { channelId: params.channelId });
+    if (!params.includeDeleted) qb.andWhere("m.deletedAt IS NULL");
     if (before !== undefined) qb.andWhere("m.createdAt < :before", { before });
     return qb;
   };
@@ -1071,9 +1126,12 @@ export async function pageChannelMessages<Out>(params: {
     fingerprint: filterFingerprint(params.companyId, {
       channel: params.channelId,
       before: params.before ? new Date(params.before).toISOString() : undefined,
+      // Left out for an AI Employee's pages, so the cursors it already holds
+      // still read on.
+      includeDeleted: params.includeDeleted ? true : undefined,
     }),
     noun: "messages",
-    limits: CHANNEL_MESSAGE_PAGE,
+    limits: params.limits ?? CHANNEL_MESSAGE_PAGE,
     page: params.page,
     present: async (rows) => {
       kept = rows;

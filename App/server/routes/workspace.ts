@@ -2,16 +2,20 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import {
   onRoutePaths,
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
 } from "../middleware/auth.js";
+import { ListQueryError } from "../services/listPaging.js";
 import {
   addChannelMembers,
   archiveChannel,
+  CHANNEL_HISTORY_PAGE,
+  channelHistoryQuerySchema,
+  channelMessagesQuerySchema,
   createChannel,
   editMessage,
   findOrCreateDM,
@@ -21,6 +25,7 @@ import {
   listCompanyMentionables,
   listMessages,
   markChannelRead,
+  pageChannelMessages,
   postMessage,
   removeChannelMember,
   renameChannel,
@@ -390,35 +395,75 @@ workspaceRouter.post("/dms", validateBody(openDMSchema), async (req, res) => {
 
 // ───────────────────────── Messages ──────────────────────────────────────
 
-const messageListQuerySchema = z.object({
-  before: z.string().datetime({ offset: true }).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-});
+// The newest messages as a plain array, or those before an instant — the
+// answer API clients have always read. Paging back by timestamp can pass over
+// messages sharing the boundary second; `/history` below pages exactly.
+workspaceRouter.get(
+  "/channels/:channelId/messages",
+  validateQuery(channelMessagesQuerySchema),
+  async (req, res, next) => {
+    try {
+      const co = companyOf(req as unknown as { company?: Company });
+      const ok = await userHasChannelAccess({
+        channelId: req.params.channelId,
+        userId: req.userId!,
+        companyId: co.id,
+      });
+      if (!ok) return res.status(404).json({ error: "Channel not found" });
+      const query = req.query as unknown as z.infer<typeof channelMessagesQuerySchema>;
+      const rows = await listMessages({
+        channelId: req.params.channelId,
+        companyId: co.id,
+        viewerUserId: req.userId!,
+        before: query.before,
+        limit: query.limit,
+      });
+      res.json(rows);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
-workspaceRouter.get("/channels/:channelId/messages", async (req, res) => {
-  const co = companyOf(req as unknown as { company?: Company });
-  const ok = await userHasChannelAccess({
-    channelId: req.params.channelId,
-    userId: req.userId!,
-    companyId: co.id,
-  });
-  if (!ok) return res.status(404).json({ error: "Channel not found" });
-  const parsed = messageListQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({
-      error: "ValidationError",
-      issues: parsed.error.issues,
-    });
-  }
-  const rows = await listMessages({
-    channelId: req.params.channelId,
-    companyId: co.id,
-    viewerUserId: req.userId!,
-    before: parsed.data.before,
-    limit: parsed.data.limit,
-  });
-  res.json(rows);
-});
+// A channel's history, newest page first and each page oldest first, with the
+// cursor further back — what the Workspace and the Home peek scroll through.
+// The cursor names the oldest message shown, (createdAt, id), so messages
+// sharing a second are neither skipped nor repeated, and deleted messages stay
+// as the line the Workspace shows in their place.
+workspaceRouter.get(
+  "/channels/:channelId/history",
+  validateQuery(channelHistoryQuerySchema),
+  async (req, res, next) => {
+    try {
+      const co = companyOf(req as unknown as { company?: Company });
+      const ok = await userHasChannelAccess({
+        channelId: req.params.channelId,
+        userId: req.userId!,
+        companyId: co.id,
+      });
+      if (!ok) return res.status(404).json({ error: "Channel not found" });
+      const query = req.query as unknown as z.infer<typeof channelHistoryQuerySchema>;
+      const {
+        rows,
+        tainted: _tainted,
+        ...info
+      } = await pageChannelMessages({
+        channelId: req.params.channelId,
+        companyId: co.id,
+        viewerUserId: req.userId!,
+        before: query.before,
+        includeDeleted: true,
+        limits: CHANNEL_HISTORY_PAGE,
+        page: { limit: query.limit, cursor: query.cursor },
+        present: (message) => message,
+      });
+      res.json({ ...info, messages: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 const sendMessageSchema = z.object({
   content: z.string().max(16_000),

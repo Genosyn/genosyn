@@ -678,8 +678,11 @@ function workspaceRoutes(): ApiRoute[] {
     ["GET", `${API}/workspace/mentionables`, () => []],
     [
       "GET",
-      /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/messages$/,
-      ({ match }) => messages.get(match[1]) ?? [],
+      /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/history$/,
+      ({ match }) => {
+        const history = messages.get(match[1]) ?? [];
+        return { total: history.length, hasMore: false, nextCursor: null, messages: history };
+      },
     ],
     [
       "GET",

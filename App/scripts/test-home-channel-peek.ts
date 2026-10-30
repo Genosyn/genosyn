@@ -241,13 +241,15 @@ async function openFixture(options: FixtureOptions = {}) {
     }
     if (!url.pathname.startsWith("/api/")) return route.continue();
 
+    // The peek reads its history a page at a time (GET …/history) and sends
+    // with POST …/messages.
     const messagesMatch = url.pathname.match(
-      /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/messages$/,
+      /^\/api\/companies\/company\/workspace\/channels\/([^/]+)\/(messages|history)$/,
     );
     if (messagesMatch) {
       const channelId = decodeURIComponent(messagesMatch[1]);
       const requestScenario = scenarioFromChannel(channelId);
-      if (request.method() === "GET") {
+      if (request.method() === "GET" && messagesMatch[2] === "history") {
         messageAttempts += 1;
         if (requestScenario === "loading") await loadingGate;
         if (requestScenario === "error" && messageAttempts === 1) {
@@ -256,7 +258,10 @@ async function openFixture(options: FixtureOptions = {}) {
             json: { error: "Channel fixture unavailable." },
           });
         }
-        return route.fulfill({ json: messagesFor(requestScenario) });
+        const history = messagesFor(requestScenario);
+        return route.fulfill({
+          json: { total: history.length, hasMore: false, nextCursor: null, messages: history },
+        });
       }
       if (request.method() === "POST") {
         const body = request.postDataJSON() as SentBody;

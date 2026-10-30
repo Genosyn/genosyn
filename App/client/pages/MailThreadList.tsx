@@ -74,7 +74,7 @@ export default function MailThreadList() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   /** This list, as the cursor memory knows it. */
   const listKey = mailListKey({ accountId: account.id, view, label, q });
-  const [nextBefore, setNextBefore] = React.useState<string | null>(null);
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [moreError, setMoreError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState(q);
@@ -89,19 +89,21 @@ export default function MailThreadList() {
   // box) must not clobber the fresher list.
   const loadSeq = React.useRef(0);
   const load = React.useCallback(
-    async (append: boolean, before?: string) => {
+    async (append: boolean, cursor?: string) => {
       if (draftsReview) return;
       const seq = ++loadSeq.current;
       const res = await mailApi.threads(company.id, account.id, {
         view,
         label: label || undefined,
         q: q || undefined,
-        before,
+        cursor,
         limit: 50,
       });
       if (seq !== loadSeq.current) return;
       setThreads((prev) => (append && prev ? [...prev, ...res.threads] : res.threads));
-      setNextBefore(res.nextBefore);
+      // The cursor names the last thread shown, so Load more carries on from
+      // exactly there even when several threads share its second.
+      setNextCursor(res.nextCursor ?? null);
       setLoadError(null);
       // Back from a thread: the cursor returns to it, or — when it was just
       // archived or trashed — to the row that took its place.
@@ -517,9 +519,9 @@ export default function MailThreadList() {
                 {" · "}
                 <span className="tabular-nums">
                   {threads.length}
-                  {nextBefore ? "+" : ""}
+                  {nextCursor ? "+" : ""}
                 </span>{" "}
-                {threads.length === 1 && !nextBefore ? "result" : "results"}
+                {threads.length === 1 && !nextCursor ? "result" : "results"}
               </>
             )}
           </span>
@@ -606,7 +608,7 @@ export default function MailThreadList() {
               />
             ))}
           </ul>
-          {nextBefore && (
+          {nextCursor && (
             <div className="border-t border-slate-100 p-2 text-center dark:border-slate-800">
               <FormError message={moreError} className="mb-2 text-left" />
               <Button
@@ -617,7 +619,7 @@ export default function MailThreadList() {
                   setLoadingMore(true);
                   setMoreError(null);
                   try {
-                    await load(true, nextBefore);
+                    await load(true, nextCursor);
                   } catch (err) {
                     setMoreError(errorMessage(err, "Could not load more threads"));
                   } finally {

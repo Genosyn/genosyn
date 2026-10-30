@@ -61,7 +61,9 @@ export function WorkspaceChat() {
         <LI>Hover your own message for reactions, editing, or soft deletion.</LI>
         <LI>
           A channel opens on its most recent messages. Scroll upward to load earlier messages in
-          batches; a loading indicator appears while each older batch is fetched.
+          batches; a loading indicator appears while each older batch is fetched. Each batch carries
+          on from the oldest message already shown, so every earlier message appears once, even
+          when dozens were posted in the same second.
         </LI>
         <LI>
           Open <Strong>Settings</Strong> in a public or private channel to change its name or topic,

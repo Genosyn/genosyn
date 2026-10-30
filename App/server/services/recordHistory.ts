@@ -1,5 +1,4 @@
-import { In, LessThan } from "typeorm";
-import type { FindOptionsWhere } from "typeorm";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AuditEvent, type AuditActorKind } from "../db/entities/AuditEvent.js";
@@ -8,6 +7,8 @@ import { Project } from "../db/entities/Project.js";
 import { Todo } from "../db/entities/Todo.js";
 import { User } from "../db/entities/User.js";
 import { financeAccessFor } from "../middleware/financeAccess.js";
+import { pageAuditEvents } from "./auditPaging.js";
+import { filterFingerprint } from "./listPaging.js";
 import { findProjectAccess } from "./projects.js";
 
 /**
@@ -234,28 +235,41 @@ export function digestMetadata(raw: unknown): {
   return { changedFields, details };
 }
 
+/**
+ * One record's History, newest first, a page at a time. The cursor names the
+ * oldest change shown, by (createdAt, id), so changes audited in the same
+ * instant — a bulk edit touches many fields at once — are neither skipped nor
+ * repeated (`services/auditPaging.ts`). A cursor issued for another record is
+ * refused with `ListCursorError`.
+ */
 export async function listRecordHistory(params: {
   companyId: string;
   targetType: string;
   targetId: string;
   take: number;
   cursor?: string;
-}): Promise<{ items: RecordHistoryEntry[]; nextCursor: string | null }> {
+}): Promise<{ items: RecordHistoryEntry[]; nextCursor: string | null; hasMore: boolean }> {
   // Served by the (companyId, targetType, targetId, createdAt) index, so a
   // record's page reads only its own rows however large the log has grown.
-  const where: FindOptionsWhere<AuditEvent> = {
-    companyId: params.companyId,
-    targetType: RECORD_HISTORY_ALIASES[params.targetType]
-      ? In(RECORD_HISTORY_ALIASES[params.targetType])
-      : params.targetType,
-    targetId: params.targetId,
-  };
-  if (params.cursor) where.createdAt = LessThan(new Date(params.cursor));
-  const rows = await AppDataSource.getRepository(AuditEvent).find({
-    where,
-    order: { createdAt: "DESC", id: "DESC" },
+  const aliases = RECORD_HISTORY_ALIASES[params.targetType];
+  const qb = AppDataSource.getRepository(AuditEvent)
+    .createQueryBuilder("e")
+    .where("e.companyId = :companyId", { companyId: params.companyId })
+    .andWhere(
+      aliases ? "e.targetType IN (:...targetTypes)" : "e.targetType = :targetType",
+      aliases ? { targetTypes: aliases } : { targetType: params.targetType },
+    )
+    .andWhere("e.targetId = :targetId", { targetId: params.targetId });
+  const page = await pageAuditEvents(qb, {
+    scope: "record.history",
+    fingerprint: filterFingerprint(params.companyId, {
+      targetType: params.targetType,
+      targetId: params.targetId,
+    }),
+    cursor: params.cursor,
     take: params.take,
   });
+  const rows = page.rows;
 
   const userIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))];
   const employeeIds = [
@@ -307,9 +321,5 @@ export async function listRecordHistory(params: {
     };
   });
 
-  return {
-    items,
-    nextCursor:
-      items.length === params.take ? items[items.length - 1].createdAt.toISOString() : null,
-  };
+  return { items, nextCursor: page.nextCursor, hasMore: page.hasMore };
 }

@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { EntityManager, In, IsNull, LessThanOrEqual } from "typeorm";
+import {
+  decodeCursor,
+  encodeCursor,
+  filterFingerprint,
+  type KeysetColumn,
+  keysetRows,
+} from "./listPaging.js";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -1030,21 +1037,48 @@ export async function resetTldrSchedulesAfterRestore(now: Date = new Date()): Pr
   await reconcileStaleTldrs(now);
 }
 
+/** Briefings newest first, ties by id: the TLDR list's keyset. */
+const TLDR_KEYS: KeysetColumn[] = [
+  { column: "tldr.createdAt", direction: "DESC", type: "timestamp" },
+  { column: "tldr.id", direction: "DESC", type: "string" },
+];
+
+/**
+ * The company's briefings, newest first, a page at a time. Load older follows
+ * `nextCursor`, a keyset on (createdAt, id): a briefing run writes many in
+ * the same second, and the `before` timestamp it replaces either skipped
+ * them (Postgres) or handed the same second back until Load older stalled
+ * (SQLite). `before` still narrows to briefings made before an instant.
+ */
 export async function listTldrs(params: {
   companyId: string;
   userId: string;
   limit: number;
   before?: Date;
-}): Promise<{ items: TldrDTO[]; total: number; unreadCount: number }> {
+  cursor?: string;
+}): Promise<{ items: TldrDTO[]; total: number; unreadCount: number; nextCursor: string | null }> {
   const repo = AppDataSource.getRepository(Tldr);
   const qb = repo
     .createQueryBuilder("tldr")
     .where("tldr.companyId = :companyId", { companyId: params.companyId })
-    .andWhere("tldr.status = :status", { status: "ready" })
-    .orderBy("tldr.createdAt", "DESC")
-    .take(params.limit);
+    .andWhere("tldr.status = :status", { status: "ready" });
   if (params.before) qb.andWhere("tldr.createdAt < :before", { before: params.before });
-  const rows = await qb.getMany();
+  const fingerprint = filterFingerprint(params.companyId, {
+    before: params.before?.toISOString(),
+  });
+  const after = params.cursor ? decodeCursor("tldrs", fingerprint, params.cursor) : null;
+  const fetched = await keysetRows(qb, {
+    keys: TLDR_KEYS,
+    after,
+    limit: params.limit,
+    prefix: "tldr",
+  });
+  const kept = fetched.slice(0, params.limit);
+  const rows = kept.map((entry) => entry.row);
+  const nextCursor =
+    fetched.length > params.limit && kept.length > 0
+      ? encodeCursor("tldrs", fingerprint, kept[kept.length - 1].key)
+      : null;
   const dismissals = rows.length
     ? await AppDataSource.getRepository(TldrDismissal).find({
         where: { tldrId: In(rows.map((row) => row.id)), userId: params.userId },
@@ -1073,6 +1107,7 @@ export async function listTldrs(params: {
     ),
     total,
     unreadCount,
+    nextCursor,
   };
 }
 

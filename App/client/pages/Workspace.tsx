@@ -33,6 +33,7 @@ import {
   workspaceChannelHref,
 } from "../lib/workspace";
 import { applyWorkspaceMessageEvent, mergeWorkspaceMessages } from "../lib/workspaceMessages";
+import { foldHistoryPage, olderCursorOf } from "../lib/workspaceHistory";
 import {
   composerPlaceholder,
   discussionsByOutcomeMessage,
@@ -135,6 +136,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   // server-authoritative count.
   const countedMessageIdsRef = React.useRef<Set<string>>(new Set());
   const loadingOlderChannelIdsRef = React.useRef<Set<string>>(new Set());
+  // Per channel, the cursor older messages carry on from: the oldest page's
+  // `nextCursor`, null once the channel's start is on screen.
+  const olderMessageCursorsRef = React.useRef<Record<string, string | null>>({});
 
   // ──────────────── Initial load + realtime wiring ─────────────────────
 
@@ -157,6 +161,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     setMessageErrors({});
     countedMessageIdsRef.current.clear();
     loadingOlderChannelIdsRef.current.clear();
+    olderMessageCursorsRef.current = {};
     (async () => {
       try {
         const [list, dir, ments] = await Promise.all([
@@ -356,17 +361,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     let cancelled = false;
     (async () => {
       try {
-        const list = await workspaceApi.listMessages(company.id, activeChannelId, {
+        const page = await workspaceApi.channelHistory(company.id, activeChannelId, {
           limit: WORKSPACE_MESSAGE_PAGE_SIZE,
         });
         if (cancelled) return;
+        const olderCursor = olderCursorOf(page);
+        olderMessageCursorsRef.current[activeChannelId] = olderCursor;
         setMessages((prev) => ({
           ...prev,
-          [activeChannelId]: mergeWorkspaceMessages(list, prev[activeChannelId] ?? []),
+          [activeChannelId]: mergeWorkspaceMessages(page.messages, prev[activeChannelId] ?? []),
         }));
         setHasOlderMessages((prev) => ({
           ...prev,
-          [activeChannelId]: list.length === WORKSPACE_MESSAGE_PAGE_SIZE,
+          [activeChannelId]: olderCursor !== null,
         }));
         setMessageHistoryLoaded((prev) => ({
           ...prev,
@@ -389,26 +396,30 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   async function loadOlderChannelMessages(channelId: string): Promise<boolean> {
     if (loadingOlderChannelIdsRef.current.has(channelId)) return false;
     if (!hasOlderMessages[channelId]) return false;
-    const current = messages[channelId];
-    if (!current || current.length === 0) return false;
+    const cursor = olderMessageCursorsRef.current[channelId];
+    if (!cursor) return false;
 
     loadingOlderChannelIdsRef.current.add(channelId);
     setLoadingOlderMessages((prev) => ({ ...prev, [channelId]: true }));
     setMessageErrors((prev) => ({ ...prev, [channelId]: null }));
     try {
-      const list = await workspaceApi.listMessages(company.id, channelId, {
-        before: current[0].createdAt,
+      // After the oldest message on screen, by (createdAt, id): the messages
+      // sharing its second are neither skipped nor repeated.
+      const page = await workspaceApi.channelHistory(company.id, channelId, {
+        cursor,
         limit: WORKSPACE_MESSAGE_PAGE_SIZE,
       });
+      const olderCursor = olderCursorOf(page);
+      olderMessageCursorsRef.current[channelId] = olderCursor;
       setMessages((prev) => ({
         ...prev,
-        [channelId]: mergeWorkspaceMessages(list, prev[channelId] ?? []),
+        [channelId]: foldHistoryPage(prev[channelId] ?? [], page).messages,
       }));
       setHasOlderMessages((prev) => ({
         ...prev,
-        [channelId]: list.length === WORKSPACE_MESSAGE_PAGE_SIZE,
+        [channelId]: olderCursor !== null,
       }));
-      return list.length > 0;
+      return page.messages.length > 0;
     } catch (e) {
       setMessageErrors((prev) => ({
         ...prev,

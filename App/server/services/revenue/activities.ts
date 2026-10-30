@@ -646,11 +646,12 @@ export async function exportActivitiesCsv(
   let hasMore = false;
   for (;;) {
     const want = Math.min(ACTIVITY_EXPORT_BATCH, ACTIVITY_EXPORT_ROW_CAP - exported);
+    // The keyset alone, one row-value range the (companyId, occurredAt,
+    // createdAt, id) index starts at the cursor. A plain bound on occurredAt
+    // beside it led SQLite to skip-scan and sort every older activity, bodies
+    // included, for each batch: 270 ms a batch at 200,000 activities, 1.4 ms
+    // without it.
     const batchQuery = query();
-    // The keyset's first column as a plain bound too, so the
-    // (companyId, occurredAt) index starts at the cursor rather than walking
-    // every newer activity again for each batch.
-    if (after) batchQuery.andWhere("a.occurredAt <= :exportBound", { exportBound: after[0] });
     const batch = await keysetRows(batchQuery, {
       keys: ACTIVITY_KEYS,
       after,
