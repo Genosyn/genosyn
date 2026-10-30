@@ -3,6 +3,7 @@ import {
   type ChatActivityEvent,
   type ChatToolFamily,
 } from "../../shared/chatActivity";
+import { withheldReason, type ActivityWithheld } from "../../shared/turnActivityAccess";
 
 /**
  * A chat turn's activity in the browser: the events a turn recorded, folded
@@ -162,6 +163,11 @@ export type ToolStep = {
   startedAt: number;
   endedAt: number | null;
   durationMs: number | null;
+  /**
+   * Why its arguments and result are not shown: this reader sees the room's
+   * view of someone else's turn, or the turn was a bound discussion.
+   */
+  withheld: ActivityWithheld | null;
 };
 
 export type ThinkingStep = {
@@ -173,6 +179,8 @@ export type ThinkingStep = {
   truncated: boolean;
   startedAt: number;
   endedAt: number | null;
+  /** The thought happened; this reader is not shown its words. */
+  withheld: ActivityWithheld | null;
 };
 
 export type WaitStep = {
@@ -262,6 +270,7 @@ export function buildActivitySteps(
           startedAt: at,
           endedAt: null,
           durationMs: null,
+          withheld: withheldReason(detail),
         };
         if (event.callId) callIndex.set(event.callId, steps.length);
         steps.push(step);
@@ -289,6 +298,7 @@ export function buildActivitySteps(
           existing.images = typeof detail.images === "number" ? detail.images : 0;
           existing.endedAt = at;
           existing.durationMs = durationMs ?? Math.max(0, at - existing.startedAt);
+          existing.withheld = existing.withheld ?? withheldReason(detail);
           if (hint) existing.target = hint;
           if (hint) existing.targetIsCode = false;
           if (event.callId) callIndex.delete(event.callId);
@@ -314,6 +324,7 @@ export function buildActivitySteps(
             startedAt: durationMs !== null ? at - durationMs : at,
             endedAt: at,
             durationMs,
+            withheld: withheldReason(detail),
           });
         }
         break;
@@ -326,6 +337,7 @@ export function buildActivitySteps(
           last.text += text;
           last.truncated = last.truncated || detail.truncated === true;
           last.endedAt = null;
+          last.withheld = last.withheld ?? withheldReason(detail);
         } else {
           closeOpen(at);
           steps.push({
@@ -337,6 +349,7 @@ export function buildActivitySteps(
             truncated: detail.truncated === true,
             startedAt: at,
             endedAt: null,
+            withheld: withheldReason(detail),
           });
         }
         break;

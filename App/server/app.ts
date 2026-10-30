@@ -66,6 +66,7 @@ import {
 } from "./routes/chatSurfaceWebhooks.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { workspaceDiscussionsRouter } from "./routes/workspaceDiscussions.js";
+import { workspaceTurnsRouter } from "./routes/workspaceTurns.js";
 import { pipelinesRouter } from "./routes/pipelines.js";
 import { emailProvidersRouter } from "./routes/emailProviders.js";
 import { emailLogsRouter } from "./routes/emailLogs.js";
@@ -456,6 +457,9 @@ export function createApp(): express.Express {
   // Group chats and group discussions: several AI Employees working a Member's
   // question out together in a channel, ending in one outcome.
   app.use("/api/companies/:cid/workspace", workspaceDiscussionsRouter);
+  // AI Employees' turns in a channel, as the room watches them: who is
+  // working, each turn's steps as a reader may see them, Stop and Retry.
+  app.use("/api/companies/:cid/workspace", workspaceTurnsRouter);
 
   // Pipelines — n8n-style visual automation, separate primitive from
   // Routines. Each Pipeline is a DAG of typed nodes; see services/pipelines/.

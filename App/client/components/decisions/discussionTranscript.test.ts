@@ -6,6 +6,7 @@ import {
   isWorkingMessage,
   mergeTranscript,
   parseProgress,
+  retryableReplyId,
   upsertMessage,
 } from "./discussionTranscript";
 
@@ -66,6 +67,41 @@ describe("Decision discussion transcript", () => {
         ["a2", "working"],
       ],
     );
+  });
+
+  test("a Retry turns a failed reply back into one being written, because it is newer", () => {
+    const failed = {
+      ...message("a", "assistant", "error", "It failed."),
+      updatedAt: "2026-10-08T09:01:00.000Z",
+    };
+    const retried = { ...message("a", "assistant", "working", ""), updatedAt: "2026-10-08T09:02:00.000Z" };
+    assert.equal(mergeTranscript([failed], [retried])[0].status, "working");
+    // A read that left before the reply failed is still stale.
+    const older = { ...message("a", "assistant", "working", ""), updatedAt: "2026-10-08T09:00:30.000Z" };
+    assert.equal(mergeTranscript([failed], [older])[0].status, "error");
+  });
+
+  test("only the newest reply can be retried, when it failed and nothing is running", () => {
+    const user = message("u", "user", null);
+    assert.equal(retryableReplyId([user, message("a", "assistant", "error")]), "a");
+    assert.equal(retryableReplyId([user, message("a", "assistant", "skipped")]), "a");
+    assert.equal(retryableReplyId([user, message("a", "assistant", "ok")]), null);
+    assert.equal(retryableReplyId([user, message("a", "assistant", "interrupted")]), null);
+    assert.equal(
+      retryableReplyId([
+        message("a", "assistant", "error"),
+        message("u2", "user", null),
+        message("b", "assistant", "ok"),
+      ]),
+      null,
+      "an older failure is behind the conversation",
+    );
+    assert.equal(
+      retryableReplyId([message("a", "assistant", "error"), message("b", "assistant", "working")]),
+      null,
+      "not while a reply is being written",
+    );
+    assert.equal(retryableReplyId([user]), null);
   });
 
   test("accepts only well-formed progress", () => {

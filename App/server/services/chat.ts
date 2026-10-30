@@ -283,6 +283,12 @@ type ChatBaseOptions = {
    */
   onSensitiveValues?: (values: string[]) => void;
   /**
+   * Fired once when the turn is a discussion bound to a Decision, TLDR or
+   * review: its steps reach {@link activity} without what they read or
+   * returned, and an activity feed says so rather than showing empty results.
+   */
+  onPayloadsWithheld?: (reason: "discussion") => void;
+  /**
    * Ceiling on model turns for this call. Chat's default suits a reply; a
    * work session, which reads, edits, runs and re-runs, needs more room.
    */
@@ -526,6 +532,14 @@ function composeDiscussionSystemPrompt(
   ].join("\n");
 }
 
+/** What a chat turn answers when a Standdown covers its AI Employee. */
+export function stoodDownReply(employeeName: string, reason: string): string {
+  return (
+    `${employeeName} is stood down and cannot work right now.\n\nReason given: ${reason}\n\n` +
+    "An admin can return this work at Settings → Standdowns."
+  );
+}
+
 /** Non-streaming wrapper. */
 export async function chatWithEmployee(
   companyId: string,
@@ -574,9 +588,7 @@ export async function streamChatWithEmployee(
   if (stopped.blocked) {
     return {
       status: "error",
-      reply:
-        `${emp.name} is stood down and cannot work right now.\n\nReason given: ${stopped.reason}\n\n` +
-        "An admin can return this work at Settings → Standdowns.",
+      reply: stoodDownReply(emp.name, stopped.reason),
       attachmentIds: [],
       sidecars: {},
     };
@@ -755,6 +767,11 @@ export async function streamChatWithEmployee(
   let mcpToken: string | null = null;
   try {
     if (discussionSource) {
+      try {
+        options.onPayloadsWithheld?.("discussion");
+      } catch {
+        // An observer never decides whether the turn runs.
+      }
       const system =
         composeDiscussionSystemPrompt(co, emp, discussionSource.prompt, discussionLabel) +
         ATTACHMENT_SOURCE_BOUNDARY;

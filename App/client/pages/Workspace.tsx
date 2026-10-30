@@ -57,6 +57,8 @@ import { useCompanySocket, useCompanySocketSubscription } from "../components/Co
 import { ChannelComposer, type ChannelComposerHandle } from "../components/workspace/Composer";
 import { initials, MessageList } from "../components/workspace/MessageList";
 import { TypingPill, useChannelTyping } from "../components/workspace/TypingPill";
+import { ChannelTurnCards, useChannelTurns } from "../components/workspace/ChannelTurns";
+import { retryableTurnIds, typersWithoutTurns } from "../lib/workspaceTurns";
 import { Button } from "../components/ui/Button";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Modal } from "../components/ui/Modal";
@@ -545,6 +547,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
               );
             }}
             onArchive={() => archiveWorkspaceChannel(activeChannel.id)}
+            onTurnReply={(message) => {
+              // The reply as the turn's own stream handed it over — the same
+              // message the socket announces, folded in whichever lands first.
+              setMessages((prev) => {
+                const cur = prev[message.channelId] ?? [];
+                const next = applyWorkspaceMessageEvent(
+                  cur,
+                  { type: "message.new", channelId: message.channelId, message },
+                  { meId: me.id },
+                );
+                return next === cur ? prev : { ...prev, [message.channelId]: next };
+              });
+            }}
           />
         ) : (
           <EmptyWorkspace
@@ -900,6 +915,7 @@ function ChannelView({
   onChannelUpdated,
   onArchive,
   onBack,
+  onTurnReply,
 }: {
   company: Company;
   me: Me;
@@ -916,10 +932,18 @@ function ChannelView({
   onArchive: () => Promise<void>;
   /** On a phone, the way back to the list of conversations. */
   onBack?: () => void;
+  /** A reply an AI Employee's turn wrote, as its stream handed it over. */
+  onTurnReply: (message: WorkspaceMessage) => void;
 }) {
   const discussions = useChannelDiscussions(company.id, channel, onChannelUpdated);
   const running = runningDiscussion(discussions.list);
   const outcomes = discussionsByOutcomeMessage(discussions.list);
+  // The AI Employees working here right now, each with its live card.
+  const turns = useChannelTurns(company.id, channel.id);
+  const retryable = React.useMemo(
+    () => retryableTurnIds(messages ?? [], turns.running),
+    [messages, turns.running],
+  );
   const [showDiscuss, setShowDiscuss] = React.useState(false);
   const title = channelTitle(channel, me.id);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -935,8 +959,19 @@ function ChannelView({
   const [showSettings, setShowSettings] = React.useState(false);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
   const [archiving, setArchiving] = React.useState(false);
-  const typers = useChannelTyping(channel.id, me.id);
+  // A live card already says an AI Employee is working; the pill keeps the rest.
+  const typers = typersWithoutTurns(useChannelTyping(channel.id, me.id), turns.running);
   const composerRef = React.useRef<ChannelComposerHandle>(null);
+
+  // A new turn appearing is news: bring its card into view, as a new message is.
+  const runningCount = turns.running.length;
+  const seenRunningRef = React.useRef(runningCount);
+  React.useEffect(() => {
+    if (runningCount > seenRunningRef.current) {
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    }
+    seenRunningRef.current = runningCount;
+  }, [runningCount]);
 
   // Opening a channel or DM — from the list, a link, or one just created —
   // puts the cursor in its message box, so the first message needs no click.
@@ -1166,6 +1201,16 @@ function ChannelView({
               onReact={async (m, emoji) => {
                 await workspaceApi.toggleReaction(company.id, m.id, emoji);
               }}
+              turns={{
+                companyId: company.id,
+                companySlug: company.slug,
+                meId: me.id,
+                retryable,
+                onRetry: async (m) => {
+                  if (!m.aiTurn) return;
+                  turns.apply(await workspaceApi.retryTurn(company.id, channel.id, m.aiTurn.id));
+                },
+              }}
               renderRow={(m) => {
                 if (m.discussionRole === "note") return <DiscussionNote message={m} />;
                 if (m.discussionRole !== "outcome") return null;
@@ -1181,6 +1226,14 @@ function ChannelView({
                   />
                 );
               }}
+            />
+            <ChannelTurnCards
+              company={company}
+              meId={me.id}
+              turns={turns.running}
+              discussions={discussions.list}
+              onEnded={turns.ended}
+              onReply={onTurnReply}
             />
           </>
         )}

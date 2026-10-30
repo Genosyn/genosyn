@@ -27,6 +27,7 @@ import {
 } from "./attachmentText.js";
 import { recordAudit } from "./audit.js";
 import { streamChatWithEmployee, type ChatResult, type ChatTurn, type ChatOptions } from "./chat.js";
+import { beginDrivenChannelTurn } from "./channelTurns.js";
 import { isModelAvailable, onModelAvailabilityChange } from "./modelAvailability.js";
 import {
   parseWaitPayload,
@@ -1181,24 +1182,44 @@ async function takeTurn(
 
   let tokens = 0;
   const stopTyping = startTypingBroadcast(channel, speaker);
+  // The room watches the speaker work, round by round, as it watches a reply.
+  const watched = await beginDrivenChannelTurn({
+    channel,
+    employeeId: speaker.id,
+    kind: "discussion",
+    discussionId: d.id,
+    round: d.round,
+    triggerMessageId: d.questionMessageId,
+    requester: d.startedByUserId
+      ? { userId: d.startedByUserId, sessionVersion: d.requesterSessionVersion }
+      : null,
+  });
   let result: ChatResult;
   try {
-    result = await deps().runTurn(d.companyId, speaker.id, prompt, transcript.turns, () => {}, {
-      requesterUserId: d.startedByUserId!,
-      requesterSessionVersion: d.requesterSessionVersion,
-      collaboration: { kind: "discussion", id: d.id },
-      startTainted: transcript.tainted,
-      extraSystem: brief,
-      images: transcript.questionImages,
-      workloadScope: `group-discussion:${d.id}`,
-      maxSteps: GROUP_DISCUSSION_LIMITS.turnMaxSteps,
-      timeoutMs: GROUP_DISCUSSION_LIMITS.turnTimeoutMs,
-      signal: controller.signal,
-      wasInterrupted: () => stoppedReason !== null,
-      onUsage: (usage) => {
-        tokens += Math.max(0, usage.inputTokens) + Math.max(0, usage.outputTokens);
+    result = await deps().runTurn(
+      d.companyId,
+      speaker.id,
+      prompt,
+      transcript.turns,
+      (chunk) => watched?.onChunk(chunk),
+      {
+        ...(watched?.chatOptions ?? {}),
+        requesterUserId: d.startedByUserId!,
+        requesterSessionVersion: d.requesterSessionVersion,
+        collaboration: { kind: "discussion", id: d.id },
+        startTainted: transcript.tainted,
+        extraSystem: brief,
+        images: transcript.questionImages,
+        workloadScope: `group-discussion:${d.id}`,
+        maxSteps: GROUP_DISCUSSION_LIMITS.turnMaxSteps,
+        timeoutMs: GROUP_DISCUSSION_LIMITS.turnTimeoutMs,
+        signal: controller.signal,
+        wasInterrupted: () => stoppedReason !== null,
+        onUsage: (usage) => {
+          tokens += Math.max(0, usage.inputTokens) + Math.max(0, usage.outputTokens);
+        },
       },
-    });
+    );
   } catch (error) {
     result = {
       status: "error",
@@ -1215,7 +1236,10 @@ async function takeTurn(
   // Re-read: a Stop, a Wrap-up or Member input may have landed meanwhile, and
   // the counters must add to what is there now.
   const now = await loadDiscussion(d.id);
-  if (!now) return;
+  if (!now) {
+    await watched?.end({ status: "interrupted" });
+    return;
+  }
   state = parseDiscussionState(now.stateJson);
   const counters = {
     turnsTaken: now.turnsTaken + 1,
@@ -1227,7 +1251,13 @@ async function takeTurn(
     // The speaker's AI Model went down under the turn. Nothing it wrote is
     // posted and nothing is recorded against it: it keeps its turn, which it
     // takes again once its model is back — the driver waits for that, within
-    // the discussion's wall clock. The tokens it spent still count.
+    // the discussion's wall clock. The tokens it spent still count. The room's
+    // card for this attempt ends saying why; the retaken turn gets its own.
+    watched?.recorder.notice(
+      "model_unavailable",
+      "The AI Model became unavailable; this turn is taken again once it is back",
+    );
+    await watched?.end({ status: "interrupted", tainted: result.tainted === true });
     await patch(d.id, {
       tokensUsed: counters.tokensUsed,
       tainted: counters.tainted,
@@ -1241,6 +1271,20 @@ async function takeTurn(
     // Stop and Standdown both mean "no more": the half-written turn is
     // dropped, and the next step ends the discussion (or sits the employee
     // out, for an employee Standdown).
+    if (stoppedReason === "standdown") {
+      watched?.recorder.notice("standdown", "A Standdown stopped this turn");
+    }
+    await watched?.end({
+      status: "interrupted",
+      tainted: result.tainted === true,
+      stoppedBy:
+        stoppedReason === "stop"
+          ? {
+              userId: now.stopRequestedByUserId,
+              name: await stopperName(now.stopRequestedByUserId),
+            }
+          : null,
+    });
     if (stoppedReason === "standdown" && !workBlocked(d.companyId).blocked) {
       state = recordTurn(state, {
         speaker: speaker.id,
@@ -1253,6 +1297,9 @@ async function takeTurn(
     return;
   }
 
+  if (result.status !== "ok") {
+    await watched?.end({ status: result.status === "skipped" ? "skipped" : "error" });
+  }
   if (result.status === "skipped") {
     // No AI Model: this employee cannot speak again in this discussion.
     state = benchParticipant(
@@ -1298,6 +1345,8 @@ async function takeTurn(
         roster.push(id);
         brought.push(emp);
       }
+      // Ended before it is posted, so the turn message carries how it went.
+      await watched?.end({ status: "ok", tainted: result.tainted === true });
       await insertChannelMessage({
         channel,
         author: { kind: "ai", employeeId: speaker.id },
@@ -1308,6 +1357,7 @@ async function takeTurn(
         discussionId: d.id,
         discussionRole: "turn",
         tainted: result.tainted === true,
+        turnId: watched?.turn.id ?? null,
       });
       if (brought.length > 0) {
         await addChannelMembers({
@@ -1335,12 +1385,28 @@ async function takeTurn(
         addressed: [...addressed, ...brought.map((e) => e.id)],
       });
     } else {
+      watched?.recorder.notice(
+        "passed",
+        reading.kind === "agree"
+          ? "Agreed with the room — nothing new to add this round"
+          : reading.kind === "repeat"
+            ? "Would only have repeated what was said, so passed"
+            : "Had nothing to add this round",
+      );
+      await watched?.end({ status: "ok", tainted: result.tainted === true });
       state = recordTurn(state, { speaker: speaker.id, round: now.round, kind: reading.kind });
     }
   }
 
   await patch(d.id, { ...counters, stateJson: JSON.stringify(state), currentEmployeeId: null });
   await announce(d.id);
+}
+
+/** Who pressed Stop on a discussion, for the record of the turn it cut short. */
+async function stopperName(userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const user = await AppDataSource.getRepository(User).findOneBy({ id: userId });
+  return user ? user.name || user.email : null;
 }
 
 // ───────────────────────────── transcripts ─────────────────────────────
@@ -2167,6 +2233,16 @@ async function runOwnerShare(args: {
   if (await employeeModelDown(emp.id)) return wait();
   await setItemStatus(d.id, ownerId, "working");
   const stopTyping = startTypingBroadcast(channel, emp);
+  // The room watches each share being done, as it watches a reply.
+  const watched = await beginDrivenChannelTurn({
+    channel,
+    employeeId: emp.id,
+    kind: "follow_through",
+    discussionId: d.id,
+    round: null,
+    triggerMessageId: d.outcomeMessageId,
+    requester,
+  });
   let result: ChatResult;
   try {
     const history = await followThroughHistory(d, emp.id);
@@ -2181,8 +2257,9 @@ async function runOwnerShare(args: {
         items: mine,
       }),
       history,
-      () => {},
+      (chunk) => watched?.onChunk(chunk),
       {
+        ...(watched?.chatOptions ?? {}),
         requesterUserId: requester.userId,
         requesterSessionVersion: requester.sessionVersion,
         startTainted: d.tainted,
@@ -2195,9 +2272,18 @@ async function runOwnerShare(args: {
     stopTyping();
   }
   // The AI Model went down under the turn: nothing it wrote is posted, and
-  // the share waits to start again rather than failing.
-  if (result.status === "error" && result.unavailable) return wait();
+  // the share waits to start again rather than failing. The room's card for
+  // this attempt ends saying why; the share's restart gets its own.
+  if (result.status === "error" && result.unavailable) {
+    watched?.recorder.notice(
+      "model_unavailable",
+      "The AI Model became unavailable; this work starts again once it is back",
+    );
+    await watched?.end({ status: "interrupted", tainted: result.tainted === true || d.tainted });
+    return wait();
+  }
   if (result.status === "ok") {
+    await watched?.end({ status: "ok", tainted: result.tainted === true || d.tainted });
     await insertChannelMessage({
       channel,
       author: { kind: "ai", employeeId: emp.id },
@@ -2206,8 +2292,10 @@ async function runOwnerShare(args: {
       discussionId: d.id,
       discussionRole: "follow_through",
       tainted: result.tainted === true || d.tainted,
+      turnId: watched?.turn.id ?? null,
     });
   } else {
+    await watched?.end({ status: result.status === "skipped" ? "skipped" : "error" });
     await postNote(d, `${emp.name} couldn't start on the work: ${clipLine(result.reply, 300)}`);
   }
   await setItemStatus(

@@ -303,6 +303,13 @@ function describeWait(
         detail: `Nothing to resend: ${employeeName} answers it as soon as the AI Model answers again. Stop it to cancel.`,
         tone: "warning",
       };
+    case "model_resuming":
+      return {
+        title: "Starting again now the AI Model is back",
+        detail:
+          "The replies that waited for it start one at a time, so they do not all land on it at once. This one starts shortly.",
+        tone: "waiting",
+      };
     default:
       return { title: phase.label || "Waiting", detail: null, tone: "waiting" };
   }

@@ -132,7 +132,8 @@ describe("every transcript-replaying caller names its thread", () => {
     // Without this the suite would pass by finding nothing at all.
     const files = callerFiles().map((f) => path.relative(SERVER_ROOT, f));
     assert.ok(files.length >= 5, `expected several chat-seam callers, saw ${files.length}`);
-    for (const expected of ["services/todoKickoff.ts", "services/workspaceChat.ts"]) {
+    // Workspace channel replies run as channel turns (`channelTurns.ts`).
+    for (const expected of ["services/todoKickoff.ts", "services/channelTurns.ts"]) {
       assert.ok(files.includes(expected), `the scan missed ${expected}`);
     }
   });

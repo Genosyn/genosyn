@@ -103,6 +103,9 @@ export type TurnFinishedDetail = TurnActivitySummary;
  *                     down, failing, overloaded or rate-limited — so the
  *                     message waits, unclaimed, and is answered automatically
  *                     when the model is back (`server/services/modelAvailability.ts`).
+ *   - `model_resuming` the AI Model is back, and the Workspace replies that
+ *                     waited for it start one at a time rather than all at
+ *                     once (the recovery pacing Routine Runs follow too).
  *
  * A turn resumed after a server restart is not a wait: its `turn_started`
  * event says so (`reason: "resume"`), as it says when a turn an AI Model
@@ -114,6 +117,7 @@ export const KNOWN_WAIT_CAUSES = [
   "model_retry",
   "model_outage",
   "model_unavailable",
+  "model_resuming",
 ] as const;
 
 /** The waiting cause of a message whose AI Model is unavailable. */
@@ -125,6 +129,13 @@ export const MODEL_UNAVAILABLE_WAIT_CAUSE = "model_unavailable";
  */
 export const MODEL_UNAVAILABLE_WAIT_LABEL =
   "The AI Model is unavailable — this will be answered when it is back";
+
+/** The waiting cause of a reply taking its turn after its AI Model came back. */
+export const MODEL_RESUMING_WAIT_CAUSE = "model_resuming";
+
+/** What the chat says while a reply that waited takes its turn to start again. */
+export const MODEL_RESUMING_WAIT_LABEL =
+  "The AI Model is back — the replies that waited start one at a time";
 
 /**
  * What a finished turn says when collapsed: "Worked for 2m 14s · 9 steps".
@@ -825,6 +836,9 @@ function SALIENT_QUERY_PRESENT(args: Record<string, unknown>): boolean {
   return [...QUERY_KEYS].some((key) => typeof args[key] === "string" && String(args[key]).trim());
 }
 
+/** A label's last word that only leads into its target: "Searching email for". */
+const LEADS_INTO_TARGET = /\s+(?:for|to|in|matching)$/;
+
 function finish(
   family: ChatToolFamily,
   verb: Verb,
@@ -832,7 +846,10 @@ function finish(
   target: { text: string; code: boolean },
   worker: string | null,
 ): ChatToolDescription {
-  const tail = object ? ` ${object}` : "";
+  // Without its target — none was given, or the reader is not shown it — the
+  // label ends where its object does: "Searching email", not "…email for".
+  const said = target.text ? object : object.replace(LEADS_INTO_TARGET, "");
+  const tail = said ? ` ${said}` : "";
   return {
     family,
     active: `${verb.active}${tail}`,

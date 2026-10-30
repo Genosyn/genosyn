@@ -7,6 +7,8 @@ import {
   describeChatToolCall,
   formatElapsed,
   isQuietChatTool,
+  MODEL_RESUMING_WAIT_CAUSE,
+  MODEL_RESUMING_WAIT_LABEL,
   MODEL_UNAVAILABLE_WAIT_CAUSE,
   MODEL_UNAVAILABLE_WAIT_LABEL,
   type ChatActivityEvent,
@@ -25,6 +27,7 @@ import type {
 } from "./agent/types.js";
 import type { LiveTurn } from "./chatTurnLive.js";
 import { effortLabel } from "../../shared/thinkingLevels.js";
+import type { ActivityWithheld } from "../../shared/turnActivityAccess.js";
 
 /**
  * The record of what an AI Employee did while it answered a chat message.
@@ -49,8 +52,11 @@ import { effortLabel } from "../../shared/thinkingLevels.js";
  * exact values of the company Secrets the turn's tools were handed are
  * removed wherever they appear. Everything is clipped: this is a feed, not an
  * archive. A turn bound to a discussion records steps without their payloads
- * (`chat.ts` strips them at the seam), and a browser field's typed value is
- * never kept.
+ * (`chat.ts` strips them at the seam, and the recorder marks them withheld),
+ * and a browser field's typed value is never kept.
+ *
+ * The same recorder writes a Workspace channel's turns (`channelTurns.ts`):
+ * `conversationId` is then the channel and `messageId` the `ChannelTurn`.
  *
  * ## Why writes are chained
  *
@@ -79,7 +85,9 @@ const COMMAND_TOOLS = new Set(["bash", "repository_run_command"]);
 
 export type ChatTurnActivityScope = {
   companyId: string;
+  /** The direct chat's Conversation, or the Workspace Channel a channel turn answers in. */
   conversationId: string;
+  /** The turn: an assistant ConversationMessage, or a ChannelTurn. */
   messageId: string;
   attempt: number;
 };
@@ -92,6 +100,7 @@ const WAIT_LABELS: Record<string, string> = {
   model_lock: "Waiting for the AI Model, which answers one turn at a time",
   model_outage: "The AI Model's server stopped answering — waiting for it",
   [MODEL_UNAVAILABLE_WAIT_CAUSE]: MODEL_UNAVAILABLE_WAIT_LABEL,
+  [MODEL_RESUMING_WAIT_CAUSE]: MODEL_RESUMING_WAIT_LABEL,
 };
 
 export class ChatTurnActivityRecorder {
@@ -113,6 +122,7 @@ export class ChatTurnActivityRecorder {
   private stoppedRecorded = false;
   private startedRecorded = false;
   private thinkingFallbackRecorded = false;
+  private withheld: ActivityWithheld | null = null;
 
   constructor(
     private readonly scope: ChatTurnActivityScope,
@@ -148,6 +158,15 @@ export class ChatTurnActivityRecorder {
     this.sensitive = [...new Set([...values].filter((value) => value.length >= 6))].sort(
       (a, b) => b.length - a.length,
     );
+  }
+
+  /**
+   * From now on, steps are recorded without what their tools read or returned
+   * — and say so, so a reader is told the details were not kept rather than
+   * shown an empty result.
+   */
+  withholdPayloads(reason: ActivityWithheld): void {
+    this.withheld = reason;
   }
 
   /** The turn began doing work — the reply lease is held and the model is about to run. */
@@ -187,7 +206,11 @@ export class ChatTurnActivityRecorder {
       name,
       callId: key,
       summary: [described.active, described.target].filter(Boolean).join(" · "),
-      detail: { input: safeInput, worker: described.worker },
+      detail: {
+        input: safeInput,
+        worker: described.worker,
+        ...(this.withheld ? { withheld: this.withheld } : {}),
+      },
     });
   }
 
@@ -224,12 +247,13 @@ export class ChatTurnActivityRecorder {
       callId: call?.key ?? callId ?? "",
       summary: [described.done, outcome].filter(Boolean).join(" · "),
       detail: {
-        output,
+        output: this.withheld ? null : output,
         durationMs: call ? Math.max(0, now - call.startedAt) : null,
         ...(hint ? { hint } : {}),
         ...(result.images?.length ? { images: result.images.length } : {}),
         ...(approval ? { approval } : {}),
         worker: described.worker,
+        ...(this.withheld ? { withheld: this.withheld } : {}),
       },
       isError,
     });
@@ -386,12 +410,17 @@ export class ChatTurnActivityRecorder {
     this.record({ kind: "notice", name: code, summary: safe, detail: { code, label: safe } });
   }
 
-  /** A Member stopped the turn. */
-  stopped(): void {
+  /** A Member stopped the turn — named, where several people could have. */
+  stopped(byName?: string | null): void {
     if (this.stoppedRecorded) return;
     this.stoppedRecorded = true;
     this.flushReasoning();
-    this.record({ kind: "stopped", summary: "Stopped by a Member", detail: { by: "member" } });
+    const name = byName?.trim() ? this.scrub(byName.trim()).slice(0, 80) : null;
+    this.record({
+      kind: "stopped",
+      summary: name ? `Stopped by ${name}` : "Stopped by a Member",
+      detail: { by: "member", ...(name ? { name } : {}) },
+    });
   }
 
   /** The figures for {@link TurnActivitySummary}, as of now. Records nothing. */

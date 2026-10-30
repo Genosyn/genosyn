@@ -19,6 +19,7 @@ import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { streamChatWithEmployee } from "./chat.js";
+import { ChatTurnActivityRecorder, listChatActivity } from "./chatTurnActivity.js";
 import {
   createDecisionChatSource,
   DecisionDiscussionScopeError,
@@ -687,6 +688,48 @@ describe("Decision discussion model boundary", () => {
         assert.equal(parameters?.additionalProperties, false);
         assert.deepEqual(parameters?.required ?? [], []);
       }
+    });
+  });
+
+  test("its steps reach the activity feed marked as kept without what they read", async () => {
+    const f = await fixture();
+    const thread = await conversation(f);
+    await withModel(f, readThenAnswer, async () => {
+      const turnId = "a3a1c6d2-6a35-4f61-9a0e-4b8d6e1f0c11";
+      const recorder = new ChatTurnActivityRecorder(
+        { companyId: f.company.id, conversationId: thread.id, messageId: turnId, attempt: 1 },
+        1,
+      );
+      const withheld: string[] = [];
+      const result = await streamChatWithEmployee(
+        f.company.id,
+        f.employee.id,
+        f.input.message,
+        [],
+        () => {},
+        {
+          ...turnOptions(f, thread.id),
+          onPayloadsWithheld: (reason) => {
+            withheld.push(reason);
+            recorder.withholdPayloads(reason);
+          },
+          activity: {
+            onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
+            onToolResult: (name, toolResult, callId) => recorder.toolResult(name, toolResult, callId),
+          },
+        },
+      );
+      await recorder.flush();
+      assert.equal(result.status, "ok");
+      assert.deepEqual(withheld, ["discussion"]);
+      const events = await listChatActivity(turnId, 0, 10);
+      const use = events.find((event) => event.kind === "tool_use");
+      const returned = events.find((event) => event.kind === "tool_result");
+      assert.equal(use?.detail?.withheld, "discussion");
+      assert.deepEqual(use?.detail?.input, {});
+      assert.equal(returned?.detail?.withheld, "discussion");
+      assert.equal(returned?.detail?.output, null, "an empty result is not passed off as one");
+      assert.doesNotMatch(JSON.stringify(events), new RegExp(f.decision.body.slice(0, 20)));
     });
   });
 

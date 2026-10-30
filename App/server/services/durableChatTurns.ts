@@ -633,6 +633,7 @@ export async function executeDurableChatTurn(
           },
           onWorkStarted: () => recorder.turnStarted(startReason),
           onSensitiveValues: (values) => recorder.setSensitiveValues(values),
+          onPayloadsWithheld: (reason) => recorder.withholdPayloads(reason),
           activity: {
             onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
             onToolResult: (name, toolResult, callId) =>

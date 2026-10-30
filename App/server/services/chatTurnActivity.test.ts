@@ -161,7 +161,8 @@ describe("recording a turn", () => {
     await rec.flush();
     const results = (await stored()).filter((row) => row.kind === "tool_result");
     assert.equal(results[0].isError, true);
-    assert.equal(results[0].summary, "Sent an email to · failed: Recipient refused");
+    // A result's line names no target, so it does not lead into one either.
+    assert.equal(results[0].summary, "Sent an email · failed: Recipient refused");
     assert.deepEqual((results[1].detail as { approval: unknown }).approval, {
       id: "6f9619ff-8b86-d011-b42d-00c04fc964ff",
     });

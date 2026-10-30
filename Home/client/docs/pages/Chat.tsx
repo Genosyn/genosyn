@@ -203,14 +203,11 @@ export function Chat() {
         as usual.
       </P>
       <P>
-        On Slack, Teams, Telegram or WhatsApp the employee says once that its AI Model is
-        unavailable and answers there by itself when it is back — see{" "}
+        A reply in a <DocLink to="/docs/workspace-chat#live-activity">Workspace channel, DM or
+        group chat</DocLink> waits the same way, and the room sees it waiting. On Slack, Teams,
+        Telegram or WhatsApp the employee says once that its AI Model is unavailable and answers
+        there by itself when it is back — see{" "}
         <DocLink to="/docs/chat-surfaces#model-unavailable">Chat surfaces</DocLink>.
-      </P>
-      <P>
-        A conversation that can&apos;t wait — a Workspace channel — gets a plain
-        reply instead: the employee says its AI Model is unavailable and asks for the message again
-        in a little while, rather than showing the technical error.
       </P>
 
       <H2 id="reloads">Reloads, other tabs and restarts</H2>
@@ -231,7 +228,16 @@ export function Chat() {
         replaced, credential-shaped text is removed, and the exact values of the company Secrets the
         employee&apos;s tools were given are scrubbed wherever they appear. A value typed into a web
         page is never kept. Long results are clipped. A reply in a discussion bound to a Decision,
-        TLDR or review shows that the employee read the linked record, but not what it returned.
+        TLDR or review shows that the employee read the linked record, but not what it returned —
+        the step says its details were not kept, and the record is on the card beside it.
+      </P>
+      <P>
+        The same live card and <Strong>Worked for</Strong> line appear wherever an AI Employee
+        answers in Genosyn: a{" "}
+        <DocLink to="/docs/decisions#discussing">Decision&apos;s discussion</DocLink>, and
+        Workspace channels, DMs and group chats, where everyone in the room watches the work — and
+        where only the Member whose access a reply uses sees what each step read and returned (see{" "}
+        <DocLink to="/docs/workspace-chat#who-sees-what">who sees what</DocLink>).
       </P>
       <Callout kind="tip" title="Inspecting a turn from the inside">
         An employee can read its own current turn with <Code>get_runtime_diagnostics</Code>: the

@@ -444,7 +444,8 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
     responder.employeeId,
     frameTurn({ ...turn, text: responder.text }, requester, audience),
     replay,
-    chatOptions,
+    // Named at the call, as every transcript replay must name its thread.
+    { ...chatOptions, conversationId: conversation.id },
   );
   if (answered.status === "error" && answered.unavailable) {
     await waitForReply();
@@ -670,7 +671,8 @@ async function resumeSurfaceReply(wait: AIModelWait): Promise<ModelWaitResult> {
     wait.employeeId,
     frameTurn(fullTurn, requester, audience),
     replay,
-    chatOptions,
+    // Named at the call, as every transcript replay must name its thread.
+    { ...chatOptions, conversationId: conversation.id },
   );
   if (answered.status === "error" && answered.unavailable) return { status: "waiting" };
   const send = async (body: string): Promise<void> => {

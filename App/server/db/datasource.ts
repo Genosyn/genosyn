@@ -77,6 +77,7 @@ import { EmployeeMemory } from "./entities/EmployeeMemory.js";
 import { Channel } from "./entities/Channel.js";
 import { ChannelMember } from "./entities/ChannelMember.js";
 import { ChannelMessage } from "./entities/ChannelMessage.js";
+import { ChannelTurn } from "./entities/ChannelTurn.js";
 import { MessageReaction } from "./entities/MessageReaction.js";
 import { GroupDiscussion } from "./entities/GroupDiscussion.js";
 import { Attachment } from "./entities/Attachment.js";
@@ -342,6 +343,8 @@ const entities = [
   Channel,
   ChannelMember,
   ChannelMessage,
+  // An AI Employee's turn in a channel: its activity is the chat turn feed.
+  ChannelTurn,
   MessageReaction,
   GroupDiscussion,
   Attachment,

@@ -1,19 +1,46 @@
 import React from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { Bot, MessagesSquare, MoreHorizontal, Paperclip, Smile, Trash2 } from "lucide-react";
+import {
+  Bot,
+  MessagesSquare,
+  MoreHorizontal,
+  Paperclip,
+  RotateCcw,
+  Smile,
+  Trash2,
+} from "lucide-react";
 
 import { EmojiPicker } from "@/components/workspace/EmojiPicker";
+import { shouldShowTurnSummary, TurnWorkSummary } from "@/components/chat/TurnActivity";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { errorMessage } from "@/lib/errors";
-import type {
-  Mentionable,
-  WorkspaceAttachment,
-  WorkspaceAuthor,
-  WorkspaceMessage,
+import {
+  workspaceApi,
+  type Mentionable,
+  type WorkspaceAttachment,
+  type WorkspaceAuthor,
+  type WorkspaceMessage,
 } from "@/lib/workspace";
+import { replyTurnBadge, stepsVisibilityNote, turnAccessFor } from "@/lib/workspaceTurns";
+
+/**
+ * What a surface needs to show how an AI Employee's reply came to be: the
+ * "Worked for 2m 14s · 9 steps" line under it, opening onto the steps this
+ * reader may see, and Retry on a reply that failed. A read-only surface may
+ * pass none of it and the reply reads as words alone.
+ */
+export type MessageTurnDecorations = {
+  companyId: string;
+  companySlug: string;
+  meId: string;
+  /** The failed replies that can be asked again, by turn id. */
+  retryable: ReadonlySet<string>;
+  onRetry: (message: WorkspaceMessage) => Promise<void>;
+};
 
 /**
  * How a workspace message looks, wherever it is being read.
@@ -48,11 +75,14 @@ export function MessageList({
   onDelete,
   onReact,
   renderRow,
+  turns,
 }: {
   messages: WorkspaceMessage[];
   meId: string;
   mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
+  /** How AI replies came to be, for a surface that shows it. */
+  turns?: MessageTurnDecorations;
   /**
    * A surface's own rendering for a message it knows better — a group
    * discussion's outcome card, its quiet notes. Return nothing to keep the
@@ -110,6 +140,7 @@ export function MessageList({
               onEdit={onEdit}
               onDelete={onDelete}
               onReact={onReact}
+              turns={turns}
             />
           </React.Fragment>
         );
@@ -171,6 +202,7 @@ function MessageRow({
   onEdit,
   onDelete,
   onReact,
+  turns,
 }: {
   message: WorkspaceMessage;
   bundled: boolean;
@@ -182,6 +214,7 @@ function MessageRow({
   onEdit?: (m: WorkspaceMessage, content: string) => Promise<void>;
   onDelete?: (m: WorkspaceMessage) => Promise<void>;
   onReact?: (m: WorkspaceMessage, emoji: string) => Promise<void>;
+  turns?: MessageTurnDecorations;
 }) {
   const [draft, setDraft] = React.useState(message.content);
   const [editError, setEditError] = React.useState<string | null>(null);
@@ -205,6 +238,24 @@ function MessageRow({
   const isMine =
     message.author?.kind === "user" && "id" in message.author && message.author.id === meId;
   const isDeleted = !!message.deletedAt;
+  const turn = !isDeleted ? (message.aiTurn ?? null) : null;
+  const turnBadge = replyTurnBadge(turn);
+  const [retrying, setRetrying] = React.useState(false);
+  const [retryError, setRetryError] = React.useState<string | null>(null);
+  const canRetry = Boolean(turn && turns?.retryable.has(turn.id));
+
+  async function retry() {
+    if (!turns) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await turns.onRetry(message);
+    } catch (err) {
+      setRetryError(errorMessage(err, "Could not retry this reply"));
+    } finally {
+      setRetrying(false);
+    }
+  }
   const ts = new Date(message.createdAt);
   const timeLabel = ts.toLocaleTimeString(undefined, {
     hour: "numeric",
@@ -250,6 +301,28 @@ function MessageRow({
             {message.editedAt && (
               <span className="text-[11px] text-slate-400 dark:text-slate-500">(edited)</span>
             )}
+            {turnBadge && (
+              <Badge tone={turnBadge.tone} className="self-center">
+                {turnBadge.label}
+              </Badge>
+            )}
+          </div>
+        )}
+        {bundled && turnBadge && (
+          <Badge tone={turnBadge.tone} className="mt-0.5">
+            {turnBadge.label}
+          </Badge>
+        )}
+
+        {turn && turns && shouldShowTurnSummary(turn.activity) && turn.activity && (
+          <div className="mt-1">
+            <TurnWorkSummary
+              summary={turn.activity}
+              activityUrl={workspaceApi.turnActivityUrl(turns.companyId, message.channelId, turn.id)}
+              messageId={turn.id}
+              companySlug={turns.companySlug}
+              note={stepsVisibilityNote(turnAccessFor(turn, turns.meId), turn)}
+            />
           </div>
         )}
 
@@ -320,6 +393,26 @@ function MessageRow({
         )}
 
         {editing && <FormError message={editError} className="mt-1.5" />}
+
+        {canRetry && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={retrying}
+              onClick={() => void retry()}
+            >
+              <RotateCcw size={13} aria-hidden="true" />
+              {retrying ? "Retrying" : "Retry"}
+            </Button>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {message.author?.name ?? "The AI Employee"} takes the request again and checks what
+              this attempt already did first.
+            </span>
+          </div>
+        )}
+        <FormError message={retryError} className="mt-1.5" />
 
         {!isDeleted && message.attachments.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">

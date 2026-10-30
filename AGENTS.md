@@ -392,7 +392,9 @@ unavailable the queue starts none of its Runs; a Run that meets it pauses as
 itself (`pauseReason: "outage"`, counted in `outagePauses` and never toward the
 restart cap) and resumes first, with the time it had left, when a check or real
 work finds the model answering; a chat message stays `working`, unclaimed, and
-is answered then (waiting cause `model_unavailable`); background AI work —
+is answered then (waiting cause `model_unavailable`) — a Workspace reply too,
+whose turns then start one at a time on the Runs' recovery pacing
+(`keyWorkGate`); background AI work —
 grading, Wakeups, TLDRs, letters, meetings, screening, data rooms, Sequences —
 defers. AI work with no queue of its own marks its own row and waits as one
 `AIModelWait` (`services/modelWaits.ts`), carried on once, through the
@@ -691,7 +693,7 @@ tool, let `ask_colleague` chain (it is absent from the allowlist on purpose),
 start follow-through work without a Member, or let AI Employees rename, archive
 or post into group chats they are not in. Outside discussions, AI-to-AI
 @mention replies pause after `AI_MENTION_CHAIN_LIMIT` messages with no Member
-writing (`services/workspaceChat.ts`).
+writing (`services/workspaceChat.ts`): a paused chain starts no turn at all.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
@@ -1015,7 +1017,9 @@ in a Work session instead of leaving them stranded as local commits.
   the company Secrets the turn's tools received, never keeps a value typed
   into a page, and clips everything; a discussion bound to a Decision, TLDR or
   review records its steps without payloads (`chat.ts` strips them at the
-  seam). Reads go through the conversation's own access — owner only, no API
+  seam and `onPayloadsWithheld` marks them `withheld`, so the Decision's own
+  discussion shows the live card without showing what the read returned).
+  Reads go through the conversation's own access — owner only, no API
   keys — and the entity stays out of the live-sync subscriber: a reload or
   another tab re-attaches over the follow stream (`services/chatTurnFollow.ts`,
   `GET …/messages/:messageId/activity/stream`), never the company socket. A
@@ -1023,6 +1027,39 @@ in a Work session instead of leaving them stranded as local commits.
   `onRuntimeWait({ cause, label })`; the chat words the causes it knows and
   shows the server's label for any other. Retry runs a failed reply again in
   place (`retryDurableChatTurn`) — never a second reply row for one request.
+- **A Workspace AI turn is watched by its room.** Every AI Employee turn in a
+  channel, DM or group chat — the reply to an @mention or a DM, a group
+  discussion speaker's turn, a share of the work an outcome started — is a
+  `ChannelTurn` (`services/channelTurns.ts`), and its activity is the same
+  feed: the same recorder, `ConversationActivityEvent` rows (the channel as
+  `conversationId`, the turn as `messageId`), live record and follow stream
+  (`chatTurnFollow.ts`, through a `FollowSource`), and the same client card
+  (`TurnActivity.tsx`). Do not build a second recorder, live record, stream
+  or card for a surface; give it a turn anchor and reuse these. Its reply is
+  an ordinary `ChannelMessage` linked by `ChannelTurn.replyMessageId`, which
+  carries the summary (`MessageSummary.aiTurn`). What each reader sees of the
+  steps is one rule, `shared/turnActivityAccess.ts`: the Member whose
+  authority the turn ran under sees everything, everyone else who can read
+  the room sees the steps without arguments, results, hints, error text or
+  thinking (`stepsOnlyActivityEvent`), an AI Employee's own-authority turn
+  shows in full to any Member (as its Run transcripts do), and where people
+  outside the company can read (`groupAudience`, customer channels) nothing
+  beyond the reply is kept or shown — external chat surfaces record no
+  activity. The server enforces it on every read (`routes/workspaceTurns.ts`:
+  room access, browser sessions only for steps and their stream; the list of
+  running turns and Stop take an API key); the browser only says which view
+  it got. Replies are durable like a direct chat's turns: one per AI Employee,
+  started at once, a second reply of the same employee in the same channel
+  waits (`thread_busy`), a restart hands it to the next worker with the
+  recovery note, a reply waits rather than fails on an unavailable AI Model
+  and is paced on recovery, a Standdown placed meanwhile ends it without
+  reaching the model, anyone in the room may Stop it (named in the
+  activity), and Retry starts a new turn for the same message under the
+  asker's authority — never lending a Member's authority to an AI colleague's
+  or a webhook's words. Discussion turns are driven by the discussion and
+  stopped with it; their lease only proves the driver alive. Taint stays on
+  the words: a turn that replays a tainted message is tainted and so is its
+  reply.
 - **A thinking level belongs to the conversation and is resolved per turn.**
   A Member sets `Conversation.effort` from the composer (null is Default);
   owners set each model's `defaultEffort` and `effortCeiling` at Settings → AI
