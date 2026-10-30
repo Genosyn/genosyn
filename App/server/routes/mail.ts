@@ -74,6 +74,8 @@ import {
 } from "../services/mail/draftSendQueue.js";
 import {
   MailAnalysisAlreadyActed,
+  MailAnalysisModelUnavailable,
+  MailAnalysisWaiting,
   analysesForThread,
   analyzeInboundMessage,
   resolveAnalysisReader,
@@ -2021,8 +2023,11 @@ mailRouter.post("/mail/messages/:mid/analyze", requireBrowserSession, async (req
     }
     res.json({ analysis: serializeAnalysis(analysis) });
   } catch (err) {
-    if (err instanceof MailAnalysisAlreadyActed) {
+    if (err instanceof MailAnalysisAlreadyActed || err instanceof MailAnalysisWaiting) {
       return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof MailAnalysisModelUnavailable) {
+      return res.status(503).json({ error: err.message });
     }
     throw err;
   }

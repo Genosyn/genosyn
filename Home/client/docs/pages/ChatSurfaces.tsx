@@ -379,6 +379,28 @@ export function ChatSurfaces() {
         organization may be able to read them.
       </P>
 
+      <H2 id="model-unavailable">When the AI Model is unavailable</H2>
+      <P>
+        If the answering employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is
+        unavailable</DocLink>, the person gets one short message —{" "}
+        <em>
+          Sorry — I can&apos;t answer right now because my AI Model is unavailable. I&apos;ll reply
+          here as soon as it&apos;s back.
+        </em>{" "}
+        — and nothing they need to send again. More messages in the same conversation while it
+        waits get no second notice. Once the model answers again, the employee replies in the same
+        thread, once, with every waiting message in view.
+      </P>
+      <P>
+        Who the answer speaks for is decided when it is written, not when the message arrived: a
+        linked Member&apos;s access only if their link and Genosyn session still hold, and never in
+        a channel shared with another organization (asked of Slack again when the message did not
+        say). A <DocLink to="/docs/standdowns">Standdown</DocLink> in force then is said as for any
+        message. An answer that has waited three days is dropped — a day on WhatsApp, which only
+        lets a business reply freely within a day of the person&apos;s last message — and the
+        conversation in Genosyn says it went unanswered.
+      </P>
+
       <H2 id="stays-in-genosyn">What stays in Genosyn, on purpose</H2>
       <P>
         Chat travels. Privileged side effects do not. Two things are missing from these surfaces

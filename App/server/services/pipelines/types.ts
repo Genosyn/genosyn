@@ -1,3 +1,5 @@
+import type { AIModel } from "../../db/entities/AIModel.js";
+
 /**
  * Type contracts for the Pipelines executor.
  *
@@ -99,6 +101,21 @@ export type NodeContext = {
   /** Present when this Run belongs to an event chain. */
   eventContext?: PipelineEventContext;
 };
+
+/**
+ * Thrown by a step that needs an AI Employee whose AI Model is unavailable.
+ * The executor pauses the run there instead of failing it, and it carries on
+ * from that step by itself when the model answers again.
+ */
+export class PipelineStepWaitsForModel extends Error {
+  constructor(
+    readonly employee: { id: string; name: string },
+    readonly model: AIModel | null,
+  ) {
+    super(`${employee.name}'s AI Model is unavailable.`);
+    this.name = "PipelineStepWaitsForModel";
+  }
+}
 
 export type NodeResult = {
   outputs: NodeOutputs;

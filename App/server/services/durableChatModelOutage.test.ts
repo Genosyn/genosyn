@@ -199,7 +199,7 @@ describe("a message while the AI Model is unavailable", () => {
     );
     assert.deepEqual(
       (await waitingWorkByModel(seed.company.id, [seed.model.id])).get(seed.model.id),
-      { runs: 0, chats: 1 },
+      { runs: 0, chats: 1, other: 0 },
       "the AI Models page counts it as waiting",
     );
 
@@ -231,7 +231,7 @@ describe("a message while the AI Model is unavailable", () => {
     assert.equal(after[1]?.summary, "Started working");
     assert.deepEqual(
       (await waitingWorkByModel(seed.company.id, [seed.model.id])).get(seed.model.id),
-      { runs: 0, chats: 0 },
+      { runs: 0, chats: 0, other: 0 },
     );
   });
 

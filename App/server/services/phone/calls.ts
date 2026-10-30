@@ -28,6 +28,8 @@ import {
   type PageLimits,
   type PageRequest,
 } from "../listPaging.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
+import { isModelAvailable } from "../modelAvailability.js";
 import { getActiveModel } from "../models.js";
 import { workBlocked } from "../standdowns.js";
 import {
@@ -39,6 +41,7 @@ import {
 } from "./conversation.js";
 import { twilioAccountForNumber, withTwilioAccount } from "./credentials.js";
 import { PhoneError } from "./errors.js";
+import { scheduleCallFollowUp } from "./textReplies.js";
 import * as twiml from "./twiml.js";
 import { callWebhookUrl, reachableBaseUrl } from "./webhookUrls.js";
 
@@ -316,6 +319,52 @@ async function unavailableReason(ctx: CallContext): Promise<string | null> {
   return null;
 }
 
+/**
+ * Whether the employee's AI Model takes work now. A live call cannot wait for
+ * one that is unavailable, so it is told so briefly instead (below).
+ */
+async function modelDownFor(employee: AIEmployee): Promise<boolean> {
+  const model = await getActiveModel(employee.id).catch(() => null);
+  if (!model) return false;
+  try {
+    return !isModelAvailable(model);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What a caller hears when the AI Model is unavailable. A caller cannot be put
+ * on hold for an outage that may last an hour, and hanging up on them with
+ * "try again later" loses why they called. So the employee says plainly that
+ * it cannot help right now and takes a message — Twilio still hears it, with
+ * no model needed — which lands in the call's transcript for the team, and is
+ * followed up by text once the model is back if the number replies to texts.
+ */
+function takeMessagePrompt(employee: AIEmployee, company: Company, midCall: boolean): string {
+  const co = company.name.trim() || "the company";
+  return midCall
+    ? "I'm sorry, I can't answer properly right now. If you'd like, leave a short message after this, and someone will get back to you."
+    : `Hi, this is ${employee.name} at ${co}. I'm sorry, I can't take questions right now. Please leave a short message after this, and someone will get back to you.`;
+}
+
+/** How long the caller has to leave a message. */
+const MESSAGE_LISTEN_SEC = 8;
+
+async function startTakingMessage(
+  call: PhoneCall,
+  number: PhoneNumber,
+  base: string,
+  spoken: string,
+): Promise<string> {
+  await AppDataSource.getRepository(PhoneCall).update(
+    { id: call.id },
+    { handling: "message", replyState: "idle", replyTurnId: null },
+  );
+  await appendTranscript(call, [{ speaker: "employee", text: spoken }]);
+  return listen(base, call, number, spoken, { phase: "message", timeoutSec: MESSAGE_LISTEN_SEC });
+}
+
 function unavailableTwiml(number: PhoneNumber): string {
   return twiml.response(
     twiml.say(
@@ -427,6 +476,13 @@ export async function answerIncomingCall(
     return unavailableTwiml(number);
   }
 
+  if (await modelDownFor(ctx.employee)) {
+    // Its AI Model is unavailable: answer, say so, and take a message.
+    await repo.update({ id: call.id }, { status: "in-progress", answeredAt: new Date() });
+    if (readTranscript(call).length > 0) return listen(base, call, number, "", { phase: "message" });
+    return startTakingMessage(call, number, base, takeMessagePrompt(ctx.employee, ctx.company, false));
+  }
+
   await repo.update(
     { id: call.id },
     { handling: "employee", status: "in-progress", answeredAt: new Date() },
@@ -451,6 +507,17 @@ export async function connectOutboundCall(
       { answeredAt: new Date(), endReason: "The AI Employee could no longer take the call" },
     );
     return twiml.response(twiml.hangup());
+  }
+  if (ctx.company && (await modelDownFor(ctx.employee))) {
+    // The employee placed this call, so it is not theirs to take a message on:
+    // say who is calling and that it cannot talk now, honestly, and go.
+    const co = ctx.company.name.trim() || "the company";
+    const spoken = `Hi, this is ${ctx.employee.name}, an AI assistant calling from ${co}. I'm sorry, I can't talk right now. Goodbye.`;
+    await AppDataSource.getRepository(PhoneCall).update(
+      { id: call.id },
+      { status: "in-progress", answeredAt: new Date() },
+    );
+    return endWith(call, number, spoken, "The AI Model was unavailable when they answered");
   }
   await AppDataSource.getRepository(PhoneCall).update(
     { id: call.id },
@@ -492,6 +559,21 @@ export async function handleSpeech(args: {
       number,
       "Sorry, I have to go now. Goodbye.",
       "The number no longer has an AI Employee",
+    );
+  }
+
+  if (args.phase === "message") {
+    // The message a caller left while the AI Model was unavailable. Kept in
+    // the transcript word for word; no model hears it until the follow-up.
+    if (speech) await appendTranscript(call, [{ speaker: "caller", text: speech }]);
+    await scheduleCallFollowUp(call, number, ctx.employee);
+    return endWith(
+      call,
+      number,
+      speech ? "Thank you, I've passed your message on. Goodbye." : "No problem. Goodbye.",
+      speech
+        ? "Took a message: the AI Model was unavailable"
+        : "The AI Model was unavailable, and no message was left",
     );
   }
 
@@ -594,6 +676,24 @@ async function waitForReply(callId: string, turnId: string, ms: number): Promise
 
 async function speakReply(call: PhoneCall, number: PhoneNumber, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(PhoneCall);
+  if (call.replyState === "unavailable") {
+    // The AI Model became unavailable mid-call. Someone who called in is
+    // offered to leave a message; on a call the employee placed, it says so
+    // and ends the call.
+    await repo.update({ id: call.id }, { replyState: "idle", replyTurnId: null });
+    if (call.direction === "inbound") {
+      const ctx = await loadContext(number);
+      if (ctx.employee && ctx.company) {
+        return startTakingMessage(call, number, base, takeMessagePrompt(ctx.employee, ctx.company, true));
+      }
+    }
+    return endWith(
+      call,
+      number,
+      "I'm sorry, I can't continue this call right now. Goodbye.",
+      "The AI Model became unavailable during the call",
+    );
+  }
   if (call.replyState === "failed") {
     await repo.update({ id: call.id }, { replyState: "idle", replyTurnId: null });
     return endWith(
@@ -623,6 +723,14 @@ async function speakReply(call: PhoneCall, number: PhoneNumber, base: string): P
     { speaker: "employee", text: spoken, ...(digits ? { digits } : {}) },
   ]);
   return listen(base, call, number, spoken, { digits });
+}
+
+function modelAnswersCall(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -664,6 +772,10 @@ async function produceReply(
       });
       return;
     }
+    if (!modelAnswersCall(model)) {
+      await settle({ replyState: "unavailable" });
+      return;
+    }
     const result = await runCallTurn({
       model,
       employee: ctx.employee,
@@ -681,6 +793,12 @@ async function produceReply(
       replyDigits: result.digits,
     });
   } catch (err) {
+    // The AI Model went down under the turn: not a failure of the employee —
+    // the caller is told and offered to leave a message.
+    if (err instanceof ModelUnavailableError) {
+      await settle({ replyState: "unavailable" });
+      return;
+    }
     await settle({
       replyState: "failed",
       errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 500),

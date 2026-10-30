@@ -176,7 +176,7 @@ test("the AI Models page says the model is unavailable, since when, why, what wa
     assert.ok(Date.parse(availability.since) <= Date.now());
     assert.ok(Date.parse(availability.nextCheckAt) > Date.now());
     assert.equal(availability.checks, 0);
-    assert.deepEqual(availability.waiting, { runs: 1, chats: 0 });
+    assert.deepEqual(availability.waiting, { runs: 1, chats: 0, other: 0 });
   }
 });
 

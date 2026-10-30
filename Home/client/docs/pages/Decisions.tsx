@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Decisions() {
   return (
@@ -437,6 +437,24 @@ export function Decisions() {
         A Decision stays pending until someone answers it, a Member dismisses it, or the AI Employee
         withdraws its own question because the situation has moved on. It never expires merely
         because time has passed.
+      </P>
+      <H3 id="model-unavailable">When the AI Model is unavailable</H3>
+      <P>
+        If the employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is
+        unavailable</DocLink> when you answer — or becomes unavailable during the session — the work
+        waits instead of failing: the row reads{" "}
+        <em>Waiting for the employee&apos;s AI Model to come back</em>, and the session starts by
+        itself, once, when the model answers again. It runs under the authority it was given then:
+        your session as it was when you answered (a password reset or a lost Membership meanwhile
+        stops it), or the employee&apos;s own for an AI decider&apos;s answer. A{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> in force at that moment still stops it.
+      </P>
+      <P>
+        An AI decider whose model is unavailable keeps the question its policy routed to it, and
+        nobody is paged for the outage; its session starts once the model is back. If the wait
+        outlasts the four-hour fallback, the question comes to people as usual. Screening a new
+        question never waits: with the model unavailable, the question goes onto the stack
+        unchecked, as on any other error.
       </P>
 
       <H2 id="not-approvals">Work approvals and Decision answers</H2>

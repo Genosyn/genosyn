@@ -80,6 +80,20 @@ describe("the shared words", () => {
     assert.equal(waitingWorkText({ runs: 0, chats: 0 }), null);
   });
 
+  test("other work that waits — an email's read, a paused Pipeline run, an answer owed — is counted too", () => {
+    assert.equal(waitingWorkText({ runs: 0, chats: 0, other: 1 }), "1 piece of work is waiting");
+    assert.equal(waitingWorkText({ runs: 0, chats: 0, other: 3 }), "3 pieces of work are waiting");
+    assert.equal(
+      waitingWorkText({ runs: 1, chats: 0, other: 2 }),
+      "1 Run and 2 other pieces of work are waiting",
+    );
+    assert.equal(
+      waitingWorkText({ runs: 2, chats: 1, other: 1 }),
+      "2 Runs, 1 chat message and 1 other piece of work are waiting",
+    );
+    assert.equal(waitingWorkText({ runs: 0, chats: 0, other: 0 }), null);
+  });
+
   test("when the next check is", () => {
     assert.equal(nextCheckText("2026-10-30T15:00:03Z", NOW), "now");
     assert.equal(nextCheckText("2026-10-30T15:00:40Z", NOW), "in 40 s");

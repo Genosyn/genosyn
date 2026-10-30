@@ -253,8 +253,11 @@ export type DiscussionActionItem = {
   /** The owner as the writer put it, kept when it names nobody we know. */
   ownerLabel: string;
   action: string;
-  /** Follow-through progress, once a Member has started the work. */
-  status?: "queued" | "working" | "done" | "failed" | "skipped";
+  /**
+   * Follow-through progress, once a Member has started the work. `waiting`:
+   * the owner's AI Model is unavailable, and its share starts when it is back.
+   */
+  status?: "queued" | "working" | "waiting" | "done" | "failed" | "skipped";
   detail?: string;
 };
 

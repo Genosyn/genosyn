@@ -153,6 +153,38 @@ export function PhoneNumbers() {
         transcript is there for the follow-up.
       </P>
 
+      <H2 id="model-unavailable">When the AI Model is unavailable</H2>
+      <P>
+        A text can wait; a caller can&apos;t. While the employee&apos;s{" "}
+        <DocLink to="/docs/models#unavailable">AI Model is unavailable</DocLink>:
+      </P>
+      <UL>
+        <LI>
+          <Strong>A text</Strong> on a number that replies is kept, and its reply waits — no
+          apology is sent. Once the model is back the employee replies, once, under every rule a new
+          text meets: STOP and other keywords, the newest text taking the turn (so several texts
+          that waited get one reply), ten an hour to one person, the number&apos;s daily limit and
+          any <DocLink to="/docs/standdowns">Standdown</DocLink>. Nothing is sent if anyone has
+          texted them since, or once a day has passed.
+        </LI>
+        <LI>
+          <Strong>A call</Strong> is still answered, but nobody is kept on hold for an outage that
+          may last an hour: the employee says it can&apos;t take questions right now and offers to
+          take a message, which Twilio hears without any AI Model and which lands in the
+          call&apos;s transcript as <em>Message taken</em>. If the model goes down mid-call, the
+          caller hears the same offer. On a call the employee placed, it says who is calling and
+          that it can&apos;t talk now, and hangs up.
+        </LI>
+        <LI>
+          <Strong>A follow-up text</Strong> comes after a call taken that way, once the model is
+          back — only on a number set to reply to texts, which is your standing consent to the
+          employee texting strangers. It is written like any reply, from the number&apos;s
+          instructions and the call&apos;s transcript, and the employee skips it when the
+          instructions or the caller say not to text. None is sent if a text has passed between
+          you since the call, under a Standdown, past the limits above, or after a day.
+        </LI>
+      </UL>
+
       <H2 id="tools">The AI Employee&apos;s phone tools</H2>
       <P>
         An employee with a number is told so in its prompt, and finds these tools with{" "}

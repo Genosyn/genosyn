@@ -405,6 +405,24 @@ export function markModelUnavailable<T>(error: T, unavailability: ModelUnavailab
   return error;
 }
 
+/**
+ * What a turn helper throws, in place of its turn's error text, when the turn
+ * met its AI Model unavailable (`EmployeeAgentResult.unavailable`) — so a
+ * caller with somewhere to wait can tell the outage from every other failure
+ * without reading words. Marked as well, so {@link classifyModelError} reads it
+ * wherever it travels.
+ */
+export class ModelUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly unavailability: ModelUnavailability,
+  ) {
+    super(message);
+    this.name = "ModelUnavailableError";
+    markModelUnavailable(this, unavailability);
+  }
+}
+
 function attachedTo(record: Record<string, unknown>): ModelUnavailability | null {
   const value = (record as Record<symbol, unknown>)[ATTACHED];
   return value && typeof value === "object" ? (value as ModelUnavailability) : null;

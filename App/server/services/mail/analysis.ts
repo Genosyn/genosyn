@@ -10,12 +10,15 @@ import {
   MAIL_ACCESS_RANK,
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
-import type { MailAccount } from "../../db/entities/MailAccount.js";
+import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
-import type { MailMessage } from "../../db/entities/MailMessage.js";
+import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
 import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import { waitForModel, type ModelWaitHandler, type ModelWaitResult } from "../modelWaits.js";
 import { findAttachedModel, getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { broadcastToCompany } from "../realtime.js";
@@ -24,12 +27,16 @@ import { analysisAttemptSnapshot } from "./analysisEvidence.js";
 import {
   MAIL_ANALYSIS_MAX_AUTOMATIC_ACTIONS,
   analysisInstructionLines,
+  applyAutomaticAnalysisActions,
   autoActionSettled,
   parseAutoActions,
   presentAutoActions,
   verifyAutomaticActions,
   type MailAnalysisAutoAction,
+  type MailAutomaticActionFences,
 } from "./analysisAutomation.js";
+import { hasBlockedSender } from "./blockedSenders.js";
+import type { MailRuleRuntimeDependencies } from "./rules.js";
 import { columnHasLabel } from "./store.js";
 import { oneClickUnsubscribeAvailable } from "./unsubscribe.js";
 import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
@@ -536,6 +543,46 @@ async function resolveAnalysisModel(
  */
 export class MailAnalysisAlreadyActed extends Error {}
 
+/**
+ * A person asked to read an email again while the reader's AI Model is
+ * unavailable. Refused before the row is touched, so the verdict already on
+ * the email stays.
+ */
+export class MailAnalysisModelUnavailable extends Error {
+  constructor() {
+    super(
+      "The AI Model that reads this mailbox is unavailable right now. Read this email again once it is back.",
+    );
+    this.name = "MailAnalysisModelUnavailable";
+  }
+}
+
+/**
+ * A person asked to read an email again whose arrival read is waiting for its
+ * AI Model. Refused: the arrival read keeps its place, and reading it as a
+ * re-read would cost the mailbox's instructions their one chance to act.
+ */
+export class MailAnalysisWaiting extends Error {
+  constructor() {
+    super(
+      "This email is waiting for its AI Model to come back. It will be read, and the mailbox's instructions applied, as soon as the model answers.",
+    );
+    this.name = "MailAnalysisWaiting";
+  }
+}
+
+/** What a re-read that lost its AI Model part-way says, in place of the technical error. */
+const RE_READ_UNAVAILABLE =
+  "The AI Model became unavailable while this email was being read. Read it again once it is back.";
+
+/**
+ * How long an arrival that waited for its AI Model is still treated as one the
+ * mailbox's instructions act on. Past this the email is read when the model is
+ * back, and the instructions are offered as buttons instead — mail days old is
+ * not "newly arrived", and acting on it on its own would be a backfill.
+ */
+export const MAIL_ARRIVAL_ACTS_WITHIN_MS = 3 * 24 * 60 * 60_000;
+
 export type MailAnalysisDependencies = {
   runRestricted?: typeof runRestrictedEmployeeAgent;
   gatherFacts?: (
@@ -553,6 +600,17 @@ export type MailAnalysisOptions = {
    * as it was, because that record is the history of what already happened.
    */
   arrival?: boolean;
+  /**
+   * The arrival read is being carried on after it waited for its AI Model
+   * (`mailArrivalReadWait`). Only this call may take a `waiting` row.
+   */
+  resumed?: boolean;
+  /**
+   * Whether the instructions may still act by themselves. False for an
+   * arrival that waited longer than {@link MAIL_ARRIVAL_ACTS_WITHIN_MS}: the
+   * read then offers them as buttons instead.
+   */
+  actOnInstructions?: boolean;
 };
 
 /**
@@ -708,6 +766,25 @@ async function runAnalysis(
 
   const repo = AppDataSource.getRepository(MailInboundAnalysis);
   const existing = await repo.findOneBy({ messageId: message.id });
+  const resuming = options.resumed === true;
+  // An arrival read waiting for its AI Model keeps its place: only its own
+  // resume takes it. A second arrival (the inbound chain replayed after a
+  // pause) finds it already waiting; a person's "read again" is refused,
+  // because a re-read would spend the instructions' one chance to act.
+  if (existing?.status === "waiting" && !resuming) {
+    if (options.arrival) return existing;
+    throw new MailAnalysisWaiting();
+  }
+  // Somebody else already read it — nothing is waiting any more.
+  if (resuming && existing?.status !== "waiting") return existing;
+  if (!modelAnswers(reader.model)) {
+    // Its AI Model is unavailable. An arrival waits and is read when the model
+    // is back; a resume finds it still down and keeps waiting untouched; a
+    // person's re-read is refused before the verdict on the email is replaced.
+    if (resuming) return existing;
+    if (!options.arrival) throw new MailAnalysisModelUnavailable();
+    return deferArrivalRead(account, message, reader, existing);
+  }
   // A re-read replaces the whole verdict, `executedAt` stamps included — and
   // those stamps are the only thing stopping a button running twice. Once one
   // has been pressed, a fresh read would happily propose "Create the invoice"
@@ -746,7 +823,11 @@ async function runAnalysis(
   const row = repo.create({ ...(existing ?? {}), ...attempt });
   // save() may replace an unchanged updatedAt with the database's seconds-only
   // default when a fast retry starts in the same millisecond as completion.
-  if (existing) await repo.update(existing.id, attempt);
+  if (existing && resuming) {
+    // The resume claims the waiting row, so two replicas never read it twice.
+    const claimed = await repo.update({ id: existing.id, status: "waiting" }, attempt);
+    if (claimed.affected !== 1) return repo.findOneBy({ id: existing.id });
+  } else if (existing) await repo.update(existing.id, attempt);
   else await repo.save(row);
   const startedAt = row.updatedAt;
   await recordAnalysisReview(row, "started", startedAt);
@@ -784,8 +865,9 @@ async function runAnalysis(
           facts,
           instructions,
           // Steps run under the reader's own Grant: Read access can follow the
-          // instructions only by suggesting buttons, never by changing mail.
-          automatic: writesAutomaticActions && facts.canDraft,
+          // instructions only by suggesting buttons, never by changing mail —
+          // and so does an arrival that waited past the window for acting.
+          automatic: writesAutomaticActions && facts.canDraft && options.actOnInstructions !== false,
           existingAutomaticActions: writesAutomaticActions ? [] : existingAutomatic,
         },
         { runRestricted: dependencies.runRestricted, signal: controller.signal },
@@ -800,14 +882,40 @@ async function runAnalysis(
     if (writesAutomaticActions) row.autoActionsJson = JSON.stringify(verdict.automaticActions);
     row.errorMessage = "";
   } catch (error) {
-    row.status = "failed";
     row.category = "";
     row.summary = "";
     row.actionsJson = "[]";
     if (writesAutomaticActions) row.autoActionsJson = "[]";
-    row.errorMessage = (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
+    if (error instanceof ModelUnavailableError && options.arrival) {
+      // The AI Model went down under the read. An arrival is not failed: it
+      // waits, as itself, and is read when the model answers again.
+      row.status = "waiting";
+      row.errorMessage = "";
+    } else {
+      row.status = "failed";
+      row.errorMessage =
+        error instanceof ModelUnavailableError
+          ? RE_READ_UNAVAILABLE
+          : (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
+    }
   } finally {
     if (timer) clearTimeout(timer);
+  }
+  if (row.status === "waiting") {
+    row.finishedAt = null;
+    if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions))) {
+      return repo.findOneBy({ id: row.id });
+    }
+    await waitForModel({
+      kind: "mail_arrival_read",
+      targetId: row.id,
+      companyId: account.companyId,
+      employeeId: reader.employee.id,
+      model: reader.model,
+      groupKey: account.id,
+    });
+    broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
+    return row;
   }
   row.finishedAt = new Date();
   if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions))) {
@@ -820,6 +928,209 @@ async function runAnalysis(
   broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
   return row;
 }
+
+/** Whether the reader's AI Model takes work now. Bookkeeping never stops a read. */
+function modelAnswers(model: AIModel): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Hold an arrival's place while its reader's AI Model is unavailable: the row
+ * says `waiting` (no verdict, no buttons, nothing the instructions did), and a
+ * wait carries it on when the model answers again. Nothing reaches the model.
+ */
+async function deferArrivalRead(
+  account: MailAccount,
+  message: MailMessage,
+  reader: MailAnalysisReader,
+  existing: MailInboundAnalysis | null,
+): Promise<MailInboundAnalysis> {
+  const repo = AppDataSource.getRepository(MailInboundAnalysis);
+  const values = {
+    companyId: account.companyId,
+    accountId: account.id,
+    threadId: message.threadId,
+    messageId: message.id,
+    status: "waiting" as const,
+    employeeId: reader.employee.id,
+    modelId: reader.model.id,
+    category: "",
+    summary: "",
+    actionsJson: "[]",
+    autoActionsJson: "[]",
+    errorMessage: "",
+    finishedAt: null,
+    updatedAt: new Date(Math.max(Date.now(), (existing?.updatedAt.getTime() ?? 0) + 1)),
+  };
+  let row: MailInboundAnalysis;
+  if (existing) {
+    // Only a row whose instructions never touched the mailbox may wait: the
+    // arrival chain replayed after a pause finds nothing settled to lose.
+    if (parseAutoActions(existing.autoActionsJson).some(autoActionSettled)) return existing;
+    await repo.update(existing.id, values);
+    row = repo.create({ ...existing, ...values });
+  } else {
+    try {
+      row = await repo.save(repo.create(values));
+    } catch (error) {
+      // Two arrivals of one message: the unique message index decides.
+      const raced = await repo.findOneBy({ messageId: message.id });
+      if (!raced) throw error;
+      return raced;
+    }
+  }
+  await waitForModel({
+    kind: "mail_arrival_read",
+    targetId: row.id,
+    companyId: account.companyId,
+    employeeId: reader.employee.id,
+    model: reader.model,
+    groupKey: account.id,
+  });
+  broadcastToCompany(account.companyId, { type: "mail.updated", accountId: account.id });
+  return row;
+}
+
+/** The inbound queue's fences, for steps taken after a read that waited for its AI Model. */
+function mailboxFences(accountId: string): MailAutomaticActionFences {
+  const assertRunnable = async (): Promise<void> => {
+    const live = await AppDataSource.getRepository(MailAccount).findOneBy({ id: accountId });
+    if (!live) throw new Error("Mailbox was disconnected before its instructions could act.");
+    if (live.status === "paused") throw new Error("Mailbox was paused before its instructions could act.");
+  };
+  return { assertRunnable, beforeEffect: assertRunnable };
+}
+
+/**
+ * Carry on an arrival read that waited for its AI Model — read the email now,
+ * then let the mailbox's instructions act exactly as they would have on
+ * arrival: once, on that one thread, through the same server-owned list and
+ * the same gate (`analysisAutomation.ts`), which checks the reader's Draft
+ * Grant, any Standdown, the analysis switch and the instructions as they stand
+ * at this moment. An email that waited longer than
+ * {@link MAIL_ARRIVAL_ACTS_WITHIN_MS} is read with its instructions offered as
+ * buttons instead. A mailbox that is paused waits for Resume; one that was
+ * disconnected, an email that is gone or now in Spam or Trash, and analysis
+ * turned off are never read, and nothing is recorded as a failure.
+ */
+export async function resumeArrivalRead(
+  analysisId: string,
+  dependencies: MailAnalysisDependencies & {
+    applyInstructions?: typeof applyAutomaticAnalysisActions;
+    /** The mail server and sender for the rules that run after the read; tests only. */
+    ruleDependencies?: Omit<MailRuleRuntimeDependencies, "categoryRulesOnly">;
+    now?: () => Date;
+  } = {},
+): Promise<ModelWaitResult> {
+  const repo = AppDataSource.getRepository(MailInboundAnalysis);
+  const now = dependencies.now?.() ?? new Date();
+  const waiting = await repo.findOneBy({ id: analysisId });
+  if (!waiting || waiting.status !== "waiting") return { status: "done" };
+  const forget = async (): Promise<ModelWaitResult> => {
+    await repo.delete({ id: waiting.id, status: "waiting" });
+    broadcastToCompany(waiting.companyId, { type: "mail.updated", accountId: waiting.accountId });
+    return { status: "done" };
+  };
+  const account = await AppDataSource.getRepository(MailAccount).findOneBy({
+    id: waiting.accountId,
+    companyId: waiting.companyId,
+  });
+  if (!account) return forget();
+  // Pause is reversible: the arrival keeps waiting for Resume, as the inbound
+  // queue leaves an arrival queued while its mailbox is paused.
+  if (account.status === "paused") return { status: "later", at: new Date(now.getTime() + 60_000) };
+  const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+    id: waiting.messageId,
+    accountId: account.id,
+    companyId: account.companyId,
+  });
+  if (!message || !account.aiAnalysisEnabled) return forget();
+  const actOnInstructions =
+    now.getTime() - waiting.createdAt.getTime() <= MAIL_ARRIVAL_ACTS_WITHIN_MS;
+  const read = await analyzeInboundMessage(account, message, dependencies, {
+    arrival: true,
+    resumed: true,
+    actOnInstructions,
+  });
+  // No reader any more, or the email moved to Spam or Trash: never read.
+  if (!read) return forget();
+  if (read.status === "waiting") return { status: "waiting" };
+  if (read.status === "succeeded") {
+    const fences = mailboxFences(account.id);
+    try {
+      await (dependencies.applyInstructions ?? applyAutomaticAnalysisActions)(
+        account,
+        message,
+        read.id,
+        fences,
+      );
+    } catch (error) {
+      // A pause or disconnect after the read marks the steps skipped, as it
+      // would on arrival; anything else cost only these steps, which recorded
+      // their own failure.
+      // eslint-disable-next-line no-console
+      console.warn(`[mail] instructions after a waited read of ${message.id}:`, error);
+    }
+    // The mailbox's rules ran when the email arrived, but a rule that names
+    // the read's category could not match then — there was no read. This is
+    // those rules' first look at the email, never a second for any other.
+    try {
+      if (!(await hasBlockedSender(account, message))) {
+        const { runRulesForNewMessage } = await import("./rules.js");
+        await runRulesForNewMessage(account, message.id, fences.assertRunnable, fences.beforeEffect, {
+          ...dependencies.ruleDependencies,
+          categoryRulesOnly: true,
+        });
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(`[mail] category rules after a waited read of ${message.id}:`, error);
+    }
+  }
+  return { status: "done" };
+}
+
+/**
+ * The arrival read's wait: resumed by `services/modelWaits.ts` on the
+ * reader's AI Model — the mailbox's chosen one, or whoever reads it now.
+ */
+export const mailArrivalReadWait: ModelWaitHandler = {
+  concurrency: 3,
+  model: async (wait) => {
+    const row = await AppDataSource.getRepository(MailInboundAnalysis).findOneBy({
+      id: wait.targetId,
+    });
+    if (!row) return null;
+    const account = await AppDataSource.getRepository(MailAccount).findOneBy({
+      id: row.accountId,
+      companyId: row.companyId,
+    });
+    if (!account) return null;
+    return (await resolveAnalysisReader(account))?.model ?? null;
+  },
+  resume: (wait) => resumeArrivalRead(wait.targetId),
+  abandon: async (wait) => {
+    // Its AI Model kept failing each time it came back: the email is left
+    // unread, saying so, and a person can read it again from the thread.
+    const repo = AppDataSource.getRepository(MailInboundAnalysis);
+    const row = await repo.findOneBy({ id: wait.targetId });
+    if (!row || row.status !== "waiting") return;
+    await repo.update(
+      { id: row.id, status: "waiting" },
+      {
+        status: "failed",
+        errorMessage:
+          "This email waited for its AI Model, which kept becoming unavailable again. Read it again once the model is steady.",
+        finishedAt: new Date(),
+      },
+    );
+    broadcastToCompany(row.companyId, { type: "mail.updated", accountId: row.accountId });
+  },
+};
 
 /**
  * Facts the model is told rather than asked to infer.
@@ -1021,7 +1332,10 @@ export async function runAnalysisTurn(
         ? AbortSignal.any([controller.signal, dependencies.signal])
         : controller.signal,
     });
-    if (result.status === "error") throw new Error(result.error);
+    if (result.status === "error") {
+      if (result.unavailable) throw new ModelUnavailableError(result.error, result.unavailable);
+      throw new Error(result.error);
+    }
     if (duplicateSubmission) throw new Error("The AI Employee submitted more than one analysis.");
     if (!submission) throw new Error("The AI Employee did not return a valid email analysis.");
     const accepted: MailAnalysisSubmission = submission;

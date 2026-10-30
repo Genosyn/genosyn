@@ -235,7 +235,7 @@ code, UI copy, commits, and docs.
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
 | **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
-| **Unavailable** (an AI Model whose service can't be reached, is failing or overloaded, or keeps every key rate-limited; its work waits and carries on by itself — one `AIModelOutage` row per spell, `services/modelAvailability.ts`) | Down, Offline, Broken, Tripped, Circuit breaker (in product copy); never a Standdown |
+| **Unavailable** (an AI Model whose service can't be reached, is failing or overloaded, or keeps every key rate-limited; its work waits and carries on by itself — one `AIModelOutage` row per spell, `services/modelAvailability.ts`; work with no queue of its own waits as an `AIModelWait`, `services/modelWaits.ts`) | Down, Offline, Broken, Tripped, Circuit breaker (in product copy); never a Standdown |
 | **Effects** (what a Run actually changed, read back from the audit rows its own token wrote — `services/runEffects.ts`) | Trace, Log, Activity, History |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
@@ -313,7 +313,10 @@ can call or text a number and caller ID is spoofable, so a call or an automatic
 text reply runs as a restricted, tool-less turn on the number's Member-written
 instructions (plus the employee's own brief on a call it placed) — never its
 Soul, Memory, Skills or company tools — exactly as an unlinked chat surface
-sender is answered (`services/phone/conversation.ts`). Do not add a path that
+sender is answered (`services/phone/conversation.ts`). While the number's AI
+Model is unavailable a call takes a message with no turn at all, and the text
+that follows it up (only on a number that replies to texts) is the same
+restricted turn, under the same limits, once the model is back. Do not add a path that
 treats a caller as a Member, give those turns company tools, or hang texting
 tools off the Twilio Connection. Texting and calling are delivery: they sit
 beside `send_mail` in the taint sinks and the mail-delivery send ceiling.
@@ -391,13 +394,26 @@ restart cap) and resumes first, with the time it had left, when a check or real
 work finds the model answering; a chat message stays `working`, unclaimed, and
 is answered then (waiting cause `model_unavailable`); background AI work —
 grading, Wakeups, TLDRs, letters, meetings, screening, data rooms, Sequences —
-defers. Like a restart pause, nobody decided it: it records no verdict, failure
-count, journal entry, failure alert, autonomy change or retry, and an outage
-must never be graded — a checker that could not run because its model was
-down leaves the Run ungraded, not `unverified`. Owners and admins hear once
-when a check confirms it and once when it ends, never once per Run. A
-Standdown composes both ways: one placed during an outage still holds the work
-after recovery, and lifting a Standdown starts nothing on a model that is still
+defers. AI work with no queue of its own marks its own row and waits as one
+`AIModelWait` (`services/modelWaits.ts`), carried on once, through the
+feature's own rules checked when it runs: an email's arrival read (still the
+arrival — its instructions act then, only as buttons past three days), a
+Pipeline run paused at its AI step, a Decision's pickup (under the authority it
+was given) and an AI decider (which keeps its question and pages nobody; the
+intake screen still fails open), a group discussion within its wall clock and
+each owner's share of Start the work, and answers to people outside — chat
+surfaces (acknowledged once), customer channels and text replies, each given up
+after a day (three on Slack, Teams and Telegram). A live call cannot wait: the
+employee says so and takes a message, and a number that replies to texts
+follows it up by text once the model is back. Like a restart pause, nobody
+decided it: it records no verdict, failure count, journal entry, failure
+alert, autonomy change or retry, and an outage must never be graded — a
+checker that could not run because its model was down leaves the Run
+ungraded, not `unverified`. Owners and admins hear once when a check confirms
+it and once when it ends, never once per Run. A Standdown composes both ways:
+one placed during an outage still holds the work after recovery — work that
+waited answers to the Standdowns of the moment it runs, exactly as fresh work
+would — and lifting a Standdown starts nothing on a model that is still
 unavailable. Product copy calls the state "unavailable", never "down",
 "offline" or "circuit breaker" — the retired automatic Standdown left
 `source: "breaker"` rows behind ("The failure breaker placed it"), and the word
@@ -523,9 +539,13 @@ the server-owned list in `services/mail/analysisAutomation.ts`: star, mark
 read, archive, a label the cited instruction names, and the email's own
 verified RFC 8058 one-click unsubscribe — on that one thread, once, on arrival
 (never backfill, drafts, self-sent mail or a re-read), under the reader's own
-Draft Grant, and not while a Standdown covers the company or the reader. Every
-step records the instruction it followed on the analysis row and in the audit
-log, and a Member can undo the reversible ones. Do not widen that list, let
+Draft Grant, and not while a Standdown covers the company or the reader. An
+arrival read whose AI Model is unavailable waits (`status: "waiting"`) and is
+still the arrival when it runs: the steps act then, under the Grant and the
+Standdowns of that moment, only as buttons once it waited three days, and never
+repeat an unsubscribe a rule sent meanwhile; a person cannot re-read it while it
+waits. Every step records the instruction it followed on the analysis row and
+in the audit log, and a Member can undo the reversible ones. Do not widen that list, let
 the email or the model choose a target, or add a step that sends, replies,
 forwards, deletes, files spam, spends, or starts other work.
 
@@ -973,7 +993,17 @@ in a Work session instead of leaving them stranded as local commits.
   New AI work follows the same rule: work that starts on its own asks
   `isModelAvailable` first and defers; work that gets
   `{ status: "error", unavailable }` back from a turn defers rather than
-  recording a result, spending an attempt or alerting anyone.
+  recording a result, spending an attempt or alerting anyone. A turn helper
+  that throws on a failed turn throws `ModelUnavailableError` for an outage, so
+  its caller tells the two apart without reading words. Work with no queue of
+  its own to defer into marks its own row (what a person should see) and calls
+  `waitForModel` (`services/modelWaits.ts`): one `AIModelWait` per
+  `(kind, targetId)` — never a second queue — claimed before it resumes, the
+  claim renewed while it runs and lapsing with its process, resumed when any
+  model comes back (and on a slow sweep) through the kind's handler beside the
+  feature, which re-runs the feature's own rules at that moment. A handler may
+  bound the work's age; ten outages after resuming give it up, and the feature
+  says why. The AI Models card counts these waits with the Runs and chats.
 - **A chat turn's activity belongs to its conversation.** While an AI Employee
   answers in direct chat or Help, every tool call and result, the AI Model's
   thinking summary (`StreamCallbacks.onReasoning`), progress milestones and

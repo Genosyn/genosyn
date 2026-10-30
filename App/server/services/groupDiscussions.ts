@@ -27,6 +27,13 @@ import {
 } from "./attachmentText.js";
 import { recordAudit } from "./audit.js";
 import { streamChatWithEmployee, type ChatResult, type ChatTurn, type ChatOptions } from "./chat.js";
+import { isModelAvailable, onModelAvailabilityChange } from "./modelAvailability.js";
+import {
+  parseWaitPayload,
+  waitForModel,
+  type ModelWaitHandler,
+  type ModelWaitResult,
+} from "./modelWaits.js";
 import { resolveChatModel } from "./models.js";
 import { createNotifications } from "./notifications.js";
 import { broadcastToCompany } from "./realtime.js";
@@ -38,6 +45,7 @@ import {
   clampRounds,
   classifyMentions,
   completeRound,
+  discussionTimeLeftMs,
   emptyDiscussionState,
   markInputSeen,
   maxTurnsFor,
@@ -159,6 +167,12 @@ export type GroupDiscussionSummary = {
   tokensUsed: number;
   tokenBudget: number;
   currentEmployeeId: string | null;
+  /**
+   * Since when it has been waiting for an unavailable AI Model — nobody left
+   * to speak (or to write the outcome) can reach theirs. It carries on by
+   * itself when one is back, within its wall clock. Null when not waiting.
+   */
+  waitingForModelSince: string | null;
   passes: DiscussionState["passes"];
   skipped: DiscussionState["skipped"];
   outcome: DiscussionOutcome | null;
@@ -192,7 +206,8 @@ export type DiscussionTurnRunner = (
 
 export type OutcomeWriterResult =
   | { ok: true; outcome: DiscussionOutcome }
-  | { ok: false; error: string };
+  /** `unavailable`: the writer's AI Model was unavailable — wait for it, do not give up. */
+  | { ok: false; error: string; unavailable?: boolean };
 
 export type OutcomeWriter = (args: {
   companyId: string;
@@ -209,6 +224,12 @@ type Deps = {
   writeOutcome: OutcomeWriter;
   /** How often a turn in flight checks for Stop and Standdowns. */
   pollIntervalMs: number;
+  /**
+   * How often a discussion waiting for an unavailable AI Model looks again —
+   * for its model, a Stop, a Standdown, a Member's input or its wall clock.
+   * It looks at once when any AI Model answers again.
+   */
+  modelWaitPollMs: number;
   heartbeatMs: number;
   now: () => Date;
 };
@@ -217,6 +238,7 @@ const defaultDeps: Deps = {
   runTurn: streamChatWithEmployee,
   writeOutcome: writeOutcomeWithModel,
   pollIntervalMs: 2_000,
+  modelWaitPollMs: 10_000,
   heartbeatMs: 15_000,
   now: () => new Date(),
 };
@@ -352,6 +374,7 @@ export async function summarizeDiscussions(
       tokensUsed: d.tokensUsed,
       tokenBudget: d.tokenBudget,
       currentEmployeeId: d.currentEmployeeId,
+      waitingForModelSince: d.status === "running" ? state.modelWaitSince : null,
       passes: state.passes,
       skipped: state.skipped,
       outcome: parseOutcome(d.outcomeJson),
@@ -909,7 +932,21 @@ async function runDiscussion(
       return;
     }
 
-    const speaker = pickNextSpeaker(participants, state, unavailable);
+    // Who cannot reach their AI Model right now. Unlike a Standdown, nobody
+    // decided they should sit out: they keep their turn this round, and when
+    // nobody else is left to speak the discussion waits for them.
+    const modelDown = new Set<string>();
+    for (const id of participants) {
+      if (state.benched.includes(id) || unavailable.has(id) || state.spoken.includes(id)) continue;
+      if (await employeeModelDown(id)) modelDown.add(id);
+    }
+    const speaker = pickNextSpeaker(participants, state, new Set([...unavailable, ...modelDown]));
+    if (!speaker && modelDown.size > 0) {
+      state = await beginModelWait(d, state, round, participants);
+      await idleUntilModelBack(onTurnAbort);
+      continue;
+    }
+    if (state.modelWaitSince) state = await endModelWait(d, state);
     if (!speaker) {
       const decision = completeRound(state, round, d.maxRounds);
       if (decision.next === "end") {
@@ -1186,6 +1223,20 @@ async function takeTurn(
     tainted: now.tainted || result.tainted === true,
   };
 
+  if (!stoppedReason && result.status === "error" && result.unavailable) {
+    // The speaker's AI Model went down under the turn. Nothing it wrote is
+    // posted and nothing is recorded against it: it keeps its turn, which it
+    // takes again once its model is back — the driver waits for that, within
+    // the discussion's wall clock. The tokens it spent still count.
+    await patch(d.id, {
+      tokensUsed: counters.tokensUsed,
+      tainted: counters.tainted,
+      currentEmployeeId: null,
+    });
+    await announce(d.id);
+    return;
+  }
+
   if (stoppedReason) {
     // Stop and Standdown both mean "no more": the half-written turn is
     // dropped, and the next step ends the discussion (or sits the employee
@@ -1461,12 +1512,24 @@ async function conclude(
     .map((id) => employees.find((e) => e.id === id))
     .filter((e): e is AIEmployee => Boolean(e));
   const state = parseDiscussionState(d.stateJson);
-  const writers = [
+  const candidates = [
     ...people.filter((p) => p.id === d.leadEmployeeId),
     ...people.filter((p) => p.id !== d.leadEmployeeId),
   ].filter(
     (p) => !state.benched.includes(p.id) && !workBlocked(d.companyId, { employeeId: p.id }).blocked,
   );
+  // Only a writer whose AI Model answers can write it. When every one of them
+  // is waiting for theirs, the discussion waits too — within its wall clock —
+  // and the outcome is written once one is back. Never a half-written outcome:
+  // only a whole submission is posted.
+  const writers: AIEmployee[] = [];
+  for (const candidate of candidates) {
+    if (!(await employeeModelDown(candidate.id))) writers.push(candidate);
+  }
+  if (candidates.length > 0 && writers.length === 0) {
+    await waitToWriteOutcome(d, reason, onTurnAbort);
+    return;
+  }
   const starter = await starterName(d);
   const members = await channelMembersForPrompt(d.channelId);
   const transcript = await outcomeTranscript(d, employees);
@@ -1480,6 +1543,7 @@ async function conclude(
   });
 
   let failure = writers.length === 0 ? "nobody could write it" : "";
+  let unavailableOnly = writers.length > 0;
   for (const writer of writers.slice(0, 2)) {
     const latest = await loadDiscussion(d.id);
     if (!latest || latest.status !== "running") return;
@@ -1583,6 +1647,13 @@ async function conclude(
       return;
     }
     failure = written.error;
+    if (!written.unavailable) unavailableOnly = false;
+  }
+  if (unavailableOnly) {
+    // Every writer tried met its AI Model unavailable: that is not the
+    // outcome failing. Wait for a model, within the wall clock, and try again.
+    await waitToWriteOutcome(d, reason, onTurnAbort);
+    return;
   }
   await endWithoutOutcome(
     d.id,
@@ -1592,6 +1663,70 @@ async function conclude(
   );
   const ch = await AppDataSource.getRepository(Channel).findOneBy({ id: d.channelId });
   if (ch) await notifyStarter(d, ch, "Your group discussion ended without an outcome", failure);
+}
+
+/**
+ * The outcome is due, and every AI Employee who could write it is waiting for
+ * an unavailable AI Model. Wait — the bar says so — and write it once one is
+ * back; while waiting, a Stop or a company Standdown still ends it. The wall
+ * clock bounds the wait: once it runs out the discussion ends without an
+ * outcome, saying plainly that the AI Model was unavailable, and its
+ * transcript stays in the channel for the next question.
+ */
+async function waitToWriteOutcome(
+  discussionId: string | GroupDiscussion,
+  reason: GroupDiscussionEndReason,
+  onTurnAbort: (abort: () => void) => void,
+): Promise<void> {
+  const id = typeof discussionId === "string" ? discussionId : discussionId.id;
+  for (;;) {
+    const d = await loadDiscussion(id);
+    if (!d || d.status !== "running") return;
+    if (d.stopRequestedAt) {
+      await endWithoutOutcome(d.id, "stopped", "stopped", await stoppedByDetail(d.stopRequestedByUserId));
+      return;
+    }
+    const company = workBlocked(d.companyId);
+    if (company.blocked) {
+      await endWithoutOutcome(d.id, "stopped", "standdown", `Company AI work is stood down: ${company.reason}`);
+      return;
+    }
+    if (discussionTimeLeftMs(d.createdAt, deps().now()) <= 0) {
+      const detail = `The discussion ended because ${describeEndReason(reason)}, but no outcome could be written: the AI Model is unavailable. Everything said is above.`;
+      await endWithoutOutcome(d.id, "failed", reason, detail);
+      const ch = await AppDataSource.getRepository(Channel).findOneBy({ id: d.channelId });
+      if (ch) {
+        await notifyStarter(
+          d,
+          ch,
+          "Your group discussion ended without an outcome",
+          "The AI Model was unavailable when the outcome was due.",
+        );
+      }
+      return;
+    }
+    const state = parseDiscussionState(d.stateJson);
+    const participants = parseParticipants(d.participantsJson);
+    let anyBack = false;
+    for (const participant of participants) {
+      if (state.benched.includes(participant)) continue;
+      if (workBlocked(d.companyId, { employeeId: participant }).blocked) continue;
+      if (!(await employeeModelDown(participant))) {
+        anyBack = true;
+        break;
+      }
+    }
+    if (anyBack) {
+      if (state.modelWaitSince) await endModelWait(d, state);
+      await conclude(d.id, reason, onTurnAbort);
+      return;
+    }
+    if (!state.modelWaitSince) {
+      await patch(d.id, { phase: "concluding", currentEmployeeId: null });
+      await beginModelWait(d, state, d.round, participants, "outcome");
+    }
+    await idleUntilModelBack(onTurnAbort);
+  }
 }
 
 async function outcomeTranscript(
@@ -1641,6 +1776,9 @@ async function channelMembersForPrompt(channelId: string): Promise<PromptMember[
 async function writeOutcomeWithModel(args: Parameters<OutcomeWriter>[0]): Promise<OutcomeWriterResult> {
   const model = await resolveChatModel(args.lead.id);
   if (!model) return { ok: false, error: `${args.lead.name} has no AI Model connected.` };
+  if (!modelAnswers(model)) {
+    return { ok: false, error: `${args.lead.name}'s AI Model is unavailable.`, unavailable: true };
+  }
   const box: { outcome: DiscussionOutcome | null; lastError: string } = {
     outcome: null,
     lastError: "",
@@ -1663,7 +1801,11 @@ async function writeOutcomeWithModel(args: Parameters<OutcomeWriter>[0]): Promis
       callbacks: { onUsage: args.onUsage },
     });
     if (box.outcome) return { ok: true, outcome: box.outcome };
-    if (result.status === "error") return { ok: false, error: result.error };
+    if (result.status === "error") {
+      return result.unavailable
+        ? { ok: false, error: `${args.lead.name}'s AI Model became unavailable.`, unavailable: true }
+        : { ok: false, error: result.error };
+    }
     return {
       ok: false,
       error: box.lastError || `${args.lead.name} did not submit an outcome.`,
@@ -1706,6 +1848,84 @@ export function createOutcomeTool(
       return { content: "Outcome recorded." };
     },
   };
+}
+
+// ───────────────────────────── waiting for an AI Model ─────────────────────────────
+
+function modelAnswers(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+/** Whether this AI Employee's AI Model is unavailable right now. Memory only, past the lookup. */
+async function employeeModelDown(employeeId: string): Promise<boolean> {
+  const model = await resolveChatModel(employeeId).catch(() => null);
+  return Boolean(model) && !modelAnswers(model!);
+}
+
+/**
+ * The discussion starts waiting for an unavailable AI Model: said once, in the
+ * channel, and on the bar. An outage is nobody's decision, so nothing is
+ * recorded against anyone, and the wall clock keeps running.
+ */
+async function beginModelWait(
+  d: GroupDiscussion,
+  state: DiscussionState,
+  round: number,
+  participants: string[],
+  waitingFor: "turns" | "outcome" = "turns",
+): Promise<DiscussionState> {
+  if (state.modelWaitSince) return state;
+  const next: DiscussionState = { ...state, modelWaitSince: deps().now().toISOString() };
+  await patch(d.id, {
+    stateJson: JSON.stringify(next),
+    round,
+    participantsJson: JSON.stringify(participants),
+    currentEmployeeId: null,
+  });
+  await postNote(
+    d,
+    waitingFor === "outcome"
+      ? "The AI Model is unavailable, so the outcome waits for it. It is written as soon as the model is back, within the discussion's time limit."
+      : "The AI Model is unavailable, so the discussion is waiting for it. It carries on by itself as soon as the model is back, within its time limit.",
+  );
+  await announce(d.id);
+  return next;
+}
+
+async function endModelWait(d: GroupDiscussion, state: DiscussionState): Promise<DiscussionState> {
+  const next: DiscussionState = { ...state, modelWaitSince: null };
+  await patch(d.id, { stateJson: JSON.stringify(next) });
+  await postNote(d, "The AI Model is back, so the discussion carries on.");
+  return next;
+}
+
+/**
+ * Sit idle until an AI Model answers again, a Stop lands on this replica, or
+ * it is time to look again — the driver then re-checks everything that can
+ * end a discussion (Stop, Standdowns, access, the wall clock) before going on.
+ */
+async function idleUntilModelBack(onTurnAbort: (abort: () => void) => void): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      onTurnAbort(() => {});
+      resolve();
+    };
+    const timer = setTimeout(finish, deps().modelWaitPollMs);
+    timer.unref?.();
+    const unsubscribe = onModelAvailabilityChange((change) => {
+      if (change.available) finish();
+    });
+    onTurnAbort(finish);
+  });
 }
 
 // ───────────────────────────── endings ─────────────────────────────
@@ -1755,13 +1975,16 @@ export async function sweepStaleGroupDiscussions(): Promise<number> {
   for (const d of running) {
     if (localDrivers.has(d.id)) continue;
     if (!(await heartbeatIsStale(d))) continue;
+    const waitingForModel = parseDiscussionState(d.stateJson).modelWaitSince !== null;
     await endWithoutOutcome(
       d.id,
       "interrupted",
       "restart",
-      d.round > 0
-        ? `The discussion was cut off by a restart in round ${d.round}. Write again to pick it up.`
-        : "The discussion was cut off by a restart before it began. Write again to start it.",
+      waitingForModel
+        ? "The discussion was waiting for its AI Model when the server restarted. Write again to pick it up."
+        : d.round > 0
+          ? `The discussion was cut off by a restart in round ${d.round}. Write again to pick it up.`
+          : "The discussion was cut off by a restart before it began. Write again to start it.",
     );
     closed += 1;
   }
@@ -1883,77 +2106,174 @@ async function runFollowThrough(
         .map((i) => i.owner!.id),
     ),
   ];
-  const employees = await AppDataSource.getRepository(AIEmployee).findBy({
-    companyId: d.companyId,
-    id: In(owners),
-  });
   // Different employees work at once; each one's share is one turn.
   await Promise.all(
-    owners.map(async (ownerId) => {
-      const emp = employees.find((e) => e.id === ownerId);
-      const mine = outcome.actionItems.filter(
-        (i) => i.owner?.kind === "ai" && i.owner.id === ownerId && i.status === "queued",
-      );
-      if (!emp) {
-        await setItemStatus(d.id, ownerId, "skipped", "No longer in the company.");
-        return;
-      }
-      const block = workBlocked(d.companyId, { employeeId: emp.id });
-      if (block.blocked) {
-        await setItemStatus(d.id, ownerId, "skipped", `Stood down: ${block.reason}`);
-        return;
-      }
-      await setItemStatus(d.id, ownerId, "working");
-      const stopTyping = startTypingBroadcast(channel, emp);
-      let result: ChatResult;
-      try {
-        const history = await followThroughHistory(d, emp.id);
-        result = await deps().runTurn(
-          d.companyId,
-          emp.id,
-          composeFollowThroughBrief({
-            self: person(emp),
-            requester: requesterName,
-            question: d.question,
-            outcome,
-            items: mine,
-          }),
-          history,
-          () => {},
-          {
-            requesterUserId: requester.userId,
-            requesterSessionVersion: requester.sessionVersion,
-            startTainted: d.tainted,
-            workloadScope: `group-discussion-work:${d.id}:${emp.id}`,
-          },
-        );
-      } catch (error) {
-        result = { status: "error", reply: errorText(error), attachmentIds: [], sidecars: {} };
-      } finally {
-        stopTyping();
-      }
-      if (result.status === "ok") {
-        await insertChannelMessage({
-          channel,
-          author: { kind: "ai", employeeId: emp.id },
-          content: result.reply,
-          attachmentIds: result.attachmentIds,
-          discussionId: d.id,
-          discussionRole: "follow_through",
-          tainted: result.tainted === true || d.tainted,
-        });
-      } else {
-        await postNote(d, `${emp.name} couldn't start on the work: ${clipLine(result.reply, 300)}`);
-      }
-      await setItemStatus(
-        d.id,
-        ownerId,
-        result.status === "ok" ? "done" : "failed",
-        result.status === "ok" ? undefined : clipLine(result.reply, 200),
-      );
-    }),
+    owners.map((ownerId) =>
+      runOwnerShare({ d, channel, ownerId, requester, requesterName, from: "queued" }),
+    ),
   );
 }
+
+/**
+ * One owner's share of the work an outcome assigned, as one ordinary chat turn
+ * under the Member who pressed Start the work. When the owner's AI Model is
+ * unavailable the share waits — its items say so — and starts by itself once
+ * the model is back (`discussionWorkWait`), under the same Member's authority,
+ * re-checked then like any chat turn.
+ */
+async function runOwnerShare(args: {
+  d: GroupDiscussion;
+  channel: Channel;
+  ownerId: string;
+  requester: DiscussionRequester;
+  requesterName: string;
+  /** The items this run takes: fresh ones, or ones that waited for the model. */
+  from: "queued" | "waiting";
+}): Promise<"done" | "failed" | "skipped" | "waiting"> {
+  const { d, channel, ownerId, requester, requesterName } = args;
+  const outcome = parseOutcome(d.outcomeJson);
+  if (!outcome) return "skipped";
+  const mine = outcome.actionItems.filter(
+    (i) => i.owner?.kind === "ai" && i.owner.id === ownerId && i.status === args.from,
+  );
+  if (mine.length === 0) return "skipped";
+  const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: ownerId,
+    companyId: d.companyId,
+  });
+  if (!emp) {
+    await setItemStatus(d.id, ownerId, "skipped", "No longer in the company.");
+    return "skipped";
+  }
+  const block = workBlocked(d.companyId, { employeeId: emp.id });
+  if (block.blocked) {
+    await setItemStatus(d.id, ownerId, "skipped", `Stood down: ${block.reason}`);
+    return "skipped";
+  }
+  const wait = async (): Promise<"waiting"> => {
+    await setItemStatus(d.id, ownerId, "waiting", "Waiting for the AI Model to come back.");
+    const model = await resolveChatModel(emp.id).catch(() => null);
+    await waitForModel({
+      kind: "discussion_work",
+      targetId: `${d.id}:${emp.id}`,
+      companyId: d.companyId,
+      employeeId: emp.id,
+      model,
+      groupKey: d.id,
+      payload: { discussionId: d.id, requester, requesterName } satisfies DiscussionWorkPayload,
+    });
+    return "waiting";
+  };
+  if (await employeeModelDown(emp.id)) return wait();
+  await setItemStatus(d.id, ownerId, "working");
+  const stopTyping = startTypingBroadcast(channel, emp);
+  let result: ChatResult;
+  try {
+    const history = await followThroughHistory(d, emp.id);
+    result = await deps().runTurn(
+      d.companyId,
+      emp.id,
+      composeFollowThroughBrief({
+        self: person(emp),
+        requester: requesterName,
+        question: d.question,
+        outcome,
+        items: mine,
+      }),
+      history,
+      () => {},
+      {
+        requesterUserId: requester.userId,
+        requesterSessionVersion: requester.sessionVersion,
+        startTainted: d.tainted,
+        workloadScope: `group-discussion-work:${d.id}:${emp.id}`,
+      },
+    );
+  } catch (error) {
+    result = { status: "error", reply: errorText(error), attachmentIds: [], sidecars: {} };
+  } finally {
+    stopTyping();
+  }
+  // The AI Model went down under the turn: nothing it wrote is posted, and
+  // the share waits to start again rather than failing.
+  if (result.status === "error" && result.unavailable) return wait();
+  if (result.status === "ok") {
+    await insertChannelMessage({
+      channel,
+      author: { kind: "ai", employeeId: emp.id },
+      content: result.reply,
+      attachmentIds: result.attachmentIds,
+      discussionId: d.id,
+      discussionRole: "follow_through",
+      tainted: result.tainted === true || d.tainted,
+    });
+  } else {
+    await postNote(d, `${emp.name} couldn't start on the work: ${clipLine(result.reply, 300)}`);
+  }
+  await setItemStatus(
+    d.id,
+    ownerId,
+    result.status === "ok" ? "done" : "failed",
+    result.status === "ok" ? undefined : clipLine(result.reply, 200),
+  );
+  return result.status === "ok" ? "done" : "failed";
+}
+
+/** What an owner's share that waits for its AI Model carries to its resume. */
+type DiscussionWorkPayload = {
+  discussionId: string;
+  requester: DiscussionRequester;
+  requesterName: string;
+};
+
+/**
+ * An owner's share of "Start the work" that waited for its AI Model, started
+ * once the model is back — still as the Member who pressed it, whose session
+ * and access the chat checks again before the turn runs.
+ */
+export const discussionWorkWait: ModelWaitHandler = {
+  concurrency: 2,
+  resume: async (wait): Promise<ModelWaitResult> => {
+    const payload = parseWaitPayload<DiscussionWorkPayload>(wait);
+    const requester = payload.requester;
+    if (
+      !payload.discussionId ||
+      !requester ||
+      typeof requester.userId !== "string" ||
+      typeof requester.sessionVersion !== "number"
+    ) {
+      return { status: "done" };
+    }
+    const d = await getGroupDiscussion(wait.companyId, payload.discussionId);
+    if (!d) return { status: "done" };
+    const channel = await AppDataSource.getRepository(Channel).findOneBy({ id: d.channelId });
+    if (!channel) return { status: "done" };
+    followThroughsInFlight.add(d.id);
+    try {
+      const outcome = await runOwnerShare({
+        d,
+        channel,
+        ownerId: wait.employeeId,
+        requester,
+        requesterName: payload.requesterName ?? "A Member",
+        from: "waiting",
+      });
+      return outcome === "waiting" ? { status: "waiting" } : { status: "done" };
+    } finally {
+      followThroughsInFlight.delete(d.id);
+    }
+  },
+  abandon: async (wait) => {
+    const payload = parseWaitPayload<DiscussionWorkPayload>(wait);
+    if (!payload.discussionId) return;
+    await setItemStatus(
+      payload.discussionId,
+      wait.employeeId,
+      "failed",
+      "The AI Model kept becoming unavailable, so this didn't start.",
+    );
+  },
+};
 
 /** Serialize item-status writes so parallel owners cannot overwrite each other. */
 let itemStatusLane: Promise<void> = Promise.resolve();

@@ -4,11 +4,13 @@ import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { DecisionUrgency } from "../db/entities/Decision.js";
 import { decisionStackInstructionLines } from "../../shared/decisionStackInstructions.js";
+import { ModelUnavailableError } from "./agent/modelOutage.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool } from "./agent/types.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { subscriptionModelBusy } from "./codexSubscription.js";
 import { jsonBoundedString } from "./mail/promptBounds.js";
+import { isModelAvailable } from "./modelAvailability.js";
 import { getActiveModel } from "./models.js";
 import { isModelConnected } from "./providers.js";
 
@@ -90,6 +92,8 @@ export type DecisionScreenSkipCause =
   | "no_instructions"
   | "no_model"
   | "model_busy"
+  /** The asking employee's AI Model is unavailable: the screen fails open, as on any error. */
+  | "model_unavailable"
   | "timeout"
   | "error";
 
@@ -169,6 +173,10 @@ export async function screenDecision(
       detail: `${args.employee.name}'s ChatGPT subscription model was busy with another turn.`,
     };
   }
+  // The screen fails open, and an unavailable AI Model is no exception: the
+  // question goes through at once, unchecked, rather than waiting for a model
+  // that may be down for an hour — the noise filter never holds a question.
+  if (!modelAnswers(model)) return unavailableModel(args.employee);
 
   const runner = dependencies.runScreen ?? runnerForTests ?? runDecisionScreen;
   const controller = new AbortController();
@@ -234,6 +242,7 @@ export async function screenDecision(
         detail: "The check took too long, so the question went through unchecked.",
       };
     }
+    if (error instanceof ModelUnavailableError) return unavailableModel(args.employee);
     return {
       outcome: "unscreened",
       cause: "error",
@@ -245,6 +254,22 @@ export async function screenDecision(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function modelAnswers(model: AIModel): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+function unavailableModel(employee: Pick<AIEmployee, "name">): DecisionScreenOutcome {
+  return {
+    outcome: "unscreened",
+    cause: "model_unavailable",
+    detail: `${employee.name}'s AI Model is unavailable, so the question went through unchecked.`,
+  };
 }
 
 /**
@@ -334,7 +359,10 @@ export async function runDecisionScreen(
     maxSteps: DECISION_SCREEN_MAX_STEPS,
     signal: args.signal,
   });
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    if (result.unavailable) throw new ModelUnavailableError(result.error, result.unavailable);
+    throw new Error(result.error);
+  }
   if (duplicate) throw new Error("The AI Employee submitted more than one check.");
   if (!verdict) throw new Error("The AI Employee did not return a valid check.");
   return verdict;

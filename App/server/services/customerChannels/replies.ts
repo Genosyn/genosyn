@@ -1,6 +1,7 @@
 import { LessThan, MoreThan, MoreThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import type { AIModelWait } from "../../db/entities/AIModelWait.js";
 import { Company } from "../../db/entities/Company.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { CustomerChannel } from "../../db/entities/CustomerChannel.js";
@@ -9,6 +10,14 @@ import { IntegrationConnection } from "../../db/entities/IntegrationConnection.j
 import { getChatSurfaceAdapter } from "../chatSurfaces/adapters.js";
 import { truncateForSurface } from "../chatSurfaces/types.js";
 import { decryptConnectionConfig } from "../integrations.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import {
+  parseWaitPayload,
+  waitForModel,
+  type ModelWaitHandler,
+  type ModelWaitResult,
+} from "../modelWaits.js";
 import { getActiveModel } from "../models.js";
 import { customerChannelProblem } from "./store.js";
 import { composeReplySystemPrompt, composeReplyUserMessage, runReplyTurn } from "./turns.js";
@@ -43,29 +52,41 @@ const THREAD_MESSAGES = 40;
 /** Messages from before the thread began, for a thread that is one message long. */
 const EARLIER_MESSAGES = 10;
 
-const channelQueues = new Map<string, Promise<void>>();
+/**
+ * How long an answer waits for an unavailable AI Model. A question in a shared
+ * channel answered a day late answers a conversation that has moved on — the
+ * team will have stepped in, and the notes still record what was asked.
+ */
+export const CUSTOMER_REPLY_WAIT_MS = 24 * 60 * 60_000;
+
+const channelQueues = new Map<string, Promise<unknown>>();
+
+/** Run `work` after everything already queued for this channel, one at a time. */
+function inChannelQueue<T>(channelId: string, work: () => Promise<T>): Promise<T> {
+  const previous = channelQueues.get(channelId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(work);
+  const tail = result.catch(() => undefined);
+  channelQueues.set(channelId, tail);
+  void tail.finally(() => {
+    if (channelQueues.get(channelId) === tail) channelQueues.delete(channelId);
+  });
+  return result;
+}
 
 export function enqueueCustomerChannelReply(args: {
   channelId: string;
   messageId: string;
   reason: CustomerChannelReplyReason;
 }): void {
-  const previous = channelQueues.get(args.channelId) ?? Promise.resolve();
-  const next = previous
-    .then(async () => {
-      await replyToCustomerChannelMessage(args.messageId, args.reason);
-    })
-    .catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error(
-        `[customer-channels] reply in ${args.channelId} failed:`,
-        err instanceof Error ? err.message : err,
-      );
-    })
-    .finally(() => {
-      if (channelQueues.get(args.channelId) === next) channelQueues.delete(args.channelId);
-    });
-  channelQueues.set(args.channelId, next);
+  void inChannelQueue(args.channelId, () =>
+    replyToCustomerChannelMessage(args.messageId, args.reason),
+  ).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[customer-channels] reply in ${args.channelId} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+  });
 }
 
 /** Wait for every queued reply. For tests, and for an orderly shutdown. */
@@ -124,6 +145,29 @@ export async function repliesInLastDay(channelId: string): Promise<number> {
 }
 
 /**
+ * Since a message that waited for its AI Model: has the employee already
+ * answered in the thread, has a colleague, or has a newer message in the
+ * thread taken the answer (it is answered, or waits to be, with this one in
+ * view)? Any of these, and a late answer would repeat or contradict the room.
+ */
+async function answeredSinceWaiting(message: CustomerChannelMessage): Promise<boolean> {
+  const later = await AppDataSource.getRepository(CustomerChannelMessage).find({
+    where: {
+      customerChannelId: message.customerChannelId,
+      threadKey: message.threadKey,
+      postedAt: MoreThan(message.postedAt),
+    },
+    select: { id: true, authorKind: true, replyClaimedAt: true },
+  });
+  return later.some(
+    (row) =>
+      row.authorKind === "employee" ||
+      row.authorKind === "team" ||
+      (row.replyClaimedAt !== null && row.id !== message.id),
+  );
+}
+
+/**
  * Write and post the answer to one claimed message. Returns the employee's
  * kept reply, or null when nothing was posted.
  */
@@ -131,19 +175,39 @@ export async function replyToCustomerChannelMessage(
   messageId: string,
   reason: CustomerChannelReplyReason,
 ): Promise<CustomerChannelMessage | null> {
+  const answered = await answerCustomerChannelMessage(messageId, reason, { resumed: false });
+  return answered.kind === "posted" ? answered.kept : null;
+}
+
+type ReplyOutcome =
+  | { kind: "posted"; kept: CustomerChannelMessage }
+  | { kind: "skipped" }
+  /** Its AI Model is unavailable: the answer waits and is written when it is back. */
+  | { kind: "waiting" };
+
+async function answerCustomerChannelMessage(
+  messageId: string,
+  reason: CustomerChannelReplyReason,
+  options: { resumed: boolean },
+): Promise<ReplyOutcome> {
+  const skipped: ReplyOutcome = { kind: "skipped" };
   const messages = AppDataSource.getRepository(CustomerChannelMessage);
   const message = await messages.findOneBy({ id: messageId });
-  if (!message) return null;
+  if (!message) return skipped;
   // Read the channel afresh: its reply mode or employee may have changed
-  // since the message came in.
+  // since the message came in — or while its answer waited for the AI Model.
   const channel = await AppDataSource.getRepository(CustomerChannel).findOneBy({
     id: message.customerChannelId,
   });
-  if (!channel || channel.replyMode === "notes" || !channel.employeeId) return null;
-  if (reason === "question" && channel.replyMode !== "questions") return null;
-  if (await customerChannelProblem(channel)) return null;
-  if (reason === "question" && (await threadMovedOn(message))) return null;
-  if ((await repliesInLastDay(channel.id)) >= MAX_REPLIES_PER_DAY) return null;
+  if (!channel || channel.replyMode === "notes" || !channel.employeeId) return skipped;
+  if (reason === "question" && channel.replyMode !== "questions") return skipped;
+  // Nothing at all when the employee cannot work — a Standdown placed while
+  // the answer waited included: a stood-down employee posts nothing, however
+  // the wait began.
+  if (await customerChannelProblem(channel)) return skipped;
+  if (reason === "question" && (await threadMovedOn(message))) return skipped;
+  if (options.resumed && (await answeredSinceWaiting(message))) return skipped;
+  if ((await repliesInLastDay(channel.id)) >= MAX_REPLIES_PER_DAY) return skipped;
 
   const [employee, company, customer, connection, model] = await Promise.all([
     AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -161,22 +225,46 @@ export async function replyToCustomerChannelMessage(
     }),
     getActiveModel(channel.employeeId),
   ]);
-  if (!employee || !company || !customer || !connection || !model) return null;
+  if (!employee || !company || !customer || !connection || !model) return skipped;
   const adapter = getChatSurfaceAdapter(connection.provider);
-  if (!adapter) return null;
+  if (!adapter) return skipped;
+
+  // Its AI Model is unavailable: the message keeps its claim — no second
+  // delivery can answer it — and its answer waits for the model, to be
+  // written then under every rule above, checked again at that moment.
+  const wait = async (): Promise<ReplyOutcome> => {
+    await waitForModel({
+      kind: "customer_channel_reply",
+      targetId: message.id,
+      companyId: channel.companyId,
+      employeeId: employee.id,
+      model,
+      groupKey: `${channel.id}:${message.threadKey}`,
+      payload: { reason },
+    });
+    return { kind: "waiting" };
+  };
+  if (!modelAnswers(model)) return wait();
 
   const thread = await threadMessages(channel.id, message.threadKey);
   const earlier =
     thread.length <= 1 ? await messagesBefore(channel.id, message.threadKey, message.postedAt) : [];
 
-  const reply = await runReplyTurn({
-    model,
-    employee,
-    system: composeReplySystemPrompt({ employee, company, customer, channel, reason }),
-    user: composeReplyUserMessage({ channel, earlier, thread, replyTo: message }),
-  });
-  if (!reply) return null;
-  if (reason === "question" && (await threadMovedOn(message))) return null;
+  let reply: string | null;
+  try {
+    reply = await runReplyTurn({
+      model,
+      employee,
+      system: composeReplySystemPrompt({ employee, company, customer, channel, reason }),
+      user: composeReplyUserMessage({ channel, earlier, thread, replyTo: message }),
+    });
+  } catch (error) {
+    if (error instanceof ModelUnavailableError) return wait();
+    throw error;
+  }
+  if (!reply) return skipped;
+  if (reason === "question" && (await threadMovedOn(message))) return skipped;
+  if (options.resumed && (await answeredSinceWaiting(message))) return skipped;
 
   const text = truncateForSurface(reply, adapter.textLimit);
   const sent = await adapter.send({
@@ -210,5 +298,53 @@ export async function replyToCustomerChannelMessage(
     .set({ lastMessageAt: postedAt })
     .where("id = :id", { id: channel.id })
     .execute();
-  return kept;
+  return { kind: "posted", kept };
 }
+
+function modelAnswers(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * An answer that waited for its AI Model, written once the model is back: in
+ * the channel's queue, so it is still one turn at a time and in order, and
+ * through every rule a fresh message meets — the reply mode, the employee
+ * able to work (no Standdown), the newest-word rule, the day's limit — plus
+ * one more: if anyone answered in the thread meanwhile, nothing is posted.
+ * The turn is the same restricted one-tool turn on the channel's instructions,
+ * with nobody's authority. Given up after a day; the notes still record it.
+ */
+export const customerChannelReplyWait: ModelWaitHandler = {
+  concurrency: 4,
+  maxAgeMs: () => CUSTOMER_REPLY_WAIT_MS,
+  resume: async (wait: AIModelWait): Promise<ModelWaitResult> => {
+    const message = await AppDataSource.getRepository(CustomerChannelMessage).findOneBy({
+      id: wait.targetId,
+    });
+    if (!message) return { status: "done" };
+    const reason = parseWaitPayload<{ reason: CustomerChannelReplyReason }>(wait).reason;
+    if (reason !== "mention" && reason !== "question") return { status: "done" };
+    try {
+      const outcome = await inChannelQueue(message.customerChannelId, () =>
+        answerCustomerChannelMessage(message.id, reason, { resumed: true }),
+      );
+      return outcome.kind === "waiting" ? { status: "waiting" } : { status: "done" };
+    } catch (err) {
+      // As for a fresh message: a failed post is logged, never tried twice —
+      // Slack may have taken it.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[customer-channels] an answer that waited for its AI Model failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      return { status: "done" };
+    }
+  },
+  abandon: async () => {
+    // Nothing to post a day late; the message is kept for the notes.
+  },
+};

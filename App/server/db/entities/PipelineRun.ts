@@ -1,7 +1,12 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-export type PipelineRunStatus = "running" | "completed" | "failed" | "skipped";
+/**
+ * `paused`: stopped at a step whose AI Employee's AI Model is unavailable,
+ * with its outputs so far; it carries on from that step by itself when the
+ * model is back (`services/pipelines/executor.ts`).
+ */
+export type PipelineRunStatus = "running" | "paused" | "completed" | "failed" | "skipped";
 export type PipelineTriggerKind = "manual" | "schedule" | "webhook" | "event";
 
 /**

@@ -38,8 +38,12 @@ export const FINISHED_CALL_STATUSES: readonly PhoneCallStatus[] = [
  *  - `unavailable` — the AI Employee could not take it (none assigned, a
  *                    Standdown, no AI Model, a daily limit), so the caller was
  *                    told so and the call ended.
+ *  - `message`     — the AI Employee's AI Model was unavailable (its service
+ *                    down or overloaded), so it said so briefly and took a
+ *                    message, which is in the transcript; a text follows it up
+ *                    once the model is back when the number replies to texts.
  */
-export type PhoneCallHandling = "employee" | "forwarded" | "declined" | "unavailable";
+export type PhoneCallHandling = "employee" | "forwarded" | "declined" | "unavailable" | "message";
 
 /**
  * Where the employee's next spoken reply is. A call is a loop of HTTP requests
@@ -47,9 +51,10 @@ export type PhoneCallHandling = "employee" | "forwarded" | "declined" | "unavail
  * turn can take longer, so the reply is produced in the background and the
  * row is the rendezvous: the request that started the turn and any request
  * that comes back for the answer read it here, on whichever replica they
- * land.
+ * land. `unavailable` is a turn that met the AI Model unavailable: the call
+ * apologises and, when someone called in, takes a message.
  */
-export type PhoneCallReplyState = "idle" | "thinking" | "ready" | "failed";
+export type PhoneCallReplyState = "idle" | "thinking" | "ready" | "failed" | "unavailable";
 
 export type PhoneCallTranscriptTurn = {
   /** `caller` is the other party on either direction of call. */

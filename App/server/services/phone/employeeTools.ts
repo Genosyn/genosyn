@@ -316,7 +316,9 @@ function callForTool(call: PhoneCall, withTranscript: boolean) {
         ? "you"
         : call.handling === "forwarded"
           ? "forwarded to a person"
-          : call.handling,
+          : call.handling === "message"
+            ? "you took a message while your AI Model was unavailable"
+            : call.handling,
     startedAt: call.createdAt.toISOString(),
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,

@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, KeyList, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, KeyList, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
 
 export function Collaboration() {
   return (
@@ -56,6 +56,25 @@ export function Collaboration() {
         full walkthrough — rounds, the live bar, Stop and Wrap up, the outcome card and{" "}
         <Strong>Start the work</Strong> — is in{" "}
         <DocLink to="/docs/workspace-chat#group-chats">Workspace chat</DocLink>.
+      </P>
+      <H3 id="discussion-unavailable">When an AI Model is unavailable</H3>
+      <P>
+        An AI Employee whose <DocLink to="/docs/models#unavailable">AI Model is
+        unavailable</DocLink> keeps its turn — unlike a stood-down one, nobody decided it should sit
+        out. The others speak, and when nobody else is left the discussion waits: the bar says{" "}
+        <em>Waiting for the AI Model to come back</em>, a note in the chat says so once, and it
+        carries on by itself when the model answers again. A turn the outage cut short posts
+        nothing and is taken again. The outcome is written only whole, by the lead or the next
+        participant whose model answers, and waits for one if none does.
+      </P>
+      <P>
+        The discussion&apos;s time limit keeps running while it waits. If it runs out, the
+        discussion ends with what was said — or, when the outcome itself cannot be written, without
+        one, saying the AI Model was unavailable; the transcript stays in the chat for your next
+        question. Stop and a company Standdown end it at once, and a server restart while it waits
+        ends it as interrupted. <Strong>Start the work</Strong> waits per owner: a share whose
+        owner&apos;s model is unavailable reads <em>Waiting for its AI Model</em> and starts by
+        itself once it is back, under the Member who pressed it.
       </P>
 
       <H2 id="ask-a-colleague">Asking a colleague mid-work</H2>

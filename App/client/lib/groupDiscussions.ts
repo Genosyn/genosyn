@@ -97,6 +97,13 @@ function nameOf(d: GroupDiscussion, employeeId: string | null): string | null {
 /** The one line the status bar shows. */
 export function discussionStatusLine(d: GroupDiscussion): string {
   if (d.status === "running") {
+    if (d.waitingForModelSince) {
+      // An AI Model is unavailable: the discussion carries on by itself when
+      // it is back, within its time limit.
+      return d.phase === "concluding"
+        ? "Waiting for the AI Model to come back to write the outcome"
+        : `Waiting for the AI Model to come back · round ${Math.max(1, d.round)} of ${d.rounds}`;
+    }
     if (d.phase === "concluding") {
       const writer = nameOf(d, d.currentEmployeeId);
       return writer ? `${writer} is writing the outcome…` : "Writing the outcome…";
@@ -164,6 +171,8 @@ export function actionItemStatusLabel(status: DiscussionActionItem["status"]): s
       return "Queued";
     case "working":
       return "Working";
+    case "waiting":
+      return "Waiting for its AI Model";
     case "done":
       return "Done";
     case "failed":

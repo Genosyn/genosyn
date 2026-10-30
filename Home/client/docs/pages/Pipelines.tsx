@@ -321,7 +321,10 @@ return { score: res.data.score };`}</Pre>
         empty payload, then opens <Strong>Run history</Strong>. Each Run shows:
       </P>
       <UL>
-        <LI>whether it succeeded, failed, is still running, or was skipped;</LI>
+        <LI>
+          whether it succeeded, failed, is still running, is{" "}
+          <a href="#paused-runs">paused</a> waiting for an AI Model, or was skipped;
+        </LI>
         <LI>what started it, when it started, and how long it took;</LI>
         <LI>the step-by-step log and a plain error when a step failed;</LI>
         <LI>the starting payload and the final output from every reached step.</LI>
@@ -337,6 +340,18 @@ return { score: res.data.score };`}</Pre>
         /api/companies/:cid/pipelines/:idOrSlug/runs</Code> with <Code>limit</Code> or{" "}
         <Code>cursor</Code> answers a page at a time, narrowed by status, what started the Run,
         or when it started.
+      </P>
+      <H3 id="paused-runs">Paused while an AI Model was unavailable</H3>
+      <P>
+        When an <Strong>Ask an employee</Strong> step&apos;s AI Employee has an{" "}
+        <DocLink to="/docs/models#unavailable">AI Model that is unavailable</DocLink>, the Run does
+        not fail and never hands the next step the model&apos;s error as if it were the answer. It
+        pauses at that step — <Strong>Paused</Strong> in Run history, with every output so far — and
+        carries on from the same step by itself once the model is back, on the steps it started
+        with, so an edit made meanwhile applies from the next Run. A schedule that comes due while a
+        Run waits folds into it rather than starting another. Turn the Pipeline off, or delete it,
+        and the paused Run ends as failed, saying why; so does one whose model became unavailable
+        again ten times. A Run an email started also ends if its mailbox was paused meanwhile.
       </P>
 
       <H2 id="ai">How AI Employees use it</H2>

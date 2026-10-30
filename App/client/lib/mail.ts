@@ -519,7 +519,8 @@ export type MailAnalysis = {
   id: string;
   threadId: string;
   messageId: string;
-  status: "running" | "succeeded" | "failed";
+  /** `waiting`: its AI Model is unavailable, and it is read when the model is back. */
+  status: "running" | "waiting" | "succeeded" | "failed";
   employeeId: string | null;
   modelId: string | null;
   category: string;
