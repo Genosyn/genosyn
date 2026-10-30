@@ -1727,6 +1727,7 @@ export async function queryRevenueImports(
   const total = await qb.clone().getCount();
   const rows = await qb
     .orderBy("batch.createdAt", "DESC")
+    .addOrderBy("batch.id", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 50, 1), 200))
     .getMany();

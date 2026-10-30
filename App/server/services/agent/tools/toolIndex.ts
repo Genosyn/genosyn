@@ -323,6 +323,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     tools: [
       "list_subsidiaries",
       "list_finance_accounts",
+      "create_finance_account",
+      "update_finance_account",
       "list_finance_transactions",
       "get_finance_transaction",
       "create_finance_transaction",
@@ -875,7 +877,34 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   create_customer: ["client", "account", "new client"],
   update_customer: ["client", "account"],
   list_finance_accounts: ["ledger", "books", "chart of accounts", "categories", "category ids"],
-  list_finance_transactions: ["ledger", "books", "journal entries", "entry review", "transactions"],
+  // The fix for "still waiting on you: three accounts" — the category a
+  // transaction belongs in does not exist yet.
+  create_finance_account: [
+    "new account",
+    "add account",
+    "create category",
+    "new category",
+    "missing account",
+    "chart of accounts",
+    "gl account",
+    "ledger account",
+  ],
+  update_finance_account: [
+    "rename account",
+    "renumber account",
+    "archive account",
+    "edit category",
+    "chart of accounts",
+  ],
+  list_finance_transactions: [
+    "ledger",
+    "books",
+    "journal entries",
+    "entry review",
+    "transactions",
+    "older entries",
+    "by account",
+  ],
   get_finance_transaction: ["ledger", "books", "journal entry", "expense"],
   review_finance_transaction: [
     "ledger",
@@ -947,6 +976,9 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "brex",
     "spend",
     "expenses",
+    "older transactions",
+    "transaction history",
+    "merchant",
   ],
   categorize_banking_transactions: [
     "categorize",

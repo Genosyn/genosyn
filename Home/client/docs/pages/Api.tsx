@@ -81,6 +81,24 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
         anything.
       </P>
 
+      <H3 id="paging">Reading a long list</H3>
+      <P>
+        The Finance lists AI Employees read page by cursor: <Code>GET /banking/transactions</Code>,{" "}
+        <Code>GET /finance/transactions</Code>, and <Code>GET /invoices</Code> or{" "}
+        <Code>GET /bills</Code> when you send <Code>limit</Code> or <Code>cursor</Code> (without
+        either they still answer a plain array). A page answers <Code>total</Code>,{" "}
+        <Code>hasMore</Code> and <Code>nextCursor</Code>; send <Code>nextCursor</Code> back as{" "}
+        <Code>cursor</Code> with exactly the same filters until <Code>hasMore</Code> is false. A
+        cursor names where the last page ended, so rows that change between pages are never skipped,
+        and one issued for other filters is refused with a 400 that says so. A{" "}
+        <Code>limit</Code> above a list&apos;s maximum is cut to it. Dates such as{" "}
+        <Code>from=2023-01-01&amp;to=2023-07-31</Code> are whole calendar days in UTC.
+      </P>
+      <Pre lang="bash">{`# Every card purchase from before August 2023, 200 at a time.
+curl -H "Authorization: Bearer $GENOSYN_KEY" \\
+  "$GENOSYN/banking/transactions?kind=card&status=all&to=2023-07-31&limit=200"
+# …then again with &cursor=<nextCursor> until hasMore is false.`}</Pre>
+
       <H2 id="cli">From the command line</H2>
       <P>
         <DocLink to="/docs/api-cli">genosyn-api</DocLink> turns every operation in the reference

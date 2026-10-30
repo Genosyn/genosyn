@@ -304,8 +304,10 @@ export function Meetings() {
       <P>The tools an employee gets, once granted:</P>
       <UL>
         <LI>
-          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account or
-          Contact, which is how it answers &quot;when did we last speak to them&quot;.
+          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account,
+          Contact or date, which is how it answers &quot;when did we last speak to them&quot;. It
+          pages through every meeting on the calendars the employee holds a Grant to, and says how
+          many more match on calendars it does not.
         </LI>
         <LI>
           <Code>get_meeting</Code> — attendees, the summary, and the action items already filed.

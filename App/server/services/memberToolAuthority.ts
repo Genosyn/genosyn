@@ -495,6 +495,8 @@ const FINANCE_WRITE_TOOLS = [
   "delete_invoice",
   "convert_estimate_to_invoice",
   "create_finance_transaction",
+  "create_finance_account",
+  "update_finance_account",
   "create_vendor",
   "update_vendor",
   "create_bill",

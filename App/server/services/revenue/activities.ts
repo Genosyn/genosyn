@@ -372,6 +372,7 @@ export async function listActivities(
   const rows = await qb
     .orderBy("a.occurredAt", "DESC")
     .addOrderBy("a.createdAt", "DESC")
+    .addOrderBy("a.id", "DESC")
     .skip(offset)
     .take(limit)
     .getMany();

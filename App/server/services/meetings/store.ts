@@ -1,4 +1,5 @@
 import {
+  And,
   In,
   LessThanOrEqual,
   MoreThan,
@@ -6,6 +7,19 @@ import {
   type EntityManager,
   type FindOptionsWhere,
 } from "typeorm";
+import {
+  andWhereDateRange,
+  asText,
+  dateRange,
+  decodeCursor,
+  filterFingerprint,
+  finishPage,
+  keysetRows,
+  type PageInfo,
+  type PageLimits,
+  pageLimit,
+  type PageRequest,
+} from "../listPaging.js";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
@@ -231,27 +245,106 @@ export async function listMeetings(
   if (filter.status) where.status = filter.status;
   if (filter.customerId) where.customerId = filter.customerId;
   if (meetingIds) where.id = In(meetingIds);
+  // Both bounds in the query: filtering the upper one after `take` let newer
+  // meetings fill the page and dropped the ones inside the range.
   if (filter.from && filter.to) {
-    where.scheduledStartAt = MoreThanOrEqual(filter.from) as unknown as Date;
+    where.scheduledStartAt = And(
+      MoreThanOrEqual(filter.from),
+      LessThanOrEqual(filter.to),
+    ) as unknown as Date;
   } else if (filter.from) {
     where.scheduledStartAt = MoreThanOrEqual(filter.from) as unknown as Date;
   } else if (filter.to) {
     where.scheduledStartAt = LessThanOrEqual(filter.to) as unknown as Date;
   }
 
-  const rows = await AppDataSource.getRepository(Meeting).find({
+  return AppDataSource.getRepository(Meeting).find({
     where,
     order: { scheduledStartAt: "DESC", createdAt: "DESC" },
     take: limit,
   });
-  // `from` + `to` together needs both bounds; TypeORM's object form holds one
-  // operator per column, so the upper bound is applied here rather than
-  // reaching for a query builder for one clause.
-  if (filter.from && filter.to) {
-    const to = filter.to;
-    return rows.filter((row) => !row.scheduledStartAt || row.scheduledStartAt <= to);
-  }
-  return rows;
+}
+
+/** 50 meetings by default, at most 200 a page. */
+export const MEETING_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
+
+/**
+ * Meetings an AI Employee may see, newest first, one page at a time: those on
+ * a calendar it holds a Grant to, and ad-hoc ones on no calendar. The Grant is
+ * part of the query, so a page is never cut short by rows it could not show,
+ * and `hidden` counts the matches on calendars it cannot read.
+ */
+export async function pageMeetingsForEmployee<Out>(
+  companyId: string,
+  filter: Omit<MeetingListFilter, "limit" | "from" | "to"> & { from?: string; to?: string },
+  grantedCalendarIds: string[],
+  page: PageRequest & { budgetChars?: number },
+  present: (meeting: Meeting) => Out,
+): Promise<PageInfo & { rows: Out[]; hidden: number }> {
+  const range = dateRange(filter.from, filter.to);
+  const query = (onlyGranted: boolean) => {
+    const qb = AppDataSource.getRepository(Meeting)
+      .createQueryBuilder("meeting")
+      .where("meeting.companyId = :companyId", { companyId });
+    if (filter.status) qb.andWhere("meeting.status = :status", { status: filter.status });
+    if (filter.customerId) {
+      qb.andWhere("meeting.customerId = :customerId", { customerId: filter.customerId });
+    }
+    if (filter.contactId) {
+      qb.andWhere(
+        `${asText("meeting.id")} IN (SELECT ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("meetingId")} FROM ${AppDataSource.driver.escape("meeting_participants")} ${AppDataSource.driver.escape("p")} WHERE ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("companyId")} = :companyId AND ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("contactId")} = :contactId)`,
+        { contactId: filter.contactId },
+      );
+    }
+    andWhereDateRange(qb, "meeting.scheduledStartAt", range, "scheduled");
+    if (onlyGranted) {
+      if (grantedCalendarIds.length === 0) qb.andWhere("meeting.accountId IS NULL");
+      else {
+        qb.andWhere("(meeting.accountId IS NULL OR meeting.accountId IN (:...granted))", {
+          granted: grantedCalendarIds,
+        });
+      }
+    }
+    return qb;
+  };
+  const fingerprint = filterFingerprint(companyId, {
+    status: filter.status,
+    customerId: filter.customerId,
+    contactId: filter.contactId,
+    range,
+    granted: [...grantedCalendarIds].sort(),
+  });
+  const after = page.cursor ? decodeCursor("meetings", fingerprint, page.cursor) : null;
+  const limit = pageLimit(page.limit, MEETING_PAGE);
+  const [total, everything, fetched] = await Promise.all([
+    query(true).getCount(),
+    query(false).getCount(),
+    keysetRows(query(true), {
+      // An ad-hoc meeting with no scheduled start sorts by when it was made.
+      keys: [
+        {
+          column: "COALESCE(meeting.scheduledStartAt, meeting.createdAt)",
+          direction: "DESC",
+          type: "timestamp",
+        },
+        { column: "meeting.id", direction: "DESC", type: "string" },
+      ],
+      after,
+      limit,
+      prefix: "meeting",
+    }),
+  ]);
+  const closed = finishPage({
+    fetched,
+    limit,
+    total,
+    noun: "meetings",
+    scope: "meetings",
+    fingerprint,
+    present,
+    budgetChars: page.budgetChars,
+  });
+  return { ...closed, hidden: everything - total };
 }
 
 export async function getMeeting(companyId: string, id: string): Promise<Meeting | null> {

@@ -1,4 +1,5 @@
 import { In, Not } from "typeorm";
+import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -16,6 +17,24 @@ import {
 } from "../../shared/entryCategory.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
+import { andWhereTokens, tokenizeQuery } from "./likeSearch.js";
+import {
+  andWhereDateRange,
+  asText,
+  type DateRange,
+  dateRange,
+  decodeCursor,
+  filterFingerprint,
+  finishPage,
+  type KeysetColumn,
+  keysetRows,
+  ListQueryError,
+  type PageInfo,
+  type PageLimits,
+  pageLimit,
+  pageQueryShape,
+  type PageRequest,
+} from "./listPaging.js";
 
 export type LedgerReviewChange = {
   lineId: string;
@@ -177,6 +196,180 @@ export async function listLedgerEntriesForReview(args: {
     qb.andWhere("entry.date <= :to", { to: through });
   }
   return hydrateLedgerEntries(await qb.getMany());
+}
+
+/** 50 entries by default, at most 200 at once. */
+export const LEDGER_REVIEW_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
+
+/** What narrows Entry review's list. Every field is optional and they combine. */
+export type LedgerReviewFilter = {
+  reviewStatus?: LedgerReviewStatus;
+  /** What posted the entry: `manual`, `bank_categorization`, `brex_card_expense`, … */
+  source?: string;
+  /** Dated on or after this day (`YYYY-MM-DD`, UTC) or instant. */
+  from?: string;
+  /** Dated on or before this day (the whole day) or instant. */
+  to?: string;
+  /** Entries that post to this account: a line of their own, or a category change approved onto it. */
+  accountId?: string;
+  /** Words that must all appear in the memo. */
+  q?: string;
+  /** Smallest entry total (its debits), in cents. */
+  minAmountCents?: number;
+  /** Largest entry total (its debits), in cents. */
+  maxAmountCents?: number;
+};
+
+/** The filters as an AI tool's body sends them; the REST twin reads the same from its query. */
+export const ledgerReviewFilterShape = {
+  reviewStatus: z.enum(["unreviewed", "ai_reviewed", "approved"]).optional(),
+  source: z.string().min(1).max(80).optional(),
+  from: z.string().min(1).max(40).optional(),
+  to: z.string().min(1).max(40).optional(),
+  accountId: z.string().uuid().optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+  minAmountCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxAmountCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+};
+
+export const ledgerReviewQuerySchema = z
+  .object({
+    reviewStatus: ledgerReviewFilterShape.reviewStatus.describe(
+      "unreviewed still needs review; ai_reviewed holds a staged category change; approved is final.",
+    ),
+    source: ledgerReviewFilterShape.source.describe(
+      "What posted the entry, e.g. manual, bank_categorization, brex_card_expense, invoice_issue.",
+    ),
+    from: ledgerReviewFilterShape.from.describe(
+      "Dated on or after: YYYY-MM-DD is a calendar day in UTC; an ISO timestamp is that instant.",
+    ),
+    to: ledgerReviewFilterShape.to.describe(
+      "Dated on or before: YYYY-MM-DD includes that whole day (UTC); an ISO timestamp is that instant.",
+    ),
+    accountId: ledgerReviewFilterShape.accountId.describe(
+      "Entries that post to this chart-of-accounts account, including a category change approved onto it.",
+    ),
+    q: ledgerReviewFilterShape.q.describe("Words that must all appear in the memo."),
+    minAmountCents: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional()
+      .describe("Smallest entry total (its debits) in cents."),
+    maxAmountCents: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional()
+      .describe("Largest entry total (its debits) in cents."),
+    ...pageQueryShape,
+  })
+  .strict();
+
+const LEDGER_SCOPE = "finance.transactions";
+
+const LEDGER_KEYS: KeysetColumn[] = [
+  { column: "entry.date", direction: "DESC", type: "timestamp" },
+  { column: "entry.id", direction: "DESC", type: "string" },
+];
+
+function ledgerReviewQuery(companyId: string, filter: LedgerReviewFilter, range: DateRange) {
+  const q = (name: string) => AppDataSource.driver.escape(name);
+  const col = (alias: string, name: string) => `${q(alias)}.${q(name)}`;
+  const qb = AppDataSource.getRepository(LedgerEntry)
+    .createQueryBuilder("entry")
+    .where("entry.companyId = :companyId", { companyId })
+    // A category change Entry review posted is shown on the entry it changed.
+    .andWhere("entry.source != :reviewReclassSource", { reviewReclassSource: "ledger_reclass" });
+  if (filter.reviewStatus) {
+    qb.andWhere("entry.reviewStatus = :reviewStatus", { reviewStatus: filter.reviewStatus });
+  }
+  if (filter.source) qb.andWhere("entry.source = :source", { source: filter.source });
+  andWhereDateRange(qb, "entry.date", range, "date");
+  if (filter.q) andWhereTokens(qb, ["entry.memo"], tokenizeQuery(filter.q), "q");
+  if (filter.accountId) {
+    qb.andWhere(
+      `EXISTS (SELECT 1 FROM ${q("ledger_lines")} ${q("l")} WHERE ${col("l", "companyId")} = entry.companyId AND ${col("l", "accountId")} = :accountId AND (${col("l", "ledgerEntryId")} = ${asText("entry.id")} OR ${col("l", "ledgerEntryId")} IN (SELECT ${asText(col("r", "id"))} FROM ${q("ledger_entries")} ${q("r")} WHERE ${col("r", "companyId")} = entry.companyId AND ${col("r", "source")} = 'ledger_reclass' AND ${col("r", "sourceRefId")} = ${asText("entry.id")})))`,
+      { accountId: filter.accountId },
+    );
+  }
+  const total = `(SELECT COALESCE(SUM(${col("t", "debitCents")}), 0) FROM ${q("ledger_lines")} ${q("t")} WHERE ${col("t", "ledgerEntryId")} = ${asText("entry.id")})`;
+  if (filter.minAmountCents !== undefined) {
+    qb.andWhere(`${total} >= :minAmount`, { minAmount: filter.minAmountCents });
+  }
+  if (filter.maxAmountCents !== undefined) {
+    qb.andWhere(`${total} <= :maxAmount`, { maxAmount: filter.maxAmountCents });
+  }
+  return qb;
+}
+
+export type LedgerReviewPage = PageInfo & { transactions: HydratedLedgerEntry[] };
+
+/**
+ * Entry review's journal, newest first, one page at a time — every entry
+ * reachable by following `nextCursor` with the same filters. The AI tool
+ * `list_finance_transactions` and `GET /finance/transactions` both read it.
+ */
+export async function pageLedgerEntriesForReview(
+  companyId: string,
+  filter: LedgerReviewFilter,
+  page: PageRequest & { budgetChars?: number } = {},
+): Promise<LedgerReviewPage> {
+  if (
+    filter.minAmountCents !== undefined &&
+    filter.maxAmountCents !== undefined &&
+    filter.minAmountCents > filter.maxAmountCents
+  ) {
+    throw new ListQueryError("minAmountCents must not be more than maxAmountCents");
+  }
+  const range = dateRange(filter.from, filter.to);
+  const fingerprint = filterFingerprint(companyId, {
+    reviewStatus: filter.reviewStatus,
+    source: filter.source,
+    range,
+    accountId: filter.accountId,
+    q: filter.q ? tokenizeQuery(filter.q).map((token) => token.raw) : undefined,
+    minAmountCents: filter.minAmountCents,
+    maxAmountCents: filter.maxAmountCents,
+  });
+  const after = page.cursor ? decodeCursor(LEDGER_SCOPE, fingerprint, page.cursor) : null;
+  if (filter.accountId) {
+    const exists = await AppDataSource.getRepository(Account).existsBy({
+      id: filter.accountId,
+      companyId,
+    });
+    if (!exists) {
+      throw new ListQueryError(
+        "No chart-of-accounts account with that accountId. List them with list_finance_accounts.",
+        404,
+      );
+    }
+  }
+  const limit = pageLimit(page.limit, LEDGER_REVIEW_PAGE);
+  const [total, fetched] = await Promise.all([
+    ledgerReviewQuery(companyId, filter, range).getCount(),
+    keysetRows(ledgerReviewQuery(companyId, filter, range), {
+      keys: LEDGER_KEYS,
+      after,
+      limit,
+      prefix: "entry",
+    }),
+  ]);
+  const hydrated = await hydrateLedgerEntries(fetched.slice(0, limit).map((entry) => entry.row));
+  const byId = new Map(hydrated.map((entry) => [entry.id, entry]));
+  const { rows, ...info } = finishPage({
+    fetched,
+    limit,
+    total,
+    noun: "transactions",
+    scope: LEDGER_SCOPE,
+    fingerprint,
+    present: (entry: LedgerEntry) => byId.get(entry.id)!,
+    budgetChars: page.budgetChars,
+  });
+  return { ...info, transactions: rows };
 }
 
 export async function getLedgerEntryForReview(

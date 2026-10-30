@@ -1184,11 +1184,31 @@ export function Finance() {
         <LI>
           <Strong>Full accounting</Strong> — everything in Invoicing, plus the bookkeeping:
           categorize, match, and undo bank and card transactions on Banking, post journal entries,
-          approve entries in Entry review (below), and run payables — add vendors, enter, issue,
-          and void bills, and record or reverse bill payments. The employee&apos;s approval is
-          final, like an owner&apos;s.
+          approve entries in Entry review (below), run payables — add vendors, enter, issue,
+          and void bills, and record or reverse bill payments — and add or correct accounts in the{" "}
+          <DocLink to="/docs/finance#ledger">chart of accounts</DocLink> when a transaction belongs
+          in one that does not exist yet. The employee&apos;s approval is final, like an owner&apos;s.
         </LI>
       </UL>
+      <P>
+        Every Finance list an AI Employee reads — Banking&apos;s transactions, Entry review&apos;s
+        journal, invoices, bills, recurring invoices and customers — reaches every row, however many
+        there are. An answer holds one page, says how many rows match in all, and carries a cursor the
+        employee passes back for the next page, so years of card history are as reachable as this
+        week&apos;s. It can narrow a long list instead of reading all of it: by date, account, amount,
+        words in the description, or the category a transaction is filed under. A cursor carries on
+        from the last row shown, so filing transactions between pages never skips any.
+      </P>
+      <P>
+        With Full accounting, an employee that finds a transaction has nowhere to go — a crypto
+        purchase with no digital-assets account, rent with no rent account — adds the account itself
+        with <Code>create_finance_account</Code> and files the transaction, rather than stopping to
+        ask. <Code>update_finance_account</Code> renames, renumbers or archives one under the same
+        rules as <Code>Finance → Accounts</Code>: codes stay unique, the accounts auto-posting relies
+        on keep their code and type, and an account that still has a balance is never archived. Each
+        change is audited and journaled. It still asks you when the choice between accounts is a
+        judgement only an owner can make, such as whether a payment is rent or drawings.
+      </P>
       <P>
         Access is per employee and takes effect immediately. On{" "}
         <Code>Finance → AI access</Code>, choose an AI Employee and a level and click{" "}

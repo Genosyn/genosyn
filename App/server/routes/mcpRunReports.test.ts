@@ -366,9 +366,51 @@ describe("list_runs is the first way an employee can see what its schedule did",
     assert.equal(all.body.runs[0].id, body.runs[0].id, "the limit dropped the newest Run");
   });
 
-  test("a limit outside the schema's range is refused rather than clamped silently", async () => {
-    const { status } = await tool("list_runs", { routine: routine.id, limit: 500 });
-    assert.equal(status, 400);
+  test("a limit past the page maximum is cut to it, and the page says what follows", async () => {
+    // Refusing a large limit left an employee with no way to the older Runs;
+    // a page that names the total and the cursor to the rest is not silent.
+    for (let i = 0; i < 55; i++) await addRun({ startedAgoMinutes: (i + 1) * 10 });
+    const { status, body } = await tool<{
+      runs: RunRow[];
+      total: number;
+      hasMore: boolean;
+      nextCursor: string;
+      note: string;
+    }>("list_runs", { routine: routine.id, limit: 500 });
+    assert.equal(status, 200);
+    assert.equal(body.runs.length, 50);
+    assert.equal(body.total, 55);
+    assert.equal(body.hasMore, true);
+    assert.match(body.note, /holds 50 of the 55 matching Runs/);
+    const rest = await tool<{ runs: RunRow[]; hasMore: boolean }>("list_runs", {
+      routine: routine.id,
+      cursor: body.nextCursor,
+    });
+    assert.equal(rest.body.runs.length, 5);
+    assert.equal(rest.body.hasMore, false);
+    assert.equal(new Set([...body.runs, ...rest.body.runs].map((run) => run.id)).size, 55);
+    assert.equal((await tool("list_runs", { routine: routine.id, limit: 0 })).status, 400);
+  });
+
+  test("status and start dates narrow the history to find when failing began", async () => {
+    await addRun({ startedAgoMinutes: 60 * 24 * 3, status: "failed" });
+    const recentFailure = await addRun({ startedAgoMinutes: 30, status: "failed" });
+    await addRun({ startedAgoMinutes: 20 });
+    const failed = await tool<{ runs: RunRow[]; total: number }>("list_runs", {
+      routine: routine.id,
+      status: "failed",
+    });
+    assert.equal(failed.body.total, 2);
+    const today = new Date().toISOString().slice(0, 10);
+    const failedToday = await tool<{ runs: RunRow[]; total: number }>("list_runs", {
+      routine: routine.id,
+      status: "failed",
+      from: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      to: today,
+    });
+    assert.deepEqual(failedToday.body.runs.map((run) => run.id), [recentFailure.id]);
+    const backwards = await tool("list_runs", { routine: routine.id, from: "2030-01-02", to: "2030-01-01" });
+    assert.equal(backwards.status, 400);
   });
 
   test("omitting the routine lists the caller's own Runs across its Routines", async () => {

@@ -213,7 +213,7 @@ export function Verification() {
         rows={[
           {
             term: "list_runs",
-            def: "Terminal Runs for one of your Routines — or your own recent Runs across all of them — with each Run's status, checks verdict, outcome verdict and token cost.",
+            def: "Terminal Runs for one of your Routines — or your own Runs across all of them — with each Run's status, checks verdict, outcome verdict and token cost. It pages through the whole history and narrows by status or start date, so an employee can find when a Routine began failing.",
           },
           {
             term: "get_run_report",
