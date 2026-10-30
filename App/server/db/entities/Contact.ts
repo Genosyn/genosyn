@@ -62,7 +62,11 @@ export const CONTACT_LIFECYCLE_STAGES: ContactLifecycleStage[] = [
 @Entity("contacts")
 @Index(["companyId", "email"])
 @Index(["companyId", "customerId"])
-@Index(["companyId", "lifecycleStage"])
+// One lifecycle stage in the list's order, for Revenue → Contacts with a stage
+// chosen: a page walks that stage's contacts from its cursor instead of every
+// contact in the company. It still answers what the old (companyId,
+// lifecycleStage) index did.
+@Index(["companyId", "lifecycleStage", "lastActivityAt", "createdAt", "id"])
 @Index(["companyId", "archivedAt"])
 // The contact list's order — most recently touched first, never-touched last
 // newest first, then by id — so a page of it (`pageContacts`) walks this
