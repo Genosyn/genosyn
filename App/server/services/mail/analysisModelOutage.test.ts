@@ -530,6 +530,61 @@ describe("an email that arrives while its AI Model is unavailable", () => {
     assert.deepEqual(w.unsubscribes, [`rule:${w.message.id}`], "the sender is asked exactly once");
   });
 
+  test("a rule that names the read's category gets its first look once the read is done, and no rule runs twice", async () => {
+    const w = await world({ account: { aiAnalysisInstructions: "" } });
+    const fromShop = await insert(MailRule, {
+      companyId: COMPANY_ID,
+      accountId: w.account.id,
+      name: "Unsubscribe from the shop",
+      enabled: true,
+      position: 0,
+      conditionsJson: JSON.stringify({ from: "shop.example" }),
+      actionsJson: JSON.stringify([{ type: "unsubscribe" }]),
+    });
+    const marketing = await insert(MailRule, {
+      companyId: COMPANY_ID,
+      accountId: w.account.id,
+      name: "Unsubscribe from marketing",
+      enabled: true,
+      position: 1,
+      conditionsJson: JSON.stringify({ category: "marketing" }),
+      actionsJson: JSON.stringify([{ type: "unsubscribe" }]),
+    });
+    down(w.model);
+    await arrive(w);
+    const rules = AppDataSource.getRepository(MailRule);
+    assert.equal((await rules.findOneByOrFail({ id: fromShop.id })).matchCount, 1);
+    assert.equal(
+      (await rules.findOneByOrFail({ id: marketing.id })).matchCount,
+      0,
+      "a category rule cannot match an email nobody has read",
+    );
+
+    setModelWaitHandlerForTests("mail_arrival_read", {
+      ...mailArrivalReadWait,
+      resume: (wait) =>
+        resumeArrivalRead(wait.targetId, {
+          ...readDependencies(w),
+          applyInstructions: applyInstructions(w),
+          ruleDependencies: {
+            unsubscribe: async () => {
+              w.unsubscribes.push(`category-rule:${w.message.id}`);
+              return { host: "lists.shop.example", status: 200 };
+            },
+          },
+        }),
+    });
+    await back(w.model);
+    await settleModelWaitsForTests();
+    assert.equal((await rules.findOneByOrFail({ id: marketing.id })).matchCount, 1, "its first look");
+    assert.equal((await rules.findOneByOrFail({ id: fromShop.id })).matchCount, 1, "never a second");
+    assert.deepEqual(
+      w.unsubscribes,
+      [`rule:${w.message.id}`],
+      "the sender is asked exactly once across both passes",
+    );
+  });
+
   test("a restart during the outage: the arrival still waits after boot and is read when the model is back", async () => {
     const w = await world();
     down(w.model);

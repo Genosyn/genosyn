@@ -25,7 +25,7 @@ import {
   type MailRuleAiDecision,
 } from "./aiRuleEvaluator.js";
 import { createMailHandover, hasActiveRuleHandover } from "./handovers.js";
-import { unsubscribedByInstructions } from "./analysisAutomation.js";
+import { unsubscribedByInstructions, unsubscribedByRules } from "./analysisAutomation.js";
 import { unsubscribeFromMessage, type MailUnsubscribeResult } from "./unsubscribe.js";
 
 /**
@@ -133,6 +133,13 @@ export type MailRuleRuntimeDependencies = {
     condition: MailRuleAiCondition,
   ) => Promise<MailRuleAiDecision>;
   unsubscribe?: (account: MailAccount, message: MailMessage) => Promise<MailUnsubscribeResult>;
+  /**
+   * Run only the rules whose conditions name the AI analysis's category — for
+   * an email whose arrival read waited for its AI Model. Those rules could not
+   * match when the email arrived (the read was not done), so this is their
+   * first look at it; every other rule already had its one.
+   */
+  categoryRulesOnly?: boolean;
 };
 
 /**
@@ -290,6 +297,7 @@ export async function runRulesForNewMessage(
     if (!activeRule || !sameRuleRevision(rule, activeRule)) continue;
 
     const conditions = parseConditions(activeRule.conditionsJson);
+    if (dependencies.categoryRulesOnly && !conditions.category) continue;
     if (!messageMatches(conditions, message)) continue;
     if (conditions.category) {
       const liveAccount = await AppDataSource.getRepository(MailAccount).findOneBy({
@@ -473,9 +481,15 @@ async function applyRuleAction(
       return;
     case "unsubscribe": {
       // The mailbox's AI analysis instructions run before the rules and may
-      // already have sent this exact request. It is irreversible and tells the
-      // sender the address is live, so it is never sent twice for one message.
-      if (await unsubscribedByInstructions(message.id)) {
+      // already have sent this exact request — and a rule whose turn came on
+      // an earlier pass (an email whose read waited) may have too. It is
+      // irreversible and tells the sender the address is live, so it is never
+      // sent twice for one message.
+      if (
+        (await unsubscribedByInstructions(message.id)) ||
+        (dependencies.categoryRulesOnly &&
+          (await unsubscribedByRules(account, message.id, message.createdAt)))
+      ) {
         await recordAudit({
           companyId: account.companyId,
           actorKind: "system",

@@ -35,6 +35,8 @@ import {
   type MailAnalysisAutoAction,
   type MailAutomaticActionFences,
 } from "./analysisAutomation.js";
+import { hasBlockedSender } from "./blockedSenders.js";
+import type { MailRuleRuntimeDependencies } from "./rules.js";
 import { columnHasLabel } from "./store.js";
 import { oneClickUnsubscribeAvailable } from "./unsubscribe.js";
 import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
@@ -1019,6 +1021,8 @@ export async function resumeArrivalRead(
   analysisId: string,
   dependencies: MailAnalysisDependencies & {
     applyInstructions?: typeof applyAutomaticAnalysisActions;
+    /** The mail server and sender for the rules that run after the read; tests only. */
+    ruleDependencies?: Omit<MailRuleRuntimeDependencies, "categoryRulesOnly">;
     now?: () => Date;
   } = {},
 ): Promise<ModelWaitResult> {
@@ -1056,12 +1060,13 @@ export async function resumeArrivalRead(
   if (!read) return forget();
   if (read.status === "waiting") return { status: "waiting" };
   if (read.status === "succeeded") {
+    const fences = mailboxFences(account.id);
     try {
       await (dependencies.applyInstructions ?? applyAutomaticAnalysisActions)(
         account,
         message,
         read.id,
-        mailboxFences(account.id),
+        fences,
       );
     } catch (error) {
       // A pause or disconnect after the read marks the steps skipped, as it
@@ -1069,6 +1074,21 @@ export async function resumeArrivalRead(
       // their own failure.
       // eslint-disable-next-line no-console
       console.warn(`[mail] instructions after a waited read of ${message.id}:`, error);
+    }
+    // The mailbox's rules ran when the email arrived, but a rule that names
+    // the read's category could not match then — there was no read. This is
+    // those rules' first look at the email, never a second for any other.
+    try {
+      if (!(await hasBlockedSender(account, message))) {
+        const { runRulesForNewMessage } = await import("./rules.js");
+        await runRulesForNewMessage(account, message.id, fences.assertRunnable, fences.beforeEffect, {
+          ...dependencies.ruleDependencies,
+          categoryRulesOnly: true,
+        });
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(`[mail] category rules after a waited read of ${message.id}:`, error);
     }
   }
   return { status: "done" };
