@@ -443,7 +443,10 @@ describe("a reply in a channel", () => {
     assert.equal(waiting.status, "working");
     assert.equal(waiting.attempt, 0, "a reply that only waited has not been attempted");
     const waits = (await listChatActivity(second.id, 0, 100)).filter((e) => e.kind === "waiting");
-    assert.deepEqual(waits.map((e) => e.name), ["thread_busy"]);
+    assert.deepEqual(
+      waits.map((e) => e.name),
+      ["thread_busy"],
+    );
 
     release();
     assert.equal((await settled(first.id)).status, "ok");
@@ -470,7 +473,10 @@ describe("a reply in a channel", () => {
     });
     await say(ruth, "@ada write the long report");
     const turn = await nthTurn(1);
-    await waitFor(async () => (await listChatActivity(turn.id, 0, 10)).length > 0, "the turn to start");
+    await waitFor(
+      async () => (await listChatActivity(turn.id, 0, 10)).length > 0,
+      "the turn to start",
+    );
     assert.equal(
       await interruptChannelTurn({
         companyId: company.id,
@@ -634,11 +640,14 @@ describe("while its AI Model is unavailable", () => {
       events.map((event) => [event.kind, event.name]),
       [["waiting", MODEL_UNAVAILABLE_WAIT_CAUSE]],
     );
-    assert.match(events[0].summary, /AI Model is unavailable — this will be answered when it is back/);
+    assert.match(
+      events[0].summary,
+      /AI Model is unavailable — this will be answered when it is back/,
+    );
     assert.deepEqual(
       (await waitingWorkByModel(company.id, [adaModel.id])).get(adaModel.id),
-      { runs: 0, chats: 1 },
-      "the AI Models page counts it as waiting",
+      { runs: 0, chats: 1, other: 0 },
+      "the AI Models page counts it as waiting, among the chat messages",
     );
 
     // Looked at again while still unavailable: still waiting, one line in the room.
@@ -658,10 +667,11 @@ describe("while its AI Model is unavailable", () => {
     const after = await listChatActivity(turn.id, 0, 100);
     assert.equal(after[1]?.kind, "turn_started");
     assert.equal(after[1]?.summary, "Started working", "a reply that only waited starts fresh");
-    assert.deepEqual(
-      (await waitingWorkByModel(company.id, [adaModel.id])).get(adaModel.id),
-      { runs: 0, chats: 0 },
-    );
+    assert.deepEqual((await waitingWorkByModel(company.id, [adaModel.id])).get(adaModel.id), {
+      runs: 0,
+      chats: 0,
+      other: 0,
+    });
   });
 
   test("it is answered the moment the model is back, without waiting for its next look", async (t) => {
@@ -750,10 +760,10 @@ describe("while its AI Model is unavailable", () => {
     assert.ok(paced.leaseExpiresAt && paced.leaseExpiresAt.getTime() > before);
     assert.ok(paced.leaseExpiresAt!.getTime() <= before + 11_000, "a few seconds behind");
     const waits = (await listChatActivity(second.id, 0, 100)).filter((e) => e.kind === "waiting");
-    assert.deepEqual(waits.map((e) => e.name), [
-      MODEL_UNAVAILABLE_WAIT_CAUSE,
-      MODEL_RESUMING_WAIT_CAUSE,
-    ]);
+    assert.deepEqual(
+      waits.map((e) => e.name),
+      [MODEL_UNAVAILABLE_WAIT_CAUSE, MODEL_RESUMING_WAIT_CAUSE],
+    );
   });
 
   test("Stop cancels a reply waiting for its model, and it is never answered", async (t) => {

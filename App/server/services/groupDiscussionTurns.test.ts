@@ -11,8 +11,10 @@ import { Company } from "../db/entities/Company.js";
 import { GroupDiscussion } from "../db/entities/GroupDiscussion.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
+import type { AIModel } from "../db/entities/AIModel.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { modelUnavailability } from "./agent/modelOutage.js";
 import type { ChatOptions, ChatResult } from "./chat.js";
 import { listChatActivity } from "./chatTurnActivity.js";
 import { channelTurnAuthority } from "./channelTurnViews.js";
@@ -24,6 +26,14 @@ import {
   startGroupDiscussion,
   stopGroupDiscussion,
 } from "./groupDiscussions.js";
+import {
+  checkModelAvailabilityNow,
+  flushModelAvailabilityWrites,
+  recordModelFailure,
+  resetModelAvailabilityForTests,
+  setModelCheckForTests,
+} from "./modelAvailability.js";
+import { resetModelWaitsForTests, settleModelWaitsForTests } from "./modelWaits.js";
 import { stopStanddowns } from "./standdowns.js";
 import { createGroupChat, getMessageSummary } from "./workspaceChat.js";
 
@@ -40,6 +50,7 @@ let ruth: User;
 let sam: User;
 let ada: AIEmployee;
 let ben: AIEmployee;
+const models = new Map<string, AIModel>();
 
 type Script = (args: {
   employeeId: string;
@@ -64,12 +75,43 @@ function speaks(text: string): Script {
   };
 }
 
+/**
+ * A turn whose AI Model goes down under it, and trips the breaker as the
+ * runtime does: what it had done so far is recorded, nothing is posted.
+ */
+function outage(employee: AIEmployee): Script {
+  return async ({ options, onChunk }) => {
+    options.onWorkStarted?.();
+    options.activity?.onToolUse?.("get_finance_report", { report: "profit_and_loss" }, "c1");
+    onChunk("Half a thought about");
+    recordModelFailure(
+      models.get(employee.id)!,
+      modelUnavailability("unreachable", { code: "ECONNREFUSED", definite: true }),
+    );
+    return {
+      status: "error",
+      reply: "The AI Model answered with a server error (HTTP 529).",
+      unavailable: modelUnavailability("overloaded", { status: 529, code: "overloaded_error" }),
+    };
+  };
+}
+
+/** The AI Model answers its check again. */
+async function back(employee: AIEmployee): Promise<void> {
+  setModelCheckForTests(async () => ({ kind: "available" }));
+  await checkModelAvailabilityNow(models.get(employee.id)!);
+  await flushModelAvailabilityWrites();
+}
+
 before(initTestDb);
 after(closeTestDb);
 
 beforeEach(async () => {
+  resetModelAvailabilityForTests();
+  resetModelWaitsForTests();
   await resetTestDb();
   stopStanddowns();
+  models.clear();
   ruth = await insert(User, {
     email: "ruth@discuss.test",
     name: "Ruth",
@@ -92,6 +134,7 @@ beforeEach(async () => {
   script = new Map();
   setGroupDiscussionDepsForTests({
     pollIntervalMs: 10,
+    modelWaitPollMs: 15,
     heartbeatMs: 60_000,
     runTurn: async (_companyId, employeeId, _message, _history, onChunk, options) => {
       const next = script.get(employeeId)?.shift();
@@ -123,6 +166,8 @@ afterEach(async () => {
   await settleGroupDiscussionsForTests();
   await settleChannelTurnsForTests();
   setGroupDiscussionDepsForTests(null);
+  resetModelWaitsForTests();
+  resetModelAvailabilityForTests();
   stopStanddowns();
 });
 
@@ -134,14 +179,15 @@ async function hire(name: string, slug: string, role: string): Promise<AIEmploye
     role,
     soulBody: `${name}'s soul.`,
   });
-  await insertEmployeeModel({
+  const model = await insertEmployeeModel({
     employeeId: employee.id,
     provider: "anthropic",
-    model: "claude-sonnet-4",
+    model: `claude-${slug}`,
     authMode: "apikey",
     configJson: "{}",
     isActive: true,
   });
+  models.set(employee.id, model);
   return employee;
 }
 
@@ -180,7 +226,10 @@ describe("watching a group discussion", () => {
     const spoken = turns.filter((turn) => turn.replyMessageId);
     assert.ok(spoken.length >= 2, "each turn that spoke is a channel turn");
     assert.ok(turns.every((turn) => turn.kind === "discussion"));
-    assert.ok(turns.every((turn) => turn.status !== "working"), "every turn ended");
+    assert.ok(
+      turns.every((turn) => turn.status !== "working"),
+      "every turn ended",
+    );
     assert.deepEqual(
       spoken.slice(0, 2).map((turn) => [turn.employeeId, turn.round]),
       [
@@ -189,7 +238,9 @@ describe("watching a group discussion", () => {
       ],
       "who spoke, in which round",
     );
-    assert.ok(turns.every((turn) => turn.authority === "member" && turn.requesterUserId === ruth.id));
+    assert.ok(
+      turns.every((turn) => turn.authority === "member" && turn.requesterUserId === ruth.id),
+    );
 
     const first = spoken[0];
     const events = await listChatActivity(first.id, 0, 100);
@@ -308,9 +359,98 @@ describe("watching a group discussion", () => {
       acceptedAt: new Date(Date.now() - 120_000),
     } as never);
     await recoverChannelTurns();
-    const closed = await AppDataSource.getRepository(ChannelTurn).findOneByOrFail({ id: orphan.id });
+    const closed = await AppDataSource.getRepository(ChannelTurn).findOneByOrFail({
+      id: orphan.id,
+    });
     assert.equal(closed.status, "interrupted");
     const notice = (await listChatActivity(orphan.id, 0, 10)).find((e) => e.kind === "notice");
     assert.equal(notice?.summary, "The server restarted before this turn finished");
+  });
+});
+
+describe("watching a group discussion through an AI Model outage", () => {
+  test("a speaker's turn the outage cuts short ends saying so, and the retaken turn is watched afresh", async () => {
+    plays(ada, outage(ada), speaks("Raise it to $49 — usage doubled."));
+    plays(ben, speaks("Margins can take it."));
+    const { started } = await discussion(1);
+    const cut = await (async () => {
+      for (let i = 0; i < 600; i += 1) {
+        const turn = (await turnsOf(started.id)).find(
+          (t) => t.employeeId === ada.id && t.status !== "working",
+        );
+        if (turn) return turn;
+        await delay(10);
+      }
+      throw new Error("Ada's cut-short turn never ended");
+    })();
+    // Never left on the room's screen as working, nor posted half-written.
+    assert.equal(cut.status, "interrupted");
+    assert.equal(cut.replyMessageId, null);
+    const events = await listChatActivity(cut.id, 0, 100);
+    assert.equal(
+      events.find((e) => e.kind === "notice" && e.name === "model_unavailable")?.summary,
+      "The AI Model became unavailable; this turn is taken again once it is back",
+    );
+    assert.ok(
+      events.some((e) => e.kind === "tool_use"),
+      "what it did before is kept",
+    );
+    assert.equal(
+      events.find((e) => e.kind === "stopped"),
+      undefined,
+      "nobody stopped it",
+    );
+    assert.equal(events.at(-1)?.kind, "turn_finished");
+
+    await back(ada);
+    await settleGroupDiscussionsForTests();
+    const adaTurns = (await turnsOf(started.id)).filter((t) => t.employeeId === ada.id);
+    assert.equal(adaTurns.length, 2, "the retaken turn is a turn of its own");
+    assert.equal(adaTurns[1].status, "ok");
+    const message = await AppDataSource.getRepository(ChannelMessage).findOneByOrFail({
+      id: adaTurns[1].replyMessageId!,
+    });
+    assert.equal(message.content, "Raise it to $49 — usage doubled.");
+    assert.ok((await turnsOf(started.id)).every((t) => t.status !== "working"));
+  });
+
+  test("a share of the work the outage cuts short ends saying so, and its restart is watched afresh", async () => {
+    plays(ada, speaks("Raise it."));
+    plays(ben, speaks("Margins can take it."), outage(ben), speaks("I updated the pricing page."));
+    const { started } = await discussion(1);
+    await settleGroupDiscussionsForTests();
+    await startDiscussionFollowThrough({
+      companyId: company.id,
+      discussionId: started.id,
+      requester: { userId: sam.id, sessionVersion: 0 },
+    });
+    await settleGroupDiscussionsForTests();
+    const [cut] = (await turnsOf(started.id)).filter((t) => t.kind === "follow_through");
+    assert.ok(cut, "the share's first attempt is a turn");
+    assert.equal(cut.status, "interrupted");
+    assert.equal(cut.replyMessageId, null, "nothing half-done is posted");
+    assert.equal(
+      (await listChatActivity(cut.id, 0, 100)).find(
+        (e) => e.kind === "notice" && e.name === "model_unavailable",
+      )?.summary,
+      "The AI Model became unavailable; this work starts again once it is back",
+    );
+
+    await back(ben);
+    await settleModelWaitsForTests();
+    await settleGroupDiscussionsForTests();
+    const shares = (await turnsOf(started.id)).filter((t) => t.kind === "follow_through");
+    assert.equal(shares.length, 2, "the restart is a turn of its own");
+    assert.equal(shares[1].status, "ok");
+    assert.equal(
+      shares[1].requesterUserId,
+      sam.id,
+      "still under the Member who pressed Start the work",
+    );
+    const message = await AppDataSource.getRepository(ChannelMessage).findOneByOrFail({
+      id: shares[1].replyMessageId!,
+    });
+    assert.equal(message.content, "I updated the pricing page.");
+    assert.equal(message.discussionRole, "follow_through");
   });
 });
