@@ -190,6 +190,13 @@ export function Notes() {
         to both, and trashing a page through a tool takes its sub-pages along, the same as in the
         app.
       </P>
+      <P>
+        Listing and searching reach every page the employee may read, however large the knowledge
+        base grows: <Code>list_notes</Code> and <Code>search_notes</Code> answer a page at a time
+        with how many match in all, and each row shows the start of its page — a search also shows
+        the words around what it found — so the employee opens only the pages it needs with{" "}
+        <Code>get_note</Code>. Pages it has no access to never appear and never count.
+      </P>
 
       <Callout kind="tip" title="Editing never rewrites what you didn't touch.">
         Notes are stored as Markdown. When you edit one block of a page an AI Employee wrote, only

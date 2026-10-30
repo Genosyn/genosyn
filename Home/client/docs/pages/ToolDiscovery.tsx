@@ -79,7 +79,10 @@ export function ToolDiscovery() {
       <P>
         A list tool never stops at a fixed number of rows. Banking&apos;s transactions, Entry
         review, invoices, bills, recurring invoices, customers, a mailbox search, Run history,
-        handoffs, a project&apos;s Todos and meetings all answer one page at a time: the page says
+        handoffs, a project&apos;s Todos, meetings, notes and note searches, work reviews, a
+        Pipeline&apos;s Runs, Openings and applications, Revenue Contacts and the Activity
+        export, texts and calls, Workspace messages, data room questions and signature requests
+        all answer one page at a time: the page says
         how many rows match in all (a mailbox search, too large to count on every page, says only
         whether more follow), whether more follow, and gives a cursor the employee passes back,
         with the same filters, for the next page. A page also ends early rather than overflow what

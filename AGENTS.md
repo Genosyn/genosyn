@@ -995,13 +995,22 @@ in a Work session instead of leaving them stranded as local commits.
 - **Lists page; they never stop at a fixed count.** A list that can grow — an
   AI tool or the route beside it — takes `limit` (cut to its maximum, not
   refused) and `cursor`, and answers `total`, `hasMore`, `nextCursor` and a
-  `note`, ahead of its rows, through `services/listPaging.ts`: a keyset cursor
-  bound to the list and its filters, ending in a unique id, so work done between
-  pages never skips a row. An AI tool's page also ends early rather than
-  overflow a tool result (`TOOL_PAGE_BUDGET_CHARS`). Give it the filters its
-  domain needs (Finance dates are UTC calendar days, `dateRange`) and an index
-  that bounds the rows a page reads. A mailbox search is the one list without
-  `total`, because counting it reads the whole mailbox.
+  `note`, ahead of its rows, through `services/listPaging.ts` (`keysetPage`
+  for the usual case): a keyset cursor bound to the list and its filters,
+  ending in a unique id, so work done between pages never skips a row. Prefer
+  sort keys the work does not change (`createdAt` over `updatedAt`), apply
+  Grants and visibility inside the query — never after the page is cut — and
+  have a listing preview long text its `get_` tool reads in full, redacted the
+  same way. An AI tool's page also ends early rather than overflow a tool
+  result (`TOOL_PAGE_BUDGET_CHARS`). A REST list that predates paging answers a
+  page when sent `limit` or `cursor` and keeps its old shape otherwise; it and
+  its tool call one service function, so they cannot drift. An older Skill's
+  `offset` may still place a first page (`skip`), but is never advertised.
+  Give a list the filters its domain needs (Finance dates are UTC calendar
+  days, `dateRange`) and an index that bounds the rows a page reads: keys
+  sorting one way compare as one row value, so an index over the filters, the
+  sort keys and `id` starts a deep page at its cursor. A mailbox search is the
+  one list without `total`, because counting it reads the whole mailbox.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small
