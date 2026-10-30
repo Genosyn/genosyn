@@ -10,7 +10,20 @@
 
 /** Where a Finance product's search result opens: the catalogue, filtered. */
 export function financeProductPath(name: string): string {
-  return `/finance/products?q=${encodeURIComponent(name)}`;
+  return `/finance/products?q=${encodeQueryValue(name)}`;
+}
+
+/**
+ * `encodeURIComponent`, plus the five characters it leaves alone. The chat
+ * composer carries this path inside a Markdown link, `[#name](path)`, where a
+ * bare `)` from a product called "Option A)" would end the link early and
+ * leave the rest as stray text. Every reader decodes `%28`/`%29` back.
+ */
+function encodeQueryValue(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 export type FinanceProductSearchFields = {

@@ -79,6 +79,9 @@ export function ModelSetupForm({
   const isApiKey = !isCustom && authMode === "apikey";
   const needsKey =
     mode === "create" || provider !== initial.provider || authMode !== initial.authMode;
+  // A connected API-key model keeps its pool of keys when its model changes:
+  // keys are added and removed under API keys, never replaced from here.
+  const keepsKeys = mode === "edit" && isApiKey && !needsKey && catalogFromSavedKeys;
   const keyPage = isApiKey ? API_KEY_PAGES[provider] : undefined;
 
   function clearDiscovery() {
@@ -195,7 +198,7 @@ export function ModelSetupForm({
   const keyField = (
     <>
       <Input
-        label={needsKey ? "API key" : "Replace primary API key (optional)"}
+        label={needsKey ? "API key" : "API key (optional)"}
         type="password"
         autoComplete="off"
         // Connecting a model is pasting a key: start there, not on the
@@ -212,9 +215,8 @@ export function ModelSetupForm({
         }
       />
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        {needsKey || !catalogFromSavedKeys
-          ? "We find the available models and test a real reply before connecting. Your key is stored encrypted. The small test uses your API account."
-          : "Leave this blank to keep the saved keys. We test the model you pick with them before saving."}
+        We find the available models and test a real reply before connecting. Your key is stored
+        encrypted. The small test uses your API account.
         {keyPage && needsKey && (
           <>
             {" "}
@@ -345,7 +347,15 @@ export function ModelSetupForm({
         {isApiKey && mode === "edit" && (
           <>
             {modelPicker}
-            {keyField}
+            {keepsKeys ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                The models listed are the ones this AI Model&apos;s API keys can reach. We test the
+                model you pick with them before saving; the keys themselves stay as they are — add
+                or remove keys under API keys.
+              </p>
+            ) : (
+              keyField
+            )}
           </>
         )}
         {isApiKey && mode === "create" && (

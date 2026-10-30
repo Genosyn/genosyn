@@ -22,7 +22,7 @@ import {
   editApiModel,
 } from "../services/modelSetup.js";
 import { testModelConnection } from "../services/modelConnectionTest.js";
-import { addBackupKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
+import { addApiKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
 import { LEGACY_PRIMARY_KEY_ID, readApiKeys } from "../services/modelApiKeys.js";
 import { pruneKeyHealth } from "../services/modelKeyHealth.js";
 import { previewBaseURL } from "../services/customEndpoint.js";
@@ -61,8 +61,8 @@ import { emitResourceChange } from "../services/resourceEvents.js";
  * The company's AI Models, mounted at `/api/companies/:cid/models` — what
  * Settings → AI Models shows and every route keyed on one model row.
  *
- * An AI Model belongs to the company: one set of credentials, backup keys
- * and key health that any number of AI Employees run on. `POST /:id/attach`
+ * An AI Model belongs to the company: one set of credentials, one pool of API
+ * keys and their health that any number of AI Employees run on. `POST /:id/attach`
  * and `POST /:id/detach` put it on and take it off employees (detaching never
  * deletes it), `DELETE /:id` removes it from the company — refused while
  * anyone still uses it unless `detach=true` — and `POST /:id/merge` folds
@@ -72,7 +72,8 @@ import { emitResourceChange } from "../services/resourceEvents.js";
  * subscription through the pinned official Codex app-server on trusted
  * self-hosted installs. Every credential remains encrypted in `configJson`
  * and only previews ever leave the server. `/:id/keys` adds, removes and
- * reorders an API-key model's backup keys (`services/modelApiKeySetup.ts`);
+ * orders the API keys an API-key model spreads its sessions across
+ * (`services/modelApiKeySetup.ts`);
  * `POST /:id/test` asks the model for one real reply and changes nothing
  * (`services/modelConnectionTest.ts`); `GET /:id/catalog` lists the models an
  * API-key model's own keys can reach, for changing its model.
@@ -496,7 +497,7 @@ companyModelsRouter.put(
 );
 
 // DELETE /api/companies/:cid/models/:id — remove the model from the company,
-// its credentials, backup keys and their health with it. Refused with 409 and
+// its credentials, API keys and their health with it. Refused with 409 and
 // the employees' names while any AI Employee uses it, unless `detach=true`,
 // which detaches it from all of them first.
 const removeQuerySchema = z.object({
@@ -651,7 +652,10 @@ companyModelsRouter.post(
   },
 );
 
-// POST /api/companies/:cid/models/:id/apikey — set the primary API key.
+// POST /api/companies/:cid/models/:id/apikey — set the API key a model still
+// waiting for one connects with. On a model that has keys it replaces the
+// first-listed one and keeps the rest; Settings adds and removes keys through
+// `/:id/keys` instead.
 const apiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) });
 
 companyModelsRouter.post(
@@ -685,15 +689,15 @@ companyModelsRouter.post(
   },
 );
 
-// ---------- Backup API keys ----------
+// ---------- API keys ----------
 //
-// An Anthropic or OpenAI model connected with an API key holds its primary key
-// and any number of backup keys, tried in order when the provider refuses the
-// key a request went out on (see `services/agent/apiKeyRing.ts`). Every AI
-// Employee on the model fails over through the same keys. Only previews leave
-// the server.
+// An Anthropic or OpenAI model connected with an API key holds any number of
+// keys, all equals: each session opens on the next key in turn and stays on
+// it, moving to another key only when the provider refuses its own (see
+// `services/agent/apiKeyRing.ts`). Every AI Employee on the model draws on the
+// same pool. Only previews leave the server.
 
-/** A key's id: a UUID, or `primary` for a primary saved before backup keys. */
+/** A key's id: a UUID, or `primary` for a key saved before keys had ids. */
 const apiKeyIdSchema = z.union([z.literal(LEGACY_PRIMARY_KEY_ID), z.string().uuid()]);
 const apiKeyItemParamsSchema = itemParamsSchema.extend({ keyId: apiKeyIdSchema });
 const addApiKeySchema = z.object({ apiKey: z.string().trim().min(1).max(500) }).strict();
@@ -706,7 +710,8 @@ const reorderApiKeysSchema = z
   })
   .strict();
 
-// POST /api/companies/:cid/models/:id/keys — test a key, add it as a backup.
+// POST /api/companies/:cid/models/:id/keys — test a key alone, then add it to
+// the pool, where it takes its turn ahead of the keys that already had theirs.
 companyModelsRouter.post(
   "/:id/keys",
   validateParams(itemParamsSchema),
@@ -715,9 +720,9 @@ companyModelsRouter.post(
     const p = req.params as Record<string, string>;
     const ctx = await loadModel(p.cid, p.id);
     if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    let added: Awaited<ReturnType<typeof addBackupKey>>;
+    let added: Awaited<ReturnType<typeof addApiKey>>;
     try {
-      added = await addBackupKey(
+      added = await addApiKey(
         ctx.m,
         (req.body as z.infer<typeof addApiKeySchema>).apiKey,
         ctx.co.id,
@@ -735,7 +740,9 @@ companyModelsRouter.post(
   },
 );
 
-// POST /api/companies/:cid/models/:id/keys/reorder — the first is the primary.
+// POST /api/companies/:cid/models/:id/keys/reorder — the order the keys are
+// listed in. Sessions take every key in turn whatever the order; it only sets
+// where a connection test starts. Kept so a stored order can still be set.
 companyModelsRouter.post(
   "/:id/keys/reorder",
   validateParams(itemParamsSchema),
@@ -763,7 +770,8 @@ companyModelsRouter.post(
   },
 );
 
-// DELETE /api/companies/:cid/models/:id/keys/:keyId — the next key moves up.
+// DELETE /api/companies/:cid/models/:id/keys/:keyId — sessions are spread
+// across the remaining keys; the only key can't be removed.
 companyModelsRouter.delete(
   "/:id/keys/:keyId",
   validateParams(apiKeyItemParamsSchema),

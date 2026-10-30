@@ -35,9 +35,10 @@ export type PublicModel = {
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
   /**
-   * An API-key model's keys in the order requests try them — the primary,
-   * then every backup — each as a masked preview with its health. Empty for
-   * subscription and custom-endpoint models.
+   * An API-key model's keys — the pool its sessions are spread across, in the
+   * order they are stored — each as a masked preview with its health and the
+   * sessions it carried in the last day. Empty for subscription and
+   * custom-endpoint models.
    */
   apiKeys: PublicApiKey[];
   /** Env var the provider conventionally reads (informational), or null. */

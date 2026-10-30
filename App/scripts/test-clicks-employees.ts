@@ -273,6 +273,7 @@ const CONNECTED_MODEL = {
       lastErrorKind: null,
       lastError: null,
       restingUntil: null,
+      sessionsLast24h: 0,
     },
   ],
   apiKeyEnv: "OPENAI_API_KEY",

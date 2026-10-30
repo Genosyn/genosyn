@@ -131,8 +131,9 @@ export function tuningNotes(
   // A ChatGPT sign-in has neither control, and an unconnected model has no
   // settings worth reporting yet.
   if (model.status !== "connected" || model.authMode === "subscription") return [];
-  // Backup keys, and any key the provider is refusing, come first: a dead key
-  // is the one thing in here an owner should not have to go looking for.
+  // The keys sessions are spread across, and any the provider is refusing,
+  // come first: a dead key is the one thing in here an owner should not have
+  // to go looking for.
   const notes: string[] = model.provider ? apiKeyNotes({ ...model, provider: model.provider }) : [];
   if (model.contextWindowSource === "manual") notes.push("Context window set manually");
   else if (model.authMode === "customEndpoint" && model.contextWindow === null) {
@@ -157,7 +158,7 @@ export function modelAdvancedHint(model: Pick<AIModel, "authMode" | "status">): 
 /**
  * The line one model card's Advanced section shows while it is closed:
  * whatever inside has been moved off its default, and any key the provider is
- * refusing — e.g. "2 backup API keys · 1 API key failing · 2 concurrent Runs".
+ * refusing — e.g. "3 API keys · 1 API key failing · 2 concurrent Runs".
  * With nothing changed it names what the section holds instead, so the line is
  * never blank and nothing that was set is hidden by being folded away.
  *

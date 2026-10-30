@@ -22,9 +22,10 @@ export function Models() {
         lead={
           <>
             <Strong>AI Models</Strong> are your AI Employees&apos; brains, and they belong to the
-            company. Connect a model once — Anthropic or OpenAI with an API key, plus as many{" "}
-            <a href="#backup-keys">backup keys</a> as you like, your own OpenAI-compatible
-            endpoint, or eligible ChatGPT subscription access for OpenAI — and attach it to as many
+            company. Connect a model once — Anthropic or OpenAI with an API key, or{" "}
+            <a href="#api-keys">several keys it spreads its work across</a>, your own
+            OpenAI-compatible endpoint, or eligible ChatGPT subscription access for OpenAI — and
+            attach it to as many
             AI Employees as you like: they share one set of keys and settings. Each employee can
             have several attached and keeps exactly one <Strong>active</Strong>. OpenCode runs
             API-key and custom models, with host coding access enabled by default.
@@ -76,8 +77,9 @@ export function Models() {
 
       <H3 id="sharing">One model, many AI Employees</H3>
       <P>
-        Every AI Employee attached to a model runs on that same model — not a copy. So a backup key
-        added once serves all of them, a key the provider refuses rests for all of them, a change of
+        Every AI Employee attached to a model runs on that same model — not a copy. So its API keys
+        are one pool for all of them — their sessions take the keys in turn together — a key added
+        once serves all of them, a key the provider refuses rests for all of them, a change of
         model changes it for all of them, and a key rotated at the provider needs updating in one
         place. Usage lands on the account the key bills. On an employee&apos;s Model page a shared
         model&apos;s card says <Strong>Also used by</Strong> whoever else runs on it, and its{" "}
@@ -96,7 +98,7 @@ export function Models() {
         often pasted — or copied — for several of them. Upgrading turns each of those into a
         company model attached to its employee, keeping its keys, their health, its settings and
         which one was active; nothing is merged on its own. When two or more company models are
-        exactly the same — the same service, model, endpoint and keys in the same order — Settings
+        exactly the same — the same service, model, endpoint and keys, in whatever order — Settings
         → AI Models says so above the cards: <Strong>2 copies of … with the same keys</Strong>.{" "}
         <Strong>Merge into one</Strong> moves everyone on a copy to the oldest one, which keeps its
         settings, carries each key&apos;s health across, points Routine, mailbox and Work session
@@ -188,9 +190,9 @@ export function Models() {
       </P>
       <UL>
         <LI>
-          A Claude or OpenAI model connected with a key: its <Strong>API keys</Strong> — the
-          primary and its <a href="#backup-keys">backup keys</a>, each with how it has been doing —
-          then <Strong>Model</Strong>, <Strong>Context window</Strong> and{" "}
+          A Claude or OpenAI model connected with a key: its <Strong>API keys</Strong> — every
+          key it <a href="#api-keys">spreads its sessions across</a>, each with how it has been
+          doing — then <Strong>Model</Strong>, <Strong>Context window</Strong> and{" "}
           <Strong>Concurrent Routine Runs</Strong>.
         </LI>
         <LI>
@@ -210,7 +212,7 @@ export function Models() {
       <P>
         Its closed line names whatever has been moved off its default on that model, so nothing you
         set is hidden by being folded away: for example{" "}
-        <Strong>2 backup API keys · 4 concurrent Runs</Strong>. A key the provider is refusing adds{" "}
+        <Strong>3 API keys · 4 concurrent Runs</Strong>. A key the provider is refusing adds{" "}
         <Strong>1 API key failing</Strong> — and the card itself says so too, above the line. A
         custom endpoint whose server did not report a context window reads{" "}
         <Strong>Context window unknown</Strong>. With nothing changed it names what is inside, such
@@ -221,55 +223,73 @@ export function Models() {
         To run a different model on the same service, open <Strong>Model</Strong> and select{" "}
         <Strong>Change</Strong>: the list comes from the models the card&apos;s own keys can reach,
         with the current one marked, so there is nothing to paste. Genosyn tests the model you pick
-        before saving it. The same form switches to the other API-key service with a new key, or
-        replaces the primary key.
+        before saving it, and the model keeps its keys. The same form switches to the other
+        API-key service with a new key.
       </P>
 
-      <H2 id="backup-keys">Backup API keys</H2>
+      <H2 id="api-keys">API keys: one pool, spread across sessions</H2>
       <P>
-        A Claude (Anthropic) or OpenAI model connected with an API key can hold any number of
-        backup keys — another account&apos;s key for when this one runs out of credit, say, or a
-        second key for when the first is rate-limited. Open <Strong>Advanced</Strong> on the model
-        card; <Strong>API keys</Strong> lists the primary first, then each backup:
+        A Claude (Anthropic) or OpenAI model connected with an API key can hold any number of keys
+        — several accounts&apos; keys, say, to get past one account&apos;s rate limits or credit.
+        None of them is a primary or a backup: they are equals, and the model&apos;s work is spread
+        across all of them. Open <Strong>Advanced</Strong> on the model card;{" "}
+        <Strong>API keys</Strong> lists them:
       </P>
       <UL>
         <LI>
-          <Strong>Add a backup key</Strong>, then <Strong>Add backup key</Strong>. Genosyn tests a
-          real reply with that key on its own before adding it, the same test a new model gets, so
-          a key that fails is never saved. There is no limit on how many you add.
+          <Strong>Add a key</Strong>: paste it, then select <Strong>Add key</Strong>. Genosyn tests
+          a real reply with that key on its own before adding it, the same test a new model gets,
+          so a key that fails is never saved. There is no limit on how many you add, and a new key
+          joins the turns straight away.
         </LI>
         <LI>
-          The arrows move a key up or down; the key at the top is the primary. The bin removes a
-          key after you confirm, and the next key moves up. The only key can&apos;t be removed —
-          remove the model instead.
+          The bin removes a key after you confirm; sessions carry on across the others. The only
+          key can&apos;t be removed — remove the model instead. There is no order to set: every key
+          takes its turn.
         </LI>
         <LI>
-          To replace the primary, open <Strong>Model → Change</Strong> and fill in{" "}
-          <Strong>Replace primary API key</Strong>. The backups stay; switching to another service
-          drops them, since another service&apos;s keys would not work.
+          Switching the model to another service, in <Strong>Model → Change</Strong>, asks for that
+          service&apos;s key and drops the old ones, since another service&apos;s keys would not
+          work.
         </LI>
       </UL>
       <P>
-        Requests use the first key. When the provider refuses it — invalid or revoked (HTTP 401),
-        not allowed (403), out of credit or a billing problem (402, or a 400 that says the credit
+        Each new <Strong>session</Strong> opens on the next key in turn and keeps that key until it
+        ends. A session is one piece of work on the model: a chat reply, a Routine Run&apos;s work
+        (a Check fix or the grading of a Run is a session of its own), a turn of a{" "}
+        <DocLink to="/docs/repositories">Repository work session</DocLink>, a delegated copy of
+        the work, and a meeting&apos;s transcription. Staying on one key keeps a session&apos;s
+        prompt caching and rate limits on one account; the next session takes the next key, so
+        with three keys every third session lands on each. Every AI Employee on the model draws
+        from the same pool, the turns start from a random key after the App restarts, and sessions
+        that start at the same moment never take the same turn. Test connection and the test
+        behind <Strong>Add key</Strong> are not work, so they take no turn.
+      </P>
+      <P>
+        When the provider refuses a session&apos;s key — invalid or revoked (HTTP 401), not
+        allowed (403), out of credit or a billing problem (402, or a 400 that says the credit
         balance is too low), rate-limited or out of quota (429) — Genosyn sends the very same
-        request again on the next key before any of the reply reaches the AI Employee, so its
-        work carries on without noticing. A refused key is then skipped for five minutes, or for
-        as long as a rate limit asks (a minute when it doesn&apos;t say), though it is still tried
-        last when every other key is refused. Anything else — a malformed or over-long request,
-        an unknown model, the provider failing or overloaded, no answer at all — is not about the
-        key, so it goes back unchanged, and OpenCode retries the temporary ones itself. When every
-        key is refused, the chat or Run reports the provider&apos;s own error: the last key&apos;s,
-        or an earlier key&apos;s rate limit, which can still succeed once the limit resets. The
-        Run log notes each switch, by preview.
+        request again on the next key in turn before any of the reply reaches the AI Employee, so
+        its work carries on without noticing, and the rest of the session stays on the key that
+        answered. A refused key is then skipped by every session for five minutes, or for as long
+        as a rate limit asks (a minute when it doesn&apos;t say), though it is still tried last
+        when every other key is refused; once it wakes it takes its turn again. When every key is
+        resting, a new session opens on the one whose rest ends soonest. Anything else — a
+        malformed or over-long request, an unknown model, the provider failing or overloaded, no
+        answer at all — is not about the key, so it goes back unchanged, and OpenCode retries the
+        temporary ones itself. When every key is refused, the chat or Run reports the
+        provider&apos;s own error: the last key&apos;s, or an earlier key&apos;s rate limit, which
+        can still succeed once the limit resets. A Run&apos;s log says which key it opened on and
+        notes each switch, by preview.
       </P>
       <P>
         Each key shows only a preview such as <Code>sk-…c123</Code>, with when it was last used,
-        when the provider last refused it and why, and <Strong>Skipped for now</Strong> while it
-        rests — so a dead key is easy to spot. Every key is encrypted at rest like the primary.
-        Owners and admins add, order and remove keys; other Members only see the list. Each change
-        is in the <DocLink to="/docs/security#audit-log">audit log</DocLink>. Custom endpoints and
-        ChatGPT sign-in don&apos;t take backup keys.
+        how many sessions it carried in the last 24 hours — so you can see the work spread across
+        the keys — when the provider last refused it and why, and <Strong>Skipped for now</Strong>{" "}
+        while it rests, so a dead key is easy to spot. Every key is encrypted at rest. Owners and
+        admins add and remove keys; other Members only see the list. Each change is in the{" "}
+        <DocLink to="/docs/security#audit-log">audit log</DocLink>. Custom endpoints and ChatGPT
+        sign-in take no API keys of this kind.
       </P>
 
       <H2 id="supported-providers">Provider kinds</H2>
@@ -442,7 +462,7 @@ export function Models() {
       </P>
 
       <Callout kind="info" title="Encrypted at rest, ephemeral when materialized.">
-        API keys (backup keys included), endpoints, and OpenAI subscription credentials are
+        API keys (every key in a model&apos;s pool), endpoints, and OpenAI subscription credentials are
         AES-256-GCM encrypted in the database. Genosyn keeps the selected model&apos;s API keys and
         gives OpenCode a temporary token for its model-request proxy. Managed Codex authentication
         requires file-backed state,
@@ -612,8 +632,8 @@ export function Models() {
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
         OpenCode manages temporary model-service retries for API-key and custom models; a key the
-        provider refuses first moves the request to the model&apos;s{" "}
-        <a href="#backup-keys">backup keys</a>. The Codex app-server manages subscription retries.
+        provider refuses first moves the request to the next of the model&apos;s{" "}
+        <a href="#api-keys">API keys</a>. The Codex app-server manages subscription retries.
         Genosyn keeps the same Run while the runtime
         retries; cancelling work or reaching the Run deadline stops it. If the runtime cannot
         complete a model request, the Run ends with <Strong>Error</Strong>. Retry timing and context

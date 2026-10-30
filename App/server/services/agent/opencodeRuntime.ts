@@ -47,6 +47,13 @@ export type OpenCodeTurnParams = {
    * turn still fails promptly, so nobody watches it hang.
    */
   waitForModel?: boolean;
+  /**
+   * Whether this turn is a session in an API-key AI Model's key pool: it opens
+   * on the next key in turn, counts as a session on it, and stays on it
+   * (`apiKeyRing.ts`). Every piece of work is; a connection test passes
+   * `false`, so checking the model neither takes a turn nor counts as work.
+   */
+  keySession?: boolean;
 };
 export type OpenCodeTurnResult = { finalText: string; steps: number; stopReason: string };
 
@@ -69,7 +76,10 @@ export function turnWaitsForModel(
 /** OpenCode owns model calls, tool sequencing, retries and context compaction. */
 export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenCodeTurnResult> {
   if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
-  const model = await resolveOpenCodeModel(params.model);
+  const model = await resolveOpenCodeModel(params.model, { keySession: params.keySession });
+  if (model.keys?.isSession && model.keys.size > 1) {
+    params.callbacks?.onApiKeySession?.({ preview: model.keys.key.preview, keys: model.keys.size });
+  }
   const gate = new OpenCodeToolGate(params.signal);
   let bridge: Awaited<ReturnType<typeof serveOpenCodeTools>> | undefined;
   let proxy: Awaited<ReturnType<typeof serveOpenCodeModel>> | undefined;

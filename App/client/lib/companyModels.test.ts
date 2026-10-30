@@ -50,6 +50,7 @@ function model(values: Partial<AIModel> = {}): AIModel {
         lastErrorKind: null,
         lastError: null,
         restingUntil: null,
+        sessionsLast24h: 0,
       },
     ],
     apiKeyEnv: "ANTHROPIC_API_KEY",

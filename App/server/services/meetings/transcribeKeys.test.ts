@@ -6,11 +6,13 @@ import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
 import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import { newStoredApiKey, readApiKeys, writeApiKeys } from "../modelApiKeys.js";
 import { resetKeyHealthMemory, restKey } from "../modelKeyHealth.js";
+import { resetKeyPoolMemory } from "../modelKeyPool.js";
 import { resolveTranscriptionTarget } from "./transcribe.js";
 
 /**
- * Transcription with an OpenAI API-key model uses the key a Run would try
- * first right now — a backup while the primary rests after being refused.
+ * Transcription with an OpenAI API-key model is work on the model's keys like
+ * a session: each one takes the next key in turn, skipping a key that rests
+ * after being refused.
  */
 
 const security = config.security as { encryptionSecret: string };
@@ -22,6 +24,7 @@ before(async () => {
 beforeEach(async () => {
   await resetTestDb();
   resetKeyHealthMemory();
+  resetKeyPoolMemory({ random: () => 0 });
 });
 after(async () => {
   await closeTestDb();
@@ -43,20 +46,33 @@ async function openai(configJson: string): Promise<AIModel> {
   });
 }
 
-test("the primary key transcribes while it works", async () => {
+test("each transcription takes the next key in turn", async () => {
   await openai(
     writeApiKeys(
       "{}",
       [PRIMARY, BACKUP].map((key) => newStoredApiKey(key, "co")),
     ),
   );
-  const resolved = await resolveTranscriptionTarget("notetaker");
-  assert.ok("target" in resolved);
-  assert.equal(resolved.target.apiKey, PRIMARY);
-  assert.equal(resolved.target.baseURL, "https://api.openai.com/v1");
+  const used: string[] = [];
+  for (let meeting = 0; meeting < 4; meeting++) {
+    const resolved = await resolveTranscriptionTarget("notetaker");
+    assert.ok("target" in resolved);
+    assert.equal(resolved.target.baseURL, "https://api.openai.com/v1");
+    used.push(resolved.target.apiKey);
+  }
+  assert.deepEqual(used, [PRIMARY, BACKUP, PRIMARY, BACKUP]);
 });
 
-test("a resting primary hands transcription to the backup", async () => {
+test("a single key transcribes every meeting", async () => {
+  await openai(writeApiKeys("{}", [newStoredApiKey(PRIMARY, "co")]));
+  for (let meeting = 0; meeting < 3; meeting++) {
+    const resolved = await resolveTranscriptionTarget("notetaker");
+    assert.ok("target" in resolved);
+    assert.equal(resolved.target.apiKey, PRIMARY);
+  }
+});
+
+test("a resting key is skipped: transcription goes to a key that isn't", async () => {
   const model = await openai(
     writeApiKeys(
       "{}",

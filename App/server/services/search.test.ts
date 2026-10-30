@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Base } from "../db/entities/Base.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
@@ -503,6 +504,107 @@ describe("company search treats a kind word as a qualifier", () => {
       tasks.filter((hit) => hit.kind === "todo").map((hit) => hit.label),
       ["Revenue review"],
     );
+  });
+
+  test("a title that says the whole phrase leads one that says it without the kind word", async () => {
+    // Inserted first, so recency would favour the shorter title on a tie.
+    await insert(Dashboard, { companyId, title: "Sales dashboard", slug: "sales-dashboard" });
+    await insert(Dashboard, { companyId, title: "Sales", slug: "sales" });
+    for (const query of ["sales dashboard", "SALES DASHBOARD", "  sales   dashboard "]) {
+      const hits = await search(query);
+      assert.deepEqual(
+        hits.filter((hit) => hit.kind === "dashboard").map((hit) => hit.label),
+        ["Sales dashboard", "Sales"],
+        query,
+      );
+    }
+  });
+
+  test("a name that matches once the kind word is set aside still leads looser titles", async () => {
+    await insert(Dashboard, {
+      companyId,
+      title: "Revenue dashboard archive",
+      slug: "revenue-dashboard-archive",
+    });
+    await insert(Dashboard, {
+      companyId,
+      title: "Old revenue dashboard",
+      slug: "old-revenue-dashboard",
+    });
+    const hits = await search("revenue dashboard");
+    assert.deepEqual(
+      hits.filter((hit) => hit.kind === "dashboard").map((hit) => hit.label),
+      ["Revenue", "Revenue dashboard archive", "Old revenue dashboard"],
+    );
+  });
+
+  test("the whole phrase also wins when the kind word comes first", async () => {
+    await insert(Dashboard, { companyId, title: "Dashboard revenue", slug: "dashboard-revenue" });
+    const hits = await search("dashboard revenue");
+    assert.deepEqual(
+      hits.filter((hit) => hit.kind === "dashboard").map((hit) => hit.label),
+      ["Dashboard revenue", "Revenue"],
+    );
+  });
+
+  test("a kind word alone keeps the names that say it, however many rows the kind holds", async () => {
+    // "data" starts "database", so it lists Bases. The Base whose name says
+    // data must still be among the rows each kind fetches for ranking, not
+    // pushed out by twenty-five names that sort ahead of it.
+    await insert(Base, { companyId, name: "Marketing data", slug: "marketing-data" });
+    for (let i = 1; i <= 25; i += 1) {
+      const n = String(i).padStart(2, "0");
+      await insert(Base, { companyId, name: `Archive ${n}`, slug: `archive-${n}` });
+    }
+    const hits = await search("data");
+    const bases = hits.filter((hit) => hit.kind === "base").map((hit) => hit.label);
+    assert.equal(bases[0], "Marketing data");
+    assert.equal(bases.length, 5, "the rest of the kind still fills its places");
+  });
+
+  test("a name that starts with the kind word leads one that only contains it", async () => {
+    await insert(Base, { companyId, name: "Marketing data", slug: "marketing-data" });
+    await insert(Base, { companyId, name: "Data room index", slug: "data-room-index" });
+    for (let i = 1; i <= 25; i += 1) {
+      const n = String(i).padStart(2, "0");
+      await insert(Base, { companyId, name: `Archive ${n}`, slug: `archive-${n}` });
+    }
+    const bases = (await search("data"))
+      .filter((hit) => hit.kind === "base")
+      .map((hit) => hit.label);
+    assert.deepEqual(bases.slice(0, 2), ["Data room index", "Marketing data"]);
+  });
+
+  test("the kinds with their own queries keep those names in reach too", async () => {
+    const notebook = await insert(Notebook, { companyId, title: "Site", slug: "site" });
+    // Written first, so every newer note sorts ahead of it on recency alone.
+    await insert(Note, {
+      companyId,
+      notebookId: notebook.id,
+      title: "Pricing page",
+      slug: "pricing-page",
+    });
+    for (let i = 1; i <= 25; i += 1) {
+      const n = String(i).padStart(2, "0");
+      await insert(Note, {
+        companyId,
+        notebookId: notebook.id,
+        title: `Archive ${n}`,
+        slug: `archive-${n}`,
+      });
+    }
+    const hits = await search("page");
+    const notes = hits.filter((hit) => hit.kind === "note").map((hit) => hit.label);
+    assert.equal(notes[0], "Pricing page");
+  });
+
+  test("an ordinary query still ranks only the rows that match it", async () => {
+    await insert(Base, { companyId, name: "Marketing data", slug: "marketing-data" });
+    await insert(Base, { companyId, name: "Archive 01", slug: "archive-01" });
+    const bases = (await search("marketing"))
+      .filter((hit) => hit.kind === "base")
+      .map((hit) => hit.label);
+    assert.deepEqual(bases, ["Marketing data"]);
   });
 });
 
