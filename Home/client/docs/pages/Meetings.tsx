@@ -120,10 +120,10 @@ export function Meetings() {
       </P>
       <UL>
         <LI>
-          An <Strong>OpenAI</Strong> model sends the audio to OpenAI&apos;s audio endpoint using the
-          key already on that model — one of its{" "}
-          <DocLink to="/docs/models#backup-keys">backup keys</DocLink> while the primary is being
-          skipped after a refusal.
+          An <Strong>OpenAI</Strong> model sends the audio to OpenAI&apos;s audio endpoint using a
+          key already on that model — the next of its{" "}
+          <DocLink to="/docs/models#api-keys">API keys</DocLink> in turn, skipping one that is
+          resting after a refusal.
         </LI>
         <LI>
           A <Strong>custom endpoint</Strong> sends it to whatever OpenAI-compatible server the model
