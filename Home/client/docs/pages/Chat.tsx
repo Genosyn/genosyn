@@ -203,7 +203,12 @@ export function Chat() {
         as usual.
       </P>
       <P>
-        A conversation that can&apos;t wait — a Slack thread, a Workspace channel — gets a plain
+        On Slack, Teams, Telegram or WhatsApp the employee says once that its AI Model is
+        unavailable and answers there by itself when it is back — see{" "}
+        <DocLink to="/docs/chat-surfaces#model-unavailable">Chat surfaces</DocLink>.
+      </P>
+      <P>
+        A conversation that can&apos;t wait — a Workspace channel — gets a plain
         reply instead: the employee says its AI Model is unavailable and asks for the message again
         in a little while, rather than showing the technical error.
       </P>

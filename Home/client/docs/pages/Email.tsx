@@ -615,7 +615,9 @@ export function Email() {
         under the employee that read the email.
       </P>
       <Callout kind="info" title="When the instructions run.">
-        Once, as a new email arrives — never on the mail imported when you connected the mailbox,
+        Once, as a new email arrives — or, if its AI Model was{" "}
+        <a href="#analysis-unavailable">unavailable</a> then, once it is read — never on the mail
+        imported when you connected the mailbox,
         on drafts, or on mail you sent, and not when you ask for an email to be read again (the
         refresh button on its AI summary, or <Strong>Try again</Strong>), which only refreshes the
         summary and suggestions. They run under the reading employee&apos;s own{" "}
@@ -632,6 +634,31 @@ export function Email() {
         email that arrives. Clear the box, or turn AI analysis off, if you would rather they did
         nothing on their own.
       </P>
+      <H3 id="analysis-unavailable">When the AI Model is unavailable</H3>
+      <P>
+        If the reading employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is
+        unavailable</DocLink> when an email arrives — or becomes unavailable while reading it —
+        the email is not marked as failed. Its AI summary says{" "}
+        <Strong>Waiting for the AI Model to come back</Strong>, and your rules and Pipelines run as
+        usual meanwhile. Once the model answers again the email is read by itself, once, as the
+        arrival it is: your instructions act on it then, under the reading employee&apos;s access
+        and any Standdown as they stand at that moment, and a rule that names the summary&apos;s
+        category gets its first look. An unsubscribe a rule already sent is never sent again.
+      </P>
+      <UL>
+        <LI>
+          An email that waited more than three days is still read, but its instructions are offered
+          as buttons instead of acting on their own — mail that old is not newly arrived.
+        </LI>
+        <LI>
+          A paused mailbox keeps the email waiting until you resume it. Turn AI analysis off, or
+          move the email to Spam or Trash, and it is never read.
+        </LI>
+        <LI>
+          You can&apos;t read an email again while it waits, and reading one again while the model
+          is unavailable is refused before its current summary is touched.
+        </LI>
+      </UL>
       <H3 id="analysis-settings">Choosing who reads, and turning it off</H3>
       <P>
         <Strong>Email → Settings → AI analysis</Strong> is on for every mailbox. Leave the employee
