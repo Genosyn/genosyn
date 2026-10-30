@@ -7,6 +7,8 @@ export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
 import type { TurnActivitySummary } from "../../shared/chatActivity";
 export type { ChatActivityEvent, TurnActivitySummary } from "../../shared/chatActivity";
+import type { ModelThinking, TurnThinking } from "../../shared/thinkingLevels";
+export type { ModelThinking, TurnThinking } from "../../shared/thinkingLevels";
 
 /**
  * A refused API request: the sentence to show, plus the status and the JSON
@@ -1392,11 +1394,19 @@ export type AIModel = {
   /** False when the provider can't be asked at all (OpenAI reports no window). */
   contextWindowProbeable: boolean;
   /**
-   * Efforts this model accepts beyond its default, lowest first. Empty when it
-   * always runs at its default: a custom endpoint, or a model without known
-   * effort support.
+   * Thinking levels this model offers, lowest first (`none` is Off). Empty
+   * when it always runs at its own default: a model without known support, or
+   * a custom endpoint whose owners have not turned levels on.
    */
   effortLevels: ModelEffort[];
+  /**
+   * What a thinking-level picker needs: the levels, what the model does by
+   * itself, its owners' default for chat and the highest level Members may
+   * choose. See `shared/thinkingLevels.ts`.
+   */
+  thinking: ModelThinking;
+  /** A custom endpoint whose owners turned thinking levels on. */
+  customThinkingLevels: boolean;
   /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
   maxConcurrentRuns: number | null;
   /** How many Routine Runs may use this model at once; null means no limit. */
@@ -1447,11 +1457,16 @@ export type ConversationSummary = {
    */
   lastModelId: string | null;
   /**
-   * Effort that same turn ran at, or null for the model's default. The
-   * composer reapplies it along with `lastModelId`, while that model still
-   * supports it.
+   * The level the newest turn was sent at, or null. Kept for older clients;
+   * the thread's own level is `effort`.
    */
   lastEffort: ModelEffort | null;
+  /**
+   * The thread's thinking level — how hard the AI Model thinks before each
+   * reply — or null for Default. It sticks to the thread across AI Models;
+   * each message resolves it against the model it goes to.
+   */
+  effort?: ModelEffort | null;
   /**
    * The Member browser this thread's browser work runs in, or null for the
    * one inside Genosyn. Chosen by the thread's owner from the chat header.
@@ -1530,6 +1545,8 @@ export type ConversationMessage = {
   context?: ChatContextUsage | null;
   /** How the turn behind this reply went: "Worked for 2m 14s · 9 steps". */
   activity?: TurnActivitySummary | null;
+  /** The thinking level this reply ran at, and why it moved if it did. */
+  thinking?: TurnThinking | null;
   actions?: MessageAction[];
   attachments?: ChatAttachment[];
   createdAt: string;
@@ -3574,8 +3591,10 @@ export type WorkSessionModel = Pick<
   "id" | "provider" | "model" | "status" | "isActive"
 > & {
   label: string;
-  /** The server supplies the efforts this model currently supports. */
+  /** The server supplies the thinking levels this model currently supports. */
   effortLevels?: ModelEffort[];
+  /** Its owners' default and the highest level they allow, with the levels. */
+  thinking?: ModelThinking;
 };
 export type RepositoryWorkSessionCandidatesResponse = {
   employees: Array<RepositoryWorkSessionEmployee & { role: string; models: WorkSessionModel[] }>;

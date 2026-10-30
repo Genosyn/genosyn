@@ -335,29 +335,30 @@ describe("conversation lastEffort", () => {
     assert.equal((created.body as Summary).lastEffort, null);
   });
 
-  test("a send at an effort its model does not support is refused before anything is saved", async () => {
-    const conv = await conversation({ title: "unsupported effort" });
-    for (const [modelId, effort] of [
-      // This model has no known effort support at all.
-      [otherModel.id, "high"],
-      // This one does, but not at this level.
-      [(await model({ name: "gpt-5.4" })).id, "max"],
+  test("a level its model does not offer runs at the nearest one, never refused", async () => {
+    for (const [modelId, effort, expected] of [
+      // This model has no known thinking levels at all: its own default.
+      [otherModel.id, "high", { send: null, level: null }],
+      // This one does, but tops out below this level.
+      [(await model({ name: "gpt-5.4" })).id, "max", { send: "xhigh", level: "xhigh" }],
     ] as const) {
+      const conv = await conversation({ title: `level ${effort} on ${modelId}` });
       const events = await sendEvents(conv.id, { message: "Think hard", modelId, effort });
-      const error = events.find((entry) => entry.event === "error");
-      assert.match(
-        String((error?.data as { message?: string } | undefined)?.message),
-        /does not support this effort/,
-      );
       assert.equal(
-        events.some((entry) => entry.event === "user"),
+        events.some((entry) => entry.event === "error"),
         false,
       );
+      const assistant = await AppDataSource.getRepository(ConversationMessage).findOneByOrFail({
+        conversationId: conv.id,
+        role: "assistant",
+      });
+      assert.equal(assistant.effort, expected.send);
+      assert.deepEqual(JSON.parse(assistant.thinkingJson), {
+        level: expected.level,
+        requested: effort,
+        adjusted: "unsupported",
+      });
     }
-    assert.equal(
-      await AppDataSource.getRepository(ConversationMessage).countBy({ conversationId: conv.id }),
-      0,
-    );
   });
 
   test("an effort the API does not know is rejected by the schema", async () => {

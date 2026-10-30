@@ -25,8 +25,10 @@ import {
   runOpenCodeSession,
   SILENT_STOP_NUDGE,
   SILENT_STOP_NUDGES,
+  turnThinking,
   type OpenCodeTurnParams,
 } from "./opencodeRuntime.js";
+import { ADAPTIVE_THINKING_OUTPUT_LIMIT, THINKING_BUDGETS } from "./thinkingParams.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 
 type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: string };
@@ -38,6 +40,8 @@ type ReasoningOnlyReply = { reasoningOnly: string };
 type ParallelToolCalls = { parallel: ToolCall[] };
 /** An error response, the way a provider refuses a request it will not run. */
 type Rejection = { reject: { status: number; body: Record<string, unknown> } };
+/** A reply that thinks first and shows it: a summary, Claude's thinking, or reasoning_content. */
+type ThinkingReply = { thinking: string; text: string };
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const imageMessages: AgentMessage[] = [
@@ -95,6 +99,7 @@ async function fakeProvider(
     | ReasoningOnlyReply
     | ParallelToolCalls
     | Rejection
+    | ThinkingReply
     | "hang",
 ) {
   const requests: { url: string; auth?: string; body: Record<string, unknown> }[] = [];
@@ -123,9 +128,18 @@ async function fakeProvider(
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     if (req.url?.endsWith("/chat/completions")) chatResponse(res, result);
     else if (req.url?.endsWith("/messages"))
-      anthropicResponse(res, typeof result === "string" || "name" in result ? result : "Verified");
+      anthropicResponse(
+        res,
+        typeof result === "string" || "name" in result || "thinking" in result
+          ? result
+          : "Verified",
+      );
     else if (req.url?.endsWith("/responses"))
-      responsesResponse(res, typeof result === "string" ? result : "Verified");
+      responsesResponse(
+        res,
+        typeof result === "string" ? result : "thinking" in result ? result.text : "Verified",
+        typeof result === "object" && "thinking" in result ? result.thinking : undefined,
+      );
     else {
       res.end();
     }
@@ -144,7 +158,13 @@ async function fakeProvider(
 }
 function chatResponse(
   res: ServerResponse,
-  value: string | ToolCall | TruncatedReply | ReasoningOnlyReply | ParallelToolCalls,
+  value:
+    | string
+    | ToolCall
+    | TruncatedReply
+    | ReasoningOnlyReply
+    | ParallelToolCalls
+    | ThinkingReply,
 ) {
   const send = (
     delta: Record<string, unknown>,
@@ -161,6 +181,10 @@ function chatResponse(
   } else if ("reasoningOnly" in value) {
     send({ role: "assistant", reasoning_content: value.reasoningOnly });
     send({}, "stop", { prompt_tokens: 29, completion_tokens: 18334, total_tokens: 18363 });
+  } else if ("thinking" in value) {
+    send({ role: "assistant", reasoning_content: value.thinking });
+    send({ content: value.text });
+    send({}, "stop", { prompt_tokens: 29, completion_tokens: 12, total_tokens: 41 });
   } else if ("truncated" in value) {
     send({ role: "assistant", content: value.truncated });
     send({}, "length", { prompt_tokens: 29, completion_tokens: 8192, total_tokens: 8221 });
@@ -182,7 +206,7 @@ function chatResponse(
   }
   res.end("data: [DONE]\n\n");
 }
-function anthropicResponse(res: ServerResponse, value: string | ToolCall) {
+function anthropicResponse(res: ServerResponse, value: string | ToolCall | ThinkingReply) {
   const send = (type: string, value: Record<string, unknown>) =>
     res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`);
   send("message_start", {
@@ -197,7 +221,29 @@ function anthropicResponse(res: ServerResponse, value: string | ToolCall) {
       usage: { input_tokens: 29, output_tokens: 0 },
     },
   });
-  if (typeof value === "string") {
+  if (typeof value === "object" && "thinking" in value) {
+    // A summarized thought, signed, then the answer.
+    send("content_block_start", {
+      index: 0,
+      content_block: { type: "thinking", thinking: "", signature: "" },
+    });
+    send("content_block_delta", {
+      index: 0,
+      delta: { type: "thinking_delta", thinking: value.thinking },
+    });
+    send("content_block_delta", {
+      index: 0,
+      delta: { type: "signature_delta", signature: "fixture-signature" },
+    });
+    send("content_block_stop", { index: 0 });
+    send("content_block_start", { index: 1, content_block: { type: "text", text: "" } });
+    send("content_block_delta", { index: 1, delta: { type: "text_delta", text: value.text } });
+    send("content_block_stop", { index: 1 });
+    send("message_delta", {
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { output_tokens: 12 },
+    });
+  } else if (typeof value === "string") {
     send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
     send("content_block_delta", { index: 0, delta: { type: "text_delta", text: value } });
     send("content_block_stop", { index: 0 });
@@ -233,12 +279,23 @@ function anthropicResponse(res: ServerResponse, value: string | ToolCall) {
   send("message_stop", {});
   res.end();
 }
-function responsesResponse(res: ServerResponse, text: string) {
+function responsesResponse(res: ServerResponse, text: string, summary?: string) {
   let sequence = 0;
   const send = (type: string, value: Record<string, unknown>) =>
     res.write(
       `event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: sequence++, ...value })}\n\n`,
     );
+  // A reasoning item with a summary, the way a reasoning model shows its thinking.
+  const reasoning =
+    summary === undefined
+      ? null
+      : {
+          id: "rs-fixture",
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: summary }],
+          encrypted_content: "fixture-encrypted",
+        };
+  const outputIndex = reasoning ? 1 : 0;
   const item = {
     id: "msg-fixture",
     type: "message",
@@ -252,7 +309,7 @@ function responsesResponse(res: ServerResponse, text: string) {
     created_at: 1,
     status: "completed",
     model: "fixture",
-    output: [item],
+    output: reasoning ? [reasoning, item] : [item],
     usage: {
       input_tokens: 29,
       output_tokens: 5,
@@ -262,29 +319,60 @@ function responsesResponse(res: ServerResponse, text: string) {
     },
   };
   send("response.created", { response: { ...response, status: "in_progress", output: [] } });
+  if (reasoning && summary !== undefined) {
+    send("response.output_item.added", {
+      output_index: 0,
+      item: { ...reasoning, summary: [] },
+    });
+    send("response.reasoning_summary_part.added", {
+      item_id: reasoning.id,
+      output_index: 0,
+      summary_index: 0,
+      part: { type: "summary_text", text: "" },
+    });
+    send("response.reasoning_summary_text.delta", {
+      item_id: reasoning.id,
+      output_index: 0,
+      summary_index: 0,
+      delta: summary,
+    });
+    send("response.reasoning_summary_text.done", {
+      item_id: reasoning.id,
+      output_index: 0,
+      summary_index: 0,
+      text: summary,
+    });
+    send("response.reasoning_summary_part.done", {
+      item_id: reasoning.id,
+      output_index: 0,
+      summary_index: 0,
+      part: { type: "summary_text", text: summary },
+    });
+    send("response.output_item.done", { output_index: 0, item: reasoning });
+  }
   send("response.output_item.added", {
-    output_index: 0,
+    output_index: outputIndex,
     item: { ...item, status: "in_progress", content: [] },
   });
   send("response.content_part.added", {
     item_id: "msg-fixture",
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     part: { type: "output_text", text: "", annotations: [] },
   });
   send("response.output_text.delta", {
     item_id: "msg-fixture",
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     delta: text,
   });
   send("response.output_text.done", {
     item_id: "msg-fixture",
-    output_index: 0,
+    output_index: outputIndex,
     content_index: 0,
     text,
   });
-  send("response.output_item.done", { output_index: 0, item });
+  send("response.output_item.done", { output_index: outputIndex, item });
   send("response.completed", { response });
   res.end();
 }
@@ -297,7 +385,11 @@ async function realTurn(
   proxyOptions?: Parameters<typeof serveOpenCodeModel>[2],
 ) {
   const params: OpenCodeTurnParams = {
-    model: { provider: model.provider, contextWindow: model.contextWindow } as AIModel,
+    model: {
+      provider: model.provider,
+      model: model.id,
+      contextWindow: model.contextWindow,
+    } as AIModel,
     system: "Complete the requested work with the supplied tools.",
     messages: [{ role: "user", content: [{ type: "text", text: "Verify the fixture" }] }],
     registry: residentOnlyRegistry(tools),
@@ -307,7 +399,12 @@ async function realTurn(
   };
   const gate = new OpenCodeToolGate(params.signal);
   const bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
-  const proxy = await serveOpenCodeModel(model, params.signal, proxyOptions);
+  // Wired as `runOpenCodeTurn` wires it: a refused level reaches the turn's callbacks.
+  const proxy = await serveOpenCodeModel(model, params.signal, {
+    onThinkingRefused: () =>
+      params.callbacks?.onThinkingFallback?.({ level: params.effort ?? null }),
+    ...proxyOptions,
+  });
   let server: Awaited<ReturnType<typeof startOpenCodeServer>> | undefined;
   try {
     server = await startOpenCodeServer({
@@ -316,7 +413,7 @@ async function realTurn(
         maxSteps: params.maxSteps,
         nativeCoding: params.nativeCoding ?? false,
         mcp: bridge,
-        effort: params.effort,
+        thinking: turnThinking(params),
       }),
       cwd: params.cwd,
       signal: params.signal,
@@ -397,7 +494,7 @@ for (const provider of ["openai", "anthropic"] as const)
       try {
         const result = await realTurn(
           {
-            id: provider === "anthropic" ? "claude-3-haiku-20240307" : "fixture",
+            id: provider === "anthropic" ? "claude-opus-4-7" : "gpt-5.5",
             provider,
             apiKey: "upstream-private-key",
             baseURL: fixture.baseURL,
@@ -418,15 +515,20 @@ for (const provider of ["openai", "anthropic"] as const)
           provider === "openai" ? "/v1/responses" : "/v1/messages",
         );
         if (provider === "openai") {
-          assert.equal((fixture.requests[0].body.reasoning as { effort?: string })?.effort, "high");
+          assert.deepEqual(fixture.requests[0].body.reasoning, {
+            effort: "high",
+            summary: "auto",
+          });
           assert.equal(fixture.requests[0].body.store, false);
           assert.ok(Number(fixture.requests[0].body.max_output_tokens) > 8192);
         } else {
-          assert.equal(fixture.requests[0].body.max_tokens, 4096);
-          assert.equal(
-            (fixture.requests[0].body.output_config as { effort?: string })?.effort,
-            "high",
-          );
+          // A level turns Claude's adaptive thinking on, with room to think.
+          assert.equal(fixture.requests[0].body.max_tokens, ADAPTIVE_THINKING_OUTPUT_LIMIT);
+          assert.deepEqual(fixture.requests[0].body.thinking, {
+            type: "adaptive",
+            display: "summarized",
+          });
+          assert.deepEqual(fixture.requests[0].body.output_config, { effort: "high" });
         }
       } finally {
         await fixture.close();
@@ -462,6 +564,397 @@ for (const legacy of [
       }
     },
   );
+
+// ─────────────────────────── thinking levels ───────────────────────────
+//
+// A chat turn's thinking level reaches each AI Model as its own parameters
+// (`thinkingParams.ts`); these drive the pinned OpenCode against a fake
+// upstream and read what it actually sent.
+
+/** A fixture model of `provider` and `id`, against `baseURL`. */
+function thinkingModel(
+  provider: OpenCodeModel["provider"],
+  id: string,
+  baseURL: string,
+): OpenCodeModel {
+  return { id, provider, apiKey: "upstream-private-key", baseURL, contextWindow: 200_000 };
+}
+
+/** What the activity hears of a turn's thinking and of a refused level. */
+function thinkingWatch() {
+  const reasoning: string[] = [];
+  const fallbacks: Array<{ level: string | null }> = [];
+  return {
+    reasoning,
+    fallbacks,
+    callbacks: {
+      onReasoning: (delta: string) => reasoning.push(delta),
+      onThinkingFallback: (fallback: { level: string | null }) => fallbacks.push(fallback),
+    },
+  };
+}
+
+test(
+  "a Claude thinking level turns adaptive thinking on and its summary reaches the activity",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({
+      thinking: "Weighing the renewal terms against last year's.",
+      text: "Verified",
+    }));
+    const watch = thinkingWatch();
+    try {
+      const result = await realTurn(thinkingModel("anthropic", "claude-opus-4-7", fixture.baseURL), [], {
+        effort: "max",
+        reasoningSummaries: true,
+        callbacks: watch.callbacks,
+      });
+      assert.equal(result.finalText, "Verified");
+      const body = fixture.requests[0].body;
+      assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized" });
+      assert.deepEqual(body.output_config, { effort: "max" });
+      assert.equal(body.max_tokens, ADAPTIVE_THINKING_OUTPUT_LIMIT);
+      assert.equal(watch.reasoning.join(""), "Weighing the renewal terms against last year's.");
+      assert.deepEqual(watch.fallbacks, []);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "Off on a Claude model that thinks only when asked sends no thinking at all",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => "Verified");
+    try {
+      await realTurn(thinkingModel("anthropic", "claude-opus-4-7", fixture.baseURL), [], {
+        effort: "none",
+        reasoningSummaries: true,
+      });
+      const body = fixture.requests[0].body;
+      assert.equal(Object.hasOwn(body, "thinking"), false);
+      assert.equal(Object.hasOwn(body, "output_config"), false);
+      assert.equal(body.max_tokens, 8192);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a Claude model that always thinks is asked to show it at its own default, and nothing more",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ thinking: "Checking the ledger.", text: "Verified" }));
+    const watch = thinkingWatch();
+    try {
+      await realTurn(thinkingModel("anthropic", "claude-opus-5-5", fixture.baseURL), [], {
+        effort: null,
+        reasoningSummaries: true,
+        callbacks: watch.callbacks,
+      });
+      const body = fixture.requests[0].body;
+      // OpenCode's own provider adds Claude 5.5's thinking-block binding; the
+      // display is Genosyn's.
+      const thinking = body.thinking as Record<string, unknown>;
+      assert.equal(thinking.type, "adaptive");
+      assert.equal(thinking.display, "summarized");
+      // The level stays the model's own: no effort is sent.
+      assert.equal(Object.hasOwn(body, "output_config"), false);
+      assert.equal(watch.reasoning.join(""), "Checking the ledger.");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a Routine-style turn at the model's default sends Claude no thinking parameters",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => "Verified");
+    try {
+      await realTurn(thinkingModel("anthropic", "claude-opus-5-5", fixture.baseURL), []);
+      const body = fixture.requests[0].body;
+      // Whatever OpenCode's provider sends by itself, nothing of Genosyn's:
+      // no display, no effort, the usual room.
+      assert.equal(Object.hasOwn((body.thinking ?? {}) as object, "display"), false);
+      assert.equal(Object.hasOwn(body, "output_config"), false);
+      assert.equal(body.max_tokens, 8192);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "an older Claude model thinks within a budget sized by the level",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ thinking: "Budgeted thought.", text: "Verified" }));
+    try {
+      await realTurn(thinkingModel("anthropic", "claude-sonnet-4-5-20250929", fixture.baseURL), [], {
+        effort: "medium",
+      });
+      const body = fixture.requests[0].body;
+      assert.deepEqual(body.thinking, { type: "enabled", budget_tokens: THINKING_BUDGETS.medium });
+      // The AI SDK adds the budget to the reply's room, and no effort is sent:
+      // Claude Sonnet 4.5 refuses one.
+      assert.equal(body.max_tokens, 8192 + THINKING_BUDGETS.medium);
+      assert.equal(Object.hasOwn(body, "output_config"), false);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "Claude Opus 4.5 takes both its effort and a thinking budget",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => "Verified");
+    try {
+      await realTurn(thinkingModel("anthropic", "claude-opus-4-5-20251101", fixture.baseURL), [], {
+        effort: "high",
+      });
+      const body = fixture.requests[0].body;
+      assert.deepEqual(body.output_config, { effort: "high" });
+      assert.deepEqual(body.thinking, { type: "enabled", budget_tokens: THINKING_BUDGETS.high });
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "an OpenAI reasoning model gets its effort and returns a reasoning summary",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({
+      thinking: "**Comparing plans**\n\nThe annual plan is cheaper.",
+      text: "Verified",
+    }));
+    const watch = thinkingWatch();
+    try {
+      await realTurn(thinkingModel("openai", "o3", fixture.baseURL), [], {
+        effort: "high",
+        reasoningSummaries: true,
+        callbacks: watch.callbacks,
+      });
+      assert.deepEqual(fixture.requests[0].body.reasoning, { effort: "high", summary: "auto" });
+      assert.match(watch.reasoning.join(""), /The annual plan is cheaper/);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "at its own default an OpenAI reasoning model is only asked for its summary",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => "Verified");
+    try {
+      await realTurn(thinkingModel("openai", "o3", fixture.baseURL), [], {
+        effort: null,
+        reasoningSummaries: true,
+      });
+      assert.deepEqual(fixture.requests[0].body.reasoning, { summary: "auto" });
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a custom endpoint with thinking levels turned on gets reasoning_effort, and none otherwise",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ thinking: "Local thought.", text: "Verified" }));
+    const watch = thinkingWatch();
+    try {
+      const model = customFixtureModel(fixture.baseURL);
+      await realTurn(model, [], {
+        model: {
+          provider: "custom",
+          model: model.id,
+          contextWindow: model.contextWindow,
+          customThinkingLevels: true,
+        } as AIModel,
+        effort: "low",
+        callbacks: watch.callbacks,
+      });
+      await realTurn(model, []);
+      assert.equal(fixture.requests[0].body.reasoning_effort, "low");
+      assert.equal(Object.hasOwn(fixture.requests[1].body, "reasoning_effort"), false);
+      // A server's reasoning_content reaches the activity like any thinking.
+      assert.equal(watch.reasoning.join(""), "Local thought.");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a Claude model that refuses the thinking level answers at its default, for the rest of the turn",
+  { timeout: 180_000 },
+  async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    let answered = 0;
+    const fixture = await fakeProvider((body) => {
+      if (body.thinking !== undefined || body.output_config !== undefined)
+        return {
+          reject: {
+            status: 400,
+            body: {
+              type: "error",
+              error: {
+                type: "invalid_request_error",
+                message: "thinking.type: adaptive thinking is not supported on this model",
+              },
+            },
+          },
+        };
+      return answered++ === 0
+        ? { name: "genosyn_fixture_echo", input: { value: "after the refusal" } }
+        : "Verified";
+    });
+    const watch = thinkingWatch();
+    try {
+      const result = await realTurn(
+        thinkingModel("anthropic", "claude-opus-4-7", fixture.baseURL),
+        [echoTool(calls)],
+        { effort: "high", reasoningSummaries: true, callbacks: watch.callbacks },
+      );
+      assert.equal(result.finalText, "Verified");
+      assert.deepEqual(calls, [{ value: "after the refusal" }]);
+      // Refused once, sent again without the level, and never sent with it again.
+      assert.equal(fixture.requests.length, 3);
+      assert.ok(fixture.requests[0].body.thinking);
+      for (const request of fixture.requests.slice(1)) {
+        assert.equal(Object.hasOwn(request.body, "thinking"), false);
+        assert.equal(Object.hasOwn(request.body, "output_config"), false);
+      }
+      assert.deepEqual(watch.fallbacks, [{ level: "high" }]);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "an older Claude model that refuses a thinking budget gets its reply room back",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider((body) =>
+      body.thinking !== undefined
+        ? {
+            reject: {
+              status: 400,
+              body: {
+                type: "error",
+                error: {
+                  type: "invalid_request_error",
+                  message: "thinking: budget_tokens is not supported for this model",
+                },
+              },
+            },
+          }
+        : "Verified",
+    );
+    const watch = thinkingWatch();
+    try {
+      const result = await realTurn(
+        thinkingModel("anthropic", "claude-sonnet-4-5", fixture.baseURL),
+        [],
+        { effort: "max", callbacks: watch.callbacks },
+      );
+      assert.equal(result.finalText, "Verified");
+      assert.equal(fixture.requests.length, 2);
+      assert.equal(fixture.requests[0].body.max_tokens, 8192 + THINKING_BUDGETS.max);
+      assert.equal(fixture.requests[1].body.max_tokens, 8192);
+      assert.deepEqual(watch.fallbacks, [{ level: "max" }]);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a strict server that refuses reasoning_effort as an unknown field answers without it",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider((body) =>
+      body.reasoning_effort !== undefined
+        ? {
+            reject: {
+              status: 422,
+              body: {
+                detail: [
+                  {
+                    type: "extra_forbidden",
+                    loc: ["body", "reasoning_effort"],
+                    msg: "Extra inputs are not permitted",
+                  },
+                ],
+              },
+            },
+          }
+        : "Verified",
+    );
+    const watch = thinkingWatch();
+    try {
+      const model = customFixtureModel(fixture.baseURL);
+      const result = await realTurn(model, [], {
+        model: {
+          provider: "custom",
+          model: model.id,
+          contextWindow: model.contextWindow,
+          customThinkingLevels: true,
+        } as AIModel,
+        effort: "high",
+        callbacks: watch.callbacks,
+      });
+      assert.equal(result.finalText, "Verified");
+      assert.equal(fixture.requests.length, 2);
+      assert.equal(Object.hasOwn(fixture.requests[1].body, "reasoning_effort"), false);
+      assert.deepEqual(watch.fallbacks, [{ level: "high" }]);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a refusal that is not about thinking fails as it did, without a second request",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({
+      reject: {
+        status: 400,
+        body: {
+          type: "error",
+          error: { type: "invalid_request_error", message: "Your credit balance is too low." },
+        },
+      },
+    }));
+    const watch = thinkingWatch();
+    try {
+      await assert.rejects(
+        realTurn(thinkingModel("anthropic", "claude-opus-4-7", fixture.baseURL), [], {
+          effort: "high",
+          callbacks: watch.callbacks,
+        }),
+        /HTTP 400/,
+      );
+      assert.equal(fixture.requests.length, 1);
+      assert.deepEqual(watch.fallbacks, []);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
 
 test(
   "pinned OpenCode native coding writes a file and executes a command after live authorization",

@@ -141,13 +141,97 @@ describe("OpenAI subscription credential runtime", () => {
     assert.equal(requests.length, 4);
     assert.equal(requests[0].effort, "max");
     assert.equal(requests[1].effort, "ultra");
+    // A level also asks for the reasoning summary, so the work's activity can show it.
+    assert.equal(requests[0].summary, "auto");
+    assert.equal(requests[1].summary, "auto");
     assert.equal(Object.hasOwn(requests[2], "effort"), false);
     assert.equal(Object.hasOwn(requests[3], "effort"), false);
+    // The model's own default, for work that shows no thinking: nothing at all.
+    assert.equal(Object.hasOwn(requests[2], "summary"), false);
+    assert.equal(Object.hasOwn(requests[3], "summary"), false);
     for (const request of requests) {
       assert.equal(request.threadId, "test-thread");
       assert.equal(request.approvalPolicy, "never");
       assert.ok(Array.isArray(request.input));
     }
+  });
+
+  test("chat at the model's own default asks Codex for the summary only, and hears it", async (t) => {
+    const entrypoint = path.join(tempRoot, "fake-app-server.mjs");
+    const requestPath = path.join(tempRoot, "turn-requests.jsonl");
+    await fs.writeFile(entrypoint, EFFORT_APP_SERVER);
+    const start = realCodexStart;
+    t.mock.method(CodexAppServer, "start", (options: Parameters<typeof CodexAppServer.start>[0]) =>
+      start({
+        ...options,
+        entrypoint,
+        env: { ...options.env, GENOSYN_TEST_TURN_REQUESTS: requestPath },
+      }),
+    );
+    const model = await insertSubscriptionModel();
+    await subscription.saveSubscriptionAccessToken(model.id, `test-codex-summary-${randomUUID()}`);
+    await fs.writeFile(requestPath, "");
+    const reasoning: string[] = [];
+    const result = await runCodexSubscriptionTurn({
+      model,
+      effort: null,
+      reasoningSummaries: true,
+      system: "Answer the Member.",
+      messages: [{ role: "user", content: [{ type: "text", text: "How risky is it?" }] }],
+      registry: residentOnlyRegistry([]),
+      maxSteps: 4,
+      callbacks: { onReasoning: (delta) => reasoning.push(delta) },
+    });
+    assert.equal(result.finalText, "Reviewed.");
+    const [request] = (await fs.readFile(requestPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(request.summary, "auto");
+    assert.equal(Object.hasOwn(request, "effort"), false);
+    assert.equal(reasoning.join(""), "Weighing the change.");
+  });
+
+  test("a level Codex refuses runs the turn again at the model's default, and says so", async (t) => {
+    const entrypoint = path.join(tempRoot, "fake-app-server.mjs");
+    const requestPath = path.join(tempRoot, "turn-requests.jsonl");
+    await fs.writeFile(entrypoint, EFFORT_APP_SERVER);
+    const start = realCodexStart;
+    t.mock.method(CodexAppServer, "start", (options: Parameters<typeof CodexAppServer.start>[0]) =>
+      start({
+        ...options,
+        entrypoint,
+        env: {
+          ...options.env,
+          GENOSYN_TEST_TURN_REQUESTS: requestPath,
+          GENOSYN_TEST_REFUSE_THINKING: "1",
+        },
+      }),
+    );
+    const model = await insertSubscriptionModel();
+    await subscription.saveSubscriptionAccessToken(model.id, `test-codex-refuse-${randomUUID()}`);
+    await fs.writeFile(requestPath, "");
+    const fallbacks: Array<{ level: string | null }> = [];
+    const result = await runCodexSubscriptionTurn({
+      model,
+      effort: "max",
+      reasoningSummaries: true,
+      system: "Answer the Member.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Think it through." }] }],
+      registry: residentOnlyRegistry([]),
+      maxSteps: 4,
+      callbacks: { onThinkingFallback: (fallback) => fallbacks.push(fallback) },
+    });
+    assert.equal(result.finalText, "Reviewed.");
+    const requests = (await fs.readFile(requestPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].effort, "max");
+    assert.equal(Object.hasOwn(requests[1], "effort"), false);
+    assert.equal(Object.hasOwn(requests[1], "summary"), false);
+    assert.deepEqual(fallbacks, [{ level: "max" }]);
   });
 
   test("saving then preparing an access token keeps it encrypted at rest and ephemeral at runtime", async () => {
@@ -315,6 +399,41 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line
   } else if (message.method === "turn/start") {
     appendFileSync(process.env.GENOSYN_TEST_TURN_REQUESTS, JSON.stringify(message.params) + "\n");
     send({ id: message.id, result: { turn: { id: "test-turn" } } });
+    if (process.env.GENOSYN_TEST_REFUSE_THINKING && (message.params.effort || message.params.summary)) {
+      // The backend refuses the level, the way the Responses API names it.
+      send({
+        method: "error",
+        params: {
+          threadId: "test-thread", turnId: "test-turn", willRetry: false,
+          error: {
+            message: "unexpected status 400 Bad Request: Unsupported value: 'max' is not supported with this model.",
+            codexErrorInfo: "badRequest",
+            param: "reasoning.effort",
+          },
+        },
+      });
+      send({
+        method: "turn/completed",
+        params: { threadId: "test-thread", turn: { id: "test-turn", status: "failed" } },
+      });
+      return;
+    }
+    if (message.params.summary) {
+      send({
+        method: "item/reasoning/summaryTextDelta",
+        params: {
+          threadId: "test-thread", turnId: "test-turn",
+          itemId: "thought", summaryIndex: 0, delta: "Weighing the change.",
+        },
+      });
+      send({
+        method: "item/completed",
+        params: {
+          threadId: "test-thread", turnId: "test-turn",
+          item: { id: "thought", type: "reasoning", summary: ["Weighing the change."], content: [] },
+        },
+      });
+    }
     send({
       method: "item/completed",
       params: {

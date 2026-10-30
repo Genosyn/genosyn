@@ -110,13 +110,26 @@ export class ConversationMessage {
   modelId!: string | null;
 
   /**
-   * Effort selected with {@link modelId} for this durable assistant turn. NULL
-   * uses the AI Model's default, as do user messages, legacy replies and turns
-   * sent without a choice. Persisted for the model's reason: a queued or
-   * recovered turn thinks as hard as the Member asked when they sent it.
+   * The thinking level this durable assistant turn asks {@link modelId} for,
+   * resolved when the turn is accepted from the conversation's level, the
+   * model's default and the company's ceiling. NULL asks for none, so the AI
+   * Model uses its own default — as do user messages and legacy replies.
+   * Persisted for the model's reason: a queued or recovered turn thinks as
+   * hard as it was going to when it was sent.
    */
   @Column({ type: "varchar", nullable: true })
   effort!: ModelEffort | null;
+
+  /**
+   * The thinking level this reply ran at, as one JSON record (`TurnThinking`
+   * in `shared/thinkingLevels.ts`): the level, the conversation's level it
+   * came from, and why they differ when they do — a level the model does not
+   * offer, the company's ceiling, or the AI Model refusing it mid-turn. The
+   * chat shows it quietly under the reply. Empty on user messages and on
+   * replies from before levels were recorded.
+   */
+  @Column({ type: "text", default: "" })
+  thinkingJson!: string;
 
   /**
    * User message that owns this durable assistant turn. NULL on ordinary

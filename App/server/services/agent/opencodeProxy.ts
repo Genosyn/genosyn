@@ -119,6 +119,86 @@ export function endOnUserTurn(request: Record<string, unknown>): Record<string, 
 }
 
 /**
+ * The request without the thinking parameters a turn's thinking level added
+ * (`thinkingParams.ts`), or null when it carries none:
+ *
+ *   - Claude: `thinking` and `output_config.effort`, giving back the room a
+ *     thinking budget added to `max_tokens`;
+ *   - OpenAI: `reasoning`, and the encrypted reasoning it asked to keep;
+ *   - a custom endpoint: `reasoning_effort`.
+ */
+export function withoutThinking(
+  provider: OpenCodeModel["provider"],
+  request: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const next: Record<string, unknown> = { ...request };
+  let changed = false;
+  if (provider === "anthropic") {
+    const thinking = next.thinking as { type?: unknown; budget_tokens?: unknown } | undefined;
+    if (thinking !== undefined) {
+      delete next.thinking;
+      changed = true;
+      const budget = thinking?.type === "enabled" ? Number(thinking.budget_tokens) : 0;
+      const maxTokens = Number(next.max_tokens);
+      if (budget > 0 && Number.isFinite(maxTokens) && maxTokens > budget) {
+        next.max_tokens = maxTokens - budget;
+      }
+    }
+    const output = next.output_config;
+    if (output && typeof output === "object" && "effort" in output) {
+      const rest = { ...(output as Record<string, unknown>) };
+      delete rest.effort;
+      if (Object.keys(rest).length > 0) next.output_config = rest;
+      else delete next.output_config;
+      changed = true;
+    }
+  } else if (provider === "openai") {
+    if (next.reasoning !== undefined) {
+      delete next.reasoning;
+      changed = true;
+      if (Array.isArray(next.include)) {
+        const include = next.include.filter(
+          (entry) => typeof entry !== "string" || !entry.startsWith("reasoning."),
+        );
+        if (include.length > 0) next.include = include;
+        else delete next.include;
+      }
+    }
+  } else {
+    for (const field of ["reasoning_effort", "reasoning"]) {
+      if (next[field] !== undefined) {
+        delete next[field];
+        changed = true;
+      }
+    }
+  }
+  return changed ? next : null;
+}
+
+/**
+ * Whether a provider's error is about the thinking parameters: a 400 or 422
+ * that names them. An older or self-hosted model refuses a reasoning effort
+ * it does not take, a Claude model refuses a thinking mode it does not have,
+ * and a strict gateway refuses a field it does not know ("Extra inputs are not
+ * permitted", with the field's name). Anything else about the request — an
+ * OpenAI reasoning item replayed out of order included — is left to fail as
+ * it did.
+ */
+export function refusesThinking(
+  provider: OpenCodeModel["provider"],
+  status: number,
+  body: string,
+): boolean {
+  if (status !== 400 && status !== 422) return false;
+  const text = body.toLowerCase();
+  if (provider === "anthropic") return /thinking|effort|budget_tokens|output_config/.test(text);
+  if (provider === "openai") {
+    return /reasoning\.(?:effort|summary)|reasoning_effort|"param":\s*"reasoning"/.test(text);
+  }
+  return /reasoning_effort/.test(text);
+}
+
+/**
  * What one request sent on an AI Model's API keys came back with. A key
  * refused and the service failing are kept apart: `refused` is about the
  * keys — every one of them was turned away, for reasons that belong to the
@@ -193,6 +273,14 @@ export async function sendOnKeyRing(args: {
   };
 }
 
+/** A provider answer's headers for a body Genosyn has already read and decoded. */
+function readHeaders(headers: Headers): Headers {
+  const kept = new Headers(headers);
+  kept.delete("content-encoding");
+  kept.delete("content-length");
+  return kept;
+}
+
 /** The headers of a provider's answer that OpenCode is told about. */
 function forwardedHeaders(headers: Headers): Record<string, string> {
   const forwarded: Record<string, string> = {
@@ -227,6 +315,12 @@ function forwardedHeaders(headers: Headers): Record<string, string> {
  *
  * A Claude request that would end on an assistant message is sent ending on
  * the user's turn instead (see `endOnUserTurn`).
+ *
+ * A request the AI Model refuses for the turn's thinking parameters — a level
+ * it does not take, a thinking mode it lacks — goes out once more without
+ * them, and the rest of the session goes without them too; `onThinkingRefused`
+ * hears it once, so the chat can say the reply ran at the model's default
+ * (see `withoutThinking`, `refusesThinking`).
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
@@ -236,6 +330,8 @@ export async function serveOpenCodeModel(
     onOutage?: (outage: ModelOutage) => void;
     onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
     onKeyFailover?: (change: ApiKeyFailover) => void;
+    /** Heard once, when the AI Model refused the turn's thinking parameters. */
+    onThinkingRefused?: (refusal: { status: number }) => void;
     holdMs?: number;
     probeMs?: number;
     /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
@@ -254,6 +350,8 @@ export async function serveOpenCodeModel(
   let outageSince: number | null = null;
   // The model the server serves now, once it no longer serves `model.id`.
   let servedId: string | null = null;
+  // Set once the AI Model refused the turn's thinking parameters.
+  let thinkingRefused = false;
   // Each refused key is reported once a turn, however many requests it fails.
   const reportedFailovers = new Set<string>();
   const reportFailover = (change: ApiKeyFailover, refusedKeyId: string) => {
@@ -345,9 +443,14 @@ export async function serveOpenCodeModel(
             ? { ...headers, Authorization: `Bearer ${apiKey}` }
             : headers;
       const userTurn = model.provider === "anthropic" ? endOnUserTurn(request) : null;
-      const sent = userTurn ? Buffer.from(JSON.stringify(userTurn)) : body;
+      const shaped = userTurn ?? request;
+      // Once the AI Model refused the turn's thinking parameters, the rest of
+      // the session goes without them.
+      const unthought = thinkingRefused ? withoutThinking(model.provider, shaped) : null;
+      const sent =
+        userTurn || unthought ? Buffer.from(JSON.stringify(unthought ?? shaped)) : body;
       let outgoing = servedId ? withModel(sent, servedId) : sent;
-      const send = (apiKey = model.apiKey) => {
+      const post = (apiKey: string) => {
         const init = {
           method: "POST",
           headers: withKey(apiKey),
@@ -357,6 +460,35 @@ export async function serveOpenCodeModel(
           ...(dispatcher ? { dispatcher } : {}),
         };
         return fetch(`${upstreamBase}${endpoint}`, init);
+      };
+      // A request refused for its thinking parameters goes out once more
+      // without them, before any reply reaches OpenCode, and the turn carries
+      // on at the model's own default (`withoutThinking`, `refusesThinking`).
+      const send = async (apiKey = model.apiKey): Promise<Response> => {
+        const response = await post(apiKey);
+        if (thinkingRefused || (response.status !== 400 && response.status !== 422)) return response;
+        let stripped: Record<string, unknown> | null = null;
+        try {
+          stripped = withoutThinking(
+            model.provider,
+            JSON.parse(outgoing.toString()) as Record<string, unknown>,
+          );
+        } catch {
+          stripped = null;
+        }
+        if (!stripped) return response;
+        const text = await response.text();
+        if (!refusesThinking(model.provider, response.status, text)) {
+          return new Response(text, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: readHeaders(response.headers),
+          });
+        }
+        thinkingRefused = true;
+        outgoing = Buffer.from(JSON.stringify(stripped));
+        options.onThinkingRefused?.({ status: response.status });
+        return post(apiKey);
       };
       let response: Response | null;
       if (model.keys) {
@@ -404,7 +536,7 @@ export async function serveOpenCodeModel(
           if (next) {
             await response.body?.cancel().catch(() => {});
             servedId = next.id;
-            outgoing = withModel(body, next.id);
+            outgoing = withModel(outgoing, next.id);
             options.onServedModelChange?.({ from: sent, to: next });
             response = await send();
           }

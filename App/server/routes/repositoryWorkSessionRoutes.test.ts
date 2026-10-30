@@ -249,6 +249,7 @@ describe("work-session AI Model endpoints", () => {
         "model",
         "provider",
         "status",
+        "thinking",
       ]);
     }
     assert.deepEqual(
@@ -261,6 +262,14 @@ describe("work-session AI Model endpoints", () => {
         status: "connected",
         isActive: true,
         effortLevels: [],
+        thinking: {
+          levels: [],
+          nativeDefault: null,
+          defaultLevel: null,
+          ceiling: null,
+          unavailableReason:
+            "Genosyn doesn't know which thinking levels this AI Model accepts, so it uses its own default.",
+        },
       },
     );
     assert.equal(models.find((model) => model.id === disconnected.id)?.status, "not_connected");
@@ -427,6 +436,22 @@ describe("work-session AI Model endpoints", () => {
     }
     assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
     assert.equal(await AppDataSource.getRepository(RepositoryWorkSessionTurn).count(), 1);
+  });
+
+  test("a level over the model's ceiling is refused before any work is created", async () => {
+    const capped = await addModel({ model: "gpt-5.6-sol", effortCeiling: "high" });
+    const over = await call("POST", sessionsUrl(), { ...startBody(capped.id), effort: "max" });
+    assert.equal(over.status, 400);
+    assert.match(String(over.body.error), /allows thinking levels up to High on this AI Model/);
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 1);
+    const candidates = await call("GET", candidatesUrl());
+    const employees = candidates.body.employees as Array<{
+      models: Array<{ id: string; thinking: { ceiling: string | null } }>;
+    }>;
+    assert.equal(
+      employees[0].models.find((model) => model.id === capped.id)?.thinking.ceiling,
+      "high",
+    );
   });
 
   test("a revision cannot silently override the saved effort", async () => {

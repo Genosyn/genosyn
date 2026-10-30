@@ -6,6 +6,7 @@ import { contextUsagePercent } from "./agent/contextUsage.js";
 import { lastChatModelChoice, type ThreadModelChoice } from "./conversationModels.js";
 import { parseActions } from "./turnActions.js";
 import { parseTurnActivitySummary } from "../../shared/chatActivity.js";
+import { parseTurnThinking, type TurnThinking } from "../../shared/thinkingLevels.js";
 import { attachmentsForMessages } from "./uploads.js";
 
 /**
@@ -15,12 +16,15 @@ import { attachmentsForMessages } from "./uploads.js";
  */
 
 /**
- * `lastModelId` is the brain this thread last ran a turn on, and `lastEffort`
- * the effort that turn used, both resolved by `lastChatModelChoice`. The
- * composer preselects them so reopening a past conversation keeps talking to
- * the same model, thinking as hard, instead of silently jumping to whichever
- * model happens to be active now; null means "use the active model" and "use
- * the model's default effort".
+ * `lastModelId` is the brain this thread last ran a turn on, resolved by
+ * `lastChatModelChoice`. The composer preselects it so reopening a past
+ * conversation keeps talking to the same model instead of silently jumping to
+ * whichever model happens to be active now; null means "use the active model".
+ *
+ * `effort` is the thread's thinking level, which the composer shows and the
+ * next message resolves against its model; null is Default. `lastEffort` is
+ * the level the newest turn was sent at, kept for clients from before the
+ * level belonged to the thread.
  */
 export function serializeConversation(
   c: Conversation,
@@ -37,6 +41,7 @@ export function serializeConversation(
     lastMessageAt,
     lastModelId: lastChoice?.modelId ?? null,
     lastEffort: lastChoice?.effort ?? null,
+    effort: c.effort ?? null,
     source: c.source ?? "web",
     connectionId: c.connectionId ?? null,
     memberBrowserId: c.memberBrowserId ?? null,
@@ -82,6 +87,16 @@ function serializeContextUsage(m: ConversationMessage) {
   };
 }
 
+/**
+ * A reply's thinking record. A reply from before levels were recorded shows
+ * the level it was sent at, when it was sent at one, and nothing otherwise.
+ */
+function serializeTurnThinking(m: ConversationMessage): TurnThinking | null {
+  const recorded = parseTurnThinking(m.thinkingJson);
+  if (recorded) return recorded;
+  return m.effort ? { level: m.effort, requested: m.effort, adjusted: null } : null;
+}
+
 export function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []) {
   const progress =
     m.status === "working" &&
@@ -102,6 +117,8 @@ export function serializeMessage(m: ConversationMessage, attachments: Attachment
     // "Worked for 2m 14s · 9 steps": how the turn went, without its events,
     // which a reader loads only when it opens them.
     activity: m.role === "assistant" ? parseTurnActivitySummary(m.activityJson) : null,
+    // "Thinking: High": the level the reply ran at, and why it moved if it did.
+    thinking: m.role === "assistant" ? serializeTurnThinking(m) : null,
     actions: parseActions(m.actionsJson),
     attachments: attachments.map(summarizeAttachment),
     createdAt: m.createdAt,

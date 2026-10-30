@@ -143,6 +143,18 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Thinking level",
+            def: (
+              <>
+                How hard an AI Model thinks before it answers — Off, Low, Medium, High, Max, and
+                more on models that offer them. A Member picks one per conversation; owners set
+                each AI Model&apos;s default for chat and the highest level Members may choose. It
+                changes how hard the model thinks, never what the employee may do. See{" "}
+                <DocLink to="/docs/models#thinking-level">Thinking levels</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Handoff",
             def: "A formal AI→AI delegation with a status workflow — open, accepted, completed, cancelled.",
           },

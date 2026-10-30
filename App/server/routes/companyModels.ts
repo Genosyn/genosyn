@@ -31,7 +31,9 @@ import { editSubscriptionModel } from "../services/subscriptionModelSetup.js";
 import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
 import { recordAudit } from "../services/audit.js";
 import { MAX_MODEL_CONCURRENT_RUNS, modelRunCapacity } from "../services/modelRunCapacity.js";
+import { saveModelThinkingSettings } from "../services/modelThinkingSettings.js";
 import { dispatchQueuedRoutineRuns } from "../services/routineQueue.js";
+import { MODEL_EFFORT_VALUES } from "../../shared/modelEffort.js";
 import {
   cancelSubscriptionDeviceLogin,
   cancelSubscriptionDeviceLoginsForModel,
@@ -1089,5 +1091,45 @@ companyModelsRouter.put(
     // A higher limit admits waiting Runs now rather than at the next heartbeat.
     void dispatchQueuedRoutineRuns();
     await sendModel(res, ctx.co.id, m.id);
+  },
+);
+
+// PUT /api/companies/:cid/models/:id/thinking
+//
+// How hard this model thinks in chat: the thinking level a conversation left
+// on Default starts at, and the highest level Members may choose — higher
+// levels take longer and spend more. Both apply to chat, Help and Repository
+// work sessions on this model, for every AI Employee on it; Routines keep the
+// model's own default. A custom endpoint offers levels only once its owners
+// turn them on, because a compatible API says nothing about whether the
+// server reads `reasoning_effort`. Each setting is one of the levels the
+// model offers, or null for the model's own default and no limit.
+const thinkingSettingsSchema = z
+  .object({
+    defaultEffort: z.enum(MODEL_EFFORT_VALUES).nullable(),
+    effortCeiling: z.enum(MODEL_EFFORT_VALUES).nullable(),
+    /** A custom endpoint only: send `reasoning_effort`, offering Off to High. */
+    customThinkingLevels: z.boolean().optional(),
+  })
+  .strict();
+
+companyModelsRouter.put(
+  "/:id/thinking",
+  validateParams(itemParamsSchema),
+  validateBody(thinkingSettingsSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModel(p.cid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const body = req.body as z.infer<typeof thinkingSettingsSchema>;
+    const result = await saveModelThinkingSettings(ctx.m, body);
+    if ("error" in result) return res.status(400).json({ error: result.error });
+    emitResourceChange(ctx.co.id, "employee");
+    await auditModel(req, ctx.co.id, ctx.m, "model.configure", {
+      defaultEffort: result.model.defaultEffort,
+      effortCeiling: result.model.effortCeiling,
+      customThinkingLevels: result.model.customThinkingLevels,
+    });
+    await sendModel(res, ctx.co.id, ctx.m.id);
   },
 );

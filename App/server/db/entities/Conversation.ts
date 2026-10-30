@@ -1,4 +1,5 @@
 import { dateTimeColumnType } from "./columnTypes.js";
+import type { ModelEffort } from "../../../shared/modelEffort.js";
 import {
   Column,
   CreateDateColumn,
@@ -113,6 +114,16 @@ export class Conversation {
    */
   @Column({ type: "varchar", nullable: true })
   discussedDecisionId!: string | null;
+
+  /**
+   * The thinking level the thread's owner chose for it — how hard the AI
+   * Model thinks before each reply. NULL is Default: the AI Model's default
+   * for chat (`AIModel.defaultEffort`, else its own). It sticks to the thread
+   * across AI Models, and each turn resolves it against the model it runs on
+   * (`shared/thinkingLevels.ts`); the reply records the level it ran at.
+   */
+  @Column({ type: "varchar", nullable: true })
+  effort!: ModelEffort | null;
 
   @CreateDateColumn()
   createdAt!: Date;
