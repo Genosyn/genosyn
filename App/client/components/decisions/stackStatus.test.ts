@@ -216,6 +216,11 @@ describe("decisionStatusLine for an answered Decision", () => {
     );
     // Quiet, but marked as an answer that was kept — not as a dismissal.
     assert.equal(decisionStatusLine(decision({ pickupStatus: "skipped" }), VIEWER).tone, "saved");
+    // Waiting for the asker's AI Model: in progress, never a problem.
+    const waiting = decisionStatusLine(decision({ pickupStatus: "waiting" }), VIEWER);
+    assert.equal(waiting.text, "Waiting for Jamie Mallers’s AI Model to come back");
+    assert.equal(waiting.tone, "progress");
+    assert.equal(waiting.working, false);
     assert.equal(decisionStatusLine(decision({ status: "cancelled" }), VIEWER).tone, "neutral");
   });
 
@@ -612,6 +617,10 @@ describe("stackItemPhase", () => {
       "finished",
     );
     assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "skipped" }))), "finished");
+  });
+
+  test("work waiting for its AI Model stays on the stack as in progress", () => {
+    assert.equal(stackItemPhase(decisionItem(decision({ pickupStatus: "waiting" }))), "working");
   });
 
   test("work that could not finish needs attention, so it waits for Close", () => {
