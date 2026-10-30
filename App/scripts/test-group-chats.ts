@@ -1,9 +1,11 @@
 /**
  * Real Chrome over a real group discussion: a Member opens a group chat with
  * three AI Employees, watches them take turns live ("round 1 of 3 · Ada is
- * thinking…"), reads the outcome card, starts the work and sees each owner
- * report back; stops a second discussion mid-turn; uses Workspace at phone
- * width; and starts a group chat from an employee's page.
+ * thinking…", and the speaker's own live card), reads the outcome card and
+ * each turn's "Worked for" line, starts the work and sees each owner report
+ * back; stops a second discussion mid-turn; watches an @mention reply work in
+ * a channel and stops another; uses Workspace at phone width; and starts a
+ * group chat from an employee's page.
  *
  * Everything but the model call is real: the Workspace page and its
  * components, the workspace and discussion routers, the discussion driver,
@@ -30,7 +32,10 @@ import { build } from "vite";
 import { config } from "../config";
 import { AppDataSource } from "../server/db/datasource";
 import { AIEmployee } from "../server/db/entities/AIEmployee";
+import { Channel } from "../server/db/entities/Channel";
+import { ChannelMember } from "../server/db/entities/ChannelMember";
 import { ChannelMessage } from "../server/db/entities/ChannelMessage";
+import { ChannelTurn } from "../server/db/entities/ChannelTurn";
 import { Company } from "../server/db/entities/Company";
 import { GroupDiscussion } from "../server/db/entities/GroupDiscussion";
 import { Membership } from "../server/db/entities/Membership";
@@ -38,7 +43,9 @@ import { User } from "../server/db/entities/User";
 import { errorHandler } from "../server/middleware/error";
 import { workspaceRouter } from "../server/routes/workspace";
 import { workspaceDiscussionsRouter } from "../server/routes/workspaceDiscussions";
+import { workspaceTurnsRouter } from "../server/routes/workspaceTurns";
 import { agentRuntime } from "../server/services/agent/runtime";
+import { settleChannelTurnsForTests } from "../server/services/channelTurns";
 import { settleGroupDiscussionsForTests } from "../server/services/groupDiscussions";
 import { attachRealtime } from "../server/services/realtime";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
@@ -90,9 +97,33 @@ async function hire(name: string, slug: string, role: string): Promise<AIEmploye
   });
   return employee;
 }
-await hire("Ada", "ada", "Head of Product");
+const ada = await hire("Ada", "ada", "Head of Product");
 const ben = await hire("Ben", "ben", "CFO");
 await hire("Cy", "cy", "Sales lead");
+
+/** A public channel where Ada answers @mentions — opened once the empty Workspace was seen. */
+async function openOpsChannel(): Promise<Channel> {
+  const channel = await insert(Channel, {
+    companyId: company.id,
+    kind: "public",
+    name: "ops",
+    slug: "ops",
+    topic: "",
+    webhookToken: null,
+    createdByUserId: owner.id,
+    archivedAt: null,
+    lastMessageAt: null,
+  });
+  await insert(ChannelMember, {
+    channelId: channel.id,
+    memberKind: "ai",
+    userId: null,
+    employeeId: ada.id,
+    lastReadAt: null,
+  });
+  return channel;
+}
+let ops: Channel | null = null;
 
 // ---------- The model, scripted ----------
 
@@ -120,6 +151,8 @@ const OUTCOME = {
 let holdNext: { name: string; release: Promise<void> } | null = null;
 /** Make the next turn for this name wait until it is stopped. */
 let waitForStop: string | null = null;
+/** Hold the next @mention reply until the test lets it go, or until it is stopped. */
+let holdMention: Promise<void> | "until-stopped" | null = null;
 const turnsSeen: Array<{ who: string; tools: string[]; kind: "turn" | "outcome" | "work" }> = [];
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -142,6 +175,23 @@ agentRuntime.run = (async (params: RunParams) => {
     return { finalText: "Submitted.", steps: 2, stopReason: "end_turn" };
   }
   const prompt = lastUserText(params);
+  if (/\(in a group channel\)/.test(prompt)) {
+    // An @mention in a channel: look something up, then answer.
+    params.callbacks?.onToolUse?.("get_finance_report", { report: "cash_runway" }, "m1");
+    const held = holdMention;
+    holdMention = null;
+    if (held === "until-stopped") {
+      await new Promise<void>((_resolve, reject) => {
+        params.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    } else if (held) {
+      await held;
+    }
+    params.callbacks?.onToolResult?.("get_finance_report", { content: '{"months":18}' }, "m1");
+    await delay(150);
+    params.callbacks?.onText?.("Runway is 18 months at the current burn.");
+    return { finalText: "", steps: 2, stopReason: "end_turn" };
+  }
   if (/asked everyone to start the work/.test(prompt)) {
     turnsSeen.push({ who, tools, kind: "work" });
     await delay(300);
@@ -161,6 +211,11 @@ agentRuntime.run = (async (params: RunParams) => {
   }
   await delay(250);
   const round = Number(/Round (\d+) of/.exec(prompt)?.[1] ?? "1");
+  if (round === 1 && who === "Ben") {
+    // Ben checks the numbers before he speaks; the room sees the step.
+    params.callbacks?.onToolUse?.("get_finance_report", { report: "gross_margin" }, "b1");
+    params.callbacks?.onToolResult?.("get_finance_report", { content: '{"margin":0.71}' }, "b1");
+  }
   return { finalText: round === 1 ? (ROUND_ONE[who] ?? "PASS") : "PASS", steps: 1, stopReason: "end_turn" };
 }) as typeof agentRuntime.run;
 
@@ -194,6 +249,7 @@ app.use(async (req, _res, next) => {
 });
 app.use("/api/companies/:cid/workspace", workspaceRouter);
 app.use("/api/companies/:cid/workspace", workspaceDiscussionsRouter);
+app.use("/api/companies/:cid/workspace", workspaceTurnsRouter);
 // Anything else the page reaches for (avatars, the bell) is outside this fixture.
 app.use("/api", (_req, res) => res.status(404).json({ error: "Not in this fixture" }));
 app.use(express.static(distDir));
@@ -263,7 +319,8 @@ try {
   await dialog.waitFor({ state: "detached" });
   checks++;
 
-  // 2. The discussion runs live: who is thinking, which round.
+  // 2. The discussion runs live: who is thinking, which round — and the
+  //    speaker's own card, as a reply's would be.
   await page.getByRole("heading", { name: "Should we raise the Pro plan to $49?" }).waitFor();
   await bar(page).getByText("Discussing · round 1 of 3 · Ada is thinking…").waitFor();
   assert.equal(
@@ -271,6 +328,9 @@ try {
     "Ada — thinking (leads)",
   );
   assert.match(await bar(page).innerText(), /Turn 1 of \d+/, "the turn budget is visible");
+  const speakerCard = page.locator('[data-channel-turn][data-turn-kind="discussion"]');
+  await speakerCard.getByText("Round 1 of 3 · group discussion").waitFor();
+  assert.match(await speakerCard.innerText(), /Ada/);
   await page.screenshot({ path: path.join(artifacts, "group-chats-live.png"), fullPage: true });
   release();
   checks++;
@@ -291,6 +351,12 @@ try {
   assert.match(await who.innerText(), /Ben\s*Model the grandfathering cost\./);
   assert.match(await who.innerText(), /Cy\s*Draft the customer announcement\./);
   assert.match(await who.innerText(), /Ruth\s*Approve the announcement\./);
+  // Every speaker's card is gone, and Ben's turn keeps how it went.
+  await speakerCard.first().waitFor({ state: "detached" });
+  const worked = page.getByRole("button", { name: /^Worked for .* · 1 step$/ });
+  await worked.first().waitFor();
+  await worked.first().click();
+  await page.getByText("Read a Finance report").first().waitFor();
   checks++;
 
   // Every turn talked read-only: no writer, sender or delegator was handed over.
@@ -357,6 +423,41 @@ try {
   assert.equal(await outcomeCard(page).count(), 0, "a stopped discussion writes no outcome");
   checks++;
 
+  // 5b. An @mention in a channel: the room watches Ada's reply work, then reads it.
+  const channel = await openOpsChannel();
+  ops = channel;
+  async function postAsRuth(content: string) {
+    const res = await fetch(`${origin}/api/companies/${company.id}/workspace/channels/${channel.id}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-user": owner.id },
+      body: JSON.stringify({ content }),
+    });
+    assert.equal(res.status, 201);
+  }
+  const room = await open(`/c/acme/workspace/${channel.id}`);
+  await room.getByRole("heading", { name: "ops", exact: true }).waitFor();
+  let releaseMention!: () => void;
+  holdMention = new Promise<void>((resolve) => (releaseMention = resolve));
+  await postAsRuth("@ada how long is our runway?");
+  const replyCard = room.locator('[data-channel-turn][data-turn-kind="reply"]');
+  await replyCard.getByText("Replying to you").waitFor();
+  await replyCard.getByText("Reading a Finance report").first().waitFor();
+  await room.screenshot({ path: path.join(artifacts, "group-chats-mention-live.png"), fullPage: true });
+  releaseMention();
+  await room.getByText("Runway is 18 months at the current burn.").waitFor();
+  await replyCard.waitFor({ state: "detached" });
+  await room.getByRole("button", { name: /^Worked for .* · 1 step$/ }).waitFor();
+  checks++;
+
+  // 5c. Stop a reply from its card: the reply says it was stopped.
+  holdMention = "until-stopped";
+  await postAsRuth("@ada and what is the monthly burn?");
+  await replyCard.getByRole("button", { name: /^Stop Ada/ }).click();
+  await replyCard.waitFor({ state: "detached" });
+  await room.getByText("Stopped before this reply started.").waitFor();
+  await room.close();
+  checks++;
+
   // 6. The sidebar lists both group chats.
   const sidebar = page.getByRole("complementary", { name: "Workspace conversations" });
   await sidebar.getByRole("button", { name: /^Should we open a Berlin office\?/ }).waitFor();
@@ -417,6 +518,22 @@ try {
     where: { discussionId: rows[1].id, discussionRole: "turn" },
   });
   assert.equal(stoppedTurns, 0, "the abandoned turn was never posted");
+  await settleChannelTurnsForTests();
+  const replies = await AppDataSource.getRepository(ChannelTurn).find({
+    where: { channelId: ops!.id },
+    order: { acceptedAt: "ASC" },
+  });
+  assert.deepEqual(
+    replies.map((turn) => [turn.kind, turn.status, turn.stoppedByUserId]),
+    [
+      ["reply", "ok", null],
+      ["reply", "interrupted", owner.id],
+    ],
+  );
+  const watchedTurns = await AppDataSource.getRepository(ChannelTurn).count({
+    where: { discussionId: rows[0].id },
+  });
+  assert.ok(watchedTurns >= 5, `every speaker's turn and share was watched (${watchedTurns})`);
   assert.deepEqual(pageErrors, []);
   checks++;
 
