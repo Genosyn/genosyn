@@ -42,6 +42,7 @@ import { Todo } from "./entities/Todo.js";
 import { TodoComment } from "./entities/TodoComment.js";
 import { Conversation } from "./entities/Conversation.js";
 import { ConversationMessage } from "./entities/ConversationMessage.js";
+import { ConversationActivityEvent } from "./entities/ConversationActivityEvent.js";
 import { JournalEntry } from "./entities/JournalEntry.js";
 import { Approval } from "./entities/Approval.js";
 import { Decision } from "./entities/Decision.js";
@@ -292,6 +293,8 @@ const entities = [
   TodoComment,
   Conversation,
   ConversationMessage,
+  // What an AI Employee did while it answered in chat, step by step.
+  ConversationActivityEvent,
   JournalEntry,
   Approval,
   Decision,

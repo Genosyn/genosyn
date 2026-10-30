@@ -528,6 +528,12 @@ export async function withSubscriptionModelLock<T>(
   modelId: string,
   signal: AbortSignal | undefined,
   run: () => Promise<T>,
+  /**
+   * Told when this turn has to queue behind another one on the same AI Model
+   * (`waiting`) and when it gets the model (`done`), so a Member watching the
+   * turn sees why nothing is happening yet. Not called when the lock is free.
+   */
+  onWait?: (state: "waiting" | "done") => void,
 ): Promise<T> {
   const previous = modelLockTails.get(modelId) ?? Promise.resolve();
   let release!: () => void;
@@ -538,7 +544,23 @@ export async function withSubscriptionModelLock<T>(
   modelLockTails.set(modelId, tail);
 
   try {
+    let waited = false;
+    if (onWait) {
+      // A lock already free settles within a few microtasks; one macrotask
+      // later, anything still pending is a real queue.
+      let settled = false;
+      void previous.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (!settled && !signal?.aborted) {
+        waited = true;
+        notifyLockWait(onWait, "waiting");
+      }
+    }
     await waitForLock(previous, signal);
+    if (waited) notifyLockWait(onWait, "done");
     if (signal?.aborted) throw abortError();
     return await run();
   } finally {
@@ -975,6 +997,17 @@ async function settledOrElapsed(signal: Promise<unknown>, ms: number): Promise<v
     await Promise.race([signal.catch(() => undefined), elapsed]);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function notifyLockWait(
+  onWait: ((state: "waiting" | "done") => void) | undefined,
+  state: "waiting" | "done",
+): void {
+  try {
+    onWait?.(state);
+  } catch {
+    // An observer must never decide who holds the model.
   }
 }
 

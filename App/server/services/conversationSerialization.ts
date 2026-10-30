@@ -5,6 +5,7 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { contextUsagePercent } from "./agent/contextUsage.js";
 import { lastChatModelChoice, type ThreadModelChoice } from "./conversationModels.js";
 import { parseActions } from "./turnActions.js";
+import { parseTurnActivitySummary } from "../../shared/chatActivity.js";
 import { attachmentsForMessages } from "./uploads.js";
 
 /**
@@ -98,6 +99,9 @@ export function serializeMessage(m: ConversationMessage, attachments: Attachment
     status: m.status,
     progress,
     context: serializeContextUsage(m),
+    // "Worked for 2m 14s · 9 steps": how the turn went, without its events,
+    // which a reader loads only when it opens them.
+    activity: m.role === "assistant" ? parseTurnActivitySummary(m.activityJson) : null,
     actions: parseActions(m.actionsJson),
     attachments: attachments.map(summarizeAttachment),
     createdAt: m.createdAt,

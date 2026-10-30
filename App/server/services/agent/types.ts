@@ -97,6 +97,21 @@ export type StreamCallbacks = {
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
   /**
+   * The AI Model's thinking, as the runtime exposes it — a reasoning summary
+   * on OpenAI models, thinking text on Anthropic ones — streamed as it
+   * arrives. `block` names one reasoning block, so a reader can join chunks.
+   * Never part of the reply.
+   */
+  onReasoning?: (delta: string, block: string) => void;
+  /** A reasoning block ended. */
+  onReasoningEnd?: (block: string) => void;
+  /**
+   * The turn is waiting on the runtime itself rather than working — today a
+   * ChatGPT-subscription AI Model's lock, which admits one turn at a time —
+   * and again when the wait ends.
+   */
+  onRuntimeWait?: (wait: RuntimeWait) => void;
+  /**
    * Snapshot at the start of each assistant message to withhold prose generated
    * before a required source read. Later tool execution cannot change that
    * message's eligibility merely because its text arrives over a slower stream.
@@ -172,6 +187,17 @@ export type StreamCallbacks = {
    * something says which happened.
    */
   onToolsDeferred?: (info: ToolDeferralInfo) => void;
+};
+
+/**
+ * A wait outside the employee's control. `cause` is open-ended so a new kind
+ * of wait reaches the chat without a new callback; `label` words a cause the
+ * chat has no copy for.
+ */
+export type RuntimeWait = {
+  cause: string;
+  state: "waiting" | "done";
+  label?: string;
 };
 
 export type AgentProgress = {

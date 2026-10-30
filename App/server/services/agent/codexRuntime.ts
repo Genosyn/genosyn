@@ -64,6 +64,8 @@ export async function runCodexSubscriptionTurn(params: {
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
 }): Promise<CodexSubscriptionResult> {
+  const onLockWait = (state: "waiting" | "done") =>
+    safeCallback(() => params.callbacks?.onRuntimeWait?.({ cause: "model_lock", state }));
   return withSubscriptionModelLock(params.model.id, params.signal, async () => {
     const lease = await prepareCodexRuntime(params.model.id);
     const effectiveModel = lease.model;
@@ -77,6 +79,8 @@ export async function runCodexSubscriptionTurn(params: {
     let terminalError: Error | null = null;
     let runawayViolation: string | null = null;
     const streamedByItem = new Map<string, string>();
+    /** Reasoning items that sent a summary; their raw text is not repeated. */
+    const summarizedReasoning = new Set<string>();
     const completedMessages: Array<{ text: string; phase: string | null }> = [];
     const completion = deferred<void>();
 
@@ -134,9 +138,22 @@ export async function runCodexSubscriptionTurn(params: {
           return;
         }
 
+        const reasoning = codexReasoningDelta(method, body, summarizedReasoning);
+        if (reasoning) {
+          if (reasoning.delta) {
+            safeCallback(() => params.callbacks?.onReasoning?.(reasoning.delta, reasoning.block));
+          }
+          return;
+        }
+
         if (method === "item/completed") {
           const item = asObject(body.item);
           const type = stringField(item, "type");
+          if (type === "reasoning") {
+            const itemId = stringField(item, "id");
+            if (itemId) safeCallback(() => params.callbacks?.onReasoningEnd?.(itemId));
+            return;
+          }
           if (type === "agentMessage") {
             const text = stringField(item, "text") ?? "";
             const itemId = stringField(item, "id") ?? "";
@@ -362,7 +379,39 @@ export async function runCodexSubscriptionTurn(params: {
       await server?.close().catch(() => undefined);
       await lease.finish();
     }
-  });
+  }, onLockWait);
+}
+
+/**
+ * Map one app-server notification to a chunk of the AI Model's thinking, or
+ * null when it is not about reasoning. A summary is what OpenAI shows people,
+ * so once an item sends one its raw reasoning text, if any, is dropped; a new
+ * summary part is separated from the previous one by a blank line.
+ */
+export function codexReasoningDelta(
+  method: string,
+  body: Record<string, unknown>,
+  summarized: Set<string>,
+): { block: string; delta: string } | null {
+  if (
+    method !== "item/reasoning/summaryTextDelta" &&
+    method !== "item/reasoning/textDelta" &&
+    method !== "item/reasoning/summaryPartAdded"
+  ) {
+    return null;
+  }
+  const block = stringField(body, "itemId");
+  if (!block) return { block: "", delta: "" };
+  if (method === "item/reasoning/summaryPartAdded") {
+    const index = numberField(body, "summaryIndex");
+    return { block, delta: index !== null && index > 0 && summarized.has(block) ? "\n\n" : "" };
+  }
+  const delta = stringField(body, "delta") ?? "";
+  if (method === "item/reasoning/summaryTextDelta") {
+    summarized.add(block);
+    return { block, delta };
+  }
+  return { block, delta: summarized.has(block) ? "" : delta };
 }
 
 function dynamicToolSpec(tool: AgentTool): JsonObject {

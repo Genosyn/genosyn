@@ -60,6 +60,7 @@ import { ConnectedApp } from "../db/entities/ConnectedApp.js";
 import { ConnectedAppToken } from "../db/entities/ConnectedAppToken.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
+import { ConversationActivityEvent } from "../db/entities/ConversationActivityEvent.js";
 import { Currency } from "../db/entities/Currency.js";
 import { Customer } from "../db/entities/Customer.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
@@ -435,6 +436,9 @@ export async function deleteCompanyCascade(args: {
     if (tagIds.length) {
       await m.delete(TagAssignment, { tagId: In(tagIds) });
     }
+    // A chat turn's activity carries its company, so it goes with the company
+    // whichever conversation it belongs to.
+    await m.delete(ConversationActivityEvent, { companyId });
     if (conversationIds.length) {
       await m.delete(ConversationMessage, {
         conversationId: In(conversationIds),
