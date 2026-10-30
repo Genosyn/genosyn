@@ -42,7 +42,7 @@ export function ThinkingLevelPicker({
           className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-500 outline-none transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus max-sm:min-h-8 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
         >
           <Lightbulb size={12} aria-hidden="true" />
-          <span aria-hidden="true">Thinking</span>
+          <span aria-hidden="true">Thinking ·</span>
           <span aria-hidden="true" className="font-medium text-slate-700 dark:text-slate-200">
             {thinking.label}
           </span>
