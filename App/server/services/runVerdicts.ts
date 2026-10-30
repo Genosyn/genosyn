@@ -7,6 +7,7 @@ import type { Run, RunOutcomeVerdict } from "../db/entities/Run.js";
 import type { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool, TurnUsage } from "./agent/types.js";
+import type { ModelUnavailability } from "./agent/modelOutage.js";
 import { continuationEffects, renderEffectDigest, type EffectRow } from "./runEffects.js";
 
 /**
@@ -73,6 +74,13 @@ export type RunOutcomeAssessment = {
   judged: boolean;
   /** Provider-reported spend for the verdict turn, for the Run's token ledger. */
   usage: TurnUsage;
+  /**
+   * The checker could not run because its AI Model was unavailable
+   * (`modelOutage.ts`). Nothing about the Run was judged, and nothing should
+   * be recorded as if it had been: the caller leaves the Run ungraded for the
+   * sweep to grade once the model is back.
+   */
+  unavailable?: ModelUnavailability;
 };
 
 /**
@@ -314,6 +322,7 @@ export async function assessRunOutcome(params: {
         note: `The outcome check could not run: ${result.error}`.slice(0, VERDICT_NOTE_CHARS),
         judged: false,
         usage,
+        ...(result.unavailable ? { unavailable: result.unavailable } : {}),
       };
     }
     return {

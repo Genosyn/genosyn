@@ -21,11 +21,13 @@ import {
 import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
-import { serveOpenCodeModel } from "./opencodeProxy.js";
+import { serveOpenCodeModel, type UpstreamOutcome } from "./opencodeProxy.js";
 import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 import { recoverOpenCodePrompt } from "./opencodeRecovery.js";
+import { markModelUnavailable } from "./modelOutage.js";
 import { adoptServedModel } from "../servedModels.js";
+import { modelAvailabilityKey, recordKeyFailure, recordKeySuccess } from "../modelAvailability.js";
 
 export type OpenCodeTurnParams = {
   model: AIModel;
@@ -66,6 +68,30 @@ export const SILENT_STOP_NUDGES = 1;
 export const SILENT_STOP_NUDGE =
   "Your last message had no reply and no tool call, so the work stopped. If any work remains, continue it with your tools. If the work is done, write your final report now, beginning with one or two short sentences saying what you accomplished.";
 
+/**
+ * Feed what every request of this turn showed into the AI Model's availability
+ * (`services/modelAvailability.ts`), which all of its AI Employees share: an
+ * answer — even one about the request or the keys — means the service is up;
+ * an outage counts toward marking it unavailable. The key is computed once a
+ * turn, since a custom endpoint's address must be decrypted for it.
+ */
+function availabilityReporter(model: AIModel): (outcome: UpstreamOutcome) => void {
+  let key: string | null = null;
+  try {
+    key = modelAvailabilityKey(model);
+  } catch {
+    key = null;
+  }
+  return (outcome) => {
+    if (!key) return;
+    if (outcome.kind === "unavailable") {
+      recordKeyFailure(key, { companyId: model.companyId, modelId: model.id }, outcome.unavailability);
+    } else {
+      recordKeySuccess(key);
+    }
+  };
+}
+
 /** Whether a turn waits out a self-hosted model server's restart; see `waitForModel`. */
 export function turnWaitsForModel(
   params: Pick<OpenCodeTurnParams, "waitForModel" | "maxSteps">,
@@ -86,6 +112,7 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
   let server: OpenCodeServer | undefined;
   try {
     bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
+    const availability = availabilityReporter(params.model);
     proxy = await serveOpenCodeModel(model, params.signal, {
       holdOutages: turnWaitsForModel(params),
       onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
@@ -95,6 +122,7 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
         // The card follows the server, so the next turn starts on the new model.
         void adoptServedModel(params.model, to).catch(() => false);
       },
+      onUpstream: availability,
     });
     server = await startOpenCodeServer({
       config: buildOpenCodeConfig({
@@ -112,7 +140,10 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
     return await runOpenCodeSession(server, model.id, params, gate);
   } catch (error) {
     if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
-    throw error;
+    // The proxy saw what OpenCode only reports as a status: a refused
+    // connection, an overload streamed after a 200, every key rate-limited.
+    const seen = proxy?.lastUnavailability();
+    throw seen ? markModelUnavailable(error, seen) : error;
   } finally {
     gate.close();
     await server?.close();

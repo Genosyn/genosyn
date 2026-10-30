@@ -11,8 +11,15 @@ import {
   type ApiKeyRing,
   type KeyRefusal,
 } from "./apiKeyRing.js";
+import {
+  classifyModelResponse,
+  classifyModelTransportError,
+  modelUnavailability,
+  StreamedErrorScanner,
+  type ModelUnavailability,
+} from "./modelOutage.js";
 import type { ModelOutage } from "./types.js";
-import { endpointAnswers } from "../modelAvailability.js";
+import { endpointAnswers } from "../modelAvailabilityProbe.js";
 import { outboundAgent } from "../outboundNetworkPolicy.js";
 import { listServedModels, type ServedModel } from "../servedModels.js";
 
@@ -46,22 +53,25 @@ export async function sendThroughOutage(args: {
   signal: AbortSignal;
   holdMs?: number;
   probeMs?: number;
-  onWait?: () => void;
+  /** The request is being held; `failure` is what sent it there. */
+  onWait?: (failure: { status: number | null; error: unknown }) => void;
 }): Promise<Response | null> {
   const holdMs = args.holdMs ?? OUTAGE_HOLD_MS;
   const probeMs = args.probeMs ?? OUTAGE_PROBE_MS;
   const started = Date.now();
   for (;;) {
     let response: Response | null = null;
+    let failure: unknown = null;
     try {
       response = await args.send();
     } catch (error) {
       if (args.signal.aborted) throw error;
+      failure = error;
     }
     if (response && !OUTAGE_STATUSES.has(response.status)) return response;
     if (response && (await args.answers())) return response;
     await response?.body?.cancel().catch(() => {});
-    args.onWait?.();
+    args.onWait?.({ status: response?.status ?? null, error: failure });
     for (;;) {
       if (Date.now() - started >= holdMs) return null;
       await sleep(probeMs, undefined, { signal: args.signal });
@@ -193,6 +203,20 @@ export async function sendOnKeyRing(args: {
   };
 }
 
+/**
+ * What one request's answer from the AI Model's service showed:
+ *   - `answered`    — it answered (a streamed answer, once it ended cleanly);
+ *   - `rejected`    — it answered about this request or the keys — a bad
+ *                     request, an unknown model, every key refused — which is
+ *                     not an outage;
+ *   - `unavailable` — no answer, a server error, an overload, or every key
+ *                     rate-limited (`modelOutage.ts`).
+ */
+export type UpstreamOutcome =
+  | { kind: "answered" }
+  | { kind: "rejected" }
+  | { kind: "unavailable"; unavailability: ModelUnavailability };
+
 /** The headers of a provider's answer that OpenCode is told about. */
 function forwardedHeaders(headers: Headers): Record<string, string> {
   const forwarded: Record<string, string> = {
@@ -227,6 +251,15 @@ function forwardedHeaders(headers: Headers): Record<string, string> {
  *
  * A Claude request that would end on an assistant message is sent ending on
  * the user's turn instead (see `endOnUserTurn`).
+ *
+ * Every answer from the AI Model's service is classified as it passes
+ * (`modelOutage.ts`) and reported through `onUpstream`: the model answered, it
+ * answered about this request or this key, or it is **unavailable** — no
+ * connection, a server error, an overload, every key rate-limited, or an error
+ * event in the middle of a streamed answer. That is how the AI Model's
+ * availability (`services/modelAvailability.ts`) learns from every request any
+ * turn sends, and `lastUnavailability()` tells the turn whether the failure it
+ * ended on was the service's.
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
@@ -236,6 +269,8 @@ export async function serveOpenCodeModel(
     onOutage?: (outage: ModelOutage) => void;
     onServedModelChange?: (change: { from: string; to: ServedModel }) => void;
     onKeyFailover?: (change: ApiKeyFailover) => void;
+    /** Each answer the service gave, classified; see {@link UpstreamOutcome}. */
+    onUpstream?: (outcome: UpstreamOutcome) => void;
     holdMs?: number;
     probeMs?: number;
     /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
@@ -243,6 +278,8 @@ export async function serveOpenCodeModel(
   } = {},
 ): Promise<{
   model: OpenCodeModel;
+  /** The unavailability the service's latest answer showed, if it was one. */
+  lastUnavailability(): ModelUnavailability | null;
   close(): Promise<void>;
 }> {
   const token = randomBytes(32).toString("hex");
@@ -252,6 +289,20 @@ export async function serveOpenCodeModel(
   // OpenCode sends one model request at a time, and a held request is retried
   // as a new one, so the outage is tracked across requests.
   let outageSince: number | null = null;
+  let last: UpstreamOutcome | null = null;
+  const report = (outcome: UpstreamOutcome) => {
+    last = outcome;
+    try {
+      options.onUpstream?.(outcome);
+    } catch {
+      // Availability bookkeeping never breaks a request.
+    }
+  };
+  const reportResponse = (status: number, body: string | null, headers: Headers | null) => {
+    if (status < 400) return report({ kind: "answered" });
+    const unavailability = classifyModelResponse({ status, body, headers });
+    report(unavailability ? { kind: "unavailable", unavailability } : { kind: "rejected" });
+  };
   // The model the server serves now, once it no longer serves `model.id`.
   let servedId: string | null = null;
   // Each refused key is reported once a turn, however many requests it fails.
@@ -363,6 +414,22 @@ export async function serveOpenCodeModel(
         const ring = model.keys;
         const outcome = await sendOnKeyRing({ ring, send, onFailover: reportFailover });
         if (outcome.kind !== "response") {
+          if (outcome.kind === "refused") {
+            // Every key turned away. A rate limit on all of them is the
+            // service saying "not now" — an outage for as long as it asked;
+            // anything else is about the keys, which waiting does not fix.
+            const limited =
+              outcome.refusal.kind === "rate_limit"
+                ? classifyModelResponse({
+                    status: outcome.status,
+                    body: outcome.body,
+                    headers: outcome.headers,
+                  })
+                : null;
+            report(limited ? { kind: "unavailable", unavailability: limited } : { kind: "rejected" });
+          } else {
+            reportResponse(outcome.status, outcome.body, outcome.headers);
+          }
           // Every key refused, or the service answering with an error: either
           // way OpenCode gets the provider's own answer. It keeps an error's
           // body to report what the provider said, and a provider may quote the
@@ -381,7 +448,14 @@ export async function serveOpenCodeModel(
               signal: controller.signal,
               holdMs: options.holdMs,
               probeMs: options.probeMs,
-              onWait: () => {
+              onWait: (failure) => {
+                // The server's own model list failed too: it is down, not
+                // merely refusing this request.
+                const seen =
+                  (failure.status !== null ? classifyModelResponse({ status: failure.status }) : null) ??
+                  classifyModelTransportError(failure.error) ??
+                  classifyModelResponse({ status: 503 });
+                if (seen) report({ kind: "unavailable", unavailability: { ...seen, definite: true } });
                 if (outageSince !== null) return;
                 outageSince = Date.now();
                 options.onOutage?.({ state: "waiting", waitedMs: 0 });
@@ -389,6 +463,14 @@ export async function serveOpenCodeModel(
             })
           : await send();
         if (!response) {
+          // Held for minutes while its model list failed too: down, beyond doubt.
+          report({
+            kind: "unavailable",
+            unavailability: modelUnavailability("unreachable", {
+              definite: true,
+              what: "stopped answering and has not come back yet",
+            }),
+          });
           res
             .writeHead(503, { "Content-Type": "application/json", "retry-after-ms": "1000" })
             .end(JSON.stringify({ error: { message: "The AI Model's server is not answering." } }));
@@ -411,28 +493,56 @@ export async function serveOpenCodeModel(
         }
       }
       const responseHeaders = forwardedHeaders(response.headers);
-      if (response.status >= 400 && model.apiKey.length >= 8) {
+      if (response.status >= 400) {
+        // An error's body is small; read it to tell an outage from a refusal.
         // OpenCode keeps an error's body to report what the provider said, and
         // a provider may quote the key it was sent. The key stays in Genosyn.
         // A self-hosted server's placeholder such as "EMPTY" is no secret, and
         // replacing it everywhere would garble what the server said.
         const text = await response.text();
+        if (!model.keys) reportResponse(response.status, text, response.headers);
         res
           .writeHead(response.status, responseHeaders)
-          .end(text.split(model.apiKey).join("[redacted]"));
+          .end(model.apiKey.length >= 8 ? text.split(model.apiKey).join("[redacted]") : text);
         return;
       }
+      // A streamed answer is only an answer once it ends cleanly: Anthropic
+      // and OpenAI report an overload as an error event after a 200.
+      const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
+      if (!streamed) report({ kind: "answered" });
       res.writeHead(response.status, responseHeaders);
       if (!response.body) {
         res.end();
         return;
       }
       const readable = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      readable.on("error", () => res.destroy());
+      const scanner = streamed ? new StreamedErrorScanner() : null;
+      let broken = false;
+      readable.on("error", (error) => {
+        broken = true;
+        const unavailability = controller.signal.aborted ? null : classifyModelTransportError(error);
+        if (unavailability) report({ kind: "unavailable", unavailability });
+        res.destroy();
+      });
+      if (scanner) {
+        const decoder = new TextDecoder();
+        readable.on("data", (chunk: Buffer) => {
+          if (scanner.found) return;
+          const found = scanner.push(decoder.decode(chunk, { stream: true }));
+          if (found) report({ kind: "unavailable", unavailability: found });
+        });
+        readable.on("end", () => {
+          if (!scanner.found && !broken) report({ kind: "answered" });
+        });
+      }
       readable.pipe(res);
       await new Promise<void>((resolve) => res.once("close", resolve));
     })()
-      .catch(() => {
+      .catch((error: unknown) => {
+        // No answer at all: a refused or dropped connection, an unknown host,
+        // a TLS failure, a timeout. Never the turn's own abort.
+        const unavailability = controller.signal.aborted ? null : classifyModelTransportError(error);
+        if (unavailability) report({ kind: "unavailable", unavailability });
         if (!res.headersSent)
           res
             .writeHead(502, { "Content-Type": "application/json" })
@@ -464,6 +574,10 @@ export async function serveOpenCodeModel(
       apiKey: token,
       baseURL: `http://127.0.0.1:${address.port}`,
       contextWindow: model.contextWindow,
+    },
+    lastUnavailability() {
+      const latest = last as UpstreamOutcome | null;
+      return latest?.kind === "unavailable" ? latest.unavailability : null;
     },
     async close() {
       for (const controller of controllers) controller.abort();

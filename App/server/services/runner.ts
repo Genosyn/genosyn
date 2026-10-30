@@ -84,13 +84,17 @@ import {
 } from "./runEffects.js";
 import {
   clearRunRestartMark,
+  MAX_OUTAGE_PAUSES,
   MAX_RUN_PAUSES,
+  pausedForOutage,
   registerRunPauser,
+  restartPauseCount,
   runPauseNotice,
   runResumeBrief,
   unregisterRunPauser,
   type RunPauseRequest,
 } from "./runPause.js";
+import type { ModelUnavailability } from "./agent/modelOutage.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import { createRunBatchNotice, runBatchBrief, shouldYieldRunBatch } from "./runBatchBudget.js";
 import { manualResumeEligibility, RunManualResumeError } from "./runManualResume.js";
@@ -421,6 +425,8 @@ async function prepareRoutineRun(
       pausedAt: queued.pausedAt,
       pauseCount: queued.pauseCount,
       pauseRemainingMs: queued.pauseRemainingMs,
+      pauseReason: queued.pauseReason,
+      outagePauses: queued.outagePauses,
     });
   }
   let saved: Run;
@@ -530,7 +536,7 @@ async function prepareRoutineRun(
     log.write(
       [
         "",
-        `[${startedAt.toISOString()}] [resumed] Genosyn is back; this Run continues where it paused` +
+        `[${startedAt.toISOString()}] [resumed] ${pausedForOutage(saved) ? "The AI Model is answering again" : "Genosyn is back"}; this Run continues where it paused` +
           (saved.pausedAt ? ` at ${saved.pausedAt.toISOString()}` : "") +
           `, with its deadline at ${new Date(deadlineAtMs).toISOString()}.`,
         modelLine,
@@ -652,9 +658,9 @@ async function prepareRoutineRun(
     ): Promise<Run> => {
       const now = new Date();
       const remainingMs = Math.max(0, runDeadlineMs - now.getTime());
-      if ((saved.pauseCount ?? 0) >= MAX_RUN_PAUSES) {
+      if (restartPauseCount(saved) >= MAX_RUN_PAUSES) {
         log.line(
-          `\n[interrupted] Genosyn restarted ${saved.pauseCount + 1} times during this Run, so it stops here rather than resuming again.`,
+          `\n[interrupted] Genosyn restarted ${restartPauseCount(saved) + 1} times during this Run, so it stops here rather than resuming again.`,
         );
         saved.finishedAt = now;
         saved.status = "error";
@@ -705,11 +711,86 @@ async function prepareRoutineRun(
           pausedAt: now,
           pauseCount: (saved.pauseCount ?? 0) + 1,
           pauseRemainingMs: remainingMs,
+          pauseReason: request?.reason === "upgrade" ? "upgrade" : "restart",
         },
       );
       releaseBrowserRecordingRunFinalizing(saved.id);
       // Paused in time: the stopping process's mark has nothing left to say.
       await clearRunRestartMark(saved.id).catch(() => undefined);
+      return (await runRepo.findOneBy({ id: saved.id })) ?? saved;
+    };
+    /**
+     * Put this Run back in the queue as itself while its AI Model is
+     * unavailable (`services/modelAvailability.ts`): the same pause a restart
+     * takes, for a different reason. Nothing about it is final — no verdict,
+     * journal entry, alert, autonomy change, failure count or retry — and the
+     * queue starts it again, first and with the time it had left, once a check
+     * finds the model answering. Only a model that keeps failing this Run after
+     * its checks pass ends it, as an Error.
+     */
+    const pauseForOutage = async (
+      unavailability: ModelUnavailability,
+      runDeadlineMs: number,
+    ): Promise<Run> => {
+      const now = new Date();
+      const remainingMs = Math.max(0, runDeadlineMs - now.getTime());
+      if ((saved.outagePauses ?? 0) >= MAX_OUTAGE_PAUSES) {
+        log.line(
+          `\n[error] The AI Model became unavailable ${(saved.outagePauses ?? 0) + 1} times during this Run, so it stops here rather than waiting again. ${unavailability.detail}`,
+        );
+        saved.finishedAt = now;
+        saved.status = "error";
+        saved.errorKind = "runtime";
+        saved.exitCode = null;
+        diagnostics.fail(
+          `The AI Model kept becoming unavailable during this Run: ${unavailability.detail}`,
+          "model",
+        );
+        const finalization = await finalizeRunFromRunning(runRepo, saved, log, routine, diagnostics);
+        saved = finalization.run;
+        if (!finalization.persisted) return saved;
+        await settleAfterRun(routine.id, saved.finishedAt);
+        await journalQuietly(emp.id, routine, saved);
+        await updateRoutineFailureCount(saved, routine);
+        return saved;
+      }
+      const minutes = Math.max(1, Math.round(remainingMs / 60_000));
+      log.line(
+        `\n[paused] ${unavailability.detail} This Run keeps its transcript, progress and Effects, waits in the queue, and continues as soon as the AI Model answers again, with about ${minutes} min of its time limit left.`,
+      );
+      // Close the Run's browser sessions so their recordings are complete;
+      // the resumed turn opens new ones.
+      await finalizeBrowserRecordingsForRun(saved.id).catch(() => undefined);
+      try {
+        await log.stopCheckpointing();
+      } catch {
+        // The update below carries the whole transcript.
+      }
+      // Only from this process's own claim: a row recovered or finalized
+      // elsewhere in the meantime keeps that verdict.
+      await runRepo.update(
+        {
+          id: saved.id,
+          status: "running",
+          queueActiveEmployeeId: saved.queueActiveEmployeeId ?? IsNull(),
+        },
+        {
+          // ResourceChangeSubscriber routes this update to its Routine stream.
+          routineId: saved.routineId,
+          status: "queued",
+          queueActiveEmployeeId: null,
+          logContent: log.value(),
+          diagnosticsJson: diagnostics.json(),
+          tokensIn: saved.tokensIn,
+          tokensOut: saved.tokensOut,
+          pausedAt: now,
+          pauseCount: (saved.pauseCount ?? 0) + 1,
+          pauseRemainingMs: remainingMs,
+          pauseReason: "outage",
+          outagePauses: (saved.outagePauses ?? 0) + 1,
+        },
+      );
+      releaseBrowserRecordingRunFinalizing(saved.id);
       return (await runRepo.findOneBy({ id: saved.id })) ?? saved;
     };
     try {
@@ -1182,6 +1263,11 @@ async function prepareRoutineRun(
         return saved;
       }
       if (!result) throw new Error("The AI Model returned no Run result.");
+      // The AI Model's service was unavailable: wait for it instead of failing.
+      // A Standdown that landed meanwhile still wins, below.
+      if (result.status === "error" && result.unavailable && !interrupted) {
+        return await pauseForOutage(result.unavailable, deadlineAtMs);
+      }
 
       saved.finishedAt = new Date();
       if (interrupted || (result.status === "ok" && result.stopReason === "aborted")) {
@@ -1305,6 +1391,11 @@ async function prepareRoutineRun(
         saved.tokensIn += checkPhase.tokensIn;
         saved.tokensOut += checkPhase.tokensOut;
         if (deadlineReached()) return await finalizeTimedOutRun();
+        if (checkPhase.unavailable && !interrupted) {
+          // A fix round met an outage: the Run waits for its model like any
+          // other turn, and its Checks run again when it finishes.
+          return await pauseForOutage(checkPhase.unavailable, deadlineAtMs);
+        }
         if (checkPhase.errorKind) {
           saved.status = "error";
           saved.errorKind = checkPhase.errorKind;
@@ -1777,6 +1868,8 @@ async function runCheckPhase(args: {
   tokensOut: number;
   errorKind: RunErrorKind | null;
   incomplete: boolean;
+  /** A fix round met its AI Model unavailable; the Run pauses rather than failing. */
+  unavailable?: ModelUnavailability;
 }> {
   const { log } = args;
   let tokensIn = 0;
@@ -1784,6 +1877,7 @@ async function runCheckPhase(args: {
   let remediations = 0;
   let errorKind: RunErrorKind | null = null;
   let incomplete = false;
+  let unavailable: ModelUnavailability | undefined;
 
   const base = {
     run: args.run,
@@ -1909,6 +2003,10 @@ async function runCheckPhase(args: {
         args.diagnostics.fail("Check remediation stopped before finishing.", errorKind);
         log.line("\n[checks] remediation was interrupted before finishing.");
         log.line(workSummaryLogLine(""));
+      } else if (result.status === "error" && result.unavailable) {
+        unavailable = result.unavailable;
+        log.line(`\n[checks] remediation turn stopped: ${result.unavailable.detail}`);
+        log.line(workSummaryLogLine(""));
       } else if (result.status === "error") {
         errorKind = "runtime";
         args.diagnostics.fail(result.error, "model");
@@ -1937,6 +2035,7 @@ async function runCheckPhase(args: {
       clearTimeout(timer);
       unregisterRunInterrupter(args.run.id);
     }
+    if (unavailable) break;
     phase = await runChecksForRun({ ...base, attempt: remediations });
     log.line(`\n[checks] ${describeCheckPhase(phase)}`);
     const current = await AppDataSource.getRepository(Run).findOneBy({ id: args.run.id });
@@ -1951,6 +2050,7 @@ async function runCheckPhase(args: {
     tokensOut,
     errorKind,
     incomplete,
+    ...(unavailable ? { unavailable } : {}),
   };
 }
 

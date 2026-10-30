@@ -30,6 +30,8 @@ export const MAX_SCREEN_ATTEMPTS = 3;
 export const STALE_RUNNING_MS = 10 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
 const STANDDOWN_RECHECK_MS = 5 * 60_000;
+/** How soon a screen whose AI Model is unavailable looks again; the look is cheap. */
+const MODEL_UNAVAILABLE_RECHECK_MS = 60_000;
 const CONCURRENCY = 2;
 
 let active = 0;
@@ -134,12 +136,16 @@ async function settle(claimed: Pick<RecruitingApplication, "id" | "screenAttempt
     return outcome;
   }
   if (outcome.outcome === "retry") {
-    if (outcome.cause === "standdown") {
+    if (outcome.cause === "standdown" || outcome.cause === "model_unavailable") {
+      // Neither is the application's fault: it waits without spending an attempt.
       await repo.update(
         { id: claimed.id },
         {
           screenStatus: "queued",
-          screenQueuedAt: new Date(Date.now() + STANDDOWN_RECHECK_MS),
+          screenQueuedAt: new Date(
+            Date.now() +
+              (outcome.cause === "standdown" ? STANDDOWN_RECHECK_MS : MODEL_UNAVAILABLE_RECHECK_MS),
+          ),
           screenStartedAt: null,
           screenAttempts: Math.max(0, claimed.screenAttempts - 1),
           screenError: outcome.detail,

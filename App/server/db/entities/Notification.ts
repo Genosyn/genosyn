@@ -47,7 +47,11 @@ export type NotificationKind =
   /** A guest opened a data room for the first time. */
   | "data_room_visit"
   /** A group discussion the recipient started handed back its outcome. */
-  | "group_discussion";
+  | "group_discussion"
+  /** An AI Model became unavailable, so the work on it waits (`services/modelAvailability.ts`). */
+  | "model_unavailable"
+  /** An AI Model that was unavailable answers again, and the work that waited carries on. */
+  | "model_available";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -70,7 +74,8 @@ export type NotificationEntityKind =
   | "board_letter"
   | "recruiting_application"
   | "data_room"
-  | "group_discussion";
+  | "group_discussion"
+  | "ai_model";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

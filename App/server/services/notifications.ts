@@ -41,12 +41,13 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
  * match for an Opening the recipient owns, a guest's question in a data room
  * the recipient runs — someone outside the company is waiting on it — and the
  * outcome of a group discussion the recipient started — the answer they asked
- * several AI Employees to come back with.
+ * several AI Employees to come back with — and an AI Model becoming
+ * unavailable, which holds up every piece of work on it at once.
  *
  * The rest wait quietly in the bell and on Home: a failed or off-goal Run, a
  * reminder about something already pushed, a proposed edit or Initiative to
  * review, a Finance review, a revoked Waiver, an overdue Handoff, a guest's
- * first visit to a data room. They are the
+ * first visit to a data room, an AI Model answering again. They are the
  * company's own work to sort out, and paging a person for each is how a
  * notification stops meaning anything.
  */
@@ -66,6 +67,7 @@ export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<
   "recruiting_strong_match",
   "data_room_question",
   "group_discussion",
+  "model_unavailable",
 ]);
 
 export type CreateNotificationInput = {

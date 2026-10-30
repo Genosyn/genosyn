@@ -8,6 +8,7 @@ import {
   withSubscriptionModelLock,
 } from "../codexSubscription.js";
 import { CodexAppServer, CodexAppServerError } from "./codexAppServer.js";
+import { codexErrorKind } from "./modelOutage.js";
 import { toolResultCap } from "./toolResultBudget.js";
 import { contextUsage } from "./contextUsage.js";
 import { registryResultNotice, type ToolRegistry } from "./tools/toolRegistry.js";
@@ -205,7 +206,8 @@ export async function runCodexSubscriptionTurn(params: {
           const detail = asObject(body.error);
           terminalError = new CodexAppServerError(
             stringField(detail, "message") || "OpenAI Codex reported a terminal error.",
-            stringField(detail, "codexErrorInfo"),
+            // A variant with data arrives as an object (`{ httpConnectionFailed: {…} }`).
+            codexErrorKind(detail?.codexErrorInfo).kind,
             detail,
           );
           return;

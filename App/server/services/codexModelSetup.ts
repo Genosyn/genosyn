@@ -1,5 +1,6 @@
-import type { CodexAppServer } from "./agent/codexAppServer.js";
+import { CodexAppServerError, type CodexAppServer } from "./agent/codexAppServer.js";
 import { assertCodexThreadPosture } from "./agent/codexThreadPosture.js";
+import { codexErrorKind } from "./agent/modelOutage.js";
 import { ModelSetupError } from "./modelCatalog.js";
 
 /** Authenticate alone is insufficient: verify a real, isolated model turn before saving. */
@@ -19,6 +20,9 @@ export async function verifyCodexModel(
     resolveDone = resolve;
     rejectDone = reject;
   });
+  // What the app-server said went wrong, kept as the failure's cause so a
+  // caller can tell an overloaded service from a refused sign-in.
+  let codexError: CodexAppServerError | null = null;
   // Register before turn/start: very short turns can finish before its RPC reply.
   const stop = server.onNotification((method, raw) => {
     const body = object(raw);
@@ -28,13 +32,35 @@ export async function verifyCodexModel(
       if (item?.type === "agentMessage" && typeof item.text === "string" && item.text.trim())
         hasReply = true;
     }
+    if (method === "error" && body.willRetry !== true) {
+      const detail = object(body.error);
+      codexError = new CodexAppServerError(
+        typeof detail?.message === "string" ? detail.message : "OpenAI Codex reported an error.",
+        codexErrorKind(detail?.codexErrorInfo).kind,
+        detail,
+      );
+      return;
+    }
     if (method !== "turn/completed") return;
     const turn = object(body.turn);
     if (turnId && turn?.id !== turnId) return;
     if (turn?.status !== "completed") {
+      const turnError = object(turn?.error);
+      const cause =
+        codexError ??
+        (turnError
+          ? new CodexAppServerError(
+              typeof turnError.message === "string" ? turnError.message : "The turn failed.",
+              codexErrorKind(turnError.codexErrorInfo).kind,
+              turnError,
+            )
+          : null);
       rejectDone(
-        new ModelSetupError(
-          "ChatGPT sign-in worked, but the AI Model could not answer. Check your workspace access and usage limits, then try again.",
+        Object.assign(
+          new ModelSetupError(
+            "ChatGPT sign-in worked, but the AI Model could not answer. Check your workspace access and usage limits, then try again.",
+          ),
+          cause ? { cause } : {},
         ),
       );
       return;

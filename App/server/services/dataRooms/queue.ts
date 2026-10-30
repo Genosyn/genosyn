@@ -28,13 +28,19 @@ export const MAX_JOB_ATTEMPTS = 3;
 export const STALE_RUNNING_MS = 10 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
 const STANDDOWN_RECHECK_MS = 5 * 60_000;
+/** How soon a job whose AI Model is unavailable looks again; the look is cheap. */
+const MODEL_UNAVAILABLE_RECHECK_MS = 60_000;
 const FINISHED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const CONCURRENCY = 2;
 
 export type DataRoomJobOutcome =
   | { outcome: "done" }
   /** Worth another try later: nothing is wrong with the setup. */
-  | { outcome: "retry"; cause: "standdown" | "model_busy" | "timeout" | "error"; detail: string }
+  | {
+      outcome: "retry";
+      cause: "standdown" | "model_unavailable" | "model_busy" | "timeout" | "error";
+      detail: string;
+    }
   /** A person must change something before the job can succeed. */
   | { outcome: "failed"; detail: string };
 
@@ -188,12 +194,19 @@ async function settle(job: DataRoomJob): Promise<DataRoomJobOutcome> {
   const repo = AppDataSource.getRepository(DataRoomJob);
   if (outcome.outcome === "done") {
     await repo.update({ id: job.id }, { status: "done", finishedAt: new Date(), error: "" });
-  } else if (outcome.outcome === "retry" && outcome.cause === "standdown") {
+  } else if (
+    outcome.outcome === "retry" &&
+    (outcome.cause === "standdown" || outcome.cause === "model_unavailable")
+  ) {
+    // Neither is the job's fault: it waits without spending an attempt.
     await repo.update(
       { id: job.id },
       {
         status: "queued",
-        runAfter: new Date(Date.now() + STANDDOWN_RECHECK_MS),
+        runAfter: new Date(
+          Date.now() +
+            (outcome.cause === "standdown" ? STANDDOWN_RECHECK_MS : MODEL_UNAVAILABLE_RECHECK_MS),
+        ),
         startedAt: null,
         attempts: Math.max(0, job.attempts - 1),
         error: outcome.detail,

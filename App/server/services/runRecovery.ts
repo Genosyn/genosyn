@@ -44,6 +44,7 @@ import {
   clearRunPauseRequest,
   clearRunRestartMark,
   MAX_RUN_PAUSES,
+  restartPauseCount,
   runRestartMarks,
 } from "./runPause.js";
 
@@ -258,7 +259,8 @@ export async function reconcileOrphanedRuns(opts?: {
       if (
         cutOffAt &&
         !locallyOwned &&
-        (run.pauseCount ?? 0) < MAX_RUN_PAUSES &&
+        // Pauses while its AI Model was unavailable are bounded on their own.
+        restartPauseCount(run) < MAX_RUN_PAUSES &&
         // SQLite has one process, so its boot settles every Run a restart cut
         // off; a later pass could only catch one this process is still
         // claiming. On Postgres a lapsed lease says the owner is gone.
@@ -548,6 +550,7 @@ async function pauseCutOffRun(
         pausedAt: cutOffAt,
         pauseCount: (latest.pauseCount ?? 0) + 1,
         pauseRemainingMs: Math.max(0, deadline - cutOffAt.getTime()),
+        pauseReason: "restart",
       },
     );
     if (paused.affected !== 1) return false;

@@ -10,6 +10,7 @@ import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/polic
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
 import { workBlocked } from "./standdowns.js";
+import { isModelAvailable } from "./modelAvailability.js";
 
 /**
  * Wakeups — the timer the wake-source family lacked (M54). Everything here
@@ -128,6 +129,10 @@ export async function dispatchDueWakeups(
     // first sweep after the lift. Dropping it would silently discard a
     // follow-up the employee committed to, which a pause should never do.
     if (workBlocked(wakeup.companyId, { employeeId: wakeup.employeeId }).blocked) continue;
+    // So does an AI Model that is unavailable: the follow-up waits, `pending`,
+    // and fires on the first sweep after the model answers again.
+    const model = await getActiveModel(wakeup.employeeId).catch(() => null);
+    if (model && !isModelAvailable(model)) continue;
     const claim = await repo.update(
       { id: wakeup.id, status: "pending" },
       { status: "fired", firedAt: new Date() },
@@ -216,6 +221,16 @@ async function fireWakeup(
     ...sourceOptions,
     signal: lease?.signal,
   });
+  if (result.status === "error" && result.unavailable) {
+    // The AI Model went down under it. Not fired: back to `pending` with its
+    // time, so the first sweep after the model answers again fires it. The
+    // journal hears nothing, because nothing happened.
+    await repo.update(
+      { id: wakeup.id, status: "fired" },
+      { status: "pending", firedAt: null, outcomeNote: null },
+    );
+    return;
+  }
   const note = result.reply.trim().slice(0, OUTCOME_CAP) || "(no reply)";
   await repo.update({ id: wakeup.id }, { outcomeNote: note });
   await journal(employee.id, `Woke up: ${wakeup.brief.slice(0, 80)}`, note, wakeup.sourceRoutineId);

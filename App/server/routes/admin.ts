@@ -306,6 +306,7 @@ const runtimeGroupParams = z.object({
     "network",
     "banking",
     "emailVerification",
+    "modelAvailability",
   ]),
 });
 
@@ -409,6 +410,12 @@ const runtimeGroupSchemas = {
       .default(""),
     probeTimeoutMs: z.number().int().min(1_000).max(30_000),
     maxCandidates: z.number().int().min(1).max(25),
+  }),
+  modelAvailability: z.object({
+    failureThreshold: z.number().int().min(1).max(20),
+    firstCheckSeconds: z.number().int().min(5).max(600),
+    maxCheckIntervalMinutes: z.number().int().min(1).max(60),
+    resumeIntervalSeconds: z.number().int().min(0).max(300),
   }),
 } as const;
 

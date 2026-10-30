@@ -12,6 +12,7 @@ import { assessRunOutcome, type CheckResultEvidence } from "./runVerdicts.js";
 import type { EffectRow } from "./runEffects.js";
 import { automaticRetryDelayMs, shouldRetry } from "./cronMath.js";
 import { getContainmentSettings } from "./runtimeSettings.js";
+import { isModelAvailable } from "./modelAvailability.js";
 
 /**
  * Grading a finished Run, and re-grading the ones nobody graded.
@@ -37,7 +38,8 @@ const REGRADE_HARD_CAP = 50;
 
 export type GradeRunResult =
   | { graded: true; verdict: NonNullable<Run["outcomeVerdict"]>; note: string }
-  | { graded: false; reason: string };
+  /** `deferred`: the grader's AI Model was unavailable; the Run waits to be graded. */
+  | { graded: false; reason: string; deferred?: boolean };
 
 /**
  * Grade one completed Run and persist the verdict.
@@ -88,6 +90,16 @@ export async function gradeAndPersistRunOutcome(args: {
       checkResults,
       runRestricted: args.runRestricted,
     });
+    if (assessment.unavailable) {
+      // An outage is not a judgement, and not even an honest `unverified`
+      // worth stamping: the Run stays ungraded — counted as not yet verified
+      // everywhere — and the sweep grades it once the model answers again.
+      return {
+        graded: false,
+        deferred: true,
+        reason: `the outcome check waits for its AI Model: ${assessment.unavailable.detail}`,
+      };
+    }
 
     const status = assessment.verdict === "off_goal" ? "failed" : "completed";
     const retryAt =
@@ -234,6 +246,9 @@ export async function sweepUngradedRuns(
     // says plainly that it was never graded, which is the truth.
     const { model } = await resolveRoutineModel(routine).catch(() => ({ model: null }));
     assertLeaseHeld();
+    // Its AI Model is unavailable: grade it once the model answers again, and
+    // spend none of this pass on a turn that cannot run.
+    if (model && !isModelAvailable(model)) continue;
     if (!model) {
       await runRepo.update(
         { id: run.id, status: "completed", outcomeCheckedAt: IsNull() },

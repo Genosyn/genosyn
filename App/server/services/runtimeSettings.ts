@@ -54,6 +54,7 @@ export const RUNTIME_SETTING_KEYS = {
   network: "runtime.network",
   banking: "runtime.banking",
   emailVerification: "runtime.emailVerification",
+  modelAvailability: "runtime.modelAvailability",
 } as const;
 
 export type RuntimeSettingsGroup = keyof typeof RUNTIME_SETTING_KEYS;
@@ -210,6 +211,30 @@ export type RuntimeEmailVerificationSettings = {
   maxCandidates: number;
 };
 
+/**
+ * How Genosyn waits out an AI Model that is unavailable
+ * (`services/modelAvailability.ts`): how many failures in a row mark it
+ * unavailable, how soon and how often a cheap check asks it again, and how
+ * far apart the Runs waiting for it start once it is back.
+ */
+export type RuntimeModelAvailabilitySettings = {
+  /**
+   * Model requests in a row that must fail with an outage — a server error,
+   * an overload, a timeout — before the model counts as unavailable. One
+   * refused connection or unknown host is always enough.
+   */
+  failureThreshold: number;
+  /** Seconds before the first check once a model becomes unavailable. */
+  firstCheckSeconds: number;
+  /** The longest wait between checks, in minutes; each failed check doubles the wait up to it. */
+  maxCheckIntervalMinutes: number;
+  /**
+   * Seconds between the Runs a model starts once it is back, so the work that
+   * waited does not all land on it at once. 0 starts them together.
+   */
+  resumeIntervalSeconds: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -221,6 +246,7 @@ export type RuntimeSettings = {
   network: RuntimeNetworkSettings;
   banking: RuntimeBankingSettings;
   emailVerification: RuntimeEmailVerificationSettings;
+  modelAvailability: RuntimeModelAvailabilitySettings;
 };
 
 /** Whether each group is currently backed by a stored row (vs. the default). */
@@ -293,6 +319,12 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     probeFromAddress: "",
     probeTimeoutMs: 7_000,
     maxCandidates: 12,
+  },
+  modelAvailability: {
+    failureThreshold: 3,
+    firstCheckSeconds: 30,
+    maxCheckIntervalMinutes: 10,
+    resumeIntervalSeconds: 10,
   },
 } satisfies RuntimeSettings);
 
@@ -726,6 +758,39 @@ export function parseEmailVerificationSettings(raw: unknown): RuntimeEmailVerifi
   };
 }
 
+export function parseModelAvailabilitySettings(raw: unknown): RuntimeModelAvailabilitySettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.modelAvailability;
+  return {
+    failureThreshold: intField(o, "modelAvailability", "failureThreshold", d.failureThreshold, 1, 20),
+    // Five seconds at the least: a check is a real request to the model's service.
+    firstCheckSeconds: intField(
+      o,
+      "modelAvailability",
+      "firstCheckSeconds",
+      d.firstCheckSeconds,
+      5,
+      600,
+    ),
+    maxCheckIntervalMinutes: intField(
+      o,
+      "modelAvailability",
+      "maxCheckIntervalMinutes",
+      d.maxCheckIntervalMinutes,
+      1,
+      60,
+    ),
+    resumeIntervalSeconds: intField(
+      o,
+      "modelAvailability",
+      "resumeIntervalSeconds",
+      d.resumeIntervalSeconds,
+      0,
+      300,
+    ),
+  };
+}
+
 /** One parser per group, so refresh, write, and legacy import share a code path. */
 const PARSERS: {
   [G in RuntimeSettingsGroup]: (raw: unknown) => RuntimeSettings[G];
@@ -740,6 +805,7 @@ const PARSERS: {
   network: parseNetworkSettings,
   banking: parseBankingSettings,
   emailVerification: parseEmailVerificationSettings,
+  modelAvailability: parseModelAvailabilitySettings,
 };
 
 // ────────────────────────────── the cache ──────────────────────────────────
@@ -756,6 +822,7 @@ let overridden: RuntimeSettingsOverridden = {
   network: false,
   banking: false,
   emailVerification: false,
+  modelAvailability: false,
 };
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -832,6 +899,11 @@ export function getEmailVerificationSettings(): RuntimeEmailVerificationSettings
   return effective("emailVerification");
 }
 
+/** How an unavailable AI Model is waited out. Read on every failure, check and Run start. */
+export function getModelAvailabilitySettings(): RuntimeModelAvailabilitySettings {
+  return effective("modelAvailability");
+}
+
 function parseRow(group: RuntimeSettingsGroup, value: string): unknown {
   try {
     return JSON.parse(value);
@@ -858,6 +930,7 @@ async function refreshRuntimeSettings(): Promise<void> {
     network: false,
     banking: false,
     emailVerification: false,
+    modelAvailability: false,
   };
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const raw = byKey.get(RUNTIME_SETTING_KEYS[group]);
@@ -905,6 +978,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
     network: effective("network"),
     banking: effective("banking"),
     emailVerification: effective("emailVerification"),
+    modelAvailability: effective("modelAvailability"),
     overridden: { ...overridden },
   };
 }
@@ -984,6 +1058,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
     network: false,
     banking: false,
     emailVerification: false,
+    modelAvailability: false,
   };
   testOverrides = {};
   warned.clear();
@@ -1053,8 +1128,15 @@ export async function importLegacyConfigOverrides(): Promise<void> {
   const legacy = config as unknown as LegacyRuntimeConfig;
 
   for (const group of RUNTIME_SETTINGS_GROUPS) {
-    // Hosted sign-in, bank sync and email verification never lived in boot config.
-    if (group === "oauth" || group === "banking" || group === "emailVerification") continue;
+    // Hosted sign-in, bank sync, email verification and model availability
+    // never lived in boot config.
+    if (
+      group === "oauth" ||
+      group === "banking" ||
+      group === "emailVerification" ||
+      group === "modelAvailability"
+    )
+      continue;
     const raw =
       group === "agent"
         ? legacyAgentBlock(legacy)

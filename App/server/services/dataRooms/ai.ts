@@ -30,6 +30,8 @@ import { jsonBoundedString } from "../mail/promptBounds.js";
 import { getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { workBlocked } from "../standdowns.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import { classifyModelError, markModelUnavailable } from "../agent/modelOutage.js";
 import {
   auditRoom,
   documentText,
@@ -201,7 +203,10 @@ async function runSubmission<T>(args: {
     signal: args.signal,
   });
   if (submitted) return submitted;
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    const error = new Error(result.error);
+    throw result.unavailable ? markModelUnavailable(error, result.unavailable) : error;
+  }
   throw new Error(`${args.employee.name} did not submit anything.`);
 }
 
@@ -256,6 +261,13 @@ export async function runDataRoomJob(
       detail: `${employee.name}'s ChatGPT subscription model was busy with another turn.`,
     };
   }
+  if (!isModelAvailable(model)) {
+    return {
+      outcome: "retry",
+      cause: "model_unavailable",
+      detail: `${employee.name}'s AI Model is unavailable. This waits until it answers again.`,
+    };
+  }
   const resolvedModel = model;
   try {
     const result = await withTimeout(options.timeoutMs ?? DATA_ROOM_AI_TIMEOUT_MS, (signal) => {
@@ -269,6 +281,14 @@ export async function runDataRoomJob(
       return { outcome: "retry", cause: "timeout", detail: "The AI work took too long." };
     return result;
   } catch (error) {
+    const unavailable = classifyModelError(error);
+    if (unavailable) {
+      return {
+        outcome: "retry",
+        cause: "model_unavailable",
+        detail: `${unavailable.detail} This waits until it answers again.`,
+      };
+    }
     return { outcome: "retry", cause: "error", detail: failureDetail(error) };
   }
 }
