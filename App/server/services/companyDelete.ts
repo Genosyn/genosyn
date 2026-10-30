@@ -17,6 +17,7 @@ import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
 import { deleteKeyHealth } from "./modelKeyHealth.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIModelOutage } from "../db/entities/AIModelOutage.js";
+import { AIModelWait } from "../db/entities/AIModelWait.js";
 import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -472,6 +473,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(EmployeeModel, { companyId });
     // Each spell one of them was unavailable goes with the model.
     await m.delete(AIModelOutage, { companyId });
+    // So does the work that was waiting for one of them to come back.
+    await m.delete(AIModelWait, { companyId });
     await m.delete(AIModel, { companyId });
     await m.delete(ParallelWorkerResult, { companyId });
     await m.delete(TldrQuestionAction, { companyId });
