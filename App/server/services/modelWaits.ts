@@ -252,11 +252,6 @@ function nextDelay(resumeAt: Date, now: number): number {
   return Math.max(0, resumeAt.getTime() - now);
 }
 
-/** Forget a wait: the work was done some other way, or its row is gone. */
-export async function cancelModelWait(kind: AIModelWaitKind, targetId: string): Promise<void> {
-  await repo().delete({ kind, targetId, status: "waiting" });
-}
-
 /** Whether this piece of work is waiting (or being carried on) right now. */
 export async function isWaitingForModel(kind: AIModelWaitKind, targetId: string): Promise<boolean> {
   return (await repo().countBy({ kind, targetId })) > 0;

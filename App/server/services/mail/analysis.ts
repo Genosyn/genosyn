@@ -14,7 +14,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
-import { ModelUnavailableError, type ModelUnavailability } from "../agent/modelOutage.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
 import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
 import { isModelAvailable } from "../modelAvailability.js";
@@ -549,7 +549,7 @@ export class MailAnalysisAlreadyActed extends Error {}
  * the email stays.
  */
 export class MailAnalysisModelUnavailable extends Error {
-  constructor(readonly unavailability: ModelUnavailability | null) {
+  constructor() {
     super(
       "The AI Model that reads this mailbox is unavailable right now. Read this email again once it is back.",
     );
@@ -782,7 +782,7 @@ async function runAnalysis(
     // is back; a resume finds it still down and keeps waiting untouched; a
     // person's re-read is refused before the verdict on the email is replaced.
     if (resuming) return existing;
-    if (!options.arrival) throw new MailAnalysisModelUnavailable(null);
+    if (!options.arrival) throw new MailAnalysisModelUnavailable();
     return deferArrivalRead(account, message, reader, existing);
   }
   // A re-read replaces the whole verdict, `executedAt` stamps included — and
