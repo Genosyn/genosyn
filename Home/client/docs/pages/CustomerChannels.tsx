@@ -175,6 +175,18 @@ export function CustomerChannels() {
         a linked channel cannot be deleted, and merging two Customers moves the channel to the one
         you keep.
       </P>
+      <H3 id="model-unavailable">When its AI Model is unavailable</H3>
+      <P>
+        If the employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is
+        unavailable</DocLink>, nothing is posted in the channel — no apology, no error. A message
+        that would have been answered keeps its place and is answered once the model is back, in
+        its thread, by the same reply on the channel&apos;s instructions, with every rule above
+        checked again then: the reply mode, a Standdown, the day&apos;s limit, and whether it is
+        still the newest word. If a colleague answered in the thread meanwhile, or a newer message
+        there took the question, nothing is posted; two questions that waited in one thread get one
+        answer. An answer still waiting after a day is dropped. Notes wait too: nothing is recorded
+        as a failure, and they are written as soon as the model answers again.
+      </P>
 
       <Callout title="Related">
         <DocLink to="/docs/chat-surfaces">External chat surfaces</DocLink> covers the Slack app

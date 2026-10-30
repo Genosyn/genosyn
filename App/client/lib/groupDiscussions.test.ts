@@ -155,6 +155,25 @@ describe("the status line", () => {
     assert.equal(discussionStatusLine(discussion({ status: "interrupted" })), "Interrupted by a restart");
   });
 
+  test("says when it is waiting for an AI Model that is unavailable", () => {
+    const since = "2026-10-30T10:00:00.000Z";
+    assert.equal(
+      discussionStatusLine(discussion({ waitingForModelSince: since, currentEmployeeId: null })),
+      "Waiting for the AI Model to come back · round 2 of 3",
+    );
+    assert.equal(
+      discussionStatusLine(
+        discussion({ waitingForModelSince: since, phase: "concluding", currentEmployeeId: null }),
+      ),
+      "Waiting for the AI Model to come back to write the outcome",
+    );
+    // Once it has ended, the end is what it says.
+    assert.equal(
+      discussionStatusLine(discussion({ waitingForModelSince: since, status: "failed" })),
+      "Ended without an outcome",
+    );
+  });
+
   test("every end reason and participant state has words", () => {
     for (const reason of [
       "converged",
@@ -213,6 +232,7 @@ describe("controls", () => {
   test("owners and statuses read plainly", () => {
     const items = concluded().outcome!.actionItems;
     assert.deepEqual(items.map(actionItemOwnerLabel), ["Ben", "Ruth", "legal"]);
+    assert.equal(actionItemStatusLabel("waiting"), "Waiting for its AI Model");
     assert.equal(actionItemStatusLabel("done"), "Done");
     assert.equal(actionItemStatusLabel("failed"), "Couldn't finish");
     assert.equal(actionItemStatusLabel(undefined), null);

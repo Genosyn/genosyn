@@ -5,8 +5,10 @@ import { Company } from "../../db/entities/Company.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { CustomerChannel } from "../../db/entities/CustomerChannel.js";
 import { CustomerChannelMessage } from "../../db/entities/CustomerChannelMessage.js";
+import { ModelUnavailableError } from "../agent/modelOutage.js";
 import { redactSensitiveText } from "../approvalRedaction.js";
 import { parseDueDate } from "../meetings/followUps.js";
+import { isModelAvailable } from "../modelAvailability.js";
 import { getActiveModel } from "../models.js";
 import { recordActivity } from "../revenue/activities.js";
 import { createFollowUpTask } from "../revenue/followUps.js";
@@ -122,6 +124,18 @@ async function recordAttempt(channelId: string, error: string): Promise<void> {
   );
 }
 
+function modelAnswers(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+function waitingForModel(employee: Pick<AIEmployee, "name">): string {
+  return `${employee.name}'s AI Model is unavailable. The notes are written as soon as it is back.`;
+}
+
 function failureDetail(err: unknown): string {
   return redactSensitiveText(err instanceof Error ? err.message : String(err)).slice(0, 400);
 }
@@ -178,6 +192,12 @@ export async function writeCustomerChannelNotes(
     await recordAttempt(channel.id, reason);
     return { status: "failed", reason };
   }
+  // Its AI Model is unavailable: nothing is attempted and nothing recorded as
+  // a failure. The messages stay waiting, and the first pass after the model
+  // answers again writes them — with no retry delay to sit out.
+  if (!modelAnswers(model)) {
+    return { status: "skipped", reason: waitingForModel(employee) };
+  }
 
   const earlier = (
     await AppDataSource.getRepository(CustomerChannelMessage).find({
@@ -200,6 +220,11 @@ export async function writeCustomerChannelNotes(
       user: composeNotesUserMessage({ channel, customer, earlier, pending }),
     });
   } catch (err) {
+    // The AI Model went down under the turn: not a failed attempt, and nothing
+    // a person needs to fix. The notes are written once it is back.
+    if (err instanceof ModelUnavailableError) {
+      return { status: "skipped", reason: waitingForModel(employee) };
+    }
     const reason = failureDetail(err);
     await recordAttempt(channel.id, reason);
     return { status: "failed", reason };

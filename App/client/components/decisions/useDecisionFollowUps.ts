@@ -176,7 +176,7 @@ function needsRefresh(item: DecisionStackItem): boolean {
     stackItemPending(item) ||
     (item.kind === "decision" &&
       item.decision.status === "decided" &&
-      item.decision.pickupStatus === "none") ||
+      (item.decision.pickupStatus === "none" || item.decision.pickupStatus === "waiting")) ||
     stackItemWorking(item)
   );
 }

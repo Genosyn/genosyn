@@ -97,6 +97,14 @@ export function decisionStatusLine(decision: Decision, viewerId?: string | null)
           };
         case "running":
           return { label: chose, text: `${employee} is on it`, tone: "progress", working: true };
+        case "waiting":
+          // The asker's AI Model is unavailable; the work starts by itself.
+          return {
+            label: chose,
+            text: `Waiting for ${employee}’s AI Model to come back`,
+            tone: "progress",
+            working: false,
+          };
         case "done": {
           const { report } = pickupReportOf(decision);
           return {

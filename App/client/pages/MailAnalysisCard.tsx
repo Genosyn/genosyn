@@ -7,6 +7,7 @@ import {
   CalendarPlus,
   Check,
   CircleAlert,
+  Clock,
   FileText,
   Lock,
   MailCheck,
@@ -286,6 +287,22 @@ export function MailAnalysisCard({
       <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
         <Spinner size={13} />
         Reading this email…
+      </div>
+    );
+  }
+
+  if (row.status === "waiting") {
+    // An arrival read whose AI Model is unavailable. It is read — and the
+    // mailbox's instructions applied — by itself once the model is back, so
+    // there is nothing to retry from here.
+    return (
+      <div
+        role="status"
+        className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
+      >
+        <Clock size={13} className="shrink-0" />
+        Waiting for the AI Model to come back. This email is read as soon as it is, just as it
+        would have been on arrival.
       </div>
     );
   }

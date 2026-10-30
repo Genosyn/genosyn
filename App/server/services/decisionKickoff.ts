@@ -7,8 +7,18 @@ import { MailThread } from "../db/entities/MailThread.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
+import type { AIModel } from "../db/entities/AIModel.js";
+import type { AIModelWait } from "../db/entities/AIModelWait.js";
 import { chatWithEmployee } from "./chat.js";
+import { isModelAvailable } from "./modelAvailability.js";
+import {
+  parseWaitPayload,
+  waitForModel,
+  type ModelWaitHandler,
+  type ModelWaitResult,
+} from "./modelWaits.js";
 import { getActiveModel } from "./models.js";
+import { emitResourceChange } from "./resourceEvents.js";
 import { parseDecisionOptions } from "./decisions.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
@@ -78,9 +88,14 @@ export async function kickoffDecision(args: {
    * assistant's `runChat` injection rather than inventing a second pattern.
    */
   runChat?: typeof chatWithEmployee;
-}): Promise<void> {
+  /**
+   * Carry on a pickup that waited for its AI Model (`decisionPickupWait`):
+   * claims the `waiting` row rather than an untouched one.
+   */
+  resume?: boolean;
+}): Promise<PickupKickoffOutcome> {
   const { companyId, decisionId } = args;
-  if (inFlight.has(decisionId)) return;
+  if (inFlight.has(decisionId)) return "not_started";
 
   const repo = AppDataSource.getRepository(Decision);
   // Preparation-only origins persist `skipped` when the question is created.
@@ -89,15 +104,20 @@ export async function kickoffDecision(args: {
   // Claim first, ask questions later: whoever flips `none` → `running` owns the
   // session. A second caller sees zero affected rows and leaves.
   const claim = await repo.update(
-    { id: decisionId, companyId, status: "decided", pickupStatus: "none" },
+    {
+      id: decisionId,
+      companyId,
+      status: "decided",
+      pickupStatus: args.resume ? "waiting" : "none",
+    },
     { pickupStatus: "running", pickupStartedAt: new Date(), pickupFinishedAt: null },
   );
-  if (!claim.affected) return;
+  if (!claim.affected) return "not_started";
 
   inFlight.add(decisionId);
   try {
     const decision = await repo.findOneBy({ id: decisionId, companyId });
-    if (!decision) return;
+    if (!decision) return "not_started";
 
     const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
       id: decision.employeeId,
@@ -105,7 +125,7 @@ export async function kickoffDecision(args: {
     });
     if (!employee) {
       await settle(decision, "skipped", "The AI employee that asked this has been deleted.");
-      return;
+      return "skipped";
     }
     let chatOptions: Parameters<typeof chatWithEmployee>[4];
     if (args.authority === "employee") {
@@ -118,7 +138,7 @@ export async function kickoffDecision(args: {
           `work session. Your answer is on ${employee.name}'s journal and reaches ` +
           "them on their next run.",
       );
-      return;
+      return "skipped";
     } else {
       chatOptions = {
         requesterUserId: args.requesterUserId,
@@ -138,7 +158,7 @@ export async function kickoffDecision(args: {
           "skipped",
           "The source Routine was disabled or removed. The answer was saved.",
         );
-        return;
+        return "skipped";
       }
       const run = decision.runId
         ? await AppDataSource.getRepository(Run).findOneBy({
@@ -165,15 +185,24 @@ export async function kickoffDecision(args: {
         proactiveReview: true,
       };
     }
-    if (!(await getActiveModel(employee.id))) {
+    const model = await getActiveModel(employee.id);
+    if (!model) {
       await settle(
         decision,
         "skipped",
         `${employee.name} has no AI Model connected, so nothing could start now. ` +
           "Your answer is on their journal and reaches them on their next run.",
       );
-      return;
+      return "skipped";
     }
+    // The AI Model is unavailable: the work waits for it — the same session,
+    // under the same authority — and starts by itself when the model is back.
+    // Nothing is settled, journaled or retried meanwhile.
+    const wait = async (): Promise<PickupKickoffOutcome> => {
+      await waitForPickup(decision, employee, model, args);
+      return "waiting";
+    };
+    if (!modelAnswers(model)) return await wait();
 
     const runChat = args.runChat ?? chatWithEmployee;
     let pickupBrief = await composePickupBrief(decision);
@@ -182,6 +211,7 @@ export async function kickoffDecision(args: {
         "\n\nAny email you prepare must use request_mail_review. Keep its exact recipients, subject, body and files in the Decision stack; do not create a Gmail or IMAP draft and do not send it.";
     }
     const result = await runChat(companyId, employee.id, pickupBrief, [], chatOptions);
+    if (result.status === "error" && result.unavailable) return await wait();
     const reply = result.reply.trim() || "(no reply)";
     if (result.status === "ok") {
       // The final message is the report people read; the reply keeps every
@@ -189,9 +219,10 @@ export async function kickoffDecision(args: {
       const report = result.finalText?.trim() || null;
       await settle(decision, "done", reply, report);
       await journal(decision, `Picked up the decision "${decision.title}"`, report ?? reply);
-    } else {
-      await settle(decision, "failed", reply);
+      return "done";
     }
+    await settle(decision, "failed", reply);
+    return "failed";
   } catch (err) {
     // A throw anywhere above must still land the row in a terminal state —
     // otherwise the stack shows a spinner nobody will ever clear.
@@ -199,10 +230,97 @@ export async function kickoffDecision(args: {
     if (decision) {
       await settle(decision, "failed", err instanceof Error ? err.message : String(err));
     }
+    return "failed";
   } finally {
     inFlight.delete(decisionId);
   }
 }
+
+/** How a pickup kickoff ended. `waiting` waits for its AI Model and starts by itself. */
+export type PickupKickoffOutcome = "not_started" | "waiting" | "done" | "failed" | "skipped";
+
+/** The Member authority (or the employee's own) a pickup that waits carries to its resume. */
+type PickupWaitPayload = {
+  authority: "member" | "employee";
+  requesterUserId: string | null;
+  requesterSessionVersion: number | null;
+};
+
+function modelAnswers(model: AIModel): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
+}
+
+async function waitForPickup(
+  decision: Decision,
+  employee: AIEmployee,
+  model: AIModel,
+  args: Parameters<typeof kickoffDecision>[0],
+): Promise<void> {
+  await AppDataSource.getRepository(Decision).update(
+    { id: decision.id, companyId: decision.companyId, pickupStatus: "running" },
+    {
+      pickupStatus: "waiting",
+      pickupSummary: `${employee.name}'s AI Model is unavailable, so the work waits for it. It starts by itself as soon as the model is back.`,
+      pickupReport: null,
+      pickupFinishedAt: null,
+    },
+  );
+  // The answering Member's exact auth epoch travels with the wait: the work
+  // that starts later runs under that authority or not at all — a password
+  // reset or a lost Membership meanwhile refuses it, as for any chat turn.
+  const payload: PickupWaitPayload = {
+    authority: args.authority === "employee" ? "employee" : "member",
+    requesterUserId: args.requesterUserId ?? null,
+    requesterSessionVersion: args.requesterSessionVersion ?? null,
+  };
+  await waitForModel({
+    kind: "decision_pickup",
+    targetId: decision.id,
+    companyId: decision.companyId,
+    employeeId: employee.id,
+    model,
+    payload,
+  });
+  emitResourceChange(decision.companyId, "decision", undefined, { trigger: false });
+}
+
+/**
+ * A pickup that waited for its AI Model, started once the model is back:
+ * `kickoffDecision` again, claiming the waiting row, with every check it makes
+ * — the asker still here, the Routine still on, the answering Member still a
+ * Member on the same session — made again now.
+ */
+export const decisionPickupWait: ModelWaitHandler = {
+  concurrency: 2,
+  resume: async (wait: AIModelWait): Promise<ModelWaitResult> => {
+    const payload = parseWaitPayload<PickupWaitPayload>(wait);
+    const outcome = await kickoffDecision({
+      companyId: wait.companyId,
+      decisionId: wait.targetId,
+      authority: payload.authority === "employee" ? "employee" : "member",
+      requesterUserId: payload.requesterUserId ?? undefined,
+      requesterSessionVersion: payload.requesterSessionVersion ?? null,
+      resume: true,
+    });
+    return outcome === "waiting" ? { status: "waiting" } : { status: "done" };
+  },
+  abandon: async (wait) => {
+    const decision = await AppDataSource.getRepository(Decision).findOneBy({
+      id: wait.targetId,
+      companyId: wait.companyId,
+    });
+    if (!decision || decision.pickupStatus !== "waiting") return;
+    await settle(
+      decision,
+      "skipped",
+      "The AI Model kept becoming unavailable, so the work did not start. The answer is on the employee's journal and reaches them on their next run.",
+    );
+  },
+};
 
 /**
  * Land the pickup in a terminal state. Both texts are shown to every Member

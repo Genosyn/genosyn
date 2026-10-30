@@ -1,14 +1,29 @@
 import { In } from "typeorm";
-import { MODEL_UNAVAILABLE_REPLY } from "../../../shared/modelAvailability.js";
+import {
+  MODEL_WAIT_SURFACE_ACK,
+  MODEL_WAIT_SURFACE_GAVE_UP,
+} from "../../../shared/modelAvailability.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import type { AIModelWait } from "../../db/entities/AIModelWait.js";
 import { Conversation } from "../../db/entities/Conversation.js";
 import { ConversationMessage } from "../../db/entities/ConversationMessage.js";
 import { EmployeeConnectionGrant } from "../../db/entities/EmployeeConnectionGrant.js";
+import { ExternalChatIdentity } from "../../db/entities/ExternalChatIdentity.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
-import { chatWithEmployee, type ChatOptions, type ChatTurn } from "../chat.js";
+import { chatWithEmployee, type ChatOptions, type ChatResult, type ChatTurn } from "../chat.js";
 import { decryptConnectionConfig } from "../integrations.js";
 import { routeCustomerChannelTurn } from "../customerChannels/inbound.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import {
+  parseWaitPayload,
+  waitForModel,
+  waitsInGroup,
+  type ModelWaitHandler,
+  type ModelWaitResult,
+} from "../modelWaits.js";
+import { resolveChatModel } from "../models.js";
+import { workBlocked } from "../standdowns.js";
 import {
   mintBindLink,
   recordSighting,
@@ -358,8 +373,9 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
   if (await alreadyHandled(conversation.id, turn.externalMessageId)) return;
 
   const msgRepo = AppDataSource.getRepository(ConversationMessage);
+  let userMessage: ConversationMessage;
   try {
-    await msgRepo.save(
+    userMessage = await msgRepo.save(
       msgRepo.create({
         conversationId: conversation.id,
         role: "user",
@@ -384,7 +400,7 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
     order: { createdAt: "ASC" },
   });
   const replay: ChatTurn[] = prior
-    .slice(0, -1)
+    .filter((m) => m.id !== userMessage.id)
     .slice(-MAX_REPLAY_TURNS)
     .map((m) => ({ role: m.role, content: m.content }));
 
@@ -402,6 +418,27 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
       }
     : { conversationId: conversation.id };
 
+  // The responder's AI Model is unavailable: the message waits and is
+  // answered when it is back. A Standdown is not checked away here —
+  // `chatWithEmployee` says so, as it always has.
+  const waitForReply = () =>
+    waitOnSurface({
+      turn: { ...turn, text: responder.text },
+      conn,
+      conversationId: conversation.id,
+      userMessageId: userMessage.id,
+      transcriptCount: prior.length,
+      employeeId: responder.employeeId,
+      send,
+    });
+  if (
+    !workBlocked(conn.companyId, { employeeId: responder.employeeId }).blocked &&
+    (await responderModelDown(responder.employeeId))
+  ) {
+    await waitForReply();
+    return;
+  }
+
   const answered = await chatWithEmployee(
     conn.companyId,
     responder.employeeId,
@@ -409,33 +446,309 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
     replay,
     chatOptions,
   );
-  // An unavailable AI Model is said plainly: the technical error names the
-  // model and its endpoint, which is nothing to send to people outside.
-  const result =
-    answered.status === "error" && answered.unavailable
-      ? { ...answered, reply: MODEL_UNAVAILABLE_REPLY }
-      : answered;
+  if (answered.status === "error" && answered.unavailable) {
+    await waitForReply();
+    return;
+  }
+  await deliverAnswer({
+    answered,
+    conversation,
+    userText: responder.text,
+    identity,
+    requester,
+    group: turn.group,
+    audience,
+    send,
+  });
+}
 
+/** Save the answer to the transcript and send it, with the bind footer this audience gets. */
+async function deliverAnswer(args: {
+  answered: ChatResult;
+  conversation: Conversation;
+  userText: string;
+  identity: ExternalChatIdentity;
+  requester: ChatSurfaceRequester | null;
+  group: boolean;
+  audience: GroupAudience;
+  send: (body: string) => Promise<void>;
+}): Promise<void> {
+  const { answered, conversation } = args;
+  const msgRepo = AppDataSource.getRepository(ConversationMessage);
   await msgRepo.save(
     msgRepo.create({
       conversationId: conversation.id,
       role: "assistant",
-      content: result.reply,
-      status: result.status,
+      content: answered.reply,
+      status: answered.status,
       externalMessageId: null,
     }),
   );
 
   const convRepo = AppDataSource.getRepository(Conversation);
   conversation.updatedAt = new Date();
-  if (!conversation.title) conversation.title = deriveTitle(responder.text);
+  if (!conversation.title) conversation.title = deriveTitle(args.userText);
   await convRepo.save(conversation);
 
-  const footer = await bindFooter(identity, Boolean(requester), turn.group, audience, () =>
-    mintBindLink(identity),
+  const footer = await bindFooter(
+    args.identity,
+    Boolean(args.requester),
+    args.group,
+    args.audience,
+    () => mintBindLink(args.identity),
   );
-  await send(`${result.reply}${footer}`);
+  await args.send(`${answered.reply}${footer}`);
 }
+
+async function responderModelDown(employeeId: string): Promise<boolean> {
+  const model = await resolveChatModel(employeeId).catch(() => null);
+  if (!model) return false;
+  try {
+    return !isModelAvailable(model);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How long an answer owed on a surface waits for its AI Model. WhatsApp lets a
+ * business reply freely only within a day of the person's last message, so an
+ * answer there waits a little less than that; elsewhere three days, past which
+ * an answer would land in a conversation long over.
+ */
+export const SURFACE_REPLY_WAIT_MS = 72 * 60 * 60_000;
+export const WHATSAPP_REPLY_WAIT_MS = 23 * 60 * 60_000;
+
+/** The turn as the resume needs it — where to answer, and who asked — without the text's framing. */
+type WaitingSurfaceTurn = Pick<
+  InboundChatTurn,
+  | "provider"
+  | "connectionId"
+  | "externalKey"
+  | "externalUserId"
+  | "externalUserLabel"
+  | "group"
+  | "externalMessageId"
+  | "replyTo"
+  | "externalChannelId"
+  | "externallyShared"
+  | "text"
+>;
+
+/**
+ * Put an answer to wait for the responder's AI Model, and say so — once. The
+ * first message that waits in a conversation gets a short acknowledgement, so
+ * the person is not left wondering; the rest wait quietly, and the newest one
+ * is answered with all of them in view. Nothing about the model's error
+ * reaches the surface.
+ */
+async function waitOnSurface(args: {
+  turn: WaitingSurfaceTurn;
+  conn: IntegrationConnection;
+  conversationId: string;
+  userMessageId: string;
+  /** Messages in the conversation, this one included, when it began to wait. */
+  transcriptCount: number;
+  employeeId: string;
+  send: (body: string) => Promise<void>;
+}): Promise<void> {
+  const model = await resolveChatModel(args.employeeId).catch(() => null);
+  const alreadyWaiting = await waitsInGroup("chat_surface_reply", args.conversationId);
+  const turn: WaitingSurfaceTurn = {
+    provider: args.turn.provider,
+    connectionId: args.turn.connectionId,
+    externalKey: args.turn.externalKey,
+    externalUserId: args.turn.externalUserId,
+    externalUserLabel: args.turn.externalUserLabel,
+    group: args.turn.group,
+    externalMessageId: args.turn.externalMessageId,
+    replyTo: args.turn.replyTo,
+    externalChannelId: args.turn.externalChannelId ?? null,
+    ...(args.turn.externallyShared !== undefined
+      ? { externallyShared: args.turn.externallyShared }
+      : {}),
+    text: args.turn.text,
+  };
+  await waitForModel({
+    kind: "chat_surface_reply",
+    targetId: args.userMessageId,
+    companyId: args.conn.companyId,
+    employeeId: args.employeeId,
+    model,
+    groupKey: args.conversationId,
+    payload: { turn, transcriptCount: args.transcriptCount } satisfies SurfaceWaitPayload,
+  });
+  if (alreadyWaiting.length === 0) await args.send(MODEL_WAIT_SURFACE_ACK);
+}
+
+/**
+ * Answer a message that waited for its AI Model, once the model is back. The
+ * newest message in the conversation answers every one before it; a message
+ * someone already answered, a responder no longer on the Connection, or a
+ * Connection gone means nothing is sent. Who asked is decided again now — a
+ * linked Member's authority only while their link and session still hold, and
+ * never where people outside the company read the answer (`groupAudience`,
+ * which asks the platform again when the delivery did not say).
+ */
+async function resumeSurfaceReply(wait: AIModelWait): Promise<ModelWaitResult> {
+  const turn = parseWaitPayload<SurfaceWaitPayload>(wait).turn;
+  if (!turn || typeof turn.connectionId !== "string") return { status: "done" };
+  const msgRepo = AppDataSource.getRepository(ConversationMessage);
+  const asked = await msgRepo.findOneBy({ id: wait.targetId });
+  if (!asked || asked.role !== "user") return { status: "done" };
+  const conversation = await AppDataSource.getRepository(Conversation).findOneBy({
+    id: asked.conversationId,
+  });
+  if (!conversation) return { status: "done" };
+  const transcript = await msgRepo.find({
+    where: { conversationId: conversation.id },
+    order: { createdAt: "ASC" },
+  });
+  // Anything after it — a newer message, which answers this one too, or an
+  // answer already sent — and this one has nothing left to do.
+  if (supersededSince(wait, transcript, asked)) return { status: "done" };
+
+  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: turn.connectionId,
+  });
+  if (!conn || conn.provider !== turn.provider || conn.companyId !== wait.companyId) {
+    return { status: "done" };
+  }
+  const adapter = getChatSurfaceAdapter(turn.provider);
+  if (!adapter) return { status: "done" };
+  const granted = await AppDataSource.getRepository(EmployeeConnectionGrant).countBy({
+    employeeId: wait.employeeId,
+    connectionId: conn.id,
+  });
+  if (!granted) return { status: "done" };
+  if (
+    !workBlocked(conn.companyId, { employeeId: wait.employeeId }).blocked &&
+    (await responderModelDown(wait.employeeId))
+  ) {
+    return { status: "waiting" };
+  }
+
+  const found = await AppDataSource.getRepository(ExternalChatIdentity).findOneBy({
+    connectionId: conn.id,
+    externalUserId: turn.externalUserId,
+  });
+  // Seen when the message arrived, so it is there; a reused id from another
+  // company carries nothing.
+  const identity =
+    found && found.companyId === conn.companyId
+      ? found
+      : await recordSighting({
+          companyId: conn.companyId,
+          provider: turn.provider,
+          connectionId: conn.id,
+          externalUserId: turn.externalUserId,
+          externalUserLabel: turn.externalUserLabel,
+        });
+  const config = decryptConnectionConfig(conn);
+  const proven = await resolveBoundRequester(identity);
+  const fullTurn: InboundChatTurn = { ...turn, companyId: conn.companyId, threadTitle: null };
+  const audience = await groupAudience({
+    turn: fullTurn,
+    adapter,
+    config,
+    authorityAtStake: proven !== null,
+  });
+  const requester = audience === "internal" ? proven : null;
+  const chatOptions: ChatOptions = requester
+    ? {
+        conversationId: conversation.id,
+        requesterUserId: requester.userId,
+        requesterSessionVersion: requester.sessionVersion,
+      }
+    : { conversationId: conversation.id };
+  const replay: ChatTurn[] = transcript
+    .filter((message) => message.id !== asked.id)
+    .slice(-MAX_REPLAY_TURNS)
+    .map((message) => ({ role: message.role, content: message.content }));
+  const answered = await chatWithEmployee(
+    conn.companyId,
+    wait.employeeId,
+    frameTurn(fullTurn, requester, audience),
+    replay,
+    chatOptions,
+  );
+  if (answered.status === "error" && answered.unavailable) return { status: "waiting" };
+  const send = async (body: string): Promise<void> => {
+    try {
+      await adapter.send({
+        connectionId: conn.id,
+        config,
+        replyTo: turn.replyTo,
+        text: truncateForSurface(body, adapter.textLimit),
+      });
+    } catch (err) {
+      logSurfaceError(turn.provider, conn.id, "send failed", err);
+    }
+  };
+  await deliverAnswer({
+    answered,
+    conversation,
+    userText: turn.text,
+    identity,
+    requester,
+    group: turn.group,
+    audience,
+    send,
+  });
+  return { status: "done" };
+}
+
+/** What a waiting answer on a surface carries to its resume. */
+type SurfaceWaitPayload = { turn: WaitingSurfaceTurn; transcriptCount?: number };
+
+/**
+ * Whether anything was written in the conversation after this message — a
+ * newer message, which answers this one too, or an answer already sent.
+ * Counted rather than timed: a transcript only grows, and two messages saved
+ * within one second carry the same timestamp.
+ */
+function supersededSince(
+  wait: AIModelWait,
+  transcript: Pick<ConversationMessage, "id" | "createdAt">[],
+  asked: Pick<ConversationMessage, "id" | "createdAt">,
+): boolean {
+  const counted = parseWaitPayload<SurfaceWaitPayload>(wait).transcriptCount;
+  if (typeof counted === "number") return transcript.length > counted;
+  return transcript.some(
+    (message) => message.id !== asked.id && message.createdAt.getTime() > asked.createdAt.getTime(),
+  );
+}
+
+export const chatSurfaceReplyWait: ModelWaitHandler = {
+  concurrency: 4,
+  maxAgeMs: (wait) =>
+    parseWaitPayload<SurfaceWaitPayload>(wait).turn?.provider === "whatsapp"
+      ? WHATSAPP_REPLY_WAIT_MS
+      : SURFACE_REPLY_WAIT_MS,
+  resume: resumeSurfaceReply,
+  abandon: async (wait) => {
+    // Nothing is sent this late; the transcript in Genosyn says why the
+    // message went unanswered, for whoever reads it there — once, under the
+    // newest of the messages that waited.
+    const msgRepo = AppDataSource.getRepository(ConversationMessage);
+    const asked = await msgRepo.findOneBy({ id: wait.targetId });
+    if (!asked) return;
+    const transcript = await msgRepo.find({
+      where: { conversationId: asked.conversationId },
+      order: { createdAt: "ASC" },
+    });
+    if (supersededSince(wait, transcript, asked)) return;
+    await msgRepo.save(
+      msgRepo.create({
+        conversationId: asked.conversationId,
+        role: "assistant",
+        content: MODEL_WAIT_SURFACE_GAVE_UP,
+        status: "error",
+        externalMessageId: null,
+      }),
+    );
+  },
+};
 
 export function logSurfaceError(
   provider: string,

@@ -14,6 +14,7 @@ import { Invitation } from "./entities/Invitation.js";
 import { AIModel } from "./entities/AIModel.js";
 import { AIModelKeyHealth } from "./entities/AIModelKeyHealth.js";
 import { AIModelOutage } from "./entities/AIModelOutage.js";
+import { AIModelWait } from "./entities/AIModelWait.js";
 import { EmployeeModel } from "./entities/EmployeeModel.js";
 import { AIEmployee } from "./entities/AIEmployee.js";
 import { Skill } from "./entities/Skill.js";
@@ -266,6 +267,8 @@ const entities = [
   // How each of an AI Model's API keys has been doing (backup-key failover).
   AIModelKeyHealth,
   AIModelOutage,
+  // AI work with no queue of its own, waiting for its AI Model to come back.
+  AIModelWait,
   EmployeeModel,
   AIEmployee,
   Skill,

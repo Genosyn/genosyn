@@ -542,7 +542,42 @@ export function Models() {
           and Sequence drafts. A Run is never graded off goal or unverified because its model was
           unavailable.
         </LI>
+        <LI>
+          <Strong>An email that arrives</Strong> waits to be read, as the arrival it is; your
+          mailbox&apos;s instructions act on it once it is read, and rules and Pipelines run
+          meanwhile — see <DocLink to="/docs/email#analysis-unavailable">Email</DocLink>.
+        </LI>
+        <LI>
+          <Strong>A Pipeline run</Strong> pauses at the step that asks an AI Employee and carries on
+          from there — see <DocLink to="/docs/pipelines#paused-runs">Pipelines</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Decisions</Strong>: the work an answer starts waits and then starts by itself, and
+          an AI decider keeps the question without anyone being paged — see{" "}
+          <DocLink to="/docs/decisions#model-unavailable">Decisions</DocLink>.
+        </LI>
+        <LI>
+          <Strong>A group discussion</Strong> waits within its time limit, and{" "}
+          <Strong>Start the work</Strong> waits for each owner&apos;s model — see{" "}
+          <DocLink to="/docs/collaboration#discussion-unavailable">Collaboration</DocLink>.
+        </LI>
+        <LI>
+          <Strong>People outside the company</Strong> are answered when the model is back: a message
+          on Slack, Teams, Telegram or WhatsApp (told once that the answer is coming), an answer in a{" "}
+          <DocLink to="/docs/customer-channels#model-unavailable">customer channel</DocLink>, and an
+          automatic text reply. A live phone call can&apos;t wait, so the employee says so and takes
+          a message — see <DocLink to="/docs/phone-numbers#model-unavailable">Phone numbers</DocLink>{" "}
+          and <DocLink to="/docs/chat-surfaces#model-unavailable">Chat surfaces</DocLink>.
+        </LI>
       </UL>
+      <P>
+        Each piece of that work carries on once, and everything it would have checked on a normal
+        day is checked when it runs — Grants, Standdowns, delivery limits, who will read the answer —
+        not when it began to wait. Work that meets the model unavailable ten times after resuming is
+        given up, saying why. An answer owed to someone outside the company is given up after a day
+        — three days on Slack, Teams and Telegram, where the person was told it is coming — so a late
+        reply never lands in a conversation long over.
+      </P>
       <P>
         What makes a model unavailable: its service can&apos;t be reached (a refused connection,
         an unknown host, a certificate that does not verify, no answer in time), it answers with a
@@ -587,7 +622,8 @@ export function Models() {
       <P>
         An unavailable model&apos;s card says <Strong>Unavailable</Strong>, since when and why —{" "}
         <em>Its service is overloaded</em>, <em>Genosyn can&apos;t reach it</em> — with the latest
-        failure in one line, what is waiting (<em>3 Runs and 1 chat message are waiting</em>), how
+        failure in one line, what is waiting (
+        <em>3 Runs, 1 chat message and 2 other pieces of work are waiting</em>), how
         many checks found it still unavailable, and when the next one is. Owners and admins can select{" "}
         <Strong>Check now</Strong> to ask it at once instead of waiting for the next check. A paused
         Run says why in its status and its log, a waiting one says so in its AI Employee&apos;s

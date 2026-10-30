@@ -10,6 +10,7 @@ import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { startRunPauseWatcher } from "./services/runPause.js";
 import { startModelAvailabilityWatcher } from "./services/modelAvailability.js";
+import { startModelWaits } from "./services/modelWaits.js";
 import { bootStanddowns } from "./services/standdowns.js";
 import { bootBackups } from "./services/backups.js";
 import { bootBackupVerification } from "./services/backupVerification.js";
@@ -134,6 +135,11 @@ async function main() {
   // until a check finds them answering: loaded before the heartbeat's first
   // pass, so the queue never starts the Runs waiting on one that is still down.
   await startModelAvailabilityWatcher();
+  // AI work with no queue of its own that waited for an unavailable AI Model
+  // — an email's read, a paused Pipeline run, an answer owed on Slack —
+  // carries on when its model answers again; what a stopped process was
+  // carrying on is taken back.
+  await startModelWaits();
   await bootCron();
   // `genosyn upgrade` asks the running server to pause its Routine Runs before
   // it restarts. Started after boot recovery cleared any stale request.

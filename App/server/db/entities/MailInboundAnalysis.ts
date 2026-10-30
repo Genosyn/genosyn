@@ -8,7 +8,13 @@ import {
 } from "typeorm";
 import { dateTimeColumnType } from "./columnTypes.js";
 
-export type MailInboundAnalysisStatus = "running" | "succeeded" | "failed";
+/**
+ * `waiting` is an arrival read whose AI Model was unavailable: it holds the
+ * email's place as an arrival and is read — the mailbox's instructions acting
+ * on it then, under the checks of that moment — once the model answers again
+ * (`services/modelWaits.ts`). Only an arrival read ever waits.
+ */
+export type MailInboundAnalysisStatus = "running" | "waiting" | "succeeded" | "failed";
 
 /**
  * One AI Employee's read of one inbound email, the action buttons it

@@ -1,5 +1,7 @@
+import { In, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import { AuditEvent } from "../../db/entities/AuditEvent.js";
 import {
   EmployeeMailAccountGrant,
   MAIL_ACCESS_RANK,
@@ -9,6 +11,7 @@ import { MailInboundAnalysis } from "../../db/entities/MailInboundAnalysis.js";
 import { MailInboundAutomation } from "../../db/entities/MailInboundAutomation.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
+import { MailRule } from "../../db/entities/MailRule.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import {
   DEFAULT_MAIL_ANALYSIS_INSTRUCTIONS,
@@ -636,6 +639,25 @@ export async function applyAutomaticAnalysisActions(
       changed = true;
       break;
     }
+    // A read that waited for its AI Model runs after the mailbox's rules, which
+    // may already have sent this exact request — irreversible, and telling the
+    // sender the address is live — so it is never sent twice for one message.
+    if (
+      step.action === "unsubscribe" &&
+      (await unsubscribedByRules(gate.account, gate.message.id, analysis.createdAt))
+    ) {
+      changed =
+        Boolean(
+          await transitionAutoActions(analysis.id, (actions) =>
+            replace(actions, step.id, "pending", (action) => ({
+              ...action,
+              status: "skipped",
+              detail: "A mail rule already unsubscribed from this email.",
+            })),
+          ),
+        ) || changed;
+      continue;
+    }
     try {
       await fences.beforeEffect();
     } catch (error) {
@@ -878,6 +900,48 @@ const UNDO_MESSAGES: Record<Exclude<MailAnalysisAutoKind, "unsubscribe">, string
  * stands down instead. Reads the analysis by its unique message index.
  */
 export async function unsubscribedByInstructions(messageId: string): Promise<boolean> {
+  return unsubscribedByInstructionsRow(messageId);
+}
+
+/**
+ * Whether one of the mailbox's Rules already sent this exact message's
+ * one-click unsubscribe since `since`. On arrival the instructions act before
+ * the Rules and this is always false; a read that waited for its AI Model acts
+ * after them. Reads each of the mailbox's Rules' own history through the
+ * audit log's `(companyId, targetType, targetId, createdAt)` index, from the
+ * moment the email arrived — never the company's whole log.
+ */
+export async function unsubscribedByRules(
+  account: Pick<MailAccount, "id" | "companyId">,
+  messageId: string,
+  since: Date,
+): Promise<boolean> {
+  const rules = await AppDataSource.getRepository(MailRule).find({
+    where: { accountId: account.id, companyId: account.companyId },
+    select: { id: true },
+  });
+  if (rules.length === 0) return false;
+  const rows = await AppDataSource.getRepository(AuditEvent).find({
+    where: {
+      companyId: account.companyId,
+      targetType: "mail_rule",
+      targetId: In(rules.map((rule) => rule.id)),
+      createdAt: MoreThanOrEqual(new Date(since.getTime() - 1_000)),
+      action: "mail.rule.unsubscribe",
+    },
+    select: { id: true, metadataJson: true },
+  });
+  return rows.some((row) => {
+    try {
+      const meta = JSON.parse(row.metadataJson || "{}") as Record<string, unknown>;
+      return meta.messageId === messageId && !meta.skipped;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function unsubscribedByInstructionsRow(messageId: string): Promise<boolean> {
   const analysis = await AppDataSource.getRepository(MailInboundAnalysis).findOne({
     where: { messageId },
     select: ["id", "autoActionsJson"],

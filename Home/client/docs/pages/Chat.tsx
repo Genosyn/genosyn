@@ -204,10 +204,10 @@ export function Chat() {
       </P>
       <P>
         A reply in a <DocLink to="/docs/workspace-chat#live-activity">Workspace channel, DM or
-        group chat</DocLink> waits the same way, and the room sees it waiting. An external chat
-        surface&apos;s thread — Slack, Teams, Telegram, WhatsApp — can&apos;t wait: it gets a plain
-        reply instead, in which the employee says its AI Model is unavailable and asks for the
-        message again in a little while, rather than showing the technical error.
+        group chat</DocLink> waits the same way, and the room sees it waiting. On Slack, Teams,
+        Telegram or WhatsApp the employee says once that its AI Model is unavailable and answers
+        there by itself when it is back — see{" "}
+        <DocLink to="/docs/chat-surfaces#model-unavailable">Chat surfaces</DocLink>.
       </P>
 
       <H2 id="reloads">Reloads, other tabs and restarts</H2>

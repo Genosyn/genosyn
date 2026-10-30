@@ -830,7 +830,7 @@ export type DecisionSource = {
 };
 
 /** How far the employee has got with the answer. See `Decision.pickupStatus`. */
-export type DecisionPickupStatus = "none" | "running" | "done" | "failed" | "skipped";
+export type DecisionPickupStatus = "none" | "running" | "waiting" | "done" | "failed" | "skipped";
 
 export type Decision = {
   id: string;
@@ -2977,7 +2977,7 @@ export type Pipeline = {
   updatedAt: string;
 };
 
-export type PipelineRunStatus = "running" | "completed" | "failed" | "skipped";
+export type PipelineRunStatus = "running" | "paused" | "completed" | "failed" | "skipped";
 export type PipelineTriggerKind = "manual" | "schedule" | "webhook" | "event";
 
 export type PipelineRunSummary = {

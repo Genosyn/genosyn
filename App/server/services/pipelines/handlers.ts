@@ -24,7 +24,14 @@ import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import { makeAdSpendLedger } from "../adSpend.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
 import { executePipelineCode } from "./codeRuntime.js";
-import { PipelineNodeKind, NodeContext, NodeResult } from "./types.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import { resolveChatModel } from "../models.js";
+import {
+  PipelineNodeKind,
+  NodeContext,
+  NodeResult,
+  PipelineStepWaitsForModel,
+} from "./types.js";
 
 /**
  * Per-node-type runtime. Each handler receives a `NodeContext` whose `config`
@@ -277,10 +284,18 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       slug: employeeSlug,
     });
     if (!emp) throw new Error(`Employee "${employeeSlug}" not found`);
+    // An AI Model that is unavailable is not an answer: the run pauses at this
+    // step and asks again when the model is back, instead of handing the next
+    // step the model's error as if it were the reply.
+    const model = await resolveChatModel(emp.id).catch(() => null);
+    if (model && !modelTakesWork(model)) throw new PipelineStepWaitsForModel(emp, model);
     ctx.log(`asking ${emp.slug}: ${truncate(message, 120)}`);
     const result = await chatWithEmployee(ctx.companyId, emp.id, message, [], {
       toolAuthority: "employee",
     });
+    if (result.status === "error" && result.unavailable) {
+      throw new PipelineStepWaitsForModel(emp, model);
+    }
     ctx.log(`reply (${result.status}): ${truncate(result.reply, 200)}`);
     return {
       outputs: { reply: result.reply, status: result.status, employeeId: emp.id },
@@ -500,4 +515,12 @@ function parseObject(raw: unknown, fieldName: string): Record<string, unknown> {
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}…`;
+}
+
+function modelTakesWork(model: Parameters<typeof isModelAvailable>[0]): boolean {
+  try {
+    return isModelAvailable(model);
+  } catch {
+    return true;
+  }
 }
