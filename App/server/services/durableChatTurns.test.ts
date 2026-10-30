@@ -215,11 +215,11 @@ describe("durable chat turns", () => {
     assert.equal(finalized.turnRequesterSessionVersion, 0);
   });
 
-  test("runs a turn at its stored effort, refusing one its model no longer supports", async () => {
+  test("runs a turn at the nearest level its model still offers, recording the move", async () => {
     const { company, employee, conversation, requester } = await fixture();
-    // A custom endpoint always runs at its own default, so any stored effort is
-    // one this model cannot honour — the state a turn is in when its model was
-    // edited between acceptance and a recovery.
+    // A custom endpoint without thinking levels runs at its own default, so any
+    // stored level is one this model cannot honour — the state a turn is in
+    // when its model was edited between acceptance and a recovery.
     const model = await insertEmployeeModel({
       employeeId: employee.id,
       provider: "custom",
@@ -247,9 +247,39 @@ describe("durable chat turns", () => {
     const finalized = await AppDataSource.getRepository(ConversationMessage).findOneByOrFail({
       id: queued.assistantMessage.id,
     });
-    assert.equal(finalized.status, "skipped");
-    assert.match(finalized.content, /does not support the effort chosen for this message/);
-    // The refusal never rewrites what the Member asked for.
+    // Not refused for the level: this fixture's endpoint is unconfigured, and
+    // that is the only thing the reply reports.
+    assert.equal(finalized.status, "error");
+    assert.doesNotMatch(finalized.content, /effort|thinking level/i);
+    assert.match(finalized.content, /not fully configured/);
+    // The turn keeps the level it was accepted at, and its reply records the move.
     assert.equal(finalized.effort, "high");
+    assert.deepEqual(JSON.parse(finalized.thinkingJson), {
+      level: null,
+      requested: "high",
+      adjusted: "unsupported",
+    });
+  });
+
+  test("keeps the reply's thinking record from acceptance", async () => {
+    const { company, employee, conversation, requester } = await fixture();
+    const queued = await enqueueDurableChatTurn({
+      companyId: company.id,
+      employeeId: employee.id,
+      conversationId: conversation.id,
+      message: "Think it through",
+      attachmentIds: [],
+      modelId: "model-selected-for-turn",
+      effort: "xhigh",
+      thinking: { level: "xhigh", requested: "max", adjusted: "unsupported" },
+      requesterUserId: requester.id,
+      requesterSessionVersion: requester.sessionVersion,
+    });
+    assert.deepEqual(JSON.parse(queued.assistantMessage.thinkingJson), {
+      level: "xhigh",
+      requested: "max",
+      adjusted: "unsupported",
+    });
+    assert.equal(queued.userMessage.thinkingJson, "");
   });
 });

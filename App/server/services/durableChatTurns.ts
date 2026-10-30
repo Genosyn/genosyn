@@ -3,6 +3,7 @@ import { IsNull, LessThanOrEqual } from "typeorm";
 
 import { config } from "../../config.js";
 import type { ModelEffort } from "../../shared/modelEffort.js";
+import { parseTurnThinking, type TurnThinking } from "../../shared/thinkingLevels.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Attachment } from "../db/entities/Attachment.js";
@@ -28,6 +29,7 @@ import {
   turnAcceptedAt,
 } from "./chatTurnActivity.js";
 import { createChatTurnContextUsageRecorder } from "./chatTurnContextUsage.js";
+import { thinkingAfterRefusal, thinkingAfterRunTimeChange } from "./chatThinking.js";
 import { openLiveTurn, releaseLiveTurn, type LiveTurn } from "./chatTurnLive.js";
 import {
   createChatTurnProgressRecorder,
@@ -98,6 +100,20 @@ const activeTurnInterrupters = new Map<string, () => boolean>();
 /** The live and persisted activity of a turn this process is running. */
 type TurnActivity = { recorder: ChatTurnActivityRecorder; live: LiveTurn };
 
+/**
+ * What a reply's thinking record says as an attempt starts. A refusal belongs
+ * to the attempt the AI Model refused: a Retry, or a recovery, sends the level
+ * again, so the record goes back to that level until this attempt says
+ * otherwise.
+ */
+function thinkingBeforeAttempt(
+  recorded: TurnThinking | null,
+  effort: ModelEffort | null,
+): TurnThinking | null {
+  if (recorded?.adjusted !== "rejected") return recorded;
+  return { level: recorded.refused ?? effort, requested: recorded.requested, adjusted: null };
+}
+
 /** Derive the sidebar title from the first accepted human message. */
 function deriveTitle(message: string): string {
   const firstLine = message.split("\n")[0].trim();
@@ -118,8 +134,13 @@ export async function enqueueDurableChatTurn(args: {
   message: string;
   attachmentIds: string[];
   modelId?: string | null;
-  /** Effort chosen for `modelId`; null or omitted keeps the AI Model's default. */
+  /**
+   * The thinking level to send `modelId`, resolved from the conversation's
+   * level (`chatThinking.ts`); null or omitted keeps the AI Model's default.
+   */
   effort?: ModelEffort | null;
+  /** The level the reply runs at, as the reply will show it. */
+  thinking?: TurnThinking | null;
   /** Authenticated Member who submitted this browser chat turn. */
   requesterUserId: string;
   /** Auth epoch carried by the browser session that submitted this turn. */
@@ -182,6 +203,7 @@ export async function enqueueDurableChatTurn(args: {
         progressLabel: "Starting work",
         modelId: args.modelId ?? null,
         effort: args.effort ?? null,
+        thinkingJson: args.thinking ? JSON.stringify(args.thinking) : "",
         turnUserMessageId: userMessage.id,
         turnRequesterUserId: args.requesterUserId,
         turnRequesterSessionVersion: args.requesterSessionVersion,
@@ -450,6 +472,14 @@ export async function executeDurableChatTurn(
       attempt: claimedMessage.turnAttempt,
     });
 
+    // The thinking level the reply runs at, as recorded when it was accepted;
+    // moved below if its model now allows another, or refuses it mid-turn.
+    const recordedThinking = thinkingBeforeAttempt(
+      parseTurnThinking(claimedMessage.thinkingJson),
+      claimedMessage.effort,
+    );
+    let finalThinking: TurnThinking | null = recordedThinking;
+
     let result: ChatResult;
     try {
       const requesterAuthority =
@@ -481,6 +511,11 @@ export async function executeDurableChatTurn(
           conversationId: context.conversation.id,
           modelId: claimedMessage.modelId,
           effort: claimedMessage.effort,
+          // The activity shows what the AI Model considered, at any level.
+          reasoningSummaries: true,
+          onThinkingAdjusted: (resolved) => {
+            finalThinking = thinkingAfterRunTimeChange(recordedThinking, resolved);
+          },
           surface: context.conversation.source === "help" ? "help" : "chat",
           ...requesterAuthority,
           onProgress: (progress) => {
@@ -507,6 +542,12 @@ export async function executeDurableChatTurn(
             onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
             onServedModelChange: (change) => recorder.servedModelChange(change),
             onBackgroundWork: (pending) => recorder.backgroundWork(pending),
+            onThinkingFallback: (fallback) => {
+              recorder.thinkingFallback(fallback);
+              if (fallback.level) {
+                finalThinking = thinkingAfterRefusal(finalThinking, fallback.level);
+              }
+            },
           },
           workloadKey: claimedMessage.id,
           throwOnWorkloadUnavailable: true,
@@ -666,6 +707,10 @@ export async function executeDurableChatTurn(
           : {}),
         actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
         activityJson: JSON.stringify(summary),
+        // The level the reply actually ran at, when this attempt moved it.
+        ...(finalThinking && JSON.stringify(finalThinking) !== claimedMessage.thinkingJson
+          ? { thinkingJson: JSON.stringify(finalThinking) }
+          : {}),
         turnWorkerId: null,
         turnLeaseExpiresAt: null,
       },

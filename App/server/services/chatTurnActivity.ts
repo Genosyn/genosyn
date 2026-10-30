@@ -18,9 +18,11 @@ import type {
   ModelOutage,
   ModelRetryInfo,
   RuntimeWait,
+  ThinkingFallback,
   ToolResult,
 } from "./agent/types.js";
 import type { LiveTurn } from "./chatTurnLive.js";
+import { effortLabel } from "../../shared/thinkingLevels.js";
 
 /**
  * The record of what an AI Employee did while it answered a chat message.
@@ -107,6 +109,7 @@ export class ChatTurnActivityRecorder {
   private stats = { steps: 0, failed: 0, held: 0, waitedMs: 0, reasoning: false };
   private stoppedRecorded = false;
   private startedRecorded = false;
+  private thinkingFallbackRecorded = false;
 
   constructor(
     private readonly scope: ChatTurnActivityScope,
@@ -342,6 +345,22 @@ export class ChatTurnActivityRecorder {
     this.notice(
       "served_model",
       `The AI Model's server now serves ${this.scrub(change.to).slice(0, 80)}; switched to it`,
+    );
+  }
+
+  /**
+   * The AI Model refused the turn's thinking parameters and the turn carried
+   * on without them. Said once, however many requests or delegated copies
+   * hear it.
+   */
+  thinkingFallback(fallback: ThinkingFallback): void {
+    if (this.thinkingFallbackRecorded) return;
+    this.thinkingFallbackRecorded = true;
+    this.notice(
+      "thinking_fallback",
+      fallback.level
+        ? `The AI Model didn't accept the ${effortLabel(fallback.level)} thinking level; it answers at its own default`
+        : "The AI Model didn't accept a request for its thinking summary; it answers without one",
     );
   }
 
