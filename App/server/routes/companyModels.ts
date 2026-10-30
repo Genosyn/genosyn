@@ -22,6 +22,8 @@ import {
   editApiModel,
 } from "../services/modelSetup.js";
 import { testModelConnection } from "../services/modelConnectionTest.js";
+import { checkModelAvailabilityNow } from "../services/modelAvailability.js";
+import { publicAvailabilityByModel } from "../services/modelOutageViews.js";
 import { addApiKey, removeApiKey, reorderApiKeys } from "../services/modelApiKeySetup.js";
 import { LEGACY_PRIMARY_KEY_ID, readApiKeys } from "../services/modelApiKeys.js";
 import { pruneKeyHealth } from "../services/modelKeyHealth.js";
@@ -119,10 +121,12 @@ async function companyPublicModel(companyId: string, modelId: string): Promise<P
   const entry = await companyModelEntry(companyId, modelId);
   if (!entry) return null;
   const health = await healthByModel([entry.model]);
+  const availability = await publicAvailabilityByModel(companyId, [entry.model]);
   return toPublicModel(entry.model, {
     health: health.get(entry.model.id),
     employees: entry.users,
     duplicateIds: entry.duplicateIds,
+    availability: availability.get(entry.model.id),
   });
 }
 
@@ -217,12 +221,17 @@ companyModelsRouter.get("/", validateParams(collectionParamsSchema), async (req,
   if (!co) return res.status(404).json({ error: "Company not found" });
   const entries = await listCompanyModels(co.id);
   const health = await healthByModel(entries.map((entry) => entry.model));
+  const availability = await publicAvailabilityByModel(
+    co.id,
+    entries.map((entry) => entry.model),
+  );
   res.json(
     entries.map((entry) =>
       toPublicModel(entry.model, {
         health: health.get(entry.model.id),
         employees: entry.users,
         duplicateIds: entry.duplicateIds,
+        availability: availability.get(entry.model.id),
       }),
     ),
   );
@@ -987,6 +996,30 @@ companyModelsRouter.post("/:id/test", validateParams(itemParamsSchema), async (r
   const model = await companyPublicModel(ctx.co.id, ctx.m.id);
   res.json({ ok: true, elapsedMs, model: model ?? toPublicModel(ctx.m) });
 });
+
+// POST /api/companies/:cid/models/:id/availability/check
+//
+// "Check now" for an AI Model that is unavailable: ask it at once — the same
+// cheap check the server runs on its own backoff (`services/modelAvailability.ts`)
+// — instead of waiting for the next one, and answer with the model as it now
+// reads. If it answers, the work that waited for it carries on. A model that is
+// available has nothing to check and is returned as it is. The check uses the
+// model's own credentials on the server; nothing secret is returned.
+companyModelsRouter.post(
+  "/:id/availability/check",
+  validateParams(itemParamsSchema),
+  async (req, res, next) => {
+    try {
+      const p = req.params as Record<string, string>;
+      const ctx = await loadModel(p.cid, p.id);
+      if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+      await checkModelAvailabilityNow(ctx.m);
+      await sendModel(res, ctx.co.id, ctx.m.id);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // GET /api/companies/:cid/models/:id/catalog
 //

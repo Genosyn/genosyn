@@ -276,9 +276,11 @@ export function isAbortError(error: unknown): boolean {
 export function classifyModelTransportError(error: unknown): ModelUnavailability | null {
   if (!error || isAbortError(error)) return null;
   const chain = causeChain(error);
+  let coded = false;
   for (const record of chain) {
     const code = token(record.code) ?? token(record.errno);
     if (!code) continue;
+    coded = true;
     const upper = code.toUpperCase();
     if (DEFINITE_UNREACHABLE.has(upper)) {
       return modelUnavailability("unreachable", {
@@ -302,6 +304,10 @@ export function classifyModelTransportError(error: unknown): ModelUnavailability
     }
     if (TIMEOUT_CODES.has(upper)) return modelUnavailability("timeout", { code: upper });
   }
+  // A code names what happened, and none above means this host's own problem
+  // — the outbound policy's EACCES, a bad argument. Words decide only when no
+  // code was given.
+  if (coded) return null;
   const words = chain
     .map((record) => `${text(record.name) ?? ""} ${text(record.message) ?? ""}`)
     .join(" ")

@@ -1356,6 +1356,7 @@ function RunsTab({
           status={log?.status ?? activeRun.status}
           pauseCount={log?.pauseCount ?? activeRun.pauseCount}
           pausedAt={log?.pausedAt ?? activeRun.pausedAt}
+          pauseReason={log?.pauseReason ?? activeRun.pauseReason}
         />
       )}
       <RunContinuationNotice
@@ -1450,7 +1451,9 @@ function RunsTab({
                   <div className="text-slate-400 dark:text-slate-500">
                     {r.status === "queued"
                       ? isRunPaused(r)
-                        ? "Paused for a restart"
+                        ? r.pauseReason === "outage"
+                          ? "Paused for its AI Model"
+                          : "Paused for a restart"
                         : "Waiting to start"
                       : formatDuration(r.startedAt, r.finishedAt)}
                   </div>

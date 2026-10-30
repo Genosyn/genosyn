@@ -155,6 +155,7 @@ describe("defaults", () => {
       network: false,
       banking: false,
       emailVerification: false,
+      modelAvailability: false,
     });
   });
 

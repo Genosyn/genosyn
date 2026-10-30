@@ -2,6 +2,8 @@ import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { getActiveModel } from "../models.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import { classifyModelError } from "../agent/modelOutage.js";
 import { createFollowUpTask } from "../revenue/followUps.js";
 import { hasRevenueAccess } from "../revenue/grants.js";
 import { listParticipants } from "./store.js";
@@ -143,6 +145,8 @@ export function parseDueDate(value: string): Date | null {
 }
 
 export type WriteUpResult =
+  /** Its AI Model is unavailable: the write-up runs once it answers again. */
+  | { status: "deferred"; reason: string }
   | { status: "ok"; actionItems: number }
   | { status: "skipped"; reason: string }
   | { status: "failed"; reason: string };
@@ -184,11 +188,17 @@ export async function writeUpMeeting(companyId: string, meetingId: string): Prom
     return { status: "skipped", reason: "The meeting write-up runtime is not installed." };
   }
 
+  const model = await getActiveModel(employeeId).catch(() => null);
+  if (model && !isModelAvailable(model)) {
+    return { status: "deferred", reason: "Waiting for the AI Model to come back to write this up." };
+  }
   const prompt = await composeWriteUpPrompt(meeting);
   let writeUp: MeetingWriteUp | null;
   try {
     writeUp = await author({ meeting, employeeId, prompt });
   } catch (err) {
+    const outage = classifyModelError(err);
+    if (outage) return { status: "deferred", reason: `${outage.detail} The write-up waits for it.` };
     return { status: "failed", reason: err instanceof Error ? err.message : String(err) };
   }
   if (!writeUp) {

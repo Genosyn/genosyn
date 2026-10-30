@@ -195,6 +195,7 @@ async function lastRunByRoutine(
       "run.outcomeVerdict",
       "run.pausedAt",
       "run.pauseCount",
+      "run.pauseReason",
     ])
     .where("run.routineId IN (:...routineIds)", { routineIds })
     .andWhere(
@@ -886,6 +887,7 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.tokensOut",
       "run.pausedAt",
       "run.pauseCount",
+      "run.pauseReason",
     ])
     .where("run.routineId = :rid", { rid: found.routine.id })
     .orderBy("run.startedAt", "DESC")
@@ -1118,6 +1120,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res, next) => {
       // modal says so rather than calling it pending.
       pausedAt: run.pausedAt,
       pauseCount: run.pauseCount,
+      pauseReason: run.pauseReason ?? null,
       browserRecordings,
     });
   } catch (err) {

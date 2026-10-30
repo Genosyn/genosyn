@@ -153,15 +153,25 @@ const Run = z
       .datetime()
       .nullable()
       .describe(
-        "When Genosyn last paused this Run to restart (an upgrade or a stop). A paused Run is " +
-          "`queued` again with its transcript and progress kept, and the same Run continues " +
-          "once Genosyn is back. Null when it was never paused.",
+        "When Genosyn last paused this Run — to restart (an upgrade or a stop), or while its " +
+          "AI Model was unavailable. A paused Run is `queued` again with its transcript and " +
+          "progress kept, and the same Run continues once Genosyn or its AI Model is back. " +
+          "Null when it was never paused.",
       ),
     pauseCount: z
       .number()
       .int()
       .min(0)
-      .describe("How many restarts this Run has been paused for. 0 normally."),
+      .describe("How many times this Run has been paused. 0 normally."),
+    pauseReason: z
+      .enum(["upgrade", "restart", "outage"])
+      .nullable()
+      .optional()
+      .describe(
+        "Why it was last paused: Genosyn restarting (`upgrade`, `restart`) or its AI Model " +
+          "being unavailable (`outage`). Null when it was never paused, or for a pause recorded " +
+          "before the reason was kept, which was a restart.",
+      ),
   })
   .openapi("Run");
 
@@ -425,12 +435,16 @@ const RoutineActivityQueuedRun = RoutineActivityRun.extend({
     .number()
     .int()
     .min(0)
-    .describe("Restarts this Run was paused for. Above zero, it resumes where it stopped."),
+    .describe("Times this Run was paused. Above zero, it resumes where it stopped."),
   pausedAt: z
     .string()
     .datetime()
     .nullable()
-    .describe("When Genosyn last paused this Run to restart; null when it never was."),
+    .describe("When Genosyn last paused this Run; null when it never was."),
+  pauseReason: z
+    .enum(["upgrade", "restart", "outage"])
+    .nullable()
+    .describe("Why it was last paused: a restart, or its AI Model being unavailable (`outage`)."),
   priority: RoutinePriority,
   position: z
     .number()

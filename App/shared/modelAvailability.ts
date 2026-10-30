@@ -71,6 +71,15 @@ export function waitingWorkText(waiting: { runs: number; chats: number }): strin
   return `${parts.join(" and ")} ${total === 1 ? "is" : "are"} waiting`;
 }
 
+/**
+ * What an AI Employee says in a conversation that cannot wait for its turn to
+ * be retried — a Slack thread, a Workspace channel — when its AI Model is
+ * unavailable. Plain words in place of the technical error, which named the
+ * model and its endpoint to whoever was reading.
+ */
+export const MODEL_UNAVAILABLE_REPLY =
+  "Sorry — I can't answer right now because my AI Model is unavailable. Please send your message again in a little while.";
+
 /** "in 4 min", "in 30 s", "now" — when the next check is, from `now`. */
 export function nextCheckText(nextCheckAt: string | Date, now: number): string {
   const at = new Date(nextCheckAt).getTime();

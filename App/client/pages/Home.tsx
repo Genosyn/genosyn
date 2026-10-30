@@ -32,6 +32,8 @@ import {
   Target,
   Users,
   X,
+  CloudOff,
+  Cloud,
 } from "lucide-react";
 // The API's Notification row is aliased so the DOM global `Notification`
 // (used for the push-permission check) stays reachable in value positions.
@@ -1839,6 +1841,10 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <FolderLock size={12} className={className} />;
     case "group_discussion":
       return <Users size={12} className={className} />;
+    case "model_unavailable":
+      return <CloudOff size={12} className={className} />;
+    case "model_available":
+      return <Cloud size={12} className={className} />;
   }
 }
 
@@ -1946,6 +1952,14 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   group_discussion: {
     bg: "bg-indigo-100 dark:bg-indigo-500/15",
     fg: "text-indigo-600 dark:text-indigo-300",
+  },
+  model_unavailable: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
+  },
+  model_available: {
+    bg: "bg-emerald-100 dark:bg-emerald-500/15",
+    fg: "text-emerald-600 dark:text-emerald-300",
   },
 };
 

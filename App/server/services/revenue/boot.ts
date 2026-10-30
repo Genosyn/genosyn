@@ -116,6 +116,14 @@ async function draftTouch(ctx: {
     signal: ctx.lease?.signal,
   });
   const detail = result.reply.slice(0, DETAIL_CAP);
+  if (result.status === "error" && result.unavailable) {
+    // The AI Model is unavailable: the step holds its place and is drafted
+    // once the model answers again, instead of stopping the enrollment.
+    return {
+      status: "skipped",
+      detail: `${result.unavailable.detail} This step waits for it.`.slice(0, DETAIL_CAP),
+    };
+  }
   if (result.status !== "ok") {
     return { status: "failed", detail };
   }

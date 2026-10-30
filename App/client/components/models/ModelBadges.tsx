@@ -1,10 +1,27 @@
 import React from "react";
-import { BrainCircuit, Check, KeyRound, Loader2, LogIn, Server } from "lucide-react";
+import { BrainCircuit, Check, CloudOff, KeyRound, Loader2, LogIn, Server } from "lucide-react";
 import type { AIModel } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 
-/** Connected, or still waiting for its credential. */
-export function ModelStatusBadge({ connected }: { connected: boolean }) {
+/**
+ * Connected, still waiting for its credential, or connected but unavailable
+ * right now — its service down, failing, overloaded or rate-limited, with its
+ * work waiting for it.
+ */
+export function ModelStatusBadge({
+  connected,
+  unavailable = false,
+}: {
+  connected: boolean;
+  unavailable?: boolean;
+}) {
+  if (connected && unavailable) {
+    return (
+      <Badge tone="warning" icon={<CloudOff />}>
+        Unavailable
+      </Badge>
+    );
+  }
   if (connected) {
     return (
       <Badge tone="success" icon={<Check />}>

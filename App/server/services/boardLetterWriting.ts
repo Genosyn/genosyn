@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
+import { markModelUnavailable } from "./agent/modelOutage.js";
 import type { AgentTool } from "./agent/types.js";
 import type {
   LetterEvidence,
@@ -243,7 +244,11 @@ export async function writeBoardLetter(
       maxSteps: 3,
       signal: controller.signal,
     });
-    if (result.status === "error") throw new BoardLetterWritingError(result.error);
+    if (result.status === "error") {
+      const error = new BoardLetterWritingError(result.error);
+      // An outage is told apart, so writing it does not spend an attempt.
+      throw result.unavailable ? markModelUnavailable(error, result.unavailable) : error;
+    }
     if (duplicate)
       throw new BoardLetterWritingError(`${writer.name} submitted the letter more than once.`);
     // The tool callback assigns this binding asynchronously, which TypeScript

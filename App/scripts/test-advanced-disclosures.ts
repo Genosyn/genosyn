@@ -515,6 +515,8 @@ function runtimeSnapshot(): RuntimeSettingsSnapshot {
     containment: false,
     network: false,
     banking: false,
+    emailVerification: false,
+    modelAvailability: false,
   };
   return snapshot;
 }

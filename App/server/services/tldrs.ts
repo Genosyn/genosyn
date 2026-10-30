@@ -18,6 +18,7 @@ import { redactSensitiveText } from "./approvalRedaction.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool } from "./agent/types.js";
 import { getActiveModel } from "./models.js";
+import { isModelAvailable } from "./modelAvailability.js";
 import { isModelConnected } from "./providers.js";
 
 export { TLDR_CADENCES };
@@ -973,6 +974,13 @@ export async function dispatchDueTldrs(
   const completions: Array<Promise<Tldr | null>> = [];
   for (const settings of due) {
     assertLeaseHeld();
+    // The author's AI Model is unavailable: the briefing stays due and is
+    // written on the first pass after the model answers again, covering the
+    // whole window — rather than one failed briefing per pass meanwhile.
+    if (settings.employeeId) {
+      const authorModel = await getActiveModel(settings.employeeId).catch(() => null);
+      if (authorModel && !isModelAvailable(authorModel)) continue;
+    }
     try {
       const claim = await claimTldr(settings.companyId, "schedule", now);
       const completion = generateClaimedTldr(claim, dependencies);

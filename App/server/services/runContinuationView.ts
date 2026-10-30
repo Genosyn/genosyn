@@ -166,6 +166,7 @@ export function publicRun(run: Run, followUpRun?: RunFollowUp | null) {
     queueOptionsJson: _queueOptionsJson,
     queueActiveEmployeeId: _queueActiveEmployeeId,
     pauseRemainingMs: _pauseRemainingMs,
+    outagePauses: _outagePauses,
     ...visible
   } = run;
   return { ...visible, queuedAt: run.createdAt, ...runContinuationView(run, followUpRun) };

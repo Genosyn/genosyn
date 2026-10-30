@@ -9,6 +9,8 @@ import {
 } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AIModel } from "../db/entities/AIModel.js";
+import { AIModelOutage } from "../db/entities/AIModelOutage.js";
 import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
@@ -19,6 +21,8 @@ import { Run } from "../db/entities/Run.js";
 import { Standdown } from "../db/entities/Standdown.js";
 import { findLiveRunFailures } from "./runFailures.js";
 import { anyRetryAt } from "./runRecovery.js";
+import { waitingWorkByModel } from "./modelOutageViews.js";
+import { unavailableReasonText, waitingWorkText } from "../../shared/modelAvailability.js";
 
 /**
  * System Health — a company-scoped roll-up of "is anything broken?" signals,
@@ -430,6 +434,59 @@ async function computeChecks(companyId: string, itemLimit: number): Promise<Heal
       badge: s.scope,
       link: `/c/${slug}/settings/standdowns`,
     })),
+  });
+
+  // AI Models that are unavailable right now (`services/modelAvailability.ts`).
+  // `warn`, like a Standdown: the work on them waits rather than failing, and
+  // carries on by itself when they answer — but someone may want to switch the
+  // employees to another model, so it stays in sight.
+  const outages = await AppDataSource.getRepository(AIModelOutage).find({
+    where: { companyId, endedAt: IsNull() },
+    order: { startedAt: "ASC" },
+  });
+  const outageModels = outages.length
+    ? await AppDataSource.getRepository(AIModel).find({
+        where: { id: In([...new Set(outages.map((o) => o.modelId))]), companyId },
+        select: ["id", "provider", "model"],
+      })
+    : [];
+  const outageModelById = new Map(outageModels.map((m) => [m.id, m]));
+  const outageWaiting =
+    itemLimit > 0 && outages.length
+      ? await waitingWorkByModel(
+          companyId,
+          outages.map((o) => o.modelId),
+        ).catch(() => new Map<string, { runs: number; chats: number }>())
+      : new Map<string, { runs: number; chats: number }>();
+  checks.push({
+    id: "model_outages",
+    title: "AI Models unavailable",
+    description:
+      "AI Models whose service can't be reached, is failing, is overloaded or keeps every key " +
+      "rate-limited. Work on them waits instead of failing — Runs pause, chat messages wait to be " +
+      "answered — and carries on by itself once a check finds the model answering again.",
+    severity: outages.length > 0 ? "warn" : "ok",
+    count: outages.length,
+    summary:
+      outages.length > 0
+        ? `${plural(outages.length, "AI Model is", "AI Models are")} unavailable; the work on ${outages.length === 1 ? "it" : "them"} is waiting.`
+        : "Every AI Model is answering.",
+    items: outages.slice(0, itemLimit).map((outage) => {
+      const model = outageModelById.get(outage.modelId);
+      const waiting = waitingWorkText(outageWaiting.get(outage.modelId) ?? { runs: 0, chats: 0 });
+      return {
+        label: model?.model ?? "An AI Model",
+        sublabel: [
+          unavailableReasonText(outage.cause),
+          `since ${relativeTime(outage.startedAt)}`,
+          waiting,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        badge: outage.checks > 0 ? `${plural(outage.checks, "check", "checks")} failed` : "unavailable",
+        link: `/c/${slug}/settings/ai-models`,
+      };
+    }),
   });
 
   checks.push({

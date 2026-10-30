@@ -39,9 +39,13 @@ export type RoutineActivityRun = Pick<
   | "checksVerdict"
 >;
 
-/** A Run waiting to start, or one paused for a restart that resumes when it can. */
+/**
+ * A Run waiting to start, or one paused — for a restart, or while its AI Model
+ * was unavailable — that resumes when it can.
+ */
 export type RoutineActivityQueuedRun = RoutineActivityRun &
-  Required<Pick<Run, "queuedAt" | "pauseCount" | "pausedAt">> & {
+  Required<Pick<Run, "queuedAt" | "pauseCount" | "pausedAt">> &
+  Pick<Run, "pauseReason"> & {
     /** Its Routine's priority when the server listed it. */
     priority?: RoutinePriority;
     /**
@@ -386,6 +390,7 @@ function ActivityRow({
             status={run.status}
             errorKind={run.errorKind}
             pauseCount={waiting?.pauseCount}
+            pauseReason={waiting?.pauseReason}
             size="xs"
           />
           {(waiting || running) && <RoutinePriorityChip priority={priority} />}
