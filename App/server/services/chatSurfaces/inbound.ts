@@ -427,6 +427,7 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
       conn,
       conversationId: conversation.id,
       userMessageId: userMessage.id,
+      transcriptCount: prior.length,
       employeeId: responder.employeeId,
       send,
     });
@@ -546,6 +547,8 @@ async function waitOnSurface(args: {
   conn: IntegrationConnection;
   conversationId: string;
   userMessageId: string;
+  /** Messages in the conversation, this one included, when it began to wait. */
+  transcriptCount: number;
   employeeId: string;
   send: (body: string) => Promise<void>;
 }): Promise<void> {
@@ -573,7 +576,7 @@ async function waitOnSurface(args: {
     employeeId: args.employeeId,
     model,
     groupKey: args.conversationId,
-    payload: { turn },
+    payload: { turn, transcriptCount: args.transcriptCount } satisfies SurfaceWaitPayload,
   });
   if (alreadyWaiting.length === 0) await args.send(MODEL_WAIT_SURFACE_ACK);
 }
@@ -588,7 +591,7 @@ async function waitOnSurface(args: {
  * which asks the platform again when the delivery did not say).
  */
 async function resumeSurfaceReply(wait: AIModelWait): Promise<ModelWaitResult> {
-  const turn = parseWaitPayload<{ turn: WaitingSurfaceTurn }>(wait).turn;
+  const turn = parseWaitPayload<SurfaceWaitPayload>(wait).turn;
   if (!turn || typeof turn.connectionId !== "string") return { status: "done" };
   const msgRepo = AppDataSource.getRepository(ConversationMessage);
   const asked = await msgRepo.findOneBy({ id: wait.targetId });
@@ -603,7 +606,7 @@ async function resumeSurfaceReply(wait: AIModelWait): Promise<ModelWaitResult> {
   });
   // Anything after it — a newer message, which answers this one too, or an
   // answer already sent — and this one has nothing left to do.
-  if (somethingAfter(transcript, asked)) return { status: "done" };
+  if (supersededSince(wait, transcript, asked)) return { status: "done" };
 
   const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
     id: turn.connectionId,
@@ -695,11 +698,22 @@ async function resumeSurfaceReply(wait: AIModelWait): Promise<ModelWaitResult> {
   return { status: "done" };
 }
 
-/** Whether the conversation holds a message written after this one. */
-function somethingAfter(
+/** What a waiting answer on a surface carries to its resume. */
+type SurfaceWaitPayload = { turn: WaitingSurfaceTurn; transcriptCount?: number };
+
+/**
+ * Whether anything was written in the conversation after this message — a
+ * newer message, which answers this one too, or an answer already sent.
+ * Counted rather than timed: a transcript only grows, and two messages saved
+ * within one second carry the same timestamp.
+ */
+function supersededSince(
+  wait: AIModelWait,
   transcript: Pick<ConversationMessage, "id" | "createdAt">[],
   asked: Pick<ConversationMessage, "id" | "createdAt">,
 ): boolean {
+  const counted = parseWaitPayload<SurfaceWaitPayload>(wait).transcriptCount;
+  if (typeof counted === "number") return transcript.length > counted;
   return transcript.some(
     (message) => message.id !== asked.id && message.createdAt.getTime() > asked.createdAt.getTime(),
   );
@@ -708,7 +722,7 @@ function somethingAfter(
 export const chatSurfaceReplyWait: ModelWaitHandler = {
   concurrency: 4,
   maxAgeMs: (wait) =>
-    parseWaitPayload<{ turn: WaitingSurfaceTurn }>(wait).turn?.provider === "whatsapp"
+    parseWaitPayload<SurfaceWaitPayload>(wait).turn?.provider === "whatsapp"
       ? WHATSAPP_REPLY_WAIT_MS
       : SURFACE_REPLY_WAIT_MS,
   resume: resumeSurfaceReply,
@@ -723,7 +737,7 @@ export const chatSurfaceReplyWait: ModelWaitHandler = {
       where: { conversationId: asked.conversationId },
       order: { createdAt: "ASC" },
     });
-    if (somethingAfter(transcript, asked)) return;
+    if (supersededSince(wait, transcript, asked)) return;
     await msgRepo.save(
       msgRepo.create({
         conversationId: asked.conversationId,
