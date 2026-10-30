@@ -14,6 +14,7 @@ export class OpenCodeEvents {
   private finishedTools = new Set<string>();
   private compacted = new Set<string>();
   private retries = new Set<string>();
+  private endedReasoning = new Set<string>();
   private currentMessageId = "";
   steps = 0;
   stopReason = "end_turn";
@@ -72,6 +73,12 @@ export class OpenCodeEvents {
       const { sessionID, partID, field, delta } = event.properties;
       if (sessionID !== this.sessionId || field !== "text" || delta.length === 0) return;
       const part = this.parts.get(partID);
+      if (part?.type === "reasoning") {
+        if (!this.reasoningVisible(part.messageID)) return;
+        part.text += delta;
+        this.callbacks?.onReasoning?.(delta, part.id);
+        return;
+      }
       if (
         part?.type !== "text" ||
         this.roles.get(part.messageID) !== "assistant" ||
@@ -98,6 +105,20 @@ export class OpenCodeEvents {
     if (part.type === "tool" && !this.textReady.has(part.messageID))
       this.textReady.set(part.messageID, this.callbacks?.shouldStreamText?.() ?? true);
     if (part.type === "tool" && part.tool.startsWith(`${OPENCODE_MCP}_`)) this.onMcpTool?.(part);
+    if (part.type === "reasoning") {
+      // Thinking is observed, never answered: it reaches a feed beside the
+      // reply and never the reply itself, and it follows the same readiness
+      // gate as prose so a discussion's pre-read thoughts stay withheld too.
+      if (!this.reasoningVisible(part.messageID)) return;
+      const before = old?.type === "reasoning" ? old.text : "";
+      if (part.text.startsWith(before) && part.text.length > before.length)
+        this.callbacks?.onReasoning?.(part.text.slice(before.length), part.id);
+      if (part.time?.end !== undefined && !this.endedReasoning.has(part.id)) {
+        this.endedReasoning.add(part.id);
+        this.callbacks?.onReasoningEnd?.(part.id);
+      }
+      return;
+    }
     if (
       part.type === "text" &&
       this.roles.get(part.messageID) === "assistant" &&
@@ -170,6 +191,14 @@ export class OpenCodeEvents {
           : "Model connection interrupted",
       });
     }
+  }
+
+  private reasoningVisible(messageId: string): boolean {
+    return (
+      this.roles.get(messageId) === "assistant" &&
+      this.textReady.get(messageId) === true &&
+      !this.assistants.get(messageId)?.summary
+    );
   }
 
   get finalText(): string {

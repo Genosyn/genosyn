@@ -17,6 +17,7 @@ const PATH_TO_SOURCE: Record<string, string> = {
   "/docs/help": "Help.tsx",
   "/docs/ask-ai": "AskAi.tsx",
   "/docs/employees": "Employees.tsx",
+  "/docs/chat": "Chat.tsx",
   "/docs/collaboration": "Collaboration.tsx",
   "/docs/soul": "Soul.tsx",
   "/docs/skills": "Skills.tsx",

@@ -105,6 +105,16 @@ export function redactApprovalSummary(value: string | null): string | null {
   }
 }
 
+/**
+ * The same redaction as an approval preview, kept structured: secret-named
+ * keys become `[redacted]` and every string is scrubbed of credential-shaped
+ * text. For a feed that renders arguments field by field, such as a chat
+ * turn's activity.
+ */
+export function redactSensitiveValue(value: unknown): unknown {
+  return redactApprovalValue(value);
+}
+
 /** Human-review preview only; the encrypted/replay payload remains untouched. */
 export function approvalArgsPreview(args: Record<string, unknown>): string {
   return JSON.stringify(redactApprovalValue(args));

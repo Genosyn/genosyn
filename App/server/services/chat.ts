@@ -236,8 +236,31 @@ type ChatBaseOptions = {
    */
   activity?: Pick<
     StreamCallbacks,
-    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry" | "onModelOutage"
+    | "onText"
+    | "onToolUse"
+    | "onToolResult"
+    | "onCompact"
+    | "onModelRetry"
+    | "onModelOutage"
+    | "onReasoning"
+    | "onReasoningEnd"
+    | "onRuntimeWait"
+    | "onApiKeyFailover"
+    | "onServedModelChange"
+    | "onBackgroundWork"
   >;
+  /**
+   * Fired once the turn holds its reply lease and is about to run the model —
+   * the moment it stops waiting and starts working. Not fired for a turn that
+   * ends before it starts (no AI Model, stood down, the thread busy).
+   */
+  onWorkStarted?: () => void;
+  /**
+   * Receives the exact values of the company Secrets this turn's tools were
+   * handed, so an activity feed can keep them out of what it records. Never
+   * called on a turn that loads none.
+   */
+  onSensitiveValues?: (values: string[]) => void;
   /**
    * Ceiling on model turns for this call. Chat's default suits a reply; a
    * work session, which reads, edits, runs and re-runs, needs more room.
@@ -701,6 +724,12 @@ export async function streamChatWithEmployee(
     }
   }
 
+  try {
+    options.onWorkStarted?.();
+  } catch {
+    // An observer never decides whether the turn runs.
+  }
+
   let mcpToken: string | null = null;
   try {
     if (discussionSource) {
@@ -732,7 +761,19 @@ export async function streamChatWithEmployee(
                 `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
                   `${retry.attempt}${retry.maxAttempts === null ? "" : ` of ${retry.maxAttempts}`} in ${retry.delayMs}ms`,
               );
+              options.activity?.onModelRetry?.(retry);
             },
+            onRuntimeWait: options.activity?.onRuntimeWait,
+            // A discussion keeps its narrow rules in the feed too: the Member
+            // sees that the employee read the linked record, never what the
+            // read returned or the thinking around it.
+            onToolUse: (name, _input, callId) => options.activity?.onToolUse?.(name, {}, callId),
+            onToolResult: (name, result, callId) =>
+              options.activity?.onToolResult?.(
+                name,
+                { content: "", ...(result.isError ? { isError: true } : {}) },
+                callId,
+              ),
             onText: (delta) => {
               // Do not stream an ungrounded answer from a model that skipped
               // the required read. Only post-read discussion reaches the UI.
@@ -972,6 +1013,14 @@ export async function streamChatWithEmployee(
         // Best-effort: chat still proceeds without secrets if the vault hiccups.
       }
     }
+    const secretValues = Object.values(toolEnv).filter((value) => value.length > 0);
+    if (secretValues.length > 0) {
+      try {
+        options.onSensitiveValues?.(secretValues);
+      } catch {
+        // A feed that cannot take the list must not stop the turn.
+      }
+    }
 
     const tokenOrigin = {
       conversationId: options.conversationId ?? null,
@@ -1046,6 +1095,12 @@ export async function streamChatWithEmployee(
           onToolUse: options.activity?.onToolUse,
           onToolResult: options.activity?.onToolResult,
           onCompact: options.activity?.onCompact,
+          onReasoning: options.activity?.onReasoning,
+          onReasoningEnd: options.activity?.onReasoningEnd,
+          onRuntimeWait: options.activity?.onRuntimeWait,
+          onApiKeyFailover: options.activity?.onApiKeyFailover,
+          onServedModelChange: options.activity?.onServedModelChange,
+          onBackgroundWork: options.activity?.onBackgroundWork,
           // A chat turn that lost a capability should not be invisible either.
           onToolsDeferred: (d) => {
             if (d.deferred > 0) {

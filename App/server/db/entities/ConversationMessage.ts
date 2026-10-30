@@ -171,6 +171,18 @@ export class ConversationMessage {
   @Column({ type: "text", default: "" })
   actionsJson!: string;
 
+  /**
+   * How the turn behind this reply went, as one JSON summary
+   * (`TurnActivitySummary` in `shared/chatActivity.ts`): how long it worked,
+   * how many steps, how many failed or wait on an Approval. Written when the
+   * turn finalizes, so a transcript can say "Worked for 2m 14s · 9 steps"
+   * without reading its {@link ConversationActivityEvent} rows, which load
+   * only when a Member opens them. Empty on user messages, on replies from
+   * before activity was recorded, and on surfaces that record none.
+   */
+  @Column({ type: "text", default: "" })
+  activityJson!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 

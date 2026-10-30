@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   createChatTurnProgressRecorder,
   createProgressRefreshNotifier,
+  createReplyTextSnapshotter,
 } from "./chatTurnProgress.js";
 
 describe("progress refresh notifier", () => {
@@ -129,5 +130,91 @@ describe("chat turn progress recorder", () => {
     await recorder.flush();
 
     assert.deepEqual(errors, []);
+  });
+});
+
+describe("reply text snapshots", () => {
+  type Update = { where: Record<string, unknown>; patch: Record<string, unknown> };
+  function fakeRepository(affected = 1) {
+    const updates: Update[] = [];
+    return {
+      updates,
+      repository: {
+        update: async (where: unknown, patch: unknown) => {
+          updates.push({
+            where: where as Record<string, unknown>,
+            patch: patch as Record<string, unknown>,
+          });
+          return { affected, raw: [], generatedMaps: [] };
+        },
+      },
+    };
+  }
+
+  test("saves the newest text at most once per interval, only on this worker's working row", async () => {
+    const { updates, repository } = fakeRepository();
+    const snapshot = createReplyTextSnapshotter({
+      repository: repository as never,
+      messageId: "m1",
+      workerId: "w1",
+      intervalMs: 30,
+    });
+    snapshot.report("H");
+    snapshot.report("He");
+    snapshot.report("Hello");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(updates.length, 1, "a leading write");
+    assert.deepEqual(updates[0], {
+      where: { id: "m1", status: "working", turnWorkerId: "w1" },
+      patch: { content: "Hello" },
+    });
+    snapshot.report("Hello there");
+    snapshot.report("Hello there!");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(updates.length, 1, "nothing again inside the interval");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await snapshot.flush();
+    assert.equal(updates.length, 2);
+    assert.deepEqual(updates[1].patch, { content: "Hello there!" });
+    snapshot.cancel();
+  });
+
+  test("an unchanged text is not written twice, and a cancel stops every later write", async () => {
+    const { updates, repository } = fakeRepository();
+    const snapshot = createReplyTextSnapshotter({
+      repository: repository as never,
+      messageId: "m1",
+      workerId: "w1",
+      intervalMs: 10,
+    });
+    snapshot.report("Same");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    snapshot.report("Same");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(updates.length, 1);
+    snapshot.report("Later");
+    snapshot.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(updates.length, 1);
+  });
+
+  test("a failed save is reported, never thrown into the turn", async () => {
+    const errors: unknown[] = [];
+    const snapshot = createReplyTextSnapshotter({
+      repository: {
+        update: async () => {
+          throw new Error("database is locked");
+        },
+      } as never,
+      messageId: "m1",
+      workerId: "w1",
+      intervalMs: 5,
+      onPersistenceError: (error) => errors.push(error),
+    });
+    snapshot.report("text");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await snapshot.flush();
+    assert.equal(errors.length, 1);
+    snapshot.cancel();
   });
 });

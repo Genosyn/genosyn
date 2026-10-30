@@ -14,8 +14,14 @@ import {
 } from "lucide-react";
 import { ContextualLayout } from "@/components/AppShell";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
+import {
+  LiveTurnCard,
+  shouldShowTurnSummary,
+  TurnWorkSummary,
+} from "@/components/chat/TurnActivity";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
+import { EMPTY_LIVE_TURN, reduceLiveTurn, type LiveTurnState } from "@/lib/chatActivity";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import {
@@ -55,10 +61,18 @@ export default function Help({ company }: { company: Company }) {
   const [startingConversation, setStartingConversation] = React.useState(false);
   const [claimError, setClaimError] = React.useState<string | null>(null);
   const [streamingReply, setStreamingReply] = React.useState("");
+  /** What the reply in flight has done so far, from whichever stream is following it. */
+  const [live, setLive] = React.useState<LiveTurnState>(EMPTY_LIVE_TURN);
+  /** A reply this page did not send but found running — after a reload — and follows. */
+  const [followingId, setFollowingId] = React.useState<string | null>(null);
+  const [stopping, setStopping] = React.useState(false);
+  const [stopError, setStopError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   const selected = employees?.find((employee) => employee.id === selectedId) ?? null;
+  /** A reply still running is drawn as live activity, never as a finished bubble. */
+  const visibleMessages = messages.filter((message) => message.status !== "working");
   const activeConversation =
     conversations.find((conversation) => conversation.id === activeId) ?? null;
 
@@ -167,10 +181,88 @@ export default function Help({ company }: { company: Company }) {
     };
   }, [activeId, company.id, loadedId, selectedId]);
 
+  // A Help reply keeps running on the server when the page reloads. Follow it
+  // to its end over the same stream the chat uses, so its steps and text are
+  // live here too instead of an empty bubble.
+  const runningReply = !sending
+    ? messages.find((message) => message.role === "assistant" && message.status === "working")
+    : undefined;
+  React.useEffect(() => {
+    if (!selectedId || !activeId || !runningReply) return;
+    const controller = new AbortController();
+    const messageId = runningReply.id;
+    setFollowingId(messageId);
+    setLive({
+      ...EMPTY_LIVE_TURN,
+      turnId: messageId,
+      startedAt: Date.parse(runningReply.createdAt) || null,
+    });
+    setStreamingReply(runningReply.content);
+    void (async () => {
+      for (let attempt = 0; attempt < 30 && !controller.signal.aborted; attempt += 1) {
+        let finished = false;
+        try {
+          await api.streamGet(
+            `/api/companies/${company.id}/employees/${selectedId}/conversations/${activeId}/messages/${messageId}/activity/stream`,
+            (event, data) => {
+              if (event === "assistant") {
+                finished = true;
+                const final = data as ConversationMessage;
+                setMessages((current) =>
+                  current.map((message) => (message.id === final.id ? final : message)),
+                );
+                return;
+              }
+              if (event === "snapshot") {
+                setStreamingReply(String((data as { text?: unknown } | null)?.text ?? ""));
+              } else if (event === "chunk") {
+                const text = (data as { text?: unknown } | null)?.text;
+                if (typeof text === "string") setStreamingReply((current) => current + text);
+              }
+              setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
+            },
+            { signal: controller.signal },
+          );
+        } catch {
+          // Reconnect below.
+        }
+        if (finished || controller.signal.aborted) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+      }
+      if (!controller.signal.aborted) {
+        setFollowingId(null);
+        setStreamingReply("");
+        setLive(EMPTY_LIVE_TURN);
+      }
+    })();
+    return () => {
+      controller.abort();
+      setFollowingId(null);
+    };
+    // The reply's id is the identity; its content changes while it streams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, company.id, runningReply?.id, selectedId]);
+
   React.useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, streamingReply, sending]);
+  }, [messages, streamingReply, sending, live.events]);
+
+  /** Stop the reply in flight; whatever it wrote so far stays in the thread. */
+  async function stopReply() {
+    if (!selectedId || !activeId) return;
+    setStopping(true);
+    setStopError(null);
+    try {
+      await api.post(
+        `/api/companies/${company.id}/employees/${selectedId}/conversations/${activeId}/interrupt`,
+        {},
+      );
+    } catch (error) {
+      setStopping(false);
+      setStopError(errorMessage(error, "Could not stop the reply"));
+    }
+  }
 
   React.useEffect(() => {
     const textarea = inputRef.current;
@@ -284,6 +376,9 @@ export default function Help({ company }: { company: Company }) {
     setMessages((current) => [...current, optimistic]);
     setSending(true);
     setStreamingReply("");
+    setLive(EMPTY_LIVE_TURN);
+    setStopping(false);
+    setStopError(null);
     let accumulated = "";
     let receivedAssistant = false;
     let accepted = false;
@@ -303,9 +398,13 @@ export default function Help({ company }: { company: Company }) {
           } else if (event === "working") {
             accepted = true;
             attachmentDraft.clear();
+            setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
+          } else if (event === "turn" || event === "activity" || event === "heartbeat") {
+            setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
           } else if (event === "chunk") {
             accumulated += (data as { text?: string } | null)?.text ?? "";
             setStreamingReply(accumulated);
+            setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
           } else if (event === "assistant") {
             receivedAssistant = true;
             setMessages((current) => [...current, data as ConversationMessage]);
@@ -353,6 +452,8 @@ export default function Help({ company }: { company: Company }) {
     } finally {
       setSending(false);
       setStreamingReply("");
+      setLive(EMPTY_LIVE_TURN);
+      setStopping(false);
       window.setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
@@ -641,31 +742,37 @@ export default function Help({ company }: { company: Company }) {
               </div>
             ) : (
               <div className="mx-auto flex max-w-3xl flex-col gap-5">
-                {messages.map((message, index) => (
+                {visibleMessages.map((message, index) => (
                   <HelpBubble
                     key={message.id}
                     message={message}
                     employee={selected}
                     companyId={company.id}
-                    showAvatar={index === 0 || messages[index - 1].role !== message.role}
+                    companySlug={company.slug}
+                    showAvatar={index === 0 || visibleMessages[index - 1].role !== message.role}
                   />
                 ))}
-                {sending && streamingReply && (
-                  <div className="flex items-start gap-2.5">
-                    <Avatar name={selected.name} kind="ai" size="md" />
-                    <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                      <ChatMarkdown content={streamingReply} />
-                    </div>
-                  </div>
+                {(sending || followingId) && (
+                  <LiveTurnCard
+                    authorName={selected.name}
+                    avatar={
+                      <Avatar
+                        name={selected.name}
+                        kind="ai"
+                        size="md"
+                        src={employeeAvatarUrl(company.id, selected.id, selected.avatarKey)}
+                      />
+                    }
+                    live={live}
+                    streamingReply={streamingReply}
+                    progress={null}
+                    connectionState="streaming"
+                    stopping={stopping}
+                    onStop={activeId ? () => void stopReply() : undefined}
+                    companySlug={company.slug}
+                  />
                 )}
-                {sending && !streamingReply && (
-                  <div className="flex items-center gap-2.5 text-sm text-slate-500">
-                    <Avatar name={selected.name} kind="ai" size="md" />
-                    <span className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 dark:border-slate-700 dark:bg-slate-900">
-                      <Spinner /> Inspecting Genosyn…
-                    </span>
-                  </div>
-                )}
+                <FormError message={stopError} />
               </div>
             )}
           </div>
@@ -761,11 +868,13 @@ function HelpBubble({
   message,
   employee,
   companyId,
+  companySlug,
   showAvatar,
 }: {
   message: ConversationMessage;
   employee: Employee;
   companyId: string;
+  companySlug: string;
   showAvatar: boolean;
 }) {
   if (message.role === "user") {
@@ -796,27 +905,37 @@ function HelpBubble({
           src={employeeAvatarUrl(companyId, employee.id, employee.avatarKey)}
         />
       </div>
-      <div
-        className={
-          "max-w-[85%] rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm sm:max-w-[75%] " +
-          (isError
-            ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
-            : isUnavailable
-              ? "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
-              : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
-        }
-      >
-        {isError ? (
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        ) : (
-          <ChatMarkdown content={message.content} />
+      <div className="min-w-0 max-w-[85%] sm:max-w-[75%]">
+        {shouldShowTurnSummary(message.activity) && message.activity && (
+          <TurnWorkSummary
+            summary={message.activity}
+            activityUrl={`/api/companies/${companyId}/employees/${employee.id}/conversations/${message.conversationId}/messages/${message.id}/activity`}
+            messageId={message.id}
+            companySlug={companySlug}
+          />
         )}
-        <ChatAttachments
-          attachments={message.attachments ?? []}
-          urlFor={(id) =>
-            `/api/companies/${companyId}/employees/${employee.id}/chat-attachments/${id}`
+        <div
+          className={
+            "rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm " +
+            (isError
+              ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+              : isUnavailable
+                ? "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+                : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
           }
-        />
+        >
+          {isError ? (
+            <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          ) : (
+            <ChatMarkdown content={message.content} />
+          )}
+          <ChatAttachments
+            attachments={message.attachments ?? []}
+            urlFor={(id) =>
+              `/api/companies/${companyId}/employees/${employee.id}/chat-attachments/${id}`
+            }
+          />
+        </div>
       </div>
     </div>
   );

@@ -15,7 +15,10 @@ import {
   requireBrowserSession,
   requireCompanyMember,
 } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
+import { ConversationActivityEvent } from "../db/entities/ConversationActivityEvent.js";
+import { listChatActivity, turnAcceptedAt } from "../services/chatTurnActivity.js";
+import { followChatTurn } from "../services/chatTurnFollow.js";
 import { lastChatModelChoice, lastChatModelChoices } from "../services/conversationModels.js";
 import {
   serializeConversation,
@@ -24,13 +27,20 @@ import {
   summarizeAttachment,
 } from "../services/conversationSerialization.js";
 import {
+  ChatTurnRetryError,
   enqueueDurableChatTurn,
   executeDurableChatTurn,
   interruptDurableChatTurn,
+  retryDurableChatTurn,
 } from "../services/durableChatTurns.js";
 import { supportsModelEffort } from "../services/modelEffort.js";
 import { resolveChatModel } from "../services/models.js";
-import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
+import {
+  attachmentsForMessages,
+  recordAttachment,
+  resolveAttachmentFile,
+  uploadMiddleware,
+} from "../services/uploads.js";
 import { MODEL_EFFORT_VALUES } from "../../shared/modelEffort.js";
 
 /**
@@ -97,7 +107,7 @@ async function loadEmpAndCompany(
  * resets the connection — which surfaces in the browser as a mid-stream
  * `network error`. A comment line every 15s stays under those idle timers.
  */
-const CHAT_STREAM_HEARTBEAT_MS = 15_000;
+const CHAT_STREAM_HEARTBEAT_MS = 10_000;
 
 function canManageLegacyConversations(req: Request): boolean {
   return req.companyRole === "owner" || req.companyRole === "admin";
@@ -324,6 +334,9 @@ employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => 
     ownerUserId: req.userId!,
   });
   if (!conv) return res.status(404).json({ error: "Not found" });
+  await AppDataSource.getRepository(ConversationActivityEvent).delete({
+    conversationId: conv.id,
+  });
   await AppDataSource.getRepository(ConversationMessage).delete({
     conversationId: conv.id,
   });
@@ -423,6 +436,14 @@ const sendSchema = z.object({
  *                       Measured from the provider's token counts, not
  *                       self-reported. Same shape as a message's `context`, so
  *                       the client has one type for the live and stored value.
+ *   event: turn       — the turn's identity and the server's clock
+ *                       (`{ messageId, startedAt, now }`), so elapsed time is
+ *                       measured on one clock whatever the browser's says.
+ *   event: activity   — one recorded step as it happens: a tool call or its
+ *                       result, a wait and why, a thinking summary, a stop
+ *                       (`ChatActivityEvent` in `shared/chatActivity.ts`).
+ *   event: heartbeat  — the server clock every few seconds, so a quiet turn
+ *                       reads as quiet rather than as a dead connection.
  *   event: assistant  — persisted assistant message row (final reply text,
  *                       or an error/skipped body)
  *   event: conversation — updated conversation row (for sidebar refresh)
@@ -454,12 +475,13 @@ employeeSurfaceRouter.post(
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    // Keep the connection warm across long silent stretches of a turn. SSE
-    // comment lines (`:`-prefixed) are ignored by the client parser but count
-    // as traffic, so they reset the idle-read timers on any proxy between the
-    // browser and this process — without them a slow reply drops mid-stream.
+    // Keep the connection warm across long silent stretches of a turn — the
+    // traffic resets the idle-read timers on any proxy between the browser and
+    // this process, without which a slow reply drops mid-stream — and tell the
+    // browser the server is still there, with its clock, so it can say "no
+    // activity for 40s" about a quiet turn instead of "reconnecting".
     const heartbeat = setInterval(() => {
-      if (!res.writableEnded) res.write(`: keepalive\n\n`);
+      writeEvent("heartbeat", { now: new Date().toISOString() });
     }, CHAT_STREAM_HEARTBEAT_MS);
     // Don't let the keepalive timer hold the process open on its own, and stop
     // firing the moment the client hangs up (nothing left to keep warm).
@@ -528,6 +550,13 @@ employeeSurfaceRouter.post(
       const threadChoice = await lastChatModelChoice(eid, enqueued.conversation.id);
       writeEvent("user", serializeMessage(enqueued.userMessage, enqueued.userAttachments));
       writeEvent("working", serializeMessage(enqueued.assistantMessage));
+      writeEvent("turn", {
+        messageId: enqueued.assistantMessage.id,
+        status: enqueued.assistantMessage.status,
+        startedAt: enqueued.assistantMessage.createdAt.toISOString(),
+        attempt: enqueued.assistantMessage.turnAttempt,
+        now: new Date().toISOString(),
+      });
       writeEvent(
         "conversation",
         serializeConversation(enqueued.conversation, enqueued.conversation.updatedAt, threadChoice),
@@ -535,6 +564,7 @@ employeeSurfaceRouter.post(
 
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
         onChunk: (chunk) => writeEvent("chunk", { text: chunk }),
+        onActivity: (event) => writeEvent("activity", event),
         onProgress: (progress) => writeEvent("progress", progress),
         onContextUsage: (usage) =>
           writeEvent("context", {
@@ -616,6 +646,165 @@ employeeSurfaceRouter.post(
     if (!target) return res.json({ interrupted: false });
     const outcome = await interruptDurableChatTurn(target.id);
     res.json({ interrupted: outcome === "interrupted" });
+  },
+);
+
+// ---------- Turn activity ----------
+
+const turnParamsSchema = z
+  .object({
+    cid: z.string().min(1),
+    eid: z.string().min(1),
+    convId: z.string().min(1),
+    messageId: z.string().uuid(),
+  })
+  .strict();
+const activityQuerySchema = z.object({
+  /** The last ordinal the reader already holds; 0 reads from the start. */
+  after: z.coerce.number().int().min(0).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(1_000).optional().default(500),
+});
+const activityStreamQuerySchema = z.object({
+  after: z.coerce.number().int().min(0).optional().default(0),
+});
+
+/** The reply a turn belongs to, if the Member may read its conversation. */
+async function findAccessibleTurn(req: Request) {
+  const { cid, eid, convId, messageId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return null;
+  const conversation = await findAccessibleConversation({
+    req,
+    employeeId: eid,
+    conversationId: convId,
+  });
+  if (!conversation) return null;
+  const message = await AppDataSource.getRepository(ConversationMessage).findOneBy({
+    id: messageId,
+    conversationId: conversation.id,
+    role: "assistant",
+  });
+  return message ? { loaded, conversation, message } : null;
+}
+
+/**
+ * What an AI Employee did while it wrote one reply, step by step: each tool
+ * call and its result, the AI Model's thinking summary, the reasons it
+ * waited. Read when a Member opens a finished reply's "Worked for …" line;
+ * `after` pages through a long turn. Readable by whoever can read the
+ * conversation, and redacted when it was recorded.
+ */
+employeeSurfaceRouter.get(
+  "/:eid/conversations/:convId/messages/:messageId/activity",
+  validateParams(turnParamsSchema),
+  validateQuery(activityQuerySchema),
+  async (req, res, next) => {
+    try {
+      const found = await findAccessibleTurn(req);
+      if (!found) return res.status(404).json({ error: "Not found" });
+      const query = req.query as unknown as z.infer<typeof activityQuerySchema>;
+      const events = await listChatActivity(found.message.id, query.after, query.limit + 1);
+      res.json({
+        events: events.slice(0, query.limit),
+        more: events.length > query.limit,
+        status: found.message.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Follow one reply live, from any browser, from the reader's cursor to its
+ * end — how a reload, another tab or a dropped connection re-attaches to a
+ * turn that is still running. Server-Sent Events; the stream is described on
+ * `followChatTurn` (`services/chatTurnFollow.ts`). A finished turn replays
+ * what the reader has not seen, sends the final reply, and ends.
+ */
+employeeSurfaceRouter.get(
+  "/:eid/conversations/:convId/messages/:messageId/activity/stream",
+  validateParams(turnParamsSchema),
+  validateQuery(activityStreamQuerySchema),
+  async (req, res, next) => {
+    let found: Awaited<ReturnType<typeof findAccessibleTurn>>;
+    try {
+      found = await findAccessibleTurn(req);
+    } catch (error) {
+      return next(error);
+    }
+    if (!found) return res.status(404).json({ error: "Not found" });
+    const query = req.query as unknown as z.infer<typeof activityStreamQuerySchema>;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+    const writeEvent = (event: string, data: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const stop = new AbortController();
+    res.on("close", () => stop.abort());
+    try {
+      await followChatTurn({
+        messageId: found.message.id,
+        after: query.after,
+        send: writeEvent,
+        signal: stop.signal,
+        loadFinal: async (message) => {
+          const attachments = await attachmentsForMessages([message.id]);
+          return serializeMessage(message, attachments.get(message.id) ?? []);
+        },
+      });
+    } catch (error) {
+      console.error(`[chat] following turn ${found.message.id} failed`, error);
+      writeEvent("error", { message: "Lost track of this reply. It continues on the server." });
+    } finally {
+      if (!res.writableEnded && !res.destroyed) res.end();
+    }
+  },
+);
+
+const retrySchema = z.object({}).strict();
+
+/**
+ * Run a reply that failed again, in place: the same request, under the
+ * Member who asks. Only the newest reply in a conversation with nothing
+ * running can be retried. Answers the reply, now `working`; follow it with
+ * `…/activity/stream`.
+ */
+employeeSurfaceRouter.post(
+  "/:eid/conversations/:convId/messages/:messageId/retry",
+  validateParams(turnParamsSchema),
+  validateBody(retrySchema),
+  async (req, res, next) => {
+    const { cid, eid, convId, messageId } = req.params as Record<string, string>;
+    try {
+      const loaded = await loadEmpAndCompany(cid, eid);
+      if (!loaded) return res.status(404).json({ error: "Not found" });
+      const message = await retryDurableChatTurn({
+        companyId: cid,
+        employeeId: eid,
+        conversationId: convId,
+        messageId,
+        requesterUserId: req.userId!,
+        requesterSessionVersion: req.session!.sessionVersion!,
+      });
+      void executeDurableChatTurn(message.id).catch((error) => {
+        console.error(`[chat] retried turn failed to start message=${message.id}`, error);
+      });
+      res.json({
+        message: serializeMessage(message),
+        startedAt: turnAcceptedAt(message).toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ChatTurnRetryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
   },
 );
 
@@ -789,6 +978,11 @@ export async function deleteEmployeeConversations(employeeId: string): Promise<v
   const convs = await convRepo.find({ where: { employeeId } });
   if (convs.length === 0) return;
   const ids = convs.map((c) => c.id);
+  await AppDataSource.getRepository(ConversationActivityEvent)
+    .createQueryBuilder()
+    .delete()
+    .where("conversationId IN (:...ids)", { ids })
+    .execute();
   await AppDataSource.getRepository(ConversationMessage)
     .createQueryBuilder()
     .delete()

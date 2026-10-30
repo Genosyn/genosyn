@@ -928,6 +928,25 @@ in a Work session instead of leaving them stranded as local commits.
   never merged silently. All of it is owners and admins from a signed-in
   browser: no API key, Genosyn MCP client or AI Employee tool attaches,
   detaches, switches or removes a model.
+- **A chat turn's activity belongs to its conversation.** While an AI Employee
+  answers in direct chat or Help, every tool call and result, the AI Model's
+  thinking summary (`StreamCallbacks.onReasoning`), progress milestones and
+  the reasons the turn waits are recorded as `ConversationActivityEvent` rows
+  (`services/chatTurnActivity.ts`), handed in the same tick to the turn's
+  in-process live record (`services/chatTurnLive.ts`), and summarized on the
+  reply as `ConversationMessage.activityJson` ("Worked for 2m 14s · 9 steps").
+  The recorder redacts like an Approval preview, scrubs the exact values of
+  the company Secrets the turn's tools received, never keeps a value typed
+  into a page, and clips everything; a discussion bound to a Decision, TLDR or
+  review records its steps without payloads (`chat.ts` strips them at the
+  seam). Reads go through the conversation's own access — owner only, no API
+  keys — and the entity stays out of the live-sync subscriber: a reload or
+  another tab re-attaches over the follow stream (`services/chatTurnFollow.ts`,
+  `GET …/messages/:messageId/activity/stream`), never the company socket. A
+  new reason to wait is one `recorder.waiting(cause, { label })` or
+  `onRuntimeWait({ cause, label })`; the chat words the causes it knows and
+  shows the server's label for any other. Retry runs a failed reply again in
+  place (`retryDurableChatTurn`) — never a second reply row for one request.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs stay stable).

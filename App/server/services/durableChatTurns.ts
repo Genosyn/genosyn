@@ -18,10 +18,21 @@ import {
   INTERRUPTED_BEFORE_REPLY,
   streamChatWithEmployee,
 } from "./chat.js";
+import type { ChatActivityEvent } from "../../shared/chatActivity.js";
+import {
+  ChatTurnActivityRecorder,
+  lastChatActivity,
+  nextChatActivityOrdinal,
+  recordDetachedChatActivity,
+  summarizeChatActivity,
+  turnAcceptedAt,
+} from "./chatTurnActivity.js";
 import { createChatTurnContextUsageRecorder } from "./chatTurnContextUsage.js";
+import { openLiveTurn, releaseLiveTurn, type LiveTurn } from "./chatTurnLive.js";
 import {
   createChatTurnProgressRecorder,
   createProgressRefreshNotifier,
+  createReplyTextSnapshotter,
 } from "./chatTurnProgress.js";
 import {
   historicalAttachmentSummaries,
@@ -40,11 +51,22 @@ const RECOVERY_POLL_MS = 5_000;
 const BUSY_RETRY_MS = 15_000;
 const MAX_RECOVERIES_PER_SWEEP = 10;
 const WORK_PROGRESS_EVENT_INTERVAL_MS = 30_000;
+/** How often the reply's text so far is saved while it streams. */
+const REPLY_SNAPSHOT_MS = 1_500;
+/** The label a turn carries while it waits for another reply in its thread. */
+const THREAD_BUSY_LABEL = "Waiting for another reply";
+/** The label a turn carries between a Member's Retry and its worker starting. */
+export const RETRY_PROGRESS_LABEL = "Starting again";
+
+/** Why a worker picked a turn up: the first time, after a restart, or a Retry. */
+export type TurnStartReason = "start" | "resume" | "retry";
 
 export type DurableChatTurnCallbacks = {
   onChunk?: (chunk: string) => void;
   onProgress?: (progress: AgentProgress) => void;
   onContextUsage?: (usage: ContextUsage) => void;
+  /** Each activity event as it is recorded — a tool call, a wait, a thought. */
+  onActivity?: (event: ChatActivityEvent) => void;
   onFinal?: (result: {
     message: ConversationMessage;
     attachments: Attachment[];
@@ -63,6 +85,8 @@ export type InterruptDurableChatTurnOutcome = "interrupted" | "not_running";
 type ClaimedTurn = {
   message: ConversationMessage;
   workerId: string;
+  /** Read from the row before the claim overwrote its label. */
+  reason: TurnStartReason;
 };
 
 let recoveryTimer: NodeJS.Timeout | null = null;
@@ -70,6 +94,9 @@ const locallyExecuting = new Set<string>();
 const activeClaimAborters = new Map<string, () => void>();
 /** Returns false when this process no longer owns the turn it registered for. */
 const activeTurnInterrupters = new Map<string, () => boolean>();
+
+/** The live and persisted activity of a turn this process is running. */
+type TurnActivity = { recorder: ChatTurnActivityRecorder; live: LiveTurn };
 
 /** Derive the sidebar title from the first accepted human message. */
 function deriveTitle(message: string): string {
@@ -224,14 +251,23 @@ export async function claimDurableChatTurn(
 
   const message = await repo.findOneBy({ id: messageId });
   if (!message) return null;
+  // A turn that only ever waited for its thread never ran, so its next pickup
+  // is still its start; a Retry says so on the row; anything else that comes
+  // back for another attempt was cut off by a restart.
+  const reason: TurnStartReason =
+    message.progressLabel === RETRY_PROGRESS_LABEL
+      ? "retry"
+      : message.turnAttempt > 1 && message.progressLabel !== THREAD_BUSY_LABEL
+        ? "resume"
+        : "start";
   if (message.turnAttempt > 1) {
-    message.progressLabel = "Resuming durable work";
+    message.progressLabel = reason === "retry" ? RETRY_PROGRESS_LABEL : "Resuming durable work";
     await repo.update(
       { id: message.id, status: "working", turnWorkerId: workerId },
       { progressLabel: message.progressLabel },
     );
   }
-  return { message, workerId };
+  return { message, workerId, reason };
 }
 
 /**
@@ -246,13 +282,15 @@ export async function executeDurableChatTurn(
   const claimed = await claimDurableChatTurn(messageId);
   if (!claimed) return "claimed_elsewhere";
 
-  const { message: claimedMessage, workerId } = claimed;
+  const { message: claimedMessage, workerId, reason: startReason } = claimed;
   const messageRepo = AppDataSource.getRepository(ConversationMessage);
   const claimController = new AbortController();
   let lostClaim = false;
   let interrupted = false;
   let renewing = false;
   let workScope: { companyId: string; employeeId: string } | null = null;
+  /** Created once the turn's company is known; a stop before then is written on creation. */
+  let activity: TurnActivity | null = null;
   const workProgressEvents = createProgressRefreshNotifier({
     intervalMs: WORK_PROGRESS_EVENT_INTERVAL_MS,
     notify: () => {
@@ -275,6 +313,7 @@ export async function executeDurableChatTurn(
   const interruptTurn = (): boolean => {
     if (lostClaim) return false;
     interrupted = true;
+    activity?.recorder.stopped();
     claimController.abort();
     return true;
   };
@@ -336,6 +375,20 @@ export async function executeDurableChatTurn(
       );
     },
   });
+  // The reply so far, saved as it streams, so a browser that attaches later —
+  // or a stop that lands on another replica — has the text already on screen.
+  const replySnapshot = createReplyTextSnapshotter({
+    repository: messageRepo,
+    messageId: claimedMessage.id,
+    workerId,
+    intervalMs: REPLY_SNAPSHOT_MS,
+    onPersistenceError: (error) => {
+      // eslint-disable-next-line no-console
+      console.error(`[chat] reply snapshot save failed message=${claimedMessage.id}`, error);
+    },
+  });
+  const flushRecorders = () =>
+    Promise.all([progressRecorder.flush(), contextUsageRecorder.flush(), replySnapshot.flush()]);
 
   try {
     const context = await loadTurnContext(claimedMessage, workerId);
@@ -351,6 +404,19 @@ export async function executeDurableChatTurn(
       companyId: context.employee.companyId,
       employeeId: context.employee.id,
     };
+    const live = openLiveTurn(claimedMessage.id, claimedMessage.conversationId);
+    const recorder = new ChatTurnActivityRecorder(
+      {
+        companyId: context.employee.companyId,
+        conversationId: claimedMessage.conversationId,
+        messageId: claimedMessage.id,
+        attempt: claimedMessage.turnAttempt,
+      },
+      await nextChatActivityOrdinal(claimedMessage.id),
+      { live, onEvent: callbacks.onActivity },
+    );
+    activity = { recorder, live };
+    if (interrupted) recorder.stopped();
 
     const deadline =
       claimedMessage.turnDeadlineAt ??
@@ -372,6 +438,7 @@ export async function executeDurableChatTurn(
         workerId,
         "This turn reached its six-hour limit, including time spent recovering from server restarts.",
         callbacks,
+        activity,
       );
     }
 
@@ -393,12 +460,16 @@ export async function executeDurableChatTurn(
               requesterSessionVersion: claimedMessage.turnRequesterSessionVersion,
             }
           : { toolAuthority: "untrusted" as const };
+      let streamed = "";
       result = await streamChatWithEmployee(
         context.employee.companyId,
         context.employee.id,
         prompt,
         replay,
         (chunk) => {
+          streamed += chunk;
+          live.appendText(chunk);
+          replySnapshot.report(streamed);
           try {
             callbacks.onChunk?.(chunk);
           } catch {
@@ -412,8 +483,31 @@ export async function executeDurableChatTurn(
           effort: claimedMessage.effort,
           surface: context.conversation.source === "help" ? "help" : "chat",
           ...requesterAuthority,
-          onProgress: progressRecorder.report,
-          onContextUsage: contextUsageRecorder.report,
+          onProgress: (progress) => {
+            progressRecorder.report(progress);
+            recorder.progress(progress);
+            live.progress(progress);
+          },
+          onContextUsage: (usage) => {
+            contextUsageRecorder.report(usage);
+            live.context(usage);
+          },
+          onWorkStarted: () => recorder.turnStarted(startReason),
+          onSensitiveValues: (values) => recorder.setSensitiveValues(values),
+          activity: {
+            onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
+            onToolResult: (name, toolResult, callId) =>
+              recorder.toolResult(name, toolResult, callId),
+            onReasoning: (delta, block) => recorder.reasoning(delta, block),
+            onReasoningEnd: (block) => recorder.reasoningEnd(block),
+            onModelRetry: (retry) => recorder.modelRetry(retry),
+            onModelOutage: (outage) => recorder.modelOutage(outage),
+            onRuntimeWait: (wait) => recorder.runtimeWait(wait),
+            onCompact: (info) => recorder.compact(info),
+            onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
+            onServedModelChange: (change) => recorder.servedModelChange(change),
+            onBackgroundWork: (pending) => recorder.backgroundWork(pending),
+          },
           workloadKey: claimedMessage.id,
           throwOnWorkloadUnavailable: true,
           timeoutMs: remainingMs,
@@ -427,18 +521,32 @@ export async function executeDurableChatTurn(
       // walking away as "claimed elsewhere" would leave it running under
       // whoever overtook us. A stop has to become terminal on every path.
       if (interrupted) {
-        await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
+        await flushRecorders();
         return finalizeInterruptedTurn(
           claimedMessage,
           workerId,
           INTERRUPTED_BEFORE_REPLY,
           callbacks,
+          activity,
         );
       }
-      if (lostClaim) return "claimed_elsewhere";
+      if (lostClaim) {
+        await recorder.close();
+        live.detach();
+        return "claimed_elsewhere";
+      }
       if (error instanceof EmployeeWorkloadBusyError) {
-        await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
-        const label = "Waiting for another reply";
+        await flushRecorders();
+        // One line for the whole wait, however many times the turn is picked
+        // up and finds its thread still busy.
+        const last = live.lastEvent ?? (await lastChatActivity(claimedMessage.id));
+        const alreadyWaiting =
+          last?.kind === "waiting" &&
+          last.name === "thread_busy" &&
+          (last.detail as { state?: string } | null)?.state === "waiting";
+        if (!alreadyWaiting) recorder.waiting("thread_busy");
+        await recorder.flush();
+        const label = THREAD_BUSY_LABEL;
         const deferred = await messageRepo.update(
           {
             id: claimedMessage.id,
@@ -463,8 +571,11 @@ export async function executeDurableChatTurn(
               workerId,
               INTERRUPTED_BEFORE_REPLY,
               callbacks,
+              activity,
             );
           }
+          await recorder.close();
+          live.detach();
           try {
             callbacks.onProgress?.({
               percent: claimedMessage.progressPercent ?? 1,
@@ -475,20 +586,24 @@ export async function executeDurableChatTurn(
           }
           return "deferred";
         }
+        await recorder.close();
+        live.detach();
         return "claimed_elsewhere";
       }
       throw error;
     }
 
-    await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
+    await flushRecorders();
     if (!lostClaim) await renewClaim();
     if (lostClaim) {
       // Overtaken while the agent unwound. Ordinary claim loss is somebody
       // else's problem now, but a stop the Member asked for still has to stick
       // — `finalizeInterruptedTurn` writes it under whoever holds the row.
       if (interrupted) {
-        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks);
+        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks, activity);
       }
+      await recorder.close();
+      live.detach();
       return "claimed_elsewhere";
     }
 
@@ -515,6 +630,15 @@ export async function executeDurableChatTurn(
         )
       : [];
     const finalContextUsage = contextUsageRecorder.latest();
+    // A Member who stopped this turn asked for exactly what is on screen.
+    // The agent's own status describes how the model unwound, which after
+    // an abort is usually a transport error — not the answer to "did the
+    // human get what they asked for".
+    const finalStatus = interrupted ? "interrupted" : result.status;
+    const summary = recorder.summarize({
+      status: finalStatus,
+      startedAt: turnAcceptedAt(claimedMessage),
+    });
     const finalized = await messageRepo.update(
       {
         id: claimedMessage.id,
@@ -523,11 +647,7 @@ export async function executeDurableChatTurn(
       },
       {
         content: result.reply,
-        // A Member who stopped this turn asked for exactly what is on screen.
-        // The agent's own status describes how the model unwound, which after
-        // an abort is usually a transport error — not the answer to "did the
-        // human get what they asked for".
-        status: interrupted ? "interrupted" : result.status,
+        status: finalStatus,
         progressPercent: null,
         progressLabel: null,
         // Unlike progress, the context gauge is not cleared on completion — it
@@ -545,6 +665,7 @@ export async function executeDurableChatTurn(
             }
           : {}),
         actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
+        activityJson: JSON.stringify(summary),
         turnWorkerId: null,
         turnLeaseExpiresAt: null,
       },
@@ -554,10 +675,13 @@ export async function executeDurableChatTurn(
       // to stick, so fall through to the unconditional finalize rather than
       // walking away from a turn they already cancelled.
       if (interrupted) {
-        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks);
+        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks, activity);
       }
+      await recorder.close();
+      live.detach();
       return "claimed_elsewhere";
     }
+    await recorder.finish(summary);
 
     context.conversation.updatedAt = new Date();
     await AppDataSource.getRepository(Conversation).save(context.conversation);
@@ -565,6 +689,7 @@ export async function executeDurableChatTurn(
     const finalMessage = await messageRepo.findOneByOrFail({
       id: claimedMessage.id,
     });
+    live.finish();
     safeFinalCallback(callbacks, {
       message: finalMessage,
       attachments: replyAttachments,
@@ -572,11 +697,21 @@ export async function executeDurableChatTurn(
     });
     return "completed";
   } catch (error) {
-    if (lostClaim) return "claimed_elsewhere";
+    if (lostClaim) {
+      await activity?.recorder.close();
+      activity?.live.detach();
+      return "claimed_elsewhere";
+    }
     // A stop the human asked for is not a failure, even when the abort tore
     // through a seam that had no partial reply to hand back.
     if (interrupted) {
-      return finalizeInterruptedTurn(claimedMessage, workerId, INTERRUPTED_BEFORE_REPLY, callbacks);
+      return finalizeInterruptedTurn(
+        claimedMessage,
+        workerId,
+        INTERRUPTED_BEFORE_REPLY,
+        callbacks,
+        activity,
+      );
     }
     // eslint-disable-next-line no-console
     console.error(
@@ -589,12 +724,20 @@ export async function executeDurableChatTurn(
       workerId,
       error instanceof Error ? error.message : String(error),
       callbacks,
+      activity,
     );
   } finally {
     workProgressEvents.cancel();
+    replySnapshot.cancel();
     clearInterval(heartbeat);
     activeClaimAborters.delete(claimedMessage.id);
     activeTurnInterrupters.delete(claimedMessage.id);
+    if (activity) {
+      // Every path above ended the live record; this only covers a throw
+      // between two of them, so no reader is left following a dead turn.
+      activity.live.detach();
+      releaseLiveTurn(activity.live);
+    }
   }
 }
 
@@ -606,8 +749,9 @@ export async function executeDurableChatTurn(
  * human already read. When it doesn't — a turn another replica recovered —
  * finalizing here is both the answer to the Member and the stop signal: the
  * row leaves `working`, so the remote worker's next lease renewal fails and it
- * abandons the agent within a heartbeat. That path cannot keep the partial
- * reply, because the text only exists in the other process's memory.
+ * abandons the agent within a heartbeat. That path keeps the reply text the
+ * worker last saved (it saves as it streams), which can trail the screen by a
+ * second or two.
  */
 export async function interruptDurableChatTurn(
   messageId: string,
@@ -617,10 +761,16 @@ export async function interruptDurableChatTurn(
   // takes rather than reporting a stop that never happened.
   if (activeTurnInterrupters.get(messageId)?.()) return "interrupted";
   const repo = AppDataSource.getRepository(ConversationMessage);
+  const current = await repo.findOne({
+    where: { id: messageId, role: "assistant", status: "working" },
+    select: ["id", "content", "conversationId", "createdAt", "turnAttempt", "turnDeadlineAt"],
+  });
+  if (!current) return "not_running";
+  const kept = current.content.trim();
   const finalized = await repo.update(
     { id: messageId, role: "assistant", status: "working" },
     {
-      content: INTERRUPTED_BEFORE_REPLY,
+      content: kept || INTERRUPTED_BEFORE_REPLY,
       status: "interrupted",
       progressPercent: null,
       progressLabel: null,
@@ -635,9 +785,178 @@ export async function interruptDurableChatTurn(
   // the lease of a worker that died mid-turn, which is exactly the state a
   // Member is usually reacting to when they reach for Stop.
   await releaseChatWorkloadLeaseByOwner(messageId);
-  const message = await repo.findOne({ where: { id: messageId }, select: ["conversationId"] });
-  if (message) await emitConversationWorkChange(message.conversationId);
+  await recordStopOfTurnRunningElsewhere(current);
+  await emitConversationWorkChange(current.conversationId);
   return "interrupted";
+}
+
+/**
+ * Write the stop and the turn's end for a turn another process was running,
+ * so its activity reads the same as one stopped here. Never fails the stop.
+ */
+async function recordStopOfTurnRunningElsewhere(
+  message: Pick<
+    ConversationMessage,
+    "id" | "conversationId" | "createdAt" | "turnAttempt" | "turnDeadlineAt"
+  >,
+): Promise<void> {
+  try {
+    const conversation = await AppDataSource.getRepository(Conversation).findOne({
+      where: { id: message.conversationId },
+      select: ["id", "employeeId"],
+    });
+    const employee = conversation
+      ? await AppDataSource.getRepository(AIEmployee).findOne({
+          where: { id: conversation.employeeId },
+          select: ["id", "companyId"],
+        })
+      : null;
+    if (!employee) return;
+    const recorder = new ChatTurnActivityRecorder(
+      {
+        companyId: employee.companyId,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        attempt: Math.max(1, message.turnAttempt),
+      },
+      await nextChatActivityOrdinal(message.id),
+    );
+    recorder.stopped();
+    await recorder.flush();
+    const summary = await summarizeChatActivity({
+      messageId: message.id,
+      status: "interrupted",
+      startedAt: turnAcceptedAt(message),
+      endedAt: new Date(),
+    });
+    await AppDataSource.getRepository(ConversationMessage).update(
+      { id: message.id, status: "interrupted" },
+      { activityJson: JSON.stringify(summary) },
+    );
+    await recorder.finish(summary);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(`[chat:activity] could not record the stop of message ${message.id}`, error);
+  }
+}
+
+/** Reply states a Member can ask to run again. */
+const RETRYABLE_STATUSES = new Set(["error", "skipped", "busy"]);
+
+/** A Retry the server cannot honor, with the HTTP status that says why. */
+export class ChatTurnRetryError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ChatTurnRetryError";
+  }
+}
+
+/**
+ * Run a failed reply again, in place.
+ *
+ * The reply row goes back to `working` under the Member who asked, keeping its
+ * request, attachments and recorded activity; the next worker attempt sees it
+ * as a later attempt, so its prompt carries the recovery note that tells the
+ * employee to check what the failed attempt already changed before doing it
+ * again. Only the newest reply in a thread with nothing running can be
+ * retried: running an older one again would answer a question the thread has
+ * moved past.
+ */
+export async function retryDurableChatTurn(args: {
+  companyId: string;
+  employeeId: string;
+  conversationId: string;
+  messageId: string;
+  requesterUserId: string;
+  requesterSessionVersion: number;
+}): Promise<ConversationMessage> {
+  const message = await AppDataSource.transaction(async (manager) => {
+    const conversationRepo = manager.getRepository(Conversation);
+    const repo = manager.getRepository(ConversationMessage);
+    const [conversation, requester, membership] = await Promise.all([
+      conversationRepo.findOneBy({
+        id: args.conversationId,
+        employeeId: args.employeeId,
+        ownerUserId: args.requesterUserId,
+      }),
+      manager.getRepository(User).findOneBy({ id: args.requesterUserId }),
+      manager.getRepository(Membership).findOneBy({
+        companyId: args.companyId,
+        userId: args.requesterUserId,
+      }),
+    ]);
+    if (!conversation) throw new ChatTurnRetryError("Conversation not found", 404);
+    if (!requester || requester.sessionVersion !== args.requesterSessionVersion || !membership) {
+      throw new ChatTurnRetryError(
+        "Your company access changed. Reopen the company and try again.",
+        403,
+      );
+    }
+    const target = await repo.findOneBy({
+      id: args.messageId,
+      conversationId: conversation.id,
+      role: "assistant",
+    });
+    if (!target) throw new ChatTurnRetryError("Message not found", 404);
+    if (!target.status || !RETRYABLE_STATUSES.has(target.status) || !target.turnUserMessageId) {
+      throw new ChatTurnRetryError("Only a reply that failed can be retried.", 409);
+    }
+    const running = await repo.findOne({
+      where: { conversationId: conversation.id, role: "assistant", status: "working" },
+      select: ["id"],
+    });
+    if (running) {
+      throw new ChatTurnRetryError("Wait for the reply in progress to finish, then retry.", 409);
+    }
+    const newest = await repo.findOne({
+      where: { conversationId: conversation.id, role: "assistant" },
+      order: { createdAt: "DESC" },
+      select: ["id", "createdAt"],
+    });
+    if (newest && newest.id !== target.id && newest.createdAt > target.createdAt) {
+      throw new ChatTurnRetryError("Only the newest reply in a conversation can be retried.", 409);
+    }
+    const reset = await repo.update(
+      { id: target.id, status: target.status },
+      {
+        content: "",
+        status: "working",
+        progressPercent: 1,
+        progressLabel: RETRY_PROGRESS_LABEL,
+        turnWorkerId: null,
+        turnLeaseExpiresAt: null,
+        turnDeadlineAt: new Date(Date.now() + CHAT_HARD_TIMEOUT_MS),
+        turnRequesterUserId: args.requesterUserId,
+        turnRequesterSessionVersion: args.requesterSessionVersion,
+        actionsJson: "",
+        activityJson: "",
+      },
+    );
+    if (reset.affected !== 1) {
+      throw new ChatTurnRetryError("This reply changed meanwhile. Reload the conversation.", 409);
+    }
+    conversation.updatedAt = new Date();
+    await conversationRepo.save(conversation);
+    return repo.findOneByOrFail({ id: target.id });
+  });
+  try {
+    await recordDetachedChatActivity(
+      {
+        companyId: args.companyId,
+        conversationId: args.conversationId,
+        messageId: message.id,
+        attempt: message.turnAttempt + 1,
+      },
+      (recorder) => recorder.notice("retry_requested", "Retry requested by a Member"),
+    );
+  } catch {
+    // The retry stands without its note.
+  }
+  emitResourceChange(args.companyId, "employee_work", args.employeeId);
+  return message;
 }
 
 async function loadTurnContext(
@@ -768,7 +1087,7 @@ async function buildTurnPrompt(args: {
       "",
       "",
       "## Durable recovery note",
-      `The prior process was interrupted while handling this same request. This is recovery attempt ${args.attempt}.`,
+      `A previous attempt at this same request did not finish — the server restarted mid-turn, or it ended in an error and the Member asked for a retry. This is attempt ${args.attempt}.`,
       `Last persisted progress: ${args.assistantMessage.progressPercent ?? 1}% — ${args.assistantMessage.progressLabel ?? "work in progress"}.`,
       "Inspect the current workspace and company state before changing anything. Continue completed work, do not repeat side effects, and use the progress control as you resume.",
       "Recorded mutations from all attempts so far:",
@@ -797,15 +1116,26 @@ async function finalizeInterruptedTurn(
   workerId: string,
   content: string,
   callbacks: DurableChatTurnCallbacks,
+  activity?: TurnActivity | null,
 ): Promise<DurableChatTurnOutcome> {
   const repo = AppDataSource.getRepository(ConversationMessage);
+  // An abort that tore through a seam holding no reply still leaves whatever
+  // this attempt streamed on the Member's screen; keep that rather than say
+  // nothing was written.
+  const streamed = activity?.live.text.trim() ?? "";
+  const kept = content === INTERRUPTED_BEFORE_REPLY && streamed ? streamed : content;
+  activity?.recorder.stopped();
+  const summary =
+    activity?.recorder.summarize({ status: "interrupted", startedAt: turnAcceptedAt(message) }) ??
+    null;
   const patch = {
-    content,
+    content: kept,
     status: "interrupted" as const,
     progressPercent: null,
     progressLabel: null,
     turnWorkerId: null,
     turnLeaseExpiresAt: null,
+    ...(summary ? { activityJson: JSON.stringify(summary) } : {}),
   };
   let finalized = await repo.update(
     { id: message.id, status: "working", turnWorkerId: workerId },
@@ -814,20 +1144,29 @@ async function finalizeInterruptedTurn(
   if (finalized.affected !== 1) {
     finalized = await repo.update({ id: message.id, role: "assistant", status: "working" }, patch);
   }
-  if (finalized.affected !== 1) return "claimed_elsewhere";
+  if (finalized.affected !== 1) {
+    await activity?.recorder.close();
+    activity?.live.detach();
+    return "claimed_elsewhere";
+  }
   // The row is terminal now, so nothing will ever re-acquire under this key and
   // trigger the lazy purge. Left behind, the employee reads as busy to every
   // later chat turn until a six-hour TTL runs out.
   await releaseChatWorkloadLeaseByOwner(message.id);
+  if (activity && summary) await activity.recorder.finish(summary);
 
   const conversation = await AppDataSource.getRepository(Conversation).findOneBy({
     id: message.conversationId,
   });
-  if (!conversation) return "completed";
+  if (!conversation) {
+    activity?.live.finish();
+    return "completed";
+  }
   conversation.updatedAt = new Date();
   await AppDataSource.getRepository(Conversation).save(conversation);
   await emitConversationWorkChange(conversation.id);
   const finalMessage = await repo.findOneByOrFail({ id: message.id });
+  activity?.live.finish();
   safeFinalCallback(callbacks, {
     message: finalMessage,
     attachments: [],
@@ -841,6 +1180,7 @@ async function finalizeInfrastructureError(
   workerId: string,
   detail: string,
   callbacks: DurableChatTurnCallbacks,
+  activity?: TurnActivity | null,
 ): Promise<DurableChatTurnOutcome> {
   const cleanDetail = detail.replace(/\s+/g, " ").trim().slice(0, 1_000) || "Unknown server error";
   const content = [
@@ -852,6 +1192,8 @@ async function finalizeInfrastructureError(
     "The durable worker exhausted its recovery path. Check the Genosyn server logs for the [chat] entry with this conversation ID, then retry.",
   ].join("\n");
   const repo = AppDataSource.getRepository(ConversationMessage);
+  const summary =
+    activity?.recorder.summarize({ status: "error", startedAt: turnAcceptedAt(message) }) ?? null;
   const finalized = await repo.update(
     { id: message.id, status: "working", turnWorkerId: workerId },
     {
@@ -861,18 +1203,28 @@ async function finalizeInfrastructureError(
       progressLabel: null,
       turnWorkerId: null,
       turnLeaseExpiresAt: null,
+      ...(summary ? { activityJson: JSON.stringify(summary) } : {}),
     },
   );
-  if (finalized.affected !== 1) return "claimed_elsewhere";
+  if (finalized.affected !== 1) {
+    await activity?.recorder.close();
+    activity?.live.detach();
+    return "claimed_elsewhere";
+  }
+  if (activity && summary) await activity.recorder.finish(summary);
 
   const conversation = await AppDataSource.getRepository(Conversation).findOneBy({
     id: message.conversationId,
   });
-  if (!conversation) return "completed";
+  if (!conversation) {
+    activity?.live.finish();
+    return "completed";
+  }
   conversation.updatedAt = new Date();
   await AppDataSource.getRepository(Conversation).save(conversation);
   await emitConversationWorkChange(conversation.id);
   const finalMessage = await repo.findOneByOrFail({ id: message.id });
+  activity?.live.finish();
   safeFinalCallback(callbacks, {
     message: finalMessage,
     attachments: [],
