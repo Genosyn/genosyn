@@ -513,7 +513,11 @@ describe("subpage search", () => {
     assert.equal(pages[0].page.path, "/revenue/imports");
   });
 
-  test("finds the Revenue dashboard by the phrase people call it", () => {
+  test("leaves 'revenue dashboard' to the Dashboard called Revenue", () => {
+    // ⌘K draws sections and pages above every record but AI Employees. Were
+    // the Revenue section or its Insights page to answer to the phrase, they
+    // would sit above the Explore Dashboard the person named. The server still
+    // offers Revenue as a product area, below that Dashboard.
     for (const query of [
       "revenue dashboard",
       "revenue dashboards",
@@ -523,16 +527,48 @@ describe("subpage search", () => {
       "REVENUE DASHBOARD",
     ]) {
       const { sections, pages } = palette(query);
-      assert.equal(sections[0]?.item.key, "revenue", query);
-      assert.equal(sections[0]?.item.label, "Revenue", query);
-      assert.ok(sections[0].score >= MATCH_SCORE.keywordPrefix, query);
-      // The section row already lands on /revenue, so the palette must not
-      // repeat its Insights page underneath.
+      assert.equal(
+        sections.some((match) => match.item.key === "revenue"),
+        false,
+        `${query}: the Revenue section`,
+      );
       assert.equal(
         pages.some((match) => match.page.path === "/revenue"),
         false,
-        query,
+        `${query}: Revenue → Insights`,
       );
+    }
+  });
+
+  test("a bare 'dashboard' offers Explore, where Dashboards live, and not Revenue", () => {
+    for (const query of ["dashboard", "dashboards", "dash"]) {
+      const { sections, pages } = palette(query);
+      assert.ok(
+        sections.some((match) => match.item.key === "explore"),
+        `${query}: Explore`,
+      );
+      assert.equal(
+        sections.some((match) => match.item.key === "revenue"),
+        false,
+        `${query}: the Revenue section`,
+      );
+      assert.equal(
+        pages.some((match) => match.page.path === "/revenue"),
+        false,
+        `${query}: Revenue → Insights`,
+      );
+    }
+  });
+
+  test("Revenue and its Insights page still answer to their own words", () => {
+    const { sections } = palette("revenue");
+    assert.equal(sections[0]?.item.key, "revenue");
+    for (const query of ["revenue reports", "mrr", "forecast"]) {
+      const { sections: found, pages } = palette(query);
+      const offered =
+        found.some((match) => match.item.path === "/revenue") ||
+        pages.some((match) => match.page.path === "/revenue");
+      assert.ok(offered, query);
     }
   });
 

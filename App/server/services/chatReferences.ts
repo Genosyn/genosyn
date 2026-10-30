@@ -146,9 +146,10 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     label: "Revenue",
     path: "/revenue",
     description: "Contacts, Deals, outbound, and signals",
-    // "dashboard" is what people call the section's landing page, and the
-    // whole phrase is a strong synonym: "revenue dashboard" should reach
-    // Revenue without requiring the word in a title.
+    // People call the section's landing page the revenue dashboard, so the
+    // phrase reaches Revenue — ranked below an Explore Dashboard actually
+    // called Revenue, which is what the phrase names first. A bare
+    // "dashboard" stays with the Dashboards area.
     keywords: [
       "sales",
       "crm",
@@ -156,8 +157,6 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
       "pipeline",
       "outbound",
       "growth",
-      "dashboard",
-      "dashboards",
       "revenue dashboard",
       "revenue dashboards",
     ],

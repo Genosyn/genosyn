@@ -4,9 +4,9 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
  * One company AI Model attached to one AI Employee.
  *
  * AI Models belong to the company (`AIModel.companyId`): one set of
- * credentials, backup keys and key health, which any number of AI Employees
- * can run on. This row is what puts a model on an employee. An employee may
- * have several attached and keeps exactly one of them active — the brain its
+ * credentials, one pool of API keys and their health, which any number of AI
+ * Employees can run on. This row is what puts a model on an employee. An
+ * employee may have several attached and keeps exactly one of them active — the brain its
  * Routines and non-interactive work use; employee Chat may pick another
  * attached model per turn. Detaching deletes this row and never the model.
  *

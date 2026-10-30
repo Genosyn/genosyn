@@ -8,7 +8,8 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
 import { withSerializedTransaction } from "../db/transactions.js";
 import { cancelSubscriptionDeviceLoginsForModel } from "./codexSubscription.js";
-import { readApiKeys } from "./modelApiKeys.js";
+import { decryptApiKey, readApiKeys } from "./modelApiKeys.js";
+import { combineSessionsByHour } from "./modelKeySessions.js";
 import { ModelSetupError } from "./modelCatalog.js";
 import { areExactDuplicates, duplicateIdsByModel } from "./modelDuplicates.js";
 import { deleteKeyHealth } from "./modelKeyHealth.js";
@@ -106,7 +107,7 @@ export type RemovedModel = {
 };
 
 /**
- * Remove an AI Model from the company: its credentials, backup keys and their
+ * Remove an AI Model from the company: its credentials, API keys and their
  * health go with it, Routine and mailbox pins naming it go back to each
  * employee's active model, and a ChatGPT sign-in still in progress for it is
  * cancelled. While any AI Employee uses it this is refused with who they are
@@ -178,9 +179,9 @@ function later(a: Date | null, b: Date | null): Date | null {
 
 /**
  * Fold a duplicate's key health into the kept model's: the keys are the same
- * keys in the same order (that is what made them duplicates), so each kept
- * key takes the latest use, the latest refusal and the longest rest either
- * copy recorded.
+ * keys (that is what made them duplicates), matched by what they are rather
+ * than where they are listed, so each kept key takes the latest use, the
+ * latest refusal, the longest rest and the sessions either copy recorded.
  */
 async function mergeKeyHealth(
   manager: EntityManager,
@@ -190,26 +191,35 @@ async function mergeKeyHealth(
   const targetKeys = readApiKeys(target.configJson);
   const duplicateKeys = readApiKeys(duplicate.configJson);
   if (targetKeys.length === 0 || targetKeys.length !== duplicateKeys.length) return;
+  const targetByPlaintext = new Map<string, string>();
+  for (const key of targetKeys) {
+    const plaintext = decryptApiKey(key);
+    if (plaintext) targetByPlaintext.set(plaintext, key.id);
+  }
   const repo = manager.getRepository(AIModelKeyHealth);
   const rows = await repo.find({ where: { modelId: In([target.id, duplicate.id]) } });
   const health = (modelId: string, keyId: string) =>
     rows.find((row) => row.modelId === modelId && row.keyId === keyId) ?? null;
-  for (let index = 0; index < targetKeys.length; index += 1) {
-    const kept = health(target.id, targetKeys[index].id);
-    const other = health(duplicate.id, duplicateKeys[index].id);
+  for (const duplicateKey of duplicateKeys) {
+    const plaintext = decryptApiKey(duplicateKey);
+    const keptKeyId = plaintext ? targetByPlaintext.get(plaintext) : undefined;
+    if (!keptKeyId) continue;
+    const kept = health(target.id, keptKeyId);
+    const other = health(duplicate.id, duplicateKey.id);
     if (!other) continue;
     const refusal =
       (other.lastErrorAt?.getTime() ?? 0) > (kept?.lastErrorAt?.getTime() ?? 0) ? other : kept;
     await repo.upsert(
       {
         modelId: target.id,
-        keyId: targetKeys[index].id,
+        keyId: keptKeyId,
         lastUsedAt: later(kept?.lastUsedAt ?? null, other.lastUsedAt),
         lastErrorAt: refusal?.lastErrorAt ?? null,
         lastErrorStatus: refusal?.lastErrorStatus ?? null,
         lastErrorKind: refusal?.lastErrorKind ?? null,
         lastErrorMessage: refusal?.lastErrorMessage ?? null,
         coolDownUntil: later(kept?.coolDownUntil ?? null, other.coolDownUntil),
+        sessionsByHour: combineSessionsByHour(kept?.sessionsByHour, other.sessionsByHour),
       },
       { conflictPaths: ["modelId", "keyId"], skipUpdateIfNoValuesChanged: false },
     );

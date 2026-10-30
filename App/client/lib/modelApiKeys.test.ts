@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { AIModelApiKey } from "./api.js";
+import * as helpers from "./modelApiKeys.js";
 import {
+  API_KEY_ALONE_DESCRIPTION,
+  API_KEYS_DESCRIPTION,
+  apiKeysDescription,
   apiKeyConnectionLine,
   apiKeyHealthLine,
   apiKeyNotes,
@@ -10,8 +14,8 @@ import {
   failingKeysNotice,
   holdsApiKeys,
   isRefused,
-  moveApiKey,
   refusalLabel,
+  sessionsLabel,
   sinceLabel,
 } from "./modelApiKeys.js";
 import { modelAdvancedSummary, tuningNotes } from "./modelSummary.js";
@@ -31,6 +35,7 @@ function key(values: Partial<AIModelApiKey> = {}): AIModelApiKey {
     lastErrorKind: null,
     lastError: null,
     restingUntil: null,
+    sessionsLast24h: 0,
     ...values,
   };
 }
@@ -105,10 +110,23 @@ describe("the words for a key's health", () => {
     assert.equal(sinceLabel(ahead(60_000), NOW), "just now", "a clock slightly ahead is now");
   });
 
-  test("a working key says when it was last used, and when it was last refused", () => {
+  test("a key's share of the recent sessions, counted plainly", () => {
+    assert.equal(sessionsLabel({ sessionsLast24h: 0 }), null);
+    assert.equal(sessionsLabel({ sessionsLast24h: 1 }), "1 session in the last 24 h");
+    assert.equal(sessionsLabel({ sessionsLast24h: 14 }), "14 sessions in the last 24 h");
+    assert.equal(sessionsLabel({}), null, "a page from before sessions were counted");
+    assert.equal(sessionsLabel({ sessionsLast24h: -3 }), null);
+    assert.equal(sessionsLabel({ sessionsLast24h: 2.7 }), "2 sessions in the last 24 h");
+  });
+
+  test("a working key says when it was last used, its sessions, and when it was last refused", () => {
     assert.equal(
       apiKeyHealthLine(key({ lastUsedAt: ago(2 * 60_000) }), NOW),
       "Last used 2 min ago",
+    );
+    assert.equal(
+      apiKeyHealthLine(key({ lastUsedAt: ago(2 * 60_000), sessionsLast24h: 12 }), NOW),
+      "Last used 2 min ago · 12 sessions in the last 24 h",
     );
     assert.equal(
       apiKeyHealthLine(
@@ -117,14 +135,15 @@ describe("the words for a key's health", () => {
           lastErrorAt: ago(2 * 24 * 3_600_000),
           lastErrorKind: "rate_limit",
           lastErrorStatus: 429,
+          sessionsLast24h: 1,
         }),
         NOW,
       ),
-      "Last used 2 min ago · last refused 2 days ago (rate-limited, HTTP 429)",
+      "Last used 2 min ago · 1 session in the last 24 h · last refused 2 days ago (rate-limited, HTTP 429)",
     );
   });
 
-  test("a failing key says when and why it was refused", () => {
+  test("a failing key says when and why it was refused, then what it carried", () => {
     assert.equal(
       apiKeyHealthLine(
         key({
@@ -136,6 +155,19 @@ describe("the words for a key's health", () => {
         NOW,
       ),
       "Refused 5 min ago (invalid or revoked, HTTP 401) · last used 3 days ago",
+    );
+    assert.equal(
+      apiKeyHealthLine(
+        key({
+          lastErrorAt: ago(5 * 60_000),
+          lastErrorKind: "auth",
+          lastErrorStatus: 401,
+          lastUsedAt: ago(3 * 3_600_000),
+          sessionsLast24h: 6,
+        }),
+        NOW,
+      ),
+      "Refused 5 min ago (invalid or revoked, HTTP 401) · last used 3 h ago · 6 sessions in the last 24 h",
     );
   });
 
@@ -159,23 +191,48 @@ describe("the words for a key's health", () => {
       "Not used yet · added 1 min ago",
     );
   });
+
+  test("a key whose sessions have had no reply yet says so, not that it is unused", () => {
+    assert.equal(
+      apiKeyHealthLine(key({ addedAt: ago(90_000), sessionsLast24h: 2 }), NOW),
+      "No reply yet · 2 sessions in the last 24 h · added 1 min ago",
+    );
+    assert.equal(apiKeyState(key({ sessionsLast24h: 2 }), NOW), "unused");
+  });
+
+  test("no key is called a primary or a backup", () => {
+    const lines = [
+      apiKeyHealthLine(key({ lastUsedAt: ago(1_000), sessionsLast24h: 3 }), NOW),
+      apiKeyHealthLine(key({ lastErrorAt: ago(1_000), restingUntil: ahead(60_000) }), NOW),
+      apiKeyHealthLine(key({ addedAt: ago(1_000) }), NOW),
+      API_KEYS_DESCRIPTION,
+    ];
+    for (const line of lines) assert.doesNotMatch(line, /primary|backup/i);
+  });
 });
 
-describe("moving a key", () => {
-  const ids = ["a", "b", "c"];
-  test("up and down by one place", () => {
-    assert.deepEqual(moveApiKey(ids, "b", "up"), ["b", "a", "c"]);
-    assert.deepEqual(moveApiKey(ids, "b", "down"), ["a", "c", "b"]);
+describe("the card's explanation", () => {
+  test("says sessions are spread across the keys, stay on one, and move on a refusal", () => {
+    assert.match(API_KEYS_DESCRIPTION, /^Sessions are spread across these keys/);
+    assert.match(API_KEYS_DESCRIPTION, /opens on the next key in turn and stays on it/);
+    assert.match(API_KEYS_DESCRIPTION, /invalid or revoked, out of credit, or rate-limited/);
+    assert.match(API_KEYS_DESCRIPTION, /the session moves to another key/);
+    assert.match(API_KEYS_DESCRIPTION, /skipped for a few minutes\.$/);
+    assert.doesNotMatch(API_KEYS_DESCRIPTION, /first key/i);
   });
-  test("nowhere past either end, and nothing for an unknown key", () => {
-    assert.deepEqual(moveApiKey(ids, "a", "up"), ids);
-    assert.deepEqual(moveApiKey(ids, "c", "down"), ids);
-    assert.deepEqual(moveApiKey(ids, "z", "up"), ids);
+
+  test("a model with one key says every session uses it, and what more keys would do", () => {
+    assert.equal(apiKeysDescription(1), API_KEY_ALONE_DESCRIPTION);
+    assert.equal(apiKeysDescription(0), API_KEY_ALONE_DESCRIPTION);
+    assert.equal(apiKeysDescription(2), API_KEYS_DESCRIPTION);
+    assert.equal(apiKeysDescription(7), API_KEYS_DESCRIPTION);
+    assert.match(API_KEY_ALONE_DESCRIPTION, /^Every session uses this key\. Add more/);
+    assert.match(API_KEY_ALONE_DESCRIPTION, /skipped for a few minutes\.$/);
+    assert.doesNotMatch(API_KEY_ALONE_DESCRIPTION, /primary|backup/i);
   });
-  test("never changes the list it was given", () => {
-    const frozen = Object.freeze([...ids]);
-    moveApiKey(frozen, "b", "up");
-    assert.deepEqual(frozen, ids);
+
+  test("keys have no order to change any more", () => {
+    assert.equal("moveApiKey" in helpers, false);
   });
 });
 
@@ -186,7 +243,7 @@ describe("what the model's card and Advanced line say about its keys", () => {
     status: "connected" as const,
   };
 
-  test("only Claude and OpenAI API-key models hold backup keys", () => {
+  test("only Claude and OpenAI API-key models hold a pool of API keys", () => {
     assert.equal(holdsApiKeys({ provider: "anthropic", authMode: "apikey" }), true);
     assert.equal(holdsApiKeys({ provider: "openai", authMode: "apikey" }), true);
     assert.equal(holdsApiKeys({ provider: "openai", authMode: "subscription" }), false);
@@ -206,7 +263,7 @@ describe("what the model's card and Advanced line say about its keys", () => {
     );
   });
 
-  test("backups are counted, and failing keys named", () => {
+  test("every key in the pool is counted alike, and failing keys named", () => {
     assert.deepEqual(
       apiKeyNotes(
         {
@@ -219,11 +276,11 @@ describe("what the model's card and Advanced line say about its keys", () => {
         },
         NOW,
       ),
-      ["2 backup API keys", "1 API key failing"],
+      ["3 API keys", "1 API key failing"],
     );
     assert.deepEqual(
       apiKeyNotes({ ...connected, apiKeys: [key({ id: "1" }), key({ id: "2" })] }, NOW),
-      ["1 backup API key"],
+      ["2 API keys"],
     );
     assert.deepEqual(
       apiKeyNotes(
@@ -233,7 +290,12 @@ describe("what the model's card and Advanced line say about its keys", () => {
         },
         NOW,
       ),
-      ["1 backup API key", "2 API keys failing"],
+      ["2 API keys", "2 API keys failing"],
+    );
+    assert.deepEqual(
+      apiKeyNotes({ ...connected, apiKeys: [key({ id: "1", lastErrorAt: ago(1) })] }, NOW),
+      ["1 API key failing"],
+      "a single key is not a pool worth naming, but its refusal is",
     );
   });
 
@@ -261,14 +323,14 @@ describe("what the model's card and Advanced line say about its keys", () => {
       apiKeys: [key({ id: "1", lastErrorAt: ago(1_000) }), key({ id: "2" }), key({ id: "3" })],
     };
     assert.deepEqual(tuningNotes(model), [
-      "2 backup API keys",
+      "3 API keys",
       "1 API key failing",
       "Context window set manually",
       "2 concurrent Runs",
     ]);
     assert.equal(
       modelAdvancedSummary(model),
-      "2 backup API keys · 1 API key failing · Context window set manually · 2 concurrent Runs",
+      "3 API keys · 1 API key failing · Context window set manually · 2 concurrent Runs",
     );
   });
 });
@@ -290,7 +352,7 @@ describe("the warning a card shows while keys are refused", () => {
     );
   });
 
-  test("some keys refused: work carries on, so it is a warning that says where to fix it", () => {
+  test("some keys refused: sessions move to the others, so it is a warning that says where to fix it", () => {
     const notice = failingKeysNotice(
       {
         ...connected,
@@ -308,7 +370,7 @@ describe("the warning a card shows while keys are refused", () => {
     );
     assert.equal(
       notice?.text,
-      "The provider is refusing 1 of 3 API keys. Requests move on to the next key, so work carries on — replace or remove the failing key under Advanced.",
+      "The provider is refusing 1 of 3 API keys. Sessions move to the other keys, so work carries on — replace or remove the failing key under Advanced.",
     );
     assert.match(
       failingKeysNotice(

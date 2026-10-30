@@ -829,11 +829,20 @@ in a Work session instead of leaving them stranded as local commits.
   credentials and runtime state must not become persistent employee files.
   A per-turn model proxy keeps API keys in Genosyn and gives OpenCode only a
   disposable access token and endpoint. An Anthropic or OpenAI API-key model
-  may hold any number of backup keys beside its primary (`services/modelApiKeys.ts`);
-  the proxy resends a request on the next key when the provider refuses the
-  key itself, before any reply reaches OpenCode (`services/agent/apiKeyRing.ts`).
-  Each key's health is an `AIModelKeyHealth` row — never written into
-  `configJson`, which key edits save only if nobody changed it meanwhile.
+  holds a pool of equal keys — no primary, no backups (`services/modelApiKeys.ts`
+  keeps the old storage shape, so stored configs need no step). Each session —
+  one OpenCode session against the proxy: a chat reply, a Run's work, a Check
+  fix, a work-session turn, a delegated copy, a restricted turn, and a meeting's
+  transcription — opens on the next key in turn and keeps it to the end
+  (`services/agent/apiKeyRing.ts`); a connection test takes no turn. The turn
+  order is round-robin over the keys not resting, kept in process memory per
+  model row from a random start (`services/modelKeyPool.ts`) — never a DB write
+  per session. When the provider refuses the key itself, the proxy resends the
+  request on the next key before any reply reaches OpenCode and the session
+  stays there; anything about the request or the service goes back unchanged.
+  Each key's health and its sessions in the last day are an `AIModelKeyHealth`
+  row — never written into `configJson`, which key edits save only if nobody
+  changed it meanwhile.
   OpenAI subscription models use the official pinned `@openai/codex`
   app-server with the same Genosyn-owned domain tool registry:
     * **Coding tools.** Ordinary, unrestricted API-key and custom-model work uses
@@ -907,8 +916,9 @@ in a Work session instead of leaving them stranded as local commits.
   `resolveChatModel`, `resolveRoutineModel`, `attachedModelsByEmployee`) —
   never by reading `ai_models` for an employee — so a detached model stops
   answering for that employee everywhere at once. One model shared by several
-  employees is one set of credentials, backup keys and key health, and one
-  Run limit (`modelRunCapacity` keys by the row, or the endpoint). Routes
+  employees is one set of credentials, one key pool with one turn order and
+  key health, and one Run limit (`modelRunCapacity` keys by the row, or the
+  endpoint). Routes
   keyed on a model row live in `routes/companyModels.ts` (Settings → AI
   Models); `routes/models.ts` only lists, attaches, switches and detaches an
   employee's. Detaching never deletes a model; removing one from the company is
@@ -982,6 +992,16 @@ in a Work session instead of leaving them stranded as local commits.
   outside — so it is audience-bound without a JWT. It is a bearer credential
   like a key: a guard that refuses API keys checks `usesBearerCredential(req)`
   (`middleware/auth.ts`), so it refuses connected apps too.
+- **Lists page; they never stop at a fixed count.** A list that can grow — an
+  AI tool or the route beside it — takes `limit` (cut to its maximum, not
+  refused) and `cursor`, and answers `total`, `hasMore`, `nextCursor` and a
+  `note`, ahead of its rows, through `services/listPaging.ts`: a keyset cursor
+  bound to the list and its filters, ending in a unique id, so work done between
+  pages never skips a row. An AI tool's page also ends early rather than
+  overflow a tool result (`TOOL_PAGE_BUDGET_CHARS`). Give it the filters its
+  domain needs (Finance dates are UTC calendar days, `dateRange`) and an index
+  that bounds the rows a page reads. A mailbox search is the one list without
+  `total`, because counting it reads the whole mailbox.
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

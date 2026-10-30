@@ -10,12 +10,13 @@ import { isModelConnected } from "./providers.js";
  * pasted on two employees before models were shared.
  *
  * Two models are exact duplicates when they have the same service, sign-in
- * kind and model, reach the same endpoint, and hold the same keys in the same
- * order. Keys and endpoints are compared by keyed fingerprints computed in
- * memory (`fingerprintSecret`) — never by their plaintext, which no caller
- * sees, and never by their ciphertext, which differs every time a key is
- * saved. A fingerprint is never stored, logged or sent anywhere: callers get
- * only which model ids match.
+ * kind and model, reach the same endpoint, and hold the same keys — in any
+ * order, since an API-key model's keys are a pool that sessions are spread
+ * across whatever order they are stored in. Keys and endpoints are compared
+ * by keyed fingerprints computed in memory (`fingerprintSecret`) — never by
+ * their plaintext, which no caller sees, and never by their ciphertext, which
+ * differs every time a key is saved. A fingerprint is never stored, logged or
+ * sent anywhere: callers get only which model ids match.
  *
  * Duplicates are only ever offered for merging, in Settings → AI Models; the
  * settings that may differ between them (context window, concurrent Runs) are
@@ -54,7 +55,7 @@ export function modelFingerprint(model: AIModel): string | null {
       keys.push(fingerprintSecret(plaintext, KEY_SCOPE));
     }
     if (keys.length === 0) return null;
-    return ["apikey", model.provider, model.model.trim(), keys.join(",")].join("\u0000");
+    return ["apikey", model.provider, model.model.trim(), keys.sort().join(",")].join("\u0000");
   }
   if (model.authMode === "customEndpoint" && model.provider === "custom") {
     const endpoint = readCustomEndpoint(model);

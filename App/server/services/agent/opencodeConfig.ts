@@ -57,15 +57,24 @@ export type OpenCodeModel = {
   baseURL?: string;
   contextWindow: number | null;
   /**
-   * An API-key AI Model's keys — the primary and its backups — as the ring the
-   * model proxy tries them from (`apiKeyRing.ts`); `apiKey` is the first of
-   * them. Only the proxy reads it, and the model it hands OpenCode has none.
+   * An API-key AI Model's keys as the ring the model proxy sends from
+   * (`apiKeyRing.ts`) — for a turn, a session that opened on the key whose
+   * turn it was; `apiKey` is that key. Only the proxy reads it, and the model
+   * it hands OpenCode has none.
    */
   keys?: ApiKeyRing;
 };
 
-/** Credentials come from the AI Model row, never the host's provider profiles. */
-export async function resolveOpenCodeModel(model: AIModel): Promise<OpenCodeModel> {
+/**
+ * Credentials come from the AI Model row, never the host's provider profiles.
+ * An API-key model's turn is a session in its key pool: it opens on the next
+ * key in turn. `keySession: false` — a connection test — takes no turn and
+ * starts on the first key that isn't resting.
+ */
+export async function resolveOpenCodeModel(
+  model: AIModel,
+  options: { keySession?: boolean } = {},
+): Promise<OpenCodeModel> {
   if (model.authMode === "subscription") {
     throw new Error("OpenAI subscription AI Models use the official Codex runtime.");
   }
@@ -84,8 +93,9 @@ export async function resolveOpenCodeModel(model: AIModel): Promise<OpenCodeMode
   if (model.authMode !== "apikey") throw new Error("This AI Model requires an API key.");
   if (readApiKeys(model.configJson).length === 0)
     throw new Error("No API key is set for this AI Model.");
-  // A backup key that no longer decrypts is skipped; only none decrypting fails.
-  const keys = await apiKeyRingFor(model);
+  // A key that no longer decrypts is left out of the pool; only none
+  // decrypting fails.
+  const keys = await apiKeyRingFor(model, { session: options.keySession ?? true });
   if (!keys) throw new Error("The stored AI Model API key could not be decrypted.");
   return {
     id: model.model,

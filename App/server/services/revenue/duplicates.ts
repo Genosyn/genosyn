@@ -369,6 +369,7 @@ export async function listRevenueDuplicateCandidates(
   const rows = await qb
     .orderBy("candidate.score", "DESC")
     .addOrderBy("candidate.createdAt", "DESC")
+    .addOrderBy("candidate.id", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 100, 1), 500))
     .getMany();

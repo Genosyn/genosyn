@@ -3,23 +3,38 @@ import type { AIModel, AIModelApiKey, ApiKeyFailureKind } from "./api";
 /**
  * How an AI Model's API keys are described to a Member.
  *
- * An Anthropic or OpenAI AI Model connected with an API key holds a primary key
- * and any number of backup keys. Requests use the first key; when the provider
- * refuses it — invalid or revoked, not allowed, out of credit or quota,
- * rate-limited — the same request moves to the next key, and the refused key
- * rests for a while so the requests behind it start elsewhere. This module
- * turns what the server reports about each key into the words the model's
- * settings show, so the owner can tell which key is dead.
+ * An Anthropic or OpenAI AI Model connected with an API key holds any number
+ * of keys, all equals: its sessions — a chat reply, a Routine Run, a
+ * work-session turn — are spread across them, each opening on the next key in
+ * turn and staying on it. When the provider refuses a session's key — invalid
+ * or revoked, not allowed, out of credit or quota, rate-limited — the session
+ * moves to another key, and the refused key rests for a while so sessions
+ * skip it. This module turns what the server reports about each key into the
+ * words the model's settings show, so the owner can see the sessions spread
+ * across the keys and tell which key is dead.
  *
  * Dependency-free on purpose, like `modelSummary.ts`: it runs under
  * `node --test`.
  */
 
+/** Explains the card: how sessions use the keys, and what happens to a refused one. */
+export const API_KEYS_DESCRIPTION =
+  "Sessions are spread across these keys: each new chat reply, Routine Run or work session opens on the next key in turn and stays on it. When the provider refuses a key — invalid or revoked, out of credit, or rate-limited — the session moves to another key, so work carries on, and the refused key is skipped for a few minutes.";
+
+/** The same, for a model with one key: what adding more would do. */
+export const API_KEY_ALONE_DESCRIPTION =
+  "Every session uses this key. Add more and sessions are spread across them: each new chat reply, Routine Run or work session opens on the next key in turn, and a key the provider refuses — invalid or revoked, out of credit, or rate-limited — hands the session to another and is skipped for a few minutes.";
+
+/** The card's explanation for a model holding `keyCount` keys. */
+export function apiKeysDescription(keyCount: number): string {
+  return keyCount > 1 ? API_KEYS_DESCRIPTION : API_KEY_ALONE_DESCRIPTION;
+}
+
 /**
  * Where a key stands:
  *   - `working` — its last request succeeded;
  *   - `failing` — the provider refused it last time it was tried;
- *   - `resting` — just refused, so requests try the other keys first for now;
+ *   - `resting` — just refused, so sessions skip it for now;
  *   - `unused`  — no request has gone out on it since it was added.
  */
 export type ApiKeyState = "working" | "failing" | "resting" | "unused";
@@ -33,7 +48,9 @@ type Health = Pick<
   | "lastErrorKind"
   | "lastError"
   | "restingUntil"
->;
+> &
+  // Optional, so a page loaded before the server counted sessions still reads.
+  Partial<Pick<AIModelApiKey, "sessionsLast24h">>;
 
 function time(iso: string | null): number {
   const value = iso ? Date.parse(iso) : NaN;
@@ -87,14 +104,27 @@ function clockLabel(iso: string): string {
 }
 
 /**
- * The one line under a key's preview: whether it works, and the last time
- * the provider refused it and why.
+ * "12 sessions in the last 24 h" — the key's share of the model's recent
+ * work — or null when it carried none, which the rest of the line already
+ * says one way or another.
+ */
+export function sessionsLabel(key: Pick<Health, "sessionsLast24h">): string | null {
+  const sessions = Math.max(0, Math.floor(key.sessionsLast24h ?? 0));
+  if (sessions === 0) return null;
+  return `${sessions} ${sessions === 1 ? "session" : "sessions"} in the last 24 h`;
+}
+
+/**
+ * The one line under a key's preview: whether it works, how many sessions it
+ * carried lately, and the last time the provider refused it and why.
  */
 export function apiKeyHealthLine(key: Health, now = Date.now()): string {
   const state = apiKeyState(key, now);
+  const sessions = sessionsLabel(key);
   const parts: string[] = [];
   if (state === "working") {
     parts.push(`Last used ${sinceLabel(key.lastUsedAt!, now)}`);
+    if (sessions) parts.push(sessions);
     if (key.lastErrorAt)
       parts.push(`last refused ${sinceLabel(key.lastErrorAt, now)} (${refusalLabel(key)})`);
   } else if (state === "failing" || state === "resting") {
@@ -103,24 +133,17 @@ export function apiKeyHealthLine(key: Health, now = Date.now()): string {
     );
     if (state === "resting") parts.push(`skipped until ${clockLabel(key.restingUntil!)}`);
     if (key.lastUsedAt) parts.push(`last used ${sinceLabel(key.lastUsedAt, now)}`);
+    if (sessions) parts.push(sessions);
   } else {
-    parts.push("Not used yet");
+    // Sessions opened on it but none has had a reply yet: say so, not "unused".
+    parts.push(sessions ? "No reply yet" : "Not used yet");
+    if (sessions) parts.push(sessions);
     if (key.addedAt) parts.push(`added ${sinceLabel(key.addedAt, now)}`);
   }
   return parts.join(" · ");
 }
 
-/** The ids with `id` moved one place up or down; unchanged at either end. */
-export function moveApiKey(ids: readonly string[], id: string, direction: "up" | "down"): string[] {
-  const order = [...ids];
-  const from = order.indexOf(id);
-  const to = direction === "up" ? from - 1 : from + 1;
-  if (from < 0 || to < 0 || to >= order.length) return order;
-  [order[from], order[to]] = [order[to], order[from]];
-  return order;
-}
-
-/** Does this model take backup API keys? */
+/** Does this model take API keys — a pool of them, as many as an owner adds? */
 export function holdsApiKeys(model: Pick<AIModel, "provider" | "authMode">): boolean {
   return (
     model.authMode === "apikey" && (model.provider === "anthropic" || model.provider === "openai")
@@ -137,8 +160,8 @@ export function apiKeyConnectionLine(keyCount: number): string {
  * provider is refusing some of its keys — the one thing in there an owner
  * should not have to go looking for. Null while every key works.
  *
- * Some keys refused is a warning: requests move on to the next key and work
- * carries on. Every key refused means the AI Model cannot answer at all.
+ * Some keys refused is a warning: sessions skip them and carry on on the
+ * others. Every key refused means the AI Model cannot answer at all.
  */
 export function failingKeysNotice(
   model: Pick<AIModel, "provider" | "authMode" | "status"> & { apiKeys?: readonly Health[] },
@@ -164,14 +187,14 @@ export function failingKeysNotice(
     failing,
     total,
     all: false,
-    text: `The provider is refusing ${failing} of ${total} API keys. Requests move on to the next key, so work carries on — replace or remove the failing ${failing === 1 ? "key" : "keys"} under Advanced.`,
+    text: `The provider is refusing ${failing} of ${total} API keys. Sessions move to the other keys, so work carries on — replace or remove the failing ${failing === 1 ? "key" : "keys"} under Advanced.`,
   };
 }
 
 /**
- * What the closed Advanced line says about a model's keys: how many backups
- * it holds and how many keys are failing, e.g. "2 backup API keys · 1 API key
- * failing". Empty with a single working key, which is the default.
+ * What the closed Advanced line says about a model's keys: how many keys its
+ * sessions are spread across and how many are failing, e.g. "3 API keys · 1
+ * API key failing". Empty with a single working key, which is the default.
  */
 export function apiKeyNotes(
   model: Pick<AIModel, "provider" | "authMode" | "status"> & { apiKeys?: readonly Health[] },
@@ -180,8 +203,7 @@ export function apiKeyNotes(
   if (model.status !== "connected" || !holdsApiKeys(model)) return [];
   const keys = model.apiKeys ?? [];
   const notes: string[] = [];
-  const backups = keys.length - 1;
-  if (backups > 0) notes.push(`${backups} backup API ${backups === 1 ? "key" : "keys"}`);
+  if (keys.length > 1) notes.push(`${keys.length} API keys`);
   const failing = keys.filter((key) => isRefused(key, now)).length;
   if (failing > 0) notes.push(`${failing} API ${failing === 1 ? "key" : "keys"} failing`);
   return notes;

@@ -120,10 +120,10 @@ export function Meetings() {
       </P>
       <UL>
         <LI>
-          An <Strong>OpenAI</Strong> model sends the audio to OpenAI&apos;s audio endpoint using the
-          key already on that model — one of its{" "}
-          <DocLink to="/docs/models#backup-keys">backup keys</DocLink> while the primary is being
-          skipped after a refusal.
+          An <Strong>OpenAI</Strong> model sends the audio to OpenAI&apos;s audio endpoint using a
+          key already on that model — the next of its{" "}
+          <DocLink to="/docs/models#api-keys">API keys</DocLink> in turn, skipping one that is
+          resting after a refusal.
         </LI>
         <LI>
           A <Strong>custom endpoint</Strong> sends it to whatever OpenAI-compatible server the model
@@ -304,8 +304,10 @@ export function Meetings() {
       <P>The tools an employee gets, once granted:</P>
       <UL>
         <LI>
-          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account or
-          Contact, which is how it answers &quot;when did we last speak to them&quot;.
+          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account,
+          Contact or date, which is how it answers &quot;when did we last speak to them&quot;. It
+          pages through every meeting on the calendars the employee holds a Grant to, and says how
+          many more match on calendars it does not.
         </LI>
         <LI>
           <Code>get_meeting</Code> — attendees, the summary, and the action items already filed.

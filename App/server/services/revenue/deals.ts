@@ -128,7 +128,7 @@ export async function listDeals(
   }
 
   const total = await qb.clone().getCount();
-  const rows = await qb.orderBy("d.updatedAt", "DESC").skip(offset).take(limit).getMany();
+  const rows = await qb.orderBy("d.updatedAt", "DESC").addOrderBy("d.id", "DESC").skip(offset).take(limit).getMany();
 
   return { rows: await hydrateDeals(companyId, rows), total };
 }

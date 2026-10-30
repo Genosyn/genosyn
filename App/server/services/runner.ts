@@ -1131,6 +1131,7 @@ async function prepareRoutineRun(
               onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
               onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
               onServedModelChange: (change) => log.line(`\n${servedModelLine(change)}`),
+              onApiKeySession: (session) => log.line(`\n${apiKeySessionLine(session)}`),
               onApiKeyFailover: (change) => log.line(`\n${apiKeyFailoverLine(change)}`),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
@@ -1896,6 +1897,7 @@ async function runCheckPhase(args: {
           },
           onSilentStop: () => log.line(`\n[nudge] ${SILENT_STOP_LINE}`),
           onModelOutage: (outage) => log.line(`\n${modelOutageLine(outage)}`),
+          onApiKeySession: (session) => log.line(`\n${apiKeySessionLine(session)}`),
           onApiKeyFailover: (change) => log.line(`\n${apiKeyFailoverLine(change)}`),
         },
       });
@@ -2158,11 +2160,19 @@ export function servedModelLine(change: { from: string; to: string }): string {
 }
 
 /**
+ * The log line for a session opening on one of an AI Model's API keys, when
+ * the model spreads its sessions across several — preview only, never a key.
+ */
+export function apiKeySessionLine(session: { preview: string; keys: number }): string {
+  return `[model] Using API key ${session.preview}, the next in turn of this AI Model's ${session.keys} keys.`;
+}
+
+/**
  * The log line for a provider refusing one of the AI Model's API keys and the
  * request moving on to the next — previews only, never a key.
  */
 export function apiKeyFailoverLine(change: ApiKeyFailover): string {
-  return `[model] The provider refused API key ${change.from} (${refusalWords(change.kind)}, HTTP ${change.status}); the request moved to the next key, ${change.to}. See the API keys under this AI Model's Advanced settings.`;
+  return `[model] The provider refused API key ${change.from} (${refusalWords(change.kind)}, HTTP ${change.status}); the request moved to the next key, ${change.to}, and the rest of this session stays on it. See the API keys under this AI Model's Advanced settings.`;
 }
 
 /** The log line for a self-hosted AI Model's server stopping and answering again. */

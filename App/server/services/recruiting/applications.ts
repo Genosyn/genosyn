@@ -579,9 +579,13 @@ export async function listApplications(
     andWhereTokens(query, ["application.candidateName", "application.candidateEmail"], tokenizeQuery(filters.q));
   }
   if (filters.sort === "score") {
-    query.orderBy("application.score", "DESC", "NULLS LAST").addOrderBy("application.createdAt", "DESC");
+    query
+      .orderBy("application.score", "DESC", "NULLS LAST")
+      .addOrderBy("application.createdAt", "DESC")
+      .addOrderBy("application.id", "DESC");
   } else {
-    query.orderBy("application.createdAt", filters.sort === "oldest" ? "ASC" : "DESC");
+    const direction = filters.sort === "oldest" ? "ASC" : "DESC";
+    query.orderBy("application.createdAt", direction).addOrderBy("application.id", direction);
   }
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
   const [rows, total] = await query

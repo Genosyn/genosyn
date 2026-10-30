@@ -237,7 +237,11 @@ import { Meeting } from "../db/entities/Meeting.js";
 import { grantedCalendarIds, hasCalendarAccess } from "../services/meetings/grants.js";
 import { startNotetaker } from "../services/meetings/recorder.js";
 import { serializeMeeting, serializeParticipant } from "../services/meetings/serialize.js";
-import { getMeeting, listMeetings, listParticipants } from "../services/meetings/store.js";
+import {
+  getMeeting,
+  listParticipants,
+  pageMeetingsForEmployee,
+} from "../services/meetings/store.js";
 import { Approval } from "../db/entities/Approval.js";
 import {
   browserApprovalWasExecuted,
@@ -516,7 +520,8 @@ import {
   bulkLedgerReview,
   getLedgerEntryForReview,
   hydrateLedgerEntries,
-  listLedgerEntriesForReview,
+  ledgerReviewFilterShape,
+  pageLedgerEntriesForReview,
 } from "../services/transactionReviews.js";
 import { reviseAction } from "../services/documentRevisions.js";
 import type { EntryCategoryLock } from "../../shared/entryCategory.js";
@@ -530,7 +535,43 @@ import {
   undoBankTransaction,
 } from "../services/banking.js";
 import { BANKING_BULK_MAX, type BankingBulkAction, bulkBanking } from "../services/bankingBulk.js";
-import { bankingAccounts, bankingQueue } from "../services/bankingQueue.js";
+import {
+  bankingAccounts,
+  bankingFilterFrom,
+  bankingFilterShape,
+  bankingQueue,
+} from "../services/bankingQueue.js";
+import {
+  andWhereDateRange,
+  type CursorValue,
+  type DateRange,
+  dateRange,
+  decodeCursor,
+  filterFingerprint,
+  finishPage,
+  keysetRows,
+  ListQueryError,
+  pageBodyShape,
+  pageLimit,
+  TOOL_PAGE_BUDGET_CHARS,
+} from "../services/listPaging.js";
+import type { Account } from "../db/entities/Account.js";
+import { redactSensitiveText } from "../services/approvalRedaction.js";
+import {
+  invoiceDateFilterShape,
+  pageBills,
+  pageCustomers,
+  pageInvoices,
+  pageRecurringInvoices,
+} from "../services/financeListPages.js";
+import {
+  accountPatchSchema,
+  accountWriteSchema,
+  createLedgerAccount,
+  LedgerAccountError,
+  loadLedgerAccount,
+  updateLedgerAccount,
+} from "../services/ledgerAccounts.js";
 import { FeedNotFoundError, syncFeedForRequest, syncResponse } from "../services/bankingSync.js";
 import { retryCardTransaction } from "../services/cardExpenses.js";
 import { FeedSyncError } from "../services/feedSyncErrors.js";
@@ -1995,32 +2036,96 @@ mcpInternalRouter.post(
   },
 );
 
+function serializeToolAccount(account: Account) {
+  return {
+    id: account.id,
+    code: account.code,
+    name: account.name,
+    type: account.type,
+    parentId: account.parentId,
+    // Auto-posting looks these up by code: they keep their code and type and are never archived.
+    system: account.isSystem,
+    archived: !!account.archivedAt,
+  };
+}
+
 mcpInternalRouter.post(
   "/tools/list_finance_accounts",
   validateBody(emptyToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireFinance(req, res, "read"))) return;
     const accounts = await seedChartOfAccounts(req.mcpCompany!.id);
-    res.json({
-      accounts: accounts.map((account) => ({
-        id: account.id,
-        code: account.code,
-        name: account.name,
-        type: account.type,
-        archived: !!account.archivedAt,
-      })),
-    });
+    res.json({ accounts: accounts.map(serializeToolAccount) });
+  },
+);
+
+// A category the books need and do not have yet — 1400 Digital Assets, 6085
+// Rent — added by the AI Employee filing the queue, as a Member with full
+// Finance access adds one on Finance → Accounts (`services/ledgerAccounts.ts`).
+mcpInternalRouter.post(
+  "/tools/create_finance_account",
+  validateBody(accountWriteSchema.strict()),
+  async (req: McpRequest, res, next) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const body = req.body as z.infer<typeof accountWriteSchema>;
+    try {
+      // Seed first, so a new account can never take a code a system account needs.
+      await seedChartOfAccounts(req.mcpCompany!.id);
+      const account = await createLedgerAccount(req.mcpCompany!.id, body);
+      await aiWriteTrail(req, {
+        action: "finance.account.create",
+        targetType: "account",
+        targetId: account.id,
+        targetLabel: `${account.code} ${account.name}`,
+        journalTitle: `${req.mcpEmployee!.name} added account ${account.code} ${account.name}`,
+        metadata: { code: account.code, type: account.type },
+      });
+      res.json({ account: serializeToolAccount(account) });
+    } catch (err) {
+      if (err instanceof LedgerAccountError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      next(err);
+    }
+  },
+);
+
+const updateFinanceAccountSchema = accountPatchSchema
+  .extend({ accountId: z.string().uuid() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_finance_account",
+  validateBody(updateFinanceAccountSchema),
+  async (req: McpRequest, res, next) => {
+    if (!(await requireFinance(req, res, "full"))) return;
+    const { accountId, ...patch } = req.body as z.infer<typeof updateFinanceAccountSchema>;
+    const account = await loadLedgerAccount(req.mcpCompany!.id, accountId);
+    if (!account) return res.status(404).json({ error: "Account not found" });
+    const before = `${account.code} ${account.name}`;
+    try {
+      const updated = await updateLedgerAccount(account, patch);
+      await aiWriteTrail(req, {
+        action: "finance.account.update",
+        targetType: "account",
+        targetId: updated.id,
+        targetLabel: `${updated.code} ${updated.name}`,
+        journalTitle: `${req.mcpEmployee!.name} updated account ${updated.code} ${updated.name}`,
+        journalBody: before === `${updated.code} ${updated.name}` ? "" : `Was ${before}.`,
+        metadata: { fields: Object.keys(patch) },
+      });
+      res.json({ account: serializeToolAccount(updated) });
+    } catch (err) {
+      if (err instanceof LedgerAccountError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      next(err);
+    }
   },
 );
 
 const financeTransactionsSchema = z
-  .object({
-    reviewStatus: z.enum(["unreviewed", "ai_reviewed", "approved"]).optional(),
-    source: z.string().min(1).max(80).optional(),
-    from: z.string().max(40).optional(),
-    to: z.string().max(40).optional(),
-    limit: z.number().int().min(1).max(200).optional(),
-  })
+  .object({ ...ledgerReviewFilterShape, ...pageBodyShape })
   .strict();
 
 function parseOptionalToolDate(value: string | undefined, label: string): Date | undefined {
@@ -2030,24 +2135,25 @@ function parseOptionalToolDate(value: string | undefined, label: string): Date |
   return date;
 }
 
+// Entry review's journal, the list `GET /finance/transactions` answers, one
+// page at a time and ended early rather than overflow a tool result.
 mcpInternalRouter.post(
   "/tools/list_finance_transactions",
   validateBody(financeTransactionsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof financeTransactionsSchema>;
+    const { limit, cursor, ...filters } = req.body as z.infer<typeof financeTransactionsSchema>;
     try {
-      const transactions = await listLedgerEntriesForReview({
-        companyId: req.mcpCompany!.id,
-        reviewStatus: body.reviewStatus,
-        source: body.source,
-        from: parseOptionalToolDate(body.from, "from"),
-        to: parseOptionalToolDate(body.to, "to"),
-        limit: body.limit ?? 50,
-      });
-      res.json({ transactions });
+      res.json(
+        await pageLedgerEntriesForReview(req.mcpCompany!.id, filters, {
+          limit,
+          cursor,
+          budgetChars: TOOL_PAGE_BUDGET_CHARS,
+        }),
+      );
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
     }
   },
 );
@@ -2257,29 +2363,29 @@ mcpInternalRouter.post(
   },
 );
 
-const bankingListSchema = z
-  .object({
-    status: z.enum(["review", "done", "all"]).default("review"),
-    kind: z.enum(["bank", "card"]).optional(),
-    feedId: z.string().uuid().optional(),
-    limit: z.number().int().min(1).max(500).optional(),
-  })
-  .strict();
+const bankingListSchema = z.object({ ...bankingFilterShape, ...pageBodyShape }).strict();
 
+// The same list `GET /banking/transactions` answers, one page at a time: the
+// page ends early rather than overflow a tool result, and its cursor carries on
+// from the last row shown.
 mcpInternalRouter.post(
   "/tools/list_banking_transactions",
   validateBody(bankingListSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof bankingListSchema>;
-    res.json(
-      await bankingQueue(req.mcpCompany!.id, {
-        status: body.status === "all" ? undefined : body.status,
-        kind: body.kind,
-        feedId: body.feedId,
-        limit: body.limit,
-      }),
-    );
+    const { limit, cursor, ...filters } = req.body as z.infer<typeof bankingListSchema>;
+    try {
+      res.json(
+        await bankingQueue(req.mcpCompany!.id, bankingFilterFrom(filters), {
+          limit,
+          cursor,
+          budgetChars: TOOL_PAGE_BUDGET_CHARS,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -2681,45 +2787,51 @@ const listInvoicesSchema = z
     customerSlug: z.string().min(1).max(200).optional(),
     recurringInvoiceSlug: z.string().min(1).max(200).optional(),
     includeArchived: z.boolean().default(false),
-    limit: z.number().int().min(1).max(100).optional(),
+    ...invoiceDateFilterShape,
+    ...pageBodyShape,
   })
   .strict();
 
 mcpInternalRouter.post(
   "/tools/list_invoices",
   validateBody(listInvoicesSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
     const cid = req.mcpCompany!.id;
-    const body = req.body as z.infer<typeof listInvoicesSchema>;
-    const where: Record<string, unknown> = { companyId: cid };
-    if (body.status) where.status = body.status;
-    // Archived invoices are ones a Member filed away with nothing left to
-    // collect, so they stay out — as in Finance → Invoices — unless asked.
-    if (!body.includeArchived) where.archivedAt = IsNull();
-    if (body.customerSlug) {
-      const customer = await loadCustomerBySlug(cid, body.customerSlug);
+    const { limit, cursor, customerSlug, recurringInvoiceSlug, ...filter } =
+      req.body as z.infer<typeof listInvoicesSchema>;
+    let customerId: string | undefined;
+    let recurringInvoiceId: string | undefined;
+    if (customerSlug) {
+      const customer = await loadCustomerBySlug(cid, customerSlug);
       if (!customer) {
-        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+        return res.status(404).json({ error: `Customer "${customerSlug}" not found` });
       }
-      where.customerId = customer.id;
+      customerId = customer.id;
     }
-    if (body.recurringInvoiceSlug) {
-      const schedule = await loadRecurringInvoiceBySlug(cid, body.recurringInvoiceSlug);
+    if (recurringInvoiceSlug) {
+      const schedule = await loadRecurringInvoiceBySlug(cid, recurringInvoiceSlug);
       if (!schedule) {
         return res
           .status(404)
-          .json({ error: `Recurring invoice "${body.recurringInvoiceSlug}" not found` });
+          .json({ error: `Recurring invoice "${recurringInvoiceSlug}" not found` });
       }
-      where.recurringInvoiceId = schedule.id;
+      recurringInvoiceId = schedule.id;
     }
-    const invoices = await AppDataSource.getRepository(Invoice).find({
-      where,
-      order: { createdAt: "DESC" },
-      take: body.limit ?? 50,
-    });
-    const hydrated = await hydrateInvoices(cid, invoices);
-    res.json({ invoices: hydrated.map(serializeInvoiceRow) });
+    try {
+      // Archived invoices are ones a Member filed away with nothing left to
+      // collect, so they stay out — as in Finance → Invoices — unless asked.
+      const { rows, ...info } = await pageInvoices(
+        cid,
+        { ...filter, customerId, recurringInvoiceId },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        async (invoices) => (await hydrateInvoices(cid, invoices)).map(serializeInvoiceRow),
+      );
+      res.json({ ...info, invoices: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -2742,26 +2854,29 @@ mcpInternalRouter.post(
 const listCustomersSchema = z
   .object({
     includeArchived: z.boolean().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    q: z.string().trim().min(1).max(200).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
 mcpInternalRouter.post(
   "/tools/list_customers",
   validateBody(listCustomersSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
-    const cid = req.mcpCompany!.id;
-    const body = req.body as z.infer<typeof listCustomersSchema>;
-    const rows = await AppDataSource.getRepository(Customer).find({
-      where: { companyId: cid },
-      order: { createdAt: "DESC" },
-    });
-    const filtered = (body.includeArchived ? rows : rows.filter((c) => !c.archivedAt)).slice(
-      0,
-      body.limit ?? 100,
-    );
-    res.json({ customers: filtered.map(serializeToolCustomer) });
+    const { limit, cursor, ...filter } = req.body as z.infer<typeof listCustomersSchema>;
+    try {
+      const { rows, ...info } = await pageCustomers(
+        req.mcpCompany!.id,
+        filter,
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        async (customers) => customers.map(serializeToolCustomer),
+      );
+      res.json({ ...info, customers: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -2979,35 +3094,40 @@ const listRecurringInvoicesSchema = z
     status: z.enum(["active", "paused", "ended"]).optional(),
     customerSlug: z.string().min(1).max(200).optional(),
     includeArchived: z.boolean().default(false),
-    limit: z.number().int().min(1).max(100).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
 mcpInternalRouter.post(
   "/tools/list_recurring_invoices",
   validateBody(listRecurringInvoicesSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
     const companyId = req.mcpCompany!.id;
-    const body = req.body as z.infer<typeof listRecurringInvoicesSchema>;
-    const where: Record<string, unknown> = { companyId };
-    if (body.status) where.status = body.status;
-    // An archived schedule is a paused or ended one a Member filed away.
-    if (!body.includeArchived) where.archivedAt = IsNull();
-    if (body.customerSlug) {
-      const customer = await loadCustomerBySlug(companyId, body.customerSlug);
+    const { limit, cursor, customerSlug, ...filter } = req.body as z.infer<
+      typeof listRecurringInvoicesSchema
+    >;
+    let customerId: string | undefined;
+    if (customerSlug) {
+      const customer = await loadCustomerBySlug(companyId, customerSlug);
       if (!customer) {
-        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+        return res.status(404).json({ error: `Customer "${customerSlug}" not found` });
       }
-      where.customerId = customer.id;
+      customerId = customer.id;
     }
-    const rows = await AppDataSource.getRepository(RecurringInvoice).find({
-      where,
-      order: { createdAt: "DESC" },
-      take: body.limit ?? 50,
-    });
-    const hydrated = await hydrateRecurringInvoices(companyId, rows);
-    res.json({ recurringInvoices: hydrated.map(serializeRecurringInvoiceRow) });
+    try {
+      const { rows, ...info } = await pageRecurringInvoices(
+        companyId,
+        { ...filter, customerId },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        async (schedules) =>
+          (await hydrateRecurringInvoices(companyId, schedules)).map(serializeRecurringInvoiceRow),
+      );
+      res.json({ ...info, recurringInvoices: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -4323,31 +4443,39 @@ const listBillsToolSchema = z
   .object({
     status: z.enum(["draft", "sent", "paid", "void"]).optional(),
     vendorSlug: z.string().min(1).max(200).optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    ...invoiceDateFilterShape,
+    ...pageBodyShape,
   })
   .strict();
 
 mcpInternalRouter.post(
   "/tools/list_bills",
   validateBody(listBillsToolSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireFinance(req, res, "read"))) return;
     const cid = req.mcpCompany!.id;
-    const body = req.body as z.infer<typeof listBillsToolSchema>;
-    const where: Record<string, unknown> = { companyId: cid };
-    if (body.status) where.status = body.status;
-    if (body.vendorSlug) {
-      const vendor = await loadVendorBySlug(cid, body.vendorSlug);
-      if (!vendor) return res.status(404).json({ error: `Vendor "${body.vendorSlug}" not found` });
-      where.vendorId = vendor.id;
+    const { limit, cursor, vendorSlug, ...filter } = req.body as z.infer<
+      typeof listBillsToolSchema
+    >;
+    let vendorId: string | undefined;
+    if (vendorSlug) {
+      const vendor = await loadVendorBySlug(cid, vendorSlug);
+      if (!vendor) return res.status(404).json({ error: `Vendor "${vendorSlug}" not found` });
+      vendorId = vendor.id;
     }
-    const bills = await AppDataSource.getRepository(Bill).find({
-      where,
-      order: { dueDate: "ASC" },
-      take: body.limit ?? 50,
-    });
-    const hydrated = await hydrateBills(cid, bills);
-    res.json({ bills: hydrated.map((bill) => serializeToolBill(bill, false)) });
+    try {
+      const { rows, ...info } = await pageBills(
+        cid,
+        { ...filter, vendorId },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        async (bills) =>
+          (await hydrateBills(cid, bills)).map((bill) => serializeToolBill(bill, false)),
+      );
+      res.json({ ...info, bills: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -11038,8 +11166,8 @@ const TERMINAL_RUN_STATUSES: RunStatus[] = [
   "interrupted",
 ];
 
-/** Rows returned when the caller does not say. Well inside one tool result. */
-const DEFAULT_RUN_ROWS = 20;
+/** 20 Runs by default — well inside one tool result — and at most 50 a page. */
+const RUN_PAGE = { defaultLimit: 20, maxLimit: 50 };
 
 function serializeRunRow(run: Run, routineName: string | null) {
   return {
@@ -11065,9 +11193,21 @@ function serializeRunRow(run: Run, routineName: string | null) {
 const listRunsSchema = z
   .object({
     routine: z.string().min(1).max(200).optional(),
-    limit: z.number().int().min(1).max(50).optional(),
+    status: z
+      .enum(TERMINAL_RUN_STATUSES as [RunStatus, ...RunStatus[]])
+      .optional(),
+    from: z.string().min(1).max(40).optional(),
+    to: z.string().min(1).max(40).optional(),
+    ...pageBodyShape,
   })
   .strict();
+
+/** Every Run column but its transcript, which a history listing never shows. */
+function runListColumns(): string[] {
+  return AppDataSource.getMetadata(Run)
+    .columns.filter((column) => column.propertyName !== "logContent" && column.isSelect)
+    .map((column) => `run.${column.propertyName}`);
+}
 
 mcpInternalRouter.post(
   "/tools/list_runs",
@@ -11099,25 +11239,78 @@ mcpInternalRouter.post(
 
     if (routineIds.length === 0) {
       return res.json({
-        runs: [],
+        total: 0,
+        hasMore: false,
+        nextCursor: null,
         note: "You own no Routines yet, so there is no run history to read.",
+        runs: [],
       });
     }
 
-    const runs = await AppDataSource.getRepository(Run).find({
-      where: { routineId: In(routineIds), status: In(TERMINAL_RUN_STATUSES) },
-      order: { startedAt: "DESC" },
-      take: body.limit ?? DEFAULT_RUN_ROWS,
+    // The whole history pages, newest first: a Routine that runs hourly keeps
+    // thousands of Runs, and "when did this start failing?" needs the old ones.
+    const { limit, cursor, routine: _routine, ...filter } = body;
+    let started: DateRange;
+    try {
+      started = dateRange(filter.from, filter.to);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    const query = () => {
+      const qb = AppDataSource.getRepository(Run)
+        .createQueryBuilder("run")
+        .select(runListColumns())
+        .where("run.routineId IN (:...routineIds)", { routineIds })
+        .andWhere("run.status IN (:...statuses)", {
+          statuses: filter.status ? [filter.status] : TERMINAL_RUN_STATUSES,
+        });
+      return andWhereDateRange(qb, "run.startedAt", started, "started");
+    };
+    const fingerprint = filterFingerprint(co.id, {
+      employee: self.id,
+      routineIds: [...routineIds].sort(),
+      status: filter.status,
+      started,
     });
-
-    res.json({
-      runs: runs.map((run) => serializeRunRow(run, names.get(run.routineId) ?? null)),
-      note:
-        "Newest first. `checksVerdict` is the Checks the Routine declares; " +
-        "`outcomeVerdict` is how the finished work was graded. " +
-        "Status `continued` means the Run saved its progress and the next Run took over its unfinished work, not that it failed. " +
-        "Call get_run_report for one Run's check results and what it changed.",
-    });
+    try {
+      const after = cursor ? decodeCursor("runs", fingerprint, cursor) : null;
+      const pageSize = pageLimit(limit, RUN_PAGE);
+      const [total, fetched] = await Promise.all([
+        query().getCount(),
+        keysetRows(query(), {
+          keys: [
+            { column: "run.startedAt", direction: "DESC", type: "timestamp" },
+            { column: "run.id", direction: "DESC", type: "string" },
+          ],
+          after,
+          limit: pageSize,
+          prefix: "run",
+        }),
+      ]);
+      const { rows, note, ...info } = finishPage({
+        fetched,
+        limit: pageSize,
+        total,
+        noun: "Runs",
+        scope: "runs",
+        fingerprint,
+        present: (run: Run) => serializeRunRow(run, names.get(run.routineId) ?? null),
+        budgetChars: TOOL_PAGE_BUDGET_CHARS,
+      });
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Newest first. `checksVerdict` is the Checks the Routine declares; " +
+          "`outcomeVerdict` is how the finished work was graded. " +
+          "Status `continued` means the Run saved its progress and the next Run took over its unfinished work, not that it failed. " +
+          "Call get_run_report for one Run's check results and what it changed.",
+        runs: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      res.status(400).json({ error: (err as Error).message });
+    }
   },
 );
 
@@ -12368,8 +12561,32 @@ mcpInternalRouter.post(
 const listTodosSchema = z
   .object({
     projectSlug: z.string().min(1).max(120),
+    // `open` is everything not done or cancelled: the work still to pick up.
+    status: z
+      .enum(["open", "backlog", "todo", "in_progress", "in_review", "done", "cancelled"])
+      .optional(),
+    assignedToMe: z.boolean().optional(),
+    ...pageBodyShape,
   })
   .strict();
+
+/** 50 Todos by default, at most 200 a page. */
+const TODO_PAGE = { defaultLimit: 50, maxLimit: 200 };
+const TODO_DESCRIPTION_PREVIEW = 300;
+
+/**
+ * A Todo as a listing shows it: its description previewed, redacted the way
+ * `get_todo` redacts it, so a project of thousands fits in pages and a
+ * listing never shows what the full read would hide.
+ */
+function serializeTodoListRow(t: Todo) {
+  const description = redactSensitiveText(t.description);
+  return {
+    ...serializeTodo(t),
+    description: description.slice(0, TODO_DESCRIPTION_PREVIEW),
+    descriptionTruncated: description.length > TODO_DESCRIPTION_PREVIEW,
+  };
+}
 
 mcpInternalRouter.post(
   "/tools/list_todos",
@@ -12385,11 +12602,66 @@ mcpInternalRouter.post(
     if (!(await hasDelegatedProjectAccess(req, p, "read"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
-    const todos = await AppDataSource.getRepository(Todo).find({
-      where: { projectId: p.id },
-      order: { sortOrder: "ASC", createdAt: "ASC" },
+    const query = () => {
+      const qb = AppDataSource.getRepository(Todo)
+        .createQueryBuilder("todo")
+        .where("todo.projectId = :projectId", { projectId: p.id });
+      if (body.status === "open") {
+        qb.andWhere("todo.status IN (:...open)", {
+          open: ["backlog", "todo", "in_progress", "in_review"],
+        });
+      } else if (body.status) {
+        qb.andWhere("todo.status = :status", { status: body.status });
+      }
+      if (body.assignedToMe) {
+        qb.andWhere("todo.assigneeEmployeeId = :me", { me: req.mcpEmployee!.id });
+      }
+      return qb;
+    };
+    const fingerprint = filterFingerprint(co.id, {
+      project: p.id,
+      status: body.status,
+      assignedToMe: body.assignedToMe ? req.mcpEmployee!.id : undefined,
     });
-    res.json({ project: serializeProject(p), todos: todos.map(serializeTodo) });
+    try {
+      const after = body.cursor ? decodeCursor("todos", fingerprint, body.cursor) : null;
+      const limit = pageLimit(body.limit, TODO_PAGE);
+      const [total, fetched] = await Promise.all([
+        query().getCount(),
+        keysetRows(query(), {
+          // The board's order: its drag-to-reorder key, then the oldest first.
+          keys: [
+            { column: "todo.sortOrder", direction: "ASC", type: "number" },
+            { column: "todo.createdAt", direction: "ASC", type: "timestamp" },
+            { column: "todo.id", direction: "ASC", type: "string" },
+          ],
+          after,
+          limit,
+          prefix: "todo",
+        }),
+      ]);
+      const { rows, note, ...info } = finishPage({
+        fetched,
+        limit,
+        total,
+        noun: "Todos",
+        scope: "todos",
+        fingerprint,
+        present: serializeTodoListRow,
+        budgetChars: TOOL_PAGE_BUDGET_CHARS,
+      });
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Descriptions are previews; get_todo reads a Todo in full with its discussion.",
+        project: serializeProject(p),
+        todos: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      res.status(400).json({ error: (err as Error).message });
+    }
   },
 );
 
@@ -14960,11 +15232,16 @@ function serializeHandoff(h: Handoff) {
 
 const listHandoffsSchema = z
   .object({
-    direction: z.enum(["incoming", "outgoing", "any"]).optional(),
-    status: z.enum(["pending", "completed", "declined", "cancelled"]).optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    direction: z.enum(["incoming", "outgoing", "any"]).default("incoming"),
+    // An inbox check: what still waits on someone, unless asked for more. The
+    // tool always said it defaulted to pending; now it does.
+    status: z.enum(["pending", "completed", "declined", "cancelled", "all"]).default("pending"),
+    ...pageBodyShape,
   })
   .strict();
+
+/** 50 handoffs by default, at most 200 a page. */
+const HANDOFF_PAGE = { defaultLimit: 50, maxLimit: 200 };
 
 mcpInternalRouter.post(
   "/tools/list_handoffs",
@@ -14973,21 +15250,55 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listHandoffsSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const direction = body.direction ?? "incoming";
-    const qb = AppDataSource.getRepository(Handoff)
-      .createQueryBuilder("h")
-      .where("h.companyId = :cid", { cid: co.id });
-    if (direction === "incoming") {
-      qb.andWhere("h.toEmployeeId = :eid", { eid: self.id });
-    } else if (direction === "outgoing") {
-      qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
-    } else {
-      qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", { eid: self.id });
+    const query = () => {
+      const qb = AppDataSource.getRepository(Handoff)
+        .createQueryBuilder("h")
+        .where("h.companyId = :cid", { cid: co.id });
+      if (body.direction === "incoming") {
+        qb.andWhere("h.toEmployeeId = :eid", { eid: self.id });
+      } else if (body.direction === "outgoing") {
+        qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
+      } else {
+        qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", { eid: self.id });
+      }
+      if (body.status !== "all") qb.andWhere("h.status = :status", { status: body.status });
+      return qb;
+    };
+    const fingerprint = filterFingerprint(co.id, {
+      employee: self.id,
+      direction: body.direction,
+      status: body.status,
+    });
+    try {
+      const after = body.cursor ? decodeCursor("handoffs", fingerprint, body.cursor) : null;
+      const limit = pageLimit(body.limit, HANDOFF_PAGE);
+      const [total, fetched] = await Promise.all([
+        query().getCount(),
+        keysetRows(query(), {
+          keys: [
+            { column: "h.createdAt", direction: "DESC", type: "timestamp" },
+            { column: "h.id", direction: "DESC", type: "string" },
+          ],
+          after,
+          limit,
+          prefix: "handoff",
+        }),
+      ]);
+      const { rows, ...info } = finishPage({
+        fetched,
+        limit,
+        total,
+        noun: "handoffs",
+        scope: "handoffs",
+        fingerprint,
+        present: serializeHandoff,
+        budgetChars: TOOL_PAGE_BUDGET_CHARS,
+      });
+      res.json({ ...info, handoffs: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      res.status(400).json({ error: (err as Error).message });
     }
-    if (body.status) qb.andWhere("h.status = :status", { status: body.status });
-    qb.orderBy("h.createdAt", "DESC").take(body.limit ?? 50);
-    const rows = await qb.getMany();
-    res.json({ handoffs: rows.map(serializeHandoff) });
   },
 );
 
@@ -21618,9 +21929,12 @@ const searchMailSchema = z
     label: z.string().max(200).optional(),
     unreadOnly: z.boolean().optional(),
     hasAttachment: z.boolean().optional(),
-    limit: z.number().int().min(1).max(50).optional(),
+    ...pageBodyShape,
   })
   .strict();
+
+/** Threads per page: 20 by default, at most 50. */
+const MAIL_SEARCH_PAGE = { defaultLimit: 20, maxLimit: 50 };
 
 mcpInternalRouter.post(
   "/tools/search_mail",
@@ -21629,6 +21943,18 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof searchMailSchema>;
     const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
     if (!account) return;
+    // A cursor continues one search of one mailbox: the account and every
+    // argument but the page's own.
+    const { limit: _limit, cursor: _cursor, accountId: _accountId, ...searched } = body;
+    const fingerprint = filterFingerprint(req.mcpCompany!.id, { account: account.id, ...searched });
+    let afterKey: CursorValue[] | null = null;
+    try {
+      afterKey = body.cursor ? decodeCursor("mail.search", fingerprint, body.cursor) : null;
+    } catch (err) {
+      return res
+        .status(err instanceof ListQueryError ? err.status : 400)
+        .json({ error: (err as Error).message });
+    }
 
     // One grammar with the human search box: `query` goes through
     // parseMailQuery, so terms AND together and the familiar operators
@@ -21649,7 +21975,12 @@ mcpInternalRouter.post(
     if (parsed.label) {
       labelId = await resolveSearchLabelId(account.id, parsed.label);
       if (!labelId) {
-        return res.json({ threads: [], note: `No label "${parsed.label}" on this mailbox.` });
+        return res.json({
+          hasMore: false,
+          nextCursor: null,
+          note: `No label "${parsed.label}" on this mailbox.`,
+          threads: [],
+        });
       }
     }
 
@@ -21659,11 +21990,29 @@ mcpInternalRouter.post(
       .andWhere("t.lastMessageAt IS NOT NULL");
     qb = applyMailScope(qb, effectiveScope(parsed, labelId));
     qb = applyMailSearchFilters(qb, parsed, labelId);
-    const threads = await qb
-      .orderBy("t.lastMessageAt", "DESC")
-      .take(body.limit ?? 20)
-      .getMany();
-    res.json({ threads: threads.map(serializeMailThreadForAgent) });
+    // Newest first, keyset on (lastMessageAt, id) so threads sharing a
+    // timestamp at a page boundary are neither skipped nor repeated. No
+    // total: counting every match of a mailbox search on each page would read
+    // the whole mailbox, so a page says only whether more follow.
+    const fetched = await keysetRows(qb, {
+      keys: [
+        { column: "t.lastMessageAt", direction: "DESC", type: "timestamp" },
+        { column: "t.id", direction: "DESC", type: "string" },
+      ],
+      after: afterKey,
+      limit: pageLimit(body.limit, MAIL_SEARCH_PAGE),
+      prefix: "mail",
+    });
+    const { rows, ...info } = finishPage({
+      fetched,
+      limit: pageLimit(body.limit, MAIL_SEARCH_PAGE),
+      noun: "threads",
+      scope: "mail.search",
+      fingerprint,
+      present: serializeMailThreadForAgent,
+      budgetChars: TOOL_PAGE_BUDGET_CHARS,
+    });
+    res.json({ ...info, threads: rows });
   },
 );
 
@@ -23010,7 +23359,9 @@ const listMeetingsSchema = z
       .optional(),
     customerId: z.string().uuid().optional(),
     contactId: z.string().uuid().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    from: z.string().min(1).max(40).optional(),
+    to: z.string().min(1).max(40).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
@@ -23019,20 +23370,29 @@ mcpInternalRouter.post(
   validateBody(listMeetingsSchema),
   async (req: McpRequest, res) => {
     const cid = req.mcpCompany!.id;
-    const body = req.body as z.infer<typeof listMeetingsSchema>;
-    const rows = await listMeetings(cid, body);
-    const granted = new Set(await grantedCalendarIds(req.mcpEmployee!.id));
-    // Filtered rather than refused: an employee granted one calendar asking for
-    // "our meetings with this customer" should get the ones it may see, not a
-    // 403 because the company also has a calendar it may not.
-    const visible = rows.filter((row) => !row.accountId || granted.has(row.accountId));
-    res.json({
-      meetings: visible.map(serializeMeeting),
-      note:
-        visible.length < rows.length
-          ? "Some meetings were hidden because you have no Grant to their calendar."
+    const { limit, cursor, ...filter } = req.body as z.infer<typeof listMeetingsSchema>;
+    try {
+      // Filtered rather than refused: an employee granted one calendar asking
+      // for "our meetings with this customer" should get the ones it may see,
+      // not a 403 because the company also has a calendar it may not.
+      const { rows, hidden, note, ...info } = await pageMeetingsForEmployee(
+        cid,
+        filter,
+        await grantedCalendarIds(req.mcpEmployee!.id),
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        serializeMeeting,
+      );
+      const notes = [
+        note,
+        hidden > 0
+          ? `${hidden} more matching meeting${hidden === 1 ? " is" : "s are"} on calendars you have no Grant to.`
           : undefined,
-    });
+      ].filter(Boolean);
+      res.json({ ...info, ...(notes.length ? { note: notes.join(" ") } : {}), meetings: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      res.status(400).json({ error: (err as Error).message });
+    }
   },
 );
 

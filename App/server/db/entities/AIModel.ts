@@ -9,8 +9,9 @@ export type ContextWindowSource = "probed" | "manual";
 /**
  * An AIModel is one of the company's AI Models: a brain any number of its AI
  * Employees can run on. It belongs to the company (`companyId`), and holds
- * one set of credentials, backup keys (whose health is `AIModelKeyHealth`),
- * context window and concurrent-Run setting for every employee using it.
+ * one set of credentials — for an API-key model, one pool of keys its
+ * sessions are spread across (their health is `AIModelKeyHealth`) — context
+ * window and concurrent-Run setting for every employee using it.
  *
  * Employees use a model through `EmployeeModel` rows: one per employee the
  * model is attached to, exactly one of each employee's rows active — the
@@ -37,9 +38,11 @@ export type ContextWindowSource = "probed" | "manual";
  * configJson shape:
  *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview, apiKeyId?, apiKeyAddedAt?,
  *                        backupKeys?: [{ id, apiKeyEncrypted, apiKeyPreview,
- *                                        addedAt? }] }` — the primary key and
- *                     any number of backup keys, tried in order when a key is
- *                     refused (`services/modelApiKeys.ts`; their health is
+ *                                        addedAt? }] }` — any number of equal
+ *                     keys, the first at the top level and the rest in
+ *                     `backupKeys` (a name kept from when they were backups);
+ *                     each session opens on the next key in turn
+ *                     (`services/modelApiKeys.ts`; their health is
  *                     `AIModelKeyHealth`)
  *   - subscription:   `{ codexAuthEncrypted, subscriptionCredentialKind }`
  *                     or `{ codexAccessTokenEncrypted,

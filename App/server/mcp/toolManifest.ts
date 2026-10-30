@@ -49,6 +49,44 @@ export type McpToolSpec = {
 };
 
 /**
+ * Paging, as every list tool takes it (`services/listPaging.ts`): `limit` is
+ * cut to the tool's maximum rather than refused, and `cursor` is the previous
+ * answer's `nextCursor`, valid only with the same filters.
+ */
+function pageProperties(noun: string, defaultLimit: number, maxLimit: number) {
+  return {
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: maxLimit,
+      description: `${noun[0].toUpperCase()}${noun.slice(1)} per page, default ${defaultLimit}. A page may hold fewer when its rows are long.`,
+    },
+    cursor: {
+      type: "string",
+      description: "nextCursor from the previous page. Keep every other argument the same.",
+    },
+  };
+}
+
+/** The sentence every paged list tool's description ends with. */
+const PAGING_SENTENCE =
+  "Answers page: total counts every match, and while hasMore is true pass nextCursor back as cursor, with the same filters, for the next page.";
+
+/** `from` / `to` as Finance reads them (`dateRange` in `services/listPaging.ts`). */
+function dateBoundProperties(what: string) {
+  return {
+    from: {
+      type: "string",
+      description: `${what} on or after this date: YYYY-MM-DD (a UTC calendar day) or an ISO timestamp.`,
+    },
+    to: {
+      type: "string",
+      description: `${what} on or before this date: YYYY-MM-DD includes the whole day.`,
+    },
+  };
+}
+
+/**
  * Recruiting: the shapes `create_opening` and `update_opening` share. Criteria
  * and questions are replaced whole — send the list as it should end up, with
  * existing ids kept, so ratings already given stay attached to their criterion.
@@ -796,7 +834,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_meetings",
     description:
-      "List recorded and upcoming meetings from the Meetings section (M44) — title, when it happened, status, and whether a transcript is ready. Filter by `customerId` or `contactId` to answer 'when did we last speak to them'. Needs a Grant to the calendar the meeting came from.",
+      "List recorded and upcoming meetings from the Meetings section (M44), newest first — title, when it happened, status, and whether a transcript is ready. Filter by `customerId` or `contactId` to answer 'when did we last speak to them', or by when it was scheduled (from/to). Lists the meetings on calendars you hold a Grant to, and says how many more match on calendars you do not. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -808,7 +847,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         customerId: { type: "string", description: "Only meetings linked to this account." },
         contactId: { type: "string", description: "Only meetings this Contact attended." },
-        limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 50." },
+        ...dateBoundProperties("Meetings scheduled"),
+        ...pageProperties("meetings", 50, 200),
       },
       additionalProperties: false,
     },
@@ -1179,19 +1219,22 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_runs",
     description:
-      "List finished Runs — what a Routine's schedule actually did, newest first. Each row carries the Run's `id`, `status`, `checksVerdict` (whether its required Checks passed), `outcomeVerdict` and `outcomeNote` (how the finished work was graded), `startedAt`/`finishedAt`, `attempt` within its retry chain, and token cost. Pass `routine` to read one Routine's history; omit it for your own recent Runs across every Routine you own. This is the record of the work, not the work itself — call `get_run_report` for one Run's Check results and the changes it actually made.",
+      "List finished Runs — what a Routine's schedule actually did, newest first. Each row carries the Run's `id`, `status`, `checksVerdict` (whether its required Checks passed), `outcomeVerdict` and `outcomeNote` (how the finished work was graded), `startedAt`/`finishedAt`, `attempt` within its retry chain, and token cost. Pass `routine` to read one Routine's history; omit it for your own Runs across every Routine you own. Narrow by `status` or by when it started (from/to) to find when something began failing. This is the record of the work, not the work itself — call `get_run_report` for one Run's Check results and the changes it actually made. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
         routine: {
           type: "string",
           description:
-            "The routine's `id` UUID from `list_routines`, its `slug`, or its exact name. Omit to list your own recent Runs across all your Routines.",
+            "The routine's `id` UUID from `list_routines`, its `slug`, or its exact name. Omit to list your own Runs across all your Routines.",
         },
-        limit: {
-          type: "number",
-          description: "How many Runs to return, 1-50. Defaults to 20.",
+        status: {
+          type: "string",
+          enum: ["completed", "reviewed", "continued", "failed", "error", "skipped", "timeout", "interrupted"],
         },
+        ...dateBoundProperties("Runs started"),
+        ...pageProperties("Runs", 20, 50),
       },
       additionalProperties: false,
     },
@@ -1752,11 +1795,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "list_todos",
-    description: "List the Todos in a Project, by project slug.",
+    description:
+      "List the Todos in a Project, by project slug, in the board's order, with description previews; get_todo reads one in full. Filter by status (`open` is everything not done or cancelled) or to the ones assigned to you. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
         projectSlug: { type: "string", description: "Slug of the project (e.g. 'engineering')." },
+        status: {
+          type: "string",
+          enum: ["open", "backlog", "todo", "in_progress", "in_review", "done", "cancelled"],
+        },
+        assignedToMe: { type: "boolean" },
+        ...pageProperties("Todos", 50, 200),
       },
       required: ["projectSlug"],
       additionalProperties: false,
@@ -2350,7 +2401,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_handoffs",
     description:
-      "List handoffs you're involved in. Use this at the top of a chat turn or routine run to check your inbox for delegated work. Defaults to incoming pending handoffs; pass `direction: 'outgoing'` for things you delegated, `direction: 'any'` for both, and `status` to filter (pending | completed | declined | cancelled).",
+      "List handoffs you're involved in, newest first. Use this at the top of a chat turn or routine run to check your inbox for delegated work. Defaults to incoming pending handoffs; pass `direction: 'outgoing'` for things you delegated, `direction: 'any'` for both, and `status` to filter (pending | completed | declined | cancelled | all). " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -2361,12 +2413,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         status: {
           type: "string",
-          enum: ["pending", "completed", "declined", "cancelled"],
+          enum: ["pending", "completed", "declined", "cancelled", "all"],
+          description: "Defaults to 'pending'.",
         },
-        limit: {
-          type: "number",
-          description: "Max rows to return (1–200, default 50).",
-        },
+        ...pageProperties("handoffs", 50, 200),
       },
       additionalProperties: false,
     },
@@ -4937,13 +4987,51 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_finance_accounts",
     description:
-      "List the company's chart of accounts with ids, codes, names, account types, and archived state. Use these ids when reviewing transaction categories.",
+      "List the company's chart of accounts with ids, codes, names, account types, parentId, whether it is a system account, and archived state. Use these ids as categories when filing bank lines, card purchases, bills and journal entries. When the account a transaction belongs in does not exist yet, add it with create_finance_account.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "create_finance_account",
+    description:
+      "Add an account to the chart of accounts (Finance → Accounts) when the category a transaction belongs in does not exist yet — e.g. 1400 Digital Assets (asset), 1500 Due from Affiliate (asset) or 6085 Rent (expense) — then file transactions under its id. Codes are unique; follow the chart's numbering (1xxx assets, 2xxx liabilities, 3xxx equity, 4xxx revenue, 5xxx–6xxx expenses) and nest it under a parent with parentId if the chart groups accounts. Card purchases take expense accounts; a bank line can be filed under any account but its own bank account. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          description: "The account number, unique in the chart: letters, digits, dot, dash or underscore (6085, 1100-01).",
+        },
+        name: { type: "string", description: "What it holds, e.g. Rent." },
+        type: { type: "string", enum: ["asset", "liability", "equity", "revenue", "expense"] },
+        parentId: { type: ["string", "null"], description: "Optional parent account id from list_finance_accounts." },
+      },
+      required: ["code", "name", "type"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_finance_account",
+    description:
+      "Rename, renumber, retype, re-parent, archive or restore an account in the chart of accounts. System accounts (system: true) keep their code and type and cannot be archived, and an account that still has a balance cannot be archived until a journal entry moves the balance elsewhere. Archiving hides an unused account from new filing; it never changes posted entries. Needs Full finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "From list_finance_accounts." },
+        code: { type: "string" },
+        name: { type: "string" },
+        type: { type: "string", enum: ["asset", "liability", "equity", "revenue", "expense"] },
+        parentId: { type: ["string", "null"], description: "null removes the parent." },
+        archived: { type: "boolean" },
+      },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
   },
   {
     name: "list_finance_transactions",
     description:
-      "List posted accounting transactions (Finance → Transactions, the journal behind Entry review) and every debit/credit line. Filter by review status to find work: `unreviewed` still needs review, `ai_reviewed` holds a category change staged before AI approval was final (approve it with review_finance_transaction), and `approved` is final. Bank lines and card purchases waiting on Finance → Banking are a different queue: use list_banking_transactions for those.",
+      "List posted accounting transactions (Finance → Transactions, the journal behind Entry review) and every debit/credit line, newest first. Filter by review status to find work: `unreviewed` still needs review, `ai_reviewed` holds a category change staged before AI approval was final (approve it with review_finance_transaction), and `approved` is final. Narrow by date, the account an entry posts to (accountId), words in the memo (q), or its total. Bank lines and card purchases waiting on Finance → Banking are a different queue: use list_banking_transactions for those. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -4951,10 +5039,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           enum: ["unreviewed", "ai_reviewed", "approved"],
         },
-        source: { type: "string", description: "Optional ledger source filter." },
-        from: { type: "string", description: "Optional ISO date/datetime lower bound." },
-        to: { type: "string", description: "Optional ISO date/datetime upper bound." },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
+        source: {
+          type: "string",
+          description: "What posted it, e.g. manual, bank_categorization, brex_card_expense, invoice_issue.",
+        },
+        ...dateBoundProperties("Entries dated"),
+        accountId: {
+          type: "string",
+          description: "Only entries posting to this account (list_finance_accounts), including a category change approved onto it.",
+        },
+        q: { type: "string", description: "Words that must all appear in the memo." },
+        minAmountCents: { type: "integer", minimum: 0, description: "Smallest entry total (its debits) in cents." },
+        maxAmountCents: { type: "integer", minimum: 0, description: "Largest entry total (its debits) in cents." },
+        ...pageProperties("transactions", 50, 200),
       },
       additionalProperties: false,
     },
@@ -5223,13 +5320,18 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "list_bills",
     readOnly: true,
     description:
-      "List bills the company owes vendors (accounts payable), soonest due first: slug, number, status (draft, sent, overdue, paid, void), vendor, the vendor's own invoice reference, dates, total, paid, and balance due. Filter by status or vendorSlug. Needs Read finance access.",
+      "List bills the company owes vendors (accounts payable), soonest due first: slug, number, status (draft, sent, overdue, paid, void), vendor, the vendor's own invoice reference, dates, total, paid, and balance due. Filter by status, vendorSlug, issue date (from/to) or due date (dueFrom/dueTo). " +
+      PAGING_SENTENCE +
+      " Needs Read finance access.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["draft", "sent", "paid", "void"] },
         vendorSlug: { type: "string" },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
+        ...dateBoundProperties("Issued"),
+        dueFrom: { type: "string", description: "Due on or after this date (YYYY-MM-DD or ISO timestamp)." },
+        dueTo: { type: "string", description: "Due on or before this date; YYYY-MM-DD includes the whole day." },
+        ...pageProperties("bills", 50, 200),
       },
       additionalProperties: false,
     },
@@ -5395,18 +5497,36 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "list_banking_transactions",
     readOnly: true,
     description:
-      "List bank transactions and card purchases from Finance → Banking, newest first — by default the To review queue a teammate sees there. Each row has kind (bank or card), id, date, a signed amountCents (money in positive, money out negative, so a card purchase is negative), currency, description, the account it came from, status (review or done), the category it is filed under, and for bank rows the invoice payments or posted entry that explain it. A card purchase arrives already filed under its card's default category and waits until someone keeps or changes it; a bank line waits until it is categorized, matched, or pays invoices. Then use categorize_banking_transactions, mark_banking_transactions_reviewed, get_bank_transaction_matches, or pay_invoices_from_bank_transaction. Needs Read finance access.",
+      "List bank transactions and card purchases from Finance → Banking, newest first — by default the To review queue a teammate sees there. Every transaction is reachable, however old: narrow by date (from/to), account (feedId), direction and amount, words in the description (q), or the category it is filed under, and page through the rest. Each row has kind (bank or card), id, date, a signed amountCents (money in positive, money out negative, so a card purchase is negative), currency, description, the account it came from, status (review or done), the category it is filed under, and for bank rows the invoice payments or posted entry that explain it. A card purchase arrives already filed under its card's default category and waits until someone keeps or changes it; a bank line waits until it is categorized, matched, or pays invoices. Then use categorize_banking_transactions, mark_banking_transactions_reviewed, get_bank_transaction_matches, or pay_invoices_from_bank_transaction. " +
+      PAGING_SENTENCE +
+      " Needs Read finance access.",
     inputSchema: {
       type: "object",
       properties: {
         status: {
           type: "string",
           enum: ["review", "done", "all"],
-          description: "review (default) is the To review queue; done is explained and in the books.",
+          description: "review (default) is the To review queue; done is explained and in the books; all is both.",
         },
         kind: { type: "string", enum: ["bank", "card"], description: "Only bank lines or only card purchases." },
         feedId: { type: "string", description: "One bank account or card, from list_banking_accounts." },
-        limit: { type: "integer", minimum: 1, maximum: 500, description: "Default 100." },
+        ...dateBoundProperties("Transactions dated"),
+        direction: {
+          type: "string",
+          enum: ["in", "out"],
+          description: "in is money in (positive amountCents), out is money out (negative).",
+        },
+        minAmountCents: { type: "integer", minimum: 0, description: "Smallest amount in cents, ignoring sign." },
+        maxAmountCents: { type: "integer", minimum: 0, description: "Largest amount in cents, ignoring sign." },
+        q: {
+          type: "string",
+          description: "Words that must all appear in the description (or a bank line's reference), e.g. a merchant.",
+        },
+        categoryAccountId: {
+          type: "string",
+          description: "Only transactions filed under this account, from list_finance_accounts.",
+        },
+        ...pageProperties("transactions", 50, 200),
       },
       additionalProperties: false,
     },
@@ -5558,7 +5678,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_invoices",
     description:
-      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void), `customerSlug`, or `recurringInvoiceSlug` for the invoices one recurring invoice schedule created. Returns compact rows (number, status, customer, the schedule that created it if any, totals, balance, dates); call get_invoice for line items and payments. Invoices a Member archived are hidden unless includeArchived is true; an archived invoice has nothing left to collect but still counts in balances and reports, so include them when totalling what a customer was billed or paid. Needs `read` finance access.",
+      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void), `customerSlug`, `recurringInvoiceSlug` for the invoices one recurring invoice schedule created, issue date (from/to) or due date (dueFrom/dueTo). Returns compact rows (number, status, customer, the schedule that created it if any, totals, balance, dates); call get_invoice for line items and payments. Invoices a Member archived are hidden unless includeArchived is true; an archived invoice has nothing left to collect but still counts in balances and reports, so include them when totalling what a customer was billed or paid. " +
+      PAGING_SENTENCE +
+      " Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5573,7 +5695,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             "Filter to the invoices one recurring invoice schedule created (from list_recurring_invoices).",
         },
         includeArchived: { type: "boolean", default: false },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
+        ...dateBoundProperties("Issued"),
+        dueFrom: { type: "string", description: "Due on or after this date (YYYY-MM-DD or ISO timestamp)." },
+        dueTo: { type: "string", description: "Due on or before this date; YYYY-MM-DD includes the whole day." },
+        ...pageProperties("invoices", 50, 100),
       },
       additionalProperties: false,
     },
@@ -5594,7 +5719,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_recurring_invoices",
     description:
-      "List recurring invoice schedules, newest first. Filter by lifecycle status or customer. Returns the cadence, next and last run, draft-vs-auto-send mode, run caps, and latest generated invoice; call get_recurring_invoice for template lines. Schedules a Member archived (always paused or ended, so they bill nobody) are hidden unless includeArchived is true. Needs `read` finance access.",
+      "List recurring invoice schedules, newest first. Filter by lifecycle status or customer. Returns the cadence, next and last run, draft-vs-auto-send mode, run caps, and latest generated invoice; call get_recurring_invoice for template lines. Schedules a Member archived (always paused or ended, so they bill nobody) are hidden unless includeArchived is true. " +
+      PAGING_SENTENCE +
+      " Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5604,7 +5731,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Filter to one customer (from list_customers).",
         },
         includeArchived: { type: "boolean", default: false },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
+        ...pageProperties("recurring invoices", 50, 100),
       },
       additionalProperties: false,
     },
@@ -5817,12 +5944,15 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_customers",
     description:
-      "List the company's customers with ids, slugs, contact details, and default currency. Archived customers are hidden unless `includeArchived` is true. Needs `read` finance access.",
+      "List the company's customers, newest first, with ids, slugs, contact details, and default currency. Find one by name, domain, email, phone, tax number or a contact's details with q. Archived customers are hidden unless `includeArchived` is true. " +
+      PAGING_SENTENCE +
+      " Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
         includeArchived: { type: "boolean" },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
+        q: { type: "string", description: "Words that must all match the customer or one of its contacts." },
+        ...pageProperties("customers", 50, 200),
       },
       additionalProperties: false,
     },
@@ -6205,7 +6335,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_mail",
     description:
-      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and the familiar operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — read bounded message pages with `get_mail_thread` and continue individual bodies with `get_mail_message`.",
+      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and the familiar operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — read bounded message pages with `get_mail_thread` and continue individual bodies with `get_mail_message`. Every match is reachable: while hasMore is true, pass nextCursor back as cursor with the same arguments for the next page. There is no total: narrow a broad search with after/before instead of counting it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6228,7 +6358,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         unreadOnly: { type: "boolean" },
         hasAttachment: { type: "boolean" },
-        limit: { type: "integer", minimum: 1, maximum: 50 },
+        ...pageProperties("threads", 20, 50),
       },
       additionalProperties: false,
     },
