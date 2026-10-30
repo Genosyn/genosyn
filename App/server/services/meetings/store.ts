@@ -1,30 +1,26 @@
-import {
-  And,
-  In,
-  LessThanOrEqual,
-  MoreThan,
-  MoreThanOrEqual,
-  type EntityManager,
-  type FindOptionsWhere,
-} from "typeorm";
+import { MoreThan, MoreThanOrEqual, type EntityManager } from "typeorm";
+import { z } from "zod";
 import {
   andWhereDateRange,
   asText,
+  type DateRange,
   dateRange,
   decodeCursor,
   filterFingerprint,
   finishPage,
+  type KeysetColumn,
   keysetRows,
   type PageInfo,
   type PageLimits,
   pageLimit,
+  pageQueryShape,
   type PageRequest,
 } from "../listPaging.js";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { CalendarEvent } from "../../db/entities/CalendarEvent.js";
-import { Meeting, type MeetingStatus } from "../../db/entities/Meeting.js";
+import { Meeting, MEETING_STATUSES, type MeetingStatus } from "../../db/entities/Meeting.js";
 import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../../db/entities/MeetingTranscriptSegment.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
@@ -214,121 +210,131 @@ export async function syncParticipantsFromEvent(
 
 // ───────────────────────────── reads ─────────────────────────────
 
+/** What narrows a meeting list. Every field is optional and they combine. */
 export type MeetingListFilter = {
   status?: MeetingStatus;
+  /** Only meetings linked to this account. */
   customerId?: string;
+  /** Only meetings this Contact attended. */
   contactId?: string;
-  from?: Date;
-  to?: Date;
-  limit?: number;
+  /** Scheduled on or after this day (`YYYY-MM-DD`, UTC) or instant. */
+  from?: string;
+  /** Scheduled on or before this day (the whole day) or instant. */
+  to?: string;
 };
 
-export async function listMeetings(
-  companyId: string,
-  filter: MeetingListFilter = {},
-): Promise<Meeting[]> {
-  const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
+/**
+ * Which meetings a reader sees. A Member sees every meeting in the company;
+ * an AI Employee sees those on a calendar it holds a Grant to, and ad-hoc ones
+ * on no calendar.
+ */
+export type MeetingVisibility = "all" | { grantedCalendarIds: string[] };
 
-  // A contact filter is a join through participants, which is exactly the
-  // query `meeting_participants` exists to make cheap.
-  let meetingIds: string[] | null = null;
-  if (filter.contactId) {
-    const rows = await AppDataSource.getRepository(MeetingParticipant).find({
-      where: { companyId, contactId: filter.contactId },
-      select: { meetingId: true },
-    });
-    meetingIds = rows.map((row) => row.meetingId);
-    if (meetingIds.length === 0) return [];
-  }
+/** The status filter both the tool and the REST route take. */
+export const meetingStatusFilter = z.enum(MEETING_STATUSES as [MeetingStatus, ...MeetingStatus[]]);
 
-  const where: FindOptionsWhere<Meeting> = { companyId };
-  if (filter.status) where.status = filter.status;
-  if (filter.customerId) where.customerId = filter.customerId;
-  if (meetingIds) where.id = In(meetingIds);
-  // Both bounds in the query: filtering the upper one after `take` let newer
-  // meetings fill the page and dropped the ones inside the range.
-  if (filter.from && filter.to) {
-    where.scheduledStartAt = And(
-      MoreThanOrEqual(filter.from),
-      LessThanOrEqual(filter.to),
-    ) as unknown as Date;
-  } else if (filter.from) {
-    where.scheduledStartAt = MoreThanOrEqual(filter.from) as unknown as Date;
-  } else if (filter.to) {
-    where.scheduledStartAt = LessThanOrEqual(filter.to) as unknown as Date;
-  }
-
-  return AppDataSource.getRepository(Meeting).find({
-    where,
-    order: { scheduledStartAt: "DESC", createdAt: "DESC" },
-    take: limit,
-  });
-}
+/** `GET /meetings`'s query: the filters `list_meetings` takes, and a page. */
+export const meetingListQuerySchema = z.object({
+  status: meetingStatusFilter.optional(),
+  customerId: z.string().uuid().optional().describe("Only meetings linked to this account."),
+  contactId: z.string().uuid().optional().describe("Only meetings this Contact attended."),
+  from: z
+    .string()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe(
+      "Scheduled on or after this date: YYYY-MM-DD is a calendar day in UTC; an ISO timestamp is that instant.",
+    ),
+  to: z
+    .string()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe("Scheduled on or before this date: YYYY-MM-DD includes that whole day (UTC)."),
+  ...pageQueryShape,
+});
 
 /** 50 meetings by default, at most 200 a page. */
 export const MEETING_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
 
-/**
- * Meetings an AI Employee may see, newest first, one page at a time: those on
- * a calendar it holds a Grant to, and ad-hoc ones on no calendar. The Grant is
- * part of the query, so a page is never cut short by rows it could not show,
- * and `hidden` counts the matches on calendars it cannot read.
- */
-export async function pageMeetingsForEmployee<Out>(
+/** Newest first; an ad-hoc meeting with no scheduled start sorts by when it was made. */
+const MEETING_KEYS: KeysetColumn[] = [
+  {
+    column: "COALESCE(meeting.scheduledStartAt, meeting.createdAt)",
+    direction: "DESC",
+    type: "timestamp",
+  },
+  { column: "meeting.id", direction: "DESC", type: "string" },
+];
+
+function meetingListQuery(
   companyId: string,
-  filter: Omit<MeetingListFilter, "limit" | "from" | "to"> & { from?: string; to?: string },
-  grantedCalendarIds: string[],
+  filter: MeetingListFilter,
+  range: DateRange,
+  visibility: MeetingVisibility,
+) {
+  const qb = AppDataSource.getRepository(Meeting)
+    .createQueryBuilder("meeting")
+    .where("meeting.companyId = :companyId", { companyId });
+  if (filter.status) qb.andWhere("meeting.status = :status", { status: filter.status });
+  if (filter.customerId) {
+    qb.andWhere("meeting.customerId = :customerId", { customerId: filter.customerId });
+  }
+  if (filter.contactId) {
+    // A contact filter is a join through participants, which is exactly the
+    // query `meeting_participants` exists to make cheap: a subquery, so a
+    // Contact in a thousand meetings never becomes a thousand parameters.
+    const q = (name: string) => AppDataSource.driver.escape(name);
+    qb.andWhere(
+      `${asText("meeting.id")} IN (SELECT ${q("p")}.${q("meetingId")} FROM ${q("meeting_participants")} ${q("p")} WHERE ${q("p")}.${q("companyId")} = :companyId AND ${q("p")}.${q("contactId")} = :contactId)`,
+      { contactId: filter.contactId },
+    );
+  }
+  // Both bounds in the query, never after the cut.
+  andWhereDateRange(qb, "meeting.scheduledStartAt", range, "scheduled");
+  if (visibility !== "all") {
+    if (visibility.grantedCalendarIds.length === 0) qb.andWhere("meeting.accountId IS NULL");
+    else {
+      qb.andWhere("(meeting.accountId IS NULL OR meeting.accountId IN (:...granted))", {
+        granted: visibility.grantedCalendarIds,
+      });
+    }
+  }
+  return qb;
+}
+
+/**
+ * Meetings a reader may see, newest first, one page at a time. What they may
+ * see is part of the query, so a page is never cut short by rows it could not
+ * show; `hidden` counts the matches on calendars an AI Employee holds no Grant
+ * to (always 0 for a Member). The `list_meetings` AI tool and `GET /meetings`
+ * read this one function. A bad date or cursor throws a `ListQueryError`.
+ */
+export async function pageMeetings<Out>(
+  companyId: string,
+  filter: MeetingListFilter,
+  visibility: MeetingVisibility,
   page: PageRequest & { budgetChars?: number },
   present: (meeting: Meeting) => Out,
 ): Promise<PageInfo & { rows: Out[]; hidden: number }> {
   const range = dateRange(filter.from, filter.to);
-  const query = (onlyGranted: boolean) => {
-    const qb = AppDataSource.getRepository(Meeting)
-      .createQueryBuilder("meeting")
-      .where("meeting.companyId = :companyId", { companyId });
-    if (filter.status) qb.andWhere("meeting.status = :status", { status: filter.status });
-    if (filter.customerId) {
-      qb.andWhere("meeting.customerId = :customerId", { customerId: filter.customerId });
-    }
-    if (filter.contactId) {
-      qb.andWhere(
-        `${asText("meeting.id")} IN (SELECT ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("meetingId")} FROM ${AppDataSource.driver.escape("meeting_participants")} ${AppDataSource.driver.escape("p")} WHERE ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("companyId")} = :companyId AND ${AppDataSource.driver.escape("p")}.${AppDataSource.driver.escape("contactId")} = :contactId)`,
-        { contactId: filter.contactId },
-      );
-    }
-    andWhereDateRange(qb, "meeting.scheduledStartAt", range, "scheduled");
-    if (onlyGranted) {
-      if (grantedCalendarIds.length === 0) qb.andWhere("meeting.accountId IS NULL");
-      else {
-        qb.andWhere("(meeting.accountId IS NULL OR meeting.accountId IN (:...granted))", {
-          granted: grantedCalendarIds,
-        });
-      }
-    }
-    return qb;
-  };
   const fingerprint = filterFingerprint(companyId, {
     status: filter.status,
     customerId: filter.customerId,
     contactId: filter.contactId,
     range,
-    granted: [...grantedCalendarIds].sort(),
+    granted: visibility === "all" ? "all" : [...visibility.grantedCalendarIds].sort(),
   });
   const after = page.cursor ? decodeCursor("meetings", fingerprint, page.cursor) : null;
   const limit = pageLimit(page.limit, MEETING_PAGE);
   const [total, everything, fetched] = await Promise.all([
-    query(true).getCount(),
-    query(false).getCount(),
-    keysetRows(query(true), {
-      // An ad-hoc meeting with no scheduled start sorts by when it was made.
-      keys: [
-        {
-          column: "COALESCE(meeting.scheduledStartAt, meeting.createdAt)",
-          direction: "DESC",
-          type: "timestamp",
-        },
-        { column: "meeting.id", direction: "DESC", type: "string" },
-      ],
+    meetingListQuery(companyId, filter, range, visibility).getCount(),
+    visibility === "all"
+      ? Promise.resolve(null)
+      : meetingListQuery(companyId, filter, range, "all").getCount(),
+    keysetRows(meetingListQuery(companyId, filter, range, visibility), {
+      keys: MEETING_KEYS,
       after,
       limit,
       prefix: "meeting",
@@ -344,7 +350,21 @@ export async function pageMeetingsForEmployee<Out>(
     present,
     budgetChars: page.budgetChars,
   });
-  return { ...closed, hidden: everything - total };
+  return { ...closed, hidden: everything === null ? 0 : everything - total };
+}
+
+/**
+ * Meetings an AI Employee may see, newest first, one page at a time: those on
+ * a calendar it holds a Grant to, and ad-hoc ones on no calendar.
+ */
+export async function pageMeetingsForEmployee<Out>(
+  companyId: string,
+  filter: MeetingListFilter,
+  grantedCalendarIds: string[],
+  page: PageRequest & { budgetChars?: number },
+  present: (meeting: Meeting) => Out,
+): Promise<PageInfo & { rows: Out[]; hidden: number }> {
+  return pageMeetings(companyId, filter, { grantedCalendarIds }, page, present);
 }
 
 export async function getMeeting(companyId: string, id: string): Promise<Meeting | null> {
