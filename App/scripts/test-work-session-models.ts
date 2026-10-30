@@ -150,7 +150,7 @@ async function modelValue(page: Page) {
   return page.getByRole("combobox", { name: "AI Model", exact: true }).inputValue();
 }
 async function effortValue(page: Page) {
-  return page.getByRole("combobox", { name: "Effort", exact: true }).inputValue();
+  return page.getByRole("combobox", { name: "Thinking level", exact: true }).inputValue();
 }
 async function send(page: Page, name = "Alex") {
   const count = Number(await page.getByRole("status", { name: "Started count" }).textContent());
@@ -176,10 +176,10 @@ try {
     async () => {
       const page = await open();
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
-      assert.equal(await effortValue(page), "Model default");
-      await page.getByRole("combobox", { name: "Effort", exact: true }).click();
+      assert.equal(await effortValue(page), "Default");
+      await page.getByRole("combobox", { name: "Thinking level", exact: true }).click();
       assert.deepEqual(await page.getByRole("option").allTextContents(), [
-        "Model default",
+        "Default",
         "Low",
         "Medium",
         "High",
@@ -227,8 +227,8 @@ try {
   await check("one model keeps effort available and submits the chosen effort", async () => {
     const page = await open("one");
     assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
-    assert.equal(await effortValue(page), "Model default");
-    await choose(page, "Effort", "Extra high");
+    assert.equal(await effortValue(page), "Default");
+    await choose(page, "Thinking level", "Extra high");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Write the release notes");
     const request = await send(page, "Jamie");
     assert.equal(request.employeeId, "jamie");
@@ -239,7 +239,7 @@ try {
 
   await check("unsupported models have no effort control and use the model default", async () => {
     const page = await open("unsupported");
-    assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("combobox", { name: "Thinking level", exact: true }).count(), 0);
     await page.getByRole("textbox", { name: "Work brief" }).fill("Use the model default");
     assert.equal((await send(page, "Jamie")).effort, null);
     await page.close();
@@ -248,7 +248,7 @@ try {
   await check("subscription model exposes Ultra effort and submits it", async () => {
     const page = await open("subscription");
     assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
-    await choose(page, "Effort", "Ultra");
+    await choose(page, "Thinking level", "Ultra");
     assert.equal(await effortValue(page), "Ultra");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Investigate this complex change");
     const request = await send(page, "Jamie");
@@ -257,13 +257,13 @@ try {
     await page.close();
   });
 
-  await check("None and Model default submit distinct effort choices", async () => {
+  await check("Off and Default submit distinct thinking levels", async () => {
     const page = await open();
     await choose(page, "AI Model", "GPT 5.4");
-    await choose(page, "Effort", "None");
+    await choose(page, "Thinking level", "Off");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Make a straightforward edit");
     assert.equal((await send(page)).effort, "none");
-    await choose(page, "Effort", "Model default");
+    await choose(page, "Thinking level", "Default");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Use the normal effort");
     assert.equal((await send(page)).effort, null);
     await page.close();
@@ -274,13 +274,13 @@ try {
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
-      await choose(page, "Effort", "Extra high");
+      await choose(page, "Thinking level", "Extra high");
       await choose(page, "AI employee", "Jamie");
       assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
-      assert.equal(await effortValue(page), "Model default");
+      assert.equal(await effortValue(page), "Default");
       await choose(page, "AI employee", "Alex");
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
-      assert.equal(await effortValue(page), "Model default");
+      assert.equal(await effortValue(page), "Default");
       await page.close();
     },
   );
@@ -310,7 +310,7 @@ try {
         await page.getByRole("combobox", { name: "AI Model", exact: true }).count(),
         scenario === "disconnected" ? 1 : 0,
       );
-      assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("combobox", { name: "Thinking level", exact: true }).count(), 0);
       await page.close();
     }
   });
@@ -321,13 +321,13 @@ try {
       for (const change of ["Remove GPT", "Disconnect GPT"]) {
         const page = await open();
         await choose(page, "AI Model", "GPT 5.4");
-        await choose(page, "Effort", "Extra high");
+        await choose(page, "Thinking level", "Extra high");
         await page.getByRole("button", { name: "Reorder models", exact: true }).click();
         assert.equal(await modelValue(page), "GPT 5.4");
         assert.equal(await effortValue(page), "Extra high");
         await page.getByRole("button", { name: change, exact: true }).click();
         assert.equal(await modelValue(page), "Claude Sonnet (default)");
-        assert.equal(await effortValue(page), "Model default");
+        assert.equal(await effortValue(page), "Default");
         await page.getByRole("textbox", { name: "Work brief" }).fill("Use the available model");
         const request = await send(page);
         assert.equal(request.modelId, "claude");
@@ -340,16 +340,16 @@ try {
   await check("changing the model or its supported efforts clears a stale effort", async () => {
     const page = await open();
     await choose(page, "AI Model", "GPT 5.4");
-    await choose(page, "Effort", "Extra high");
+    await choose(page, "Thinking level", "Extra high");
     await choose(page, "AI Model", "Claude Sonnet (default)");
-    assert.equal(await effortValue(page), "Model default");
+    assert.equal(await effortValue(page), "Default");
     await choose(page, "AI Model", "GPT 5.4");
-    assert.equal(await effortValue(page), "Model default");
-    await choose(page, "Effort", "Extra high");
+    assert.equal(await effortValue(page), "Default");
+    await choose(page, "Thinking level", "Extra high");
     await page.getByRole("button", { name: "Remove extra high effort", exact: true }).click();
-    assert.equal(await effortValue(page), "Model default");
+    assert.equal(await effortValue(page), "Default");
     await page.getByRole("button", { name: "Load employees", exact: true }).click();
-    assert.equal(await effortValue(page), "Model default");
+    assert.equal(await effortValue(page), "Default");
     await page.getByRole("textbox", { name: "Work brief" }).fill("Use a supported effort");
     assert.equal((await send(page)).effort, null);
     await page.close();
@@ -394,7 +394,7 @@ try {
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
-      await choose(page, "Effort", "Extra high");
+      await choose(page, "Thinking level", "Extra high");
       await page.getByRole("textbox", { name: "Work brief" }).fill("Keep my brief and attachment");
       await page.getByLabel("Attach files to work brief").setInputFiles({
         name: "brief.txt",
@@ -418,7 +418,7 @@ try {
         1,
       );
       failSend = false;
-      await choose(page, "Effort", "High");
+      await choose(page, "Thinking level", "High");
       assert.equal(
         await page
           .getByText("The selected AI Model is no longer connected.", { exact: true })
@@ -442,7 +442,7 @@ try {
     async () => {
       const page = await open();
       await choose(page, "AI Model", "GPT 5.4");
-      await choose(page, "Effort", "Extra high");
+      await choose(page, "Thinking level", "Extra high");
       await page.getByRole("textbox", { name: "Work brief" }).fill("Keyboard start");
       holdSend = true;
       const requestPromise = page.waitForRequest(
@@ -453,7 +453,7 @@ try {
       assert.equal(request.postDataJSON().modelId, "gpt");
       assert.equal(request.postDataJSON().effort, "xhigh");
       assert.equal(
-        await page.getByRole("combobox", { name: "Effort", exact: true }).isDisabled(),
+        await page.getByRole("combobox", { name: "Thinking level", exact: true }).isDisabled(),
         true,
       );
       assert.equal(
@@ -478,7 +478,7 @@ try {
         true,
       );
       assert.equal(
-        await page.getByRole("combobox", { name: "Effort", exact: true }).isEnabled(),
+        await page.getByRole("combobox", { name: "Thinking level", exact: true }).isEnabled(),
         true,
       );
       await page.close();
@@ -489,7 +489,7 @@ try {
     for (const scenario of ["loading", "error", "empty"]) {
       const page = await open(scenario);
       assert.equal(await page.getByRole("combobox", { name: "AI Model", exact: true }).count(), 0);
-      assert.equal(await page.getByRole("combobox", { name: "Effort", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("combobox", { name: "Thinking level", exact: true }).count(), 0);
       if (scenario === "error") {
         await page.getByText("Could not load AI employees", { exact: true }).waitFor();
         await page.getByRole("button", { name: /retry/i }).click();
@@ -499,7 +499,7 @@ try {
         await page.getByRole("button", { name: "Load employees", exact: true }).click();
       }
       assert.equal(await modelValue(page), "Claude Sonnet (default)");
-      assert.equal(await effortValue(page), "Model default");
+      assert.equal(await effortValue(page), "Default");
       await page.close();
     }
   });
@@ -529,7 +529,7 @@ try {
     await picker.press("Enter");
     await page.getByRole("listbox").waitFor({ state: "hidden" });
     assert.equal(await modelValue(page), "GPT 5.4");
-    const effortPicker = page.getByRole("combobox", { name: "Effort", exact: true });
+    const effortPicker = page.getByRole("combobox", { name: "Thinking level", exact: true });
     await effortPicker.focus();
     await effortPicker.fill("Extra high");
     const effortOption = page.getByRole("option", { name: "Extra high", exact: true });
@@ -621,7 +621,7 @@ try {
         .waitFor();
       await page.getByRole("combobox", { name: "AI Model", exact: true }).waitFor();
       await choose(page, "AI Model", "GPT 5.4");
-      await choose(page, "Effort", "Extra high");
+      await choose(page, "Thinking level", "Extra high");
       await page
         .getByRole("textbox", { name: "Work brief" })
         .fill("Keep this draft through model changes");

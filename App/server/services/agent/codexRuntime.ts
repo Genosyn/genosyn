@@ -9,6 +9,7 @@ import {
 } from "../codexSubscription.js";
 import { CodexAppServer, CodexAppServerError } from "./codexAppServer.js";
 import { codexErrorKind } from "./modelOutage.js";
+import { codexThinking } from "./thinkingParams.js";
 import { toolResultCap } from "./toolResultBudget.js";
 import { contextUsage } from "./contextUsage.js";
 import { registryResultNotice, type ToolRegistry } from "./tools/toolRegistry.js";
@@ -55,16 +56,75 @@ export type CodexSubscriptionResult = {
  * closures can resolve the deferred catalogue exactly as the direct API loop
  * does. No second permission or dispatch implementation is introduced here.
  */
-export async function runCodexSubscriptionTurn(params: {
+export async function runCodexSubscriptionTurn(
+  params: CodexTurnParams,
+): Promise<CodexSubscriptionResult> {
+  const thinking = codexThinking(params.model, params.effort, {
+    summaries: params.reasoningSummaries,
+  });
+  if (!thinking.effort && !thinking.summary) return runCodexTurn(params, thinking);
+  // A turn Codex refuses for its thinking fields runs again without them —
+  // but only while it has neither said nor done anything, so nothing repeats.
+  let started = false;
+  const watched: CodexTurnParams = {
+    ...params,
+    callbacks: {
+      ...params.callbacks,
+      onText: (delta) => {
+        started = true;
+        params.callbacks?.onText?.(delta);
+      },
+      onToolUse: (name, input, callId) => {
+        started = true;
+        params.callbacks?.onToolUse?.(name, input, callId);
+      },
+    },
+  };
+  try {
+    return await runCodexTurn(watched, thinking);
+  } catch (error) {
+    if (started || params.signal?.aborted || !codexRefusedThinking(error)) throw error;
+    safeCallback(() => params.callbacks?.onThinkingFallback?.({ level: thinking.effort ?? null }));
+    return runCodexTurn(params, {});
+  }
+}
+
+type CodexTurnParams = {
   model: AIModel;
+  /** The turn's thinking level; null or omitted leaves the model at its own default. */
   effort?: ModelEffort | null;
+  /** Ask for the reasoning summary even at the model's own default (chat). */
+  reasoningSummaries?: boolean;
   system: string;
   messages: AgentMessage[];
   registry: ToolRegistry;
   maxSteps: number | null;
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
-}): Promise<CodexSubscriptionResult> {
+};
+
+/**
+ * Whether Codex turned a turn down over its reasoning effort or summary: the
+ * error, or the provider answer it carries, names them (`reasoning.effort`,
+ * `reasoning.summary`).
+ */
+export function codexRefusedThinking(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  let data = "";
+  if (error instanceof CodexAppServerError && error.data !== undefined) {
+    try {
+      data = JSON.stringify(error.data);
+    } catch {
+      data = "";
+    }
+  }
+  return /reasoning[._](?:effort|summary)|reasoning_effort|\beffort\b/i.test(`${message} ${data}`);
+}
+
+async function runCodexTurn(
+  params: CodexTurnParams,
+  thinking: { effort?: ModelEffort; summary?: "auto" },
+): Promise<CodexSubscriptionResult> {
   const onLockWait = (state: "waiting" | "done") =>
     safeCallback(() => params.callbacks?.onRuntimeWait?.({ cause: "model_lock", state }));
   return withSubscriptionModelLock(params.model.id, params.signal, async () => {
@@ -306,7 +366,7 @@ export async function runCodexSubscriptionTurn(params: {
           threadId,
           input: conversation.current,
           approvalPolicy: "never",
-          ...(params.effort != null ? { effort: params.effort } : {}),
+          ...thinking,
         },
         30_000,
       );

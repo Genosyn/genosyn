@@ -6,7 +6,8 @@ import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { resolveChatModel } from "./models.js";
-import { supportsModelEffort } from "./modelEffort.js";
+import { runTimeThinking } from "./chatThinking.js";
+import type { ResolvedThinking } from "../../shared/thinkingLevels.js";
 import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
@@ -228,8 +229,20 @@ type ChatBaseOptions = {
    * surface.
    */
   modelId?: string | null;
-  /** Effort selected for this turn; omit/null to use the AI Model's default. */
+  /**
+   * The thinking level for this turn; omit/null to use the AI Model's own
+   * default. Checked against the model again when the turn runs: a level it
+   * no longer offers, or its ceiling no longer allows, moves to the nearest
+   * one that is, and {@link onThinkingAdjusted} hears it.
+   */
   effort?: ModelEffort | null;
+  /**
+   * Ask for the AI Model's thinking summary even at its own default, for a
+   * surface that shows it in the turn's activity.
+   */
+  reasoningSummaries?: boolean;
+  /** Fired when the turn runs at another level than {@link effort}; see there. */
+  onThinkingAdjusted?: (resolved: ResolvedThinking) => void;
   /**
    * Enables the turn-local `report_progress` control and receives each update.
    * Omit it on chat surfaces that cannot display ephemeral progress.
@@ -255,6 +268,7 @@ type ChatBaseOptions = {
     | "onApiKeyFailover"
     | "onServedModelChange"
     | "onBackgroundWork"
+    | "onThinkingFallback"
   >;
   /**
    * Fired once the turn holds its reply lease and is about to run the model —
@@ -688,18 +702,19 @@ export async function streamChatWithEmployee(
       sidecars: {},
     };
   }
-  // Callers check the effort when they accept work; checked again here because
-  // a durable turn can run long after that, on a model edited in between. A
-  // provider would refuse the request anyway, with a less useful message.
-  if (!supportsModelEffort(model, options.effort)) {
-    return {
-      status: "skipped",
-      reply:
-        "The selected AI Model does not support the effort chosen for this message. Choose another effort or Model default, then send the message again.",
-      attachmentIds: [],
-      sidecars: {},
-    };
+  // Callers resolve the thinking level when they accept work; checked again
+  // here because a durable turn can run long after that, on a model edited in
+  // between. Moved to the nearest level the model allows, never refused, and
+  // reported so the reply records the level it actually ran at.
+  const thinking = runTimeThinking(model, options.effort ?? null);
+  if (thinking.adjusted) {
+    try {
+      options.onThinkingAdjusted?.(thinking);
+    } catch {
+      // An observer never decides whether the turn runs.
+    }
   }
+  const effort = thinking.send;
 
   let workloadLease = null;
   const workloadScopeKey = chatWorkloadScopeKey(options);
@@ -754,7 +769,7 @@ export async function streamChatWithEmployee(
       try {
         const result = await runRestrictedEmployeeAgent({
           model,
-          effort: options.effort,
+          effort,
           employeeId: emp.id,
           system,
           messages,
@@ -762,6 +777,7 @@ export async function streamChatWithEmployee(
           maxSteps: 4,
           signal: controller.signal,
           callbacks: {
+            onThinkingFallback: options.activity?.onThinkingFallback,
             shouldStreamText: () => discussionSource.wasRead(),
             onModelRetry: (retry) => {
               console.warn(
@@ -1073,7 +1089,8 @@ export async function streamChatWithEmployee(
     try {
       const result = await runEmployeeAgent({
         model,
-        effort: options.effort,
+        effort,
+        reasoningSummaries: options.reasoningSummaries,
         employeeId: emp.id,
         system,
         messages,
@@ -1114,6 +1131,7 @@ export async function streamChatWithEmployee(
           onApiKeyFailover: options.activity?.onApiKeyFailover,
           onServedModelChange: options.activity?.onServedModelChange,
           onBackgroundWork: options.activity?.onBackgroundWork,
+          onThinkingFallback: options.activity?.onThinkingFallback,
           // A chat turn that lost a capability should not be invisible either.
           onToolsDeferred: (d) => {
             if (d.deferred > 0) {

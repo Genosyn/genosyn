@@ -337,6 +337,32 @@ describe("thinking, waiting and the summary", () => {
     assert.equal(rows[3].summary, "Worked for 2s · 1 step");
   });
 
+  test("a refused thinking level is one quiet line, however many requests or copies hear it", async () => {
+    const { rec, emitted } = recorder();
+    rec.thinkingFallback({ level: "xhigh" });
+    // A delegated copy on the same model is refused too; the turn says it once.
+    rec.thinkingFallback({ level: "xhigh" });
+    await rec.flush();
+    const rows = await stored();
+    assert.deepEqual(
+      rows.map((row) => [row.kind, row.name, row.summary]),
+      [
+        [
+          "notice",
+          "thinking_fallback",
+          "The AI Model didn't accept the Extra high thinking level; it answers at its own default",
+        ],
+      ],
+    );
+    assert.equal(emitted.length, 1);
+    const summaryOnly = recorder();
+    summaryOnly.rec.thinkingFallback({ level: null });
+    assert.equal(
+      summaryOnly.emitted[0].summary,
+      "The AI Model didn't accept a request for its thinking summary; it answers without one",
+    );
+  });
+
   test("the live record receives each event in the same tick it is recorded", () => {
     const live = openLiveTurn("msg_live_tick", "conv");
     const rec = new ChatTurnActivityRecorder({ ...SCOPE, messageId: "msg_live_tick" }, 1, { live });

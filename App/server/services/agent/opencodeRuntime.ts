@@ -22,6 +22,7 @@ import { serveOpenCodeTools } from "./opencodeMcp.js";
 import { startOpenCodeServer, type OpenCodeServer } from "./opencodeServer.js";
 import { OpenCodeEvents, openCodeActivityError } from "./opencodeEvents.js";
 import { serveOpenCodeModel, type UpstreamOutcome } from "./opencodeProxy.js";
+import { openCodeThinking, type OpenCodeThinking } from "./thinkingParams.js";
 import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModelLimits.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 import { recoverOpenCodePrompt } from "./opencodeRecovery.js";
@@ -31,7 +32,13 @@ import { modelAvailabilityKey, recordKeyFailure, recordKeySuccess } from "../mod
 
 export type OpenCodeTurnParams = {
   model: AIModel;
+  /** The turn's thinking level; null or omitted leaves the model at its own default. */
   effort?: ModelEffort | null;
+  /**
+   * Ask for the AI Model's thinking summary even at its own default, for a
+   * surface that shows it (chat). A level always asks for it.
+   */
+  reasoningSummaries?: boolean;
   system: string;
   messages: AgentMessage[];
   registry: ToolRegistry;
@@ -99,9 +106,17 @@ export function turnWaitsForModel(
   return params.waitForModel ?? params.maxSteps === null;
 }
 
+/** The turn's thinking level as OpenCode model options (`thinkingParams.ts`). */
+export function turnThinking(
+  params: Pick<OpenCodeTurnParams, "model" | "effort" | "reasoningSummaries">,
+): OpenCodeThinking {
+  return openCodeThinking(params.model, params.effort, { summaries: params.reasoningSummaries });
+}
+
 /** OpenCode owns model calls, tool sequencing, retries and context compaction. */
 export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenCodeTurnResult> {
   if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
+  const thinking = turnThinking(params);
   const model = await resolveOpenCodeModel(params.model, { keySession: params.keySession });
   if (model.keys?.isSession && model.keys.size > 1) {
     params.callbacks?.onApiKeySession?.({ preview: model.keys.key.preview, keys: model.keys.size });
@@ -123,11 +138,14 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
         void adoptServedModel(params.model, to).catch(() => false);
       },
       onUpstream: availability,
+      // The level goes on in the session's requests no more; say which it was.
+      onThinkingRefused: () =>
+        params.callbacks?.onThinkingFallback?.({ level: params.effort ?? null }),
     });
     server = await startOpenCodeServer({
       config: buildOpenCodeConfig({
         model: proxy.model,
-        effort: params.effort,
+        thinking,
         maxSteps: params.maxSteps,
         nativeCoding: params.nativeCoding ?? false,
         mcp: bridge,

@@ -1,12 +1,13 @@
 import type { ModelEffort } from "../../shared/modelEffort.js";
 import type { PublicModelAvailability } from "../../shared/modelAvailability.js";
+import type { ModelThinking } from "../../shared/thinkingLevels.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
 import { canProbeContextWindow } from "./agent/contextWindow.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
 import { subscriptionCredentialKind, subscriptionUnavailableReason } from "./codexSubscription.js";
 import { publicApiKeys, type PublicApiKey } from "./modelApiKeys.js";
-import { modelEffortLevels } from "./modelEffort.js";
+import { modelEffortLevels, modelThinking } from "./modelEffort.js";
 import { keyRestingUntil, listKeyHealth } from "./modelKeyHealth.js";
 import { modelRunCapacity } from "./modelRunCapacity.js";
 import { publicModelAvailability } from "./modelOutageViews.js";
@@ -74,11 +75,19 @@ export type PublicModel = {
   /** Can we ask this provider for the window at all? Drives the UI's affordances. */
   contextWindowProbeable: boolean;
   /**
-   * Efforts this model accepts beyond its default, lowest first. Empty for a
-   * custom endpoint or a model without known effort support, which always
-   * runs at its default.
+   * Thinking levels this model offers, lowest first (`none` is Off). Empty
+   * for a model without known support — and a custom endpoint whose owners
+   * have not turned levels on — which always runs at its own default.
    */
   effortLevels: ModelEffort[];
+  /**
+   * Everything a thinking-level picker needs: the levels, what the model does
+   * by itself, its owners' default for chat and the highest level Members may
+   * choose (`shared/thinkingLevels.ts`).
+   */
+  thinking: ModelThinking;
+  /** A custom endpoint whose owners turned thinking levels on. */
+  customThinkingLevels: boolean;
   /** Stored concurrent-Run setting: null is the default, 0 is no limit. */
   maxConcurrentRuns: number | null;
   /** The limit Routine Runs actually get, across every employee on it; null means no limit. */
@@ -168,6 +177,8 @@ export function toPublicModel(
     contextWindowSource: m.contextWindowSource ?? null,
     contextWindowProbeable: canProbeContextWindow(m),
     effortLevels: modelEffortLevels(m),
+    thinking: modelThinking(m),
+    customThinkingLevels: m.customThinkingLevels === true,
     maxConcurrentRuns: m.maxConcurrentRuns ?? null,
     effectiveMaxConcurrentRuns: capacity.limit,
     concurrencySource: capacity.source,

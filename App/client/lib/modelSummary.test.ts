@@ -150,6 +150,42 @@ describe("what a card's closed Advanced line says", () => {
     );
   });
 
+  test("thinking settings moved off their defaults are named, on any kind of model", () => {
+    const thinking = {
+      levels: ["low", "medium", "high", "xhigh"] as const,
+      nativeDefault: "medium" as const,
+      defaultLevel: "high" as const,
+      ceiling: "xhigh" as const,
+      unavailableReason: null,
+    };
+    assert.equal(
+      modelAdvancedSummary({
+        ...base,
+        maxConcurrentRuns: 2,
+        thinking: { ...thinking, levels: [...thinking.levels] },
+      }),
+      "2 concurrent Runs · Chat thinks at High · Thinking up to Extra high",
+    );
+    // A ChatGPT sign-in has no window or Run limit to name, but its thinking does count.
+    assert.deepEqual(
+      tuningNotes({
+        ...base,
+        authMode: "subscription",
+        maxConcurrentRuns: 3,
+        thinking: { ...thinking, levels: [...thinking.levels], defaultLevel: null },
+      }),
+      ["Thinking up to Extra high"],
+    );
+    // At their defaults, nothing new is said.
+    assert.equal(
+      modelAdvancedSummary({
+        ...base,
+        thinking: { ...thinking, levels: [...thinking.levels], defaultLevel: null, ceiling: null },
+      }),
+      "API keys, model, context window and Run limit",
+    );
+  });
+
   test("a hand-set window wins over 'unknown'", () => {
     assert.deepEqual(
       tuningNotes({

@@ -1,4 +1,10 @@
-/** Portable effort values; each AI Model exposes only the levels it supports. */
+/**
+ * Portable thinking levels; each AI Model exposes only the levels it supports.
+ * The product calls one a **thinking level** — how hard the AI Model thinks
+ * before it answers — and `none` reads as "Off". The values stay the wire
+ * names the runtimes take (`reasoning.effort`, `output_config.effort`, Codex's
+ * `effort`), so code keeps calling the field `effort`.
+ */
 export const MODEL_EFFORT_VALUES = [
   "none",
   "minimal",
@@ -12,14 +18,14 @@ export const MODEL_EFFORT_VALUES = [
 
 export type ModelEffort = (typeof MODEL_EFFORT_VALUES)[number];
 
-/** How each effort reads in the product, wherever a Member picks or sees one. */
+/** How each level reads in the product, wherever a Member picks or sees one. */
 export const MODEL_EFFORT_LABELS: Record<ModelEffort, string> = {
-  none: "None",
+  none: "Off",
   minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
   xhigh: "Extra high",
-  max: "Maximum",
+  max: "Max",
   ultra: "Ultra",
 };

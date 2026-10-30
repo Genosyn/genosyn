@@ -219,6 +219,7 @@ code, UI copy, commits, and docs.
 | **Skill** (playbook — `Skill.body` in the DB) | Tool, Capability, Function |
 | **AI Employee** | Agent, Bot, Assistant (in product copy) |
 | **AI Model** (backend brain record) | Provider, LLM config |
+| **Thinking level** (how hard an AI Model thinks before it answers — a conversation's `Conversation.effort`, a model's `AIModel.defaultEffort` / `effortCeiling`; code and the wire keep the name `effort`) | Effort (in product copy), Reasoning budget, Thinking mode, Think budget |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
 | **Run** (one execution of a Routine) | Execution, Invocation |
 | **Folder** (the exclusive, nestable filing tree for Routines and for Resources — `RoutineFolder`, `ResourceFolder`) | Category, Group, Collection, Tag |
@@ -992,6 +993,26 @@ in a Work session instead of leaving them stranded as local commits.
   `onRuntimeWait({ cause, label })`; the chat words the causes it knows and
   shows the server's label for any other. Retry runs a failed reply again in
   place (`retryDurableChatTurn`) — never a second reply row for one request.
+- **A thinking level belongs to the conversation and is resolved per turn.**
+  A Member sets `Conversation.effort` from the composer (null is Default);
+  owners set each model's `defaultEffort` and `effortCeiling` at Settings → AI
+  Models. One set of rules (`shared/thinkingLevels.ts`) serves the composer
+  and the server: Default takes the owners' default, else the model's own; a
+  level the model does not offer moves to the nearest it does, one over the
+  ceiling to the ceiling — moved, never refused or dropped silently, and the
+  reply records what it ran at (`ConversationMessage.thinkingJson`). Which
+  levels each model offers and what it does unasked live in
+  `services/modelEffort.ts` (an explicit table — an unknown model offers
+  none, a custom endpoint none until its owners turn levels on);
+  `services/agent/thinkingParams.ts` turns a level into each runtime's real
+  parameters (Claude adaptive thinking or a budget, OpenAI reasoning effort,
+  `reasoning_effort`, Codex `effort`), always asking for the thinking summary
+  so the chat's activity can show it. A model that refuses the level is not a
+  failed turn: the model proxy resends without it (`withoutThinking`), Codex
+  reruns an untouched turn without it, and the reply says so. Durable chat,
+  Help and Repository work sessions resolve levels; Routines, chat surfaces
+  and restricted turns stay at the model's own default. A level changes how
+  hard the model thinks and nothing else — never tools, Grants or gates.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs stay stable).

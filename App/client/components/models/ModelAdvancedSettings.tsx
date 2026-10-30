@@ -19,6 +19,7 @@ import { ModelSettingList, ModelSettingSection } from "./ModelSettingSection";
 import { ModelSetupForm } from "./ModelSetupForm";
 import { RunConcurrencyPanel } from "./RunConcurrencyPanel";
 import { SubscriptionPanel } from "./SubscriptionPanel";
+import { ThinkingLevelPanel } from "./ThinkingLevelPanel";
 
 type Props = {
   company: Pick<Company, "id" | "role">;
@@ -36,11 +37,11 @@ type Props = {
  * settings and nothing about any other:
  *
  *   - an API-key model: its API keys (the pool its sessions are spread
- *     across), its model, context window, concurrent Runs;
+ *     across), its model, context window, concurrent Runs, thinking level;
  *   - a custom endpoint: the endpoint (server, model it serves, key), context
- *     window, concurrent Runs;
- *   - a ChatGPT sign-in: the sign-in and its model — Codex manages its context
- *     and Runs, so it has neither control;
+ *     window, concurrent Runs, and whether it offers thinking levels;
+ *   - a ChatGPT sign-in: the sign-in, its model and thinking level — Codex
+ *     manages its context and Runs, so it has neither control;
  *   - a model still waiting to connect: changing its service or model, for an
  *     owner who picked the wrong one. Finishing the connection stays on the
  *     card, where it is the next thing to do.
@@ -128,6 +129,12 @@ export function ModelAdvancedSettings({
           onChanged={onChanged}
         />
       )}
+      <ThinkingLevelPanel
+        company={company}
+        model={model}
+        canManage={canManage}
+        onChanged={onChanged}
+      />
       {exit}
     </ModelSettingList>
   );

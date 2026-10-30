@@ -63,8 +63,13 @@ import { decisionStackStateOf, getDecisionStackState } from "../decisionStackSet
 
 export type EmployeeAgentParams = {
   model: AIModel;
-  /** Turn-local effort; null leaves the model's default unchanged. */
+  /** Turn-local thinking level; null leaves the model's default unchanged. */
   effort?: ModelEffort | null;
+  /**
+   * Ask for the AI Model's thinking summary even at its own default, for a
+   * surface that shows it — chat. A thinking level always asks for it.
+   */
+  reasoningSummaries?: boolean;
   employeeId: string;
   /** System prompt: persona + Soul + memory + skills + tools briefing. */
   system: string;
@@ -164,6 +169,7 @@ export type EmployeeAgentResult =
 export type RestrictedEmployeeAgentParams = {
   model: AIModel;
   effort?: ModelEffort | null;
+  reasoningSummaries?: boolean;
   employeeId: string;
   system: string;
   messages: AgentMessage[];
@@ -439,6 +445,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     const result = await agentRuntime.run({
       model: params.model,
       effort: params.effort,
+      reasoningSummaries: params.reasoningSummaries,
       system: params.system,
       messages: params.messages,
       registry: gathered.registry,
@@ -513,6 +520,7 @@ async function runRestrictedEmployeeTurn(
       const result = await runCodexSubscriptionTurn({
         model: params.model,
         effort: params.effort,
+        reasoningSummaries: params.reasoningSummaries,
         system: params.system,
         messages: params.messages,
         registry,
@@ -527,6 +535,7 @@ async function runRestrictedEmployeeTurn(
     const result = await agentRuntime.run({
       model: params.model,
       effort: params.effort,
+      reasoningSummaries: params.reasoningSummaries,
       system: params.system,
       messages: params.messages,
       registry,
@@ -611,6 +620,7 @@ async function runSubscriptionEmployeeAgent(
     const result = await runCodexSubscriptionTurn({
       model: params.model,
       effort: params.effort,
+      reasoningSummaries: params.reasoningSummaries,
       system: params.system,
       messages: params.messages,
       registry: gathered.registry,
@@ -689,6 +699,7 @@ async function runDelegatedBrief(
     onModelOutage: parent.callbacks?.onModelOutage,
     onServedModelChange: parent.callbacks?.onServedModelChange,
     onApiKeyFailover: parent.callbacks?.onApiKeyFailover,
+    onThinkingFallback: parent.callbacks?.onThinkingFallback,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,
