@@ -10,6 +10,7 @@ import {
   ModelEffort,
 } from "./api";
 import { latestContextUsage, parseContextUsageEvent } from "./chatContextUsage";
+import { EMPTY_LIVE_TURN, reduceLiveTurn, type LiveTurnState } from "./chatActivity";
 
 /**
  * Per-employee chat state held at the company-shell level so it survives
@@ -46,6 +47,12 @@ export type ConversationFlight = {
   progress: ChatProgress | null;
   /** How this browser is following the durable in-flight turn. */
   connectionState: "streaming" | "polling" | "reconnecting" | null;
+  /**
+   * What the in-flight turn has done so far — its recorded steps, its clock,
+   * and when this browser last heard from it — fed by whichever stream is
+   * following the turn.
+   */
+  live: LiveTurnState;
   /** Follow-up messages waiting for *this thread's* current reply to finish. */
   queuedMessages: QueuedChatMessage[];
 };
@@ -123,6 +130,7 @@ export const IDLE_FLIGHT: ConversationFlight = Object.freeze({
   streamingReply: null,
   progress: null,
   connectionState: null,
+  live: EMPTY_LIVE_TURN,
   queuedMessages: [],
 }) as ConversationFlight;
 
@@ -200,6 +208,36 @@ function withFlight(
   return { ...flights, [key]: flight };
 }
 
+/**
+ * Fold one stream frame into a thread's live turn, ignoring threads that have
+ * already finished — a late frame must not resurrect a flight.
+ */
+function patchLive(
+  flights: EmployeeSession["flights"],
+  key: string,
+  frame: { event: string; data: unknown },
+): EmployeeSession["flights"] {
+  const flight = flights[key];
+  if (!flight?.sending) return flights;
+  return { ...flights, [key]: { ...flight, live: reduceLiveTurn(flight.live, frame, Date.now()) } };
+}
+
+/** An employee-reported milestone, if the frame carries a well-formed one. */
+function validProgress(data: unknown): ChatProgress | null {
+  const candidate = data as Partial<ChatProgress> | null;
+  if (
+    typeof candidate?.percent !== "number" ||
+    !Number.isInteger(candidate.percent) ||
+    candidate.percent < 1 ||
+    candidate.percent > 99 ||
+    typeof candidate.label !== "string" ||
+    !candidate.label.trim()
+  ) {
+    return null;
+  }
+  return { percent: candidate.percent, label: candidate.label.trim() };
+}
+
 type Update = Partial<EmployeeSession> | ((s: EmployeeSession) => EmployeeSession);
 
 type ChatActions = {
@@ -243,6 +281,22 @@ type ChatActions = {
     companyId: string,
     empId: string,
     conversationId: string | null,
+  ) => Promise<string | null>;
+  /**
+   * Follow a turn this browser did not start — after a reload, from another
+   * tab, or once the stream that started it dropped — until it finishes.
+   * Idempotent per turn.
+   */
+  followTurn: (companyId: string, empId: string, conversationId: string, messageId: string) => void;
+  /**
+   * Run a failed reply again in place. Resolves with an error message, or
+   * null once the turn is running again.
+   */
+  retryTurn: (
+    companyId: string,
+    empId: string,
+    conversationId: string,
+    messageId: string,
   ) => Promise<string | null>;
 };
 
@@ -348,6 +402,23 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   const newConversationIntentRef = React.useRef<Record<string, number>>({});
   // Only the latest guided handoff may navigate, including across employees.
   const stagedHandoffIntentRef = React.useRef(0);
+  /**
+   * Threads whose turn this browser is hearing over the stream of the request
+   * that sent it, keyed like `pendingRef`. A follow stream never opens for one
+   * of these: both would deliver the same reply text, and text appends.
+   */
+  const postStreamsRef = React.useRef(new Set<string>());
+  /** Follow streams open per thread, and the turn each is following. */
+  const followersRef = React.useRef(
+    new Map<string, { messageId: string; controller: AbortController }>(),
+  );
+  React.useEffect(() => {
+    const followers = followersRef.current;
+    return () => {
+      for (const follower of followers.values()) follower.controller.abort();
+      followers.clear();
+    };
+  }, []);
 
   const update = React.useCallback((empId: string, u: Update) => {
     setSessions((prev) => {
@@ -379,12 +450,28 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         const current = s.flights[key];
         let flights = s.flights;
         if (working) {
+          const base = current ?? IDLE_FLIGHT;
+          // A stream already delivering this turn live keeps its own state;
+          // this read only fills in what a browser that is not streaming lacks.
+          const streamKey = pendingKey(empId, key);
+          const liveAttached =
+            postStreamsRef.current.has(streamKey) || followersRef.current.has(streamKey);
           flights = withFlight(flights, key, {
-            ...(current ?? IDLE_FLIGHT),
+            ...base,
             conversationId: convId,
             sending: true,
             progress: progressForWorkingMessage(working),
-            connectionState,
+            connectionState:
+              liveAttached && base.connectionState === "streaming" ? "streaming" : connectionState,
+            streamingReply: base.streamingReply || working.content || base.streamingReply,
+            live:
+              base.live.turnId === working.id
+                ? base.live
+                : {
+                    ...EMPTY_LIVE_TURN,
+                    turnId: working.id,
+                    startedAt: Date.parse(working.createdAt) || null,
+                  },
           });
         } else if (current?.sending) {
           // The turn we were following finished — including one stopped on
@@ -398,6 +485,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             streamingReply: null,
             progress: null,
             connectionState: null,
+            live: EMPTY_LIVE_TURN,
           });
         }
         if (s.activeConvId !== convId) {
@@ -834,6 +922,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             streamingReply: "",
             progress: null,
             connectionState: "streaming",
+            live: EMPTY_LIVE_TURN,
           }),
           input: clearInput && isVisibleContext ? "" : s.input,
           messages: isVisibleContext ? [...s.messages, tempUser] : s.messages,
@@ -956,148 +1045,174 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           }
         };
 
-        await api.stream(
-          `${base}/conversations/${streamConvId}/messages`,
-          {
-            message: msg,
-            attachmentIds: attachments.map((a) => a.id),
-            modelId: opts?.modelId ?? null,
-            effort: opts?.effort ?? null,
-          },
-          (event, data) => {
-            if (event === "user") {
-              const userMsg = data as ConversationMessage;
-              persistedUser = userMsg;
-              update(empId, (s) => {
-                if (s.activeConvId !== streamConvId) return s;
-                return {
-                  ...s,
-                  messages: s.messages.map((m) => (m.id === tempId ? userMsg : m)),
-                };
-              });
-            } else if (event === "working") {
-              const working = data as ConversationMessage;
-              workingMessageId = working.id;
-              update(empId, (s) => ({
-                ...s,
-                messages:
-                  s.activeConvId === streamConvId ? upsertMessage(s.messages, working) : s.messages,
-                flights: patchFlight(s.flights, flightKey, {
-                  progress: progressForWorkingMessage(working),
-                  connectionState: "streaming",
-                }),
-              }));
-            } else if (event === "chunk") {
-              const text = (data as { text?: string } | null)?.text ?? "";
-              if (!text) return;
-              accumulated += text;
-              update(empId, (s) => ({
-                ...s,
-                flights: patchFlight(s.flights, flightKey, {
-                  streamingReply: accumulated,
-                  progress: null,
-                }),
-              }));
-            } else if (event === "progress") {
-              const candidate = data as Partial<ChatProgress> | null;
-              if (
-                typeof candidate?.percent !== "number" ||
-                !Number.isInteger(candidate.percent) ||
-                candidate.percent < 1 ||
-                candidate.percent > 99 ||
-                typeof candidate.label !== "string" ||
-                !candidate.label.trim()
-              ) {
-                return;
-              }
-              const progress = {
-                percent: candidate.percent,
-                label: candidate.label.trim(),
-              };
-              update(empId, (s) => {
-                const flight = s.flights[flightKey];
-                if (flight?.streamingReply) return s;
-                return {
-                  ...s,
-                  flights: patchFlight(s.flights, flightKey, {
-                    progress,
-                    connectionState: "streaming",
-                  }),
-                  messages:
-                    workingMessageId && s.activeConvId === streamConvId
-                      ? s.messages.map((message) =>
-                          message.id === workingMessageId ? { ...message, progress } : message,
-                        )
-                      : s.messages,
-                };
-              });
-            } else if (event === "context") {
-              const usage = parseContextUsageEvent(data);
-              if (!usage) return;
-              update(empId, (s) => {
-                if (s.activeConvId !== streamConvId) return s;
-                // This fires once per model step — up to CHAT_MAX_STEPS times
-                // in one turn, and during a long tool phase it is the only
-                // thing changing. Nothing but `contextUsage` is touched, and
-                // even that only when the reading moves: handing back a new
-                // `messages` array would retrigger the transcript's
-                // scroll-to-bottom effect and repeatedly yank a Member who had
-                // scrolled up to re-read something. A reload mid-turn re-reads
-                // the persisted row from the server anyway, so a local mirror
-                // onto the in-flight message would buy nothing for the cost.
-                if (
-                  s.contextUsage &&
-                  s.contextUsage.tokens === usage.tokens &&
-                  s.contextUsage.window === usage.window
-                ) {
-                  return s;
-                }
-                return { ...s, contextUsage: usage };
-              });
-            } else if (event === "assistant") {
-              const assistantMsg = data as ConversationMessage;
-              workingMessageId = assistantMsg.id;
-              gotAssistant = true;
-              update(empId, (s) => {
-                const flights = patchFlight(s.flights, flightKey, {
-                  streamingReply: null,
-                  progress: null,
-                  connectionState: null,
+        const streamKey = pendingKey(empId, flightKey);
+        postStreamsRef.current.add(streamKey);
+        // This request now hears the turn itself; a follower would repeat it.
+        followersRef.current.get(streamKey)?.controller.abort();
+        followersRef.current.delete(streamKey);
+        try {
+          await api.stream(
+            `${base}/conversations/${streamConvId}/messages`,
+            {
+              message: msg,
+              attachmentIds: attachments.map((a) => a.id),
+              modelId: opts?.modelId ?? null,
+              effort: opts?.effort ?? null,
+            },
+            (event, data) => {
+              if (event === "user") {
+                const userMsg = data as ConversationMessage;
+                persistedUser = userMsg;
+                update(empId, (s) => {
+                  if (s.activeConvId !== streamConvId) return s;
+                  return {
+                    ...s,
+                    messages: s.messages.map((m) => (m.id === tempId ? userMsg : m)),
+                  };
                 });
-                if (s.activeConvId !== streamConvId) return { ...s, flights };
-                const messages = upsertMessage(s.messages, assistantMsg);
-                return {
+              } else if (event === "working") {
+                const working = data as ConversationMessage;
+                workingMessageId = working.id;
+                update(empId, (s) => ({
                   ...s,
-                  flights,
-                  messages,
-                  // The finalized row is authoritative — a mid-turn live event
-                  // can be a step behind what the finalize patch wrote. Falling
-                  // back to the current reading keeps the badge steady when the
-                  // provider reported no usage at all for this turn.
-                  contextUsage: latestContextUsage(messages) ?? s.contextUsage,
+                  messages:
+                    s.activeConvId === streamConvId
+                      ? upsertMessage(s.messages, working)
+                      : s.messages,
+                  flights: patchLive(
+                    patchFlight(s.flights, flightKey, {
+                      progress: progressForWorkingMessage(working),
+                      connectionState: "streaming",
+                    }),
+                    flightKey,
+                    { event, data },
+                  ),
+                }));
+              } else if (event === "turn" || event === "activity" || event === "heartbeat") {
+                update(empId, (s) => ({
+                  ...s,
+                  flights: patchLive(s.flights, flightKey, { event, data }),
+                }));
+              } else if (event === "chunk") {
+                const text = (data as { text?: string } | null)?.text ?? "";
+                if (!text) return;
+                accumulated += text;
+                update(empId, (s) => ({
+                  ...s,
+                  flights: patchLive(
+                    patchFlight(s.flights, flightKey, { streamingReply: accumulated }),
+                    flightKey,
+                    { event, data },
+                  ),
+                }));
+              } else if (event === "progress") {
+                const candidate = data as Partial<ChatProgress> | null;
+                if (
+                  typeof candidate?.percent !== "number" ||
+                  !Number.isInteger(candidate.percent) ||
+                  candidate.percent < 1 ||
+                  candidate.percent > 99 ||
+                  typeof candidate.label !== "string" ||
+                  !candidate.label.trim()
+                ) {
+                  return;
+                }
+                const progress = {
+                  percent: candidate.percent,
+                  label: candidate.label.trim(),
                 };
-              });
-            } else if (event === "conversation") {
-              // Sidebar ordering should reflect the most recently touched
-              // thread even if the user is currently viewing a different one.
-              const conv = data as ConversationSummary;
-              update(empId, (s) => {
-                const idx = s.convs.findIndex((c) => c.id === conv.id);
-                const next = [...s.convs];
-                if (idx >= 0) next.splice(idx, 1);
-                return { ...s, convs: [conv, ...next] };
-              });
-            } else if (event === "error") {
-              serverEventError = true;
-              throw new Error(
-                (data as { message?: string } | null)?.message || "Chat stream failed",
-              );
-            }
-          },
-        );
+                update(empId, (s) => {
+                  return {
+                    ...s,
+                    flights: patchFlight(s.flights, flightKey, {
+                      progress,
+                      connectionState: "streaming",
+                    }),
+                    messages:
+                      workingMessageId && s.activeConvId === streamConvId
+                        ? s.messages.map((message) =>
+                            message.id === workingMessageId ? { ...message, progress } : message,
+                          )
+                        : s.messages,
+                  };
+                });
+              } else if (event === "context") {
+                const usage = parseContextUsageEvent(data);
+                if (!usage) return;
+                update(empId, (s) => {
+                  if (s.activeConvId !== streamConvId) return s;
+                  // This fires once per model step — up to CHAT_MAX_STEPS times
+                  // in one turn, and during a long tool phase it is the only
+                  // thing changing. Nothing but `contextUsage` is touched, and
+                  // even that only when the reading moves: handing back a new
+                  // `messages` array would retrigger the transcript's
+                  // scroll-to-bottom effect and repeatedly yank a Member who had
+                  // scrolled up to re-read something. A reload mid-turn re-reads
+                  // the persisted row from the server anyway, so a local mirror
+                  // onto the in-flight message would buy nothing for the cost.
+                  if (
+                    s.contextUsage &&
+                    s.contextUsage.tokens === usage.tokens &&
+                    s.contextUsage.window === usage.window
+                  ) {
+                    return s;
+                  }
+                  return { ...s, contextUsage: usage };
+                });
+              } else if (event === "assistant") {
+                const assistantMsg = data as ConversationMessage;
+                workingMessageId = assistantMsg.id;
+                gotAssistant = true;
+                update(empId, (s) => {
+                  const flights = patchFlight(s.flights, flightKey, {
+                    streamingReply: null,
+                    progress: null,
+                    connectionState: null,
+                  });
+                  if (s.activeConvId !== streamConvId) return { ...s, flights };
+                  const messages = upsertMessage(s.messages, assistantMsg);
+                  return {
+                    ...s,
+                    flights,
+                    messages,
+                    // The finalized row is authoritative — a mid-turn live event
+                    // can be a step behind what the finalize patch wrote. Falling
+                    // back to the current reading keeps the badge steady when the
+                    // provider reported no usage at all for this turn.
+                    contextUsage: latestContextUsage(messages) ?? s.contextUsage,
+                  };
+                });
+              } else if (event === "conversation") {
+                // Sidebar ordering should reflect the most recently touched
+                // thread even if the user is currently viewing a different one.
+                const conv = data as ConversationSummary;
+                update(empId, (s) => {
+                  const idx = s.convs.findIndex((c) => c.id === conv.id);
+                  const next = [...s.convs];
+                  if (idx >= 0) next.splice(idx, 1);
+                  return { ...s, convs: [conv, ...next] };
+                });
+              } else if (event === "error") {
+                serverEventError = true;
+                throw new Error(
+                  (data as { message?: string } | null)?.message || "Chat stream failed",
+                );
+              }
+            },
+          );
+        } finally {
+          // However it ended, this request no longer hears the turn; a follow
+          // stream may take over while the reply is recovered.
+          postStreamsRef.current.delete(streamKey);
+        }
 
         if (!gotAssistant) {
-          return recoverAcceptedTurn("The live response ended before the final reply arrived.");
+          // Awaited, not returned: a returned promise lets the `finally` below
+          // run at once, tearing this thread's flight — and the steps it has
+          // shown — down while the turn is still being recovered.
+          return await recoverAcceptedTurn(
+            "The live response ended before the final reply arrived.",
+          );
         }
         return null;
       } catch (err) {
@@ -1125,6 +1240,10 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             return { ...s, flights };
           }
           const userMsg = persistedUser ?? tempUser;
+          // Never accepted, the message exists only here; its bubble can send
+          // it again. An accepted one is the server's, and the thread follows
+          // it there.
+          const neverAccepted = !persistedUser && !workingMessageId;
           return {
             ...s,
             flights,
@@ -1138,6 +1257,16 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
                 content: accumulated.trim() ? accumulated + "\n\n" + m : m,
                 status: "error",
                 createdAt: new Date().toISOString(),
+                ...(neverAccepted
+                  ? {
+                      retry: {
+                        content: msg,
+                        attachments,
+                        modelId: opts?.modelId ?? null,
+                        effort: opts?.effort ?? null,
+                      },
+                    }
+                  : {}),
               },
             ],
           };
@@ -1146,6 +1275,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           ? raw
           : "Chat connection interrupted. See the conversation for details.";
       } finally {
+        postStreamsRef.current.delete(pendingKey(empId, flightKey));
         // Only this thread stops sending. Any other conversation with the same
         // employee keeps streaming its own reply.
         update(empId, (s) => {
@@ -1160,12 +1290,200 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
               streamingReply: null,
               progress: null,
               connectionState: null,
+              live: EMPTY_LIVE_TURN,
             }),
           };
         });
       }
     },
     [applyConversationDetail, update],
+  );
+
+  /**
+   * Fold one frame of a followed turn into its thread. The same frames the
+   * sending request receives, with one addition: `snapshot`, the reply so far,
+   * which replaces the text rather than appending to it.
+   */
+  const applyFollowFrame = React.useCallback(
+    (empId: string, convId: string, event: string, data: unknown) => {
+      const key = chatFlightKey(convId, 0);
+      if (event === "context") {
+        const usage = parseContextUsageEvent(data);
+        if (!usage) return;
+        update(empId, (s) => {
+          if (s.activeConvId !== convId) return s;
+          if (
+            s.contextUsage &&
+            s.contextUsage.tokens === usage.tokens &&
+            s.contextUsage.window === usage.window
+          ) {
+            return s;
+          }
+          return { ...s, contextUsage: usage };
+        });
+        return;
+      }
+      update(empId, (s) => {
+        const flight = s.flights[key];
+        if (!flight?.sending) return s;
+        let next: ConversationFlight = { ...flight, connectionState: "streaming" };
+        let textArrived = false;
+        if (event === "snapshot") {
+          const raw = (data as { text?: unknown } | null)?.text;
+          const text = typeof raw === "string" ? raw : "";
+          textArrived = text.length > 0 && text !== (flight.streamingReply ?? "");
+          next = { ...next, streamingReply: text };
+        } else if (event === "chunk") {
+          const text = (data as { text?: unknown } | null)?.text;
+          if (typeof text === "string" && text) {
+            next = { ...next, streamingReply: (next.streamingReply ?? "") + text };
+          }
+        } else if (event === "progress") {
+          const progress = validProgress(data);
+          if (progress) next = { ...next, progress };
+        }
+        next = { ...next, live: reduceLiveTurn(next.live, { event, data }, Date.now()) };
+        // A turn followed through its saved rows sends its text as snapshots;
+        // one that changed is the reply being written, as a chunk would be.
+        if (textArrived) {
+          next = {
+            ...next,
+            live: { ...next.live, lastTextAt: Date.now() + next.live.clockOffsetMs },
+          };
+        }
+        return { ...s, flights: { ...s.flights, [key]: next } };
+      });
+    },
+    [update],
+  );
+
+  /** A followed turn finished: its row is final, so the thread shows it as a reply. */
+  const applyFollowedFinal = React.useCallback(
+    (empId: string, convId: string, message: ConversationMessage) => {
+      const key = chatFlightKey(convId, 0);
+      update(empId, (s) => {
+        const flight = s.flights[key];
+        const flights = flight?.sending
+          ? withFlight(s.flights, key, {
+              ...flight,
+              sending: false,
+              interrupting: false,
+              streamingReply: null,
+              progress: null,
+              connectionState: null,
+              live: EMPTY_LIVE_TURN,
+            })
+          : s.flights;
+        if (s.activeConvId !== convId) return flights === s.flights ? s : { ...s, flights };
+        const messages = upsertMessage(s.messages, message);
+        return {
+          ...s,
+          flights,
+          messages,
+          contextUsage: latestContextUsage(messages) ?? s.contextUsage,
+        };
+      });
+    },
+    [update],
+  );
+
+  const followTurn = React.useCallback(
+    (companyId: string, empId: string, convId: string, messageId: string) => {
+      const key = chatFlightKey(convId, 0);
+      const streamKey = pendingKey(empId, key);
+      if (postStreamsRef.current.has(streamKey)) return;
+      const existing = followersRef.current.get(streamKey);
+      if (existing && existing.messageId === messageId && !existing.controller.signal.aborted) {
+        return;
+      }
+      existing?.controller.abort();
+      const controller = new AbortController();
+      followersRef.current.set(streamKey, { messageId, controller });
+      const base = `/api/companies/${companyId}/employees/${empId}`;
+
+      void (async () => {
+        let failures = 0;
+        while (!controller.signal.aborted) {
+          const flight = sessionsRef.current[empId]?.flights[key];
+          // Nothing left to follow: the turn finished, or another one began.
+          if (!flight?.sending || (flight.live.turnId && flight.live.turnId !== messageId)) break;
+          if (postStreamsRef.current.has(streamKey)) break;
+          let finished = false;
+          try {
+            await api.streamGet(
+              `${base}/conversations/${convId}/messages/${messageId}/activity/stream?after=${flight.live.lastOrdinal}`,
+              (event, data) => {
+                failures = 0;
+                if (event === "assistant") {
+                  finished = true;
+                  applyFollowedFinal(empId, convId, data as ConversationMessage);
+                } else if (event === "done" || event === "error") {
+                  // `done` follows the reply; an error ends this stream, and
+                  // the loop below reconnects if the turn is still running.
+                } else {
+                  applyFollowFrame(empId, convId, event, data);
+                }
+              },
+              { signal: controller.signal },
+            );
+          } catch {
+            // A dropped connection; reconnect below unless we were stopped.
+          }
+          if (finished || controller.signal.aborted) break;
+          failures += 1;
+          update(empId, (s) => markReconnecting(s, convId));
+          await wait(Math.min(10_000, 1_000 * 2 ** Math.min(failures - 1, 4)));
+        }
+        if (followersRef.current.get(streamKey)?.controller === controller) {
+          followersRef.current.delete(streamKey);
+        }
+      })();
+    },
+    [applyFollowFrame, applyFollowedFinal, update],
+  );
+
+  const retryTurn = React.useCallback(
+    async (
+      companyId: string,
+      empId: string,
+      convId: string,
+      messageId: string,
+    ): Promise<string | null> => {
+      const base = `/api/companies/${companyId}/employees/${empId}`;
+      let result: { message: ConversationMessage; startedAt?: string };
+      try {
+        result = await api.post<{ message: ConversationMessage; startedAt?: string }>(
+          `${base}/conversations/${convId}/messages/${messageId}/retry`,
+          {},
+        );
+      } catch (error) {
+        return (error as Error).message || "Could not retry this reply.";
+      }
+      const key = chatFlightKey(convId, 0);
+      update(empId, (s) => {
+        const current = s.flights[key] ?? IDLE_FLIGHT;
+        const flights = withFlight(s.flights, key, {
+          ...current,
+          conversationId: convId,
+          sending: true,
+          interrupting: false,
+          streamingReply: "",
+          progress: null,
+          connectionState: "polling",
+          live: {
+            ...EMPTY_LIVE_TURN,
+            turnId: result.message.id,
+            startedAt: Date.parse(result.startedAt ?? "") || Date.now(),
+          },
+        });
+        const messages =
+          s.activeConvId === convId ? upsertMessage(s.messages, result.message) : s.messages;
+        return { ...s, flights, messages };
+      });
+      followTurn(companyId, empId, convId, result.message.id);
+      return null;
+    },
+    [followTurn, update],
   );
 
   const send = React.useCallback(
@@ -1372,6 +1690,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       removeQueuedMessage,
       promoteQueuedMessage,
       interruptActiveTurn,
+      followTurn,
+      retryTurn,
     }),
     [
       update,
@@ -1389,6 +1709,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       removeQueuedMessage,
       promoteQueuedMessage,
       interruptActiveTurn,
+      followTurn,
+      retryTurn,
     ],
   );
 

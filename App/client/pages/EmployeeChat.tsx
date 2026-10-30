@@ -15,11 +15,10 @@ import {
   Download,
   Gauge,
   Lightbulb,
-  LoaderCircle,
   MessageSquarePlus,
   Paperclip,
   Plug,
-  RefreshCw,
+  RotateCcw,
   Send,
   Sparkles,
   Trash2,
@@ -40,10 +39,9 @@ import {
   ModelEffort,
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
-import { isIndeterminateChatProgress, shouldShowChatProgressCard } from "../lib/chatProgress";
+import { employeeMilestone } from "../lib/chatProgress";
 import {
   activeFlight,
-  type ConversationFlight,
   QueuedChatMessage,
   shouldRenderQueuedMessage,
   useEmployeeSession,
@@ -59,6 +57,13 @@ import {
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
+import {
+  LiveTurnCard,
+  shouldShowTurnSummary,
+  TurnWorkSummary,
+} from "../components/chat/TurnActivity";
+import { Badge, CountBadge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
 import { EmployeeHeader } from "../components/EmployeeHeader";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
@@ -123,7 +128,7 @@ export default function EmployeeChat() {
   // Everything about the reply in flight belongs to the thread on screen. The
   // same employee may be answering other conversations at the same time; those
   // have their own flights and never show up here.
-  const { sending, interrupting, streamingReply, progress, connectionState, queuedMessages } =
+  const { sending, interrupting, streamingReply, progress, connectionState, live, queuedMessages } =
     activeFlight(session);
 
   /** Action whose details are open in the logs modal; null when closed. */
@@ -176,15 +181,28 @@ export default function EmployeeChat() {
   const isActiveResponse = sending;
   /** A stop this browser asked for that the employee has not finished obeying. */
   const isInterrupting = interrupting;
-  const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
-  const hasProgressCard = progress
-    ? shouldShowChatProgressCard(progress.percent, progress.label, connectionState)
-    : false;
-  const showTypingIndicator =
-    isActiveResponse && !hasStreamingReply && (!progress || !hasProgressCard);
-  const showProgressIndicator =
-    isActiveResponse && !hasStreamingReply && Boolean(progress) && hasProgressCard;
   const visibleMessages = messages.filter((message) => message.status !== "working");
+  /**
+   * The newest reply, when it failed: the one a Retry can run again. Older
+   * failures stay as history — the thread has moved past them.
+   */
+  const retryableId = (() => {
+    if (isActiveResponse) return null;
+    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+      const message = visibleMessages[index];
+      if (message.role !== "assistant") continue;
+      const failed =
+        message.status === "error" || message.status === "skipped" || message.status === "busy";
+      // A local error for a message the server did accept has nothing to
+      // retry here: the turn is the server's, and the thread follows it.
+      const retryable = failed && (Boolean(message.retry) || !isLocalChatError(message));
+      return retryable ? message.id : null;
+    }
+    return null;
+  })();
+  /** A Retry in flight, and the failure of the last one, keyed by reply. */
+  const [retrying, setRetrying] = React.useState<string | null>(null);
+  const [retryError, setRetryError] = React.useState<{ id: string; message: string } | null>(null);
 
   /**
    * Repository work the employee has linked in this thread.
@@ -352,8 +370,23 @@ export default function EmployeeChat() {
 
   // A durable working message can outlive the original response stream or a
   // full page load. While this browser is not receiving the live stream,
-  // refresh the thread every few seconds so persisted milestones and the final
-  // reply appear automatically.
+  // follow the turn over its own stream — the same steps and text the sending
+  // browser sees — and re-read the thread now and then as a safety net, so the
+  // final reply appears even if every stream fails.
+  const followedTurnId = live.turnId;
+  React.useEffect(() => {
+    if (!activeConvId || !isActiveResponse || !followedTurnId) return;
+    if (connectionState === "streaming") return;
+    actions.followTurn(company.id, emp.id, activeConvId, followedTurnId);
+  }, [
+    actions,
+    activeConvId,
+    company.id,
+    connectionState,
+    emp.id,
+    followedTurnId,
+    isActiveResponse,
+  ]);
   React.useEffect(() => {
     if (!activeConvId || !isActiveResponse) return;
     if (connectionState === "streaming") return;
@@ -361,11 +394,11 @@ export default function EmployeeChat() {
     const refresh = () => {
       if (stopped) return;
       actions.refreshConversation(company.id, emp.id, activeConvId).catch(() => {
-        // The progress card already says that reconnection is in progress.
+        // The live card already says that reconnection is in progress.
       });
     };
     refresh();
-    const timer = window.setInterval(refresh, 3_000);
+    const timer = window.setInterval(refresh, 10_000);
     return () => {
       stopped = true;
       window.clearInterval(timer);
@@ -381,7 +414,14 @@ export default function EmployeeChat() {
     const el = scrollRef.current;
     if (!el || !stickToBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages, isActiveResponse, streamingReply, progress, visibleQueuedMessages.length]);
+  }, [
+    messages,
+    isActiveResponse,
+    streamingReply,
+    progress,
+    live.events,
+    visibleQueuedMessages.length,
+  ]);
 
   /** Re-attach to the tail: used by the jump button and by sending a message. */
   function followTail() {
@@ -553,6 +593,47 @@ export default function EmployeeChat() {
     followTail();
     const err = await actions.interruptActiveTurn(company.id, emp.id, activeConvId);
     if (err) setComposerError(err);
+  }
+
+  /**
+   * Run the newest failed reply again, in place. A message that never reached
+   * the server — its bubble says the connection failed before it was accepted —
+   * is sent again instead, from what this browser kept of it.
+   */
+  async function retryReply(message: ConversationMessage) {
+    setRetryError(null);
+    followTail();
+    const kept = message.retry;
+    if (kept) {
+      actions.update(emp.id, (s) => {
+        const index = s.messages.findIndex((m) => m.id === message.id);
+        if (index === -1) return s;
+        const before = s.messages[index - 1];
+        const dropUser = before?.role === "user" && before.id.startsWith("temp-");
+        return {
+          ...s,
+          messages: s.messages.filter((m, i) => i !== index && !(dropUser && i === index - 1)),
+        };
+      });
+      const err = await actions.send(company.id, emp.id, kept.content, {
+        clearInput: false,
+        attachments: kept.attachments,
+        modelId: kept.modelId,
+        effort: kept.effort,
+      });
+      if (err) setComposerError(err);
+      inputRef.current?.focus();
+      return;
+    }
+    if (!activeConvId) return;
+    setRetrying(message.id);
+    try {
+      const err = await actions.retryTurn(company.id, emp.id, activeConvId, message.id);
+      if (err) setRetryError({ id: message.id, message: err });
+    } finally {
+      setRetrying(null);
+    }
+    inputRef.current?.focus();
   }
 
   async function uploadAttachment(file: File): Promise<void> {
@@ -762,20 +843,25 @@ export default function EmployeeChat() {
                     employeeSlug={emp.slug}
                     showAvatar={i === 0 || visibleMessages[i - 1].role !== m.role}
                     onInspectAction={setInspectAction}
+                    canRetry={m.id === retryableId}
+                    retrying={retrying === m.id}
+                    retryError={retryError?.id === m.id ? retryError.message : null}
+                    onRetry={() => void retryReply(m)}
                   />
                 ))}
-                {isActiveResponse && hasStreamingReply && (
-                  <StreamingBubble authorName={emp.name} content={streamingReply} />
-                )}
-                {showProgressIndicator && progress && (
-                  <ProgressIndicator
+                {isActiveResponse && (
+                  <LiveTurnCard
                     authorName={emp.name}
-                    percent={progress.percent}
-                    label={progress.label}
+                    avatar={<Avatar name={emp.name} size={32} />}
+                    live={live}
+                    streamingReply={streamingReply}
+                    progress={employeeMilestone(progress)}
                     connectionState={connectionState}
+                    stopping={isInterrupting}
+                    onStop={() => void stopReply()}
+                    companySlug={company.slug}
                   />
                 )}
-                {showTypingIndicator && <TypingIndicator authorName={emp.name} />}
                 {visibleQueuedMessages.length > 0 && (
                   <QueuedMessageStack
                     messages={visibleQueuedMessages}
@@ -1167,6 +1253,10 @@ function TurnBubble({
   employeeSlug,
   showAvatar,
   onInspectAction,
+  canRetry,
+  retrying,
+  retryError,
+  onRetry,
 }: {
   message: ConversationMessage;
   authorName: string;
@@ -1176,6 +1266,11 @@ function TurnBubble({
   employeeSlug: string;
   showAvatar: boolean;
   onInspectAction: (a: MessageAction) => void;
+  /** This is the newest reply and it failed: it can run again. */
+  canRetry: boolean;
+  retrying: boolean;
+  retryError: string | null;
+  onRetry: () => void;
 }) {
   const mine = message.role === "user";
   const attachments = message.attachments ?? [];
@@ -1226,26 +1321,34 @@ function TurnBubble({
           <div className="mb-1 flex items-center gap-1.5 text-[11px]">
             <span className="font-medium text-slate-700 dark:text-slate-200">{authorName}</span>
             {isError && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-                <AlertCircle size={10} /> error
-              </span>
+              <Badge tone="danger" icon={<AlertCircle />}>
+                Error
+              </Badge>
             )}
             {isSkipped && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-                <CircleSlash size={10} /> not available
-              </span>
+              <Badge tone="warning" icon={<CircleSlash />}>
+                Not available
+              </Badge>
             )}
             {isBusy && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                <Clock size={10} /> working
-              </span>
+              <Badge tone="info" icon={<Clock />}>
+                Working
+              </Badge>
             )}
             {isInterrupted && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <CircleSlash size={10} /> interrupted
-              </span>
+              <Badge tone="neutral" icon={<CircleSlash />}>
+                Interrupted
+              </Badge>
             )}
           </div>
+        )}
+        {shouldShowTurnSummary(message.activity) && message.activity && (
+          <TurnWorkSummary
+            summary={message.activity}
+            activityUrl={`/api/companies/${companyId}/employees/${employeeId}/conversations/${message.conversationId}/messages/${message.id}/activity`}
+            messageId={message.id}
+            companySlug={companySlug}
+          />
         )}
         <div
           className={
@@ -1275,6 +1378,26 @@ function TurnBubble({
             </Link>
           )}
         </div>
+        {canRetry && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={retrying}
+              onClick={onRetry}
+            >
+              <RotateCcw size={13} aria-hidden="true" />
+              {retrying ? "Retrying" : "Retry"}
+            </Button>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {message.retry
+                ? "Sends your message again."
+                : `${authorName} takes your request again and checks what this attempt already did first.`}
+            </span>
+          </div>
+        )}
+        <FormError message={retryError} className="mt-1.5" />
         {attachments.length > 0 && (
           <div className="mt-1.5 flex flex-col items-start gap-1.5">
             {attachments.map((a) => (
@@ -1298,168 +1421,15 @@ function TurnBubble({
   );
 }
 
-function StreamingBubble({ authorName, content }: { authorName: string; content: string }) {
-  return (
-    <div className="flex justify-start gap-2.5">
-      <div className="w-9 shrink-0">
-        <Avatar name={authorName} size={32} />
-      </div>
-      <div className="min-w-0 max-w-[85%] sm:max-w-[75%]">
-        <div className="mb-1 text-[11px] font-medium text-slate-700 dark:text-slate-200">
-          {authorName}
-        </div>
-        <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          <ChatMarkdown content={content} />
-          <span
-            className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-[2px] bg-indigo-500"
-            style={{ animation: "chatCursor 1s steps(2) infinite" }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TypingIndicator({ authorName }: { authorName: string }) {
-  return (
-    <div
-      className="flex justify-start gap-2.5"
-      role="status"
-      aria-live="polite"
-      aria-label={`${authorName} is working`}
-    >
-      <div className="w-9 shrink-0">
-        <Avatar name={authorName} size={32} />
-      </div>
-      <div>
-        <div className="mb-1 text-[11px] font-medium text-slate-700 dark:text-slate-200">
-          {authorName}
-        </div>
-        <div className="inline-flex items-center gap-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <Dot delay="0s" />
-          <Dot delay="0.15s" />
-          <Dot delay="0.3s" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProgressIndicator({
-  authorName,
-  percent,
-  label,
-  connectionState,
-}: {
-  authorName: string;
-  percent: number;
-  label: string;
-  connectionState: ConversationFlight["connectionState"];
-}) {
-  const indeterminate = isIndeterminateChatProgress(percent, label);
-
-  return (
-    <div className="flex justify-start gap-2.5">
-      <div className="w-9 shrink-0">
-        <Avatar name={authorName} size={32} />
-      </div>
-      <div className="w-full min-w-0 max-w-[85%] sm:max-w-md">
-        <div className="mb-1 text-[11px] font-medium text-slate-700 dark:text-slate-200">
-          {authorName}
-        </div>
-        <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          {indeterminate ? (
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-                <LoaderCircle size={15} className="motion-safe:animate-spin" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <div className="break-words text-xs font-medium leading-5 text-slate-700 dark:text-slate-200">
-                  {label}
-                </div>
-                <ProgressConnectionStatus
-                  connectionState={connectionState}
-                  announcementPrefix={`${authorName}: ${label}`}
-                />
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="mb-2 flex items-start justify-between gap-4 text-xs">
-                <span className="min-w-0 break-words font-medium leading-5 text-slate-700 dark:text-slate-200">
-                  {label}
-                </span>
-                <span className="mt-0.5 shrink-0 font-medium tabular-nums text-slate-500 dark:text-slate-400">
-                  {percent}%
-                </span>
-              </div>
-              <div
-                className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
-                role="progressbar"
-                aria-label={`${authorName} progress`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                aria-valuetext={`${label}, ${percent}% complete`}
-              >
-                <div
-                  className="h-full min-w-[0.375rem] rounded-full bg-indigo-600 transition-[width] duration-500 ease-out dark:bg-indigo-500"
-                  style={{ width: `${percent}%` }}
-                  aria-hidden="true"
-                />
-              </div>
-              <ProgressConnectionStatus connectionState={connectionState} />
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProgressConnectionStatus({
-  connectionState,
-  announcementPrefix,
-}: {
-  connectionState: ConversationFlight["connectionState"];
-  announcementPrefix?: string;
-}) {
-  const reconnecting = connectionState === "reconnecting";
-  const live = connectionState === "streaming";
-  const label = reconnecting
-    ? "Reconnecting…"
-    : connectionState === "polling"
-      ? "Following saved updates"
-      : live
-        ? "Live updates"
-        : "Checking for updates";
-  const tone = reconnecting
-    ? "text-amber-700 dark:text-amber-300"
-    : live
-      ? "text-emerald-700 dark:text-emerald-300"
-      : "text-slate-500 dark:text-slate-400";
-
-  return (
-    <div
-      className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] ${tone}`}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-label={announcementPrefix ? `${announcementPrefix}. ${label}` : undefined}
-    >
-      {reconnecting ? (
-        <RefreshCw size={11} className="motion-safe:animate-spin" aria-hidden="true" />
-      ) : (
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-slate-400 dark:bg-slate-500"}`}
-          aria-hidden="true"
-        />
-      )}
-      {label}
-    </div>
-  );
-}
-
+/**
+ * Follow-ups typed while a reply runs, waiting their turn in this thread.
+ *
+ * Each says where it stands — next, or after the ones ahead of it — and offers
+ * the two things a Member can want: take it back, or send it now. Sending now
+ * stops the reply in flight (what it wrote so far is kept) so this message
+ * goes next; the card says so on the button itself, because "interrupt" alone
+ * left people guessing what would happen to the answer on screen.
+ */
 function QueuedMessageStack({
   messages,
   empName,
@@ -1476,41 +1446,50 @@ function QueuedMessageStack({
   onRemove: (id: string) => void;
   onInterruptAndSend: (id: string) => void;
 }) {
+  const firstName = empName.split(" ")[0] || empName;
   return (
     <section
-      className="ml-auto w-full max-w-[85%] rounded-2xl border border-indigo-200/80 bg-indigo-50/70 p-2 shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 sm:max-w-[75%]"
+      className="ml-auto w-full max-w-[85%] rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/60 sm:max-w-[75%]"
       aria-label={`${messages.length} queued ${messages.length === 1 ? "message" : "messages"}`}
-      aria-live="polite"
     >
       <div className="flex items-center justify-between gap-3 px-1.5 pb-2 pt-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
-            <Clock size={13} />
-          </span>
+          <Clock size={14} aria-hidden="true" className="shrink-0 text-slate-400" />
           <div className="min-w-0">
-            <div className="text-xs font-medium text-indigo-700 dark:text-indigo-200">
-              Up next
-            </div>
-            <div className="truncate text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
+            <div className="text-xs font-medium text-slate-700 dark:text-slate-200">Queued</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               {canInterrupt
-                ? `Sends when ${empName} finishes — or interrupt to send now`
-                : `Sends automatically when ${empName} finishes`}
+                ? `Sends after ${firstName}’s current reply, in order`
+                : `Sends in order once ${firstName} is free`}
             </div>
           </div>
         </div>
-        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-medium tabular-nums text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-200 dark:ring-indigo-500/30">
-          {messages.length} queued
-        </span>
+        <CountBadge
+          count={messages.length}
+          tone="neutral"
+          aria-label={`${messages.length} queued`}
+        />
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <ol className="flex flex-col gap-1.5">
         {messages.map((message, index) => (
-          <div
+          <li
             key={message.id}
-            className="group relative rounded-xl border border-indigo-100 bg-white px-3 py-2.5 pr-9 text-sm leading-relaxed text-slate-800 shadow-sm dark:border-indigo-500/20 dark:bg-slate-900 dark:text-slate-100"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           >
-            <div className="text-xs mb-1 font-medium text-slate-500 dark:text-slate-400">
-              {index === 0 ? "Next message" : `Then · ${index + 1}`}
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <Badge tone={index === 0 ? "accent" : "neutral"}>
+                {index === 0 ? "Next" : `Then · ${index + 1}`}
+              </Badge>
+              <button
+                type="button"
+                onClick={() => onRemove(message.id)}
+                className="touch-target relative -mr-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                aria-label="Remove from queue"
+                title="Remove from queue"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
             </div>
             {message.content && (
               <div className="break-words">
@@ -1524,54 +1503,32 @@ function QueuedMessageStack({
                     key={attachment.id}
                     className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   >
-                    <Paperclip size={11} className="shrink-0" />
+                    <Paperclip size={11} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{attachment.filename}</span>
                   </span>
                 ))}
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => onRemove(message.id)}
-              className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
-              aria-label="Remove queued message"
-              title="Remove from queue"
-            >
-              <X size={13} />
-            </button>
             {canInterrupt && (
-              // `-mr-6` cancels the card's `pr-9`, which exists to clear the
-              // remove button above. Without it this row would stop short of
-              // the card's own right edge and read as misaligned.
-              <div className="-mr-6 mt-2 flex justify-end">
-                <button
+              <div className="mt-2 flex justify-end">
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => onInterruptAndSend(message.id)}
-                  disabled={interrupting}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-500/30 dark:bg-slate-900 dark:text-indigo-200 dark:hover:border-indigo-400/60 dark:hover:bg-indigo-500/10"
-                  title={`Stop ${empName} and send this message now`}
+                  loading={interrupting}
+                  title={`Stop ${empName}’s current reply and send this message now. What it wrote so far is kept.`}
+                  className="text-xs"
                 >
-                  <Zap size={11} />
-                  {interrupting ? "Interrupting…" : "Interrupt & send"}
-                </button>
+                  <Zap size={12} aria-hidden="true" />
+                  {interrupting ? "Stopping" : "Stop reply & send now"}
+                </Button>
               </div>
             )}
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
     </section>
-  );
-}
-
-function Dot({ delay }: { delay: string }) {
-  return (
-    <span
-      className="h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500"
-      style={{
-        animation: "chatDot 1.2s ease-in-out infinite",
-        animationDelay: delay,
-      }}
-    />
   );
 }
 
@@ -1970,11 +1927,11 @@ function Composer({
               type="button"
               onClick={onInterruptAndSend}
               disabled={interrupting}
-              title={`Stop ${empName} and send this message now (⌘/Ctrl+Enter)`}
+              title={`Stop ${empName}’s current reply and send this message now (⌘/Ctrl+Enter). What it wrote so far is kept.`}
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/60 dark:hover:text-indigo-200"
             >
               <Zap size={11} />
-              {interrupting ? "Interrupting…" : "Interrupt & send"}
+              {interrupting ? "Stopping…" : "Stop reply & send now"}
             </button>
           )}
           {contextUsage && (
