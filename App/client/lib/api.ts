@@ -4681,6 +4681,12 @@ export type TldrListResponse = {
   items: TldrItem[];
   total: number;
   unreadCount: number;
+  /**
+   * Send back as `cursor` for the next, older page; null on the last. It names
+   * the last briefing shown, so briefings made in the same second are neither
+   * skipped nor repeated.
+   */
+  nextCursor?: string | null;
 };
 
 /**

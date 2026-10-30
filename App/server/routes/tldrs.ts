@@ -11,6 +11,7 @@ import {
 } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
+import { CURSOR_MAX_LENGTH, ListQueryError } from "../services/listPaging.js";
 import {
   claimAction,
   composeActionInstruction,
@@ -73,6 +74,7 @@ function h(fn: (req: Request, res: Response) => Promise<unknown>): RequestHandle
 const listQuerySchema = z
   .object({
     before: z.string().datetime().optional(),
+    cursor: z.string().min(1).max(CURSOR_MAX_LENGTH).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(30),
   })
   .strict();
@@ -114,14 +116,23 @@ tldrsRouter.get(
       res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
       return;
     }
-    res.json(
-      await listTldrs({
-        companyId: cid(req),
-        userId: req.userId!,
-        limit: parsed.data.limit,
-        before: parsed.data.before ? new Date(parsed.data.before) : undefined,
-      }),
-    );
+    try {
+      res.json(
+        await listTldrs({
+          companyId: cid(req),
+          userId: req.userId!,
+          limit: parsed.data.limit,
+          before: parsed.data.before ? new Date(parsed.data.before) : undefined,
+          cursor: parsed.data.cursor,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ListQueryError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
   }),
 );
 

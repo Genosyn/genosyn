@@ -121,14 +121,15 @@ export default function TldrsIndex() {
   }
 
   async function loadMore() {
-    const last = data?.list.items.at(-1);
-    if (!data || !last || loadingMore || data.list.items.length >= data.list.total) return;
+    const cursor = data?.list.nextCursor;
+    if (!data || !cursor || loadingMore) return;
     setLoadingMore(true);
     setError(null);
     try {
-      const before = encodeURIComponent(last.createdAt);
+      // After the last briefing shown, by (createdAt, id): a briefing run
+      // writes many in one second, and none of them is skipped or repeated.
       const next = await api.get<TldrListResponse>(
-        `/api/companies/${company.id}/tldrs?limit=30&before=${before}`,
+        `/api/companies/${company.id}/tldrs?limit=30&cursor=${encodeURIComponent(cursor)}`,
       );
       setData((current) => {
         if (!current) return current;
@@ -138,6 +139,7 @@ export default function TldrsIndex() {
           list: {
             total: next.total,
             unreadCount: next.unreadCount,
+            nextCursor: next.nextCursor ?? null,
             items: [...current.list.items, ...next.items.filter((item) => !known.has(item.id))],
           },
         };
@@ -153,7 +155,7 @@ export default function TldrsIndex() {
   const shown = data?.list.items.filter((item) => filter === "all" || !item.dismissed) ?? [];
   const groups = groupByDay(shown);
   const base = `/c/${company.slug}/tldrs`;
-  const hasMore = Boolean(data && data.list.items.length < data.list.total);
+  const hasMore = Boolean(data?.list.nextCursor);
   const unloadedUnread = Math.max(0, (data?.list.unreadCount ?? 0) - shown.length);
   const isDefaultDraft = data?.settings.id === null;
   const needsWriter = Boolean(data?.settings.id && !data.settings.employeeId);
