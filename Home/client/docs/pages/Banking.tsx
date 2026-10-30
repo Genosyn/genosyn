@@ -40,9 +40,26 @@ export function Banking() {
         Click one to see only its transactions, or <Code>All accounts</Code> to see every account
         together. The list has three tabs: <Code>To review</Code> (nothing explains
         the transaction yet, or a card purchase&apos;s category is waiting for a look),{" "}
-        <Code>Done</Code>, and <Code>All</Code>. The search box finds a transaction by its
-        description, amount, account, invoice, or category. The Finance <Code>Overview</Code>{" "}
+        <Code>Done</Code>, and <Code>All</Code>. The Finance <Code>Overview</Code>{" "}
         shows how many transactions are waiting, with a link here.
+      </P>
+
+      <H3 id="find">Finding a transaction</H3>
+      <P>
+        The list shows the newest transactions first, a page at a time. Every one is there, however
+        old: <Code>Load older</Code> under the list brings the next page, and the line beside it says
+        how many of the total are showing. Explaining transactions while you work never makes{" "}
+        <Code>Load older</Code> skip or repeat one — it carries on from the last transaction on
+        screen, not from a count.
+      </P>
+      <P>
+        The search box finds transactions by words in their description, or in a bank
+        line&apos;s reference — a merchant&apos;s or customer&apos;s name, say — across the whole
+        list, not just what is on screen. <Code>Filters</Code> narrows it further by date, money in
+        or out, amount (the size of a transaction, in or out alike), and the category it is filed
+        under. Dates are the calendar days the list shows. Closed, the filters say what is set
+        above the list, with <Code>Clear filters</Code> beside them. Search and filters apply to
+        the account and tab you are on.
       </P>
 
       <H2 id="add-account">Add an account</H2>
@@ -341,8 +358,9 @@ export function Banking() {
       <P>
         With Full finance access every row has a tick box. Tick one, shift-click another to tick
         everything between them, or tick the box above the list to take every transaction in
-        view. Search first to narrow it: <Code>Claude</Code>, then the box above the list, ticks
-        every Claude purchase. A bar opens at the bottom of the page with what the ticked
+        view — the ones loaded so far; <Code>Load older</Code> brings more, unticked. Search first
+        to narrow it: <Code>Claude</Code>, then the box above the list, ticks every Claude
+        purchase on screen. A bar opens at the bottom of the page with what the ticked
         transactions can take:
       </P>
       <KeyList
@@ -426,10 +444,11 @@ export function Banking() {
         transaction instead of waiting on you.
       </P>
       <P>
-        Scripts and the{" "}
-        <DocLink to="/docs/api">API</DocLink> read the same list from{" "}
+        It is the same list you page through on Banking. Scripts and the{" "}
+        <DocLink to="/docs/api">API</DocLink> read it from{" "}
         <Code>GET /api/companies/:cid/banking/transactions</Code>: the same filters, the same pages,
-        and cursors that carry over between the two.
+        and cursors that carry over between the three. Adding <Code>view=records</Code> gives each
+        row its whole transaction, the way the Banking page reads it.
       </P>
       <P>
         Reading takes <Strong>Read only</Strong>; marking invoices paid from a deposit takes{" "}

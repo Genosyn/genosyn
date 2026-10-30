@@ -246,8 +246,21 @@ export function useBankingBulk({
   };
 }
 
-/** The checkbox over the list that ticks everything in view, and how many are. */
-export function BankingSelectAll({ bulk, searching }: { bulk: BankingBulk; searching: boolean }) {
+/**
+ * The checkbox over the list that ticks everything in view, and how many are.
+ * The list comes a page at a time, so while older pages wait behind Load
+ * older (`partial`) it says "in view": it ticks what is loaded, never rows the
+ * person hasn't seen.
+ */
+export function BankingSelectAll({
+  bulk,
+  searching,
+  partial = false,
+}: {
+  bulk: BankingBulk;
+  searching: boolean;
+  partial?: boolean;
+}) {
   const count = bulk.selected.length;
   const none = bulk.selectableCount === 0;
   return (
@@ -261,7 +274,7 @@ export function BankingSelectAll({ bulk, searching }: { bulk: BankingBulk; searc
         label={
           bulk.allSelected
             ? "Clear selection"
-            : searching
+            : searching && !partial
               ? "Select every matching transaction"
               : "Select every transaction in view"
         }
@@ -271,9 +284,11 @@ export function BankingSelectAll({ bulk, searching }: { bulk: BankingBulk; searc
           ? `${count} of ${bulk.selectableCount} selected`
           : none
             ? "Nothing here to change in bulk"
-            : searching
-              ? `Select all ${bulk.selectableCount} matching`
-              : `Select all ${bulk.selectableCount}`}
+            : partial
+              ? `Select all ${bulk.selectableCount} in view`
+              : searching
+                ? `Select all ${bulk.selectableCount} matching`
+                : `Select all ${bulk.selectableCount}`}
       </span>
       {count > 0 && (
         <button

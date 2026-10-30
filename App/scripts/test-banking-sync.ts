@@ -16,6 +16,9 @@
  *   - A Connection that was removed offers Choose a Connection, which points
  *     the account at another and syncs it straight away.
  *   - A read-only Member sees the status without the controls.
+ *   - The transactions come a page at a time from `GET /banking/transactions`:
+ *     Load older reaches every one (a failed one says so beside the button),
+ *     and the search box and Filters narrow the list on the server.
  *   - An account syncing when the page opens is followed until it finishes.
  *   - Loading, error and empty states; a phone; dark mode.
  */
@@ -323,7 +326,70 @@ const CARD_TXNS = [cardTxn("card-1", 18_900, "Delta Air Lines", 20)];
 type World = {
   accounts: () => BankingAccount[];
   extra?: ApiRoute[];
+  /** The transactions `GET /banking/transactions` lists; the four above by default. */
+  bank?: BankTransaction[];
+  card?: CardTransaction[];
+  /** Every query string the list was read with, in order. */
+  reads?: URLSearchParams[];
 };
+
+/**
+ * `GET /banking/transactions?view=records` over the world's transactions:
+ * newest first, narrowed by the filters the page sends, a page at a time. The
+ * fixture's cursor is an offset; the page only passes it back.
+ */
+function bankingTransactions(world: World): ApiRoute {
+  return [
+    "GET",
+    `${API}/banking/transactions`,
+    ({ url }) => {
+      const query = url.searchParams;
+      world.reads?.push(new URLSearchParams(query));
+      assert.equal(query.get("view"), "records", "the page reads whole records");
+      const status = query.get("status") ?? "review";
+      const feed = query.get("feedId");
+      const words = (query.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      const direction = query.get("direction");
+      const rows = [
+        ...(world.bank ?? BANK_TXNS).map((txn) => ({
+          kind: "bank" as const,
+          id: txn.id,
+          date: txn.date,
+          feedId: txn.feedId,
+          text: `${txn.description} ${txn.reference}`,
+          incoming: txn.amountCents > 0,
+          waiting: !txn.reconciledAt,
+          record: txn,
+        })),
+        ...(world.card ?? CARD_TXNS).map((txn) => ({
+          kind: "card" as const,
+          id: txn.id,
+          date: txn.postedAt,
+          feedId: txn.feedId,
+          text: txn.description,
+          incoming: txn.accountingKind !== "expense",
+          waiting: !txn.ledgerEntryId || txn.needsReview,
+          record: txn,
+        })),
+      ]
+        .filter((row) => status === "all" || (status === "review") === row.waiting)
+        .filter((row) => !feed || row.feedId === feed)
+        .filter((row) => words.every((word) => row.text.toLowerCase().includes(word)))
+        .filter((row) => !direction || (direction === "in") === row.incoming)
+        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.id < b.id ? 1 : -1));
+      const start = Number(query.get("cursor") ?? 0);
+      const limit = Number(query.get("limit") ?? 50);
+      const page = rows.slice(start, start + limit);
+      const hasMore = start + limit < rows.length;
+      return {
+        total: rows.length,
+        hasMore,
+        nextCursor: hasMore ? String(start + limit) : null,
+        transactions: page.map((row) => ({ kind: row.kind, id: row.id, date: row.date, record: row.record })),
+      };
+    },
+  ];
+}
 
 /** The endpoints Banking reads, answered from `world`. */
 function bankingRoutes(world: World): ApiRoute[] {
@@ -346,22 +412,7 @@ function bankingRoutes(world: World): ApiRoute[] {
         updatedAt: hoursAgo(24 * 120),
       }),
     ],
-    [
-      "GET",
-      `${API}/bank-transactions`,
-      ({ url }) => {
-        const feed = url.searchParams.get("feedId");
-        return BANK_TXNS.filter((txn) => !feed || txn.feedId === feed);
-      },
-    ],
-    [
-      "GET",
-      `${API}/card-transactions`,
-      ({ url }) => {
-        const feed = url.searchParams.get("feedId");
-        return CARD_TXNS.filter((txn) => !feed || txn.feedId === feed);
-      },
-    ],
+    bankingTransactions(world),
     ["GET", `${API}/card-transactions/category-drift`, () => []],
     ["GET", `${API}/integrations/connections`, () => [BREX, BREX_SPARE, WISE]],
   ];
@@ -443,6 +494,113 @@ await app.check("each card says what it is, its balance, what waits, and how its
   await app.shot(page, "banking-sync-desktop");
   assert.deepEqual(view.unrouted, []);
   await page.close();
+});
+
+/** 150 bank lines on Brex Primary, newest first, a WORLDREMIT transfer every 40th. */
+const MANY_LINES = Array.from({ length: 150 }, (_, index) =>
+  bankTxn(
+    `line-${String(index).padStart(3, "0")}`,
+    "feed-primary",
+    index % 3 === 0 ? 50_000 + index : -(1_000 + index),
+    index % 40 === 7 ? `WORLDREMIT transfer ${index}` : `Vendor ${index}`,
+    2 + index * 24,
+  ),
+);
+
+await app.check("every transaction is reachable: Load older, search and Filters read the server's list", async () => {
+  const reads: URLSearchParams[] = [];
+  const world: World = { accounts: () => [brexPrimary()], bank: MANY_LINES, card: [], reads };
+  const [, , list] = bankingTransactions(world);
+  let failOlderOnce = true;
+  const view = await app.open({
+    path: PATH,
+    routes: bankingRoutes({
+      ...world,
+      extra: [
+        [
+          "GET",
+          `${API}/banking/transactions`,
+          (request) => {
+            if (request.url.searchParams.get("cursor") === "100" && failOlderOnce) {
+              failOlderOnce = false;
+              return status(500, { error: "The database is busy" });
+            }
+            return list(request);
+          },
+        ],
+      ],
+    }),
+  });
+  const { page } = view;
+  const count = page.getByTestId("banking-list-count");
+  await count.getByText("Showing 100 of 150").waitFor();
+  assert.equal(reads[0].get("limit"), "100");
+  assert.equal(reads[0].get("cursor"), null);
+  assert.equal(reads[0].get("status"), "review");
+  assert.equal(await page.getByText("Vendor 149", { exact: true }).count(), 0, "not on the first page");
+
+  // A Load older that fails says so beside the button, which tries again.
+  await view.click(page.getByRole("button", { name: "Load older" }));
+  await page.getByText("The database is busy").waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0, "never in a popup");
+  await view.click(page.getByRole("button", { name: "Try again" }));
+  await page.getByText("Vendor 149", { exact: true }).waitFor();
+  assert.equal(reads.at(-1)?.get("cursor"), "100", "the next page starts after the last row shown");
+  assert.equal(await count.count(), 0, "everything is on screen");
+  assert.equal(await page.getByText("Vendor 0", { exact: true }).count(), 1, "nothing repeated");
+
+  // The search box asks the server, once typing pauses.
+  const before = reads.length;
+  await page.getByLabel("Search transactions").pressSequentially("worldremit", { delay: 20 });
+  await page.getByText("WORLDREMIT transfer 7", { exact: true }).waitFor();
+  await count.getByText("4 matching").waitFor();
+  const searched = reads.slice(before);
+  assert.equal(searched.length, 1, "one read for the whole word, not one per letter");
+  assert.equal(searched[0].get("q"), "worldremit");
+  assert.equal(await page.getByText("Vendor 0", { exact: true }).count(), 0);
+
+  // Filters narrow it too, and say what is set when closed.
+  await view.click(page.getByRole("button", { name: /^Filters/ }));
+  await view.click(page.getByRole("combobox", { name: "Money in or out" }));
+  await view.click(page.getByRole("option", { name: "Money in" }));
+  await count.getByText("1 matching").waitFor();
+  await page.getByText("WORLDREMIT transfer 87", { exact: true }).waitFor();
+  assert.equal(reads.at(-1)?.get("direction"), "in");
+  assert.equal(reads.at(-1)?.get("q"), "worldremit", "the search stays");
+  await view.click(page.getByRole("button", { name: /^Filters/ }));
+  await page.getByText("Filtered by", { exact: false }).waitFor();
+  assert.match((await page.getByText("Filtered by").locator("..").textContent()) ?? "", /Money in/);
+  await view.click(page.getByRole("button", { name: "Clear filters" }));
+  await page.waitForFunction(
+    () => !document.body.textContent?.includes("Filtered by"),
+  );
+  await page.getByText("WORLDREMIT transfer 7", { exact: true }).waitFor();
+  assert.equal(reads.at(-1)?.get("direction"), null);
+
+  // No match is its own empty state.
+  await page.getByLabel("Search transactions").fill("nothing like this");
+  await page.getByText("No transactions match your search").waitFor();
+  await noSidewaysScroll(page, "desktop");
+  assert.deepEqual(view.unrouted, []);
+  await page.close();
+
+  // On a phone the toolbar and Filters stack without sideways scroll.
+  const phone = await app.open({
+    path: PATH,
+    touch: true,
+    routes: bankingRoutes({ accounts: () => [brexPrimary()], bank: MANY_LINES, card: [] }),
+  });
+  await phone.page.getByTestId("banking-list-count").getByText("Showing 100 of 150").waitFor();
+  await phone.click(phone.page.getByRole("button", { name: /^Filters/ }));
+  await phone.page.getByLabel("Smallest amount (USD)").fill("12.50");
+  await phone.page.getByLabel("Largest amount (USD)").fill("5");
+  await phone.page.getByText("Make this at least the smallest amount").waitFor();
+  await noSidewaysScroll(phone.page, "phone");
+  await app.shot(phone.page, "banking-list-filters-phone");
+  // Closed, a range nothing can match is still said, not hidden.
+  await phone.click(phone.page.getByRole("button", { name: /^Filters/ }));
+  await phone.page.getByText("A filter can't be applied as typed. Open Filters to fix it.").waitFor();
+  await phone.page.close();
 });
 
 await app.check("the All accounts card says when everything is in step", async () => {
