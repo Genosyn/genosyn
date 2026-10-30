@@ -444,7 +444,7 @@ async function skipQueuedRun(run: Run, reason: string): Promise<void> {
           status: "error",
           errorKind: "interrupted",
           finishedAt: new Date(),
-          logContent: `${run.logContent ?? ""}\n[queue] Paused, this Run could not continue: ${reason}\n`,
+          logContent: `${run.logContent ?? ""}\n[queue] ${run.pauseReason === "outage" ? "Paused while its AI Model was unavailable" : "Paused for a restart"}, this Run could not continue: ${reason}\n`,
         }
       : {
           routineId: run.routineId,
