@@ -38,7 +38,6 @@ import {
   getCustomValues,
   installBaseMigrationCustomFields,
   listCustomFields,
-  matchingResourceIds,
   setCustomValues,
 } from "./customFields.js";
 import {
@@ -252,9 +251,16 @@ describe("typed custom fields", () => {
       values.find((row) => row.field.key === "plan_interest")?.provenanceHistoryCount,
       1,
     );
-    assert.deepEqual(await matchingResourceIds(CO, "account", "plan_interest", "enterprise"), [
-      account.id,
-    ]);
+    // The normalized value is what a custom-field filter matches.
+    assert.deepEqual(
+      (
+        await listRevenueAccounts(CO, {
+          customFieldKey: "plan_interest",
+          customFieldValue: "enterprise",
+        })
+      ).rows.map((row) => row.id),
+      [account.id],
+    );
     await assert.rejects(
       () => setCustomValues(CO, "account", account.id, { plan_interest: "Unknown" }),
       /unknown option/,

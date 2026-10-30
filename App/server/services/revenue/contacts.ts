@@ -4,8 +4,27 @@ import { AppDataSource } from "../../db/datasource.js";
 import { Contact, type ContactLifecycleStage } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import {
+  CURSOR_INVALID,
+  decodeCursor,
+  filterFingerprint,
+  finishPage,
+  type KeyedRow,
+  type KeysetColumn,
+  keysetRows,
+  ListCursorError,
+  type Page,
+  type PageLimits,
+  pageLimit,
+  type PageRequest,
+} from "../listPaging.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
-import { matchingResourceIds } from "./customFields.js";
+import {
+  andWhereCustomFieldMatches,
+  type CustomFieldFilter,
+  customFieldKey,
+  resolveCustomFieldFilter,
+} from "./customFields.js";
 import { findMergedRecordRedirect } from "./operations.js";
 
 /**
@@ -84,20 +103,24 @@ function applySearch(qb: SelectQueryBuilder<Contact>, q: string): void {
 }
 
 /**
- * List with search + filters, newest activity first.
- *
- * Ordered by `lastActivityAt` rather than `createdAt` because the question a
- * salesperson opens this page to answer is "who have I not spoken to", and a
- * list sorted by when a row was imported answers a question nobody has.
- * NULLs sort last via a computed flag, which is portable; `NULLS LAST` is not.
+ * The custom-field filter a contact list names, looked up once: `undefined`
+ * when the list names none, `null` when the company has no such field (the
+ * list is then empty, as it always was for an unknown field).
  */
-export async function listContacts(
+async function contactCustomField(
   companyId: string,
-  opts: ContactListOptions = {},
-): Promise<{ rows: HydratedContact[]; total: number }> {
-  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(opts.offset ?? 0, 0);
+  opts: Pick<ContactListOptions, "customFieldKey" | "customFieldValue">,
+): Promise<CustomFieldFilter | null | undefined> {
+  if (!opts.customFieldKey || opts.customFieldValue === undefined) return undefined;
+  return resolveCustomFieldFilter(companyId, "contact", opts.customFieldKey, opts.customFieldValue);
+}
 
+/** Contacts matching the filters, unordered: the shared WHERE of the page and the plain list. */
+function contactListQuery(
+  companyId: string,
+  opts: ContactListOptions,
+  customField: CustomFieldFilter | undefined,
+): SelectQueryBuilder<Contact> {
   const qb = AppDataSource.getRepository(Contact)
     .createQueryBuilder("c")
     .where("c.companyId = :companyId", { companyId });
@@ -112,16 +135,28 @@ export async function listContacts(
   if (opts.ownerEmployeeId) {
     qb.andWhere("c.ownerEmployeeId = :oeid", { oeid: opts.ownerEmployeeId });
   }
-  if (opts.customFieldKey && opts.customFieldValue !== undefined) {
-    const ids = await matchingResourceIds(
-      companyId,
-      "contact",
-      opts.customFieldKey,
-      opts.customFieldValue,
-    );
-    if (ids.length === 0) return { rows: [], total: 0 };
-    qb.andWhere("c.id IN (:...customIds)", { customIds: ids });
-  }
+  if (customField) andWhereCustomFieldMatches(qb, "c.id", customField);
+  return qb;
+}
+
+/**
+ * List with search + filters, newest activity first.
+ *
+ * Ordered by `lastActivityAt` rather than `createdAt` because the question a
+ * salesperson opens this page to answer is "who have I not spoken to", and a
+ * list sorted by when a row was imported answers a question nobody has.
+ * NULLs sort last via a computed flag, which is portable; `NULLS LAST` is not.
+ */
+export async function listContacts(
+  companyId: string,
+  opts: ContactListOptions = {},
+): Promise<{ rows: HydratedContact[]; total: number }> {
+  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  const customField = await contactCustomField(companyId, opts);
+  if (customField === null) return { rows: [], total: 0 };
+  const qb = contactListQuery(companyId, opts, customField);
 
   const total = await qb.clone().getCount();
 
@@ -136,6 +171,166 @@ export async function listContacts(
     .getMany();
 
   return { rows: await attachCustomerNames(companyId, rows), total };
+}
+
+/** `list_contacts`: 50 a page by default, at most 200. */
+export const CONTACT_PAGE: PageLimits = { defaultLimit: DEFAULT_LIMIT, maxLimit: MAX_LIMIT };
+/** `search_contacts`: a lookup wants the first few — 25 a page by default, at most 200. */
+export const CONTACT_SEARCH_PAGE: PageLimits = { defaultLimit: 25, maxLimit: MAX_LIMIT };
+
+/**
+ * The contact list's own order, as two keysets read one after the other:
+ * the contacts someone has spoken to, most recently touched first, then the
+ * ones nobody has, newest first — ties broken by id, exactly `listContacts`'
+ * order. Each part is a plain column order the `(companyId, lastActivityAt,
+ * createdAt, id)` index walks, so a page reads about as many rows as it
+ * shows instead of sorting the company's every contact.
+ *
+ * The first key is a constant per part: a cursor after a touched contact lets
+ * every never-touched one through, and one after a never-touched contact
+ * rules every touched one out. The never-touched part holds a constant in
+ * place of the touched part's `createdAt`, so both keysets have one shape.
+ */
+const TOUCHED_KEYS: KeysetColumn[] = [
+  { literal: 0, direction: "ASC" },
+  { column: "c.lastActivityAt", direction: "DESC", type: "timestamp" },
+  { column: "c.createdAt", direction: "DESC", type: "timestamp" },
+  { column: "c.id", direction: "DESC", type: "string" },
+];
+const UNTOUCHED_KEYS: KeysetColumn[] = [
+  { literal: 1, direction: "ASC" },
+  { column: "c.createdAt", direction: "DESC", type: "timestamp" },
+  { literal: 0, direction: "ASC" },
+  { column: "c.id", direction: "DESC", type: "string" },
+];
+
+const CONTACT_SCOPE = "revenue.contacts";
+
+export type ContactPageRequest = PageRequest & {
+  budgetChars?: number;
+  /** `list_contacts` 50 / 200 unless said otherwise. */
+  limits?: PageLimits;
+  /**
+   * Rows to skip before the first page, for older Skills that still page by
+   * offset. Ignored with a cursor, which already says where to go on.
+   */
+  offset?: number;
+};
+
+/**
+ * Contacts in the list's order, one page at a time (`services/listPaging.ts`)
+ * — what `list_contacts` and `search_contacts` read. A cursor names the last
+ * contact shown, so logging an Activity between pages, which moves that
+ * contact to the top, never makes the next page skip or repeat anyone else.
+ */
+export async function pageContacts<Out>(
+  companyId: string,
+  filter: Omit<ContactListOptions, "limit" | "offset">,
+  page: ContactPageRequest,
+  present: (rows: HydratedContact[]) => Out[] | Promise<Out[]>,
+): Promise<Page<Out>> {
+  const q = filter.q?.trim() ? filter.q.trim().toLowerCase() : undefined;
+  const fingerprint = filterFingerprint(companyId, {
+    q,
+    lifecycleStage: filter.lifecycleStage,
+    customerId: filter.customerId,
+    ownerId: filter.ownerId,
+    ownerEmployeeId: filter.ownerEmployeeId,
+    customField:
+      filter.customFieldKey && filter.customFieldValue !== undefined
+        ? [customFieldKey(filter.customFieldKey), filter.customFieldValue.trim().toLowerCase()]
+        : undefined,
+    includeArchived: !!filter.includeArchived,
+  });
+  const after = page.cursor ? decodeCursor(CONTACT_SCOPE, fingerprint, page.cursor) : null;
+  if (
+    after &&
+    (after.length !== 4 ||
+      (after[0] !== 0 && after[0] !== 1) ||
+      (after[0] === 1 &&
+        (typeof after[1] !== "string" || after[2] !== 0 || typeof after[3] !== "string")))
+  ) {
+    throw new ListCursorError(CURSOR_INVALID);
+  }
+  const limit = pageLimit(page.limit, page.limits ?? CONTACT_PAGE);
+  const customField = await contactCustomField(companyId, filter);
+  if (customField === null) return { total: 0, hasMore: false, nextCursor: null, rows: [] };
+  const query = () => contactListQuery(companyId, { ...filter, q }, customField);
+  // Each part also takes the cursor's first column as a plain bound, which
+  // the keyset already implies: the index then starts at the cursor instead
+  // of walking every row before it.
+  const touched = () => {
+    const qb = query().andWhere("c.lastActivityAt IS NOT NULL");
+    if (after?.[0] === 0) {
+      qb.andWhere("c.lastActivityAt <= :touchedBound", { touchedBound: after[1] });
+    }
+    return qb;
+  };
+  const untouched = () => {
+    const qb = query().andWhere("c.lastActivityAt IS NULL");
+    // Past a never-touched contact, as one row-value range the index answers
+    // directly — the keyset's OR form led SQLite to merge two index scans and
+    // sort everything after the cursor. A cursor among the touched contacts
+    // lets every never-touched one through.
+    if (after?.[0] === 1) {
+      qb.andWhere("(c.createdAt, c.id) < (:untouchedAt, :untouchedId)", {
+        untouchedAt: after[1],
+        untouchedId: after[3],
+      });
+    }
+    return qb;
+  };
+
+  // An older Skill's offset counts across both parts: skip into the touched
+  // contacts, and on into the never-touched ones past their end.
+  const offset = !after && page.offset && page.offset > 0 ? page.offset : 0;
+  const touchedCount = offset > 0 ? await touched().getCount() : 0;
+  const [total, touchedRows] = await Promise.all([
+    query().getCount(),
+    // A cursor among the never-touched contacts rules every touched one out.
+    after?.[0] === 1 || (offset > 0 && offset >= touchedCount)
+      ? Promise.resolve([])
+      : keysetRows(offset > 0 ? touched().offset(offset) : touched(), {
+          keys: TOUCHED_KEYS,
+          after,
+          limit,
+          prefix: "contact",
+        }),
+  ]);
+  // limit + 1 rows say whether a page follows; the never-touched contacts
+  // make up whatever the touched ones left short.
+  const fetched: KeyedRow<Contact>[] =
+    touchedRows.length > limit
+      ? touchedRows
+      : [
+          ...touchedRows,
+          ...(await keysetRows(
+            offset > touchedCount ? untouched().offset(offset - touchedCount) : untouched(),
+            {
+              keys: UNTOUCHED_KEYS,
+              // `untouched()` already applies the cursor, as a row value.
+              after: null,
+              limit: limit - touchedRows.length,
+              prefix: "contact",
+            },
+          )),
+        ];
+  const kept = await attachCustomerNames(
+    companyId,
+    fetched.slice(0, limit).map((entry) => entry.row),
+  );
+  const presented = await present(kept);
+  const byId = new Map(kept.map((row, index) => [row.id, presented[index]]));
+  return finishPage({
+    fetched,
+    limit,
+    total,
+    noun: "contacts",
+    scope: CONTACT_SCOPE,
+    fingerprint,
+    present: (row: Contact) => byId.get(row.id)!,
+    budgetChars: page.budgetChars,
+  });
 }
 
 /** One round-trip for the account names on a page of contacts. */

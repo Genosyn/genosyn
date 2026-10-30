@@ -5,6 +5,7 @@ import { BANKING_PAGE, bankingFilterShape } from "../services/bankingQueue.js";
 import { BILL_PAGE, CUSTOMER_PAGE, INVOICE_PAGE, RECURRING_INVOICE_PAGE } from "../services/financeListPages.js";
 import { pageBodyShape } from "../services/listPaging.js";
 import { MEETING_PAGE } from "../services/meetings/store.js";
+import { CONTACT_PAGE, CONTACT_SEARCH_PAGE } from "../services/revenue/contacts.js";
 import { LEDGER_REVIEW_PAGE, ledgerReviewFilterShape } from "../services/transactionReviews.js";
 import { STATIC_TOOLS } from "./toolManifest.js";
 
@@ -30,6 +31,11 @@ const PAGED: Record<string, { max: number; default: number }> = {
   list_runs: { max: 50, default: 20 },
   list_handoffs: { max: 200, default: 50 },
   list_todos: { max: 200, default: 50 },
+  list_contacts: { max: CONTACT_PAGE.maxLimit, default: CONTACT_PAGE.defaultLimit },
+  search_contacts: {
+    max: CONTACT_SEARCH_PAGE.maxLimit,
+    default: CONTACT_SEARCH_PAGE.defaultLimit,
+  },
 };
 
 function tool(name: string) {
@@ -80,5 +86,31 @@ describe("paged list tools", () => {
 
   test("a mailbox search says why it has no total", () => {
     assert.match(tool("search_mail").description, /no total/i);
+  });
+
+  test("the activity export continues by cursor, one part at a time", () => {
+    const spec = tool("export_activities");
+    const properties = spec.inputSchema.properties as Record<
+      string,
+      { type?: string; description?: string }
+    >;
+    assert.equal(properties.cursor?.type, "string");
+    assert.match(properties.cursor?.description ?? "", /nextCursor/);
+    assert.match(spec.description, /nextCursor/);
+    assert.match(spec.description, /hasMore/);
+    assert.match(spec.description, /10,000/);
+    assert.equal("offset" in properties, false);
+    assert.equal("limit" in properties, false, "a part's size is the server's to bound");
+  });
+
+  test("Revenue lists say how to reach what a filter would otherwise hide", () => {
+    const partnerships = tool("list_partnerships");
+    assert.ok("includeArchived" in partnerships.inputSchema.properties);
+    assert.match(partnerships.description, /includeArchived/);
+    const followUps = tool("list_follow_ups");
+    const undated = (followUps.inputSchema.properties as Record<string, { enum?: string[] }>)
+      .undated;
+    assert.deepEqual(undated?.enum, ["include", "only", "exclude"]);
+    assert.match(followUps.description, /no due date|nobody gave a due date/);
   });
 });

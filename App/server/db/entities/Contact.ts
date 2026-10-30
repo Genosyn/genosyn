@@ -64,7 +64,11 @@ export const CONTACT_LIFECYCLE_STAGES: ContactLifecycleStage[] = [
 @Index(["companyId", "customerId"])
 @Index(["companyId", "lifecycleStage"])
 @Index(["companyId", "archivedAt"])
-@Index(["companyId", "lastActivityAt"])
+// The contact list's order — most recently touched first, never-touched last
+// newest first, then by id — so a page of it (`pageContacts`) walks this
+// index rather than sorting every contact. It still answers what the old
+// (companyId, lastActivityAt) index did.
+@Index(["companyId", "lastActivityAt", "createdAt", "id"])
 export class Contact {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

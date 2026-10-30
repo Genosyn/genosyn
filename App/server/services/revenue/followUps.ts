@@ -12,6 +12,7 @@ import { Deal } from "../../db/entities/Deal.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { User } from "../../db/entities/User.js";
+import { asText, type KeysetColumn, keysetRows } from "../listPaging.js";
 import { recordActivity, type ActivityActor } from "./activities.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 
@@ -19,7 +20,13 @@ export type FollowUpItem = {
   id: string;
   source: "task" | "deal" | "partnership";
   title: string;
-  dueAt: Date;
+  /**
+   * When it is due. Null only for a task nobody gave a due date: it is still
+   * work to pick up, so it is listed — after every dated follow-up, oldest
+   * first — unless `undated` says otherwise. A Deal or Partnership without a
+   * next follow-up date is not a follow-up at all.
+   */
+  dueAt: Date | null;
   reminderAt: Date | null;
   status: ActivityTaskStatus;
   priority: ActivityPriority;
@@ -37,11 +44,18 @@ export type FollowUpItem = {
   dealStageId: string | null;
 };
 
-type DecodedFollowUpCursor = {
-  dueAt: Date;
-  source: FollowUpItem["source"];
-  id: string;
-};
+/**
+ * Where the last page ended. Dated follow-ups come first, so a cursor in the
+ * dated part names its due date, source and id; one in the undated part —
+ * tasks with no due date, oldest first — names the task's `createdAt` as the
+ * database's own text (Postgres keeps microseconds a JS Date would drop) and
+ * its id.
+ */
+type DecodedFollowUpCursor =
+  | { dueAt: Date; source: FollowUpItem["source"]; id: string }
+  | { dueAt: null; source: "task"; id: string; createdAt: string };
+
+type DatedFollowUpCursor = Extract<DecodedFollowUpCursor, { dueAt: Date }>;
 
 const FOLLOW_UP_SOURCE_ORDER: FollowUpItem["source"][] = ["deal", "partnership", "task"];
 
@@ -56,7 +70,7 @@ function followUpCursorClause(
   source: FollowUpItem["source"],
   dueAtColumn: string,
   idColumn: string,
-  cursor: DecodedFollowUpCursor,
+  cursor: DatedFollowUpCursor,
 ): { sql: string; params: { cursorDueAt: Date; cursorId?: string } } {
   const sourceOrder = compareFollowUpSources(source, cursor.source);
   if (sourceOrder < 0) {
@@ -95,6 +109,13 @@ export type FollowUpListOptions = {
   dealStatus?: "open" | "won" | "lost";
   closedDeals?: "include" | "only" | "exclude";
   archivedResources?: "include" | "only" | "exclude";
+  /**
+   * Tasks with no due date: listed after every dated follow-up by default
+   * (`include`), alone (`only`), or not at all (`exclude`). A state other
+   * than `all` and every due-date bound leave them out on their own — an
+   * undated task is never overdue, due today, or due in a window.
+   */
+  undated?: "include" | "only" | "exclude";
   accountStatus?: "prospect" | "customer" | "former";
   q?: string;
   reminderFrom?: Date;
@@ -154,6 +175,22 @@ export async function listFollowUps(
   companyId: string,
   opts: FollowUpListOptions = {},
 ): Promise<FollowUpItem[]> {
+  return (await followUpEntries(companyId, opts)).map((entry) => entry.item);
+}
+
+/** One row of the queue, with the database's text for an undated task's `createdAt` — its cursor key. */
+type FollowUpEntry = { item: FollowUpItem; createdAtKey: string | null };
+
+/** The keyset the undated part of the queue is read in: oldest task first. */
+const UNDATED_TASK_KEYS: KeysetColumn[] = [
+  { column: "a.createdAt", direction: "ASC", type: "timestamp" },
+  { column: "a.id", direction: "ASC", type: "string" },
+];
+
+async function followUpEntries(
+  companyId: string,
+  opts: FollowUpListOptions = {},
+): Promise<FollowUpEntry[]> {
   const now = new Date();
   const endToday = new Date(now);
   endToday.setHours(23, 59, 59, 999);
@@ -161,31 +198,39 @@ export async function listFollowUps(
   const pageLimit = Math.min(Math.max(opts.limit ?? 200, 1), 5_000);
   const rowOffset = opts.cursor ? 0 : Math.max(opts.offset ?? 0, 0);
   const maxRows = pageLimit + rowOffset;
+  // Every task filter is applied to this one builder; it is then split into
+  // the dated tasks and the undated ones, which are read in different orders.
+  //
+  // The joins compare a primary key with the varchar reference to it. The
+  // cast that Postgres needs (uuid vs varchar) is applied there only: on
+  // SQLite, where both are text, a cast on the key hid it from its index and
+  // made every task row scan the company's contacts, deals and partnerships.
   const taskQb = AppDataSource.getRepository(Activity)
     .createQueryBuilder("a")
     .where("a.companyId = :companyId", { companyId })
     .andWhere("a.kind = 'task'")
     .andWhere("a.taskStatus = :taskStatus", { taskStatus: opts.status ?? "open" })
-    .andWhere("a.dueAt IS NOT NULL")
     .leftJoin(
       Deal,
       "taskDeal",
-      "taskDeal.companyId = a.companyId AND CAST(taskDeal.id AS text) = a.dealId",
+      `taskDeal.companyId = a.companyId AND ${asText("taskDeal.id")} = a.dealId`,
     )
     .leftJoin(
       Contact,
       "taskContact",
-      "taskContact.companyId = a.companyId AND CAST(taskContact.id AS text) = a.contactId",
+      `taskContact.companyId = a.companyId AND ${asText("taskContact.id")} = a.contactId`,
     )
     .leftJoin(
       Partnership,
       "taskPartnership",
-      "taskPartnership.companyId = a.companyId AND CAST(taskPartnership.id AS text) = a.partnershipId",
+      `taskPartnership.companyId = a.companyId AND ${asText("taskPartnership.id")} = a.partnershipId`,
     )
     .leftJoin(
       Customer,
       "taskAccount",
-      "taskAccount.companyId = a.companyId AND taskAccount.id = COALESCE(a.customerId, taskDeal.customerId, taskPartnership.customerId)",
+      // On Postgres this compared a uuid key with varchar references and
+      // failed outright; the cast now makes it text there too.
+      `taskAccount.companyId = a.companyId AND ${asText("taskAccount.id")} = COALESCE(a.customerId, taskDeal.customerId, taskPartnership.customerId)`,
     );
   const dealQb = AppDataSource.getRepository(Deal)
     .createQueryBuilder("d")
@@ -194,7 +239,7 @@ export async function listFollowUps(
     .leftJoin(
       Customer,
       "dealAccount",
-      "dealAccount.companyId = d.companyId AND CAST(dealAccount.id AS text) = d.customerId",
+      `dealAccount.companyId = d.companyId AND ${asText("dealAccount.id")} = d.customerId`,
     );
   const partnershipQb = AppDataSource.getRepository(Partnership)
     .createQueryBuilder("p")
@@ -203,7 +248,7 @@ export async function listFollowUps(
     .leftJoin(
       Customer,
       "partnershipAccount",
-      "partnershipAccount.companyId = p.companyId AND CAST(partnershipAccount.id AS text) = p.customerId",
+      `partnershipAccount.companyId = p.companyId AND ${asText("partnershipAccount.id")} = p.customerId`,
     );
 
   if (opts.archivedResources === "only") {
@@ -403,7 +448,18 @@ export async function listFollowUps(
   } else if (opts.closedDeals !== "include") {
     dealQb.andWhere("d.status = 'open'");
   }
-  if (cursor) {
+  // The undated tasks: every task filter above, then no due date. A due-date
+  // filter or a state other than `all` has already ruled them all out.
+  const undatedQb = taskQb.clone().andWhere("a.dueAt IS NULL");
+  taskQb.andWhere("a.dueAt IS NOT NULL");
+  const undated = opts.undated ?? "include";
+  if (undated === "exclude") undatedQb.andWhere("1 = 0");
+  if (undated === "only") {
+    taskQb.andWhere("1 = 0");
+    dealQb.andWhere("1 = 0");
+    partnershipQb.andWhere("1 = 0");
+  }
+  if (cursor?.dueAt) {
     const taskCursor = followUpCursorClause("task", "a.dueAt", "a.id", cursor);
     taskQb.andWhere(taskCursor.sql, taskCursor.params);
     const dealCursor = followUpCursorClause("deal", "d.nextFollowUpAt", "d.id", cursor);
@@ -415,8 +471,13 @@ export async function listFollowUps(
       cursor,
     );
     partnershipQb.andWhere(partnershipCursor.sql, partnershipCursor.params);
+  } else if (cursor) {
+    // The last page ended among the undated tasks: every dated follow-up came before it.
+    taskQb.andWhere("1 = 0");
+    dealQb.andWhere("1 = 0");
+    partnershipQb.andWhere("1 = 0");
   }
-  const [tasks, deals, partnerships] = await Promise.all([
+  const [tasks, deals, partnerships, undatedTasks] = await Promise.all([
     taskQb.orderBy("a.dueAt", "ASC").addOrderBy("a.id", "ASC").take(maxRows).getMany(),
     dealQb.orderBy("d.nextFollowUpAt", "ASC").addOrderBy("d.id", "ASC").take(maxRows).getMany(),
     partnershipQb
@@ -424,14 +485,24 @@ export async function listFollowUps(
       .addOrderBy("p.id", "ASC")
       .take(maxRows)
       .getMany(),
+    keysetRows(undatedQb, {
+      keys: UNDATED_TASK_KEYS,
+      after: cursor && !cursor.dueAt ? [cursor.createdAt, cursor.id] : null,
+      limit: maxRows,
+      prefix: "undated",
+    }),
   ]);
+  const allTasks = [...tasks, ...undatedTasks.map((entry) => entry.row)];
+  const createdAtKeyOf = new Map(
+    undatedTasks.map((entry) => [entry.row.id, String(entry.key[0])] as const),
+  );
   const userIds = [
-    ...tasks.map((row) => row.assignedUserId),
+    ...allTasks.map((row) => row.assignedUserId),
     ...deals.map((row) => row.ownerId),
     ...partnerships.map((row) => row.ownerId),
   ].filter((id): id is string => !!id);
   const employeeIds = [
-    ...tasks.map((row) => row.assignedEmployeeId),
+    ...allTasks.map((row) => row.assignedEmployeeId),
     ...deals.map((row) => row.ownerEmployeeId),
     ...partnerships.map((row) => row.ownerEmployeeId),
   ].filter((id): id is string => !!id);
@@ -441,15 +512,15 @@ export async function listFollowUps(
     (employeeId ? names.employees.get(employeeId) : null) ??
     null;
   const items: FollowUpItem[] = [
-    ...tasks.map((row) => ({
+    ...allTasks.map((row) => ({
       id: row.id,
       source: "task" as const,
       title: row.subject || "Follow up",
-      dueAt: row.dueAt!,
+      dueAt: row.dueAt,
       reminderAt: row.reminderAt,
       status: row.taskStatus ?? "open",
       priority: row.priority ?? "normal",
-      overdue: row.dueAt!.getTime() < now.getTime(),
+      overdue: !!row.dueAt && row.dueAt.getTime() < now.getTime(),
       dealId: row.dealId,
       partnershipId: row.partnershipId,
       contactId: row.contactId,
@@ -509,13 +580,38 @@ export async function listFollowUps(
         dealStageId: null,
       })),
   ];
-  const sorted = items.sort(
-    (a, b) =>
-      a.dueAt.getTime() - b.dueAt.getTime() ||
-      compareFollowUpSources(a.source, b.source) ||
-      a.id.localeCompare(b.id),
-  );
-  return sorted.slice(rowOffset, rowOffset + pageLimit);
+  const entries: FollowUpEntry[] = items.map((item) => ({
+    item,
+    createdAtKey: item.dueAt ? null : (createdAtKeyOf.get(item.id) ?? null),
+  }));
+  return entries.sort(compareFollowUpEntries).slice(rowOffset, rowOffset + pageLimit);
+}
+
+/**
+ * The queue's order, the one its queries read in: dated follow-ups by due
+ * date, a Deal before a Partnership before a task due the same instant, then
+ * by id; after them the undated tasks, oldest first — the database's text for
+ * `createdAt` breaks a tie inside one millisecond, as the database itself
+ * would — then by id.
+ */
+function compareFollowUpEntries(a: FollowUpEntry, b: FollowUpEntry): number {
+  const aDue = a.item.dueAt;
+  const bDue = b.item.dueAt;
+  if (aDue && bDue) {
+    return (
+      aDue.getTime() - bDue.getTime() ||
+      compareFollowUpSources(a.item.source, b.item.source) ||
+      a.item.id.localeCompare(b.item.id)
+    );
+  }
+  if (aDue) return -1;
+  if (bDue) return 1;
+  const byInstant = a.item.createdAt.getTime() - b.item.createdAt.getTime();
+  if (byInstant !== 0) return byInstant;
+  const aKey = a.createdAtKey ?? "";
+  const bKey = b.createdAtKey ?? "";
+  if (aKey !== bKey) return aKey < bKey ? -1 : 1;
+  return a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0;
 }
 
 function decodeFollowUpCursor(cursor: string): DecodedFollowUpCursor | null {
@@ -524,14 +620,21 @@ function decodeFollowUpCursor(cursor: string): DecodedFollowUpCursor | null {
       dueAt?: unknown;
       source?: unknown;
       id?: unknown;
+      createdAt?: unknown;
     };
     if (
-      typeof parsed.dueAt !== "string" ||
       !["task", "deal", "partnership"].includes(String(parsed.source)) ||
       typeof parsed.id !== "string"
     ) {
       return null;
     }
+    if (parsed.dueAt === null) {
+      if (parsed.source !== "task" || typeof parsed.createdAt !== "string" || !parsed.createdAt) {
+        return null;
+      }
+      return { dueAt: null, source: "task", id: parsed.id, createdAt: parsed.createdAt };
+    }
+    if (typeof parsed.dueAt !== "string") return null;
     const dueAt = new Date(parsed.dueAt);
     if (Number.isNaN(dueAt.getTime())) return null;
     return {
@@ -544,13 +647,14 @@ function decodeFollowUpCursor(cursor: string): DecodedFollowUpCursor | null {
   }
 }
 
-export function followUpCursor(item: FollowUpItem): string {
+function encodeFollowUpCursor(entry: FollowUpEntry): string {
+  const { item } = entry;
   return Buffer.from(
-    JSON.stringify({
-      dueAt: item.dueAt.toISOString(),
-      source: item.source,
-      id: item.id,
-    }),
+    JSON.stringify(
+      item.dueAt
+        ? { dueAt: item.dueAt.toISOString(), source: item.source, id: item.id }
+        : { dueAt: null, source: item.source, id: item.id, createdAt: entry.createdAtKey },
+    ),
   ).toString("base64url");
 }
 
@@ -559,11 +663,12 @@ export async function listFollowUpPage(
   opts: FollowUpListOptions = {},
 ): Promise<{ rows: FollowUpItem[]; nextCursor: string | null }> {
   const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
-  const rows = await listFollowUps(companyId, { ...opts, limit: limit + 1 });
-  const page = rows.slice(0, limit);
+  const entries = await followUpEntries(companyId, { ...opts, limit: limit + 1 });
+  const page = entries.slice(0, limit);
   return {
-    rows: page,
-    nextCursor: rows.length > limit && page.length > 0 ? followUpCursor(page.at(-1)!) : null,
+    rows: page.map((entry) => entry.item),
+    nextCursor:
+      entries.length > limit && page.length > 0 ? encodeFollowUpCursor(page.at(-1)!) : null,
   };
 }
 
