@@ -58,7 +58,7 @@ import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
-import { Run, type RunStatus } from "../db/entities/Run.js";
+import { Run } from "../db/entities/Run.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
@@ -240,6 +240,7 @@ import { serializeMeeting, serializeParticipant } from "../services/meetings/ser
 import {
   getMeeting,
   listParticipants,
+  meetingStatusFilter,
   pageMeetingsForEmployee,
 } from "../services/meetings/store.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -542,10 +543,7 @@ import {
   bankingQueue,
 } from "../services/bankingQueue.js";
 import {
-  andWhereDateRange,
   type CursorValue,
-  type DateRange,
-  dateRange,
   decodeCursor,
   filterFingerprint,
   finishPage,
@@ -555,6 +553,9 @@ import {
   pageLimit,
   TOOL_PAGE_BUDGET_CHARS,
 } from "../services/listPaging.js";
+import { pageRunHistory, runStatusFilter } from "../services/runHistory.js";
+import { pageHandoffs } from "../services/handoffList.js";
+import { pageTodos, TODO_LIST_STATUSES } from "../services/todoList.js";
 import type { Account } from "../db/entities/Account.js";
 import { redactSensitiveText } from "../services/approvalRedaction.js";
 import {
@@ -11154,21 +11155,6 @@ mcpInternalRouter.post(
  * neither writes anything.
  */
 
-/** Runs that have stopped. A `running` row's verdicts are not written yet. */
-const TERMINAL_RUN_STATUSES: RunStatus[] = [
-  "completed",
-  "reviewed",
-  "continued",
-  "failed",
-  "error",
-  "skipped",
-  "timeout",
-  "interrupted",
-];
-
-/** 20 Runs by default — well inside one tool result — and at most 50 a page. */
-const RUN_PAGE = { defaultLimit: 20, maxLimit: 50 };
-
 function serializeRunRow(run: Run, routineName: string | null) {
   return {
     ...runContinuationView(run),
@@ -11193,21 +11179,12 @@ function serializeRunRow(run: Run, routineName: string | null) {
 const listRunsSchema = z
   .object({
     routine: z.string().min(1).max(200).optional(),
-    status: z
-      .enum(TERMINAL_RUN_STATUSES as [RunStatus, ...RunStatus[]])
-      .optional(),
+    status: runStatusFilter.optional(),
     from: z.string().min(1).max(40).optional(),
     to: z.string().min(1).max(40).optional(),
     ...pageBodyShape,
   })
   .strict();
-
-/** Every Run column but its transcript, which a history listing never shows. */
-function runListColumns(): string[] {
-  return AppDataSource.getMetadata(Run)
-    .columns.filter((column) => column.propertyName !== "logContent" && column.isSelect)
-    .map((column) => `run.${column.propertyName}`);
-}
 
 mcpInternalRouter.post(
   "/tools/list_runs",
@@ -11249,54 +11226,15 @@ mcpInternalRouter.post(
 
     // The whole history pages, newest first: a Routine that runs hourly keeps
     // thousands of Runs, and "when did this start failing?" needs the old ones.
+    // `GET /routines/:rid/runs` pages the same list (`services/runHistory.ts`).
     const { limit, cursor, routine: _routine, ...filter } = body;
-    let started: DateRange;
     try {
-      started = dateRange(filter.from, filter.to);
-    } catch (err) {
-      return res.status(400).json({ error: (err as Error).message });
-    }
-    const query = () => {
-      const qb = AppDataSource.getRepository(Run)
-        .createQueryBuilder("run")
-        .select(runListColumns())
-        .where("run.routineId IN (:...routineIds)", { routineIds })
-        .andWhere("run.status IN (:...statuses)", {
-          statuses: filter.status ? [filter.status] : TERMINAL_RUN_STATUSES,
-        });
-      return andWhereDateRange(qb, "run.startedAt", started, "started");
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      employee: self.id,
-      routineIds: [...routineIds].sort(),
-      status: filter.status,
-      started,
-    });
-    try {
-      const after = cursor ? decodeCursor("runs", fingerprint, cursor) : null;
-      const pageSize = pageLimit(limit, RUN_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          keys: [
-            { column: "run.startedAt", direction: "DESC", type: "timestamp" },
-            { column: "run.id", direction: "DESC", type: "string" },
-          ],
-          after,
-          limit: pageSize,
-          prefix: "run",
-        }),
-      ]);
-      const { rows, note, ...info } = finishPage({
-        fetched,
-        limit: pageSize,
-        total,
-        noun: "Runs",
-        scope: "runs",
-        fingerprint,
-        present: (run: Run) => serializeRunRow(run, names.get(run.routineId) ?? null),
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, note, ...info } = await pageRunHistory(
+        co.id,
+        { routineIds, ...filter },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (runs) => runs.map((run) => serializeRunRow(run, names.get(run.routineId) ?? null)),
+      );
       res.json({
         ...info,
         note:
@@ -12562,16 +12500,12 @@ const listTodosSchema = z
   .object({
     projectSlug: z.string().min(1).max(120),
     // `open` is everything not done or cancelled: the work still to pick up.
-    status: z
-      .enum(["open", "backlog", "todo", "in_progress", "in_review", "done", "cancelled"])
-      .optional(),
+    status: z.enum(TODO_LIST_STATUSES).optional(),
     assignedToMe: z.boolean().optional(),
     ...pageBodyShape,
   })
   .strict();
 
-/** 50 Todos by default, at most 200 a page. */
-const TODO_PAGE = { defaultLimit: 50, maxLimit: 200 };
 const TODO_DESCRIPTION_PREVIEW = 300;
 
 /**
@@ -12602,54 +12536,19 @@ mcpInternalRouter.post(
     if (!(await hasDelegatedProjectAccess(req, p, "read"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
-    const query = () => {
-      const qb = AppDataSource.getRepository(Todo)
-        .createQueryBuilder("todo")
-        .where("todo.projectId = :projectId", { projectId: p.id });
-      if (body.status === "open") {
-        qb.andWhere("todo.status IN (:...open)", {
-          open: ["backlog", "todo", "in_progress", "in_review"],
-        });
-      } else if (body.status) {
-        qb.andWhere("todo.status = :status", { status: body.status });
-      }
-      if (body.assignedToMe) {
-        qb.andWhere("todo.assigneeEmployeeId = :me", { me: req.mcpEmployee!.id });
-      }
-      return qb;
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      project: p.id,
-      status: body.status,
-      assignedToMe: body.assignedToMe ? req.mcpEmployee!.id : undefined,
-    });
+    // The board's order, a page at a time — the list `GET /projects/:pSlug/todos`
+    // pages too (`services/todoList.ts`).
     try {
-      const after = body.cursor ? decodeCursor("todos", fingerprint, body.cursor) : null;
-      const limit = pageLimit(body.limit, TODO_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          // The board's order: its drag-to-reorder key, then the oldest first.
-          keys: [
-            { column: "todo.sortOrder", direction: "ASC", type: "number" },
-            { column: "todo.createdAt", direction: "ASC", type: "timestamp" },
-            { column: "todo.id", direction: "ASC", type: "string" },
-          ],
-          after,
-          limit,
-          prefix: "todo",
-        }),
-      ]);
-      const { rows, note, ...info } = finishPage({
-        fetched,
-        limit,
-        total,
-        noun: "Todos",
-        scope: "todos",
-        fingerprint,
-        present: serializeTodoListRow,
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, note, ...info } = await pageTodos(
+        co.id,
+        p.id,
+        {
+          status: body.status,
+          assigneeEmployeeId: body.assignedToMe ? req.mcpEmployee!.id : undefined,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (todos) => todos.map(serializeTodoListRow),
+      );
       res.json({
         ...info,
         note:
@@ -15240,9 +15139,6 @@ const listHandoffsSchema = z
   })
   .strict();
 
-/** 50 handoffs by default, at most 200 a page. */
-const HANDOFF_PAGE = { defaultLimit: 50, maxLimit: 200 };
-
 mcpInternalRouter.post(
   "/tools/list_handoffs",
   validateBody(listHandoffsSchema),
@@ -15250,50 +15146,19 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listHandoffsSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const query = () => {
-      const qb = AppDataSource.getRepository(Handoff)
-        .createQueryBuilder("h")
-        .where("h.companyId = :cid", { cid: co.id });
-      if (body.direction === "incoming") {
-        qb.andWhere("h.toEmployeeId = :eid", { eid: self.id });
-      } else if (body.direction === "outgoing") {
-        qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
-      } else {
-        qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", { eid: self.id });
-      }
-      if (body.status !== "all") qb.andWhere("h.status = :status", { status: body.status });
-      return qb;
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      employee: self.id,
-      direction: body.direction,
-      status: body.status,
-    });
+    // Its own inbox or outbox, a page at a time — the list `GET /handoffs`
+    // pages too (`services/handoffList.ts`).
     try {
-      const after = body.cursor ? decodeCursor("handoffs", fingerprint, body.cursor) : null;
-      const limit = pageLimit(body.limit, HANDOFF_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          keys: [
-            { column: "h.createdAt", direction: "DESC", type: "timestamp" },
-            { column: "h.id", direction: "DESC", type: "string" },
-          ],
-          after,
-          limit,
-          prefix: "handoff",
-        }),
-      ]);
-      const { rows, ...info } = finishPage({
-        fetched,
-        limit,
-        total,
-        noun: "handoffs",
-        scope: "handoffs",
-        fingerprint,
-        present: serializeHandoff,
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, ...info } = await pageHandoffs(
+        co.id,
+        {
+          employeeId: self.id,
+          direction: body.direction,
+          status: body.status === "all" ? undefined : body.status,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (handoffs) => handoffs.map(serializeHandoff),
+      );
       res.json({ ...info, handoffs: rows });
     } catch (err) {
       if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
@@ -23354,9 +23219,7 @@ async function meetingForEmployee(
 
 const listMeetingsSchema = z
   .object({
-    status: z
-      .enum(["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"])
-      .optional(),
+    status: meetingStatusFilter.optional(),
     customerId: z.string().uuid().optional(),
     contactId: z.string().uuid().optional(),
     from: z.string().min(1).max(40).optional(),

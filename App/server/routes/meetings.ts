@@ -13,8 +13,9 @@ import {
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
-import { validateBody, validateParams } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
+import { ListQueryError } from "../services/listPaging.js";
 import {
   createCalendarAccount,
   deleteCalendarAccount,
@@ -51,9 +52,10 @@ import {
   armMeetingsForAccount,
   createAdHocMeeting,
   getMeeting,
-  listMeetings,
   listParticipants,
   listTranscriptSegments,
+  meetingListQuerySchema,
+  pageMeetings,
 } from "../services/meetings/store.js";
 
 /**
@@ -434,25 +436,38 @@ meetingsRouter.post(
 
 // ───────────────────────────── meetings ─────────────────────────────
 
-const listQuery = z.object({
-  status: z
-    .enum(["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"])
-    .optional(),
-  customerId: z.string().uuid().optional(),
-  contactId: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-});
-
+// Every meeting in the company, newest first: a Member sees them all. Without
+// limit or cursor the newest 50 as `{ meetings }`, as it always answered; with
+// either, one page with its total and the cursor to the next — the list the
+// `list_meetings` AI tool reads, from the same function, so the two cannot
+// drift apart (the tool's own pages hold only the calendars it has a Grant to).
 meetingsRouter.get(
   "/meetings",
+  validateQuery(meetingListQuerySchema),
   h(async (req, res) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Invalid filter." });
-      return;
+    const { limit, cursor, ...filter } = req.query as unknown as z.infer<
+      typeof meetingListQuerySchema
+    >;
+    try {
+      const { rows, hidden: _hidden, ...info } = await pageMeetings(
+        cid(req),
+        filter,
+        "all",
+        { limit, cursor },
+        serializeMeeting,
+      );
+      if (limit === undefined && cursor === undefined) {
+        res.json({ meetings: rows });
+        return;
+      }
+      res.json({ ...info, meetings: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
     }
-    const rows = await listMeetings(cid(req), parsed.data);
-    res.json({ meetings: rows.map(serializeMeeting) });
   }),
 );
 
