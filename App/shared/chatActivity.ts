@@ -120,6 +120,13 @@ export const KNOWN_WAIT_CAUSES = [
 export const MODEL_UNAVAILABLE_WAIT_CAUSE = "model_unavailable";
 
 /**
+ * What the chat says while a message waits for its unavailable AI Model. The
+ * server records it with the wait; the chat shows the server's words.
+ */
+export const MODEL_UNAVAILABLE_WAIT_LABEL =
+  "The AI Model is unavailable — this will be answered when it is back";
+
+/**
  * What a finished turn says when collapsed: "Worked for 2m 14s · 9 steps".
  * Persisted on the reply (`ConversationMessage.activityJson`) so a transcript
  * renders it without reading a single event.

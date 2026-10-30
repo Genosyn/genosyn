@@ -7,6 +7,8 @@ import {
   describeChatToolCall,
   formatElapsed,
   isQuietChatTool,
+  MODEL_UNAVAILABLE_WAIT_CAUSE,
+  MODEL_UNAVAILABLE_WAIT_LABEL,
   type ChatActivityEvent,
   type ChatActivityKind,
   type TurnActivitySummary,
@@ -87,7 +89,7 @@ const WAIT_LABELS: Record<string, string> = {
   thread_busy: "Waiting for the previous reply in this conversation to finish",
   model_lock: "Waiting for the AI Model, which answers one turn at a time",
   model_outage: "The AI Model's server stopped answering — waiting for it",
-  model_unavailable: "The AI Model is unavailable — this will be answered when it is back",
+  [MODEL_UNAVAILABLE_WAIT_CAUSE]: MODEL_UNAVAILABLE_WAIT_LABEL,
 };
 
 export class ChatTurnActivityRecorder {
@@ -150,7 +152,7 @@ export class ChatTurnActivityRecorder {
     if (this.startedRecorded) return;
     this.startedRecorded = true;
     this.closeWait("thread_busy");
-    this.closeWait("model_unavailable");
+    this.closeWait(MODEL_UNAVAILABLE_WAIT_CAUSE);
     const label =
       reason === "retry"
         ? "Started again"

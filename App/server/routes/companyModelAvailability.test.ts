@@ -14,6 +14,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
+import { encryptSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
 import { buildOpenApiDocument } from "../openapi/spec.js";
 import {
@@ -69,11 +70,14 @@ let owner: User;
 let employee: AIEmployee;
 let model: AIModel;
 const SECRET = "sk-ant-api03-ROUTE-TEST-SECRET-KEY-0001";
+/** The key as stored: encrypted with this run's instance secret. */
+let storedKey = "";
 
 beforeEach(async () => {
   resetModelAvailabilityForTests();
   await resetTestDb();
   ({ user: owner, company } = await createMemberOfNewCompany("owner"));
+  storedKey = encryptSecret(SECRET);
   employee = await insert(AIEmployee, {
     companyId: company.id,
     name: "Ada",
@@ -88,7 +92,7 @@ beforeEach(async () => {
     authMode: "apikey",
     isActive: true,
     connectedAt: new Date(),
-    configJson: JSON.stringify({ apiKeyEncrypted: "v2.cipher", apiKeyPreview: "sk-…0001" }),
+    configJson: JSON.stringify({ apiKeyEncrypted: storedKey, apiKeyPreview: "sk-…0001" }),
   });
 });
 afterEach(() => resetModelAvailabilityForTests());
@@ -162,6 +166,7 @@ test("the AI Models page says the model is unavailable, since when, why, what wa
   await flushModelAvailabilityWrites();
   const listed = await request("GET", "/models", { cookie });
   assert.equal(listed.status, 200);
+  assert.ok(!listed.text.includes(SECRET) && !listed.text.includes(storedKey), "no key listed");
   const availability = (listed.body as Array<{ availability: PublicModelAvailability }>)[0]
     .availability;
   assert.equal(availability.state, "unavailable");
@@ -188,7 +193,8 @@ test("Check now: an owner or admin asks the model again and reads what the check
   assert.equal(still.body.availability.state, "unavailable");
   assert.equal(still.body.availability.checks, 1);
   assert.equal(still.body.availability.reason, "server_error");
-  assert.doesNotMatch(still.text, /v2\.cipher|ROUTE-TEST-SECRET/, "no credential in the answer");
+  assert.ok(!still.text.includes(SECRET), "no key in the answer");
+  assert.ok(!still.text.includes(storedKey), "nor the key as stored");
 
   setModelCheckForTests(async () => ({ kind: "available" }));
   const admins = await memberCookie("admin");
