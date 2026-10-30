@@ -182,7 +182,9 @@ agentRuntime.run = (async (params: RunParams) => {
     holdMention = null;
     if (held === "until-stopped") {
       await new Promise<void>((_resolve, reject) => {
-        params.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        params.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
       });
     } else if (held) {
       await held;
@@ -216,7 +218,11 @@ agentRuntime.run = (async (params: RunParams) => {
     params.callbacks?.onToolUse?.("get_finance_report", { report: "gross_margin" }, "b1");
     params.callbacks?.onToolResult?.("get_finance_report", { content: '{"margin":0.71}' }, "b1");
   }
-  return { finalText: round === 1 ? (ROUND_ONE[who] ?? "PASS") : "PASS", steps: 1, stopReason: "end_turn" };
+  return {
+    finalText: round === 1 ? (ROUND_ONE[who] ?? "PASS") : "PASS",
+    steps: 1,
+    stopReason: "end_turn",
+  };
 }) as typeof agentRuntime.run;
 
 // ---------- The page, built and served beside the API ----------
@@ -309,10 +315,16 @@ try {
   await dialog.waitFor();
   await pick(page, ["Ada", "Ben", "Cy"]);
   const order = dialog.getByRole("list", { name: "Taking part, in speaking order" });
-  assert.match(await order.innerText(), /Ada\s*Leads[\s\S]*Ben[\s\S]*Cy/i, "the first picked leads");
+  assert.match(
+    await order.innerText(),
+    /Ada\s*Leads[\s\S]*Ben[\s\S]*Cy/i,
+    "the first picked leads",
+  );
   await dialog
     .getByLabel("What should they work out?")
-    .fill("Should we raise the Pro plan to $49?\nWeigh churn against margin and tell me what to do.");
+    .fill(
+      "Should we raise the Pro plan to $49?\nWeigh churn against margin and tell me what to do.",
+    );
   let release!: () => void;
   holdNext = { name: "Ada", release: new Promise<void>((resolve) => (release = resolve)) };
   await dialog.getByRole("button", { name: "Start discussion" }).click();
@@ -361,7 +373,12 @@ try {
 
   // Every turn talked read-only: no writer, sender or delegator was handed over.
   for (const turn of turnsSeen.filter((t) => t.kind === "turn")) {
-    for (const forbidden of ["send_mail", "send_workspace_message", "create_routine", "ask_colleague"]) {
+    for (const forbidden of [
+      "send_mail",
+      "send_workspace_message",
+      "create_routine",
+      "ask_colleague",
+    ]) {
       assert.equal(turn.tools.includes(forbidden), false, `${turn.who} held ${forbidden}`);
     }
   }
@@ -426,14 +443,17 @@ try {
   // 5b. An @mention in a channel: the room watches Ada's reply work, then reads it.
   const channel = await openOpsChannel();
   ops = channel;
-  async function postAsRuth(content: string) {
-    const res = await fetch(`${origin}/api/companies/${company.id}/workspace/channels/${channel.id}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-test-user": owner.id },
-      body: JSON.stringify({ content }),
-    });
+  const postAsRuth = async (content: string) => {
+    const res = await fetch(
+      `${origin}/api/companies/${company.id}/workspace/channels/${channel.id}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-test-user": owner.id },
+        body: JSON.stringify({ content }),
+      },
+    );
     assert.equal(res.status, 201);
-  }
+  };
   const room = await open(`/c/acme/workspace/${channel.id}`);
   await room.getByRole("heading", { name: "ops", exact: true }).waitFor();
   let releaseMention!: () => void;
@@ -442,7 +462,10 @@ try {
   const replyCard = room.locator('[data-channel-turn][data-turn-kind="reply"]');
   await replyCard.getByText("Replying to you").waitFor();
   await replyCard.getByText("Reading a Finance report").first().waitFor();
-  await room.screenshot({ path: path.join(artifacts, "group-chats-mention-live.png"), fullPage: true });
+  await room.screenshot({
+    path: path.join(artifacts, "group-chats-mention-live.png"),
+    fullPage: true,
+  });
   releaseMention();
   await room.getByText("Runway is 18 months at the current burn.").waitFor();
   await replyCard.waitFor({ state: "detached" });
@@ -500,7 +523,9 @@ try {
 
   // What the database says about all of it.
   await settleGroupDiscussionsForTests();
-  const rows = await AppDataSource.getRepository(GroupDiscussion).find({ order: { createdAt: "ASC" } });
+  const rows = await AppDataSource.getRepository(GroupDiscussion).find({
+    order: { createdAt: "ASC" },
+  });
   assert.deepEqual(
     rows.map((d) => [d.status, d.endReason]),
     [
@@ -542,7 +567,10 @@ try {
   // Leave what the browser saw beside the failure.
   for (const [index, page] of context.pages().entries()) {
     await page
-      .screenshot({ path: path.join(artifacts, `group-chats-failure-${index}.png`), fullPage: true })
+      .screenshot({
+        path: path.join(artifacts, `group-chats-failure-${index}.png`),
+        fullPage: true,
+      })
       .catch(() => undefined);
   }
   console.error(`Group chats: failed after ${checks} checks.`, pageErrors);

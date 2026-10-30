@@ -57,18 +57,53 @@ type Reply = {
   user: ConversationMessage;
   assistant: ConversationMessage;
   completed: boolean;
+  /** Browsers following this reply over its activity stream after a reopen. */
+  followers: ServerResponse[];
 };
 function streamEvent(response: ServerResponse, event: string, data: unknown) {
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
-function finishReply(reply: Reply, content = "I can explain the options before you decide.") {
+function finishReply(
+  reply: Reply,
+  content = "I can explain the options before you decide.",
+  status: "ok" | "error" | "interrupted" = "ok",
+) {
   assert.equal(reply.completed, false);
   reply.completed = true;
-  reply.assistant.status = "ok";
+  reply.assistant.status = status;
   reply.assistant.content = content;
-  streamEvent(reply.response, "assistant", reply.assistant);
-  streamEvent(reply.response, "done", {});
-  reply.response.end();
+  for (const response of [reply.response, ...reply.followers]) {
+    // Hiding the discussion closes this browser's streams; the reply goes on.
+    if (response.writableEnded || response.destroyed) continue;
+    streamEvent(response, "assistant", reply.assistant);
+    streamEvent(response, "done", {});
+    response.end();
+  }
+}
+/**
+ * The reply's own activity stream, as the server sends it to a browser that
+ * reopens a discussion while the reply is still being written: who and when
+ * first, the words so far, then the final row once the reply lands.
+ */
+function followReply(reply: Reply, response: ServerResponse) {
+  response.setHeader("Content-Type", "text/event-stream");
+  response.setHeader("Cache-Control", "no-cache");
+  response.flushHeaders();
+  streamEvent(response, "turn", {
+    messageId: reply.assistant.id,
+    status: reply.completed ? "ok" : "working",
+    startedAt: reply.user.createdAt,
+    attempt: 1,
+    now: new Date().toISOString(),
+  });
+  if (reply.completed) {
+    streamEvent(response, "assistant", reply.assistant);
+    streamEvent(response, "done", {});
+    response.end();
+    return;
+  }
+  streamEvent(response, "snapshot", { text: reply.assistant.content });
+  reply.followers.push(response);
 }
 const server = await createServer({
   ...browserTestVite,
@@ -81,6 +116,20 @@ const server = await createServer({
       configureServer(dev) {
         dev.middlewares.use(async (request, response, next) => {
           const pathname = new URL(request.url ?? "/", "http://fixture").pathname;
+          const follow = pathname.match(
+            /^\/api\/companies\/company\/employees\/[^/]+\/conversations\/[^/]+\/messages\/([^/]+)\/activity\/stream$/,
+          );
+          if (request.method === "GET" && follow) {
+            const reply = replies.find((row) => row.assistant.id === follow[1]);
+            if (!reply) {
+              response.statusCode = 404;
+              response.setHeader("Content-Type", "application/json");
+              response.end(JSON.stringify({ error: "Not found" }));
+              return;
+            }
+            followReply(reply, response);
+            return;
+          }
           const match = pathname.match(
             /^\/api\/companies\/company\/employees\/([^/]+)\/conversations\/([^/]+)\/messages$/,
           );
@@ -105,6 +154,7 @@ const server = await createServer({
               user,
               assistant,
               completed: false,
+              followers: [],
             };
             replies.push(reply);
             response.setHeader("Content-Type", "text/event-stream");
@@ -613,6 +663,14 @@ async function open(options: FixtureOptions = {}) {
         });
       if (url.pathname === `${apiBase}/member-browsers/for-employee/asking-employee`)
         return route.fulfill({ json: [] });
+      // A reply still being written is followed over its own activity stream,
+      // which the dev server holds open until the reply lands.
+      if (
+        /^\/api\/companies\/company\/employees\/[^/]+\/conversations\/[^/]+\/messages\/[^/]+\/activity\/stream$/.test(
+          url.pathname,
+        )
+      )
+        return route.continue();
       if (
         url.pathname === `${employeeBase}/conversations` ||
         url.pathname === `${apiBase}/employees/other-asking-employee/conversations`
@@ -750,6 +808,33 @@ async function open(options: FixtureOptions = {}) {
         )
       )
         return route.continue();
+      // Stop: the reply in flight ends where it is, keeping what it wrote.
+      const interrupt = url.pathname.match(
+        /^\/api\/companies\/company\/employees\/[^/]+\/conversations\/([^/]+)\/interrupt$/,
+      );
+      if (request.method() === "POST" && interrupt) {
+        const running = replies.find(
+          (reply) => reply.conversationId === interrupt[1] && !reply.completed,
+        );
+        if (running) finishReply(running, running.assistant.content, "interrupted");
+        return route.fulfill({ json: { ok: true, interrupted: Boolean(running) } });
+      }
+      // Retry: a failed reply runs again in place, under the same id.
+      const retry = url.pathname.match(
+        /^\/api\/companies\/company\/employees\/[^/]+\/conversations\/[^/]+\/messages\/([^/]+)\/retry$/,
+      );
+      if (request.method() === "POST" && retry) {
+        const failed = replies.find((reply) => reply.assistant.id === retry[1]);
+        if (!failed || failed.assistant.status !== "error")
+          return route.fulfill({ status: 409, json: { error: "This reply cannot be retried." } });
+        failed.completed = false;
+        failed.followers = [];
+        failed.assistant.status = "working";
+        failed.assistant.content = "Checking the decision again.";
+        return route.fulfill({
+          json: { message: failed.assistant, startedAt: new Date().toISOString() },
+        });
+      }
       const match = url.pathname.match(
         /^\/api\/companies\/company\/decisions\/([^/]+)\/(decide|dismiss|snooze|restore)$/,
       );
@@ -2742,7 +2827,16 @@ try {
         // Hiding stops this browser's stream; the reply carries on regardless.
         await hideDiscussion(scope).click();
         await discuss(scope).click();
-        await transcript(scope).getByText("Alex Rivera is thinking…", { exact: true }).waitFor();
+        // The reopened discussion follows the reply where it is: the live
+        // card with a Stop for the Member who asked, and its words so far
+        // streaming beneath it.
+        const card = transcript(scope).getByRole("region", {
+          name: "Alex Rivera is working",
+          exact: true,
+        });
+        await card.waitFor();
+        await card.getByRole("button", { name: "Stop Alex Rivera’s reply", exact: true }).waitFor();
+        await transcript(scope).getByText("Checking the decision.", { exact: true }).waitFor();
         assert.equal(
           await scope.getByRole("button", { name: "Send", exact: true }).isDisabled(),
           true,
@@ -2755,6 +2849,79 @@ try {
           fixture.writes.filter((write) => write.path.endsWith("/messages")).length,
           1,
           "following a reply never re-sends the question",
+        );
+      } finally {
+        holdReplies = false;
+      }
+      await fixture.page.close();
+    },
+  );
+  await check(
+    "Stop ends a discussion reply where it is, and a failed reply retries in place",
+    async () => {
+      const fixture = await open();
+      await discuss(fixture.page).click();
+      const scope = await discussing(fixture.page);
+      fixture.allowWrites();
+      holdReplies = true;
+      try {
+        await messageBox(scope).fill("Can you check support coverage?");
+        await messageBox(scope).press("Enter");
+        const card = transcript(scope).getByRole("region", {
+          name: "Alex Rivera is working",
+          exact: true,
+        });
+        await card.waitFor();
+        await card.getByRole("button", { name: "Stop Alex Rivera’s reply", exact: true }).click();
+        // The card goes; what was written stays as the reply, marked stopped.
+        await card.waitFor({ state: "detached" });
+        await transcript(scope).getByText("Checking the decision.", { exact: true }).waitFor();
+        assert.equal(
+          fixture.writes.filter((write) => write.path.endsWith("/discussion-1/interrupt")).length,
+          1,
+        );
+        // Stopping was the Member's choice, so it offers no Retry.
+        assert.equal(await scope.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+        assert.equal(await messageBox(scope).isDisabled(), false);
+
+        await messageBox(scope).fill("Try the coverage check once more.");
+        await messageBox(scope).press("Enter");
+        await card.waitFor();
+        const failed = replies.at(-1)!;
+        finishReply(failed, "The AI Model returned an error.", "error");
+        const retry = scope.getByRole("button", { name: "Retry", exact: true });
+        await retry.waitFor();
+        await scope.getByText("Alex Rivera takes your question again.", { exact: true }).waitFor();
+        await retry.click();
+        // The same reply runs again under its own id, followed live.
+        await card.waitFor();
+        await transcript(scope)
+          .getByText("Checking the decision again.", { exact: true })
+          .waitFor();
+        assert.equal(await retry.count(), 0, "a running reply offers no second Retry");
+        finishReply(failed, "Coverage is confirmed for the whole week.");
+        await transcript(scope)
+          .getByText("Coverage is confirmed for the whole week.", { exact: true })
+          .waitFor();
+        await card.waitFor({ state: "detached" });
+        assert.equal(
+          await transcript(scope)
+            .getByText("The AI Model returned an error.", { exact: true })
+            .count(),
+          0,
+          "the retried reply replaces the failure rather than adding to it",
+        );
+        const thread = `${employeeBase}/conversations/discussion-1`;
+        assert.deepEqual(
+          fixture.writes.map((write) => write.path),
+          [
+            `${apiBase}/decisions/${firstDecisionId}/discussion`,
+            `${thread}/messages`,
+            `${thread}/interrupt`,
+            `${thread}/messages`,
+            `${thread}/messages/${failed.assistant.id}/retry`,
+          ],
+          "Stop and Retry are the only writes beyond the two questions",
         );
       } finally {
         holdReplies = false;
