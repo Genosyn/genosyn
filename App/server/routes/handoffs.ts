@@ -5,10 +5,17 @@ import { Handoff, HandoffStatus } from "../db/entities/Handoff.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
+import {
+  handoffFilterFromQuery,
+  handoffListQuery,
+  handoffListQuerySchema,
+  pageHandoffs,
+} from "../services/handoffList.js";
+import { ListQueryError } from "../services/listPaging.js";
 
 export const handoffsRouter = Router({ mergeParams: true });
 handoffsRouter.use(requireAuth);
@@ -81,50 +88,35 @@ async function hydrateHandoffs(
   );
 }
 
-const STATUS_VALUES: HandoffStatus[] = [
-  "pending",
-  "completed",
-  "declined",
-  "cancelled",
-];
-
-handoffsRouter.get("/handoffs", async (req, res) => {
+// The company's handoffs, newest first, or one employee's (`employeeId`, with
+// `direction` for one side). Without limit or cursor the newest 200 as a plain
+// array, as the Handoffs page reads them; with either, one page with its total
+// and the cursor to the next — the list the `list_handoffs` AI tool reads, from
+// the same function, so for the same employee, direction and status a cursor
+// from one continues the other.
+handoffsRouter.get("/handoffs", validateQuery(handoffListQuerySchema), async (req, res, next) => {
   const cid = (req.params as Record<string, string>).cid;
   const co = await loadCompany(cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
-
-  const employeeId =
-    typeof req.query.employeeId === "string" ? req.query.employeeId : null;
-  const direction =
-    req.query.direction === "incoming"
-      ? "incoming"
-      : req.query.direction === "outgoing"
-        ? "outgoing"
-        : null;
-  const statusRaw =
-    typeof req.query.status === "string" ? req.query.status : null;
-  const status: HandoffStatus | null =
-    statusRaw && (STATUS_VALUES as string[]).includes(statusRaw)
-      ? (statusRaw as HandoffStatus)
-      : null;
-
-  const qb = AppDataSource.getRepository(Handoff)
-    .createQueryBuilder("h")
-    .where("h.companyId = :cid", { cid });
-
-  if (employeeId && direction === "incoming") {
-    qb.andWhere("h.toEmployeeId = :eid", { eid: employeeId });
-  } else if (employeeId && direction === "outgoing") {
-    qb.andWhere("h.fromEmployeeId = :eid", { eid: employeeId });
-  } else if (employeeId) {
-    qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", {
-      eid: employeeId,
-    });
+  const { limit, cursor, ...query } = req.query as unknown as z.infer<
+    typeof handoffListQuerySchema
+  >;
+  const filter = handoffFilterFromQuery(query);
+  try {
+    if (limit !== undefined || cursor !== undefined) {
+      const { rows, ...info } = await pageHandoffs(cid, filter, { limit, cursor }, hydrateHandoffs);
+      return res.json({ ...info, handoffs: rows });
+    }
+    const rows = await handoffListQuery(cid, filter)
+      .orderBy("h.createdAt", "DESC")
+      .addOrderBy("h.id", "DESC")
+      .take(200)
+      .getMany();
+    res.json(await hydrateHandoffs(rows));
+  } catch (err) {
+    if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+    next(err);
   }
-  if (status) qb.andWhere("h.status = :status", { status });
-  qb.orderBy("h.createdAt", "DESC").take(200);
-  const rows = await qb.getMany();
-  res.json(await hydrateHandoffs(rows));
 });
 
 handoffsRouter.get("/handoffs/:hid", async (req, res) => {

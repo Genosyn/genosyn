@@ -1,6 +1,16 @@
-import { Brackets, In, IsNull } from "typeorm";
+import { Brackets, In, IsNull, type SelectQueryBuilder } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
+import {
+  type CursorValue,
+  decodeCursor,
+  encodeCursor,
+  filterFingerprint,
+  type KeysetColumn,
+  keysetRows,
+  type PageInfo,
+  pageNote,
+} from "../listPaging.js";
 import {
   ACTIVITY_BODY_CAP,
   Activity,
@@ -273,41 +283,25 @@ export async function recordMailActivities(
 }
 
 /**
- * The timeline.
- *
- * With `includeRelatedDeals`, a contact's timeline also carries activities
- * logged against their deals — which is what somebody opening a contact
- * actually expects to see, since "we moved their deal to Proposal" is part of
- * that relationship's history even though it was recorded against the deal.
+ * The activities `opts` match, as a factory of fresh, unordered query builders
+ * — the shared WHERE of the timeline and the export. The related records a
+ * contact's or an account's timeline reaches are looked up once, here, so an
+ * export reading many batches does not look them up again for each.
  */
-export async function listActivities(
+async function activityListQuery(
   companyId: string,
-  opts: ActivityListOptions = {},
-): Promise<{ rows: Activity[]; total: number }> {
-  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(opts.offset ?? 0, 0);
-
-  const qb = AppDataSource.getRepository(Activity)
-    .createQueryBuilder("a")
-    .where("a.companyId = :companyId", { companyId });
-
+  opts: Omit<ActivityListOptions, "limit" | "offset">,
+): Promise<() => SelectQueryBuilder<Activity>> {
+  let relatedDealIds: string[] = [];
+  let accountContactIds: string[] = [];
+  let accountDealIds: string[] = [];
   if (opts.contactId && opts.includeRelatedDeals) {
-    const dealIds = await AppDataSource.getRepository(Deal).find({
+    const deals = await AppDataSource.getRepository(Deal).find({
       where: { companyId, primaryContactId: opts.contactId },
       select: { id: true },
     });
-    const ids = dealIds.map((d) => d.id);
-    qb.andWhere(
-      new Brackets((w) => {
-        w.where("a.contactId = :contactId", { contactId: opts.contactId });
-        if (ids.length > 0) w.orWhere("a.dealId IN (:...ids)", { ids });
-      }),
-    );
-  } else if (opts.contactId) {
-    qb.andWhere("a.contactId = :contactId", { contactId: opts.contactId });
+    relatedDealIds = deals.map((d) => d.id);
   }
-
-  if (opts.dealId) qb.andWhere("a.dealId = :dealId", { dealId: opts.dealId });
   if (opts.customerId && opts.includeRelatedRecords) {
     // `customerId` is stamped when an activity is written and never moved, so
     // a contact or deal attached to the account later keeps its earlier
@@ -322,51 +316,93 @@ export async function listActivities(
         select: { id: true },
       }),
     ]);
-    const relatedContactIds = contacts.map((c) => c.id);
-    const relatedDealIds = deals.map((d) => d.id);
-    qb.andWhere(
-      new Brackets((w) => {
-        w.where("a.customerId = :customerId", { customerId: opts.customerId });
-        if (relatedContactIds.length > 0) {
-          w.orWhere("a.contactId IN (:...relatedContactIds)", { relatedContactIds });
-        }
-        if (relatedDealIds.length > 0) {
-          w.orWhere("a.dealId IN (:...relatedDealIds)", { relatedDealIds });
-        }
-      }),
-    );
-  } else if (opts.customerId) {
-    qb.andWhere("a.customerId = :customerId", { customerId: opts.customerId });
+    accountContactIds = contacts.map((c) => c.id);
+    accountDealIds = deals.map((d) => d.id);
   }
-  if (opts.partnershipId) {
-    qb.andWhere("a.partnershipId = :partnershipId", { partnershipId: opts.partnershipId });
-  }
-  if (opts.kinds && opts.kinds.length > 0) {
-    qb.andWhere("a.kind IN (:...kinds)", { kinds: opts.kinds });
-  }
-  if (opts.q?.trim()) {
-    qb.andWhere(
-      new Brackets((where) => {
-        where
-          .where("LOWER(a.subject) LIKE :activityQuery", {
-            activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
-          })
-          .orWhere("LOWER(a.bodyText) LIKE :activityQuery", {
-            activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
-          });
-      }),
-    );
-  }
-  if (opts.from) qb.andWhere("a.occurredAt >= :from", { from: opts.from });
-  if (opts.to) qb.andWhere("a.occurredAt <= :to", { to: opts.to });
-  if (opts.actorUserId) {
-    qb.andWhere("a.actorUserId = :actorUserId", { actorUserId: opts.actorUserId });
-  }
-  if (opts.actorEmployeeId) {
-    qb.andWhere("a.actorEmployeeId = :actorEmployeeId", {
-      actorEmployeeId: opts.actorEmployeeId,
-    });
-  }
+
+  return () => {
+    const qb = AppDataSource.getRepository(Activity)
+      .createQueryBuilder("a")
+      .where("a.companyId = :companyId", { companyId });
+
+    if (opts.contactId && opts.includeRelatedDeals) {
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where("a.contactId = :contactId", { contactId: opts.contactId });
+          if (relatedDealIds.length > 0) w.orWhere("a.dealId IN (:...ids)", { ids: relatedDealIds });
+        }),
+      );
+    } else if (opts.contactId) {
+      qb.andWhere("a.contactId = :contactId", { contactId: opts.contactId });
+    }
+
+    if (opts.dealId) qb.andWhere("a.dealId = :dealId", { dealId: opts.dealId });
+    if (opts.customerId && opts.includeRelatedRecords) {
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where("a.customerId = :customerId", { customerId: opts.customerId });
+          if (accountContactIds.length > 0) {
+            w.orWhere("a.contactId IN (:...relatedContactIds)", {
+              relatedContactIds: accountContactIds,
+            });
+          }
+          if (accountDealIds.length > 0) {
+            w.orWhere("a.dealId IN (:...relatedDealIds)", { relatedDealIds: accountDealIds });
+          }
+        }),
+      );
+    } else if (opts.customerId) {
+      qb.andWhere("a.customerId = :customerId", { customerId: opts.customerId });
+    }
+    if (opts.partnershipId) {
+      qb.andWhere("a.partnershipId = :partnershipId", { partnershipId: opts.partnershipId });
+    }
+    if (opts.kinds && opts.kinds.length > 0) {
+      qb.andWhere("a.kind IN (:...kinds)", { kinds: opts.kinds });
+    }
+    if (opts.q?.trim()) {
+      qb.andWhere(
+        new Brackets((where) => {
+          where
+            .where("LOWER(a.subject) LIKE :activityQuery", {
+              activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
+            })
+            .orWhere("LOWER(a.bodyText) LIKE :activityQuery", {
+              activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
+            });
+        }),
+      );
+    }
+    if (opts.from) qb.andWhere("a.occurredAt >= :from", { from: opts.from });
+    if (opts.to) qb.andWhere("a.occurredAt <= :to", { to: opts.to });
+    if (opts.actorUserId) {
+      qb.andWhere("a.actorUserId = :actorUserId", { actorUserId: opts.actorUserId });
+    }
+    if (opts.actorEmployeeId) {
+      qb.andWhere("a.actorEmployeeId = :actorEmployeeId", {
+        actorEmployeeId: opts.actorEmployeeId,
+      });
+    }
+    return qb;
+  };
+}
+
+/**
+ * The timeline.
+ *
+ * With `includeRelatedDeals`, a contact's timeline also carries activities
+ * logged against their deals — which is what somebody opening a contact
+ * actually expects to see, since "we moved their deal to Proposal" is part of
+ * that relationship's history even though it was recorded against the deal.
+ */
+export async function listActivities(
+  companyId: string,
+  opts: ActivityListOptions = {},
+): Promise<{ rows: Activity[]; total: number }> {
+  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  const qb = (await activityListQuery(companyId, opts))();
 
   const total = await qb.clone().getCount();
   const rows = await qb
@@ -493,7 +529,35 @@ async function refreshActivityRecency(companyId: string, links: RecencyLink[]): 
   }
 }
 
-const ACTIVITY_EXPORT_CAP = 10_000;
+/** At most this many activities in one part of an export; a cursor carries on past it. */
+export const ACTIVITY_EXPORT_ROW_CAP = 10_000;
+
+/** Rows read per query while an export part fills. */
+const ACTIVITY_EXPORT_BATCH = 500;
+
+const ACTIVITY_EXPORT_SCOPE = "revenue.activities.export";
+
+/** The timeline's own order, newest first, as a keyset ending in the unique id. */
+const ACTIVITY_KEYS: KeysetColumn[] = [
+  { column: "a.occurredAt", direction: "DESC", type: "timestamp" },
+  { column: "a.createdAt", direction: "DESC", type: "timestamp" },
+  { column: "a.id", direction: "DESC", type: "string" },
+];
+
+const ACTIVITY_EXPORT_HEADER = [
+  "id",
+  "occurredAt",
+  "kind",
+  "subject",
+  "bodyText",
+  "contactId",
+  "dealId",
+  "customerId",
+  "partnershipId",
+  "actorUserId",
+  "actorEmployeeId",
+  "createdAt",
+];
 
 function csvCell(value: unknown): string {
   const text =
@@ -505,64 +569,128 @@ function csvCell(value: unknown): string {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+function activityCsvLine(row: Activity): string {
+  return [
+    row.id,
+    row.occurredAt,
+    row.kind,
+    row.subject,
+    row.bodyText,
+    row.contactId,
+    row.dealId,
+    row.customerId,
+    row.partnershipId,
+    row.actorUserId,
+    row.actorEmployeeId,
+    row.createdAt,
+  ]
+    .map(csvCell)
+    .join(",");
+}
+
+/** Characters a line takes inside a JSON string, newline included — how a tool result carries the CSV. */
+function jsonChars(line: string): number {
+  return JSON.stringify(line).length - 2 + 4;
+}
+
+/** One part of an activity export, and what follows it (`services/listPaging.ts`). */
+export type ActivityExport = PageInfo & {
+  csv: string;
+  exported: number;
+  /** `hasMore` under its older name, kept for existing callers. */
+  truncated: boolean;
+};
+
+/**
+ * The activity ledger as CSV, newest first, one part at a time.
+ *
+ * A part holds at most {@link ACTIVITY_EXPORT_ROW_CAP} activities, and with
+ * `maxChars` ends early rather than outgrow what its reader can hold — an AI
+ * Employee's tool result. While more follow it answers `hasMore` and a
+ * `nextCursor`: passed back as `cursor` with the same filters, the next part
+ * starts after the last activity this one holds. Every part starts with the
+ * header row, so each is a CSV on its own. The cursor names the last row
+ * rather than counting rows, so activities logged while an export is read
+ * never shift the next part. It used to stop at 10,000 rows with no way on.
+ */
 export async function exportActivitiesCsv(
   companyId: string,
   opts: Omit<ActivityListOptions, "limit" | "offset"> = {},
-): Promise<{ csv: string; exported: number; truncated: boolean }> {
-  const rows: Activity[] = [];
-  let offset = 0;
-  let total = 0;
-  while (rows.length < ACTIVITY_EXPORT_CAP) {
-    const page = await listActivities(companyId, {
-      ...opts,
-      limit: MAX_LIMIT,
-      offset,
+  part: { cursor?: string; maxChars?: number } = {},
+): Promise<ActivityExport> {
+  const fingerprint = filterFingerprint(companyId, {
+    q: opts.q?.trim() ? opts.q.trim().toLowerCase() : undefined,
+    contactId: opts.contactId,
+    dealId: opts.dealId,
+    customerId: opts.customerId,
+    partnershipId: opts.partnershipId,
+    kinds: opts.kinds?.length ? [...new Set(opts.kinds)].sort() : undefined,
+    from: opts.from,
+    to: opts.to,
+    actorUserId: opts.actorUserId,
+    actorEmployeeId: opts.actorEmployeeId,
+    includeRelatedDeals: opts.contactId ? !!opts.includeRelatedDeals : undefined,
+    includeRelatedRecords: opts.customerId ? !!opts.includeRelatedRecords : undefined,
+  });
+  let after = part.cursor
+    ? decodeCursor(ACTIVITY_EXPORT_SCOPE, fingerprint, part.cursor)
+    : null;
+  const query = await activityListQuery(companyId, opts);
+  const total = await query().getCount();
+
+  const header = ACTIVITY_EXPORT_HEADER.map(csvCell).join(",");
+  const lines = [header];
+  let chars = jsonChars(header);
+  let exported = 0;
+  let lastKey: CursorValue[] | null = null;
+  let hasMore = false;
+  for (;;) {
+    const want = Math.min(ACTIVITY_EXPORT_BATCH, ACTIVITY_EXPORT_ROW_CAP - exported);
+    const batchQuery = query();
+    // The keyset's first column as a plain bound too, so the
+    // (companyId, occurredAt) index starts at the cursor rather than walking
+    // every newer activity again for each batch.
+    if (after) batchQuery.andWhere("a.occurredAt <= :exportBound", { exportBound: after[0] });
+    const batch = await keysetRows(batchQuery, {
+      keys: ACTIVITY_KEYS,
+      after,
+      limit: want,
+      prefix: "export",
     });
-    total = page.total;
-    rows.push(...page.rows);
-    if (page.rows.length < MAX_LIMIT || rows.length >= total) break;
-    offset += page.rows.length;
+    let full = false;
+    for (const entry of batch.slice(0, want)) {
+      const line = activityCsvLine(entry.row);
+      // A part always holds at least one row, so the cursor always moves on.
+      if (part.maxChars !== undefined && exported > 0 && chars + jsonChars(line) > part.maxChars) {
+        full = true;
+        break;
+      }
+      lines.push(line);
+      chars += jsonChars(line);
+      exported += 1;
+      lastKey = entry.key;
+    }
+    // The batch reads one row past `want`; when it came back short, nothing
+    // is left past the rows it held.
+    if (full || (batch.length > want && exported >= ACTIVITY_EXPORT_ROW_CAP)) {
+      hasMore = true;
+      break;
+    }
+    if (batch.length <= want) break;
+    after = lastKey;
   }
-  const exportedRows = rows.slice(0, ACTIVITY_EXPORT_CAP);
-  const header = [
-    "id",
-    "occurredAt",
-    "kind",
-    "subject",
-    "bodyText",
-    "contactId",
-    "dealId",
-    "customerId",
-    "partnershipId",
-    "actorUserId",
-    "actorEmployeeId",
-    "createdAt",
-  ];
-  const lines = [
-    header.map(csvCell).join(","),
-    ...exportedRows.map((row) =>
-      [
-        row.id,
-        row.occurredAt,
-        row.kind,
-        row.subject,
-        row.bodyText,
-        row.contactId,
-        row.dealId,
-        row.customerId,
-        row.partnershipId,
-        row.actorUserId,
-        row.actorEmployeeId,
-        row.createdAt,
-      ]
-        .map(csvCell)
-        .join(","),
-    ),
-  ];
+
+  const nextCursor =
+    hasMore && lastKey ? encodeCursor(ACTIVITY_EXPORT_SCOPE, fingerprint, lastKey) : null;
+  const note = pageNote({ shown: exported, total, noun: "activities", hasMore: !!nextCursor });
   return {
+    total,
+    hasMore: !!nextCursor,
+    nextCursor,
+    ...(note ? { note } : {}),
     csv: lines.join("\r\n"),
-    exported: exportedRows.length,
-    truncated: total > exportedRows.length,
+    exported,
+    truncated: !!nextCursor,
   };
 }
 

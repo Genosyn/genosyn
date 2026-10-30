@@ -19,6 +19,15 @@ import {
   phoneVoice,
 } from "../../../shared/phone.js";
 import { recordAudit } from "../audit.js";
+import {
+  andWhereDateRange,
+  type DateRange,
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { getActiveModel } from "../models.js";
 import { workBlocked } from "../standdowns.js";
 import {
@@ -170,6 +179,72 @@ export async function listCalls(args: {
     },
     order: { createdAt: "DESC" },
     take: args.limit,
+  });
+}
+
+/** Which calls a page covers. Every field narrows; they combine. */
+export type CallFilter = {
+  phoneNumberIds: string[];
+  /**
+   * Only calls this AI Employee may read: those from while the number was its
+   * own, or while it had nobody — the rule `get_phone_call` applies.
+   */
+  visibleToEmployeeId: string;
+  direction?: "inbound" | "outbound";
+  /** When the call started (`createdAt`). */
+  started: DateRange;
+};
+
+/** 20 calls by default, at most 50 a page. */
+export const CALL_PAGE: PageLimits = { defaultLimit: 20, maxLimit: 50 };
+
+/** Every column but the transcript, which a list of calls never shows. */
+function callListColumns(): string[] {
+  return AppDataSource.getMetadata(PhoneCall)
+    .columns.filter((column) => column.propertyName !== "transcriptJson" && column.isSelect)
+    .map((column) => `c.${column.propertyName}`);
+}
+
+function callsQuery(filter: CallFilter) {
+  const qb = AppDataSource.getRepository(PhoneCall)
+    .createQueryBuilder("c")
+    .select(callListColumns());
+  if (filter.phoneNumberIds.length === 0) qb.where("1 = 0");
+  else {
+    qb.where("c.phoneNumberId IN (:...phoneNumberIds)", { phoneNumberIds: filter.phoneNumberIds });
+  }
+  // In the query, never after the cut: a page of calls is cut from the calls
+  // this employee may read, so it is never short or empty while more follow.
+  qb.andWhere("(c.employeeId = :viewerId OR c.employeeId IS NULL)", {
+    viewerId: filter.visibleToEmployeeId,
+  });
+  if (filter.direction) qb.andWhere("c.direction = :direction", { direction: filter.direction });
+  return andWhereDateRange(qb, "c.createdAt", filter.started, "started");
+}
+
+/**
+ * An AI Employee's calls newest first, one page at a time
+ * (`services/listPaging.ts`), without their transcripts.
+ */
+export async function pageCalls<Out>(args: {
+  companyId: string;
+  filter: CallFilter;
+  fingerprint: Record<string, unknown>;
+  page: PageRequest & { budgetChars?: number };
+  present: (rows: PhoneCall[]) => Out[];
+}): Promise<Page<Out>> {
+  return keysetPage({
+    query: () => callsQuery(args.filter),
+    keys: [
+      { column: "c.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "c.id", direction: "DESC", type: "string" },
+    ],
+    scope: "phone.calls",
+    fingerprint: filterFingerprint(args.companyId, args.fingerprint),
+    noun: "calls",
+    limits: CALL_PAGE,
+    page: args.page,
+    present: args.present,
   });
 }
 

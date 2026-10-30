@@ -25,6 +25,7 @@ import { normalizedCustomFieldSearchValue, validateCustomFieldValue } from "./cu
 import { assertRevenueOwner } from "./integrity.js";
 import { normalizeAccountDomain } from "./accounts.js";
 import { assertClassification, classificationValue } from "./classifications.js";
+import { asText } from "../listPaging.js";
 
 export type BulkResourceType = "account" | "contact" | "deal" | "partnership" | "follow_up";
 export type FollowUpSource = "task" | "deal" | "partnership";
@@ -63,6 +64,8 @@ export type BulkTarget = {
     createdBefore?: Date;
     closedDeals?: "include" | "only" | "exclude";
     archivedResources?: "include" | "only" | "exclude";
+    /** Follow-ups: tasks with no due date, as the follow-up queue lists them (default include). */
+    undated?: "include" | "only" | "exclude";
   };
 };
 
@@ -243,31 +246,34 @@ async function selectedFollowUps(
     ...new Set(requested.filter((item) => item.source === source).map((item) => item.id)),
   ];
   const filter = target.filter ?? {};
+  // A task with no due date is a follow-up too (the queue lists it after the
+  // dated ones), so it can be picked by id, or by a filter that includes it.
+  // The key-to-reference joins cast only where Postgres needs it (uuid vs
+  // varchar), so SQLite still answers them from the primary key.
   const taskQb = manager
     .getRepository(Activity)
     .createQueryBuilder("row")
     .where("row.companyId = :companyId", { companyId })
     .andWhere("row.kind = 'task'")
-    .andWhere("row.dueAt IS NOT NULL")
     .leftJoin(
       Deal,
       "taskDeal",
-      "taskDeal.companyId = row.companyId AND CAST(taskDeal.id AS text) = row.dealId",
+      `taskDeal.companyId = row.companyId AND ${asText("taskDeal.id")} = row.dealId`,
     )
     .leftJoin(
       Contact,
       "taskContact",
-      "taskContact.companyId = row.companyId AND CAST(taskContact.id AS text) = row.contactId",
+      `taskContact.companyId = row.companyId AND ${asText("taskContact.id")} = row.contactId`,
     )
     .leftJoin(
       Partnership,
       "taskPartnership",
-      "taskPartnership.companyId = row.companyId AND CAST(taskPartnership.id AS text) = row.partnershipId",
+      `taskPartnership.companyId = row.companyId AND ${asText("taskPartnership.id")} = row.partnershipId`,
     )
     .leftJoin(
       Customer,
       "taskAccount",
-      "taskAccount.companyId = row.companyId AND taskAccount.id = COALESCE(row.customerId, taskDeal.customerId, taskPartnership.customerId)",
+      `taskAccount.companyId = row.companyId AND ${asText("taskAccount.id")} = COALESCE(row.customerId, taskDeal.customerId, taskPartnership.customerId)`,
     );
   const dealQb = manager
     .getRepository(Deal)
@@ -277,7 +283,7 @@ async function selectedFollowUps(
     .leftJoin(
       Customer,
       "dealAccount",
-      "dealAccount.companyId = row.companyId AND CAST(dealAccount.id AS text) = row.customerId",
+      `dealAccount.companyId = row.companyId AND ${asText("dealAccount.id")} = row.customerId`,
     );
   const partnershipQb = manager
     .getRepository(Partnership)
@@ -287,7 +293,7 @@ async function selectedFollowUps(
     .leftJoin(
       Customer,
       "partnershipAccount",
-      "partnershipAccount.companyId = row.companyId AND CAST(partnershipAccount.id AS text) = row.customerId",
+      `partnershipAccount.companyId = row.companyId AND ${asText("partnershipAccount.id")} = row.customerId`,
     );
 
   if (requested.length > 0) {
@@ -313,6 +319,14 @@ async function selectedFollowUps(
     }
     taskQb.andWhere("row.taskStatus = :taskStatus", { taskStatus });
     if (taskStatus !== "open") {
+      dealQb.andWhere("1 = 0");
+      partnershipQb.andWhere("1 = 0");
+    }
+    // The queue's `undated` filter (`listFollowUps`): due-date filters below
+    // rule an undated task out on their own, as they do there.
+    if (filter.undated === "exclude") taskQb.andWhere("row.dueAt IS NOT NULL");
+    if (filter.undated === "only") {
+      taskQb.andWhere("row.dueAt IS NULL");
       dealQb.andWhere("1 = 0");
       partnershipQb.andWhere("1 = 0");
     }
@@ -523,8 +537,13 @@ async function selectedFollowUps(
   }
 
   const [tasks, deals, partnerships] = await Promise.all([
+    // Dated tasks first and undated ones after, on both drivers (SQLite sorts
+    // NULL first, Postgres last), as the queue lists them.
     taskQb
-      .orderBy("row.dueAt", "ASC")
+      .addSelect("CASE WHEN row.dueAt IS NULL THEN 1 ELSE 0 END", "due_nulls_last")
+      .orderBy("due_nulls_last", "ASC")
+      .addOrderBy("row.dueAt", "ASC")
+      .addOrderBy("row.createdAt", "ASC")
       .addOrderBy("row.id", "ASC")
       .take(BULK_SELECTION_LIMIT)
       .getMany(),
@@ -539,19 +558,28 @@ async function selectedFollowUps(
       .take(BULK_SELECTION_LIMIT)
       .getMany(),
   ]);
-  const dueAt = ({ source, row }: FollowUpRow): Date =>
-    source === "task" ? (row as Activity).dueAt! : (row as Deal | Partnership).nextFollowUpAt!;
+  const dueAt = ({ source, row }: FollowUpRow): Date | null =>
+    source === "task" ? (row as Activity).dueAt : (row as Deal | Partnership).nextFollowUpAt;
   const rows: FollowUpRow[] = [
     ...tasks.map((row) => ({ source: "task" as const, row })),
     ...deals.map((row) => ({ source: "deal" as const, row })),
     ...partnerships.map((row) => ({ source: "partnership" as const, row })),
   ]
-    .sort(
-      (a, b) =>
-        dueAt(a).getTime() - dueAt(b).getTime() ||
-        a.source.localeCompare(b.source) ||
-        a.row.id.localeCompare(b.row.id),
-    )
+    .sort((a, b) => {
+      const aDue = dueAt(a);
+      const bDue = dueAt(b);
+      if (aDue && bDue) {
+        return (
+          aDue.getTime() - bDue.getTime() ||
+          a.source.localeCompare(b.source) ||
+          a.row.id.localeCompare(b.row.id)
+        );
+      }
+      if (aDue) return -1;
+      if (bDue) return 1;
+      // Undated tasks, oldest first.
+      return a.row.createdAt.getTime() - b.row.createdAt.getTime() || a.row.id.localeCompare(b.row.id);
+    })
     .slice(0, BULK_SELECTION_LIMIT);
   const found = new Set(rows.map(({ source, row }) => `${source}:${row.id}`));
   return {

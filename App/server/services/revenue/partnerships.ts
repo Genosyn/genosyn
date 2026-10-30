@@ -4,7 +4,7 @@ import { Contact } from "../../db/entities/Contact.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { assertClassification, classificationValue } from "./classifications.js";
-import { matchingResourceIds } from "./customFields.js";
+import { andWhereCustomFieldMatches, resolveCustomFieldFilter } from "./customFields.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 import { findMergedRecordRedirect } from "./operations.js";
 
@@ -87,19 +87,27 @@ export async function listPartnerships(
   if (opts.status) qb.andWhere("p.status = :status", { status: classificationValue(opts.status) });
   if (opts.type) qb.andWhere("p.type = :type", { type: classificationValue(opts.type) });
   if (opts.customFieldKey && opts.customFieldValue !== undefined) {
-    const ids = await matchingResourceIds(
+    const customField = await resolveCustomFieldFilter(
       companyId,
       "partnership",
       opts.customFieldKey,
       opts.customFieldValue,
     );
-    if (ids.length === 0) return { rows: [], total: 0 };
-    qb.andWhere("p.id IN (:...customIds)", { customIds: ids });
+    if (!customField) return { rows: [], total: 0 };
+    andWhereCustomFieldMatches(qb, "p.id", customField);
   }
   const total = await qb.clone().getCount();
+  // The soonest follow-up first and the ones with none last — on both
+  // drivers: SQLite sorts NULL first and Postgres last, so a computed flag
+  // decides it, as the contact list does. The id breaks ties, so a
+  // partnership is never on two pages, or on none, when its neighbours share
+  // a date.
   const rows = await qb
-    .orderBy("p.nextFollowUpAt", "ASC")
+    .addSelect("CASE WHEN p.nextFollowUpAt IS NULL THEN 1 ELSE 0 END", "follow_up_nulls_last")
+    .orderBy("follow_up_nulls_last", "ASC")
+    .addOrderBy("p.nextFollowUpAt", "ASC")
     .addOrderBy("p.updatedAt", "DESC")
+    .addOrderBy("p.id", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 50, 1), 200))
     .getMany();

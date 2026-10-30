@@ -81,6 +81,9 @@ export type ApprovalKind =
  * the kind dispatcher in `services/approvals.ts` rather than directly.
  */
 @Entity("approvals")
+// An employee's own reviews of one kind, newest first: `list_work_reviews`
+// pages through it by (requestedAt, id).
+@Index(["employeeId", "kind", "requestedAt", "id"])
 export class Approval {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

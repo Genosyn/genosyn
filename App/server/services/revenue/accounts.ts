@@ -6,7 +6,7 @@ import { Deal } from "../../db/entities/Deal.js";
 import { uniqueCustomerSlug } from "../finance.js";
 import { toSlug } from "../../lib/slug.js";
 import type { RevenueBulkJob } from "./bulkJobs.js";
-import { matchingResourceIds } from "./customFields.js";
+import { andWhereCustomFieldMatches, resolveCustomFieldFilter } from "./customFields.js";
 import { assertRevenueOwner } from "./integrity.js";
 import {
   mergeRevenueRecords,
@@ -372,14 +372,14 @@ export async function listRevenueAccounts(
     qb.andWhere("a.ownerEmployeeId = :ownerEmployeeId", { ownerEmployeeId: opts.ownerEmployeeId });
   }
   if (opts.customFieldKey && opts.customFieldValue !== undefined) {
-    const ids = await matchingResourceIds(
+    const customField = await resolveCustomFieldFilter(
       companyId,
       "account",
       opts.customFieldKey,
       opts.customFieldValue,
     );
-    if (ids.length === 0) return { rows: [], total: 0 };
-    qb.andWhere("a.id IN (:...customIds)", { customIds: ids });
+    if (!customField) return { rows: [], total: 0 };
+    andWhereCustomFieldMatches(qb, "a.id", customField);
   }
   const total = await qb.clone().getCount();
   const accounts = await qb

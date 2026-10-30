@@ -20,6 +20,14 @@ import {
 } from "../../../shared/recruiting.js";
 import type { SendEmailResult } from "../email.js";
 import { andWhereTokens, tokenizeQuery } from "../likeSearch.js";
+import {
+  filterFingerprint,
+  type KeysetColumn,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { createNotification } from "../notifications.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { normalizeWebUrl, parseAnswers, parseCriteria, parseForm, parseQuestions, validateAnswers } from "./content.js";
@@ -552,10 +560,8 @@ export type ApplicationListFilters = {
   offset?: number;
 };
 
-export async function listApplications(
-  companyId: string,
-  filters: ApplicationListFilters = {},
-): Promise<{ rows: ApplicationSummary[]; total: number }> {
+/** The WHERE every Application list shares: the filters, never an order. */
+function applicationListQuery(companyId: string, filters: ApplicationListFilters) {
   const query = AppDataSource.getRepository(RecruitingApplication)
     .createQueryBuilder("application")
     .select(SUMMARY_COLUMNS.map((column) => `application.${column}`))
@@ -578,6 +584,26 @@ export async function listApplications(
   if (filters.q) {
     andWhereTokens(query, ["application.candidateName", "application.candidateEmail"], tokenizeQuery(filters.q));
   }
+  return query;
+}
+
+async function summariesOf(companyId: string, rows: RecruitingApplication[]): Promise<ApplicationSummary[]> {
+  const openingIds = [...new Set(rows.map((row) => row.openingId))];
+  const openings = openingIds.length
+    ? await AppDataSource.getRepository(RecruitingOpening).find({
+        where: { id: In(openingIds), companyId },
+        select: { id: true, title: true, slug: true },
+      })
+    : [];
+  const byId = new Map(openings.map((opening) => [opening.id, opening]));
+  return rows.map((row) => summaryDto(row, byId));
+}
+
+export async function listApplications(
+  companyId: string,
+  filters: ApplicationListFilters = {},
+): Promise<{ rows: ApplicationSummary[]; total: number }> {
+  const query = applicationListQuery(companyId, filters);
   if (filters.sort === "score") {
     query
       .orderBy("application.score", "DESC", "NULLS LAST")
@@ -592,15 +618,66 @@ export async function listApplications(
     .skip(Math.max(filters.offset ?? 0, 0))
     .take(limit)
     .getManyAndCount();
-  const openingIds = [...new Set(rows.map((row) => row.openingId))];
-  const openings = openingIds.length
-    ? await AppDataSource.getRepository(RecruitingOpening).find({
-        where: { id: In(openingIds), companyId },
-        select: { id: true, title: true, slug: true },
-      })
-    : [];
-  const byId = new Map(openings.map((opening) => [opening.id, opening]));
-  return { rows: rows.map((row) => summaryDto(row, byId)), total };
+  return { rows: await summariesOf(companyId, rows), total };
+}
+
+/** 25 Applications a page by default, at most 100. */
+export const APPLICATION_PAGE: PageLimits = { defaultLimit: 25, maxLimit: 100 };
+
+/**
+ * The keyset each sort pages by. A score is 0–100 or not yet given; an
+ * unscored Application sorts after every scored one, as `NULLS LAST` does,
+ * written portably as -1.
+ */
+const APPLICATION_KEYS: Record<NonNullable<ApplicationListFilters["sort"]>, KeysetColumn[]> = {
+  newest: [
+    { column: "application.createdAt", direction: "DESC", type: "timestamp" },
+    { column: "application.id", direction: "DESC", type: "string" },
+  ],
+  oldest: [
+    { column: "application.createdAt", direction: "ASC", type: "timestamp" },
+    { column: "application.id", direction: "ASC", type: "string" },
+  ],
+  score: [
+    { column: "COALESCE(application.score, -1)", direction: "DESC", type: "number" },
+    { column: "application.createdAt", direction: "DESC", type: "timestamp" },
+    { column: "application.id", direction: "DESC", type: "string" },
+  ],
+};
+
+/**
+ * Applications one page at a time (`services/listPaging.ts`) — what the
+ * `list_applications` AI tool reads. It used to page by offset, which skipped
+ * an application every time one ahead of the offset moved out of the filtered
+ * stage between pages, and stopped at 100,000. A cursor names the last one
+ * shown instead. `skip` keeps an older Skill's offset working for its first
+ * page.
+ */
+export async function pageApplications(
+  companyId: string,
+  filters: Omit<ApplicationListFilters, "limit" | "offset">,
+  page: PageRequest & { budgetChars?: number; skip?: number },
+): Promise<Page<ApplicationSummary>> {
+  const sort = filters.sort ?? "newest";
+  const q = filters.q?.trim() ? tokenizeQuery(filters.q).map((token) => token.raw) : undefined;
+  return keysetPage({
+    query: () => applicationListQuery(companyId, filters),
+    keys: APPLICATION_KEYS[sort],
+    scope: "recruiting.applications",
+    fingerprint: filterFingerprint(companyId, {
+      openingId: filters.openingId,
+      stage: filters.stage,
+      q,
+      sort,
+      screenStatus: filters.screenStatus,
+      minScore: filters.minScore,
+    }),
+    noun: "applications",
+    limits: APPLICATION_PAGE,
+    page,
+    skip: page.skip,
+    present: (rows) => summariesOf(companyId, rows),
+  });
 }
 
 /** One Application in full: everything a person or an AI Employee needs to judge it. */

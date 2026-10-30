@@ -3,6 +3,7 @@ import { In } from "typeorm";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
+import { ListQueryError, pageQueryShape } from "../services/listPaging.js";
 import {
   ACTIVITY_KINDS,
   ACTIVITY_PRIORITIES,
@@ -790,12 +791,24 @@ revenueRouter.get(
   }),
 );
 
+// At most 10,000 activities a file. Past that, `X-Export-Next-Cursor` carries
+// on: send it back as `cursor`, with the same filters, for the next file.
 revenueRouter.get(
   "/revenue/activities/export",
   h(async (req, res) => {
-    const parsed = activityListQuery.omit({ limit: true, offset: true }).safeParse(req.query);
+    const parsed = activityListQuery
+      .omit({ limit: true, offset: true })
+      .extend({ cursor: pageQueryShape.cursor })
+      .safeParse(req.query);
     if (!parsed.success) return res.status(400).json(BAD_QUERY);
-    const result = await exportActivitiesCsv(cidOf(req), parsed.data);
+    const { cursor, ...filters } = parsed.data;
+    let result: Awaited<ReturnType<typeof exportActivitiesCsv>>;
+    try {
+      result = await exportActivitiesCsv(cidOf(req), filters, { cursor });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
@@ -803,6 +816,8 @@ revenueRouter.get(
     );
     res.setHeader("X-Exported-Rows", String(result.exported));
     res.setHeader("X-Export-Truncated", String(result.truncated));
+    res.setHeader("X-Export-Total", String(result.total));
+    if (result.nextCursor) res.setHeader("X-Export-Next-Cursor", result.nextCursor);
     return res.send(result.csv);
   }),
 );

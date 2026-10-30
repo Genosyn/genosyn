@@ -18,6 +18,13 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { UUID_RE } from "./bases.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "./listPaging.js";
 import { broadcastToCompany } from "./realtime.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
 import { streamChatWithEmployee, ChatTurn } from "./chat.js";
@@ -994,6 +1001,68 @@ export async function listMessages(params: {
   const rows = await qb.getMany();
   rows.reverse();
   return hydrateMessages(rows, params.viewerUserId);
+}
+
+/** 30 messages by default, at most 100 a page. */
+export const CHANNEL_MESSAGE_PAGE: PageLimits = { defaultLimit: 30, maxLimit: 100 };
+
+/**
+ * A channel's messages, newest first, one page at a time
+ * (`services/listPaging.ts`) — what an AI Employee reads with
+ * `list_workspace_messages`. Each page is handed back oldest first, the way
+ * the Workspace shows a conversation, and its cursor reads further back.
+ *
+ * Keyset on (createdAt, id): SQLite stamps a message to the second, so a
+ * busy channel has many messages sharing a timestamp, and the `before`
+ * timestamp this replaces skipped every one of them that fell on a page
+ * boundary. Deleted messages are left out in the query, so a page is never
+ * short of messages while more follow; `before` still narrows to messages
+ * written before an instant. `tainted` is whether any message the page shows
+ * was written by a turn that had read outside content.
+ */
+export async function pageChannelMessages<Out>(params: {
+  channelId: string;
+  companyId: string;
+  viewerUserId: string;
+  /** Only messages written before this instant (ISO timestamp). */
+  before?: string;
+  page: PageRequest & { budgetChars?: number };
+  present: (message: MessageSummary) => Out;
+}): Promise<Page<Out> & { tainted: boolean }> {
+  const before = params.before
+    ? formatMessageBeforeCursor(params.before, AppDataSource.options.type)
+    : undefined;
+  const query = () => {
+    const qb = repos()
+      .messages.createQueryBuilder("m")
+      .where("m.channelId = :channelId", { channelId: params.channelId })
+      .andWhere("m.deletedAt IS NULL");
+    if (before !== undefined) qb.andWhere("m.createdAt < :before", { before });
+    return qb;
+  };
+  // The rows the page kept, in order; budget trimming keeps a prefix of them.
+  let kept: ChannelMessage[] = [];
+  const page = await keysetPage({
+    query,
+    keys: [
+      { column: "m.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "m.id", direction: "DESC", type: "string" },
+    ],
+    scope: "workspace.messages",
+    fingerprint: filterFingerprint(params.companyId, {
+      channel: params.channelId,
+      before: params.before ? new Date(params.before).toISOString() : undefined,
+    }),
+    noun: "messages",
+    limits: CHANNEL_MESSAGE_PAGE,
+    page: params.page,
+    present: async (rows) => {
+      kept = rows;
+      return (await hydrateMessages(rows, params.viewerUserId)).map(params.present);
+    },
+  });
+  const tainted = kept.slice(0, page.rows.length).some((message) => message.tainted);
+  return { ...page, rows: [...page.rows].reverse(), tainted };
 }
 
 export function formatMessageBeforeCursor(before: string, databaseType: string): string | Date {

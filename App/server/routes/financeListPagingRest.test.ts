@@ -8,6 +8,8 @@ import { createApp } from "../app.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Account } from "../db/entities/Account.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { BankFeed } from "../db/entities/BankFeed.js";
+import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Bill } from "../db/entities/Bill.js";
 import { CardFeed } from "../db/entities/CardFeed.js";
 import { CardTransaction } from "../db/entities/CardTransaction.js";
@@ -24,6 +26,7 @@ import { buildOpenApiDocument } from "../openapi/spec.js";
 import { accountByCode, seedChartOfAccounts } from "../services/ledger.js";
 import { CURSOR_OTHER_FILTERS } from "../services/listPaging.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
+import { categorizeBankTransaction } from "../services/reconcile.js";
 import {
   createMemberOfNewCompany,
   mintTestApiKey,
@@ -158,6 +161,100 @@ test("GET /banking/transactions pages every transaction with an API key, and fil
     400,
     "an impossible date",
   );
+});
+
+test("view=records gives every row its whole transaction, as the Banking page reads the list", async () => {
+  await purchases(30);
+  const bankAccount = (await accountByCode(company.id, "1100"))!;
+  const software = (await accountByCode(company.id, "6000"))!;
+  const feed = await insert(BankFeed, {
+    companyId: company.id,
+    name: "Checking",
+    kind: "csv",
+    connectionId: null,
+    externalAccountId: null,
+    accountId: bankAccount.id,
+  });
+  const lines: BankTransaction[] = [];
+  for (let i = 0; i < 12; i++) {
+    lines.push(
+      await insert(BankTransaction, {
+        companyId: company.id,
+        feedId: feed.id,
+        externalId: null,
+        // Shares its instant with the card purchases dated that day.
+        date: new Date(Date.UTC(2023, 0, 1 + i)),
+        amountCents: i % 2 ? -(2_000 + i) : 5_000 + i,
+        description: `Line ${i}`,
+        reference: `REF-${i}`,
+        raw: "",
+      }),
+    );
+  }
+  // One categorized, so its record carries the category it was filed under.
+  await categorizeBankTransaction(lines[3], software.id, owner.id);
+
+  const [bankList, cardList] = await Promise.all([
+    get("/bank-transactions"),
+    get("/card-transactions"),
+  ]);
+  const bankById = new Map(
+    (bankList.body as unknown as Array<{ id: string }>).map((row) => [row.id, row]),
+  );
+  const cardById = new Map(
+    (cardList.body as unknown as Array<{ id: string }>).map((row) => [row.id, row]),
+  );
+
+  type Row = { id: string; kind: "bank" | "card"; record?: { id: string; match?: unknown } };
+  const seenSummary: string[] = [];
+  const seenRecords: string[] = [];
+  let cursor = "";
+  for (let guard = 0; guard < 10; guard++) {
+    const summary = await get(
+      `/banking/transactions?status=all&limit=15${cursor ? `&cursor=${cursor}` : ""}`,
+    );
+    const records = await get(
+      `/banking/transactions?status=all&limit=15&view=records${cursor ? `&cursor=${cursor}` : ""}`,
+    );
+    assert.equal(summary.status, 200, summary.body.error);
+    assert.equal(records.status, 200, records.body.error);
+    const summaryRows = summary.body.transactions as Row[];
+    const recordRows = records.body.transactions as Row[];
+    assert.deepEqual(
+      recordRows.map((row) => row.id),
+      summaryRows.map((row) => row.id),
+      "the view changes what a row carries, never which rows a page holds",
+    );
+    assert.equal(records.body.total, summary.body.total);
+    assert.equal(records.body.nextCursor, summary.body.nextCursor, "one cursor for both views");
+    for (const row of summaryRows) assert.equal("record" in row, false, "the default is compact");
+    for (const row of recordRows) {
+      const expected = row.kind === "bank" ? bankById.get(row.id) : cardById.get(row.id);
+      assert.deepEqual(
+        row.record,
+        expected,
+        `${row.kind} ${row.id}: the record is what its own list answers`,
+      );
+    }
+    seenSummary.push(...summaryRows.map((row) => row.id));
+    seenRecords.push(...recordRows.map((row) => row.id));
+    if (!summary.body.hasMore) break;
+    // Alternate which view's cursor carries on: either continues the other.
+    cursor = (guard % 2 ? summary.body.nextCursor : records.body.nextCursor) as string;
+  }
+  assert.equal(seenRecords.length, 42);
+  assert.equal(new Set(seenRecords).size, 42);
+  assert.deepEqual(seenRecords, seenSummary);
+
+  const filed = await get(`/banking/transactions?status=done&view=records&kind=bank`);
+  const [row] = filed.body.transactions as Array<
+    Row & { record: { match: { kind: string; categoryAccountId: string } } }
+  >;
+  assert.equal(row.id, lines[3].id);
+  assert.equal(row.record.match.kind, "ledger_entry");
+  assert.equal(row.record.match.categoryAccountId, software.id);
+
+  assert.equal((await get("/banking/transactions?view=everything")).status, 400);
 });
 
 test("the REST twin and the AI tool answer the same page", async () => {
@@ -367,6 +464,7 @@ test("the API reference documents the paged twins with their filters and page sh
         "maxAmountCents",
         "q",
         "categoryAccountId",
+        "view",
         "limit",
         "cursor",
       ],

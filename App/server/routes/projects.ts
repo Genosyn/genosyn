@@ -15,7 +15,7 @@ import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/T
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Role } from "../db/entities/Membership.js";
-import { validateBody, validateParams } from "../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { describeBrowserSessionCondition } from "../middleware/routeMetadata.js";
 import { toSlug } from "../lib/slug.js";
@@ -36,6 +36,13 @@ import {
   upsertProjectMember,
 } from "../services/projects.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { ListQueryError } from "../services/listPaging.js";
+import {
+  pageTodos,
+  type TodoListFilter,
+  todoListQuery,
+  todoListQuerySchema,
+} from "../services/todoList.js";
 import { recordAudit } from "../services/audit.js";
 import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import {
@@ -683,21 +690,49 @@ export async function validateParentTodo(
   return null;
 }
 
-projectsRouter.get("/projects/:pSlug/todos", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const p = await loadProjectBySlug(cid, req.params.pSlug);
-  if (!p) return res.status(404).json({ error: "Project not found" });
-  const level = await findProjectAccess(p, actorOf(req));
-  if (!level) return res.status(403).json({ error: "No access to that project" });
-  const todos = await AppDataSource.getRepository(Todo).find({
-    where: { projectId: p.id },
-    order: { sortOrder: "ASC", createdAt: "ASC" },
-  });
-  res.json({
-    project: { ...p, myAccessLevel: level },
-    todos: await hydrateTodos(cid, todos),
-  });
-});
+// A Project's Todos in the board's order. Without limit or cursor every one
+// matching the filters, as the board reads them; with either, one page with
+// its total and the cursor to the next — the list the `list_todos` AI tool
+// reads, from the same function, so for the same filters a cursor from one
+// continues the other.
+projectsRouter.get(
+  "/projects/:pSlug/todos",
+  validateQuery(todoListQuerySchema),
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadProjectBySlug(cid, req.params.pSlug);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    const level = await findProjectAccess(p, actorOf(req));
+    if (!level) return res.status(403).json({ error: "No access to that project" });
+    const { limit, cursor, assignedToMe, ...query } = req.query as unknown as z.infer<
+      typeof todoListQuerySchema
+    >;
+    const filter: TodoListFilter = {
+      status: query.status,
+      assigneeEmployeeId: query.assigneeEmployeeId,
+      // "Mine" is the Member behind the session or the API key.
+      assigneeUserId: assignedToMe === "true" ? req.userId : query.assigneeUserId,
+    };
+    const project = { ...p, myAccessLevel: level };
+    try {
+      if (limit !== undefined || cursor !== undefined) {
+        const { rows, ...info } = await pageTodos(cid, p.id, filter, { limit, cursor }, (todos) =>
+          hydrateTodos(cid, todos),
+        );
+        return res.json({ ...info, project, todos: rows });
+      }
+      const todos = await todoListQuery(p.id, filter)
+        .orderBy("todo.sortOrder", "ASC")
+        .addOrderBy("todo.createdAt", "ASC")
+        .addOrderBy("todo.id", "ASC")
+        .getMany();
+      res.json({ project, todos: await hydrateTodos(cid, todos) });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 const createTodoSchema = z.object({
   title: z.string().min(1).max(200),

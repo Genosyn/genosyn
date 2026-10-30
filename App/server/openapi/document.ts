@@ -44,6 +44,7 @@ import "./employeeAccess.js";
 import "./routines.js";
 import "./revenue.js";
 import "./finance.js";
+import "./pagedLists.js";
 import "./mcp.js";
 import "./webhooks.js";
 

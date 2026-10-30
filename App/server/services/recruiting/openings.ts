@@ -23,6 +23,13 @@ import {
   type WorkplaceType,
 } from "../../../shared/recruiting.js";
 import { andWhereTokens, tokenizeQuery } from "../likeSearch.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import {
   mergeForm,
@@ -483,22 +490,70 @@ export type OpeningListFilters = {
   q?: string;
 };
 
-export async function listOpenings(
-  company: Pick<Company, "id" | "slug">,
-  filters: OpeningListFilters = {},
-) {
-  const repo = AppDataSource.getRepository(RecruitingOpening);
-  const query = repo
+/** The WHERE every Opening list shares: the filters, never an order. */
+function openingListQuery(companyId: string, filters: OpeningListFilters) {
+  const query = AppDataSource.getRepository(RecruitingOpening)
     .createQueryBuilder("opening")
-    .where("opening.companyId = :companyId", { companyId: company.id });
+    .where("opening.companyId = :companyId", { companyId });
   if (filters.status) query.andWhere("opening.status = :status", { status: filters.status });
   // Every word must be in the title, taken literally ("100%" is not a
   // wildcard) and case-folded the same way on SQLite and Postgres.
   if (filters.q) andWhereTokens(query, ["opening.title"], tokenizeQuery(filters.q));
-  const openings = await query.orderBy("opening.updatedAt", "DESC").take(500).getMany();
+  return query;
+}
+
+export async function listOpenings(
+  company: Pick<Company, "id" | "slug">,
+  filters: OpeningListFilters = {},
+) {
+  const openings = await openingListQuery(company.id, filters)
+    .orderBy("opening.updatedAt", "DESC")
+    .take(500)
+    .getMany();
   // Open first, then drafts, then closed; newest change first within each.
   openings.sort((a, b) => (STATUS_RANK[a.status] ?? 3) - (STATUS_RANK[b.status] ?? 3));
   return openingDtos(company, openings);
+}
+
+/** 50 Openings a page by default, at most 100. */
+export const OPENING_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 100 };
+
+/** {@link STATUS_RANK} as SQL, so the status order is the query's, before a page is cut. */
+const STATUS_RANK_SQL = `CASE opening.status ${Object.entries(STATUS_RANK)
+  .map(([status, rank]) => `WHEN '${status}' THEN ${rank}`)
+  .join(" ")} ELSE 3 END`;
+
+/**
+ * Openings one page at a time (`services/listPaging.ts`) — what the
+ * `list_openings` AI tool reads: open first, then drafts, then closed, the
+ * newest posted first within each. The tool used to read the newest 500 and
+ * sort them by status afterwards, so past 500 an open Opening could be missing
+ * while closed ones filled the answer. A cursor names the last one shown; an
+ * Opening published or closed between pages moves to its new group.
+ */
+export async function pageOpenings<Out>(
+  company: Pick<Company, "id" | "slug">,
+  filters: OpeningListFilters,
+  page: PageRequest & { budgetChars?: number },
+  present: (openings: OpeningDto[]) => Out[] | Promise<Out[]>,
+): Promise<Page<Out>> {
+  return keysetPage({
+    query: () => openingListQuery(company.id, filters),
+    keys: [
+      { column: STATUS_RANK_SQL, direction: "ASC", type: "number" },
+      { column: "opening.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "opening.id", direction: "DESC", type: "string" },
+    ],
+    scope: "recruiting.openings",
+    fingerprint: filterFingerprint(company.id, {
+      status: filters.status,
+      q: filters.q?.trim() ? tokenizeQuery(filters.q).map((token) => token.raw) : undefined,
+    }),
+    noun: "Openings",
+    limits: OPENING_PAGE,
+    page,
+    present: async (openings) => present(await openingDtos(company, openings)),
+  });
 }
 
 export async function companyForId(companyId: string): Promise<Company> {

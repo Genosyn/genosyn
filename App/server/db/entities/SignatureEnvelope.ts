@@ -42,8 +42,12 @@ export const SIGNATURE_ROUTING_MODES: SignatureRoutingMode[] = ["parallel", "ord
  * library.
  */
 @Entity("signature_envelopes")
-@Index(["companyId", "status", "createdAt"])
-@Index(["companyId", "customerId"])
+// The company's envelopes newest first by creation — all of them, by status,
+// or by customer: the pages of `list_signature_envelopes` (keyset on
+// createdAt, id).
+@Index(["companyId", "status", "createdAt", "id"])
+@Index(["companyId", "createdAt", "id"])
+@Index(["companyId", "customerId", "createdAt", "id"])
 @Index(["status", "expiresAt"])
 @Index(["customerContractId"])
 export class SignatureEnvelope {

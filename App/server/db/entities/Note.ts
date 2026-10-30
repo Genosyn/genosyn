@@ -28,6 +28,11 @@ import {
 @Index(["companyId", "slug"], { unique: true })
 @Index(["companyId", "notebookId"])
 @Index(["notebookId", "parentId"])
+// `list_notes` pages by (sortOrder, createdAt, id), `search_notes` by
+// (updatedAt, id): both walk an index in order instead of sorting every page
+// a company has, whose bodies sit before these columns.
+@Index(["companyId", "sortOrder", "createdAt", "id"])
+@Index(["companyId", "updatedAt", "id"])
 export class Note {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

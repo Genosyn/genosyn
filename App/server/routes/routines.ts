@@ -53,6 +53,8 @@ import {
   publicRun,
   runContinuationView,
 } from "../services/runContinuationView.js";
+import { pageRunHistory, routineRunsQuerySchema, runHistoryQuery } from "../services/runHistory.js";
+import { ListQueryError } from "../services/listPaging.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
@@ -852,50 +854,86 @@ routinesRouter.post("/routines/:rid/run", async (req, res, next) => {
   }
 });
 
+/** What a Run carries in a Routine's history: no transcript, which /runs/:runId/log reads. */
+const ROUTINE_RUN_COLUMNS = [
+  "run.id",
+  "run.routineId",
+  "run.startedAt",
+  "run.finishedAt",
+  "run.status",
+  "run.errorKind",
+  "run.failureReason",
+  "run.exitCode",
+  "run.createdAt",
+  "run.triggerKind",
+  "run.attempt",
+  "run.retryAt",
+  "run.checkpointJson",
+  "run.continuationCount",
+  "run.continuationStopReason",
+  "run.missedSlots",
+  "run.outcomeVerdict",
+  "run.outcomeNote",
+  "run.checksVerdict",
+  "run.checkRemediations",
+  "run.tokensIn",
+  "run.tokensOut",
+  "run.pausedAt",
+  "run.pauseCount",
+  "run.pauseReason",
+];
+
 /**
  * List recent runs for a routine, newest-first. Returns lightweight metadata
  * (sans the captured `logContent`) so the history timeline renders fast;
  * log text is fetched lazily via /runs/:runId/log.
+ *
+ * Without limit or cursor: the newest 50, queued and running included, as a
+ * plain array — the timeline on the Routine's page. With either: one page of
+ * its finished Runs with a total and the cursor to the next, the list the
+ * `list_runs` AI tool reads (`services/runHistory.ts`), so a cursor from one
+ * continues the other. The status and start-date filters apply to both.
  */
-routinesRouter.get("/routines/:rid/runs", async (req, res) => {
-  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  const runs = await AppDataSource.getRepository(Run)
-    .createQueryBuilder("run")
-    .select([
-      "run.id",
-      "run.routineId",
-      "run.startedAt",
-      "run.finishedAt",
-      "run.status",
-      "run.errorKind",
-      "run.failureReason",
-      "run.exitCode",
-      "run.createdAt",
-      "run.triggerKind",
-      "run.attempt",
-      "run.retryAt",
-      "run.checkpointJson",
-      "run.continuationCount",
-      "run.continuationStopReason",
-      "run.missedSlots",
-      "run.outcomeVerdict",
-      "run.outcomeNote",
-      "run.checksVerdict",
-      "run.checkRemediations",
-      "run.tokensIn",
-      "run.tokensOut",
-      "run.pausedAt",
-      "run.pauseCount",
-      "run.pauseReason",
-    ])
-    .where("run.routineId = :rid", { rid: found.routine.id })
-    .orderBy("run.startedAt", "DESC")
-    .take(50)
-    .getMany();
-  const followUps = await loadRunFollowUps(found.co.id, runs);
-  res.json(runs.map((run) => publicRun(run, followUps.get(run.id))));
-});
+routinesRouter.get(
+  "/routines/:rid/runs",
+  validateQuery(routineRunsQuerySchema),
+  async (req, res, next) => {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    const { limit, cursor, ...query } = req.query as unknown as z.infer<
+      typeof routineRunsQuerySchema
+    >;
+    const filter = { routineIds: [found.routine.id], ...query };
+    const present = async (runs: Run[]) => {
+      const followUps = await loadRunFollowUps(found.co.id, runs);
+      return runs.map((run) => publicRun(run, followUps.get(run.id)));
+    };
+    try {
+      if (limit !== undefined || cursor !== undefined) {
+        const { rows, ...info } = await pageRunHistory(
+          found.co.id,
+          filter,
+          { limit, cursor },
+          present,
+          { columns: ROUTINE_RUN_COLUMNS },
+        );
+        return res.json({ ...info, runs: rows });
+      }
+      const runs = await runHistoryQuery(filter, {
+        columns: ROUTINE_RUN_COLUMNS,
+        finishedOnly: false,
+      })
+        .orderBy("run.startedAt", "DESC")
+        .addOrderBy("run.id", "DESC")
+        .take(50)
+        .getMany();
+      res.json(await present(runs));
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 const runRecordingParamsSchema = z
   .object({

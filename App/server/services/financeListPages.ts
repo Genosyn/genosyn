@@ -1,4 +1,3 @@
-import type { ObjectLiteral, SelectQueryBuilder } from "typeorm";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Bill, type BillStatus } from "../db/entities/Bill.js";
@@ -11,14 +10,10 @@ import {
   asText,
   type DateRange,
   dateRange,
-  decodeCursor,
   filterFingerprint,
-  finishPage,
-  type KeysetColumn,
-  keysetRows,
-  type PageInfo,
+  keysetPage,
+  type Page,
   type PageLimits,
-  pageLimit,
   type PageRequest,
 } from "./listPaging.js";
 
@@ -33,42 +28,6 @@ import {
  * `GET /invoices` and `GET /bills` read the same functions when asked for a
  * page, so an API client and an AI Employee reach exactly the same rows.
  */
-
-type Page<T> = PageInfo & { rows: T[] };
-
-/** Fetch a keyset page, present it in one batch, and close it. */
-async function pageOf<T extends ObjectLiteral & { id: string }, Out>(args: {
-  query: () => SelectQueryBuilder<T>;
-  keys: KeysetColumn[];
-  scope: string;
-  fingerprint: string;
-  noun: string;
-  limits: PageLimits;
-  page: PageRequest & { budgetChars?: number };
-  present: (rows: T[]) => Promise<Out[]>;
-}): Promise<Page<Out>> {
-  const after = args.page.cursor
-    ? decodeCursor(args.scope, args.fingerprint, args.page.cursor)
-    : null;
-  const limit = pageLimit(args.page.limit, args.limits);
-  const [total, fetched] = await Promise.all([
-    args.query().getCount(),
-    keysetRows(args.query(), { keys: args.keys, after, limit, prefix: "page" }),
-  ]);
-  const kept = fetched.slice(0, limit).map((entry) => entry.row);
-  const presented = await args.present(kept);
-  const byId = new Map(kept.map((row, index) => [row.id, presented[index]]));
-  return finishPage({
-    fetched,
-    limit,
-    total,
-    noun: args.noun,
-    scope: args.scope,
-    fingerprint: args.fingerprint,
-    present: (row: T) => byId.get(row.id)!,
-    budgetChars: args.page.budgetChars,
-  });
-}
 
 function rangeKey(range: DateRange) {
   return { gte: range.gte, lt: range.lt, lte: range.lte };
@@ -132,7 +91,7 @@ export async function pageInvoices<Out>(
   present: (rows: Invoice[]) => Promise<Out[]>,
 ): Promise<Page<Out>> {
   const ranges = invoiceRanges(filter);
-  return pageOf({
+  return keysetPage({
     query: () => invoiceListQuery(companyId, filter),
     // Finance → Invoices' order: SQLite stamps `createdAt` to the second, and
     // a new invoice's issue date is to the millisecond.
@@ -202,7 +161,7 @@ export async function pageBills<Out>(
   page: PageRequest & { budgetChars?: number },
   present: (rows: Bill[]) => Promise<Out[]>,
 ): Promise<Page<Out>> {
-  return pageOf({
+  return keysetPage({
     query: () => billListQuery(companyId, filter),
     keys: [
       { column: "bill.dueDate", direction: "ASC", type: "timestamp" },
@@ -252,7 +211,7 @@ export async function pageRecurringInvoices<Out>(
     if (!filter.includeArchived) qb.andWhere("schedule.archivedAt IS NULL");
     return qb;
   };
-  return pageOf({
+  return keysetPage({
     query,
     keys: [
       { column: "schedule.createdAt", direction: "DESC", type: "timestamp" },
@@ -322,7 +281,7 @@ export async function pageCustomers<Out>(
     });
     return qb;
   };
-  return pageOf({
+  return keysetPage({
     query,
     keys: [
       { column: "customer.createdAt", direction: "DESC", type: "timestamp" },

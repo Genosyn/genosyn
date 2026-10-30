@@ -1,5 +1,13 @@
-import { In, IsNull, MoreThan, type EntityManager } from "typeorm";
+import {
+  In,
+  IsNull,
+  MoreThan,
+  type EntityManager,
+  type ObjectLiteral,
+  type SelectQueryBuilder,
+} from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
+import { asText } from "../listPaging.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
@@ -530,29 +538,64 @@ export async function setCustomValues(
   return getCustomValues(companyId, resourceType, resourceId);
 }
 
-export async function matchingResourceIds(
+/**
+ * A custom-field filter a Revenue list can apply: the field it names and the
+ * normalized value it must hold. Null when the company has no such live field
+ * — the list is then empty, as it always was for an unknown field.
+ */
+export type CustomFieldFilter = {
+  companyId: string;
+  resourceType: RevenueResourceType;
+  fieldId: string;
+  searchValue: string;
+};
+
+export async function resolveCustomFieldFilter(
   companyId: string,
   resourceType: RevenueResourceType,
   fieldKey: string,
   value: string,
-): Promise<string[]> {
+): Promise<CustomFieldFilter | null> {
   const field = await AppDataSource.getRepository(RevenueCustomField).findOneBy({
     companyId,
     resourceType,
     key: customFieldKey(fieldKey),
     archivedAt: IsNull(),
   });
-  if (!field) return [];
-  const rows = await AppDataSource.getRepository(RevenueCustomValue).find({
-    where: {
-      companyId,
-      resourceType,
-      fieldId: field.id,
-      searchValue: value.trim().toLowerCase(),
+  if (!field) return null;
+  return { companyId, resourceType, fieldId: field.id, searchValue: value.trim().toLowerCase() };
+}
+
+/**
+ * Narrow a Revenue list to the records whose custom field holds the filter's
+ * value: a correlated `EXISTS` each row answers from the unique
+ * `(companyId, fieldId, resourceId)` index, so a list read in its own index
+ * order stops as soon as its page is full, however many records share the
+ * value.
+ *
+ * It used to read every matching id into memory and send them back as an
+ * `IN (…)` list, one bound parameter each: a value shared by thousands of
+ * records made a statement of thousands of parameters, and past SQLite's
+ * limit the list failed outright. `idColumn` is the list's own primary key
+ * (`c.id`); the custom value's `resourceId` is the one looked up, so on
+ * Postgres the key is cast to its text (uuid vs varchar), not the other way.
+ */
+export function andWhereCustomFieldMatches<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  idColumn: string,
+  filter: CustomFieldFilter,
+): SelectQueryBuilder<T> {
+  const q = (name: string) => AppDataSource.driver.escape(name);
+  const column = (name: string) => `${q("customValue")}.${q(name)}`;
+  return qb.andWhere(
+    `EXISTS (SELECT 1 FROM ${q("revenue_custom_values")} ${q("customValue")} WHERE ${column("companyId")} = :customFieldCompanyId AND ${column("fieldId")} = :customFieldId AND ${column("resourceId")} = ${asText(idColumn)} AND ${column("searchValue")} = :customFieldValue AND ${column("resourceType")} = :customFieldResourceType)`,
+    {
+      customFieldCompanyId: filter.companyId,
+      customFieldId: filter.fieldId,
+      customFieldValue: filter.searchValue,
+      customFieldResourceType: filter.resourceType,
     },
-    select: { resourceId: true },
-  });
-  return rows.map((row) => row.resourceId);
+  );
 }
 
 /**

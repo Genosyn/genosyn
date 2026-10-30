@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
+import { routineRunsQuerySchema } from "../services/runHistory.js";
+import { legacyOrPage, pageBadRequest, pageInfoShape } from "./pagedLists.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 /** A Routine's priority, as every response carries it. */
@@ -729,6 +731,17 @@ registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/routines/{rid}/runs",
   summary: "List recent runs for a routine",
+  description:
+    "Newest first, by when each Run started, without its transcript (read that from " +
+    "`GET /runs/{runId}/log`). Without limit or cursor the answer is the newest 50 Runs — " +
+    "queued and running ones included — as a plain array, the timeline on the Routine's page. " +
+    "With either it is one page of the Routine's finished Runs, the list the list_runs AI tool " +
+    "reads, from the same function: up to limit Runs (default 20, at most 50; more is cut to " +
+    "50), total counting every match, and nextCursor to send back as cursor with exactly the " +
+    "same filters while hasMore is true. A cursor is a keyset position (start time, then id), " +
+    "so Runs that finish between pages are never skipped or repeated, and one issued by " +
+    "list_runs for this Routine continues here. The status and start-date filters apply to " +
+    "both answers; a YYYY-MM-DD bound is a whole UTC calendar day.",
   tags: ["Routines"],
   security: defaultSecurity,
   request: {
@@ -736,12 +749,21 @@ registry.registerPath({
       cid: z.string().uuid(),
       rid: z.string().uuid(),
     }),
+    query: routineRunsQuerySchema,
   },
   responses: {
     200: {
-      description: "OK",
-      content: { "application/json": { schema: z.array(Run) } },
+      description: "The newest 50 Runs, or one page of finished Runs when limit or cursor is sent",
+      content: {
+        "application/json": {
+          schema: legacyOrPage(
+            z.array(Run),
+            z.object({ ...pageInfoShape, runs: z.array(Run) }).openapi("RunPage"),
+          ),
+        },
+      },
     },
+    400: pageBadRequest,
     404: {
       description: "Routine not found",
       content: { "application/json": { schema: ErrorResponse } },

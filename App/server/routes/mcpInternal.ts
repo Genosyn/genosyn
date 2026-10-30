@@ -17,7 +17,7 @@ import {
 } from "../services/collaborationScope.js";
 import {
   createProactiveWorkApproval,
-  listProactiveWorkReviews,
+  pageProactiveWorkReviews,
 } from "../services/proactive/approvals.js";
 import { boundWorkReviewPacket } from "../services/proactive/reviewPacketBudget.js";
 import { isActiveOwnReview, reviewTrackingRoutine } from "../services/proactive/reviewTracking.js";
@@ -58,7 +58,7 @@ import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
-import { Run, type RunStatus } from "../db/entities/Run.js";
+import { Run } from "../db/entities/Run.js";
 import { RoutineCheck } from "../db/entities/RoutineCheck.js";
 import { RunCheckResult } from "../db/entities/RunCheckResult.js";
 import { readRunDiagnostics } from "../services/runDiagnostics.js";
@@ -179,7 +179,6 @@ import {
   resolveSearchLabelId,
 } from "../services/mail/searchQuery.js";
 import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes } from "../services/uploads.js";
-import { andWhereTokens, tokenizeQuery } from "../services/likeSearch.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
 import {
   DATA_ROOM_LIMITS,
@@ -192,7 +191,7 @@ import { type DataRoomActor, requireRoom as requireDataRoom } from "../services/
 import {
   aiActivity,
   aiQuestion,
-  aiQuestions,
+  aiQuestionPage,
   aiRoomDetail,
   aiRoomList,
   folderIdForName,
@@ -240,6 +239,7 @@ import { serializeMeeting, serializeParticipant } from "../services/meetings/ser
 import {
   getMeeting,
   listParticipants,
+  meetingStatusFilter,
   pageMeetingsForEmployee,
 } from "../services/meetings/store.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -407,14 +407,14 @@ import {
   findChannelBySlugOrId,
   findOrCreateDM,
   listChannelsForEmployee,
-  listMessages,
+  type MessageSummary,
+  pageChannelMessages,
   postMessage,
   renameChannel,
   userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
-import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { DashboardCardError, patchDashboardCard } from "../services/exploreDashboardCards.js";
 import {
   calendarAvailability,
@@ -448,9 +448,12 @@ import {
   hasNoteAccess,
   isNoteDescendant as isNoteTreeDescendant,
   listAccessibleNoteIds,
+  noteReadScope,
   restoreNoteTree,
   upsertNoteGrant,
 } from "../services/notes.js";
+import { pageReadableNotes, searchReadableNotes } from "../services/noteLists.js";
+import { pagePipelineRuns, pipelineRunFilterShape } from "../services/pipelines/runHistory.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
@@ -490,7 +493,7 @@ import {
   createSignatureEnvelopeFromResource,
   updateSignatureEnvelopeDraft,
   getSignatureEnvelopeDetail,
-  listSignatureEnvelopes,
+  pageSignatureEnvelopes,
   remindSignatureRecipient,
   sendSignatureEnvelope,
   voidSignatureEnvelope,
@@ -542,10 +545,7 @@ import {
   bankingQueue,
 } from "../services/bankingQueue.js";
 import {
-  andWhereDateRange,
   type CursorValue,
-  type DateRange,
-  dateRange,
   decodeCursor,
   filterFingerprint,
   finishPage,
@@ -555,6 +555,9 @@ import {
   pageLimit,
   TOOL_PAGE_BUDGET_CHARS,
 } from "../services/listPaging.js";
+import { pageRunHistory, runStatusFilter } from "../services/runHistory.js";
+import { pageHandoffs } from "../services/handoffList.js";
+import { pageTodos, TODO_LIST_STATUSES } from "../services/todoList.js";
 import type { Account } from "../db/entities/Account.js";
 import { redactSensitiveText } from "../services/approvalRedaction.js";
 import {
@@ -723,11 +726,13 @@ import {
   updateManualActivity,
 } from "../services/revenue/activities.js";
 import {
+  CONTACT_PAGE,
+  CONTACT_SEARCH_PAGE,
   DuplicateContactError,
   createContact,
   findContactByEmail,
   getContact,
-  listContacts,
+  pageContacts,
   updateContact,
 } from "../services/revenue/contacts.js";
 import {
@@ -985,6 +990,7 @@ import {
   OPENING_VISIBILITIES as RECRUITING_OPENING_VISIBILITIES,
   RECRUITING_STAGES,
   WORKPLACE_TYPES as RECRUITING_WORKPLACE_TYPES,
+  type OpeningStatus,
   type RecruitingAccessLevel,
   type RecruitingStage,
 } from "../../shared/recruiting.js";
@@ -995,10 +1001,11 @@ import {
   addApplicationNote,
   addEmployeeScorecard,
   afterApplicationReceived,
+  type ApplicationListFilters,
   getApplicationDetail,
-  listApplications,
   loadApplication,
   moveApplication,
+  pageApplications,
 } from "../services/recruiting/applications.js";
 import {
   criteriaInputSchema as recruitingCriteriaSchema,
@@ -1011,9 +1018,9 @@ import {
   closeOpening,
   companyForId as recruitingCompany,
   createOpening,
-  listOpenings,
   loadOpening,
   openingDto,
+  pageOpenings,
   publishOpening,
   publishProblem,
   updateOpening,
@@ -5050,29 +5057,36 @@ const listContactsSchema = z
     customFieldKey: z.string().max(80).optional(),
     customFieldValue: z.string().max(500).optional(),
     includeArchived: z.boolean().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    ...pageBodyShape,
+    // Older Skills page by offset. Still taken, though no longer advertised:
+    // it skips rows before the first page only, and the answer's cursor goes on.
     offset: z.number().int().min(0).optional(),
   })
   .strict();
 
+// The contact list, one page at a time, most recently touched first. A cursor
+// names the last contact shown, so an Activity logged between pages — which
+// moves a contact to the top — never makes the next page skip anyone.
 mcpInternalRouter.post(
   "/tools/list_contacts",
   validateBody(listContactsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof listContactsSchema>;
-    const { rows, total } = await listContacts(req.mcpCompany!.id, {
-      q: body.q,
-      lifecycleStage: body.lifecycleStage,
-      customerId: body.customerId,
-      ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
-      customFieldKey: body.customFieldKey,
-      customFieldValue: body.customFieldValue,
-      includeArchived: body.includeArchived,
-      limit: body.limit,
-      offset: body.offset,
-    });
-    res.json({ contacts: rows.map(serializeContactRow), total });
+    const { limit, cursor, offset, ownedByMe, ...filter } = req.body as z.infer<
+      typeof listContactsSchema
+    >;
+    try {
+      const { rows, ...info } = await pageContacts(
+        req.mcpCompany!.id,
+        { ...filter, ownerEmployeeId: ownedByMe ? req.mcpEmployee!.id : undefined },
+        { limit, cursor, offset, limits: CONTACT_PAGE, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (contacts) => contacts.map(serializeContactRow),
+      );
+      res.json({ ...info, contacts: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -5080,22 +5094,32 @@ const searchContactsSchema = z
   .object({
     query: z.string().min(1).max(200),
     includeArchived: z.boolean().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+// A lookup by name, email, employer or title — the contact list narrowed by
+// `q`, paged the same way, so every match is reachable rather than the first 25.
 mcpInternalRouter.post(
   "/tools/search_contacts",
   validateBody(searchContactsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof searchContactsSchema>;
-    const { rows, total } = await listContacts(req.mcpCompany!.id, {
-      q: body.query,
-      includeArchived: body.includeArchived,
-      limit: body.limit ?? 25,
-    });
-    res.json({ contacts: rows.map(serializeContactRow), total });
+    const { query, includeArchived, limit, cursor } = req.body as z.infer<
+      typeof searchContactsSchema
+    >;
+    try {
+      const { rows, ...info } = await pageContacts(
+        req.mcpCompany!.id,
+        { q: query, includeArchived },
+        { limit, cursor, limits: CONTACT_SEARCH_PAGE, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (contacts) => contacts.map(serializeContactRow),
+      );
+      res.json({ ...info, contacts: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -6328,26 +6352,34 @@ mcpInternalRouter.post(
   },
 );
 
+const exportActivitiesToolSchema = activitySearchToolSchema
+  .omit({ limit: true, offset: true })
+  .extend({ cursor: pageBodyShape.cursor });
+
+// The ledger as CSV, a part at a time: each part ends before it outgrows a
+// tool result (so the whole CSV is readable and can be attached), and its
+// cursor carries on past it — the export used to stop at 10,000 rows.
 mcpInternalRouter.post(
   "/tools/export_activities",
-  validateBody(activitySearchToolSchema.omit({ limit: true, offset: true })),
+  validateBody(exportActivitiesToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     try {
-      const body = req.body as z.infer<typeof activitySearchToolSchema>;
-      const result = await exportActivitiesCsv(req.mcpCompany!.id, activitySearchOptions(body));
-      if (Buffer.byteLength(result.csv, "utf8") > 8 * 1024 * 1024) {
-        return res.status(413).json({
-          error: "The Activity export exceeds 8 MiB; narrow the date or search filters",
-        });
-      }
+      const { cursor, ...body } = req.body as z.infer<typeof exportActivitiesToolSchema>;
+      const { csv, ...result } = await exportActivitiesCsv(
+        req.mcpCompany!.id,
+        activitySearchOptions(body),
+        { cursor, maxChars: TOOL_PAGE_BUDGET_CHARS },
+      );
       res.json({
-        filename: `revenue-activities-${new Date().toISOString().slice(0, 10)}.csv`,
-        contentText: result.csv,
-        exported: result.exported,
-        truncated: result.truncated,
+        ...result,
+        filename: `revenue-activities-${new Date().toISOString().slice(0, 10)}${cursor ? "-continued" : ""}.csv`,
+        contentText: csv,
       });
     } catch (error) {
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       res.status(400).json({ error: (error as Error).message });
     }
   },
@@ -6479,6 +6511,9 @@ mcpInternalRouter.post(
         accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        // A task nobody dated is still work: listed after the dated ones
+        // unless excluded, as `GET /revenue/follow-ups` lists it.
+        undated: z.enum(["include", "only", "exclude"]).optional(),
         cursor: z.string().max(1_000).optional(),
         limit: z.number().int().min(1).max(500).optional(),
         offset: z.number().int().min(0).optional(),
@@ -6537,6 +6572,7 @@ const followUpViewToolFiltersSchema = z
     accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
     closedDeals: z.enum(["include", "only", "exclude"]).optional(),
     archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+    undated: z.enum(["include", "only", "exclude"]).optional(),
   })
   .strict();
 
@@ -7347,6 +7383,9 @@ const partnershipToolWriteSchema = z.object({
   reminderAt: z.string().max(40).nullable().optional(),
 });
 
+// The same filters as `GET /revenue/partnerships`. A partnership a Member
+// archived is not a status — `includeArchived` reaches it, as on every other
+// Revenue list; without it an archived partnership could not be found at all.
 mcpInternalRouter.post(
   "/tools/list_partnerships",
   validateBody(
@@ -7355,6 +7394,9 @@ mcpInternalRouter.post(
         q: z.string().max(200).optional(),
         status: z.string().max(80).optional(),
         type: z.string().max(80).optional(),
+        customFieldKey: z.string().max(80).optional(),
+        customFieldValue: z.string().max(500).optional(),
+        includeArchived: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).optional(),
         offset: z.number().int().min(0).optional(),
       })
@@ -8476,6 +8518,7 @@ const revenueBulkTargetToolSchema = z
         createdBefore: z.string().datetime().optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        undated: z.enum(["include", "only", "exclude"]).optional(),
       })
       .optional(),
   })
@@ -11154,21 +11197,6 @@ mcpInternalRouter.post(
  * neither writes anything.
  */
 
-/** Runs that have stopped. A `running` row's verdicts are not written yet. */
-const TERMINAL_RUN_STATUSES: RunStatus[] = [
-  "completed",
-  "reviewed",
-  "continued",
-  "failed",
-  "error",
-  "skipped",
-  "timeout",
-  "interrupted",
-];
-
-/** 20 Runs by default — well inside one tool result — and at most 50 a page. */
-const RUN_PAGE = { defaultLimit: 20, maxLimit: 50 };
-
 function serializeRunRow(run: Run, routineName: string | null) {
   return {
     ...runContinuationView(run),
@@ -11193,21 +11221,12 @@ function serializeRunRow(run: Run, routineName: string | null) {
 const listRunsSchema = z
   .object({
     routine: z.string().min(1).max(200).optional(),
-    status: z
-      .enum(TERMINAL_RUN_STATUSES as [RunStatus, ...RunStatus[]])
-      .optional(),
+    status: runStatusFilter.optional(),
     from: z.string().min(1).max(40).optional(),
     to: z.string().min(1).max(40).optional(),
     ...pageBodyShape,
   })
   .strict();
-
-/** Every Run column but its transcript, which a history listing never shows. */
-function runListColumns(): string[] {
-  return AppDataSource.getMetadata(Run)
-    .columns.filter((column) => column.propertyName !== "logContent" && column.isSelect)
-    .map((column) => `run.${column.propertyName}`);
-}
 
 mcpInternalRouter.post(
   "/tools/list_runs",
@@ -11249,54 +11268,15 @@ mcpInternalRouter.post(
 
     // The whole history pages, newest first: a Routine that runs hourly keeps
     // thousands of Runs, and "when did this start failing?" needs the old ones.
+    // `GET /routines/:rid/runs` pages the same list (`services/runHistory.ts`).
     const { limit, cursor, routine: _routine, ...filter } = body;
-    let started: DateRange;
     try {
-      started = dateRange(filter.from, filter.to);
-    } catch (err) {
-      return res.status(400).json({ error: (err as Error).message });
-    }
-    const query = () => {
-      const qb = AppDataSource.getRepository(Run)
-        .createQueryBuilder("run")
-        .select(runListColumns())
-        .where("run.routineId IN (:...routineIds)", { routineIds })
-        .andWhere("run.status IN (:...statuses)", {
-          statuses: filter.status ? [filter.status] : TERMINAL_RUN_STATUSES,
-        });
-      return andWhereDateRange(qb, "run.startedAt", started, "started");
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      employee: self.id,
-      routineIds: [...routineIds].sort(),
-      status: filter.status,
-      started,
-    });
-    try {
-      const after = cursor ? decodeCursor("runs", fingerprint, cursor) : null;
-      const pageSize = pageLimit(limit, RUN_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          keys: [
-            { column: "run.startedAt", direction: "DESC", type: "timestamp" },
-            { column: "run.id", direction: "DESC", type: "string" },
-          ],
-          after,
-          limit: pageSize,
-          prefix: "run",
-        }),
-      ]);
-      const { rows, note, ...info } = finishPage({
-        fetched,
-        limit: pageSize,
-        total,
-        noun: "Runs",
-        scope: "runs",
-        fingerprint,
-        present: (run: Run) => serializeRunRow(run, names.get(run.routineId) ?? null),
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, note, ...info } = await pageRunHistory(
+        co.id,
+        { routineIds, ...filter },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (runs) => runs.map((run) => serializeRunRow(run, names.get(run.routineId) ?? null)),
+      );
       res.json({
         ...info,
         note:
@@ -12284,30 +12264,51 @@ mcpInternalRouter.post(
   },
 );
 
+const listPipelineRunsSchema = z
+  .object({
+    pipelineId: z.string().min(1).max(200),
+    ...pipelineRunFilterShape,
+    ...pageBodyShape,
+  })
+  .strict();
+
+// A Pipeline's whole Run history, newest first, a page at a time — the same
+// list `GET /pipelines/:idOrSlug/runs` answers when asked for a page.
 mcpInternalRouter.post(
   "/tools/list_pipeline_runs",
-  validateBody(pipelineRefSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof pipelineRefSchema>;
-    const found = await resolvePipeline(req.mcpCompany!.id, body.pipelineId);
+  validateBody(listPipelineRunsSchema),
+  async (req: McpRequest, res, next) => {
+    const { pipelineId, limit, cursor, ...filter } = req.body as z.infer<
+      typeof listPipelineRunsSchema
+    >;
+    const found = await resolvePipeline(req.mcpCompany!.id, pipelineId);
     if (!found.ok) return res.status(found.status).json({ error: found.error });
-    const runs = await AppDataSource.getRepository(PipelineRun).find({
-      where: { pipelineId: found.pipeline.id },
-      order: { startedAt: "DESC" },
-      take: 50,
-    });
     // Statuses and timings of a pipeline you cannot author are fine to read —
     // "is the billing automation healthy" is a reasonable question. The error
     // text is not: a failing step quotes the value that failed it.
     const stored = displayGraph(found.pipeline);
     const authorized = stored.readable && (await canAuthorWholeGraph(req, stored.graph));
-    res.json({
-      pipeline: { id: found.pipeline.id, slug: found.pipeline.slug, name: found.pipeline.name },
-      runs: runs.map((run) => {
-        const summary = serializePipelineRunSummary(run);
-        return authorized ? summary : { ...summary, errorMessage: null };
-      }),
-    });
+    try {
+      const { rows, ...info } = await pagePipelineRuns(
+        req.mcpCompany!.id,
+        found.pipeline.id,
+        filter,
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (runs) =>
+          runs.map((run) => {
+            const summary = serializePipelineRunSummary(run);
+            return authorized ? summary : { ...summary, errorMessage: null };
+          }),
+      );
+      res.json({
+        ...info,
+        pipeline: { id: found.pipeline.id, slug: found.pipeline.slug, name: found.pipeline.name },
+        runs: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -12562,16 +12563,12 @@ const listTodosSchema = z
   .object({
     projectSlug: z.string().min(1).max(120),
     // `open` is everything not done or cancelled: the work still to pick up.
-    status: z
-      .enum(["open", "backlog", "todo", "in_progress", "in_review", "done", "cancelled"])
-      .optional(),
+    status: z.enum(TODO_LIST_STATUSES).optional(),
     assignedToMe: z.boolean().optional(),
     ...pageBodyShape,
   })
   .strict();
 
-/** 50 Todos by default, at most 200 a page. */
-const TODO_PAGE = { defaultLimit: 50, maxLimit: 200 };
 const TODO_DESCRIPTION_PREVIEW = 300;
 
 /**
@@ -12602,54 +12599,19 @@ mcpInternalRouter.post(
     if (!(await hasDelegatedProjectAccess(req, p, "read"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
-    const query = () => {
-      const qb = AppDataSource.getRepository(Todo)
-        .createQueryBuilder("todo")
-        .where("todo.projectId = :projectId", { projectId: p.id });
-      if (body.status === "open") {
-        qb.andWhere("todo.status IN (:...open)", {
-          open: ["backlog", "todo", "in_progress", "in_review"],
-        });
-      } else if (body.status) {
-        qb.andWhere("todo.status = :status", { status: body.status });
-      }
-      if (body.assignedToMe) {
-        qb.andWhere("todo.assigneeEmployeeId = :me", { me: req.mcpEmployee!.id });
-      }
-      return qb;
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      project: p.id,
-      status: body.status,
-      assignedToMe: body.assignedToMe ? req.mcpEmployee!.id : undefined,
-    });
+    // The board's order, a page at a time — the list `GET /projects/:pSlug/todos`
+    // pages too (`services/todoList.ts`).
     try {
-      const after = body.cursor ? decodeCursor("todos", fingerprint, body.cursor) : null;
-      const limit = pageLimit(body.limit, TODO_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          // The board's order: its drag-to-reorder key, then the oldest first.
-          keys: [
-            { column: "todo.sortOrder", direction: "ASC", type: "number" },
-            { column: "todo.createdAt", direction: "ASC", type: "timestamp" },
-            { column: "todo.id", direction: "ASC", type: "string" },
-          ],
-          after,
-          limit,
-          prefix: "todo",
-        }),
-      ]);
-      const { rows, note, ...info } = finishPage({
-        fetched,
-        limit,
-        total,
-        noun: "Todos",
-        scope: "todos",
-        fingerprint,
-        present: serializeTodoListRow,
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, note, ...info } = await pageTodos(
+        co.id,
+        p.id,
+        {
+          status: body.status,
+          assigneeEmployeeId: body.assignedToMe ? req.mcpEmployee!.id : undefined,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (todos) => todos.map(serializeTodoListRow),
+      );
       res.json({
         ...info,
         note:
@@ -14861,13 +14823,33 @@ mcpInternalRouter.post(
 
 // ─────────────────── Workspace messages (AI ↔ AI / AI → human) ──────────
 
+/** A Workspace message as list_workspace_messages shows it. */
+function serializeWorkspaceMessageForAgent(message: MessageSummary) {
+  return {
+    id: message.id,
+    author: message.author
+      ? { kind: message.authorKind, name: message.author.name }
+      : { kind: message.authorKind },
+    content: message.content,
+    parentMessageId: message.parentMessageId,
+    createdAt: message.createdAt,
+    editedAt: message.editedAt,
+    attachments: message.attachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.filename,
+    })),
+  };
+}
+
+type WorkspaceMessageRow = ReturnType<typeof serializeWorkspaceMessageForAgent>;
+
 const listWorkspaceMessagesSchema = z
   .object({
     channel: z.string().min(1).max(120).optional(),
     dmEmployee: z.string().min(1).max(120).optional(),
     dmUser: z.string().uuid().optional(),
     before: z.string().datetime({ offset: true }).optional(),
-    limit: z.number().int().min(1).max(100).default(30),
+    ...pageBodyShape,
   })
   .strict()
   .refine(
@@ -14877,8 +14859,9 @@ const listWorkspaceMessagesSchema = z
     { message: "Specify exactly one of: channel, dmEmployee, dmUser." },
   );
 
-// Read a channel's, group chat's or DM's recent messages, oldest first, as the
-// Workspace shows them. The same rooms as sending: any public channel, a
+// Read a channel's, group chat's or DM's messages, newest page first, each
+// page oldest first as the Workspace shows it, and a cursor further back
+// (`pageChannelMessages`). The same rooms as sending: any public channel, a
 // private one or group chat the employee is in, and its own DMs — and in a
 // Member's chat, only what that Member can open too. Words a tainted turn
 // wrote taint this turn, as replaying them anywhere else does.
@@ -14935,43 +14918,31 @@ mcpInternalRouter.post(
         target: { kind: "user", userId: body.dmUser! },
       });
     }
-    let messages: Awaited<ReturnType<typeof listMessages>>;
+    let page: Awaited<ReturnType<typeof pageChannelMessages<WorkspaceMessageRow>>>;
     try {
-      messages = await listMessages({
+      page = await pageChannelMessages({
         channelId: channel.id,
         companyId: co.id,
         viewerUserId: req.mcpRequesterUserId ?? "",
         before: body.before,
-        limit: body.limit,
+        page: { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        present: serializeWorkspaceMessageForAgent,
       });
     } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
       return res.status(400).json({ error: (err as Error).message });
     }
-    if (messages.length > 0) {
-      const tainted = await AppDataSource.getRepository(ChannelMessage).count({
-        where: { id: In(messages.map((message) => message.id)), tainted: true },
-      });
-      if (tainted > 0) markTokenTainted(req.mcpToken!);
-    }
+    if (page.tainted) markTokenTainted(req.mcpToken!);
+    const { rows, note, tainted: _tainted, ...info } = page;
     res.json({
+      ...info,
+      note:
+        (note ? `${note} ` : "") +
+        (info.hasMore
+          ? "Each page is oldest first; the next one is older."
+          : "Oldest first."),
       channel: { id: channel.id, slug: channel.slug, name: channel.name, kind: channel.kind },
-      messages: messages
-        .filter((message) => !message.deletedAt)
-        .map((message) => ({
-          id: message.id,
-          author: message.author
-            ? { kind: message.authorKind, name: message.author.name }
-            : { kind: message.authorKind },
-          content: message.content,
-          parentMessageId: message.parentMessageId,
-          createdAt: message.createdAt,
-          editedAt: message.editedAt,
-          attachments: message.attachments.map((attachment) => ({
-            id: attachment.id,
-            name: attachment.filename,
-          })),
-        })),
-      note: "Oldest first. Pass the first message's createdAt as before to read further back.",
+      messages: rows,
     });
   },
 );
@@ -15240,9 +15211,6 @@ const listHandoffsSchema = z
   })
   .strict();
 
-/** 50 handoffs by default, at most 200 a page. */
-const HANDOFF_PAGE = { defaultLimit: 50, maxLimit: 200 };
-
 mcpInternalRouter.post(
   "/tools/list_handoffs",
   validateBody(listHandoffsSchema),
@@ -15250,50 +15218,19 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listHandoffsSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const query = () => {
-      const qb = AppDataSource.getRepository(Handoff)
-        .createQueryBuilder("h")
-        .where("h.companyId = :cid", { cid: co.id });
-      if (body.direction === "incoming") {
-        qb.andWhere("h.toEmployeeId = :eid", { eid: self.id });
-      } else if (body.direction === "outgoing") {
-        qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
-      } else {
-        qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", { eid: self.id });
-      }
-      if (body.status !== "all") qb.andWhere("h.status = :status", { status: body.status });
-      return qb;
-    };
-    const fingerprint = filterFingerprint(co.id, {
-      employee: self.id,
-      direction: body.direction,
-      status: body.status,
-    });
+    // Its own inbox or outbox, a page at a time — the list `GET /handoffs`
+    // pages too (`services/handoffList.ts`).
     try {
-      const after = body.cursor ? decodeCursor("handoffs", fingerprint, body.cursor) : null;
-      const limit = pageLimit(body.limit, HANDOFF_PAGE);
-      const [total, fetched] = await Promise.all([
-        query().getCount(),
-        keysetRows(query(), {
-          keys: [
-            { column: "h.createdAt", direction: "DESC", type: "timestamp" },
-            { column: "h.id", direction: "DESC", type: "string" },
-          ],
-          after,
-          limit,
-          prefix: "handoff",
-        }),
-      ]);
-      const { rows, ...info } = finishPage({
-        fetched,
-        limit,
-        total,
-        noun: "handoffs",
-        scope: "handoffs",
-        fingerprint,
-        present: serializeHandoff,
-        budgetChars: TOOL_PAGE_BUDGET_CHARS,
-      });
+      const { rows, ...info } = await pageHandoffs(
+        co.id,
+        {
+          employeeId: self.id,
+          direction: body.direction,
+          status: body.status === "all" ? undefined : body.status,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (handoffs) => handoffs.map(serializeHandoff),
+      );
       res.json({ ...info, handoffs: rows });
     } catch (err) {
       if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
@@ -15723,18 +15660,32 @@ mcpInternalRouter.post("/tools/revise_work_review", (_req: McpRequest, res) =>
   }),
 );
 
+const listWorkReviewsSchema = z
+  .object({
+    status: z
+      .enum(["pending", "executing", "approved", "execution_failed", "rejected", "expired"])
+      .optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+// The whole review history, newest first, a page at a time: a plan a Member
+// declined long ago still says "do not repeat this".
 mcpInternalRouter.post(
   "/tools/list_work_reviews",
-  validateBody(z.object({}).strict()),
+  validateBody(listWorkReviewsSchema),
   async (req: McpRequest, res, next) => {
+    const { limit, cursor, status } = req.body as z.infer<typeof listWorkReviewsSchema>;
     try {
-      res.json(
-        await listProactiveWorkReviews({
-          companyId: req.mcpCompany!.id,
-          employeeId: req.mcpEmployee!.id,
-        }),
+      const { rows, ...info } = await pageProactiveWorkReviews(
+        { companyId: req.mcpCompany!.id, employeeId: req.mcpEmployee!.id, status },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
       );
+      res.json({ ...info, reviews: rows });
     } catch (error) {
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       // Reconciliation absorbs stale sources, so only an infrastructure
       // failure reaches here; the error handler keeps its detail in the log.
       next(error);
@@ -16471,31 +16422,36 @@ const listNotesSchema = z
     notebookSlug: z.string().min(1).max(80).optional(),
     parentSlug: z.string().min(1).max(160).optional(),
     includeArchived: z.boolean().optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+/** Look a notebook up by slug, for a filter; null when this company has none by it. */
+async function notebookIdForFilter(companyId: string, slug: string | undefined) {
+  if (!slug) return undefined;
+  const notebook = await AppDataSource.getRepository(Notebook).findOneBy({ companyId, slug });
+  return notebook ? notebook.id : null;
+}
+
+// The notes the employee may read, a page at a time with each body previewed:
+// the knowledge base outgrows a single answer, and get_note reads one in full.
 mcpInternalRouter.post(
   "/tools/list_notes",
   validateBody(listNotesSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof listNotesSchema>;
+  async (req: McpRequest, res, next) => {
+    const { limit, cursor, ...body } = req.body as z.infer<typeof listNotesSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const repo = AppDataSource.getRepository(Note);
 
-    let notebookId: string | undefined;
-    if (body.notebookSlug) {
-      const nb = await AppDataSource.getRepository(Notebook).findOneBy({
-        companyId: co.id,
-        slug: body.notebookSlug,
-      });
-      if (!nb) return res.status(404).json({ error: "Notebook not found" });
-      notebookId = nb.id;
-    }
+    const notebookId = await notebookIdForFilter(co.id, body.notebookSlug);
+    if (notebookId === null) return res.status(404).json({ error: "Notebook not found" });
 
-    let parentId: string | null | undefined = undefined;
+    let parentId: string | undefined;
     if (body.parentSlug) {
-      const parent = await repo.findOneBy({ companyId: co.id, slug: body.parentSlug });
+      const parent = await AppDataSource.getRepository(Note).findOneBy({
+        companyId: co.id,
+        slug: body.parentSlug,
+      });
       if (!parent) return res.status(404).json({ error: "Parent note not found" });
       // The employee can only inspect children of a parent they can see.
       if (!(await hasNoteAccess(self.id, parent.id, "read"))) {
@@ -16504,21 +16460,24 @@ mcpInternalRouter.post(
       parentId = parent.id;
     }
 
-    const accessible = await listAccessibleNoteIds(co.id, self.id);
-    if (accessible.size === 0) return res.json({ notes: [] });
-
-    const where: Record<string, unknown> = {
-      companyId: co.id,
-      id: In([...accessible]),
-    };
-    if (notebookId !== undefined) where.notebookId = notebookId;
-    if (parentId !== undefined) where.parentId = parentId;
-    if (!body.includeArchived) where.archivedAt = IsNull();
-    const notes = await repo.find({
-      where,
-      order: { sortOrder: "ASC", updatedAt: "DESC" },
-    });
-    res.json({ notes: notes.map(serializeNote) });
+    try {
+      const { rows, note, ...info } = await pageReadableNotes(
+        co.id,
+        await noteReadScope(co.id, self.id),
+        { notebookId, parentId, includeArchived: body.includeArchived },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Bodies are previews (bodyTruncated says one goes on); get_note reads a note in full.",
+        notes: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -16555,38 +16514,40 @@ mcpInternalRouter.post(
 const searchNotesSchema = z
   .object({
     query: z.string().min(1).max(200),
+    notebookSlug: z.string().min(1).max(80).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+// Same tokenizer Resources and the ⌘K palette use: every word must appear
+// somewhere, in any order, folded the same way on both drivers. Every match is
+// reachable a page at a time, most recently edited first.
 mcpInternalRouter.post(
   "/tools/search_notes",
   validateBody(searchNotesSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof searchNotesSchema>;
+  async (req: McpRequest, res, next) => {
+    const { limit, cursor, query, notebookSlug } = req.body as z.infer<typeof searchNotesSchema>;
     const co = req.mcpCompany!;
-    const self = req.mcpEmployee!;
-    const accessible = await listAccessibleNoteIds(co.id, self.id);
-    if (accessible.size === 0) return res.json({ notes: [] });
-
-    // Same tokenizer Resources and the ⌘K palette use: every word must appear
-    // somewhere, in any order, folded the same way on both drivers. The single
-    // `LIKE '%whole query%'` this replaces missed "meeting notes" on a page
-    // titled "Notes from the meeting".
-    const tokens = tokenizeQuery(body.query);
-    if (tokens.length === 0) return res.json({ notes: [] });
-    const rows = await andWhereTokens(
-      AppDataSource.getRepository(Note)
-        .createQueryBuilder("n")
-        .where("n.companyId = :cid", { cid: co.id })
-        .andWhere("n.archivedAt IS NULL")
-        .andWhere("n.id IN (:...ids)", { ids: [...accessible] }),
-      ["n.title", "n.body"],
-      tokens,
-    )
-      .orderBy("n.updatedAt", "DESC")
-      .limit(50)
-      .getMany();
-    res.json({ notes: rows.map(serializeNote) });
+    const notebookId = await notebookIdForFilter(co.id, notebookSlug);
+    if (notebookId === null) return res.status(404).json({ error: "Notebook not found" });
+    try {
+      const { rows, note, ...info } = await searchReadableNotes(
+        co.id,
+        await noteReadScope(co.id, req.mcpEmployee!.id),
+        { query, notebookId },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Bodies are previews and snippet is the text around the first word found; get_note reads a note in full.",
+        notes: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -18609,12 +18570,18 @@ function respondToSigningError(res: Response, error: unknown): boolean {
   return false;
 }
 
-function serializeSignatureEnvelopeForAi(
-  envelope: SignatureEnvelopeDetail["envelope"] & {
+/**
+ * An envelope without what stays on the server: where its files are kept and
+ * the PDF's extracted text. A listing row (which never loads the text) is
+ * redacted exactly as `get_signature_envelope` redacts the full read.
+ */
+function serializeSignatureEnvelopeForAi<
+  T extends Omit<SignatureEnvelopeDetail["envelope"], "documentText"> & {
+    documentText?: string;
     recipientCount?: number;
     completedRecipientCount?: number;
   },
-) {
+>(envelope: T) {
   const {
     originalStorageKey: _originalStorageKey,
     completedStorageKey: _completedStorageKey,
@@ -18622,15 +18589,6 @@ function serializeSignatureEnvelopeForAi(
     ...safe
   } = envelope;
   return safe;
-}
-
-function serializeSignatureEnvelopeSummaryForAi(
-  envelope: SignatureEnvelopeDetail["envelope"] & {
-    recipientCount?: number;
-    completedRecipientCount?: number;
-  },
-) {
-  return serializeSignatureEnvelopeForAi(envelope);
 }
 
 function serializeSignatureDetailForAi(detail: SignatureEnvelopeDetail) {
@@ -18658,32 +18616,39 @@ const listSignatureEnvelopesSchema = z
       .optional(),
     customerId: z.string().uuid().optional(),
     query: z.string().trim().min(1).max(200).optional(),
-    limit: z.number().int().min(1).max(100).default(50),
+    ...pageBodyShape,
   })
   .strict();
 
+// One page at a time, newest first by when each was created
+// (`pageSignatureEnvelopes`), every filter in the query.
 mcpInternalRouter.post(
   "/tools/list_signature_envelopes",
   validateBody(listSignatureEnvelopesSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const accessLevel = await requireSigning(req, res, "read");
     if (!accessLevel) return;
     const body = req.body as z.infer<typeof listSignatureEnvelopesSchema>;
     try {
-      const envelopes = await listSignatureEnvelopes({
-        companyId: req.mcpCompany!.id,
-        status: body.status,
-        customerId: body.customerId,
-        q: body.query,
-      });
+      const { rows, ...info } = await pageSignatureEnvelopes(
+        {
+          companyId: req.mcpCompany!.id,
+          status: body.status,
+          customerId: body.customerId,
+          q: body.query,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
       res.json({
         accessLevel,
-        envelopes: envelopes
-          .slice(0, body.limit)
-          .map((envelope) => serializeSignatureEnvelopeSummaryForAi(envelope)),
+        ...info,
+        envelopes: rows.map((envelope) => serializeSignatureEnvelopeForAi(envelope)),
       });
     } catch (error) {
-      if (!respondToSigningError(res, error)) throw error;
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      if (!respondToSigningError(res, error)) next(error);
     }
   },
 );
@@ -19043,6 +19008,11 @@ function dataRoomTool(fn: (req: McpRequest, res: Response) => Promise<unknown>):
         res.status(error.status).json({ error: error.message });
         return;
       }
+      // A cursor the caller has to change (another list, other filters).
+      if (error instanceof ListQueryError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       next(error);
     });
   };
@@ -19111,21 +19081,33 @@ mcpInternalRouter.post(
   }),
 );
 
+const listDataRoomQuestionsSchema = z
+  .object({
+    roomId: z.string().uuid(),
+    status: z.enum(DATA_ROOM_QUESTION_STATUSES).optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+// One page at a time (`aiQuestionPage`). Still a taint source: reading a
+// guest's question marks the turn at dispatch, whichever page it reads.
 mcpInternalRouter.post(
   "/tools/list_data_room_questions",
-  validateBody(
-    z
-      .object({
-        roomId: z.string().uuid(),
-        status: z.enum(DATA_ROOM_QUESTION_STATUSES).optional(),
-      })
-      .strict(),
-  ),
+  validateBody(listDataRoomQuestionsSchema),
   dataRoomTool(async (req, res) => {
     if (!(await requireDataRoomAccess(req, res, "read"))) return;
+    const { roomId, status, limit, cursor } = req.body as z.infer<
+      typeof listDataRoomQuestionsSchema
+    >;
+    const { rows, note, ...info } = await aiQuestionPage(req.mcpCompany!.id, roomId, status, {
+      limit,
+      cursor,
+      budgetChars: TOOL_PAGE_BUDGET_CHARS,
+    });
     res.json({
-      questions: await aiQuestions(req.mcpCompany!.id, req.body.roomId, req.body.status),
-      note: DATA_ROOM_UNTRUSTED_NOTE,
+      ...info,
+      note: (note ? `${note} ` : "") + DATA_ROOM_UNTRUSTED_NOTE,
+      questions: rows,
     });
   }),
 );
@@ -23354,9 +23336,7 @@ async function meetingForEmployee(
 
 const listMeetingsSchema = z
   .object({
-    status: z
-      .enum(["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"])
-      .optional(),
+    status: meetingStatusFilter.optional(),
     customerId: z.string().uuid().optional(),
     contactId: z.string().uuid().optional(),
     from: z.string().min(1).max(40).optional(),
@@ -23499,6 +23479,11 @@ function phoneToolFailure(res: Response, next: NextFunction, err: unknown): void
     res.status(known.status).json({ error: known.message });
     return;
   }
+  // A cursor or date bound the caller has to change.
+  if (err instanceof ListQueryError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
   next(err);
 }
 
@@ -23512,7 +23497,6 @@ function abortOnDisconnect(res: Response): AbortSignal {
 }
 
 const phoneNumberArg = z.string().min(1).max(64);
-const phoneLimitArg = z.number().min(1).max(50).default(20).transform(Math.round);
 
 mcpInternalRouter.post(
   "/tools/list_phone_numbers",
@@ -23553,14 +23537,15 @@ mcpInternalRouter.post(
   },
 );
 
+// One page at a time, with every filter in the query (`pageTexts`).
 const listTextMessagesSchema = z
   .object({
     direction: z.enum(["inbound", "outbound"]).optional(),
     from: phoneNumberArg.optional(),
     contains: z.string().min(1).max(200).optional(),
     since: z.string().max(64).optional(),
-    limit: phoneLimitArg,
     phoneNumber: phoneNumberArg.optional(),
+    ...pageBodyShape,
   })
   .strict();
 
@@ -23661,10 +23646,16 @@ mcpInternalRouter.post(
   },
 );
 
+// One page at a time, with "only calls of mine or nobody's" in the query
+// (`pageCalls`), so a page is never short of calls the employee may read. The
+// date bounds are `since`/`until`, as on list_text_messages: on a phone tool
+// `from` and `to` are phone numbers.
 const listPhoneCallsSchema = z
   .object({
     direction: z.enum(["inbound", "outbound"]).optional(),
-    limit: phoneLimitArg,
+    since: z.string().min(1).max(40).optional(),
+    until: z.string().min(1).max(40).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
@@ -23795,6 +23786,8 @@ function openingListing(opening: Awaited<ReturnType<typeof openingDto>>) {
   };
 }
 
+// Open first, then drafts, then closed, a page at a time: the status order is
+// the query's, so no open Opening hides behind a cut.
 mcpInternalRouter.post(
   "/tools/list_openings",
   validateBody(
@@ -23802,13 +23795,25 @@ mcpInternalRouter.post(
       .object({
         status: z.enum(RECRUITING_OPENING_STATUSES).optional(),
         query: z.string().max(200).optional(),
+        ...pageBodyShape,
       })
       .strict(),
   ),
   recruitingTool(async (req, res) => {
     if (!(await requireRecruiting(req, res, "read"))) return;
-    const rows = await listOpenings(req.mcpCompany!, { status: req.body.status, q: req.body.query });
-    res.json({ rows: rows.map(openingListing) });
+    const { status, query, limit, cursor } = req.body as {
+      status?: OpeningStatus;
+      query?: string;
+      limit?: number;
+      cursor?: string;
+    };
+    const { rows, ...info } = await pageOpenings(
+      req.mcpCompany!,
+      { status, q: query },
+      { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      (openings) => openings.map(openingListing),
+    );
+    res.json({ ...info, rows });
   }),
 );
 
@@ -23927,20 +23932,30 @@ mcpInternalRouter.post(
         sort: z.enum(["newest", "oldest", "score"]).optional(),
         minScore: z.number().min(0).max(100).optional(),
         screenStatus: z.enum(["none", "queued", "running", "scored", "failed"]).optional(),
-        limit: z.number().int().min(1).max(100).optional(),
+        ...pageBodyShape,
+        // An older Skill's way to page: rows to pass over before the first
+        // page, within the bound it always had. Not advertised; the cursor
+        // carries on from wherever it starts, with no bound at all.
         offset: z.number().int().min(0).max(100_000).optional(),
       })
       .strict(),
   ),
   recruitingTool(async (req, res) => {
     if (!(await requireRecruiting(req, res, "read"))) return;
-    const { query, limit, ...filters } = req.body;
-    const result = await listApplications(req.mcpCompany!.id, {
-      ...filters,
-      q: query,
-      limit: limit ?? 25,
+    const { query, limit, cursor, offset, ...filters } = req.body as Omit<
+      ApplicationListFilters,
+      "q" | "limit" | "offset"
+    > & { query?: string; limit?: number; cursor?: string; offset?: number };
+    const { rows, note, ...info } = await pageApplications(
+      req.mcpCompany!.id,
+      { ...filters, q: query },
+      { limit, cursor, skip: offset, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+    );
+    res.json({
+      ...info,
+      note: note ? `${note} ${UNTRUSTED_APPLICANT_NOTE}` : UNTRUSTED_APPLICANT_NOTE,
+      rows,
     });
-    res.json({ ...result, note: UNTRUSTED_APPLICANT_NOTE });
   }),
 );
 

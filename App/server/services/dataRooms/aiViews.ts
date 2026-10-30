@@ -1,6 +1,8 @@
+import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { DataRoomDocument } from "../../db/entities/DataRoomDocument.js";
 import type { DataRoomFolder } from "../../db/entities/DataRoomFolder.js";
+import { DataRoomGuest } from "../../db/entities/DataRoomGuest.js";
 import { DataRoomQuestion } from "../../db/entities/DataRoomQuestion.js";
 import {
   DATA_ROOM_CHECKLISTS,
@@ -19,6 +21,13 @@ import {
   parseJsonObject,
   requireRoom,
 } from "./access.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { roomActivity } from "./activity.js";
 import { DataRoomNotFoundError, DataRoomValidationError } from "./errors.js";
 import { listGuests } from "./guests.js";
@@ -184,22 +193,55 @@ export function aiQuestion(
   };
 }
 
-export async function aiQuestions(
+/** 50 questions by default, at most 200 a page. */
+export const DATA_ROOM_QUESTION_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 200 };
+
+/**
+ * A room's questions, newest first, one page at a time
+ * (`services/listPaging.ts`): every question is reachable by following
+ * `nextCursor`, and one answered or closed between pages never makes a page
+ * skip another. The room must be this company's.
+ */
+export async function aiQuestionPage(
   companyId: string,
   roomId: string,
-  status?: DataRoomQuestionStatus,
-) {
+  status: DataRoomQuestionStatus | undefined,
+  page: PageRequest & { budgetChars?: number },
+): Promise<Page<ReturnType<typeof aiQuestion>>> {
+  // The room is this company's, and a question belongs to exactly one room,
+  // so the page reads by room alone — through the `(roomId, …, createdAt, id)`
+  // indexes, which a company filter would steer the planner away from.
   const room = await requireRoom(companyId, roomId);
-  const [questions, guests] = await Promise.all([
-    AppDataSource.getRepository(DataRoomQuestion).find({
-      where: { roomId: room.id, ...(status ? { status } : {}) },
-      order: { createdAt: "DESC" },
-      take: 200,
-    }),
-    listGuests(room.id),
-  ]);
-  const byId = new Map(guests.map((guest) => [guest.id, guest]));
-  return questions.map((question) => aiQuestion(question, byId.get(question.guestId)));
+  return keysetPage({
+    query: () => {
+      const qb = AppDataSource.getRepository(DataRoomQuestion)
+        .createQueryBuilder("q")
+        .where("q.roomId = :roomId", { roomId: room.id });
+      if (status) qb.andWhere("q.status = :status", { status });
+      return qb;
+    },
+    keys: [
+      { column: "q.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "q.id", direction: "DESC", type: "string" },
+    ],
+    scope: "data_room.questions",
+    fingerprint: filterFingerprint(companyId, { room: room.id, status }),
+    noun: "questions",
+    limits: DATA_ROOM_QUESTION_PAGE,
+    page,
+    present: async (questions) => {
+      // Only the guests who asked the questions on this page.
+      const guestIds = [...new Set(questions.map((question) => question.guestId))];
+      const guests = guestIds.length
+        ? await AppDataSource.getRepository(DataRoomGuest).find({
+            where: { roomId: room.id, id: In(guestIds) },
+            select: { id: true, name: true, organization: true },
+          })
+        : [];
+      const byId = new Map(guests.map((guest) => [guest.id, guest]));
+      return questions.map((question) => aiQuestion(question, byId.get(question.guestId)));
+    },
+  });
 }
 
 export async function requireQuestionInCompany(
