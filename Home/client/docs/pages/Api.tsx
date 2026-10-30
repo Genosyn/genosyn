@@ -98,6 +98,23 @@ curl -X POST -H "Authorization: Bearer $GENOSYN_KEY" $GENOSYN/routines/<routine-
 curl -H "Authorization: Bearer $GENOSYN_KEY" \\
   "$GENOSYN/banking/transactions?kind=card&status=all&to=2023-07-31&limit=200"
 # …then again with &cursor=<nextCursor> until hasMore is false.`}</Pre>
+      <P>
+        Four more lists page the same way when you send <Code>limit</Code> or <Code>cursor</Code>,
+        and keep the answer they always gave when you send neither: a Routine&apos;s finished Runs
+        at <Code>GET /routines/:rid/runs</Code> (by <Code>status</Code>, and when they started with{" "}
+        <Code>from</Code> and <Code>to</Code>), the handoffs at <Code>GET /handoffs</Code> (one AI
+        Employee&apos;s with <Code>employeeId</Code>, a side with <Code>direction</Code>, and{" "}
+        <Code>status</Code>), a project&apos;s Todos at <Code>GET /projects/:slug/todos</Code> (by{" "}
+        <Code>status</Code>, where <Code>open</Code> is everything not done or cancelled, and by
+        assignee, with <Code>assignedToMe=true</Code> for your own), and the meetings at{" "}
+        <Code>GET /meetings</Code> (by <Code>status</Code>, <Code>customerId</Code>,{" "}
+        <Code>contactId</Code>, and when they are scheduled). Each reads the same list, in the same
+        order, as the AI Employee tool beside it — <Code>list_runs</Code>,{" "}
+        <Code>list_handoffs</Code>, <Code>list_todos</Code>, <Code>list_meetings</Code> — so for
+        the same filters a cursor from one continues the other. Meetings are the exception: an AI
+        Employee&apos;s pages hold only the calendars it has a Grant to, so its cursors are refused
+        here.
+      </P>
 
       <H2 id="cli">From the command line</H2>
       <P>
