@@ -12,7 +12,8 @@ export type PipelineTriggerKind = "manual" | "schedule" | "webhook" | "event";
  * holds the per-node outputs map at end of run for inspection.
  */
 @Entity("pipeline_runs")
-@Index(["pipelineId", "startedAt"])
+// A Pipeline's Run history pages newest first by (startedAt, id).
+@Index(["pipelineId", "startedAt", "id"])
 export class PipelineRun {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

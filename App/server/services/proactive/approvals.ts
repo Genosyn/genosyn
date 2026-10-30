@@ -4,7 +4,7 @@ import { z } from "zod";
 import { AppDataSource } from "../../db/datasource.js";
 import { withSerializedTransaction } from "../../db/transactions.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { Approval } from "../../db/entities/Approval.js";
+import { Approval, type ApprovalStatus } from "../../db/entities/Approval.js";
 import { JournalEntry } from "../../db/entities/JournalEntry.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
@@ -19,6 +19,13 @@ import { User } from "../../db/entities/User.js";
 import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee } from "../chat.js";
 import { redactApprovalSummary } from "../approvalRedaction.js";
 import { recordAudit } from "../audit.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "../listPaging.js";
 import { handoverDeliveryMode } from "../mail/handoverPrompt.js";
 import { handoverGrantError } from "../mail/handovers.js";
 import { CANONICAL_LABELS } from "../mail/mailbox/types.js";
@@ -779,14 +786,22 @@ export async function reviseProactiveWorkApproval(args: {
 }
 
 /** Review history is feedback, never authority for another autonomous action. */
-export async function listProactiveWorkReviews(args: { companyId: string; employeeId: string }) {
-  await reconcileProactiveWorkApprovals(args.companyId);
-  const rows = await AppDataSource.getRepository(Approval).find({
-    where: { companyId: args.companyId, employeeId: args.employeeId, kind: "proactive_work" },
-    order: { requestedAt: "DESC" },
-    take: 20,
-  });
-  return rows.map((row) => ({
+/** 20 work reviews a page by default, at most 100. */
+export const WORK_REVIEW_PAGE: PageLimits = { defaultLimit: 20, maxLimit: 100 };
+
+/** The columns a review history row shows: never the plan's payload. */
+const WORK_REVIEW_COLUMNS = [
+  "id",
+  "title",
+  "summary",
+  "status",
+  "routineId",
+  "requestedAt",
+  "decidedAt",
+] as const;
+
+function workReviewRow(row: Approval) {
+  return {
     id: row.id,
     title: redactApprovalSummary(row.title),
     summary: (redactApprovalSummary(row.summary) ?? "").slice(0, 500),
@@ -802,7 +817,57 @@ export async function listProactiveWorkReviews(args: { companyId: string; employ
           : row.status === "pending" || row.status === "executing"
             ? "This work is already waiting or underway. Do not create another proposal for it."
             : "Read the live source to verify the result; this review does not authorize more work.",
-  }));
+  };
+}
+
+export type WorkReviewRow = ReturnType<typeof workReviewRow>;
+
+/**
+ * An AI Employee's proactive work reviews, newest first, one page at a time:
+ * what it proposed and how each was answered, so it reuses pending work and
+ * never repeats a declined plan. The whole history pages — a review declined
+ * a month ago still says "do not repeat this" — where it used to stop at the
+ * newest 20. Titles and summaries are redacted as the Decision stack shows
+ * them; the plan's payload is never read.
+ */
+export async function pageProactiveWorkReviews(
+  args: { companyId: string; employeeId: string; status?: ApprovalStatus },
+  page: PageRequest & { budgetChars?: number } = {},
+): Promise<Page<WorkReviewRow>> {
+  await reconcileProactiveWorkApprovals(args.companyId);
+  return keysetPage({
+    query: () => {
+      const qb = AppDataSource.getRepository(Approval)
+        .createQueryBuilder("approval")
+        .select(WORK_REVIEW_COLUMNS.map((column) => `approval.${column}`))
+        .where("approval.employeeId = :employeeId", { employeeId: args.employeeId })
+        .andWhere("approval.kind = :kind", { kind: "proactive_work" })
+        .andWhere("approval.companyId = :companyId", { companyId: args.companyId });
+      if (args.status) qb.andWhere("approval.status = :status", { status: args.status });
+      return qb;
+    },
+    keys: [
+      { column: "approval.requestedAt", direction: "DESC", type: "timestamp" },
+      { column: "approval.id", direction: "DESC", type: "string" },
+    ],
+    scope: "work_reviews",
+    fingerprint: filterFingerprint(args.companyId, {
+      employee: args.employeeId,
+      status: args.status,
+    }),
+    noun: "work reviews",
+    limits: WORK_REVIEW_PAGE,
+    page,
+    present: (rows) => rows.map(workReviewRow),
+  });
+}
+
+/** The newest page of an employee's work reviews (see {@link pageProactiveWorkReviews}). */
+export async function listProactiveWorkReviews(args: {
+  companyId: string;
+  employeeId: string;
+}): Promise<WorkReviewRow[]> {
+  return (await pageProactiveWorkReviews(args)).rows;
 }
 
 /** A lost process cannot leave a spinner indefinitely or replay ambiguous work. */

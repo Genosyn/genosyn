@@ -1728,7 +1728,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_pipeline_runs",
     description:
-      "The last 50 Runs of one Pipeline, newest first, with each Run's status, what triggered it, and the error that ended it. Use this to answer 'is it working' — a webhook caller gets no reply body, so its Run history is the only record that anything arrived.",
+      "One Pipeline's Run history, newest first, with each Run's status, what triggered it, and the error that ended it. Use this to answer 'is it working' — a webhook caller gets no reply body, so its Run history is the only record that anything arrived. Narrow by status, trigger kind or when it started (from/to) to find when something began failing; get_pipeline_run reads one Run's log. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -1736,6 +1737,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
         },
+        status: { type: "string", enum: ["running", "completed", "failed", "skipped"] },
+        triggerKind: { type: "string", enum: ["manual", "schedule", "webhook", "event"] },
+        ...dateBoundProperties("Runs started"),
+        ...pageProperties("Runs", 50, 200),
       },
       required: ["pipelineId"],
       additionalProperties: false,
@@ -2705,8 +2710,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     name: "list_work_reviews",
     readOnly: true,
     description:
-      "Read your recent proactive work reviews and their human approval status before proposing work. Reuse pending work and do not repeat declined or completed plans without changed evidence. An approved historical plan authorizes only its own work session.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Read your proactive work reviews, newest first, and their human approval status before proposing work. Reuse pending work and do not repeat declined or completed plans without changed evidence. An approved historical plan authorizes only its own work session. " +
+      PAGING_SENTENCE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "executing", "approved", "execution_failed", "rejected", "expired"],
+        },
+        ...pageProperties("work reviews", 20, 100),
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "request_decision",
@@ -2928,7 +2944,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_notes",
     description:
-      "List Notes (Notion-style markdown pages) for this company. Notes are a shared knowledge base — both humans and AI employees can read and write. Use this to discover what context the team has captured before answering a question, or to find a page to update. Archived (trashed) notes are excluded by default; pass `includeArchived: true` to include them. Pass `notebookSlug` to scope to one notebook, or `parentSlug` to list direct children of a specific page.",
+      "List the Notes (Notion-style markdown pages) you can read. Notes are a shared knowledge base — both humans and AI employees can read and write. Use this to discover what context the team has captured before answering a question, or to find a page to update. Each row previews its body (bodyTruncated says it goes on); read a page in full with get_note. Archived (trashed) notes are excluded by default; pass `includeArchived: true` to include them. Pass `notebookSlug` to scope to one notebook, or `parentSlug` to list direct children of a specific page. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -2945,6 +2962,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "boolean",
           description: "Defaults to false.",
         },
+        ...pageProperties("notes", 50, 200),
       },
       additionalProperties: false,
     },
@@ -2952,14 +2970,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_notes",
     description:
-      "Search Notes by title and body using a substring match (case-insensitive). Use this when you need to find an existing page on a topic before creating a new one — duplicating notes makes the knowledge base noisy. Returns up to 50 hits ordered by most recently edited.",
+      "Search the Notes you can read by title and body: every word must appear, in any order, case-insensitive. Use this when you need to find an existing page on a topic before creating a new one — duplicating notes makes the knowledge base noisy. Most recently edited first; each row previews its body and carries a snippet of the text around the first word found — read a page in full with get_note. Archived notes are left out. " +
+      PAGING_SENTENCE,
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Substring to look for in titles and bodies.",
+          description: "Words to look for in titles and bodies.",
         },
+        notebookSlug: {
+          type: "string",
+          description: "Optional. Search one notebook only. See list_notebooks.",
+        },
+        ...pageProperties("notes", 20, 50),
       },
       required: ["query"],
       additionalProperties: false,
@@ -9784,12 +9808,15 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_openings",
     description:
-      "List the company's Openings — the jobs and contracts it is hiring for — with status (draft, open, closed), visibility, how many people applied at each stage, the AI screener, and the public link. Needs `read` Recruiting access.",
+      "List the company's Openings — the jobs and contracts it is hiring for — open first, then drafts, then closed, the newest posted first within each: status, visibility, how many people applied at each stage, the AI screener, and the public link. " +
+      PAGING_SENTENCE +
+      " Needs `read` Recruiting access.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["draft", "open", "closed"] },
         query: { type: "string", description: "Match words in the title." },
+        ...pageProperties("Openings", 50, 100),
       },
       additionalProperties: false,
     },
@@ -9857,7 +9884,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_applications",
     description:
-      "List the people who applied, newest first or by AI score: name, Opening, stage, score and match label (strong, good, possible, weak), and whether the AI screen is done. No resumes here — read one with get_application. Needs `read` Recruiting access.",
+      "List the people who applied, newest first, oldest first or by AI score (unscored last): name, Opening, stage, score and match label (strong, good, possible, weak), and whether the AI screen is done. No resumes here — read one with get_application. " +
+      PAGING_SENTENCE +
+      " Needs `read` Recruiting access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -9871,8 +9900,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         sort: { type: "string", enum: ["newest", "oldest", "score"] },
         minScore: { type: "number", description: "Only applications scored at least this, 0–100." },
         screenStatus: { type: "string", enum: ["none", "queued", "running", "scored", "failed"] },
-        limit: { type: "number", description: "Up to 100. Default 25." },
-        offset: { type: "number" },
+        ...pageProperties("applications", 25, 100),
       },
       additionalProperties: false,
     },

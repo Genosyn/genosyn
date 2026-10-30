@@ -17,7 +17,7 @@ import {
 } from "../services/collaborationScope.js";
 import {
   createProactiveWorkApproval,
-  listProactiveWorkReviews,
+  pageProactiveWorkReviews,
 } from "../services/proactive/approvals.js";
 import { boundWorkReviewPacket } from "../services/proactive/reviewPacketBudget.js";
 import { isActiveOwnReview, reviewTrackingRoutine } from "../services/proactive/reviewTracking.js";
@@ -179,7 +179,6 @@ import {
   resolveSearchLabelId,
 } from "../services/mail/searchQuery.js";
 import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes } from "../services/uploads.js";
-import { andWhereTokens, tokenizeQuery } from "../services/likeSearch.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
 import {
   DATA_ROOM_LIMITS,
@@ -449,9 +448,12 @@ import {
   hasNoteAccess,
   isNoteDescendant as isNoteTreeDescendant,
   listAccessibleNoteIds,
+  noteReadScope,
   restoreNoteTree,
   upsertNoteGrant,
 } from "../services/notes.js";
+import { pageReadableNotes, searchReadableNotes } from "../services/noteLists.js";
+import { pagePipelineRuns, pipelineRunFilterShape } from "../services/pipelines/runHistory.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
@@ -988,6 +990,7 @@ import {
   OPENING_VISIBILITIES as RECRUITING_OPENING_VISIBILITIES,
   RECRUITING_STAGES,
   WORKPLACE_TYPES as RECRUITING_WORKPLACE_TYPES,
+  type OpeningStatus,
   type RecruitingAccessLevel,
   type RecruitingStage,
 } from "../../shared/recruiting.js";
@@ -998,10 +1001,11 @@ import {
   addApplicationNote,
   addEmployeeScorecard,
   afterApplicationReceived,
+  type ApplicationListFilters,
   getApplicationDetail,
-  listApplications,
   loadApplication,
   moveApplication,
+  pageApplications,
 } from "../services/recruiting/applications.js";
 import {
   criteriaInputSchema as recruitingCriteriaSchema,
@@ -1014,9 +1018,9 @@ import {
   closeOpening,
   companyForId as recruitingCompany,
   createOpening,
-  listOpenings,
   loadOpening,
   openingDto,
+  pageOpenings,
   publishOpening,
   publishProblem,
   updateOpening,
@@ -12260,30 +12264,51 @@ mcpInternalRouter.post(
   },
 );
 
+const listPipelineRunsSchema = z
+  .object({
+    pipelineId: z.string().min(1).max(200),
+    ...pipelineRunFilterShape,
+    ...pageBodyShape,
+  })
+  .strict();
+
+// A Pipeline's whole Run history, newest first, a page at a time — the same
+// list `GET /pipelines/:idOrSlug/runs` answers when asked for a page.
 mcpInternalRouter.post(
   "/tools/list_pipeline_runs",
-  validateBody(pipelineRefSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof pipelineRefSchema>;
-    const found = await resolvePipeline(req.mcpCompany!.id, body.pipelineId);
+  validateBody(listPipelineRunsSchema),
+  async (req: McpRequest, res, next) => {
+    const { pipelineId, limit, cursor, ...filter } = req.body as z.infer<
+      typeof listPipelineRunsSchema
+    >;
+    const found = await resolvePipeline(req.mcpCompany!.id, pipelineId);
     if (!found.ok) return res.status(found.status).json({ error: found.error });
-    const runs = await AppDataSource.getRepository(PipelineRun).find({
-      where: { pipelineId: found.pipeline.id },
-      order: { startedAt: "DESC" },
-      take: 50,
-    });
     // Statuses and timings of a pipeline you cannot author are fine to read —
     // "is the billing automation healthy" is a reasonable question. The error
     // text is not: a failing step quotes the value that failed it.
     const stored = displayGraph(found.pipeline);
     const authorized = stored.readable && (await canAuthorWholeGraph(req, stored.graph));
-    res.json({
-      pipeline: { id: found.pipeline.id, slug: found.pipeline.slug, name: found.pipeline.name },
-      runs: runs.map((run) => {
-        const summary = serializePipelineRunSummary(run);
-        return authorized ? summary : { ...summary, errorMessage: null };
-      }),
-    });
+    try {
+      const { rows, ...info } = await pagePipelineRuns(
+        req.mcpCompany!.id,
+        found.pipeline.id,
+        filter,
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (runs) =>
+          runs.map((run) => {
+            const summary = serializePipelineRunSummary(run);
+            return authorized ? summary : { ...summary, errorMessage: null };
+          }),
+      );
+      res.json({
+        ...info,
+        pipeline: { id: found.pipeline.id, slug: found.pipeline.slug, name: found.pipeline.name },
+        runs: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -15635,18 +15660,32 @@ mcpInternalRouter.post("/tools/revise_work_review", (_req: McpRequest, res) =>
   }),
 );
 
+const listWorkReviewsSchema = z
+  .object({
+    status: z
+      .enum(["pending", "executing", "approved", "execution_failed", "rejected", "expired"])
+      .optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+// The whole review history, newest first, a page at a time: a plan a Member
+// declined long ago still says "do not repeat this".
 mcpInternalRouter.post(
   "/tools/list_work_reviews",
-  validateBody(z.object({}).strict()),
+  validateBody(listWorkReviewsSchema),
   async (req: McpRequest, res, next) => {
+    const { limit, cursor, status } = req.body as z.infer<typeof listWorkReviewsSchema>;
     try {
-      res.json(
-        await listProactiveWorkReviews({
-          companyId: req.mcpCompany!.id,
-          employeeId: req.mcpEmployee!.id,
-        }),
+      const { rows, ...info } = await pageProactiveWorkReviews(
+        { companyId: req.mcpCompany!.id, employeeId: req.mcpEmployee!.id, status },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
       );
+      res.json({ ...info, reviews: rows });
     } catch (error) {
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       // Reconciliation absorbs stale sources, so only an infrastructure
       // failure reaches here; the error handler keeps its detail in the log.
       next(error);
@@ -16383,31 +16422,36 @@ const listNotesSchema = z
     notebookSlug: z.string().min(1).max(80).optional(),
     parentSlug: z.string().min(1).max(160).optional(),
     includeArchived: z.boolean().optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+/** Look a notebook up by slug, for a filter; null when this company has none by it. */
+async function notebookIdForFilter(companyId: string, slug: string | undefined) {
+  if (!slug) return undefined;
+  const notebook = await AppDataSource.getRepository(Notebook).findOneBy({ companyId, slug });
+  return notebook ? notebook.id : null;
+}
+
+// The notes the employee may read, a page at a time with each body previewed:
+// the knowledge base outgrows a single answer, and get_note reads one in full.
 mcpInternalRouter.post(
   "/tools/list_notes",
   validateBody(listNotesSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof listNotesSchema>;
+  async (req: McpRequest, res, next) => {
+    const { limit, cursor, ...body } = req.body as z.infer<typeof listNotesSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const repo = AppDataSource.getRepository(Note);
 
-    let notebookId: string | undefined;
-    if (body.notebookSlug) {
-      const nb = await AppDataSource.getRepository(Notebook).findOneBy({
-        companyId: co.id,
-        slug: body.notebookSlug,
-      });
-      if (!nb) return res.status(404).json({ error: "Notebook not found" });
-      notebookId = nb.id;
-    }
+    const notebookId = await notebookIdForFilter(co.id, body.notebookSlug);
+    if (notebookId === null) return res.status(404).json({ error: "Notebook not found" });
 
-    let parentId: string | null | undefined = undefined;
+    let parentId: string | undefined;
     if (body.parentSlug) {
-      const parent = await repo.findOneBy({ companyId: co.id, slug: body.parentSlug });
+      const parent = await AppDataSource.getRepository(Note).findOneBy({
+        companyId: co.id,
+        slug: body.parentSlug,
+      });
       if (!parent) return res.status(404).json({ error: "Parent note not found" });
       // The employee can only inspect children of a parent they can see.
       if (!(await hasNoteAccess(self.id, parent.id, "read"))) {
@@ -16416,21 +16460,24 @@ mcpInternalRouter.post(
       parentId = parent.id;
     }
 
-    const accessible = await listAccessibleNoteIds(co.id, self.id);
-    if (accessible.size === 0) return res.json({ notes: [] });
-
-    const where: Record<string, unknown> = {
-      companyId: co.id,
-      id: In([...accessible]),
-    };
-    if (notebookId !== undefined) where.notebookId = notebookId;
-    if (parentId !== undefined) where.parentId = parentId;
-    if (!body.includeArchived) where.archivedAt = IsNull();
-    const notes = await repo.find({
-      where,
-      order: { sortOrder: "ASC", updatedAt: "DESC" },
-    });
-    res.json({ notes: notes.map(serializeNote) });
+    try {
+      const { rows, note, ...info } = await pageReadableNotes(
+        co.id,
+        await noteReadScope(co.id, self.id),
+        { notebookId, parentId, includeArchived: body.includeArchived },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Bodies are previews (bodyTruncated says one goes on); get_note reads a note in full.",
+        notes: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -16467,38 +16514,40 @@ mcpInternalRouter.post(
 const searchNotesSchema = z
   .object({
     query: z.string().min(1).max(200),
+    notebookSlug: z.string().min(1).max(80).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+// Same tokenizer Resources and the ⌘K palette use: every word must appear
+// somewhere, in any order, folded the same way on both drivers. Every match is
+// reachable a page at a time, most recently edited first.
 mcpInternalRouter.post(
   "/tools/search_notes",
   validateBody(searchNotesSchema),
-  async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof searchNotesSchema>;
+  async (req: McpRequest, res, next) => {
+    const { limit, cursor, query, notebookSlug } = req.body as z.infer<typeof searchNotesSchema>;
     const co = req.mcpCompany!;
-    const self = req.mcpEmployee!;
-    const accessible = await listAccessibleNoteIds(co.id, self.id);
-    if (accessible.size === 0) return res.json({ notes: [] });
-
-    // Same tokenizer Resources and the ⌘K palette use: every word must appear
-    // somewhere, in any order, folded the same way on both drivers. The single
-    // `LIKE '%whole query%'` this replaces missed "meeting notes" on a page
-    // titled "Notes from the meeting".
-    const tokens = tokenizeQuery(body.query);
-    if (tokens.length === 0) return res.json({ notes: [] });
-    const rows = await andWhereTokens(
-      AppDataSource.getRepository(Note)
-        .createQueryBuilder("n")
-        .where("n.companyId = :cid", { cid: co.id })
-        .andWhere("n.archivedAt IS NULL")
-        .andWhere("n.id IN (:...ids)", { ids: [...accessible] }),
-      ["n.title", "n.body"],
-      tokens,
-    )
-      .orderBy("n.updatedAt", "DESC")
-      .limit(50)
-      .getMany();
-    res.json({ notes: rows.map(serializeNote) });
+    const notebookId = await notebookIdForFilter(co.id, notebookSlug);
+    if (notebookId === null) return res.status(404).json({ error: "Notebook not found" });
+    try {
+      const { rows, note, ...info } = await searchReadableNotes(
+        co.id,
+        await noteReadScope(co.id, req.mcpEmployee!.id),
+        { query, notebookId },
+        { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
+      res.json({
+        ...info,
+        note:
+          (note ? `${note} ` : "") +
+          "Bodies are previews and snippet is the text around the first word found; get_note reads a note in full.",
+        notes: rows,
+      });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -23737,6 +23786,8 @@ function openingListing(opening: Awaited<ReturnType<typeof openingDto>>) {
   };
 }
 
+// Open first, then drafts, then closed, a page at a time: the status order is
+// the query's, so no open Opening hides behind a cut.
 mcpInternalRouter.post(
   "/tools/list_openings",
   validateBody(
@@ -23744,13 +23795,25 @@ mcpInternalRouter.post(
       .object({
         status: z.enum(RECRUITING_OPENING_STATUSES).optional(),
         query: z.string().max(200).optional(),
+        ...pageBodyShape,
       })
       .strict(),
   ),
   recruitingTool(async (req, res) => {
     if (!(await requireRecruiting(req, res, "read"))) return;
-    const rows = await listOpenings(req.mcpCompany!, { status: req.body.status, q: req.body.query });
-    res.json({ rows: rows.map(openingListing) });
+    const { status, query, limit, cursor } = req.body as {
+      status?: OpeningStatus;
+      query?: string;
+      limit?: number;
+      cursor?: string;
+    };
+    const { rows, ...info } = await pageOpenings(
+      req.mcpCompany!,
+      { status, q: query },
+      { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      (openings) => openings.map(openingListing),
+    );
+    res.json({ ...info, rows });
   }),
 );
 
@@ -23869,20 +23932,29 @@ mcpInternalRouter.post(
         sort: z.enum(["newest", "oldest", "score"]).optional(),
         minScore: z.number().min(0).max(100).optional(),
         screenStatus: z.enum(["none", "queued", "running", "scored", "failed"]).optional(),
-        limit: z.number().int().min(1).max(100).optional(),
-        offset: z.number().int().min(0).max(100_000).optional(),
+        ...pageBodyShape,
+        // An older Skill's way to page: rows to pass over before the first
+        // page. Not advertised; the cursor carries on from wherever it starts.
+        offset: z.number().int().min(0).optional(),
       })
       .strict(),
   ),
   recruitingTool(async (req, res) => {
     if (!(await requireRecruiting(req, res, "read"))) return;
-    const { query, limit, ...filters } = req.body;
-    const result = await listApplications(req.mcpCompany!.id, {
-      ...filters,
-      q: query,
-      limit: limit ?? 25,
+    const { query, limit, cursor, offset, ...filters } = req.body as Omit<
+      ApplicationListFilters,
+      "q" | "limit" | "offset"
+    > & { query?: string; limit?: number; cursor?: string; offset?: number };
+    const { rows, note, ...info } = await pageApplications(
+      req.mcpCompany!.id,
+      { ...filters, q: query },
+      { limit, cursor, skip: offset, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+    );
+    res.json({
+      ...info,
+      note: note ? `${note} ${UNTRUSTED_APPLICANT_NOTE}` : UNTRUSTED_APPLICANT_NOTE,
+      rows,
     });
-    res.json({ ...result, note: UNTRUSTED_APPLICANT_NOTE });
   }),
 );
 

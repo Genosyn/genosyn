@@ -6,6 +6,11 @@ import { BILL_PAGE, CUSTOMER_PAGE, INVOICE_PAGE, RECURRING_INVOICE_PAGE } from "
 import { pageBodyShape } from "../services/listPaging.js";
 import { DATA_ROOM_QUESTION_PAGE } from "../services/dataRooms/aiViews.js";
 import { MEETING_PAGE } from "../services/meetings/store.js";
+import { NOTE_PAGE, NOTE_SEARCH_PAGE } from "../services/noteLists.js";
+import { PIPELINE_RUN_PAGE, pipelineRunFilterShape } from "../services/pipelines/runHistory.js";
+import { WORK_REVIEW_PAGE } from "../services/proactive/approvals.js";
+import { APPLICATION_PAGE } from "../services/recruiting/applications.js";
+import { OPENING_PAGE } from "../services/recruiting/openings.js";
 import { CALL_PAGE } from "../services/phone/calls.js";
 import { TEXT_PAGE } from "../services/phone/texts.js";
 import { CONTACT_PAGE, CONTACT_SEARCH_PAGE } from "../services/revenue/contacts.js";
@@ -55,6 +60,12 @@ const PAGED: Record<string, { max: number; default: number }> = {
     max: SIGNATURE_ENVELOPE_PAGE.maxLimit,
     default: SIGNATURE_ENVELOPE_PAGE.defaultLimit,
   },
+  list_notes: { max: NOTE_PAGE.maxLimit, default: NOTE_PAGE.defaultLimit },
+  search_notes: { max: NOTE_SEARCH_PAGE.maxLimit, default: NOTE_SEARCH_PAGE.defaultLimit },
+  list_work_reviews: { max: WORK_REVIEW_PAGE.maxLimit, default: WORK_REVIEW_PAGE.defaultLimit },
+  list_pipeline_runs: { max: PIPELINE_RUN_PAGE.maxLimit, default: PIPELINE_RUN_PAGE.defaultLimit },
+  list_openings: { max: OPENING_PAGE.maxLimit, default: OPENING_PAGE.defaultLimit },
+  list_applications: { max: APPLICATION_PAGE.maxLimit, default: APPLICATION_PAGE.defaultLimit },
 };
 
 function tool(name: string) {
@@ -98,8 +109,33 @@ describe("paged list tools", () => {
   });
 
   test("read-only list tools stay read-only", () => {
-    for (const name of ["list_banking_transactions", "list_bills"]) {
+    for (const name of [
+      "list_banking_transactions",
+      "list_bills",
+      "list_work_reviews",
+      "list_openings",
+      "list_applications",
+    ]) {
       assert.equal(tool(name).readOnly, true, name);
+    }
+  });
+
+  test("knowledge and Recruiting lists advertise exactly the filters their endpoints take", () => {
+    const paging = Object.keys(pageBodyShape);
+    for (const [name, filters] of [
+      ["list_notes", ["notebookSlug", "parentSlug", "includeArchived"]],
+      ["search_notes", ["query", "notebookSlug"]],
+      ["list_work_reviews", ["status"]],
+      ["list_pipeline_runs", ["pipelineId", ...Object.keys(pipelineRunFilterShape)]],
+      ["list_openings", ["status", "query"]],
+      // `offset` is still read for an older Skill's first page, but never offered.
+      ["list_applications", ["openingId", "stage", "query", "sort", "minScore", "screenStatus"]],
+    ] as const) {
+      assert.deepEqual(
+        Object.keys(tool(name).inputSchema.properties).sort(),
+        [...filters, ...paging].sort(),
+        name,
+      );
     }
   });
 

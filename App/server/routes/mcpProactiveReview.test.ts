@@ -382,10 +382,13 @@ test("a complete plan queues one pending work Approval without performing the pr
   assert.equal(payload.origin.routineId, routine.id);
   assert.equal(payload.origin.runId, run.id);
   assert.equal(payload.origin.mailDeliveryMode, "draft");
-  const listed = await tool<Array<{ id: string; status: string }>>("list_work_reviews");
+  const listed = await tool<{ total: number; reviews: Array<{ id: string; status: string }> }>(
+    "list_work_reviews",
+  );
   assert.equal(listed.status, 200);
+  assert.equal(listed.body.total, 1);
   assert.deepEqual(
-    listed.body.map((review) => [review.id, review.status]),
+    listed.body.reviews.map((review) => [review.id, review.status]),
     [[approval.id, "pending"]],
   );
   await assertNoWorkStarted();
@@ -498,7 +501,10 @@ test("a storage failure while listing work reviews answers without its detail, a
     status: 500,
     body: { error: "Internal server error" },
   });
-  assert.deepEqual(await tool("list_work_reviews"), { status: 200, body: [] });
+  assert.deepEqual(await tool("list_work_reviews"), {
+    status: 200,
+    body: { total: 0, hasMore: false, nextCursor: null, reviews: [] },
+  });
 });
 
 test("a review Decision stays human-only and answering it cannot start a pickup session", async () => {

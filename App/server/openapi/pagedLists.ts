@@ -1,16 +1,22 @@
 import { z, type ZodTypeAny } from "zod";
 import { handoffListQuerySchema } from "../services/handoffList.js";
 import { meetingListQuerySchema, meetingStatusFilter } from "../services/meetings/store.js";
+import {
+  PIPELINE_RUN_STATUSES,
+  PIPELINE_TRIGGER_KINDS,
+  pipelineRunsQuerySchema,
+} from "../services/pipelines/runHistory.js";
 import { todoListQuerySchema } from "../services/todoList.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 /**
  * The lists outside Finance that answer a page when asked (`services/listPaging.ts`):
- * a project's Todos, the handoffs and the meetings. Each keeps the answer it
+ * a project's Todos, the handoffs, the meetings and a Pipeline's Runs. Each keeps the answer it
  * always gave when neither `limit` nor `cursor` is sent, and reads the very
  * function its AI tool reads when one is, so the REST API and the tools page
- * the same rows in the same order. A Routine's Run history is the fourth; its
- * page sits with the other Routine routes (`routines.ts`).
+ * the same rows in the same order. A Pipeline's Run history pages the same
+ * way; a Routine's Run history sits with the other Routine routes
+ * (`routines.ts`).
  */
 
 /** What every page answers beside its rows, ahead of them. */
@@ -225,5 +231,54 @@ registry.registerPath({
       },
     },
     400: pageBadRequest,
+  },
+});
+
+// ── A Pipeline's Run history ────────────────────────────────────────────────
+
+const pipelineRun = z
+  .object({
+    id: z.string().uuid(),
+    pipelineId: z.string().uuid(),
+    startedAt: z.string().datetime(),
+    finishedAt: z.string().datetime().nullable(),
+    status: z.enum(PIPELINE_RUN_STATUSES),
+    triggerKind: z.enum(PIPELINE_TRIGGER_KINDS),
+    triggerLabel: z.string().nullable().describe("The event trigger's name, when one fired it."),
+    triggerNodeId: z.string().nullable(),
+    errorMessage: z.string().nullable(),
+  })
+  .openapi("PipelineRunSummary");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/pipelines/{idOrSlug}/runs",
+  summary: "List a pipeline's runs",
+  description:
+    "One Pipeline's Runs, newest first (then by id), without their logs — read one with GET /pipeline-runs/{runId}. Filter by status, trigger kind, or when it started (from/to, where a YYYY-MM-DD bound is a whole UTC calendar day). Without limit or cursor the answer is the newest 50 matching Runs as a plain array, as the Pipelines page reads them. With either it is one page of the whole history — the list the list_pipeline_runs AI tool reads, from the same function: up to limit Runs (default 50, at most 200). For the same Pipeline and filters the tool and this route are one list, and a cursor from one continues the other. " +
+    PAGING_PROSE,
+  tags: ["Pipelines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid(), idOrSlug: z.string() }),
+    query: pipelineRunsQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "The newest 50 matching Runs, or one page of them when limit or cursor is sent",
+      content: {
+        "application/json": {
+          schema: legacyOrPage(
+            z.array(pipelineRun),
+            z.object({ ...pageInfoShape, runs: z.array(pipelineRun) }).openapi("PipelineRunPage"),
+          ),
+        },
+      },
+    },
+    400: pageBadRequest,
+    404: {
+      description: "Pipeline not found",
+      content: { "application/json": { schema: errorResponse } },
+    },
   },
 });
