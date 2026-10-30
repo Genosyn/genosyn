@@ -118,6 +118,27 @@ curl -H "Authorization: Bearer $GENOSYN_KEY" \\
         Employee&apos;s pages hold only the calendars it has a Grant to, so its cursors are refused
         here.
       </P>
+      <P>
+        The Revenue contact list at <Code>GET /revenue/contacts</Code> answers a page the same way
+        when you send <Code>limit</Code> or <Code>cursor</Code> — the list{" "}
+        <Code>list_contacts</Code> reads, with cursors that carry over between the two — and still
+        answers <Code>{"{ rows, total }"}</Code> otherwise. An <Code>offset</Code> sent with{" "}
+        <Code>limit</Code>, as older scripts do, places the first page and the cursor carries on
+        from there. A Workspace channel&apos;s history is read a page at a time from{" "}
+        <Code>GET /workspace/channels/:channelId/history</Code>: the newest page first, each page
+        oldest first, with deleted messages kept as the line the Workspace shows.{" "}
+        <Code>GET /workspace/channels/:channelId/messages</Code> keeps its plain array, but paging
+        it back with its <Code>before</Code> timestamp can pass over messages that share a second,
+        so read the history instead. The audit log (<Code>GET /audit</Code>), a record&apos;s
+        History, a mailbox&apos;s threads and the TLDR list hand out a <Code>nextCursor</Code> to
+        send back as <Code>cursor</Code> in the same way.
+      </P>
+      <P>
+        The activity export at <Code>GET /revenue/activities/export</Code> answers CSV, at most
+        10,000 activities a file. While more match, the <Code>X-Export-Next-Cursor</Code> response
+        header carries on: send it back as <Code>cursor</Code> with the same filters, and keep
+        going until a file comes back without it.
+      </P>
 
       <H2 id="cli">From the command line</H2>
       <P>

@@ -111,6 +111,14 @@ export function Revenue() {
         billable until it has an invoice, so contracts, ACV and statements work for a prospect for
         free.
       </P>
+      <P>
+        <Code>Revenue → Contacts</Code> lists everyone 25 at a time, most recently touched first and
+        never-touched contacts last. <Strong>Next</Strong> carries on from the last contact on the
+        page, so logging a call (which moves that contact to the top) or archiving someone while you
+        work through the list never makes the next page skip or repeat anyone else;{" "}
+        <Strong>Previous</Strong> goes back to where the page before started. Search, a lifecycle
+        stage and <Strong>Show archived</Strong> each start again from the first page.
+      </P>
 
       <H3 id="billing-details">Billing details follow finance access</H3>
       <P>

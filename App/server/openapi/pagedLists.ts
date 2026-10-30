@@ -7,6 +7,7 @@ import {
   pipelineRunsQuerySchema,
 } from "../services/pipelines/runHistory.js";
 import { todoListQuerySchema } from "../services/todoList.js";
+import { channelHistoryQuerySchema } from "../services/workspaceChat.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 /**
@@ -16,7 +17,9 @@ import { defaultSecurity, registry } from "./registry.js";
  * function its AI tool reads when one is, so the REST API and the tools page
  * the same rows in the same order. A Pipeline's Run history pages the same
  * way; a Routine's Run history sits with the other Routine routes
- * (`routines.ts`).
+ * (`routines.ts`). A Workspace channel's history is a twin route of its own,
+ * because `GET …/messages` answers a plain array that has nowhere to put a
+ * cursor; the Revenue contact list sits with the other Revenue routes.
  */
 
 /** What every page answers beside its rows, ahead of them. */
@@ -231,6 +234,63 @@ registry.registerPath({
       },
     },
     400: pageBadRequest,
+  },
+});
+
+// ── A Workspace channel's history ───────────────────────────────────────────
+
+const workspaceMessage = z
+  .object({
+    id: z.string().uuid(),
+    channelId: z.string().uuid(),
+    authorKind: z.enum(["user", "ai", "system"]),
+    author: z.object({ kind: z.string(), name: z.string() }).passthrough().nullable(),
+    content: z.string().describe("Empty for a deleted message."),
+    parentMessageId: z.string().uuid().nullable(),
+    editedAt: z.string().datetime().nullable(),
+    deletedAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe("Set when its author deleted it; the Workspace shows a line in its place."),
+    createdAt: z.string().datetime(),
+    attachments: z.array(z.object({ id: z.string().uuid() }).passthrough()),
+    reactions: z.array(z.object({ emoji: z.string(), count: z.number().int() }).passthrough()),
+    discussionId: z.string().uuid().nullable(),
+    discussionRole: z.string().nullable(),
+  })
+  .passthrough()
+  .openapi("WorkspaceMessage");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/workspace/channels/{channelId}/history",
+  summary: "Read a channel's history",
+  description:
+    "A channel's, group chat's or DM's messages, a page at a time: the newest page first, each page oldest first as the Workspace shows it, deleted messages included as the line shown in their place — what the Workspace and the Home peek scroll back through. Up to limit messages (default 50, at most 200); before narrows to messages written before an instant. The cursor names the oldest message on the page by when it was written and its id, so messages sharing a second (SQLite stamps a message to the second) are neither skipped nor repeated — unlike paging GET …/messages back by its before timestamp. Needs access to the channel. " +
+    PAGING_PROSE,
+  tags: ["Workspace chat"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid(), channelId: z.string().uuid() }),
+    query: channelHistoryQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "One page of the channel's messages, oldest first",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ ...pageInfoShape, messages: z.array(workspaceMessage) })
+            .openapi("WorkspaceMessagePage"),
+        },
+      },
+    },
+    400: pageBadRequest,
+    404: {
+      description: "No such channel, or one the caller cannot open",
+      content: { "application/json": { schema: errorResponse } },
+    },
   },
 });
 

@@ -146,7 +146,14 @@ export type RevenueExportPage = {
 };
 
 type RevenueExportCursor = {
-  version: 1;
+  /**
+   * 2: `timestamp` is the database's own text for the order column — to the
+   * second for a SQLite creation time, to the microsecond on Postgres — and is
+   * compared exactly as written. 1, from before: an ISO timestamp to the
+   * millisecond, which never equalled a SQLite creation time, so the rows
+   * sharing the cursor's second were skipped. Still read, the old way.
+   */
+  version: 1 | 2;
   resource: RevenueExportResource;
   asOf: string;
   timestamp?: string;
@@ -213,6 +220,7 @@ type OperationAuditRaw = {
   row_updatedAt: Date | string | null;
   audit_sortOrder: number | string;
   audit_rowKey: string;
+  operation_createdAtText: string;
 };
 
 function plain(row: object): Record<string, unknown> {
@@ -250,7 +258,7 @@ function decodeCursor(value: string, resource: RevenueExportResource): RevenueEx
   }
   const cursor = parsed as Partial<RevenueExportCursor>;
   if (
-    cursor.version !== 1 ||
+    (cursor.version !== 1 && cursor.version !== 2) ||
     cursor.resource !== resource ||
     typeof cursor.asOf !== "string" ||
     Number.isNaN(new Date(cursor.asOf).getTime())
@@ -292,20 +300,52 @@ function pageContext(
   };
 }
 
+/** The instant a database timestamp's own text names, read as UTC; null if it is not one. */
+function instantOfDatabaseText(text: string): Date | null {
+  const match =
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$/.exec(
+      text.trim(),
+    );
+  if (!match) return null;
+  const [, day, time, fraction = "", zone = "Z"] = match;
+  const offset =
+    zone === "Z"
+      ? "Z"
+      : zone.length === 3
+        ? `${zone}:00`
+        : zone.includes(":")
+          ? zone
+          : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+  const at = new Date(`${day}T${time}${fraction.slice(0, 4)}${offset}`);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * Where a cursor carries on: the order column's value to compare with — the
+ * database's own text for a version 2 cursor, so no precision is lost on the
+ * way, or a Date for an older one — and the instant it names.
+ */
+function cursorTimestamp(cursor: RevenueExportCursor): { value: string | Date; instant: Date } {
+  if (typeof cursor.timestamp !== "string") throw new Error("Invalid Revenue export cursor");
+  const instant =
+    cursor.version === 2 ? instantOfDatabaseText(cursor.timestamp) : new Date(cursor.timestamp);
+  if (!instant || Number.isNaN(instant.getTime())) throw new Error("Invalid Revenue export cursor");
+  return { value: cursor.version === 2 ? cursor.timestamp : instant, instant };
+}
+
 function timestampCursorValues(
   context: ExportPageContext,
   enforceCreationBoundary: boolean,
-): { timestamp: Date; id: string } | null {
+): { timestamp: string | Date; id: string } | null {
   if (!context.cursor) return null;
   if (typeof context.cursor.timestamp !== "string" || typeof context.cursor.id !== "string") {
     throw new Error("Invalid Revenue export cursor");
   }
-  const timestamp = new Date(context.cursor.timestamp);
-  if (Number.isNaN(timestamp.getTime())) throw new Error("Invalid Revenue export cursor");
-  if (enforceCreationBoundary && timestamp.getTime() > context.asOf.getTime()) {
+  const { value, instant } = cursorTimestamp(context.cursor);
+  if (enforceCreationBoundary && instant.getTime() > context.asOf.getTime()) {
     throw new Error("Invalid Revenue export cursor");
   }
-  return { timestamp, id: context.cursor.id };
+  return { timestamp: value, id: context.cursor.id };
 }
 
 function timestampAdapter<Options extends RevenueExportBaseOptions>(
@@ -340,17 +380,26 @@ function timestampAdapter<Options extends RevenueExportBaseOptions>(
       const hasMore = fetched.length > context.limit;
       const entities = fetched.slice(0, context.limit);
       const last = entities.at(-1) as (ObjectLiteral & { id?: unknown }) | undefined;
-      const lastTimestamp = last?.[orderColumn];
+      // The last row's order column as the database holds it, so the next
+      // page compares like with like: a creation time SQLite stamped to the
+      // second never equals the same instant written to the millisecond.
+      const lastTimestamp =
+        hasMore && last && typeof last.id === "string"
+          ? (
+              await AppDataSource.getRepository(entity)
+                .createQueryBuilder("row")
+                .select(`CAST(row.${orderColumn} AS text)`, "at")
+                .where("row.id = :id", { id: last.id })
+                .getRawOne<{ at: string | null }>()
+            )?.at
+          : null;
       const nextCursor =
-        hasMore &&
-        last &&
-        typeof last.id === "string" &&
-        (lastTimestamp instanceof Date || typeof lastTimestamp === "string")
+        hasMore && last && typeof last.id === "string" && lastTimestamp
           ? encodeCursor({
-              version: 1,
+              version: 2,
               resource: context.resource,
               asOf: context.asOf.toISOString(),
-              timestamp: iso(lastTimestamp),
+              timestamp: lastTimestamp,
               id: last.id,
             })
           : null;
@@ -571,7 +620,9 @@ const operationAuditAdapter: RevenueExportAdapter<
       .addSelect("operationRow.createdAt", "row_createdAt")
       .addSelect("operationRow.updatedAt", "row_updatedAt")
       .addSelect("COALESCE(operationRow.sortOrder, -1)", "audit_sortOrder")
-      .addSelect("COALESCE(CAST(operationRow.id AS text), '')", "audit_rowKey");
+      .addSelect("COALESCE(CAST(operationRow.id AS text), '')", "audit_rowKey")
+      // The operation's creation time as the database holds it, for the cursor.
+      .addSelect("CAST(operation.createdAt AS text)", "operation_createdAtText");
 
     if (context.cursor) {
       if (
@@ -582,9 +633,8 @@ const operationAuditAdapter: RevenueExportAdapter<
       ) {
         throw new Error("Invalid Revenue export cursor");
       }
-      const timestamp = new Date(context.cursor.timestamp);
-      if (Number.isNaN(timestamp.getTime())) throw new Error("Invalid Revenue export cursor");
-      if (timestamp.getTime() > context.asOf.getTime()) {
+      const { value: timestamp, instant } = cursorTimestamp(context.cursor);
+      if (instant.getTime() > context.asOf.getTime()) {
         throw new Error("Invalid Revenue export cursor");
       }
       query.andWhere(
@@ -619,10 +669,10 @@ const operationAuditAdapter: RevenueExportAdapter<
     const nextCursor =
       hasMore && last
         ? encodeCursor({
-            version: 1,
+            version: 2,
             resource: context.resource,
             asOf: context.asOf.toISOString(),
-            timestamp: iso(last.operation_createdAt),
+            timestamp: last.operation_createdAtText,
             id: last.operation_id,
             sortOrder: Number(last.audit_sortOrder),
             subId: last.audit_rowKey,

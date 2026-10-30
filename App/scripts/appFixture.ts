@@ -64,7 +64,8 @@ export class Reply {
   constructor(
     readonly status: number,
     readonly json: unknown,
-    readonly raw?: { body: string; contentType: string },
+    /** A body that is not JSON — a stream, a CSV — with any headers it carries. */
+    readonly raw?: { body: string; contentType: string; headers?: Record<string, string> },
   ) {}
 }
 export const status = (code: number, json: unknown = { error: `HTTP ${code}` }) =>
@@ -234,6 +235,7 @@ export async function startApp(title: string) {
                   status: result.status,
                   contentType: result.raw.contentType,
                   body: result.raw.body,
+                  headers: result.raw.headers,
                 })
               : route.fulfill({ status: result.status, json: result.json });
           }

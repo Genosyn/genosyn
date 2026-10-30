@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { And, In, LessThan, Like, MoreThanOrEqual, LessThanOrEqual } from "typeorm";
-import type { FindOptionsWhere } from "typeorm";
+import { In } from "typeorm";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -13,6 +12,8 @@ import {
   onRoutePaths,
 } from "../middleware/auth.js";
 import { validateQuery } from "../middleware/validate.js";
+import { pageAuditEvents } from "../services/auditPaging.js";
+import { CURSOR_MAX_LENGTH, filterFingerprint, ListQueryError } from "../services/listPaging.js";
 
 /**
  * Company audit trail. Read-only — events are written by {@link recordAudit}
@@ -44,8 +45,14 @@ auditRouter.use(onRoutePaths(["/audit"], requireCompanyRole("admin")));
 const auditQuerySchema = z
   .object({
     take: z.coerce.number().int().min(1).max(500).default(200),
-    /** Keyset on `createdAt`: pass the oldest row's timestamp to page back. */
-    cursor: z.string().datetime().optional(),
+    cursor: z
+      .string()
+      .min(1)
+      .max(CURSOR_MAX_LENGTH)
+      .optional()
+      .describe(
+        "nextCursor from the previous page, with exactly the same filters. It names the oldest event shown, so events sharing its instant are neither skipped nor repeated; a bare timestamp from an older page still reads on from that instant.",
+      ),
     actorKind: z.enum(["user", "system", "webhook", "cron", "ai"]).optional(),
     actorEmployeeId: z.string().uuid().optional(),
     actorUserId: z.string().uuid().optional(),
@@ -57,44 +64,51 @@ const auditQuerySchema = z
   })
   .strict();
 
-/**
- * Fold the date window and the keyset cursor into one `createdAt` predicate.
- * TypeORM has no `where` array-of-operators form for a single column, so
- * overlapping bounds have to be combined explicitly rather than assigned twice
- * — the second assignment would silently win and widen the window.
- */
-function createdAtPredicate(opts: { since?: string; until?: string; cursor?: string }) {
-  const bounds = [
-    opts.since ? MoreThanOrEqual(new Date(opts.since)) : null,
-    opts.until ? LessThanOrEqual(new Date(opts.until)) : null,
-    opts.cursor ? LessThan(new Date(opts.cursor)) : null,
-  ].filter((b): b is NonNullable<typeof b> => b !== null);
-  if (bounds.length === 0) return undefined;
-  if (bounds.length === 1) return bounds[0];
-  return And(...bounds);
-}
-
-auditRouter.get("/audit", validateQuery(auditQuerySchema), async (req, res) => {
+auditRouter.get("/audit", validateQuery(auditQuerySchema), async (req, res, next) => {
   const { cid } = req.params as Record<string, string>;
   const q = req.query as unknown as z.infer<typeof auditQuerySchema>;
 
-  const where: FindOptionsWhere<AuditEvent> = { companyId: cid };
-  if (q.actorKind) where.actorKind = q.actorKind;
-  if (q.actorEmployeeId) where.actorEmployeeId = q.actorEmployeeId;
-  if (q.actorUserId) where.actorUserId = q.actorUserId;
-  if (q.runId) where.runId = q.runId;
+  const qb = AppDataSource.getRepository(AuditEvent)
+    .createQueryBuilder("e")
+    .where("e.companyId = :cid", { cid });
+  if (q.actorKind) qb.andWhere("e.actorKind = :actorKind", { actorKind: q.actorKind });
+  if (q.actorEmployeeId) {
+    qb.andWhere("e.actorEmployeeId = :actorEmployeeId", { actorEmployeeId: q.actorEmployeeId });
+  }
+  if (q.actorUserId) qb.andWhere("e.actorUserId = :actorUserId", { actorUserId: q.actorUserId });
+  if (q.runId) qb.andWhere("e.runId = :runId", { runId: q.runId });
   // Prefix rather than substring: `action` is a dotted namespace, so `invoice.`
   // means "everything in the invoice family" and never "any action mentioning
   // invoice somewhere in the middle".
-  if (q.action) where.action = Like(`${q.action.replace(/[%_\\]/g, "\\$&")}%`);
-  const createdAt = createdAtPredicate(q);
-  if (createdAt) where.createdAt = createdAt;
+  if (q.action) {
+    qb.andWhere("e.action LIKE :action", {
+      action: `${q.action.replace(/[%_\\]/g, "\\$&")}%`,
+    });
+  }
+  if (q.since) qb.andWhere("e.createdAt >= :since", { since: new Date(q.since) });
+  if (q.until) qb.andWhere("e.createdAt <= :until", { until: new Date(q.until) });
 
-  const rows = await AppDataSource.getRepository(AuditEvent).find({
-    where,
-    order: { createdAt: "DESC", id: "DESC" },
-    take: q.take,
-  });
+  let page: Awaited<ReturnType<typeof pageAuditEvents>>;
+  try {
+    page = await pageAuditEvents(qb, {
+      scope: "audit.events",
+      fingerprint: filterFingerprint(cid, {
+        actorKind: q.actorKind,
+        actorEmployeeId: q.actorEmployeeId,
+        actorUserId: q.actorUserId,
+        action: q.action,
+        runId: q.runId,
+        since: q.since ? new Date(q.since).toISOString() : undefined,
+        until: q.until ? new Date(q.until).toISOString() : undefined,
+      }),
+      cursor: q.cursor,
+      take: q.take,
+    });
+  } catch (err) {
+    if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+    return next(err);
+  }
+  const rows = page.rows;
 
   const userIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))];
   const employeeIds = [
@@ -145,15 +159,10 @@ auditRouter.get("/audit", validateQuery(auditQuerySchema), async (req, res) => {
     };
   });
 
-  // A deliberate shape change: this returned a bare array, which left nowhere
-  // to put the paging cursor. `AuditLog.tsx` and the `api.ts` client type are
-  // updated in the same commit; nothing else consumes this endpoint (the REST
-  // API surface in `routes/openapi.ts` does not publish it).
-  res.json({
-    items,
-    nextCursor:
-      items.length === q.take ? (items[items.length - 1].createdAt.toISOString() ?? null) : null,
-  });
+  // A keyset cursor (`services/auditPaging.ts`): it names the oldest event
+  // shown, so the events sharing its instant are neither skipped nor
+  // repeated, and the last page offers none.
+  res.json({ items, nextCursor: page.nextCursor, hasMore: page.hasMore });
 });
 
 /**

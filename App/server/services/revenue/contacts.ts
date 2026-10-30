@@ -140,37 +140,27 @@ function contactListQuery(
 }
 
 /**
- * List with search + filters, newest activity first.
+ * List with search + filters, newest activity first, placed by offset: the
+ * plain `{ rows, total }` answer, read through {@link pageContacts} so there
+ * is one order to get right.
  *
  * Ordered by `lastActivityAt` rather than `createdAt` because the question a
  * salesperson opens this page to answer is "who have I not spoken to", and a
  * list sorted by when a row was imported answers a question nobody has.
- * NULLs sort last via a computed flag, which is portable; `NULLS LAST` is not.
+ * Never-touched contacts come last, newest first.
  */
 export async function listContacts(
   companyId: string,
   opts: ContactListOptions = {},
 ): Promise<{ rows: HydratedContact[]; total: number }> {
-  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(opts.offset ?? 0, 0);
-
-  const customField = await contactCustomField(companyId, opts);
-  if (customField === null) return { rows: [], total: 0 };
-  const qb = contactListQuery(companyId, opts, customField);
-
-  const total = await qb.clone().getCount();
-
-  const rows = await qb
-    .addSelect("CASE WHEN c.lastActivityAt IS NULL THEN 1 ELSE 0 END", "nulls_last")
-    .orderBy("nulls_last", "ASC")
-    .addOrderBy("c.lastActivityAt", "DESC")
-    .addOrderBy("c.createdAt", "DESC")
-    .addOrderBy("c.id", "DESC")
-    .skip(offset)
-    .take(limit)
-    .getMany();
-
-  return { rows: await attachCustomerNames(companyId, rows), total };
+  const { limit, offset, ...filter } = opts;
+  const { rows, total } = await pageContacts(
+    companyId,
+    filter,
+    { limit, offset, limits: CONTACT_PAGE },
+    (contacts) => contacts,
+  );
+  return { rows, total };
 }
 
 /** `list_contacts`: 50 a page by default, at most 200. */
@@ -256,16 +246,12 @@ export async function pageContacts<Out>(
   const customField = await contactCustomField(companyId, filter);
   if (customField === null) return { total: 0, hasMore: false, nextCursor: null, rows: [] };
   const query = () => contactListQuery(companyId, { ...filter, q }, customField);
-  // Each part also takes the cursor's first column as a plain bound, which
-  // the keyset already implies: the index then starts at the cursor instead
-  // of walking every row before it.
-  const touched = () => {
-    const qb = query().andWhere("c.lastActivityAt IS NOT NULL");
-    if (after?.[0] === 0) {
-      qb.andWhere("c.lastActivityAt <= :touchedBound", { touchedBound: after[1] });
-    }
-    return qb;
-  };
+  // Past a touched contact, the keyset is one row-value range — (lastActivityAt,
+  // createdAt, id) < cursor — which the index answers by starting at the
+  // cursor. No plain bound on lastActivityAt beside it: given two ranges on
+  // that column, SQLite skip-scanned the index and sorted every touched
+  // contact before the cursor (60 ms on page 160 of 60,000, against 0.1 ms).
+  const touched = () => query().andWhere("c.lastActivityAt IS NOT NULL");
   const untouched = () => {
     const qb = query().andWhere("c.lastActivityAt IS NULL");
     // Past a never-touched contact, as one row-value range the index answers

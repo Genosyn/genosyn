@@ -43,7 +43,10 @@ export type ChannelMessageDiscussionRole =
   | "follow_through";
 
 @Entity("channel_messages")
-@Index(["channelId", "createdAt"])
+// A channel's messages, deleted ones included, newest first: what the
+// Workspace's history pages (keyset on createdAt, id) and counts. It still
+// answers what the old (channelId, createdAt) index did.
+@Index(["channelId", "createdAt", "id"])
 // A channel's messages that are not deleted, newest first: what
 // `list_workspace_messages` pages (keyset on createdAt, id) and counts.
 @Index(["channelId", "deletedAt", "createdAt", "id"])

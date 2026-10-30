@@ -1105,8 +1105,14 @@ in a Work session instead of leaving them stranded as local commits.
   Give a list the filters its domain needs (Finance dates are UTC calendar
   days, `dateRange`) and an index that bounds the rows a page reads: keys
   sorting one way compare as one row value, so an index over the filters, the
-  sort keys and `id` starts a deep page at its cursor. A mailbox search is the
-  one list without `total`, because counting it reads the whole mailbox.
+  sort keys and `id` starts a deep page at its cursor. Add no plain bound on
+  the first key beside it: given two ranges on one column, SQLite skip-scans
+  the index and sorts every row past the cursor. A mailbox's lists and the
+  audit log answer no `total`, because counting them reads the whole mailbox
+  or log. Pages people use follow the same cursor — Next and Previous, Load
+  older, an infinite scroll, a download that spans export parts — never an
+  offset or a timestamp of their own; a route whose old answer is a plain
+  array gets a twin that answers the page (`GET …/channels/:id/history`).
 - **Every new entity** gets a TypeORM migration. Never mutate an existing
   migration after it has been committed.
 - **React components**: function components + hooks only. Co-locate small

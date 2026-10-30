@@ -2,6 +2,15 @@ import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
 import { Router, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
+import {
+  type CursorValue,
+  decodeCursor,
+  encodeCursor,
+  filterFingerprint,
+  type KeysetColumn,
+  keysetRows,
+  ListQueryError,
+} from "../services/listPaging.js";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -621,11 +630,15 @@ mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
 const THREAD_VIEWS = ["inbox", "starred", "sent", "drafts", "all", "spam", "trash"] as const;
 type ThreadView = (typeof THREAD_VIEWS)[number];
 
+/** A mailbox's threads, newest first, ties by id: the list's keyset. */
+const THREAD_KEYS: KeysetColumn[] = [
+  { column: "t.lastMessageAt", direction: "DESC", type: "timestamp" },
+  { column: "t.id", direction: "DESC", type: "string" },
+];
+
 mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
-  const account = await loadAccount(
-    (req.params as Record<string, string>).cid,
-    req.params.aid as string,
-  );
+  const companyId = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(companyId, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
 
   const view = (
@@ -634,7 +647,29 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
   const label = typeof req.query.label === "string" ? req.query.label : "";
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const before = typeof req.query.before === "string" ? req.query.before : "";
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : "";
   const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "50"), 10) || 50, 1), 100);
+
+  // Load more follows a keyset cursor on (lastMessageAt, id): mail is dated to
+  // the second, so the `before` timestamp it replaces skipped every other
+  // thread sharing the oldest one's second. `before` still narrows to threads
+  // before an instant, for callers that page with it.
+  const fingerprint = filterFingerprint(companyId, {
+    account: account.id,
+    view,
+    label: label || undefined,
+    q: q || undefined,
+    before: before || undefined,
+  });
+  let after: CursorValue[] | null = null;
+  if (cursor) {
+    try {
+      after = decodeCursor("mail.threads", fingerprint, cursor);
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  }
 
   // A search covers the whole mailbox (minus spam/trash), like Gmail —
   // finding an archived thread from the Inbox is the whole point. The query
@@ -667,19 +702,19 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
     }
   }
 
-  const rows = await qb
-    .orderBy("t.lastMessageAt", "DESC")
-    .take(limit + 1)
-    .getMany();
-  const page = rows.slice(0, limit);
-  const nextBefore =
-    rows.length > limit && page.length > 0
-      ? (page[page.length - 1].lastMessageAt?.toISOString() ?? null)
-      : null;
+  const fetched = await keysetRows(qb, { keys: THREAD_KEYS, after, limit, prefix: "thread" });
+  const kept = fetched.slice(0, limit);
+  const page = kept.map((entry) => entry.row);
+  const hasMore = fetched.length > limit && page.length > 0;
+  const nextBefore = hasMore ? (page[page.length - 1].lastMessageAt?.toISOString() ?? null) : null;
+  const nextCursor = hasMore
+    ? encodeCursor("mail.threads", fingerprint, kept[kept.length - 1].key)
+    : null;
   const reviews = await mailReviewsForThreads(account, page);
   res.json({
     threads: page.map((thread) => serializeThread(thread, reviews.get(thread.id))),
     nextBefore,
+    nextCursor,
   });
 });
 

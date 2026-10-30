@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { legacyOrPage, pageBadRequest, pageInfoShape } from "./pagedLists.js";
 import { defaultSecurity, registry } from "./registry.js";
 
 /**
@@ -403,7 +404,18 @@ registry.registerPath({
   summary: "List contacts",
   description:
     "People in the revenue system. Sorted by most recent activity, with never-touched " +
-    "contacts last — the question this list answers is 'who have I not spoken to'.\n\n" +
+    "contacts last (newest first), then by id — the question this list answers is 'who " +
+    "have I not spoken to'.\n\n" +
+    "With `limit` or `cursor` the answer is one page — the list the `list_contacts` AI " +
+    "tool reads, from the same function: up to `limit` contacts (default 50, at most " +
+    "200), with `total`, `hasMore`, `nextCursor` and, while more follow, a `note`. Send " +
+    "`nextCursor` back as `cursor` with exactly the same filters for the next page; for " +
+    "the same filters a cursor from the tool continues this route and the other way " +
+    "round. A cursor names the last contact shown, so logging an Activity (which moves a " +
+    "contact to the top) or archiving contacts between pages never skips or repeats " +
+    "anyone; one issued for other filters is refused with 400. A `limit` above 200 is " +
+    "cut to 200. Without `limit` or `cursor` the answer is the first 50 as " +
+    "`{ rows, total }`, as it always was.\n\n" +
     "A Contact is a **person**; a Customer is the **account** they may or may not " +
     "belong to yet. Accounts can be prospects long before anyone is invoiced.",
   tags: ["Revenue"],
@@ -414,13 +426,46 @@ registry.registerPath({
       q: z.string().optional().describe("Substring match over name, email, company and title."),
       lifecycleStage: z.string().optional(),
       customerId: z.string().uuid().optional(),
-      ownerId: z.string().uuid().optional(),
-      limit: z.coerce.number().int().min(1).max(200).optional().describe("Default 50."),
-      offset: z.coerce.number().int().min(0).optional(),
+      ownerId: z.string().uuid().optional().describe("Owned by this Member."),
+      ownerEmployeeId: z.string().uuid().optional().describe("Owned by this AI Employee."),
+      includeArchived: z
+        .enum(["true", "false"])
+        .optional()
+        .describe("Also list archived contacts."),
+      customFieldKey: z
+        .string()
+        .optional()
+        .describe("With customFieldValue: only contacts whose custom field has that value."),
+      customFieldValue: z.string().optional(),
+      limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(10_000)
+        .optional()
+        .describe("Contacts per page, default 50. Larger values are cut to 200."),
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          "nextCursor from the previous page. Send it with exactly the same filters; one " +
+            "issued for other filters, or for another list, is refused with 400.",
+        ),
     }),
   },
   responses: {
-    200: { description: "OK", content: { "application/json": { schema: ContactList } } },
+    200: {
+      description: "The first 50 matching contacts, or one page of them when limit or cursor is sent",
+      content: {
+        "application/json": {
+          schema: legacyOrPage(
+            ContactList,
+            z.object({ ...pageInfoShape, rows: z.array(Contact) }).openapi("ContactPage"),
+          ),
+        },
+      },
+    },
+    400: pageBadRequest,
     ...commonErrors,
   },
 });
@@ -1487,6 +1532,79 @@ registry.registerPath({
         },
       },
     },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/revenue/activities/export",
+  summary: "Export activities as CSV",
+  description:
+    "The company-wide activity ledger as CSV, newest first, filtered like Revenue → " +
+    "Activities. One file holds at most 10,000 activities and starts with the header row. " +
+    "While more match, the `X-Export-Next-Cursor` header carries on: send it back as " +
+    "`cursor` with exactly the same filters for the next file, which starts after the last " +
+    "activity of this one — so activities logged meanwhile never shift it — and keep going " +
+    "until a file answers without the header. Revenue → Activities' Export CSV does exactly " +
+    "that and saves one file. A cursor issued for other filters, or by another list, is " +
+    "refused with 400. `X-Export-Total` counts every activity the filters match.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    query: z.object({
+      q: z.string().max(200).optional().describe("Words in the subject or body."),
+      contactId: z.string().uuid().optional(),
+      dealId: z.string().uuid().optional(),
+      customerId: z.string().uuid().optional(),
+      partnershipId: z.string().uuid().optional(),
+      kinds: z
+        .string()
+        .optional()
+        .describe("Comma-separated activity kinds, or the parameter repeated."),
+      from: z.string().datetime().optional().describe("Occurred at or after this instant."),
+      to: z.string().datetime().optional().describe("Occurred at or before this instant."),
+      actorUserId: z.string().uuid().optional(),
+      actorEmployeeId: z.string().uuid().optional(),
+      includeRelatedDeals: z
+        .enum(["true", "false", "1", "0"])
+        .optional()
+        .describe("With contactId: also activities on that contact's deals."),
+      includeRelatedRecords: z
+        .enum(["true", "false", "1", "0"])
+        .optional()
+        .describe("With customerId: also activities on the account's contacts and deals."),
+      cursor: z
+        .string()
+        .optional()
+        .describe("X-Export-Next-Cursor from the previous file, with the same filters."),
+    }),
+  },
+  responses: {
+    200: {
+      description: "One file of the export",
+      headers: {
+        "X-Exported-Rows": {
+          description: "Activities in this file.",
+          schema: { type: "integer" },
+        },
+        "X-Export-Total": {
+          description: "Activities the filters match, across every file.",
+          schema: { type: "integer" },
+        },
+        "X-Export-Next-Cursor": {
+          description: "Where the next file starts; absent on the last one.",
+          schema: { type: "string" },
+        },
+        "X-Export-Truncated": {
+          description: "true while more files follow (the older name for the cursor's presence).",
+          schema: { type: "string" },
+        },
+      },
+      content: { "text/csv": { schema: z.string() } },
+    },
+    400: pageBadRequest,
     ...commonErrors,
   },
 });

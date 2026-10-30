@@ -11,10 +11,13 @@
  * with Restore as the undo; the buying-committee remove button is reachable
  * on a phone and still confirms; and invoices, estimates and signature
  * requests started from a customer open with that customer, while a new or
- * edited customer lands on the customer. Each flow counts its clicks. Run
- * with `npm run test:clicks-revenue`.
+ * edited customer lands on the customer; Contacts pages with the server's
+ * cursor; and Activities' Export CSV follows every part of a large export
+ * into one file, carrying on from a part that failed. Each flow counts its
+ * clicks. Run with `npm run test:clicks-revenue`.
  */
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import type { Customer, Employee } from "../client/lib/api";
 import type { MailAccount } from "../client/lib/mail";
 import {
@@ -31,10 +34,12 @@ import type { Signal } from "../client/pages/RevenueSignals";
 import {
   API,
   NOW,
+  Reply,
   focused,
   hoursAgo,
   noSidewaysScroll,
   startApp,
+  status,
   waitForFocus,
   type ApiRoute,
 } from "./appFixture";
@@ -299,7 +304,12 @@ const revenueBase: ApiRoute[] = [
   ["GET", `${REV}/sequences`, () => []],
   ["GET", /\/revenue\/custom-values\//, () => ({ rows: [] })],
   ["GET", `${REV}/documents`, () => ({ rows: [] })],
-  ["GET", `${REV}/contacts`, () => ({ rows: [contact()], total: 1 })],
+  // A page of the contact list, as the server answers one sent `limit`.
+  [
+    "GET",
+    `${REV}/contacts`,
+    () => ({ total: 1, hasMore: false, nextCursor: null, rows: [contact()] }),
+  ],
   ["GET", `${REV}/accounts`, () => ({ rows: [], total: 0 })],
 ];
 
@@ -1078,5 +1088,118 @@ await app.check("Edit customer: Save returns to the customer, as do Back and Can
   assert.equal(view.clicks(), 1);
   await page.close();
 });
+
+await app.check("Contacts: Next and Previous follow the server's cursor, never an offset", async () => {
+  const people = Array.from({ length: 28 }, (_, i) =>
+    contact({ id: `contact-${i}`, name: `Person ${i}`, email: `person${i}@acme.example` }),
+  );
+  const asked: Array<{ cursor: string | null; limit: string | null; offset: string | null }> = [];
+  const view = await app.open({
+    path: "/c/acme/revenue/contacts",
+    routes: [
+      [
+        "GET",
+        `${REV}/contacts`,
+        ({ url }) => {
+          const cursor = url.searchParams.get("cursor");
+          asked.push({
+            cursor,
+            limit: url.searchParams.get("limit"),
+            offset: url.searchParams.get("offset"),
+          });
+          return cursor === "after-contact-24"
+            ? { total: 28, hasMore: false, nextCursor: null, rows: people.slice(25) }
+            : {
+                total: 28,
+                hasMore: true,
+                nextCursor: "after-contact-24",
+                note: "This page holds 25 of the 28 matching contacts.",
+                rows: people.slice(0, 25),
+              };
+        },
+      ],
+      ...revenueBase,
+    ],
+  });
+  const { page } = view;
+  await page.getByText("1–25 of 28 contacts", { exact: true }).waitFor();
+  await view.click(page.getByRole("button", { name: "Next" }));
+  await page.getByText("26–28 of 28 contacts", { exact: true }).waitFor();
+  await page.getByRole("link", { name: "Person 27", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), true, "the last page");
+  await view.click(page.getByRole("button", { name: "Previous" }));
+  await page.getByText("1–25 of 28 contacts", { exact: true }).waitFor();
+  assert.deepEqual(
+    asked.map((request) => request.cursor),
+    [null, "after-contact-24", null],
+    "Next sends the page's cursor; Previous goes back to where the first page started",
+  );
+  assert.ok(asked.every((request) => request.limit === "25" && request.offset === null));
+  assert.equal(view.clicks(), 2);
+  await page.close();
+});
+
+await app.check(
+  "Activities: Export CSV follows the export to its last part into one file, and carries on after a failure",
+  async () => {
+    const header = '"id","occurredAt","kind","subject"';
+    const part = (lines: string[], next: string | null) =>
+      new Reply(200, null, {
+        contentType: "text/csv; charset=utf-8",
+        body: [header, ...lines].join("\r\n"),
+        headers: {
+          "x-exported-rows": String(lines.length),
+          "x-export-total": "3",
+          "x-export-truncated": String(next !== null),
+          ...(next ? { "x-export-next-cursor": next } : {}),
+          "content-disposition": 'attachment; filename="revenue-activities-2026-10-09.csv"',
+        },
+      });
+    const newest = ['"a3","2026-10-09T08:00:00.000Z","note","Kickoff"', '"a2","2026-10-08T08:00:00.000Z","call","Line one\r\nline two"'];
+    const oldest = ['"a1","2026-10-07T08:00:00.000Z","note","First touch"'];
+    const asked: Array<string | null> = [];
+    let failed = false;
+    const view = await app.open({
+      path: "/c/acme/revenue/activities",
+      routes: [
+        ["GET", `${REV}/activities`, () => ({ rows: [], total: 3 })],
+        [
+          "GET",
+          `${REV}/activities/export`,
+          ({ url }) => {
+            const cursor = url.searchParams.get("cursor");
+            asked.push(cursor);
+            assert.equal(url.searchParams.get("limit"), null, "the list's page size stays behind");
+            if (!cursor) return part(newest, "after-a2");
+            if (!failed) {
+              failed = true;
+              return status(503, { error: "Export part unavailable." });
+            }
+            return part(oldest, null);
+          },
+        ],
+        ...revenueBase,
+      ],
+    });
+    const { page } = view;
+    await view.click(page.getByRole("button", { name: "Export CSV" }));
+    await page.getByText(/The export stopped: Export part unavailable\./).waitFor();
+    await page.getByText(/The 2 activities read so far are kept/).waitFor();
+    const download = page.waitForEvent("download");
+    await view.click(page.getByRole("button", { name: "Try again" }));
+    const file = await download;
+    assert.equal(file.suggestedFilename(), "revenue-activities-2026-10-09.csv");
+    const saved = await fs.readFile((await file.path())!, "utf8");
+    assert.equal(
+      saved,
+      [header, ...newest, ...oldest].join("\r\n"),
+      "one header, every activity once, in order",
+    );
+    await page.getByText("Exported 3 activities.", { exact: true }).waitFor();
+    assert.deepEqual(asked, [null, "after-a2", "after-a2"], "Try again asks for the part that failed");
+    assert.equal(view.clicks(), 2);
+    await page.close();
+  },
+);
 
 await app.finish();

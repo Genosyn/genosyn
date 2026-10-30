@@ -700,6 +700,11 @@ export const mailApi = {
   labels: (cid: string, aid: string) =>
     api.get<{ labels: MailLabelInfo[]; counts: MailCounts }>(`${base(cid)}/accounts/${aid}/labels`),
 
+  /**
+   * A page of a mailbox's threads, newest first. `cursor` is the previous
+   * page's `nextCursor`: it names the last thread shown, so threads dated to
+   * the same second are neither skipped nor repeated by Load more.
+   */
   threads: (
     cid: string,
     aid: string,
@@ -707,7 +712,7 @@ export const mailApi = {
       view?: MailThreadView;
       label?: string;
       q?: string;
-      before?: string;
+      cursor?: string;
       limit?: number;
     },
   ) => {
@@ -715,9 +720,9 @@ export const mailApi = {
     if (opts.view) qs.set("view", opts.view);
     if (opts.label) qs.set("label", opts.label);
     if (opts.q) qs.set("q", opts.q);
-    if (opts.before) qs.set("before", opts.before);
+    if (opts.cursor) qs.set("cursor", opts.cursor);
     if (opts.limit) qs.set("limit", String(opts.limit));
-    return api.get<{ threads: MailThread[]; nextBefore: string | null }>(
+    return api.get<{ threads: MailThread[]; nextBefore: string | null; nextCursor?: string | null }>(
       `${base(cid)}/accounts/${aid}/threads?${qs.toString()}`,
     );
   },
