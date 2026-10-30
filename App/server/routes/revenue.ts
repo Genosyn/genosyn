@@ -57,11 +57,12 @@ import {
   updateManualActivity,
 } from "../services/revenue/activities.js";
 import {
+  CONTACT_PAGE,
   DuplicateContactError,
   archiveContact,
   createContact,
   getContact,
-  listContacts,
+  pageContacts,
   restoreContact,
   updateContact,
 } from "../services/revenue/contacts.js";
@@ -258,7 +259,11 @@ const signalEventStatusEnum = z.enum(
 // ── Contacts ───────────────────────────────────────────────────────────────
 
 const contactListQuery = z.object({
-  ...pageQuery,
+  ...pageQueryShape,
+  // Older callers place a page by offset. Still taken, though no longer
+  // advertised: it passes over rows before the first page only, and a page's
+  // cursor carries on by keyset either way.
+  offset: z.coerce.number().int().min(0).optional(),
   q: z.string().max(200).optional(),
   lifecycleStage: lifecycleStageEnum.optional(),
   customerId: z.string().uuid().optional(),
@@ -269,13 +274,33 @@ const contactListQuery = z.object({
   customFieldValue: z.string().max(500).optional(),
 });
 
+// The contact list, most recently touched first and never-touched last. With
+// limit or cursor, one page with its total and the cursor to the next — the
+// list `list_contacts` reads, from the same function, so a cursor from one
+// continues the other. Without either, the first 50 as `{ rows, total }`, the
+// shape it always answered. A page answers `rows` and `total` as before, so a
+// caller that sent `limit` and `offset` reads the same rows it always did.
 revenueRouter.get(
   "/revenue/contacts",
   h(async (req, res) => {
     const parsed = contactListQuery.safeParse(req.query);
     if (!parsed.success) return res.status(400).json(BAD_QUERY);
-    const { rows, total } = await listContacts(cidOf(req), parsed.data);
-    return res.json({ rows, total });
+    const { limit, cursor, offset, ...filter } = parsed.data;
+    try {
+      const { rows, ...info } = await pageContacts(
+        cidOf(req),
+        filter,
+        { limit, cursor, offset, limits: CONTACT_PAGE },
+        (contacts) => contacts,
+      );
+      if (limit === undefined && cursor === undefined) {
+        return res.json({ rows, total: info.total });
+      }
+      return res.json({ ...info, rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
   }),
 );
 
