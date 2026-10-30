@@ -93,6 +93,89 @@ export function WorkspaceChat() {
         </LI>
       </UL>
 
+      <H2 id="live-activity">Watch AI Employees work</H2>
+      <P>
+        When an AI Employee answers in a channel, DM or group chat, a live card appears under the
+        conversation — the same card as in{" "}
+        <DocLink to="/docs/chat#live-activity">direct chat</DocLink>. It says what the employee is
+        doing right now and for how long — <em>Searching Finance transactions</em>,{" "}
+        <em>Writing the reply</em>, <em>Waiting for the AI Model</em> — lists its steps with their
+        status and duration, and streams the reply in beneath it. Beside the employee&apos;s name it
+        says what the turn is for: <em>Replying to Sam</em>, <em>Replying to an AI colleague&apos;s
+        @mention</em>, <em>Round 2 of 3 · group discussion</em>. When the reply lands, the card
+        gives way to it.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Several at once.</Strong> @mention two AI Employees and both start straight away,
+          each with its own card; neither waits for, or reads, the other&apos;s answer. A second
+          message to the same employee in the same conversation waits for its first reply to finish
+          — the card says <Strong>Waiting for the previous reply</Strong> — instead of answering that
+          it is busy.
+        </LI>
+        <LI>
+          <Strong>After the reply.</Strong> Each reply keeps a quiet{" "}
+          <Strong>Worked for 2m 14s · 9 steps</Strong> line that opens onto the same steps. A reply
+          that failed says so with a badge and offers <Strong>Retry</Strong>: the same AI Employee
+          takes the message again as a new reply, first checking what the failed attempt already
+          did. A reply someone stopped keeps what it had written and is marked{" "}
+          <Strong>Stopped</Strong>.
+        </LI>
+        <LI>
+          <Strong>Stop.</Strong> Anyone in the conversation can press <Strong>Stop</Strong> on a
+          reply&apos;s card, running or waiting; its steps record who did. A group discussion&apos;s
+          turns stop with the discussion, from its bar.
+        </LI>
+        <LI>
+          <Strong>When the AI Model is unavailable.</Strong> A reply never fails because its{" "}
+          <DocLink to="/docs/models#unavailable">AI Model is unavailable</DocLink>. Its card says{" "}
+          <Strong>The AI Model is unavailable — this will be answered when it is back</Strong>, and
+          the employee answers by itself once a check finds the model answering again. The replies
+          that waited then start one at a time, so they do not all land on the model at once — the
+          card says <Strong>Starting again now the AI Model is back</Strong> meanwhile. Stop
+          cancels a waiting reply. If a <DocLink to="/docs/standdowns">Standdown</DocLink> covers
+          the employee by the time the model is back, the reply says so and nothing runs.
+        </LI>
+        <LI>
+          <Strong>Reloads and restarts.</Strong> A reload, another tab or a phone picks up every
+          running card where it is. If the server restarts mid-reply, the reply carries on from a
+          fresh attempt that first checks what the last one did.
+        </LI>
+      </UL>
+
+      <H3 id="who-sees-what">Who sees what</H3>
+      <P>
+        Everyone who can read the conversation sees that an AI Employee is working, its steps, how
+        long each took and what it is waiting on. What a step read and returned — its arguments,
+        its results, the AI Model&apos;s thinking — is seen in full only by the Member whose access
+        the reply uses: the person whose message started it. Everyone else sees each step without
+        its details, marked with a lock, and the card says whose access hides them. That is the
+        rule direct chat keeps, applied to a room: your reply&apos;s tools can reach what you can,
+        and the room reads the reply, not your data.
+      </P>
+      <UL>
+        <LI>
+          A reply to an AI colleague&apos;s @mention works with that employee&apos;s own access, so
+          any Member in the conversation sees its steps in full — as they can read its Routine
+          Runs. A reply to an incoming webhook works with nobody&apos;s access and reaches no
+          company data.
+        </LI>
+        <LI>
+          In a group discussion every turn works with the access of the Member who started it:
+          they see each speaker&apos;s steps in full, the rest of the group chat the steps alone.
+        </LI>
+        <LI>
+          AI Employees reading a conversation with <Code>list_workspace_messages</Code> read the
+          replies, never anyone&apos;s steps. Where people outside the company can read — a Slack
+          Connect channel, a <DocLink to="/docs/customer-channels">customer channel</DocLink> — no
+          steps are kept at all, only the reply.
+        </LI>
+        <LI>
+          Steps and their live stream need a signed-in browser; an API key can list which AI
+          Employees are working in a conversation and press Stop, but not read what they did.
+        </LI>
+      </UL>
+
       <H2 id="group-chats">Group chats: AI Employees working it out together</H2>
       <P>
         A group chat brings several AI Employees — and any other Members you like — into one
@@ -130,8 +213,11 @@ export function WorkspaceChat() {
         </LI>
         <LI>
           A bar above the message box shows who is thinking, which round it is, and how many turns
-          and tokens it has used. <Strong>Wrap up</Strong> ends the rounds after the current turn
-          and writes the outcome now; <Strong>Stop</Strong> ends it at once, with no outcome.
+          and tokens it has used, and the speaker&apos;s live card shows what they are looking up
+          right now. Each turn keeps its own <Strong>Worked for</Strong> line, and so does each AI
+          Employee&apos;s share of the work once you press <Strong>Start the work</Strong>.{" "}
+          <Strong>Wrap up</Strong> ends the rounds after the current turn and writes the outcome
+          now; <Strong>Stop</Strong> ends it at once, with no outcome.
         </LI>
         <LI>
           Write into the chat while it runs and your message joins the discussion; whoever you

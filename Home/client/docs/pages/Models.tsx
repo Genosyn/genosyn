@@ -531,7 +531,9 @@ export function Models() {
           <Strong>A chat message</Strong> says{" "}
           <Strong>The AI Model is unavailable — this will be answered when it is back</Strong> and
           is answered then, with nothing to send again; <Strong>Stop</Strong> cancels it. See{" "}
-          <DocLink to="/docs/chat#model-unavailable">Chat</DocLink>.
+          <DocLink to="/docs/chat#model-unavailable">Chat</DocLink>. So does a reply in a
+          Workspace channel, DM or group chat, where everyone in the conversation sees it waiting —
+          see <DocLink to="/docs/workspace-chat#live-activity">Workspace chat</DocLink>.
         </LI>
         <LI>
           <Strong>Background work</Strong> waits as well, instead of recording a result the outage
@@ -576,7 +578,9 @@ export function Models() {
         the work that waited carries on by itself. Paused Runs go first, with the time they had
         left, then the Runs that were queued; for ten minutes they start ten seconds apart (by
         default), so they don&apos;t all land at once on a model that has just come back. Waiting
-        chat messages are answered straight away.
+        direct-chat messages are answered straight away; Workspace replies that waited take the
+        same turns as the Runs, one at a time. The model&apos;s card counts both kinds of message
+        among the work that waits.
       </P>
 
       <H3 id="unavailable-card">Seeing it, and Check now</H3>

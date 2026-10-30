@@ -397,6 +397,16 @@ export function Decisions() {
         recorded answer and report if someone has since chosen an option.
       </P>
       <P>
+        While the employee replies, the discussion shows the same live card as{" "}
+        <DocLink to="/docs/chat#live-activity">chat</DocLink>: what it is doing and for how long,
+        what it is waiting on — a retry after an AI Model error, or an AI Model that is unavailable,
+        in which case your question is answered once it is back — and <Strong>Stop</Strong>. Each
+        reply then keeps a <Strong>Worked for</Strong> line, and a reply that failed offers{" "}
+        <Strong>Retry</Strong>. A reload or another tab picks a running reply back up. The steps
+        show that the employee read the decision, not what the read returned: that is the card you
+        are looking at, and a discussion keeps that narrow rule in its record too.
+      </P>
+      <P>
         Discussion is for understanding the decision. The employee can only read it: the discussion
         does not answer or dismiss the decision, or start the proposed work. A discussion you have
         open stays in place when you answer. You can also use <Strong>Discuss</Strong> on the{" "}
