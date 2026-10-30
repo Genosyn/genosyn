@@ -1575,6 +1575,7 @@ export async function listRevenueEvidence(
   const total = await qb.clone().getCount();
   const rows = await qb
     .orderBy("evidence.createdAt", "DESC")
+    .addOrderBy("evidence.id", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 100, 1), 500))
     .getMany();

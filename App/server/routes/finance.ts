@@ -4,7 +4,7 @@ import { In, IsNull, Not } from "typeorm";
 import multer from "multer";
 import cron from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
-import { Account, AccountType } from "../db/entities/Account.js";
+import { Account } from "../db/entities/Account.js";
 import { BankFeed, BankFeedKind } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Customer } from "../db/entities/Customer.js";
@@ -186,8 +186,10 @@ import {
   bulkLedgerReview,
   getLedgerEntryForReview,
   hydrateLedgerEntries,
+  ledgerReviewQuerySchema,
   ledgerReviewSummary,
   listLedgerEntriesForReview,
+  pageLedgerEntriesForReview,
   returnLedgerReview,
 } from "../services/transactionReviews.js";
 import { findReviewedCategoryDrift } from "../services/reviewedCategoryDrift.js";
@@ -232,6 +234,29 @@ import {
 } from "../services/bankingSync.js";
 import { FeedSyncError } from "../services/feedSyncErrors.js";
 import { BANKING_BULK_MAX, bulkBanking } from "../services/bankingBulk.js";
+import {
+  bankingFilterFrom,
+  bankingQueue,
+  bankingQueueQuerySchema,
+} from "../services/bankingQueue.js";
+import { ListQueryError, pageQueryShape } from "../services/listPaging.js";
+import {
+  type BillListFilter,
+  billListQuery,
+  invoiceDateFilterShape,
+  type InvoiceListFilter,
+  invoiceListQuery,
+  pageBills,
+  pageInvoices,
+} from "../services/financeListPages.js";
+import {
+  accountPatchSchema,
+  accountWriteSchema,
+  createLedgerAccount,
+  LedgerAccountError,
+  loadLedgerAccount,
+  updateLedgerAccount,
+} from "../services/ledgerAccounts.js";
 import {
   getFinanceSettings,
   seedCurrencies,
@@ -1115,38 +1140,65 @@ export const invoiceCreateSchema = z.object({
   ...discountFields,
 });
 
-financeRouter.get("/invoices", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const where: Record<string, unknown> = { companyId: cid };
-  const status = req.query.status;
-  if (typeof status === "string" && status) where.status = status;
-  const customerId = req.query.customerId;
-  if (typeof customerId === "string" && customerId) where.customerId = customerId;
-  // The invoices one recurring invoice schedule created, for its own page.
-  const recurringInvoiceId = req.query.recurringInvoiceId;
-  if (typeof recurringInvoiceId === "string" && recurringInvoiceId) {
-    where.recurringInvoiceId = recurringInvoiceId;
-  }
-  // Archived invoices are filed away, so lists leave them out unless asked —
-  // the same `archived=true` that estimates take. A page that totals money
-  // asks: an archived invoice still counts.
-  if (String(req.query.archived ?? "") !== "true") where.archivedAt = IsNull();
-  const invoices = await AppDataSource.getRepository(Invoice).find({
-    where,
-    // SQLite stamps `createdAt` to the second; the issue date a new invoice
-    // takes is to the millisecond, so two made in the same second keep order.
-    order: { createdAt: "DESC", issueDate: "DESC" },
-  });
-  const hydrated = await hydrateInvoices(cid, invoices);
-  // Strip lines + payments from the list view to keep payloads small —
-  // detail page calls /invoices/:slug for the full thing.
-  res.json(
-    hydrated.map(({ lines: _lines, payments: _payments, ...rest }) => ({
+export const invoiceListQuerySchema = z.object({
+  status: z.string().max(40).optional(),
+  customerId: z.string().max(100).optional(),
+  recurringInvoiceId: z.string().max(100).optional(),
+  archived: z.string().max(10).optional(),
+  ...invoiceDateFilterShape,
+  ...pageQueryShape,
+});
+
+/** A list row: no lines or payments, which the detail page fetches by slug. */
+async function invoiceListRows(cid: string, invoices: Invoice[]) {
+  return (await hydrateInvoices(cid, invoices)).map(
+    ({ lines: _lines, payments: _payments, ...rest }) => ({
       ...rest,
       linesCount: _lines.length,
       paymentsCount: _payments.length,
-    })),
+    }),
   );
+}
+
+financeRouter.get("/invoices", validateQuery(invoiceListQuerySchema), async (req, res, next) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const query = req.query as unknown as z.infer<typeof invoiceListQuerySchema>;
+  const filter: InvoiceListFilter = {
+    status: (query.status || undefined) as InvoiceListFilter["status"],
+    customerId: query.customerId || undefined,
+    // The invoices one recurring invoice schedule created, for its own page.
+    recurringInvoiceId: query.recurringInvoiceId || undefined,
+    // Archived invoices are filed away, so lists leave them out unless asked —
+    // the same `archived=true` that estimates take. A page that totals money
+    // asks: an archived invoice still counts.
+    includeArchived: query.archived === "true",
+    from: query.from,
+    to: query.to,
+    dueFrom: query.dueFrom,
+    dueTo: query.dueTo,
+  };
+  try {
+    // Asked for a page — the list the `list_invoices` AI tool reads.
+    if (query.limit !== undefined || query.cursor !== undefined) {
+      const { rows, ...info } = await pageInvoices(
+        cid,
+        filter,
+        { limit: query.limit, cursor: query.cursor },
+        (invoices) => invoiceListRows(cid, invoices),
+      );
+      return res.json({ ...info, invoices: rows });
+    }
+    const invoices = await invoiceListQuery(cid, filter)
+      // SQLite stamps `createdAt` to the second; the issue date a new invoice
+      // takes is to the millisecond, so two made in the same second keep order.
+      .orderBy("invoice.createdAt", "DESC")
+      .addOrderBy("invoice.issueDate", "DESC")
+      .getMany();
+    res.json(await invoiceListRows(cid, invoices));
+  } catch (err) {
+    if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, res) => {
@@ -2744,14 +2796,6 @@ financeRouter.get("/estimates/:slug/pdf", async (req, res) => {
 
 // ─────────────────────────── Accounts (Phase B) ────────────────────────
 
-const ACCOUNT_TYPES: [AccountType, ...AccountType[]] = [
-  "asset",
-  "liability",
-  "equity",
-  "revenue",
-  "expense",
-];
-
 financeRouter.get("/accounts", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   // Auto-seed the default chart of accounts on first visit so the
@@ -2760,99 +2804,34 @@ financeRouter.get("/accounts", async (req, res) => {
   res.json(accounts);
 });
 
-const accountWriteSchema = z.object({
-  code: z
-    .string()
-    .min(1)
-    .max(20)
-    .regex(/^[A-Za-z0-9._-]+$/),
-  name: z.string().min(1).max(120),
-  type: z.enum(ACCOUNT_TYPES),
-  parentId: z.string().uuid().nullable().optional(),
-});
-
-financeRouter.post("/accounts", validateBody(accountWriteSchema), async (req, res) => {
+// Adding to and changing the chart of accounts. The rules live in
+// `services/ledgerAccounts.ts`, which the `create_finance_account` and
+// `update_finance_account` AI tools call too.
+financeRouter.post("/accounts", validateBody(accountWriteSchema), async (req, res, next) => {
   const cid = (req.params as Record<string, string>).cid;
-  const body = req.body as z.infer<typeof accountWriteSchema>;
-  const repo = AppDataSource.getRepository(Account);
-  const dup = await repo.findOneBy({ companyId: cid, code: body.code });
-  if (dup) {
-    return res.status(409).json({ error: "An account with that code already exists" });
+  try {
+    res.json(await createLedgerAccount(cid, req.body as z.infer<typeof accountWriteSchema>));
+  } catch (err) {
+    if (err instanceof LedgerAccountError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
   }
-  if (body.parentId) {
-    const parent = await repo.findOneBy({ id: body.parentId, companyId: cid });
-    if (!parent) return res.status(400).json({ error: "Invalid parent account" });
-  }
-  const a = repo.create({
-    companyId: cid,
-    code: body.code,
-    name: body.name,
-    type: body.type,
-    parentId: body.parentId ?? null,
-    isSystem: false,
-  });
-  await repo.save(a);
-  res.json(a);
 });
 
-financeRouter.patch(
-  "/accounts/:id",
-  validateBody(accountWriteSchema.partial().extend({ archived: z.boolean().optional() })),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const repo = AppDataSource.getRepository(Account);
-    const a = await repo.findOneBy({ id: req.params.id, companyId: cid });
-    if (!a) return res.status(404).json({ error: "Account not found" });
-    const body = req.body as Partial<z.infer<typeof accountWriteSchema>> & {
-      archived?: boolean;
-    };
-    if (body.code !== undefined && body.code !== a.code) {
-      if (a.isSystem) {
-        return res
-          .status(409)
-          .json({ error: "System account codes cannot be renumbered — auto-post depends on them" });
-      }
-      const dup = await repo.findOneBy({ companyId: cid, code: body.code });
-      if (dup) {
-        return res.status(409).json({ error: "An account with that code already exists" });
-      }
-      a.code = body.code;
+financeRouter.patch("/accounts/:id", validateBody(accountPatchSchema), async (req, res, next) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadLedgerAccount(cid, req.params.id);
+  if (!account) return res.status(404).json({ error: "Account not found" });
+  try {
+    res.json(await updateLedgerAccount(account, req.body as z.infer<typeof accountPatchSchema>));
+  } catch (err) {
+    if (err instanceof LedgerAccountError) {
+      return res.status(err.status).json({ error: err.message });
     }
-    if (body.name !== undefined) a.name = body.name;
-    if (body.type !== undefined) {
-      if (a.isSystem) {
-        return res.status(409).json({ error: "System account types cannot change" });
-      }
-      a.type = body.type;
-    }
-    if (body.parentId !== undefined) a.parentId = body.parentId;
-    if (body.archived !== undefined) {
-      if (a.isSystem && body.archived) {
-        return res.status(409).json({ error: "System accounts cannot be archived" });
-      }
-      // Every report filters archived accounts out, so archiving one that
-      // still carries a balance would silently drop that balance from the
-      // trial balance and balance sheet — the books would stop balancing.
-      // The delete path already guards this; the archive path must too.
-      if (body.archived && !a.archivedAt) {
-        const lines = await AppDataSource.getRepository(LedgerLine).find({
-          where: { accountId: a.id },
-          select: ["debitCents", "creditCents"],
-        });
-        const balance = lines.reduce((sum, l) => sum + l.debitCents - l.creditCents, 0);
-        if (balance !== 0) {
-          return res.status(409).json({
-            error:
-              "This account still has a balance. Move its balance to another account with a journal entry before archiving it.",
-          });
-        }
-      }
-      a.archivedAt = body.archived ? new Date() : null;
-    }
-    await repo.save(a);
-    res.json(a);
-  },
-);
+    next(err);
+  }
+});
 
 financeRouter.delete("/accounts/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2906,6 +2885,27 @@ financeRouter.get("/ledger-entries", async (req, res) => {
     }),
   );
 });
+
+// Entry review's journal one page at a time, with every filter the
+// `list_finance_transactions` AI tool takes — the same function answers both.
+// `/ledger-entries` above keeps its plain array of at most 500 for the Finance
+// pages that read it.
+financeRouter.get(
+  "/finance/transactions",
+  validateQuery(ledgerReviewQuerySchema),
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const { limit, cursor, ...filters } = req.query as unknown as z.infer<
+      typeof ledgerReviewQuerySchema
+    >;
+    try {
+      res.json(await pageLedgerEntriesForReview(cid, filters, { limit, cursor }));
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 financeRouter.get("/ledger-review-summary", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -3561,6 +3561,27 @@ financeRouter.get("/banking/accounts", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   res.json(await listBankingAccounts(cid));
 });
+
+// Bank lines and card purchases in one list, newest first, one page at a time
+// with the bookkeeper's filters — the list the `list_banking_transactions` AI
+// tool reads, from the same function, so an API client and an AI Employee
+// reach exactly the same transactions.
+financeRouter.get(
+  "/banking/transactions",
+  validateQuery(bankingQueueQuerySchema),
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const { limit, cursor, ...filters } = req.query as unknown as z.infer<
+      typeof bankingQueueQuerySchema
+    >;
+    try {
+      res.json(await bankingQueue(cid, bankingFilterFrom(filters), { limit, cursor }));
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 const bankTransactionParamsSchema = z.object({
   cid: z.string().min(1),
@@ -4300,27 +4321,59 @@ const billCreateSchema = z.object({
   lines: z.array(billLineDraftSchema).max(200).optional(),
 });
 
-financeRouter.get("/bills", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const where: Record<string, unknown> = { companyId: cid };
-  if (typeof req.query.status === "string" && req.query.status) {
-    where.status = req.query.status;
-  }
-  if (typeof req.query.vendorId === "string" && req.query.vendorId) {
-    where.vendorId = req.query.vendorId;
-  }
-  const list = await AppDataSource.getRepository(Bill).find({
-    where,
-    order: { createdAt: "DESC" },
-  });
-  const hydrated = await hydrateBills(cid, list);
-  res.json(
-    hydrated.map(({ lines: _lines, payments: _payments, ...rest }) => ({
+const billListQuerySchema = z.object({
+  status: z.string().max(40).optional(),
+  vendorId: z.string().max(100).optional(),
+  from: invoiceDateFilterShape.from.describe(
+    "Issued on or after: YYYY-MM-DD (a UTC calendar day) or an ISO timestamp.",
+  ),
+  to: invoiceDateFilterShape.to.describe("Issued on or before; YYYY-MM-DD includes the whole day."),
+  dueFrom: invoiceDateFilterShape.dueFrom.describe("Due on or after."),
+  dueTo: invoiceDateFilterShape.dueTo.describe("Due on or before; YYYY-MM-DD includes the whole day."),
+  ...pageQueryShape,
+});
+
+/** A list row: no lines or payments, which the detail page fetches by slug. */
+async function billListRows(cid: string, bills: Bill[]) {
+  return (await hydrateBills(cid, bills)).map(
+    ({ lines: _lines, payments: _payments, ...rest }) => ({
       ...rest,
       linesCount: _lines.length,
       paymentsCount: _payments.length,
-    })),
+    }),
   );
+}
+
+// Newest first as a plain array, as Finance → Bills reads it; or, when a page
+// is asked for (limit or cursor), soonest due first one page at a time — the
+// list the `list_bills` AI tool reads.
+financeRouter.get("/bills", validateQuery(billListQuerySchema), async (req, res, next) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const query = req.query as unknown as z.infer<typeof billListQuerySchema>;
+  const filter: BillListFilter = {
+    status: (query.status || undefined) as BillListFilter["status"],
+    vendorId: query.vendorId || undefined,
+    from: query.from,
+    to: query.to,
+    dueFrom: query.dueFrom,
+    dueTo: query.dueTo,
+  };
+  try {
+    if (query.limit !== undefined || query.cursor !== undefined) {
+      const { rows, ...info } = await pageBills(
+        cid,
+        filter,
+        { limit: query.limit, cursor: query.cursor },
+        (bills) => billListRows(cid, bills),
+      );
+      return res.json({ ...info, bills: rows });
+    }
+    const list = await billListQuery(cid, filter).orderBy("bill.createdAt", "DESC").getMany();
+    res.json(await billListRows(cid, list));
+  } catch (err) {
+    if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 financeRouter.post("/bills", validateBody(billCreateSchema), async (req, res) => {

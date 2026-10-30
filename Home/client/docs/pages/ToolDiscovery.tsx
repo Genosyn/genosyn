@@ -75,6 +75,21 @@ export function ToolDiscovery() {
         it.
       </Callout>
 
+      <H2 id="long-lists">Long lists</H2>
+      <P>
+        A list tool never stops at a fixed number of rows. Banking&apos;s transactions, Entry
+        review, invoices, bills, recurring invoices, customers, a mailbox search, Run history,
+        handoffs, a project&apos;s Todos and meetings all answer one page at a time: the page says
+        how many rows match in all (a mailbox search, too large to count on every page, says only
+        whether more follow), whether more follow, and gives a cursor the employee passes back,
+        with the same filters, for the next page. A page also ends early rather than overflow what
+        a tool result can hold, so nothing is cut off unseen. A cursor names where the last page
+        ended rather than counting rows, so work done between pages — filing transactions,
+        approving entries — never makes the employee skip any. Narrowing a long list by date or
+        another filter is usually quicker than reading all of it, and the tools offer the filters
+        each list needs.
+      </P>
+
       <H2 id="skill-toolsets">Skipping the search</H2>
       <P>
         Searching costs a round-trip, and a search can miss. If you already know which tools a

@@ -2,7 +2,9 @@
  * Real Chrome coverage for the shorter chat flows, on the real App: arriving
  * at an AI Employee's chat, a Workspace channel or the Ask AI panel puts the
  * cursor in the message box (never on a touch device, never over a dialog or
- * another box being typed in); a running reply stops in one click; Enter
+ * another box being typed in); a running reply stops in one click, shows each
+ * step it takes, survives its stream dropping, and folds into "Worked for …";
+ * a failed reply retries in place in one click; Enter
  * completes the New channel and New DM dialogs; channel settings close on
  * save; the emoji picker hands focus back; and with one AI Employee able to
  * answer, Ask AI addresses them without an @. Each flow counts its clicks.
@@ -265,6 +267,276 @@ await app.check(
     );
     await waitForFocus(composer(page), "the cursor is back in the box for a correction");
     await page.getByRole("button", { name: "Send message", exact: true }).waitFor();
+    assert.equal(view.clicks(), 1);
+    await page.close();
+  },
+);
+
+// ───────────────────────────── Live activity ─────────────────────────────
+
+const nowIso = (ms = 0) => new Date(NOW.getTime() + ms).toISOString();
+
+function activityEvent(
+  ordinal: number,
+  kind: string,
+  ms: number,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ordinal,
+    attempt: 1,
+    kind,
+    name: "",
+    callId: "",
+    summary: "",
+    detail: null,
+    isError: false,
+    at: nowIso(ms),
+    ...extra,
+  };
+}
+
+const LIVE_EVENTS = [
+  activityEvent(1, "turn_started", 200, { detail: { attempt: 1, reason: "start" } }),
+  activityEvent(2, "tool_use", 400, {
+    name: "list_banking_transactions",
+    callId: "c1",
+    detail: { input: { status: "unreviewed" } },
+  }),
+  activityEvent(3, "tool_result", 1_600, {
+    name: "list_banking_transactions",
+    callId: "c1",
+    detail: { output: '[{"amount": 1240}]', durationMs: 1_200 },
+  }),
+  activityEvent(4, "tool_use", 1_800, {
+    name: "bash",
+    callId: "c2",
+    detail: { input: { command: "npm test" } },
+  }),
+];
+const FINISHED_EVENTS = [
+  ...LIVE_EVENTS,
+  activityEvent(5, "tool_result", 4_000, {
+    name: "bash",
+    callId: "c2",
+    detail: { output: "12 passing", durationMs: 2_200 },
+  }),
+  activityEvent(6, "turn_finished", 5_000, { detail: { status: "ok" } }),
+];
+const WORKED_SUMMARY = {
+  startedAt: nowIso(0),
+  endedAt: nowIso(134_000),
+  durationMs: 134_000,
+  steps: 2,
+  failed: 0,
+  held: 0,
+  waitedMs: 0,
+  reasoning: false,
+  lastOrdinal: 6,
+  status: "ok",
+};
+
+/**
+ * A reply whose live stream drops mid-turn: the steps it had shown stay, the
+ * thread follows the turn over its own stream, and the finished reply folds
+ * the work into one line.
+ */
+function liveActivityRoutes(follow: ReturnType<typeof gate>): ApiRoute[] {
+  const threadId = "thread-renewal";
+  const state = { sent: false, finished: false };
+  const working = chatMessage("a-live", threadId, "assistant", "Checking the books", "working");
+  const final: ConversationMessage = {
+    ...chatMessage("a-live", threadId, "assistant", "The books balance."),
+    activity: WORKED_SUMMARY,
+  };
+  const user = chatMessage("u-live", threadId, "user", "Reconcile October");
+  return [
+    [
+      "POST",
+      `${API}/employees/alex/conversations/${threadId}/messages`,
+      () => {
+        state.sent = true;
+        // No final reply: the connection drops while the employee works.
+        return sse([
+          ["user", user],
+          ["working", { ...working, content: "" }],
+          ["turn", { messageId: "a-live", startedAt: nowIso(0), now: nowIso(2_000) }],
+          ...LIVE_EVENTS.map((event): [string, unknown] => ["activity", event]),
+          ["chunk", { text: "Checking the books" }],
+        ]);
+      },
+    ],
+    [
+      "GET",
+      `${API}/employees/alex/conversations/${threadId}/messages/a-live/activity/stream`,
+      async () => {
+        await follow.opened;
+        state.finished = true;
+        return sse([
+          ["turn", { messageId: "a-live", startedAt: nowIso(0), now: nowIso(134_000) }],
+          ...FINISHED_EVENTS.slice(4).map((event): [string, unknown] => ["activity", event]),
+          ["assistant", final],
+          ["done", {}],
+        ]);
+      },
+    ],
+    [
+      "GET",
+      `${API}/employees/alex/conversations/${threadId}/messages/a-live/activity`,
+      () => ({ events: FINISHED_EVENTS, more: false, status: "ok" }),
+    ],
+    [
+      "GET",
+      `${API}/employees/alex/conversations/${threadId}`,
+      () => ({
+        conversation: conversation(threadId, "Acme renewal terms", 1),
+        messages: state.finished ? [user, final] : state.sent ? [user, working] : [],
+      }),
+    ],
+    ...chatRoutes(),
+  ];
+}
+
+await app.check(
+  "a running reply shows each step as it happens, and folds into “Worked for …” when it lands",
+  async () => {
+    const follow = gate();
+    const view = await app.open({
+      path: "/c/acme/employees/alex/chat",
+      routes: liveActivityRoutes(follow),
+    });
+    const { page } = view;
+    await waitForFocus(composer(page));
+    await page.keyboard.type("Reconcile October");
+    await page.keyboard.press("Enter");
+
+    const card = page.getByRole("region", { name: "Alex Rivera is working" });
+    await card.waitFor();
+    // The finished step, past tense with its argument; the running one, now.
+    await card.getByText("Searched Banking transactions").waitFor();
+    await card.getByText("unreviewed").first().waitFor();
+    await card.getByText("Running", { exact: true }).first().waitFor();
+    await card.getByText("npm test").first().waitFor();
+    await page.getByText("Checking the books").waitFor();
+    await card.getByRole("button", { name: /^Stop Alex Rivera.s reply$/ }).waitFor();
+    await app.shot(page, "chat-live-activity");
+
+    // The stream dropped; the thread followed the turn and the reply landed.
+    follow.open();
+    await page.getByText("The books balance.").waitFor();
+    assert.equal(await card.count(), 0, "the live card gives way to the reply");
+    const worked = page.getByRole("button", { name: /Worked for 2m 14s · 2 steps/ });
+    await worked.waitFor();
+    assert.ok(
+      view.writes.every((w) => !w.path.endsWith("/retry")),
+      "nothing was retried behind the Member's back",
+    );
+
+    await view.click(worked);
+    assert.equal(await worked.getAttribute("aria-expanded"), "true");
+    const ran = page.getByRole("button", { name: /Ran\s+npm test/ });
+    await ran.waitFor();
+    await view.click(ran);
+    await page.getByText("12 passing").waitFor();
+    await app.shot(page, "chat-worked-for-expanded");
+    await page.close();
+  },
+);
+
+await app.check("live activity fits a phone and reads in dark mode", async () => {
+  const follow = gate();
+  const view = await app.open({
+    path: "/c/acme/employees/alex/chat",
+    routes: liveActivityRoutes(follow),
+    touch: true,
+    scheme: "dark",
+  });
+  const { page } = view;
+  await composer(page).click();
+  await page.keyboard.type("Reconcile October");
+  await page.keyboard.press("Enter");
+  const card = page.getByRole("region", { name: "Alex Rivera is working" });
+  await card.getByText("Searched Banking transactions").waitFor();
+  await noSidewaysScroll(page, "live activity on a phone");
+  const stop = card.getByRole("button", { name: /^Stop Alex Rivera.s reply$/ });
+  const box = await stop.boundingBox();
+  assert.ok(box && box.height >= 32, "Stop is a full-size touch target");
+  await app.shot(page, "chat-live-activity-phone-dark");
+  follow.open();
+  await page.getByText("The books balance.").waitFor();
+  await page.close();
+});
+
+await app.check(
+  "a failed reply offers Retry, which runs the same request again in place",
+  async () => {
+    const threadId = "thread-renewal";
+    const user = chatMessage("u-fail", threadId, "user", "Draft the renewal");
+    const failed = chatMessage(
+      "a-fail",
+      threadId,
+      "assistant",
+      "Genosyn couldn’t complete this chat turn.",
+      "error",
+    );
+    const state = { retried: false, done: false };
+    const view = await app.open({
+      path: "/c/acme/employees/alex/chat",
+      routes: [
+        [
+          "GET",
+          `${API}/employees/alex/conversations/${threadId}`,
+          () => ({
+            conversation: conversation(threadId, "Acme renewal terms", 1),
+            messages: [
+              user,
+              state.done
+                ? { ...failed, status: "ok" as const, content: "Here is the renewal draft." }
+                : state.retried
+                  ? { ...failed, status: "working" as const, content: "" }
+                  : failed,
+            ],
+          }),
+        ],
+        [
+          "POST",
+          `${API}/employees/alex/conversations/${threadId}/messages/a-fail/retry`,
+          () => {
+            state.retried = true;
+            return { message: { ...failed, status: "working", content: "" }, startedAt: nowIso(0) };
+          },
+        ],
+        [
+          "GET",
+          `${API}/employees/alex/conversations/${threadId}/messages/a-fail/activity/stream`,
+          () => {
+            state.done = true;
+            return sse([
+              ["turn", { messageId: "a-fail", startedAt: nowIso(0), now: nowIso(0) }],
+              [
+                "activity",
+                activityEvent(9, "turn_started", 10, { detail: { attempt: 2, reason: "retry" } }),
+              ],
+              ["assistant", { ...failed, status: "ok", content: "Here is the renewal draft." }],
+              ["done", {}],
+            ]);
+          },
+        ],
+        ...chatRoutes(),
+      ],
+    });
+    const { page } = view;
+    const retry = page.getByRole("button", { name: "Retry", exact: true });
+    await retry.waitFor();
+    await view.click(retry);
+    await page.getByText("Here is the renewal draft.").waitFor();
+    assert.ok(view.writes.some((w) => w.path.endsWith("/messages/a-fail/retry")));
+    assert.equal(
+      view.writes.filter((w) => w.path.endsWith("/messages")).length,
+      0,
+      "a retry is not a new message",
+    );
+    assert.equal(await retry.count(), 0, "a reply that worked has nothing to retry");
     assert.equal(view.clicks(), 1);
     await page.close();
   },

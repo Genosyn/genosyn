@@ -106,3 +106,69 @@ export function createChatTurnProgressRecorder(options: {
     flush: () => pending,
   };
 }
+
+/**
+ * Saves a working reply's text so far, at most once per interval.
+ *
+ * The text streams token by token to the browser that sent the message; a
+ * browser that attaches later, and a stop that lands on another replica's
+ * turn, can only read what was saved. A leading write after a quiet interval
+ * and one trailing write for the newest text keep the saved copy within an
+ * interval of the screen without a write per token. Every write is
+ * conditional on the row still being this worker's `working` turn, so a late
+ * one can never overwrite the final reply.
+ */
+export function createReplyTextSnapshotter(options: {
+  repository: ProgressMessageRepository;
+  messageId: string;
+  workerId: string;
+  intervalMs: number;
+  onPersistenceError?: (error: unknown) => void;
+}) {
+  let latest: string | null = null;
+  let written = "";
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastWriteAt = 0;
+  let pending = Promise.resolve();
+  let cancelled = false;
+
+  const write = () => {
+    timer = null;
+    if (cancelled || latest === null || latest === written) return;
+    const text = latest;
+    written = text;
+    lastWriteAt = Date.now();
+    pending = pending
+      .then(async () => {
+        await options.repository.update(
+          { id: options.messageId, status: "working", turnWorkerId: options.workerId },
+          { content: text },
+        );
+      })
+      .catch((error) => {
+        try {
+          options.onPersistenceError?.(error);
+        } catch {
+          // Diagnostics never fail the turn.
+        }
+      });
+  };
+
+  return {
+    report(text: string): void {
+      if (cancelled) return;
+      latest = text;
+      if (timer) return;
+      const wait = Math.max(0, options.intervalMs - (Date.now() - lastWriteAt));
+      timer = setTimeout(write, wait);
+      timer.unref?.();
+    },
+    /** Wait for the write already started; a newer one still waiting is left to `cancel`. */
+    flush: () => pending,
+    cancel(): void {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}

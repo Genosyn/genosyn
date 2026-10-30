@@ -418,6 +418,20 @@ export function Banking() {
         has to approve what it did.
       </P>
       <P>
+        It reaches every transaction, not just the newest: the list it reads comes a page at a time
+        with a total and a cursor to the next page, and it can narrow it by date, account, money in
+        or out, amount, words in the description such as a merchant&apos;s name, or the category a
+        transaction is filed under. When the category a transaction belongs in is missing from the
+        chart of accounts, an employee with <Strong>Full accounting</Strong> adds it and files the
+        transaction instead of waiting on you.
+      </P>
+      <P>
+        Scripts and the{" "}
+        <DocLink to="/docs/api">API</DocLink> read the same list from{" "}
+        <Code>GET /api/companies/:cid/banking/transactions</Code>: the same filters, the same pages,
+        and cursors that carry over between the two.
+      </P>
+      <P>
         Reading takes <Strong>Read only</Strong>; marking invoices paid from a deposit takes{" "}
         <Strong>Invoicing</Strong>; everything else takes <Strong>Full accounting</Strong>. Each
         change follows the rules your own clicks do — a closed period refuses it, a transaction

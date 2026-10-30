@@ -227,7 +227,7 @@ async function fireWakeup(
     // journal hears nothing, because nothing happened.
     await repo.update(
       { id: wakeup.id, status: "fired" },
-      { status: "pending", firedAt: null, outcomeNote: null },
+      { status: "pending", firedAt: null, outcomeNote: "" },
     );
     return;
   }

@@ -104,6 +104,7 @@ export async function listDealHistory(
   const rows = await qb
     .orderBy("event.occurredAt", "ASC")
     .addOrderBy("event.createdAt", "ASC")
+    .addOrderBy("event.id", "ASC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 100, 1), 500))
     .getMany();

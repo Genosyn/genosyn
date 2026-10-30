@@ -128,7 +128,9 @@ export function Tasks() {
         subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
         returns the projects an employee can reach, and the writes require{" "}
-        <Strong>&quot;Can edit&quot;</Strong>. An employee can hand a todo to a person as well as
+        <Strong>&quot;Can edit&quot;</Strong>. <Code>list_todos</Code> reads a project a page at a
+        time in the board&apos;s order, with description previews (<Code>get_todo</Code> reads one in
+        full), and narrows to open work or to the employee&apos;s own Todos. An employee can hand a todo to a person as well as
         to a teammate — <Code>list_members</Code> gives it each Member&apos;s user id — and that
         person must be able to open the project. When an employee
         creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to

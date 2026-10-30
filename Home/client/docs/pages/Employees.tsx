@@ -258,67 +258,14 @@ export function Employees() {
       </P>
       <UL>
         <LI>
-          <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
-          pills surface tool calls inline. Opening a chat or switching threads puts the cursor in
-          the message box, after any draft already there, so you can start typing straight away (on
-          a phone or tablet the box waits for a tap, so the keyboard does not cover the thread).
-          Type <Code>/new</Code> to open a fresh context, or{" "}
-          <Code>#</Code> and a name to tag a product area or any company resource you can see. Use
-          <Code>@</Code> for people and AI Employees; <Code>#</Code> tells the employee what product
-          or record to work on, and you can add several tags to one instruction. Attach files with
-          the paperclip, or paste a screenshot and drag files onto the composer. When the employee
-          creates a file for you, it appears beneath their reply; select the attachment chip to
-          download it. During substantial multi-step work, the employee can replace the typing dots
-          with a live activity card and update it at meaningful milestones. A new live turn keeps
-          the quiet typing indicator until the employee reports real progress; after that, the card
-          shows its current step and percentage. A restored turn stays indeterminate until its next
-          real milestone, and the card distinguishes live updates from saved updates or a
-          reconnecting browser. As soon as the reply begins, the progress card gives way to the
-          response. Long turns can run for up to six hours. If the live connection drops, you reload
-          the page, or the Genosyn server restarts, Genosyn follows the persisted turn automatically
-          instead of marking it failed. After a server restart, a short renewable database lease
-          lets one replacement worker resume the request safely from its saved context and latest
-          milestone; it checks current state before continuing so completed side effects are not
-          repeated. The final reply reappears in the same thread. You can keep writing while the
-          employee works — follow-ups queue and send in order within that thread, while your other
-          conversations with the same employee carry on answering in parallel. When the answer in
-          flight has stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on
-          the queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
-          puts down what it is doing so that message goes next. To stop without sending anything,
-          select the <Strong>Stop</Strong> button that replaces Send while a reply runs and the box
-          is empty; the cursor returns to the box for your correction. Either way, whatever it had
-          already written stays in the thread, marked <Strong>interrupted</Strong>, and the next
-          turn can see it. A
-          stop lands as soon as the step already running hands back, so a long tool call can take a
-          moment. Chat stays available while that employee&apos;s Routines run.
-          <br />
-          <br />
-          To change how hard the employee thinks before answering, pick a level in{" "}
-          <Strong>Effort</Strong> under the composer, beside the AI Model picker. It appears when
-          the selected model supports effort, lists only that model&apos;s levels, and the
-          conversation remembers it — see <DocLink to="/docs/models#effort">Effort</DocLink>.
-          <br />
-          <br />
-          Under the composer, next to the model picker, Genosyn shows{" "}
-          <Strong>how full the model&apos;s context window is</Strong> — the share of it the last
-          turn&apos;s prompt occupied. The number comes from the provider&apos;s own token count for
-          that turn, never a local estimate, and it updates as the employee works. Hover it for the
-          exact figures. Past 80% it turns amber: the runtime may need to compact history soon.
-          OpenCode manages that compaction for API-key and custom models. You can also finish the
-          conversation or type <Code>/new</Code> for a fresh context. If the AI Model has no known
-          context window the badge shows the token count alone and links to the active
-          model&apos;s card with its <Strong>Advanced</Strong> section open, where the window is
-          set, because there is no ceiling to measure against — see{" "}
-          <DocLink to="/docs/models#context-window">AI Models</DocLink>.
-          <br />
-          <br />
-          An employee can inspect its current turn with <Code>get_runtime_diagnostics</Code>:
-          the active runtime, latest measured context usage, configured step and command limits,
-          observed retries and compactions, and whether a named tool is registered or deferred.
-          Missing measurements stay unknown. Diagnostics expose no credentials or prompt content,
-          and a registered tool still checks current Grants when called. They are available through
-          tool discovery in ordinary conversations and Runs; confined work surfaces retain their
-          own tool sets.
+          <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist and
+          are private to you. While the employee works, a live card shows each step it takes —
+          every tool call with its argument, status and duration, its thinking when the AI Model
+          shares it, and what the turn is waiting on — with a <Strong>Stop</Strong> button; once the
+          reply lands, a <Strong>Worked for …</Strong> line keeps the same steps. Follow-ups queue
+          while it works, a failed reply offers <Strong>Retry</Strong>, and a reload or another tab
+          re-attaches to a reply still running. Chat stays available while that employee&apos;s
+          Routines run. See <DocLink to="/docs/chat">Chatting with an AI Employee</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → Soul.</Strong> The employee&apos;s constitution: who they are and how

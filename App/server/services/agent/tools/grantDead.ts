@@ -157,6 +157,8 @@ const MEETING_GATED_TOOLS = new Set([
 const FINANCE_TOOL_ACCESS: Record<string, FinanceAccessLevel> = {
   list_subsidiaries: "read",
   list_finance_accounts: "read",
+  create_finance_account: "full",
+  update_finance_account: "full",
   list_finance_transactions: "read",
   get_finance_transaction: "read",
   review_finance_transaction: "full",

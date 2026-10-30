@@ -130,6 +130,7 @@ export async function listContacts(
     .orderBy("nulls_last", "ASC")
     .addOrderBy("c.lastActivityAt", "DESC")
     .addOrderBy("c.createdAt", "DESC")
+    .addOrderBy("c.id", "DESC")
     .skip(offset)
     .take(limit)
     .getMany();

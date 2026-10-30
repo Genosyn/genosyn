@@ -11,6 +11,8 @@ import {
   recurringInvoicePatchSchema,
 } from "../routes/finance.js";
 import { subsidiaryWriteSchema } from "../routes/subsidiaries.js";
+import { bankingQueueQuerySchema } from "../services/bankingQueue.js";
+import { ledgerReviewQuerySchema } from "../services/transactionReviews.js";
 import { withIndefiniteArticle } from "../../shared/indefiniteArticle.js";
 import { defaultSecurity, registry } from "./registry.js";
 
@@ -328,7 +330,7 @@ registry.registerPath({
   path: "/api/companies/{cid}/invoices",
   summary: "List invoices",
   description:
-    "Requires Read Finance access. Newest first, without line items or payments; fetch one invoice by slug for those. Filter by status, customerId, or recurringInvoiceId for the invoices one recurring invoice schedule created. Archived invoices are left out unless archived=true, which includes them alongside the rest.",
+    "Requires Read Finance access. Newest first, without line items or payments; fetch one invoice by slug for those. Filter by status, customerId, recurringInvoiceId for the invoices one recurring invoice schedule created, issue date (from/to) or due date (dueFrom/dueTo); a YYYY-MM-DD bound is a whole UTC calendar day. Archived invoices are left out unless archived=true, which includes them alongside the rest. Without limit or cursor the answer is every matching invoice as a plain array. With either it is one page — the list the list_invoices AI tool reads: up to limit invoices (default 50, at most 100), total, hasMore, and nextCursor to send back as cursor with the same filters.",
   tags: ["Finance"],
   security: defaultSecurity,
   request: {
@@ -345,12 +347,41 @@ registry.registerPath({
         .enum(["true", "false"])
         .optional()
         .describe("true includes archived invoices alongside the rest."),
+      from: z.string().optional().describe("Issued on or after: YYYY-MM-DD or an ISO timestamp."),
+      to: z.string().optional().describe("Issued on or before; YYYY-MM-DD includes the whole day."),
+      dueFrom: z.string().optional().describe("Due on or after."),
+      dueTo: z.string().optional().describe("Due on or before; YYYY-MM-DD includes the whole day."),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe("Asks for one page of this many (at most 100; more is cut to 100)."),
+      cursor: z
+        .string()
+        .optional()
+        .describe("nextCursor from the previous page, with exactly the same filters."),
     }),
   },
   responses: {
     200: {
-      description: "Invoices, newest first",
-      content: { "application/json": { schema: z.array(invoiceListItem) } },
+      description: "Every matching invoice, or one page of them when limit or cursor is sent",
+      content: {
+        "application/json": {
+          schema: z.union([
+            z.array(invoiceListItem),
+            z
+              .object({
+                total: z.number().int(),
+                hasMore: z.boolean(),
+                nextCursor: z.string().nullable(),
+                note: z.string().optional(),
+                invoices: z.array(invoiceListItem),
+              })
+              .openapi("FinanceInvoicePage"),
+          ]),
+        },
+      },
     },
     ...errors,
   },
@@ -723,5 +754,162 @@ registry.registerPath({
       content: { "application/json": { schema: recurringResponse } },
     },
     ...errors,
+  },
+});
+
+// ── Paged lists (`services/listPaging.ts`) ────────────────────────────────
+
+/** What every paged list answers beside its rows, ahead of them. */
+const pageInfo = {
+  total: z.number().int().describe("Rows the filters match, ignoring limit and cursor."),
+  hasMore: z.boolean().describe("More rows follow this page."),
+  nextCursor: z
+    .string()
+    .nullable()
+    .describe(
+      "Send as cursor, with exactly the same filters, for the next page. Null on the last page.",
+    ),
+  note: z
+    .string()
+    .optional()
+    .describe("While more rows follow: how many this page holds and how to read on."),
+};
+
+/** The 400 and 404 a paged list answers with, beside the usual errors. */
+const pageErrors = {
+  ...errors,
+  400: {
+    description:
+      "A filter that cannot be read (a date, or a range that ends before it starts), or a cursor that is garbled, from another list, or issued for other filters",
+    content: { "application/json": { schema: errorResponse } },
+  },
+  404: {
+    description: "A filter names a record this company does not have",
+    content: { "application/json": { schema: errorResponse } },
+  },
+};
+
+const bankingTransactionRow = z
+  .object({
+    kind: z.enum(["bank", "card"]),
+    id: z.string().uuid(),
+    date: z.string().datetime(),
+    amountCents: z
+      .number()
+      .int()
+      .describe("Signed from the company's side: money in positive, money out negative."),
+    currency: z.string(),
+    description: z.string(),
+    reference: z.string().describe("The bank's reference; empty for card purchases."),
+    account: z.object({ feedId: z.string().uuid(), name: z.string() }),
+    status: z.enum(["review", "done"]),
+    category: z
+      .object({ accountId: z.string().uuid(), code: z.string(), name: z.string() })
+      .nullable()
+      .describe("The chart-of-accounts account it is filed under; null when it has none yet."),
+    payments: z
+      .array(
+        z.object({
+          invoiceNumber: z.string(),
+          invoiceSlug: z.string(),
+          customerName: z.string(),
+          amountCents: z.number().int(),
+        }),
+      )
+      .optional()
+      .describe("Bank lines: the invoice payments a deposit paid."),
+    matchedEntry: z
+      .object({ entryId: z.string().uuid(), memo: z.string(), source: z.string() })
+      .optional()
+      .describe("Bank lines: the posted entry it matched, when that is not a Banking category."),
+    cardKind: z.enum(["expense", "refund", "payment"]).optional(),
+    postingError: z.string().optional().describe("Card purchases: why posting it failed."),
+  })
+  .openapi("BankingTransaction");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/banking/transactions",
+  summary: "List Banking transactions",
+  description:
+    "Requires Read Finance access. Bank lines and card purchases in one list, newest first (a bank line before a card purchase at the same instant, then by id): the list the list_banking_transactions AI tool reads. status defaults to review, the To review queue. Every transaction is reachable: a page holds up to limit rows (default 50, at most 200), total counts every match, and while hasMore is true sending nextCursor back as cursor with the same filters reads the next page. A cursor is a keyset position, so filing transactions between pages never skips any. Dates are UTC calendar days, as Banking shows them.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: { params: companyParams, query: bankingQueueQuerySchema },
+  responses: {
+    200: {
+      description: "One page of transactions",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ ...pageInfo, transactions: z.array(bankingTransactionRow) })
+            .openapi("BankingTransactionPage"),
+        },
+      },
+    },
+    ...pageErrors,
+  },
+});
+
+const ledgerLine = z
+  .object({
+    id: z.string().uuid(),
+    ledgerEntryId: z.string().uuid(),
+    accountId: z.string().uuid(),
+    debitCents: z.number().int(),
+    creditCents: z.number().int(),
+    description: z.string(),
+    sortOrder: z.number().int(),
+  })
+  .passthrough();
+
+const reviewedLedgerEntry = z
+  .object({
+    id: z.string().uuid(),
+    companyId: z.string().uuid(),
+    date: z.string().datetime(),
+    memo: z.string(),
+    source: z.string().describe("What posted it: manual, bank_categorization, brex_card_expense, …"),
+    sourceRefId: z.string().nullable(),
+    reviewStatus: z.enum(["unreviewed", "ai_reviewed", "approved"]),
+    lines: z.array(ledgerLine),
+    totalCents: z.number().int().describe("The entry's debits."),
+    reviewChanges: z.array(
+      z.object({
+        lineId: z.string().uuid(),
+        fromAccountId: z.string().uuid(),
+        toAccountId: z.string().uuid(),
+      }),
+    ),
+    categoryLock: z
+      .enum(["card", "bank", "reversal", "reversed"])
+      .nullable()
+      .describe("Why Entry review cannot change its categories, or null when it can."),
+    createdAt: z.string().datetime(),
+  })
+  .passthrough()
+  .openapi("ReviewedLedgerEntry");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/finance/transactions",
+  summary: "List journal entries for review",
+  description:
+    "Requires Read Finance access. Entry review's journal with every debit and credit line, newest first (then by id): the list the list_finance_transactions AI tool reads. Every entry is reachable: a page holds up to limit entries (default 50, at most 200), total counts every match, and while hasMore is true sending nextCursor back as cursor with the same filters reads the next page. A cursor is a keyset position, so approving entries between pages never skips any. GET /ledger-entries still answers a plain array of at most 500 for the Finance pages.",
+  tags: ["Finance"],
+  security: defaultSecurity,
+  request: { params: companyParams, query: ledgerReviewQuerySchema },
+  responses: {
+    200: {
+      description: "One page of journal entries",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ ...pageInfo, transactions: z.array(reviewedLedgerEntry) })
+            .openapi("ReviewedLedgerEntryPage"),
+        },
+      },
+    },
+    ...pageErrors,
   },
 });

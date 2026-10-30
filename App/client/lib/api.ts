@@ -5,6 +5,8 @@ import type { RoutinePriority } from "../../shared/routinePriority";
 import { dayOf, documentDay } from "../../shared/documentDays";
 export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
+import type { TurnActivitySummary } from "../../shared/chatActivity";
+export type { ChatActivityEvent, TurnActivitySummary } from "../../shared/chatActivity";
 
 /**
  * A refused API request: the sentence to show, plus the status and the JSON
@@ -84,14 +86,33 @@ export async function streamPost(
   onEvent: (event: string, data: unknown) => void,
   opts: { signal?: AbortSignal } = {},
 ): Promise<void> {
+  return streamRequest("POST", url, body, onEvent, opts);
+}
+
+/** The same server-sent event reader over a GET, for streams a page re-attaches to. */
+export async function streamGet(
+  url: string,
+  onEvent: (event: string, data: unknown) => void,
+  opts: { signal?: AbortSignal } = {},
+): Promise<void> {
+  return streamRequest("GET", url, undefined, onEvent, opts);
+}
+
+async function streamRequest(
+  method: "GET" | "POST",
+  url: string,
+  body: unknown,
+  onEvent: (event: string, data: unknown) => void,
+  opts: { signal?: AbortSignal },
+): Promise<void> {
   const res = await fetch(url, {
-    method: "POST",
+    method,
     credentials: "same-origin",
-    headers: {
-      "content-type": "application/json",
-      accept: "text/event-stream",
-    },
-    body: JSON.stringify(body),
+    headers:
+      method === "POST"
+        ? { "content-type": "application/json", accept: "text/event-stream" }
+        : { accept: "text/event-stream" },
+    body: method === "POST" ? JSON.stringify(body) : undefined,
     signal: opts.signal,
   });
   if (!res.ok) {
@@ -161,6 +182,7 @@ export const api = {
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
   stream: streamPost,
+  streamGet,
   /** Multipart upload of a single file under field name `file`, with
    *  optional extra text fields appended to the same form (e.g. a title or
    *  customer id alongside a contract). */
@@ -1506,10 +1528,22 @@ export type ConversationMessage = {
   status: ConversationMessageStatus | null;
   progress?: ChatProgress | null;
   context?: ChatContextUsage | null;
+  /** How the turn behind this reply went: "Worked for 2m 14s · 9 steps". */
+  activity?: TurnActivitySummary | null;
   actions?: MessageAction[];
   attachments?: ChatAttachment[];
   createdAt: string;
   updatedAt?: string;
+  /**
+   * Browser-only: a message that never reached the server, kept so its error
+   * bubble can offer to send it again.
+   */
+  retry?: {
+    content: string;
+    attachments: ChatAttachment[];
+    modelId: string | null;
+    effort: ModelEffort | null;
+  };
 };
 export type ConversationDetail = {
   conversation: ConversationSummary;

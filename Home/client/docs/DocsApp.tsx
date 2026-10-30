@@ -30,6 +30,7 @@ import { Sequences } from "@/docs/pages/Sequences";
 import { Signals } from "@/docs/pages/Signals";
 import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
+import { Chat } from "@/docs/pages/Chat";
 import { AskAi } from "@/docs/pages/AskAi";
 import { ChatSurfaces } from "@/docs/pages/ChatSurfaces";
 import { CustomerChannels } from "@/docs/pages/CustomerChannels";
@@ -105,6 +106,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/signals": Signals,
   "/docs/deliverability": Deliverability,
   "/docs/workspace-chat": WorkspaceChat,
+  "/docs/chat": Chat,
   "/docs/chat-surfaces": ChatSurfaces,
   "/docs/customer-channels": CustomerChannels,
   "/docs/phone-numbers": PhoneNumbers,
