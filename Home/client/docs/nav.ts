@@ -61,6 +61,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Persistent personas attached to a company.",
       },
       {
+        path: "/docs/chat",
+        title: "Chatting with an AI Employee",
+        blurb:
+          "Watch each step live, see what a turn is waiting on, stop or queue, retry a failed reply, and read how every reply was worked.",
+      },
+      {
         path: "/docs/collaboration",
         title: "AI Employees working together",
         blurb:
