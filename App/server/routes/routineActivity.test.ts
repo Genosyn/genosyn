@@ -41,6 +41,7 @@ type QueuedBody = RunBody & {
   queuedAt: string;
   pauseCount: number;
   pausedAt: string | null;
+  pauseReason: "upgrade" | "restart" | "outage" | null;
   priority: "normal" | "high";
   position: number | null;
 };
@@ -377,6 +378,8 @@ test("summaries contain only safe metadata and preserve independent outcome and 
     finishedAt: null,
     pauseCount: 1,
     pausedAt: at(10),
+    pauseReason: "outage",
+    outagePauses: 1,
     checkpointJson: "private checkpoint",
   });
   const { body } = await call();
@@ -403,8 +406,10 @@ test("summaries contain only safe metadata and preserve independent outcome and 
   assert.deepEqual(Object.keys(body.today[0].latestRun).sort(), fields);
   assert.deepEqual(
     Object.keys(body.queued[0]).sort(),
-    [...fields, "queuedAt", "pauseCount", "pausedAt", "priority", "position"].sort(),
+    [...fields, "queuedAt", "pauseCount", "pausedAt", "pauseReason", "priority", "position"].sort(),
   );
+  // Why a waiting Run paused is safe to show; how many outage pauses it took is not needed.
+  assert.equal(body.queued[0].pauseReason, "outage");
   assert.equal(body.running[0].hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.hasUnfinishedWork, false);
   assert.equal(body.today[0].latestRun.outcomeVerdict, "unverified");

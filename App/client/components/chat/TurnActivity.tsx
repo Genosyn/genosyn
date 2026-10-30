@@ -733,6 +733,10 @@ function waitRowLabel(cause: string, label: string, running: boolean): string {
       return running ? "Retrying the AI Model" : "Retried the AI Model";
     case "model_outage":
       return running ? "Waiting for the AI Model's server" : "Waited for the AI Model's server";
+    case "model_unavailable":
+      return running
+        ? "Waiting for the AI Model to come back"
+        : "Waited for the AI Model to come back";
     default:
       return label;
   }
@@ -746,6 +750,8 @@ function noteLabel(step: Extract<ActivityStep, { kind: "note" }>): string {
       return "The server restarted mid-turn — resumed from where it was";
     case "retry":
       return "Started again";
+    case "model_back":
+      return "The AI Model is back — started again";
     case "retry_requested":
       return "Retry requested";
     default:

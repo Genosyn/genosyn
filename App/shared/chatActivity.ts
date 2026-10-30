@@ -97,17 +97,34 @@ export type TurnFinishedDetail = TurnActivitySummary;
  *                     time, across every AI Employee that uses it.
  *   - `model_retry`   the AI Model's service failed and the request is being
  *                     retried after a backoff.
- *   - `model_outage`  a self-hosted AI Model stopped answering.
+ *   - `model_outage`  a self-hosted AI Model stopped answering, and the
+ *                     turn's request is being held until it answers again.
+ *   - `model_unavailable` the turn's AI Model is unavailable — its service is
+ *                     down, failing, overloaded or rate-limited — so the
+ *                     message waits, unclaimed, and is answered automatically
+ *                     when the model is back (`server/services/modelAvailability.ts`).
  *
  * A turn resumed after a server restart is not a wait: its `turn_started`
- * event says so (`reason: "resume"`).
+ * event says so (`reason: "resume"`), as it says when a turn an AI Model
+ * outage cut short starts again (`reason: "model_back"`).
  */
 export const KNOWN_WAIT_CAUSES = [
   "thread_busy",
   "model_lock",
   "model_retry",
   "model_outage",
+  "model_unavailable",
 ] as const;
+
+/** The waiting cause of a message whose AI Model is unavailable. */
+export const MODEL_UNAVAILABLE_WAIT_CAUSE = "model_unavailable";
+
+/**
+ * What the chat says while a message waits for its unavailable AI Model. The
+ * server records it with the wait; the chat shows the server's words.
+ */
+export const MODEL_UNAVAILABLE_WAIT_LABEL =
+  "The AI Model is unavailable — this will be answered when it is back";
 
 /**
  * What a finished turn says when collapsed: "Worked for 2m 14s · 9 steps".

@@ -5,6 +5,13 @@ import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { sessionApiKey } from "../agent/apiKeyRing.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { getActiveModel } from "../models.js";
+import { isModelAvailable, recordModelFailure } from "../modelAvailability.js";
+import {
+  classifyModelError,
+  classifyModelResponse,
+  classifyModelTransportError,
+  markModelUnavailable,
+} from "../agent/modelOutage.js";
 import { getMeetingsSettings } from "../runtimeSettings.js";
 import { extensionForMime, readRecording } from "./storage.js";
 import { replaceTranscript } from "./store.js";
@@ -190,13 +197,19 @@ export async function transcribeAudio(args: {
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error("Transcription timed out after 10 minutes.");
     }
-    throw err;
+    // The AI Model's service could not be reached: the transcript waits for it.
+    const outage = classifyModelTransportError(err);
+    throw outage ? markModelUnavailable(err, outage) : err;
   } finally {
     clearTimeout(timer);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    const outage = classifyModelResponse({ status: res.status, body, headers: res.headers });
+    if (outage) {
+      throw markModelUnavailable(new Error(`Transcription failed: ${outage.detail}`), outage);
+    }
     // A server that only serves chat — vLLM or Ollama running one LLM — has no
     // audio route, and its bare `Not Found` told nobody what to change.
     if (res.status === 404) {
@@ -219,7 +232,7 @@ export async function transcribeAudio(args: {
 export async function transcribeMeeting(
   companyId: string,
   meetingId: string,
-): Promise<{ segments: number } | { error: string }> {
+): Promise<{ segments: number } | { error: string } | { deferred: string }> {
   const repo = AppDataSource.getRepository(Meeting);
   const meeting = await repo.findOneBy({ id: meetingId, companyId });
   if (!meeting) return { error: "Meeting not found." };
@@ -228,6 +241,12 @@ export async function transcribeMeeting(
     return { error: "Assign an AI Employee to this meeting before transcribing it." };
   }
 
+  // Its AI Model is unavailable: the recording waits, untouched, rather than
+  // being uploaded to a service that is down or recorded as a failure.
+  const notetakerModel = await getActiveModel(meeting.notetakerEmployeeId).catch(() => null);
+  if (notetakerModel && !isModelAvailable(notetakerModel)) {
+    return { deferred: "Waiting for the AI Model to come back before transcribing." };
+  }
   const resolved = await resolveTranscriptionTarget(meeting.notetakerEmployeeId);
   if ("error" in resolved) {
     await repo.update(
@@ -261,6 +280,16 @@ export async function transcribeMeeting(
     const written = await replaceTranscript({ companyId, meetingId, segments });
     return { segments: written };
   } catch (err) {
+    const outage = classifyModelError(err);
+    if (outage) {
+      // Not a failed transcript: it runs again once the model answers.
+      if (notetakerModel) recordModelFailure(notetakerModel, outage);
+      await repo.update(
+        { id: meetingId },
+        { transcriptState: "queued", transcriptError: outage.detail },
+      );
+      return { deferred: `${outage.detail} The transcript waits for it.` };
+    }
     const error = err instanceof Error ? err.message : String(err);
     await repo.update({ id: meetingId }, { transcriptState: "failed", transcriptError: error });
     return { error };

@@ -144,6 +144,9 @@ export function SelfHosting() {
                 humanized input, how long Routine recordings are kept),{" "}
                 <Strong>Agent</Strong> (taint policy, member browsers, tool
                 discovery), <Strong>Containment</Strong> (the re-grade sweep),{" "}
+                <Strong>Unavailable AI Models</Strong> (how many failures in a row mark a model{" "}
+                <DocLink to="/docs/models#unavailable">unavailable</DocLink>, how soon and how often
+                it is checked, and how far apart waiting Runs start once it is back),{" "}
                 <Strong>Email verification</Strong> (the in-house email finder and verifier: on/off,
                 whether it confirms mailboxes over SMTP, and the probe&apos;s sender, timeout and
                 pattern limit), and{" "}

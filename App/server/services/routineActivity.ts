@@ -36,11 +36,12 @@ export type RoutineActivityRun = Pick<Run, (typeof runSummaryFields)[number]> & 
 };
 
 /**
- * A Run waiting to start. A Run paused for a restart waits here too, keeping
- * its pause so it reads as resuming rather than as new work.
+ * A Run waiting to start. A Run paused — for a restart, or while its AI Model
+ * was unavailable — waits here too, keeping its pause so it reads as resuming
+ * rather than as new work.
  */
 export type RoutineActivityQueuedRun = RoutineActivityRun &
-  Pick<Run, "pauseCount" | "pausedAt"> & {
+  Pick<Run, "pauseCount" | "pausedAt" | "pauseReason"> & {
     queuedAt: Date;
     /** Its Routine's priority, which the queue reads when it orders. */
     priority: RoutinePriority;
@@ -111,6 +112,7 @@ function queuedSummary(
     queuedAt: run.createdAt,
     pauseCount: run.pauseCount,
     pausedAt: run.pausedAt,
+    pauseReason: run.pauseReason ?? null,
     priority: line.priority,
     position: line.position,
   };
@@ -203,7 +205,13 @@ export async function getRoutineActivity({
   const queuedRows = new Map(
     (shown.length
       ? await companyRuns(companyId)
-          .select([...selectedFields, "run.createdAt", "run.pauseCount", "run.pausedAt"])
+          .select([
+            ...selectedFields,
+            "run.createdAt",
+            "run.pauseCount",
+            "run.pausedAt",
+            "run.pauseReason",
+          ])
           .andWhere("run.id IN (:...queuedIds)", { queuedIds: shown.map((run) => run.id) })
           .andWhere("run.status = :queued", { queued: "queued" })
           .getMany()

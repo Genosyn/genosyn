@@ -1,4 +1,5 @@
 import { type EntityManager, type FindOptionsSelect, In, LessThan, LessThanOrEqual } from "typeorm";
+import { classifyModelError } from "./agent/modelOutage.js";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -609,15 +610,21 @@ export async function updateBoardLetterSettings(
 // ─────────────────────────────── Writing ─────────────────────────────────
 
 async function settleFailed(letter: BoardLetter, error: unknown, now: Date): Promise<void> {
-  const message = errorText(error) || "The letter could not be written.";
+  // The writer's AI Model was unavailable: not the letter's fault, so the
+  // attempt is given back and a scheduled letter is tried again as usual.
+  const outage = classifyModelError(error);
+  const message = outage
+    ? `${outage.detail} The letter is written once it answers again.`
+    : errorText(error) || "The letter could not be written.";
   const retryable = !(error instanceof BoardLetterWriterUnavailableError);
+  const attemptsAfter = outage ? Math.max(0, letter.attempts - 1) : letter.attempts;
   const retryAt =
-    letter.triggerKind === "schedule" && retryable && letter.attempts < MAX_SCHEDULED_ATTEMPTS
+    letter.triggerKind === "schedule" && retryable && attemptsAfter < MAX_SCHEDULED_ATTEMPTS
       ? new Date(now.getTime() + RETRY_DELAY_MS)
       : null;
   const updated = await AppDataSource.getRepository(BoardLetter).update(
     { id: letter.id, status: "writing", attempts: letter.attempts },
-    { status: "failed", errorMessage: message, retryAt },
+    { status: "failed", errorMessage: message, retryAt, attempts: attemptsAfter },
   );
   if (updated.affected !== 1) return;
   const timeZone = await companyTimeZone(letter.companyId);

@@ -24,6 +24,13 @@ export type RunStatus =
 export type RunErrorKind = "runtime" | "timeout" | "interrupted";
 
 /**
+ * Why a Run was paused and put back in the queue as itself
+ * (`services/runPause.ts`): `upgrade` or `restart` when Genosyn restarted,
+ * `outage` while its AI Model was unavailable. A pause is never a Standdown.
+ */
+export type RunPauseReason = "upgrade" | "restart" | "outage";
+
+/**
  * How a completed Run measured against its Routine's acceptance criteria,
  * judged by a restricted zero-tool checker after the transcript was final.
  *
@@ -298,13 +305,36 @@ export class Run {
   @Column({ type: dateTimeColumnType, nullable: true })
   pausedAt!: Date | null;
 
-  /** How many restarts this Run has been paused for; bounds how often it resumes. */
+  /**
+   * How many times this Run has been paused, for a restart or while its AI
+   * Model was unavailable; bounds how often it resumes. Above zero on a
+   * `queued` Run, it is paused and waits to resume.
+   */
   @Column({ type: "integer", default: 0 })
   pauseCount!: number;
 
   /** The time-limit budget it had left when last paused, given back when it resumes. */
   @Column({ type: "integer", nullable: true })
   pauseRemainingMs!: number | null;
+
+  /**
+   * Why it was last paused: Genosyn restarting (`restart`, `upgrade`), or its
+   * AI Model being unavailable (`outage` — `services/modelAvailability.ts`).
+   * Null for a Run never paused, and for one paused before the reason was
+   * recorded, which was always a restart. Neither is a Standdown: nobody
+   * decided the work should stop.
+   */
+  @Column({ type: "varchar", nullable: true })
+  pauseReason!: RunPauseReason | null;
+
+  /**
+   * Of {@link pauseCount}, the pauses for an unavailable AI Model. Counted
+   * apart because they have their own bound: a model that keeps failing a Run
+   * after its checks pass is a different problem from a server that keeps
+   * restarting.
+   */
+  @Column({ type: "integer", default: 0 })
+  outagePauses!: number;
 
   @CreateDateColumn()
   createdAt!: Date;

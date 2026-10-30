@@ -68,6 +68,12 @@ export const RUNTIME_DEFAULTS: Readonly<RuntimeSettings> = {
     probeTimeoutMs: 7_000,
     maxCandidates: 12,
   },
+  modelAvailability: {
+    failureThreshold: 3,
+    firstCheckSeconds: 30,
+    maxCheckIntervalMinutes: 10,
+    resumeIntervalSeconds: 10,
+  },
 };
 
 /** Read a dotted path (`toolDiscovery.enabled`) out of a settings group. */

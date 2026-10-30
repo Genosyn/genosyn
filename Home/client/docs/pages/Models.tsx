@@ -277,10 +277,12 @@ export function Models() {
         resting, a new session opens on the one whose rest ends soonest. Anything else — a
         malformed or over-long request, an unknown model, the provider failing or overloaded, no
         answer at all — is not about the key, so it goes back unchanged, and OpenCode retries the
-        temporary ones itself. When every key is refused, the chat or Run reports the
-        provider&apos;s own error: the last key&apos;s, or an earlier key&apos;s rate limit, which
-        can still succeed once the limit resets. A Run&apos;s log says which key it opened on and
-        notes each switch, by preview.
+        temporary ones itself; a service that keeps failing makes the model{" "}
+        <a href="#unavailable">unavailable</a>. When every key is refused, the chat or Run reports
+        the provider&apos;s own error, the last key&apos;s or an earlier key&apos;s — except when
+        every key is only rate-limited: that is the service saying &quot;not now&quot;, so the
+        model is unavailable until the limit resets and its work waits instead of failing. A
+        Run&apos;s log says which key it opened on and notes each switch, by preview.
       </P>
       <P>
         Each key shows only a preview such as <Code>sk-…c123</Code>, with when it was last used,
@@ -508,6 +510,103 @@ export function Models() {
         too. See <DocLink to="/docs/open-source-models#busy-model">When the model is busy</DocLink>.
       </P>
 
+      <H2 id="unavailable">When an AI Model is unavailable</H2>
+      <P>
+        Now and then a model&apos;s service stops answering for a while: a hosted API has an
+        incident or is overloaded, the server on your own network restarts, or every one of the
+        model&apos;s keys is rate-limited. Genosyn then calls the model{" "}
+        <Strong>unavailable</Strong> and treats it as a wait, not as the work going wrong. Nothing
+        needs redoing, and nothing is counted against the AI Employee or the Routine:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Routine Runs</Strong> on the model don&apos;t start, and a Run that was working
+          pauses as the same Run, keeping its transcript, progress and the time it had left — see{" "}
+          <DocLink to="/docs/routines#paused-for-unavailable-model">
+            Paused while its AI Model was unavailable
+          </DocLink>
+          .
+        </LI>
+        <LI>
+          <Strong>A chat message</Strong> says{" "}
+          <Strong>The AI Model is unavailable — this will be answered when it is back</Strong> and
+          is answered then, with nothing to send again; <Strong>Stop</Strong> cancels it. See{" "}
+          <DocLink to="/docs/chat#model-unavailable">Chat</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Background work</Strong> waits as well, instead of recording a result the outage
+          made up: grading a Run against its acceptance criteria, an employee&apos;s Wakeups, TLDR
+          briefings and board letters, meeting write-ups, application screening, data-room answers
+          and Sequence drafts. A Run is never graded off goal or unverified because its model was
+          unavailable.
+        </LI>
+      </UL>
+      <P>
+        What makes a model unavailable: its service can&apos;t be reached (a refused connection,
+        an unknown host, a certificate that does not verify, no answer in time), it answers with a
+        server error (HTTP 5xx) or says it is overloaded (such as Anthropic&apos;s 529), or every
+        key is rate-limited (429) until a limit resets. One refused connection, unknown host or bad
+        certificate is enough; a server error, an overload or a timeout counts once three requests
+        in a row have failed with one (by default), or once a piece of work has run out of retries
+        on one. Any success resets the count. A key the service refuses — invalid, revoked, out of
+        credit or quota — is not an outage: the work moves to the model&apos;s{" "}
+        <a href="#api-keys">next key</a>, and when none works the chat or Run reports the error,
+        since waiting would not fix it. Neither is a request the model rejects, such as one longer
+        than its context window.
+      </P>
+      <P>
+        Every AI Employee the model is attached to shares its state, and so does every copy of it
+        that reaches the same custom endpoint. The state is kept in the database, so a restart
+        remembers it and every replica sees the same thing.
+      </P>
+
+      <H3 id="unavailable-checks">Checks, and coming back</H3>
+      <P>
+        While a model is unavailable, Genosyn asks it again with a cheap check, run on the server
+        with the model&apos;s own credentials: a reply a few tokens long for an Anthropic or OpenAI
+        key, the list of models for a custom endpoint, and the same small test as{" "}
+        <Strong>Test connection</Strong> for a ChatGPT sign-in. The first check comes 30 seconds
+        after the model became unavailable; each check that finds it still unavailable doubles the
+        wait, up to ten minutes, with a little jitter, and never sooner than a retry time the service
+        asked for (honoured up to an hour). One check per model runs at a time, across every
+        replica.
+      </P>
+      <P>
+        The model is available again as soon as a check — or any real work on it — succeeds, and
+        the work that waited carries on by itself. Paused Runs go first, with the time they had
+        left, then the Runs that were queued; for ten minutes they start ten seconds apart (by
+        default), so they don&apos;t all land at once on a model that has just come back. Waiting
+        chat messages are answered straight away.
+      </P>
+
+      <H3 id="unavailable-card">Seeing it, and Check now</H3>
+      <P>
+        An unavailable model&apos;s card says <Strong>Unavailable</Strong>, since when and why —{" "}
+        <em>Its service is overloaded</em>, <em>Genosyn can&apos;t reach it</em> — with the latest
+        failure in one line, what is waiting (<em>3 Runs and 1 chat message are waiting</em>), how
+        many checks found it still unavailable, and when the next one is. Owners and admins can select{" "}
+        <Strong>Check now</Strong> to ask it at once instead of waiting for the next check. A paused
+        Run says why in its status and its log, a waiting one says so in its AI Employee&apos;s
+        work queue on Home, and <DocLink to="/docs/routines#system-health">System Health</DocLink>{" "}
+        lists the model under <Strong>AI Models unavailable</Strong>.
+      </P>
+      <P>
+        Owners and admins get one notification when a check confirms the model is unavailable and
+        one when it is available again — never one per Run or message. A blip that clears before
+        the first check notifies nobody. A master admin can change when a model counts as
+        unavailable and how often it is checked at{" "}
+        <DocLink to="/docs/self-hosting#runtime-settings">
+          Admin → Runtime → Unavailable AI Models
+        </DocLink>
+        .
+      </P>
+      <P>
+        An unavailable model is not a <DocLink to="/docs/standdowns">Standdown</DocLink>: nobody
+        decided to stop the work, and it lifts itself. The two work together — a Standdown placed
+        meanwhile still holds the work it covers after the model is back, and lifting a Standdown
+        starts nothing on a model that is still unavailable.
+      </P>
+
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
         API-key and custom-endpoint models run through OpenCode; an OpenAI subscription model runs
@@ -671,8 +770,10 @@ export function Models() {
         <a href="#api-keys">API keys</a>. The Codex app-server manages subscription retries.
         Genosyn keeps the same Run while the runtime
         retries; cancelling work or reaching the Run deadline stops it. If the runtime cannot
-        complete a model request, the Run ends with <Strong>Error</Strong>. Retry timing and context
-        compaction belong to the selected runtime rather than a second Genosyn model loop.
+        complete a model request, the Run ends with <Strong>Error</Strong> — unless the model is{" "}
+        <a href="#unavailable">unavailable</a>, when the Run pauses and a chat message waits until
+        it is back. Retry timing and context compaction belong to the selected runtime rather than
+        a second Genosyn model loop.
       </P>
       <P>
         If Genosyn loses the response connection while OpenCode is still working, it reconnects to

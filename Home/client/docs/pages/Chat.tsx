@@ -114,8 +114,10 @@ export function Chat() {
                 <Strong>Waiting for the previous reply</Strong> (the employee answers one message at
                 a time in each conversation), <Strong>Waiting for the AI Model</Strong> (a ChatGPT
                 subscription model answers one turn at a time across every AI Employee that uses
-                it), <Strong>Retrying the AI Model</Strong> with a countdown after a model error, or{" "}
-                <Strong>Waiting for the AI Model&apos;s server</Strong>.
+                it), <Strong>Retrying the AI Model</Strong> with a countdown after a model error,{" "}
+                <Strong>Waiting for the AI Model&apos;s server</Strong>, or{" "}
+                <Strong>The AI Model is unavailable — this will be answered when it is back</Strong>{" "}
+                (see <a href="#model-unavailable">below</a>).
               </>
             ),
           },
@@ -186,6 +188,24 @@ export function Chat() {
         already changed so it does not repeat it. Only the newest reply in a conversation can be
         retried, and not while another reply is running. A message that never reached Genosyn at
         all is simply sent again.
+      </P>
+
+      <H2 id="model-unavailable">When the AI Model is unavailable</H2>
+      <P>
+        If the employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is unavailable</DocLink>{" "}
+        — its service can&apos;t be reached, is failing or overloaded, or every key is rate-limited
+        — your message does not fail. The card says{" "}
+        <Strong>The AI Model is unavailable — this will be answered when it is back</Strong> and the
+        message waits in the conversation. Once a check finds the model answering again, the
+        employee answers it by itself; a reply the outage cut short starts again and first checks
+        what it already did. Nothing needs sending again, and you can close the page meanwhile.{" "}
+        <Strong>Stop</Strong> cancels the message instead, and follow-ups you send queue behind it
+        as usual.
+      </P>
+      <P>
+        A conversation that can&apos;t wait — a Slack thread, a Workspace channel — gets a plain
+        reply instead: the employee says its AI Model is unavailable and asks for the message again
+        in a little while, rather than showing the technical error.
       </P>
 
       <H2 id="reloads">Reloads, other tabs and restarts</H2>

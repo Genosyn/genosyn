@@ -1,4 +1,5 @@
 import slugify from "slugify";
+import { MODEL_UNAVAILABLE_REPLY } from "../../shared/modelAvailability.js";
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Channel, ChannelKind } from "../db/entities/Channel.js";
@@ -1563,7 +1564,10 @@ async function handleMentions(args: {
     await insertChannelMessage({
       channel: args.channel,
       author: { kind: "ai", employeeId: emp.id },
-      content: result.reply,
+      // An unavailable AI Model is said plainly, not as the error's
+      // technical detail — which the next turn would replay as its own words.
+      content:
+        result.status === "error" && result.unavailable ? MODEL_UNAVAILABLE_REPLY : result.reply,
       attachmentIds: result.attachmentIds,
       tainted: result.tainted === true,
       viewerUserId: args.trigger.kind === "user" ? args.trigger.userId : null,

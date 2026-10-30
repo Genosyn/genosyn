@@ -1,4 +1,4 @@
-import type { RunErrorKind, RunStatus, UsageBucket } from "@/lib/api";
+import type { RunErrorKind, RunPauseReason, RunStatus, UsageBucket } from "@/lib/api";
 
 /** Old timeout/interrupted rows remain readable as operational Errors. */
 export function isRunError(status: RunStatus | undefined): boolean {
@@ -25,10 +25,11 @@ export function runExplanationPrompt(status: RunStatus): string {
 }
 
 /**
- * A Run Genosyn paused to restart (an upgrade, a stop) waits in the queue with
- * its transcript and progress, and the same Run continues once Genosyn is back.
- * Its chip reads "resuming", never "paused": a Paused Routine is one switched
- * off, and the chip sits beside that Routine's Active / Paused toggle.
+ * A Run Genosyn paused — to restart (an upgrade, a stop), or while its AI
+ * Model was unavailable — waits in the queue with its transcript and progress,
+ * and the same Run continues once Genosyn or the model is back. Its chip reads
+ * "resuming", never "paused": a Paused Routine is one switched off, and the
+ * chip sits beside that Routine's Active / Paused toggle.
  */
 export function isRunPaused(run: { status: RunStatus; pauseCount?: number | null }): boolean {
   return run.status === "queued" && (run.pauseCount ?? 0) > 0;
@@ -39,11 +40,19 @@ export function runStatusLabel(status: RunStatus, paused = false): string {
   return isRunError(status) ? "error" : status;
 }
 
+/** Why a paused Run waits, in a phrase: "while its AI Model was unavailable". */
+export function runPauseWhy(pauseReason?: RunPauseReason | null): string {
+  return pauseReason === "outage" ? "while its AI Model was unavailable" : "while Genosyn restarted";
+}
+
 export function runStatusHint(
   status: RunStatus,
   errorKind?: RunErrorKind | null,
   paused = false,
+  pauseReason?: RunPauseReason | null,
 ): string | undefined {
+  if (status === "queued" && paused && pauseReason === "outage")
+    return "Paused while its AI Model was unavailable. It keeps its work so far and continues where it stopped once the AI Model answers again.";
   if (status === "queued" && paused)
     return "Paused while Genosyn restarted. It keeps its work so far and continues where it stopped as soon as it can start again.";
   if (status === "queued")

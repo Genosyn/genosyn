@@ -1,4 +1,5 @@
 import { In } from "typeorm";
+import { MODEL_UNAVAILABLE_REPLY } from "../../../shared/modelAvailability.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Conversation } from "../../db/entities/Conversation.js";
@@ -401,13 +402,19 @@ export async function handleInboundTurn(turn: InboundChatTurn): Promise<void> {
       }
     : { conversationId: conversation.id };
 
-  const result = await chatWithEmployee(
+  const answered = await chatWithEmployee(
     conn.companyId,
     responder.employeeId,
     frameTurn({ ...turn, text: responder.text }, requester, audience),
     replay,
     chatOptions,
   );
+  // An unavailable AI Model is said plainly: the technical error names the
+  // model and its endpoint, which is nothing to send to people outside.
+  const result =
+    answered.status === "error" && answered.unavailable
+      ? { ...answered, reply: MODEL_UNAVAILABLE_REPLY }
+      : answered;
 
   await msgRepo.save(
     msgRepo.create({

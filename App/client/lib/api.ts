@@ -1,6 +1,8 @@
 import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
+import type { PublicModelAvailability } from "../../shared/modelAvailability";
+export type { PublicModelAvailability } from "../../shared/modelAvailability";
 import type { RoutinePriority } from "../../shared/routinePriority";
 import { dayOf, documentDay } from "../../shared/documentDays";
 export type { EntryCategoryLock } from "../../shared/entryCategory";
@@ -1191,11 +1193,15 @@ export type Run = {
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
   tokensOut?: number;
-  /** When Genosyn last paused this Run to restart; null when it never was. */
+  /** When Genosyn last paused this Run; null when it never was. */
   pausedAt?: string | null;
-  /** How many restarts this Run was paused for. A queued Run with any is paused. */
+  /** How many times this Run was paused. A queued Run with any is paused. */
   pauseCount?: number;
+  /** Why it was last paused: a restart, or its AI Model being unavailable. */
+  pauseReason?: RunPauseReason | null;
 };
+/** Why a Run was paused: Genosyn restarting, or its AI Model unavailable (`outage`). */
+export type RunPauseReason = "upgrade" | "restart" | "outage";
 export type RunFollowUp = Pick<
   Run,
   | "id"
@@ -1285,10 +1291,12 @@ export type RunLog = {
   checkRemediations?: number;
   tokensIn?: number;
   tokensOut?: number;
-  /** When Genosyn last paused this Run to restart; null when it never was. */
+  /** When Genosyn last paused this Run; null when it never was. */
   pausedAt?: string | null;
-  /** How many restarts this Run was paused for. */
+  /** How many times this Run was paused. */
   pauseCount?: number;
+  /** Why it was last paused: a restart, or its AI Model being unavailable. */
+  pauseReason?: RunPauseReason | null;
   /** A verdict is still owed: the run completed and its check hasn't landed. */
   awaitingOutcome?: boolean;
   /**
@@ -1421,6 +1429,12 @@ export type AIModel = {
    * fills it in.
    */
   duplicateIds: string[];
+  /**
+   * Whether it is available right now, or unavailable — its service down,
+   * failing, overloaded or rate-limited — and what waits for it. Older
+   * servers leave it out.
+   */
+  availability?: PublicModelAvailability;
 };
 export type FinanceAccess = "none" | "read" | "full";
 
@@ -3829,7 +3843,11 @@ export type NotificationKind =
   /** A guest opened a data room for the first time. */
   | "data_room_visit"
   /** A group discussion the recipient started handed back its outcome. */
-  | "group_discussion";
+  | "group_discussion"
+  /** An AI Model became unavailable; the work on it waits. */
+  | "model_unavailable"
+  /** An AI Model that was unavailable answers again. */
+  | "model_available";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -3850,7 +3868,8 @@ export type NotificationEntityKind =
   | "initiative"
   | "board_letter"
   | "recruiting_application"
-  | "data_room";
+  | "data_room"
+  | "ai_model";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -4237,7 +4256,8 @@ export type RuntimeSettingsGroup =
   | "containment"
   | "network"
   | "banking"
-  | "emailVerification";
+  | "emailVerification"
+  | "modelAvailability";
 
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
@@ -4342,6 +4362,18 @@ export type RuntimeEmailVerificationSettings = {
   maxCandidates: number;
 };
 
+/** How an unavailable AI Model is waited out (`server/services/modelAvailability.ts`). */
+export type RuntimeModelAvailabilitySettings = {
+  /** Outage failures in a row that mark a model unavailable; one refused connection always does. */
+  failureThreshold: number;
+  /** Seconds before the first check once a model becomes unavailable. */
+  firstCheckSeconds: number;
+  /** The longest wait between checks, in minutes. */
+  maxCheckIntervalMinutes: number;
+  /** Seconds between the Runs a model starts once it is back; 0 starts them together. */
+  resumeIntervalSeconds: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -4353,6 +4385,7 @@ export type RuntimeSettings = {
   network: RuntimeNetworkSettings;
   banking: RuntimeBankingSettings;
   emailVerification: RuntimeEmailVerificationSettings;
+  modelAvailability: RuntimeModelAvailabilitySettings;
 };
 
 export type RuntimeSettingsSnapshot = RuntimeSettings & {

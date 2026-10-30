@@ -30,10 +30,15 @@ import {
   revertUnstartedContinuation,
 } from "./runContinuation.js";
 import { activeRunPause, resumeBudgetMs } from "./runPause.js";
-import { modelAnswersForQueue, suspectModelOutage } from "./modelAvailability.js";
+import {
+  availabilityKey,
+  keyWorkGate,
+  noteKeyWorkStarted,
+  onModelAvailabilityChange,
+  type ModelAvailabilityState,
+} from "./modelAvailability.js";
 import { routineQueueHeldUntil } from "./routineQueueHold.js";
 import { claimedRuns, queuedRunsInStartOrder } from "./routineQueueOrder.js";
-import { isModelServiceUnavailable } from "./agent/modelError.js";
 import {
   modelRunCapacity,
   modelRunSlotsInUse,
@@ -100,8 +105,12 @@ export function registerQueuedRun(run: Run): Promise<Run> {
  * free slot, the Runs behind it on that model wait too, even if a slot frees
  * before the pass reaches them. That slot belongs to the Run ahead, and the
  * pass the freed slot asks for offers it to that Run first.
+ *
+ * `held` is the same for an AI Model that is unavailable, or that is back and
+ * still starting the Runs that waited one at a time: the Runs behind the first
+ * one that met it wait their turn (`services/modelAvailability.ts`).
  */
-type DispatchPass = { full: Set<string> };
+type DispatchPass = { full: Set<string>; held: Set<string> };
 
 /**
  * How long a pass waits for one Run's start to be decided before offering the
@@ -191,9 +200,30 @@ async function attemptRunStart(
     // because its deadline starts at the claim, waiting costs it nothing.
     const target = await queuedRunModel(runId);
     if (!canClaim()) return;
-    if (target && !(await modelAnswersForQueue(target.capacity.key, target.model))) {
-      await noteModelNotAnswering(runId, target);
-      return;
+    // An AI Model that is unavailable starts nothing: its Runs wait — paused
+    // ones keep their place at the front — and start once a check finds it
+    // answering. One that has just come back starts them one at a time. A
+    // Standdown is checked at the claim, so neither ever bypasses the other.
+    const availability = target
+      ? availabilityKey(target.model.companyId, target.capacity.key)
+      : null;
+    if (target && availability) {
+      if (pass.held.has(availability)) {
+        const behind = keyWorkGate(availability);
+        if (behind.gate === "unavailable") await noteModelUnavailable(runId, target, behind.state);
+        return;
+      }
+      const gate = keyWorkGate(availability);
+      if (gate.gate === "unavailable") {
+        pass.held.add(availability);
+        await noteModelUnavailable(runId, target, gate.state);
+        return;
+      }
+      if (gate.gate === "paced") {
+        pass.held.add(availability);
+        dispatchAgainAt(gate.at);
+        return;
+      }
     }
     const limited = target?.capacity.limit != null;
     // A Run ahead of this one in the queue already found this model full.
@@ -212,6 +242,8 @@ async function attemptRunStart(
       const next = await claimRun(runId, lease.assertHeld, canClaim);
       if (!next) return;
       started = true;
+      // While its model is recovering, the next Run on it waits its turn.
+      if (availability) noteKeyWorkStarted(availability);
       // The pass offers the next Run while this one works.
       admitted();
       // Each Run owns its lifecycle independently, including assessment and cleanup.
@@ -222,7 +254,6 @@ async function attemptRunStart(
       } finally {
         if (activeClaims.get(runId) === claim) activeClaims.delete(runId);
       }
-      if (target) await suspectOutageAfterModelFailure(runId, target);
     });
     if (!slot.admitted && target) {
       pass.full.add(target.capacity.key);
@@ -413,7 +444,7 @@ async function skipQueuedRun(run: Run, reason: string): Promise<void> {
           status: "error",
           errorKind: "interrupted",
           finishedAt: new Date(),
-          logContent: `${run.logContent ?? ""}\n[queue] Paused for a restart, this Run could not continue: ${reason}\n`,
+          logContent: `${run.logContent ?? ""}\n[queue] ${run.pauseReason === "outage" ? "Paused while its AI Model was unavailable" : "Paused for a restart"}, this Run could not continue: ${reason}\n`,
         }
       : {
           routineId: run.routineId,
@@ -596,7 +627,7 @@ async function dispatchPass(): Promise<void> {
     await settleWaiter(runId);
   }
   if (!canDispatch()) return;
-  const pass: DispatchPass = { full: new Set() };
+  const pass: DispatchPass = { full: new Set(), held: new Set() };
   for (const run of await queuedRunsInStartOrder()) {
     if (!canDispatch()) return;
     await requestRunDispatch(run.id, pass);
@@ -636,30 +667,28 @@ async function routineModelCapacity(
   return model ? { capacity: modelRunCapacity(model), label: model.model, model } : null;
 }
 
-/**
- * A Run on a self-hosted endpoint that failed with a model error may mean the
- * server is down; the queue then asks it before starting the next Run there.
- */
-async function suspectOutageAfterModelFailure(runId: string, target: QueuedRunModel) {
-  if (target.model.authMode !== "customEndpoint") return;
-  const run = await AppDataSource.getRepository(Run).findOne({
-    where: { id: runId },
-    select: { id: true, errorKind: true, diagnosticsJson: true },
-  });
-  if (run?.errorKind !== "runtime") return;
-  let failure: { category?: unknown; message?: unknown } | undefined;
-  try {
-    failure = (JSON.parse(run.diagnosticsJson ?? "null") as { failure?: typeof failure })?.failure;
-  } catch {
-    return;
-  }
-  if (
-    failure?.category === "model" &&
-    typeof failure.message === "string" &&
-    isModelServiceUnavailable(failure.message)
-  )
-    suspectModelOutage(target.capacity.key);
+/** When a model that is back may start its next waiting Run, offer the queue again. */
+let pacedDispatch: { at: number; timer: ReturnType<typeof setTimeout> } | null = null;
+
+function dispatchAgainAt(at: number): void {
+  if (pacedDispatch && pacedDispatch.at <= at) return;
+  if (pacedDispatch) clearTimeout(pacedDispatch.timer);
+  const timer = setTimeout(
+    () => {
+      pacedDispatch = null;
+      void dispatchQueuedRoutineRuns().catch(() => undefined);
+    },
+    Math.max(0, at - Date.now()) + 25,
+  );
+  timer.unref?.();
+  pacedDispatch = { at, timer };
 }
+
+// The moment an AI Model answers again, the Runs that waited for it start —
+// paused ones first — rather than at the next heartbeat.
+onModelAvailabilityChange((change) => {
+  if (change.available) void dispatchQueuedRoutineRuns().catch(() => undefined);
+});
 
 /**
  * Say why a queued Run has not started, in its log. Never over a Run paused
@@ -673,7 +702,7 @@ async function noteQueueWait(runId: string, values: { logContent: string }): Pro
   );
 }
 
-/** Say why a queued Run waits while its model server does not answer. */
+/** Say why a queued Run waits while an upgrade holds the queue. */
 async function noteHeldForUpgrade(runId: string): Promise<void> {
   await noteQueueWait(
     runId,
@@ -685,13 +714,18 @@ async function noteHeldForUpgrade(runId: string): Promise<void> {
   );
 }
 
-async function noteModelNotAnswering(runId: string, target: QueuedRunModel): Promise<void> {
+/** Say why a queued Run waits while its AI Model is unavailable. */
+async function noteModelUnavailable(
+  runId: string,
+  target: QueuedRunModel,
+  state: Extract<ModelAvailabilityState, { available: false }>,
+): Promise<void> {
   await noteQueueWait(
     runId,
     {
       logContent:
-        `[queue] Waiting for the AI Model ${target.label}: its server is not answering. ` +
-        `This Run starts once it does; waiting does not count against its time limit.\n`,
+        `[queue] Waiting for the AI Model ${target.label}: it is unavailable. ${state.detail} ` +
+        `This Run starts once it answers again; waiting does not count against its time limit.\n`,
     },
   );
 }

@@ -1,4 +1,5 @@
 import { In } from "typeorm";
+import { markModelUnavailable } from "../agent/modelOutage.js";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
@@ -80,7 +81,10 @@ async function authorWriteUp(args: {
     toolAuthority: "employee",
   });
   if (result.status !== "ok") {
-    throw new Error(result.reply || "The AI Employee could not write this meeting up.");
+    const error = new Error(result.reply || "The AI Employee could not write this meeting up.");
+    throw result.status === "error" && result.unavailable
+      ? markModelUnavailable(error, result.unavailable)
+      : error;
   }
   return parseWriteUp(result.reply);
 }

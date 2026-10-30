@@ -1,4 +1,5 @@
 import type { ModelEffort } from "../../shared/modelEffort.js";
+import type { PublicModelAvailability } from "../../shared/modelAvailability.js";
 import type { ModelThinking } from "../../shared/thinkingLevels.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { AIModelKeyHealth } from "../db/entities/AIModelKeyHealth.js";
@@ -9,6 +10,7 @@ import { publicApiKeys, type PublicApiKey } from "./modelApiKeys.js";
 import { modelEffortLevels, modelThinking } from "./modelEffort.js";
 import { keyRestingUntil, listKeyHealth } from "./modelKeyHealth.js";
 import { modelRunCapacity } from "./modelRunCapacity.js";
+import { publicModelAvailability } from "./modelOutageViews.js";
 import type { ModelUser } from "./models.js";
 import { PROVIDERS, isModelConnected } from "./providers.js";
 
@@ -100,6 +102,14 @@ export type PublicModel = {
    * fills it; elsewhere it is empty.
    */
   duplicateIds: string[];
+  /**
+   * Whether the model is available right now, or unavailable — its service
+   * down, failing, overloaded or rate-limited — with since when, why, when it
+   * is checked next and what waits for it (`services/modelAvailability.ts`).
+   * What waits is counted only where the caller asked (the company's AI
+   * Models page); elsewhere it reads zero.
+   */
+  availability: PublicModelAvailability;
 };
 
 function safeParseConfig(s: string): Record<string, unknown> {
@@ -124,6 +134,7 @@ export function toPublicModel(
     health?: readonly AIModelKeyHealth[];
     employees?: readonly ModelUser[];
     duplicateIds?: readonly string[];
+    availability?: PublicModelAvailability;
   } = {},
 ): PublicModel {
   const cfg = safeParseConfig(m.configJson);
@@ -173,6 +184,7 @@ export function toPublicModel(
     concurrencySource: capacity.source,
     employees: [...(options.employees ?? [])],
     duplicateIds: [...(options.duplicateIds ?? [])],
+    availability: options.availability ?? publicModelAvailability(m),
   };
 }
 

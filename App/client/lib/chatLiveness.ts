@@ -1,4 +1,8 @@
-import { formatElapsed, type ChatActivityEvent } from "../../shared/chatActivity";
+import {
+  formatElapsed,
+  MODEL_UNAVAILABLE_WAIT_LABEL,
+  type ChatActivityEvent,
+} from "../../shared/chatActivity";
 import { buildActivitySteps, type ActivityStep, type ToolStep } from "./chatActivity";
 
 /**
@@ -289,6 +293,14 @@ function describeWait(
       return {
         title: "Waiting for the AI Model's server",
         detail: "It stopped answering. The turn continues when it answers again.",
+        tone: "warning",
+      };
+    case "model_unavailable":
+      // The server's words lead, as for any wait it names; the chat adds that
+      // nothing needs resending and how to call it off.
+      return {
+        title: phase.label || MODEL_UNAVAILABLE_WAIT_LABEL,
+        detail: `Nothing to resend: ${employeeName} answers it as soon as the AI Model answers again. Stop it to cancel.`,
         tone: "warning",
       };
     default:

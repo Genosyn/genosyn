@@ -9,6 +9,7 @@ import { AppDataSource, initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { startRunPauseWatcher } from "./services/runPause.js";
+import { startModelAvailabilityWatcher } from "./services/modelAvailability.js";
 import { bootStanddowns } from "./services/standdowns.js";
 import { bootBackups } from "./services/backups.js";
 import { bootBackupVerification } from "./services/backupVerification.js";
@@ -128,6 +129,10 @@ async function main() {
   // Data rooms: the AI work a room queued — briefs, answers, reviews — picked
   // up where a previous process left it.
   bootDataRoomQueue();
+  // AI Models that were unavailable when the last process stopped stay so
+  // until a check finds them answering: loaded before the heartbeat's first
+  // pass, so the queue never starts the Runs waiting on one that is still down.
+  await startModelAvailabilityWatcher();
   await bootCron();
   // `genosyn upgrade` asks the running server to pause its Routine Runs before
   // it restarts. Started after boot recovery cleared any stale request.

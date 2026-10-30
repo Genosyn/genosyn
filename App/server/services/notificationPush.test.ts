@@ -25,6 +25,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   recruiting_strong_match: "push",
   data_room_question: "push",
   group_discussion: "push",
+  model_unavailable: "push",
   finance_review_ready: "bell",
   run_failed: "bell",
   run_off_goal: "bell",
@@ -37,6 +38,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   initiative_pending: "bell",
   recruiting_application: "bell",
   data_room_visit: "bell",
+  model_available: "bell",
 };
 
 test("pushes what needs a person now, and the events an owner hears at once", () => {

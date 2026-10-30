@@ -28,6 +28,8 @@ import { jsonBoundedString } from "../mail/promptBounds.js";
 import { getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { workBlocked } from "../standdowns.js";
+import { isModelAvailable } from "../modelAvailability.js";
+import { classifyModelError, markModelUnavailable } from "../agent/modelOutage.js";
 import { normalizeCriteria, parseAnswers, parseCriteria } from "./content.js";
 import { RecruitingNotFoundError, RecruitingValidationError } from "./errors.js";
 import { recordApplicationEvent } from "./events.js";
@@ -512,7 +514,10 @@ export async function runScreen(
   });
   // The first valid submission stands even if the turn errors afterwards.
   if (submission) return submission;
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    const error = new Error(result.error);
+    throw result.unavailable ? markModelUnavailable(error, result.unavailable) : error;
+  }
   throw new Error("The screener did not submit a scorecard.");
 }
 
@@ -609,7 +614,10 @@ export async function runCriteriaDraft(
     signal: args.signal,
   });
   if (drafted) return drafted;
-  if (result.status === "error") throw new Error(result.error);
+  if (result.status === "error") {
+    const error = new Error(result.error);
+    throw result.unavailable ? markModelUnavailable(error, result.unavailable) : error;
+  }
   throw new Error("No criteria were submitted.");
 }
 
@@ -618,7 +626,11 @@ export async function runCriteriaDraft(
 export type ScreenOutcome =
   | { outcome: "scored"; scorecard: RecruitingScorecard }
   /** Worth another try later: nothing is wrong with the setup. */
-  | { outcome: "retry"; cause: "standdown" | "model_busy" | "timeout" | "error"; detail: string }
+  | {
+      outcome: "retry";
+      cause: "standdown" | "model_unavailable" | "model_busy" | "timeout" | "error";
+      detail: string;
+    }
   /** A person must change something before a screen can succeed. */
   | { outcome: "failed"; cause: "no_screener" | "no_model" | "gone"; detail: string };
 
@@ -648,6 +660,15 @@ async function resolveModel(employee: AIEmployee): Promise<ModelResolution> {
         outcome: "retry",
         cause: "model_busy",
         detail: `${employee.name}'s ChatGPT subscription model was busy with another turn.`,
+      },
+    };
+  }
+  if (!isModelAvailable(model)) {
+    return {
+      failure: {
+        outcome: "retry",
+        cause: "model_unavailable",
+        detail: `${employee.name}'s AI Model is unavailable. The screen waits until it answers again.`,
       },
     };
   }
@@ -847,6 +868,16 @@ export async function screenApplication(
     });
     return { outcome: "scored", scorecard };
   } catch (error) {
+    const unavailable = classifyModelError(error);
+    if (unavailable) {
+      // Not the application's fault, nor the screener's: no attempt is spent
+      // and nothing is scored; the screen runs once the model answers again.
+      return {
+        outcome: "retry",
+        cause: "model_unavailable",
+        detail: `${unavailable.detail} The screen waits until it answers again.`,
+      };
+    }
     return {
       outcome: "retry",
       cause: error instanceof CriteriaDraftTimeout ? "timeout" : "error",

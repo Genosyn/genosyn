@@ -13,6 +13,9 @@ import { readRunCheckpoint } from "./runContinuation.js";
 import { anyRetryAt, isRetryDispatchClaimed } from "./runRecovery.js";
 import { claimedRuns, companyRunQueue } from "./routineQueueOrder.js";
 import { workBlocked } from "./standdowns.js";
+import { attachedModels } from "./models.js";
+import { modelAvailabilityState } from "./modelAvailability.js";
+import { unavailableReasonText } from "../../shared/modelAvailability.js";
 
 const QUEUE_PREVIEW_LIMIT = 100;
 
@@ -84,9 +87,27 @@ export async function getEmployeeWorkQueue(
 
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId },
-    select: { id: true, name: true, slug: true, priority: true },
+    select: { id: true, name: true, slug: true, priority: true, modelId: true },
   });
   const routineById = new Map(routines.map((routine) => [routine.id, routine]));
+  // Each Routine's AI Model, read as the queue will read it, and whether it is
+  // unavailable — its Runs then wait for it to come back.
+  const own = await attachedModels(employeeId);
+  const modelWait = (routine: Pick<Routine, "modelId">): string | null => {
+    const model =
+      (routine.modelId ? own.models.find((m) => m.id === routine.modelId) : undefined) ??
+      own.models.find((m) => m.id === own.activeId);
+    if (!model) return null;
+    let state;
+    try {
+      state = modelAvailabilityState(model);
+    } catch {
+      return null;
+    }
+    return state.available
+      ? null
+      : `Waiting for its AI Model to come back. ${unavailableReasonText(state.cause)}.`;
+  };
   // A Run counts as this employee's when its Routine is theirs now and the Run
   // is not one a reassigned Routine left behind with its previous owner.
   const isTheirs = (run: Pick<Run, "routineId" | "employeeId">) =>
@@ -183,7 +204,9 @@ export async function getEmployeeWorkQueue(
           ? run.retryAt.toISOString()
           : null,
       position: options.position ?? null,
-      blockedReason: stopped.blocked ? redactSensitiveText(`Stood down: ${stopped.reason}`) : null,
+      blockedReason: stopped.blocked
+        ? redactSensitiveText(`Stood down: ${stopped.reason}`)
+        : modelWait(routine),
     };
     return entry;
   }

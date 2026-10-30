@@ -45,6 +45,15 @@ import { emitResourceChange } from "./resourceEvents.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
 import { EmployeeWorkloadBusyError, releaseChatWorkloadLeaseByOwner } from "./workloadLeases.js";
+import { MODEL_WAIT_PROGRESS_LABEL } from "../../shared/modelAvailability.js";
+import { MODEL_UNAVAILABLE_WAIT_CAUSE } from "../../shared/chatActivity.js";
+import {
+  isModelAvailable,
+  modelAvailabilityState,
+  onModelAvailabilityChange,
+} from "./modelAvailability.js";
+import { modelWaitingChatTurns } from "./modelOutageViews.js";
+import { resolveChatModel } from "./models.js";
 
 const MAX_REPLAY_TURNS = 20;
 const TURN_LEASE_MS = 15_000;
@@ -53,15 +62,26 @@ const RECOVERY_POLL_MS = 5_000;
 const BUSY_RETRY_MS = 15_000;
 const MAX_RECOVERIES_PER_SWEEP = 10;
 const WORK_PROGRESS_EVENT_INTERVAL_MS = 30_000;
+/**
+ * The longest a reply waiting for its AI Model goes between looks. It looks
+ * sooner when the model's next check is sooner, and at once when the model
+ * answers again.
+ */
+const MODEL_WAIT_LOOK_MS = 30_000;
 /** How often the reply's text so far is saved while it streams. */
 const REPLY_SNAPSHOT_MS = 1_500;
 /** The label a turn carries while it waits for another reply in its thread. */
 const THREAD_BUSY_LABEL = "Waiting for another reply";
 /** The label a turn carries between a Member's Retry and its worker starting. */
 export const RETRY_PROGRESS_LABEL = "Starting again";
+/** The label a turn cut short by an AI Model outage carries once its model is back. */
+const MODEL_BACK_PROGRESS_LABEL = "Starting again now that the AI Model is back";
 
-/** Why a worker picked a turn up: the first time, after a restart, or a Retry. */
-export type TurnStartReason = "start" | "resume" | "retry";
+/**
+ * Why a worker picked a turn up: the first time, after a restart, after a
+ * Retry, or after an AI Model outage cut it short (`model_back`).
+ */
+export type TurnStartReason = "start" | "resume" | "retry" | "model_back";
 
 export type DurableChatTurnCallbacks = {
   onChunk?: (chunk: string) => void;
@@ -274,16 +294,25 @@ export async function claimDurableChatTurn(
   const message = await repo.findOneBy({ id: messageId });
   if (!message) return null;
   // A turn that only ever waited for its thread never ran, so its next pickup
-  // is still its start; a Retry says so on the row; anything else that comes
-  // back for another attempt was cut off by a restart.
+  // is still its start; a Retry says so on the row; one an AI Model outage cut
+  // short comes back once the model answers (a turn that waited for its model
+  // before it ever ran was given its attempt back, so it is still starting);
+  // anything else that comes back for another attempt was cut off by a restart.
   const reason: TurnStartReason =
     message.progressLabel === RETRY_PROGRESS_LABEL
       ? "retry"
-      : message.turnAttempt > 1 && message.progressLabel !== THREAD_BUSY_LABEL
-        ? "resume"
-        : "start";
+      : message.turnAttempt > 1 && message.progressLabel === MODEL_WAIT_PROGRESS_LABEL
+        ? "model_back"
+        : message.turnAttempt > 1 && message.progressLabel !== THREAD_BUSY_LABEL
+          ? "resume"
+          : "start";
   if (message.turnAttempt > 1) {
-    message.progressLabel = reason === "retry" ? RETRY_PROGRESS_LABEL : "Resuming durable work";
+    message.progressLabel =
+      reason === "retry"
+        ? RETRY_PROGRESS_LABEL
+        : reason === "model_back"
+          ? MODEL_BACK_PROGRESS_LABEL
+          : "Resuming durable work";
     await repo.update(
       { id: message.id, status: "working", turnWorkerId: workerId },
       { progressLabel: message.progressLabel },
@@ -325,6 +354,74 @@ export async function executeDurableChatTurn(
   const loseClaim = () => {
     lostClaim = true;
     claimController.abort();
+  };
+  /**
+   * Put the turn back to wait for its AI Model, still `working`, unclaimed,
+   * and looked at again when the model's next check is due or it answers.
+   * Waiting is not work: the six-hour limit starts over from when it can run.
+   * A turn that never reached the model is not a recovery attempt, so its
+   * attempt count is given back; one the outage cut short keeps it, and its
+   * next attempt is told to check what it already did.
+   */
+  const waitForModel = async (started: boolean): Promise<DurableChatTurnOutcome> => {
+    await flushRecorders();
+    if (activity) {
+      // One line in the chat for the whole wait, however many times the turn
+      // is picked up and finds its AI Model still unavailable.
+      const last = activity.live.lastEvent ?? (await lastChatActivity(claimedMessage.id));
+      const alreadyWaiting =
+        last?.kind === "waiting" &&
+        last.name === MODEL_UNAVAILABLE_WAIT_CAUSE &&
+        (last.detail as { state?: string } | null)?.state === "waiting";
+      if (!alreadyWaiting) activity.recorder.waiting(MODEL_UNAVAILABLE_WAIT_CAUSE);
+      await activity.recorder.flush();
+    }
+    const now = Date.now();
+    const model = await resolveChatModel(
+      workScope?.employeeId ?? "",
+      claimedMessage.modelId,
+    ).catch(() => null);
+    const state = model ? modelAvailabilityState(model) : { available: true as const };
+    const lookAt = state.available
+      ? now + BUSY_RETRY_MS
+      : Math.min(Math.max(state.nextCheckAt.getTime(), now + 1_000), now + MODEL_WAIT_LOOK_MS);
+    const deferred = await messageRepo.update(
+      { id: claimedMessage.id, status: "working", turnWorkerId: workerId },
+      {
+        turnWorkerId: null,
+        turnLeaseExpiresAt: new Date(lookAt),
+        progressLabel: MODEL_WAIT_PROGRESS_LABEL,
+        turnDeadlineAt: new Date(now + CHAT_HARD_TIMEOUT_MS),
+        ...(started ? {} : { turnAttempt: Math.max(0, claimedMessage.turnAttempt - 1) }),
+      },
+    );
+    if (deferred.affected !== 1) {
+      await activity?.recorder.close();
+      activity?.live.detach();
+      return "claimed_elsewhere";
+    }
+    // A stop that landed inside that write still has to stick.
+    if (interrupted) {
+      return finalizeInterruptedTurn(
+        claimedMessage,
+        workerId,
+        INTERRUPTED_BEFORE_REPLY,
+        callbacks,
+        activity,
+      );
+    }
+    await activity?.recorder.close();
+    activity?.live.detach();
+    await emitConversationWorkChange(claimedMessage.conversationId);
+    try {
+      callbacks.onProgress?.({
+        percent: claimedMessage.progressPercent ?? 1,
+        label: MODEL_WAIT_PROGRESS_LABEL,
+      });
+    } catch {
+      // A subscriber never owns the durable turn.
+    }
+    return "deferred";
   };
   // Deliberately not `loseClaim`: this process keeps the claim so it can write
   // the partial reply the human already read on screen. The agent stops either
@@ -439,6 +536,13 @@ export async function executeDurableChatTurn(
     );
     activity = { recorder, live };
     if (interrupted) recorder.stopped();
+
+    // The AI Model this turn runs on is unavailable: the message waits to be
+    // answered, saying so where the Member is looking, instead of failing.
+    const turnModel = await resolveChatModel(context.employee.id, claimedMessage.modelId);
+    if (turnModel && !isModelAvailable(turnModel)) {
+      return await waitForModel(false);
+    }
 
     const deadline =
       claimedMessage.turnDeadlineAt ??
@@ -646,6 +750,12 @@ export async function executeDurableChatTurn(
       await recorder.close();
       live.detach();
       return "claimed_elsewhere";
+    }
+    // The AI Model became unavailable mid-turn: the message waits and is
+    // answered when it is back, rather than ending in an error. A stop the
+    // Member asked for still ends it, below.
+    if (result.status === "error" && result.unavailable && !interrupted) {
+      return await waitForModel(true);
     }
 
     let actions: MessageAction[] = [];
@@ -1132,7 +1242,7 @@ async function buildTurnPrompt(args: {
       "",
       "",
       "## Durable recovery note",
-      `A previous attempt at this same request did not finish — the server restarted mid-turn, or it ended in an error and the Member asked for a retry. This is attempt ${args.attempt}.`,
+      `A previous attempt at this same request did not finish — the server restarted mid-turn, the AI Model became unavailable and the request waited for it, or it ended in an error and the Member asked for a retry. This is attempt ${args.attempt}.`,
       `Last persisted progress: ${args.assistantMessage.progressPercent ?? 1}% — ${args.assistantMessage.progressLabel ?? "work in progress"}.`,
       "Inspect the current workspace and company state before changing anything. Continue completed work, do not repeat side effects, and use the progress control as you resume.",
       "Recorded mutations from all attempts so far:",
@@ -1331,6 +1441,32 @@ async function recoverAvailableTurns(): Promise<void> {
       .finally(() => locallyExecuting.delete(candidate.id));
   }
 }
+
+/**
+ * When an AI Model answers again, the replies waiting for it are looked at
+ * now rather than at their next look: each is due at once, and a sweep runs.
+ * A reply whose own model is still down simply waits again.
+ */
+async function lookAtWaitingReplies(): Promise<void> {
+  const waiting = await modelWaitingChatTurns();
+  if (waiting.length === 0) return;
+  const now = new Date();
+  for (const message of waiting) {
+    await AppDataSource.getRepository(ConversationMessage).update(
+      { id: message.id, status: "working", turnWorkerId: IsNull() },
+      { turnLeaseExpiresAt: now },
+    );
+  }
+  await recoverAvailableTurns();
+}
+
+onModelAvailabilityChange((change) => {
+  if (!change.available || !recoveryTimer) return;
+  void lookAtWaitingReplies().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("[chat:recovery] could not resume replies waiting for an AI Model", error);
+  });
+});
 
 /**
  * Start crash recovery after migrations. SQLite is single-process, so every

@@ -58,6 +58,11 @@ export async function processMeeting(companyId: string, meetingId: string): Prom
     // 1. Transcribe, when there is audio and no text yet.
     if (meeting.recordingPath && meeting.transcriptState !== "ready") {
       const result = await transcribeMeeting(companyId, meetingId);
+      if ("deferred" in result) {
+        // Still processing: the heartbeat comes back once the AI Model answers.
+        await setMeetingStatus(companyId, meetingId, "processing", result.deferred);
+        return { ...base, status: "processing", note: result.deferred };
+      }
       if ("error" in result) {
         await setMeetingStatus(companyId, meetingId, "failed", result.error);
         return { ...base, status: "failed", note: result.error };
@@ -83,6 +88,12 @@ export async function processMeeting(companyId: string, meetingId: string): Prom
 
     // 3. The write-up. A skip is not a failure — see `writeUpMeeting`.
     const writeUp = await writeUpMeeting(companyId, meetingId);
+    if (writeUp.status === "deferred") {
+      // Not ready, and not failed: the heartbeat writes it up once the AI
+      // Model answers again.
+      await setMeetingStatus(companyId, meetingId, "processing", writeUp.reason);
+      return { ...base, status: "processing", note: writeUp.reason };
+    }
     if (writeUp.status === "ok") base.actionItems = writeUp.actionItems;
     if (writeUp.status !== "ok") base.note = writeUp.reason;
 

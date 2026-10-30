@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { In, LessThanOrEqual, Like, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { Run } from "../db/entities/Run.js";
+import { Run, type RunPauseReason } from "../db/entities/Run.js";
 import { SchedulerLease } from "../db/entities/SchedulerLease.js";
 import { minContinuationWindowMs } from "./runContinuation.js";
 import { HOLD_MARGIN_MS, holdRoutineQueue } from "./routineQueueHold.js";
 
 /**
- * Pausing Routine Runs for a restart, and resuming them after it.
+ * Pausing Routine Runs — for a restart, or while their AI Model is
+ * unavailable — and resuming them after it.
  *
  * A restart ends every running Run, and a Run on a self-hosted model can take
  * hours. Upgrades used to wait for running Runs to finish and then cut off
@@ -35,27 +36,44 @@ import { HOLD_MARGIN_MS, holdRoutineQueue } from "./routineQueueHold.js";
  *     it is put back the same way instead of failing
  *     (`services/runRecovery.ts`).
  *
+ * The same pause carries a Run through an **AI Model outage**: when its model
+ * turn fails because the model's service is unavailable — no connection, a
+ * server error, an overload, every key rate-limited — the runner pauses it the
+ * same way (`pauseReason: "outage"`), and the queue starts no Run on that model
+ * until a check finds it answering again (`services/modelAvailability.ts`).
+ * Then the paused Runs resume first, with the time they had left and a brief
+ * that says the model came back rather than that Genosyn restarted.
+ *
  * A pause is not a Standdown. Nobody decided the work should stop: it does not
- * count against the AI Employee, page anyone, or need a person to resume it.
- * A Standdown placed while a Run is paused still defers it, as it defers any
- * queued Run.
+ * count against the AI Employee, page anyone, record a verdict or spend a
+ * retry, or need a person to resume it. A Standdown placed while a Run is
+ * paused still defers it, as it defers any queued Run, and a Standdown that
+ * lands while a Run is pausing wins: the Run ends interrupted.
  */
 
 /** A Run that keeps being cut off by restarts ends as an Error rather than looping. */
 export const MAX_RUN_PAUSES = 5;
+/**
+ * A Run its AI Model keeps failing — it answers a check, then fails the Run
+ * again — ends as an Error rather than pausing forever. Generous: each pause
+ * waits for a check to pass, so this is reached only by a model that fails this
+ * Run's own requests while answering others.
+ */
+export const MAX_OUTAGE_PAUSES = 10;
 /** How long a Run gets to save its progress once asked to pause for an upgrade. */
 export const DEFAULT_PAUSE_GRACE_MS = 90_000;
 /** How often each process looks for a durable pause request. */
 export const PAUSE_WATCH_INTERVAL_MS = 2_000;
 const PAUSE_REQUEST_LEASE = "routine-pause-request";
 
-export type RunPauseReason = "upgrade" | "restart";
+/** Why Genosyn is asking its Runs to pause: an upgrade, or any other restart. */
+export type RunRestartReason = Exclude<RunPauseReason, "outage">;
 
 export type RunPauseRequest = {
   id: string;
   /** How long a Run may keep going to save its progress. Zero stops it at once. */
   graceMs: number;
-  reason: RunPauseReason;
+  reason: RunRestartReason;
 };
 
 /** Registered by the runner for each Run whose model turn this process is executing. */
@@ -154,7 +172,7 @@ export function clearLocalRunPause(): void {
 export async function requestRunPause(args: {
   graceMs: number;
   until: Date;
-  reason?: RunPauseReason;
+  reason?: RunRestartReason;
 }): Promise<RunPauseRequest> {
   const request: RunPauseRequest = {
     id: randomUUID(),
@@ -362,9 +380,19 @@ export function resumeBudgetMs(
   return Math.max(run.pauseRemainingMs ?? 0, minContinuationWindowMs(timeoutSec));
 }
 
-/** True for a queued Run that has already worked and paused for a restart. */
+/** True for a queued Run that has already worked and paused — for a restart or an outage. */
 export function isPausedRun(run: Pick<Run, "status" | "pauseCount">): boolean {
   return run.status === "queued" && (run.pauseCount ?? 0) > 0;
+}
+
+/** How many of a Run's pauses were for a restart — the ones {@link MAX_RUN_PAUSES} bounds. */
+export function restartPauseCount(run: Pick<Run, "pauseCount" | "outagePauses">): number {
+  return Math.max(0, (run.pauseCount ?? 0) - (run.outagePauses ?? 0));
+}
+
+/** Whether a Run's latest pause was for its AI Model being unavailable. */
+export function pausedForOutage(run: Pick<Run, "pauseReason">): boolean {
+  return run.pauseReason === "outage";
 }
 
 // ──────────────────────────────── brief ────────────────────────────────────
@@ -413,17 +441,25 @@ type BriefEffect = { action: string; targetLabel: string; targetId: string | nul
  * instructions.
  */
 export function runResumeBrief(args: {
-  run: Pick<Run, "pausedAt" | "pauseCount" | "logContent" | "checkpointJson">;
+  run: Pick<Run, "pausedAt" | "pauseCount" | "logContent" | "checkpointJson"> &
+    Partial<Pick<Run, "pauseReason">>;
   effects: BriefEffect[];
   remainingMs: number;
   checkpoint: { completed: string; remaining: string; resume: string; progressKey: string } | null;
 }): string {
   const at = args.run.pausedAt ? `${args.run.pausedAt.toISOString().slice(0, 16).replace("T", " ")} UTC` : "an earlier moment";
   const minutes = Math.max(1, Math.round(args.remainingMs / 60_000));
-  const lines = [
-    "## Resume this Run after a restart",
-    `Genosyn restarted while you were working on this Run (paused at ${at}${args.run.pauseCount > 1 ? `, restart ${args.run.pauseCount}` : ""}). This is the same Run, not a new one, and it continues with about ${minutes} minute${minutes === 1 ? "" : "s"} of its time limit left. Your earlier conversation did not survive the restart, so pick the work up from the record below.`,
-  ];
+  const left = `about ${minutes} minute${minutes === 1 ? "" : "s"} of its time limit left`;
+  const lines =
+    args.run.pauseReason === "outage"
+      ? [
+          "## Resume this Run now that your AI Model is back",
+          `Your AI Model became unavailable while you were working on this Run (paused at ${at}), and it is answering again. This is the same Run, not a new one, and it continues with ${left}. Your earlier conversation could not be kept, so pick the work up from the record below.`,
+        ]
+      : [
+          "## Resume this Run after a restart",
+          `Genosyn restarted while you were working on this Run (paused at ${at}${args.run.pauseCount > 1 ? `, restart ${args.run.pauseCount}` : ""}). This is the same Run, not a new one, and it continues with ${left}. Your earlier conversation did not survive the restart, so pick the work up from the record below.`,
+        ];
   if (args.checkpoint) {
     lines.push(
       "",
@@ -454,13 +490,13 @@ export function runResumeBrief(args: {
     tail || "(nothing was written before the pause)",
     "</previous-transcript>",
     "",
-    "Carry on from the last unfinished step. A step that was in flight when the restart came may or may not have taken effect, so check the current state before repeating any write, send, or payment, and do not redo work the record shows as done. Save progress with save_run_checkpoint as you go, and finish with your report as usual.",
+    "Carry on from the last unfinished step. A step that was in flight when the work paused may or may not have taken effect, so check the current state before repeating any write, send, or payment, and do not redo work the record shows as done. Save progress with save_run_checkpoint as you go, and finish with your report as usual.",
   );
   return lines.join("\n");
 }
 
 /** The note a pausing Run's next tool results carry while it has time to save its progress. */
-export function runPauseNotice(args: { canCheckpoint: boolean; reason: RunPauseReason }): string {
+export function runPauseNotice(args: { canCheckpoint: boolean; reason: RunRestartReason }): string {
   const why = args.reason === "upgrade" ? "restarting for an upgrade" : "restarting";
   return args.canCheckpoint
     ? `Genosyn is ${why} in a moment. Do not start new work. Save truthful progress now with save_run_checkpoint (state continue, with the exact next step in resume; through call_tool if it is not in your tool list). This same Run continues from that checkpoint after the restart.`

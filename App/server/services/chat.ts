@@ -34,6 +34,7 @@ import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
+import type { ModelUnavailability } from "./agent/modelOutage.js";
 import type {
   AgentMessage,
   AgentProgress,
@@ -158,6 +159,12 @@ export type ChatResult =
       sidecars: Record<string, unknown[]>;
       /** As on `ok`: an errored turn may still have read a page first. */
       tainted?: boolean;
+      /**
+       * Set when the AI Model's service was unavailable (`modelOutage.ts`).
+       * A caller that can wait — a durable chat turn, a Wakeup — waits for the
+       * model to answer again instead of showing `reply`, which is the error.
+       */
+      unavailable?: ModelUnavailability;
     };
 
 /**
@@ -814,7 +821,13 @@ export async function streamChatWithEmployee(
           };
         }
         if (result.status === "error") {
-          return { status: "error", reply: result.error, attachmentIds: [], sidecars: {} };
+          return {
+            status: "error",
+            reply: result.error,
+            attachmentIds: [],
+            sidecars: {},
+            ...(result.unavailable ? { unavailable: result.unavailable } : {}),
+          };
         }
         if (!discussionSource.wasRead()) {
           return {
@@ -1159,7 +1172,14 @@ export async function streamChatWithEmployee(
         };
       }
       if (result.status === "error") {
-        return { status: "error", reply: result.error, attachmentIds, sidecars, tainted };
+        return {
+          status: "error",
+          reply: result.error,
+          attachmentIds,
+          sidecars,
+          tainted,
+          ...(result.unavailable ? { unavailable: result.unavailable } : {}),
+        };
       }
       const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
       const finalText = result.finalText.trim();

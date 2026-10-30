@@ -376,7 +376,13 @@ export function buildActivitySteps(
         steps.push(
           note(
             event,
-            reason === "start" ? "started" : reason === "retry" ? "retry" : "resumed",
+            reason === "start"
+              ? "started"
+              : reason === "retry"
+                ? "retry"
+                : reason === "model_back"
+                  ? "model_back"
+                  : "resumed",
             at,
           ),
         );

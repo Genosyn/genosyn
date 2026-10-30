@@ -36,6 +36,10 @@ import {
 import { BackupError } from "./backupErrors.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
+import {
+  forgetModelAvailability,
+  startModelAvailabilityWatcher,
+} from "./modelAvailability.js";
 import { finalizeInterruptedAskAiTurns } from "./askAi/assistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./tldrQuestions.js";
 import {
@@ -1553,6 +1557,9 @@ export async function restoreFromBackup(id: string): Promise<{
     // otherwise keep firing — and starting runs — across the wipe window.
     stopCron();
     stopDurableChatTurnRecovery();
+    // AI Model outages are rows in the database being replaced; the restored
+    // ones are loaded again below.
+    forgetModelAvailability();
     // The context-window sweep is three-hourly, so it will rarely land here —
     // but a tick that did would query the destroyed DataSource for the whole
     // extract window. Cheap to take down; re-registered below.
@@ -1617,6 +1624,7 @@ export async function restoreFromBackup(id: string): Promise<{
     await resetSchedulesAfterRestore();
 
     // Rebuild in-memory schedules from the restored DB rows.
+    await startModelAvailabilityWatcher();
     await bootCron();
     await bootDurableChatTurnRecovery();
     // Ask AI answers captured mid-turn by the archive have no process behind

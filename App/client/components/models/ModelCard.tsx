@@ -21,6 +21,7 @@ import { AttachEmployeesPanel } from "./AttachEmployeesPanel";
 import { ApiKeyPanel, CustomEndpointPanel } from "./ConnectPanels";
 import { ModelActiveBadge, ModelKindIcon, ModelStatusBadge } from "./ModelBadges";
 import { ModelAdvancedSettings, useDetachModel } from "./ModelAdvancedSettings";
+import { ModelOutageNotice } from "./ModelOutageNotice";
 import { ModelUsers } from "./ModelUsers";
 import { SubscriptionPanel } from "./SubscriptionPanel";
 
@@ -42,7 +43,8 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
  * A model still waiting to connect shows the step that finishes it on the card
  * itself. A key the provider is refusing is said on the card too, not only
  * inside Advanced: it is the one thing in there nobody should have to look for.
- * A Member sees the same card with nothing to press.
+ * So is a model that is unavailable right now, with what waits for it and when
+ * it is checked next. A Member sees the same card with nothing to press.
  */
 export function ModelCard({
   company,
@@ -165,7 +167,10 @@ export function ModelCard({
                 >
                   {describeModel(model)}
                 </h3>
-                <ModelStatusBadge connected={connected} />
+                <ModelStatusBadge
+                  connected={connected}
+                  unavailable={model.availability?.state === "unavailable"}
+                />
                 {emp && several && model.isActive && <ModelActiveBadge />}
               </div>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -214,6 +219,15 @@ export function ModelCard({
             <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden="true" />
             <span>{keyNotice.text}</span>
           </div>
+        )}
+
+        {connected && (
+          <ModelOutageNotice
+            company={company}
+            model={model}
+            canManage={canManage}
+            onChanged={onChanged}
+          />
         )}
 
         {!connected && canManage && model.authMode === "apikey" && (

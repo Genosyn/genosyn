@@ -29,6 +29,7 @@ import {
   RunFollowUp,
   RunLog,
   RunOutcomeVerdict,
+  RunPauseReason,
   RunStatus,
 } from "@/lib/api";
 import { Badge, type BadgeSize, type BadgeTone } from "@/components/ui/Badge";
@@ -84,12 +85,15 @@ export function RunStatusChip({
   status,
   errorKind,
   pauseCount,
+  pauseReason,
   size = "sm",
 }: {
   status: RunStatus;
   errorKind?: RunErrorKind | null;
-  /** Restarts this Run was paused for; a queued Run with any reads as resuming. */
+  /** Times this Run was paused; a queued Run with any reads as resuming. */
   pauseCount?: number | null;
+  /** Why it was last paused: a restart, or its AI Model being unavailable. */
+  pauseReason?: RunPauseReason | null;
   size?: "xs" | "sm";
 }) {
   const paused = isRunPaused({ status, pauseCount });
@@ -97,7 +101,7 @@ export function RunStatusChip({
     <Badge
       tone={RUN_STATUS_TONE[status]}
       size={BADGE_SIZE[size]}
-      title={runStatusHint(status, errorKind, paused)}
+      title={runStatusHint(status, errorKind, paused, pauseReason)}
       icon={
         status === "running" ? (
           <Loader2 className="animate-spin" />
@@ -112,37 +116,43 @@ export function RunStatusChip({
 }
 
 /**
- * A Run Genosyn paused to restart says so above its transcript: while it waits,
- * that it will continue where it stopped; once resumed, that its transcript
- * spans the restart — the "[paused]" and "[resumed]" lines mark where.
+ * A Run Genosyn paused — for a restart, or while its AI Model was unavailable —
+ * says so above its transcript: while it waits, that it will continue where it
+ * stopped; once resumed, that its transcript spans the pause — the "[paused]"
+ * and "[resumed]" lines mark where.
  */
 export function RunPauseNotice({
   status,
   pauseCount,
   pausedAt,
+  pauseReason,
 }: {
   status: RunStatus;
   pauseCount?: number | null;
   pausedAt?: string | null;
+  pauseReason?: RunPauseReason | null;
 }) {
   const count = pauseCount ?? 0;
   if (count <= 0) return null;
   const when = pausedAt ? new Date(pausedAt).toLocaleString() : null;
+  const outage = pauseReason === "outage";
   if (isRunPaused({ status, pauseCount })) {
     return (
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
         <Pause size={14} className="mt-0.5 shrink-0" />
         <p>
-          Paused{when ? ` at ${when}` : ""} while Genosyn restarted. This Run keeps its work so
-          far and continues where it stopped as soon as it can start again — nothing needs doing.
+          {outage
+            ? `Paused${when ? ` at ${when}` : ""} while its AI Model was unavailable. This Run keeps its work so far and continues where it stopped once the AI Model answers again — nothing needs doing.`
+            : `Paused${when ? ` at ${when}` : ""} while Genosyn restarted. This Run keeps its work so far and continues where it stopped as soon as it can start again — nothing needs doing.`}
         </p>
       </div>
     );
   }
   return (
     <p className="text-xs text-slate-500 dark:text-slate-400">
-      Paused for {count === 1 ? "a restart" : `${count} restarts`} and resumed; the transcript
-      continues across {count === 1 ? "it" : "them"}.
+      {outage
+        ? `Paused ${count === 1 ? "while its AI Model was unavailable" : `${count} times, last while its AI Model was unavailable,`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`
+        : `Paused for ${count === 1 ? "a restart" : `${count} restarts`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`}
     </p>
   );
 }
@@ -1155,6 +1165,7 @@ function RunLiveModalContent({
                 status={status}
                 errorKind={log?.errorKind ?? initialRun.errorKind}
                 pauseCount={log?.pauseCount ?? initialRun.pauseCount}
+                pauseReason={log?.pauseReason ?? initialRun.pauseReason}
               />
               {status !== "reviewed" && log?.outcomeVerdict && (
                 <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
@@ -1266,6 +1277,7 @@ function RunLiveModalContent({
             status={status}
             pauseCount={log?.pauseCount ?? initialRun.pauseCount}
             pausedAt={log?.pausedAt ?? initialRun.pausedAt}
+            pauseReason={log?.pauseReason ?? initialRun.pauseReason}
           />
           <RunContinuationNotice
             continuationPending={log?.continuationPending ?? initialRun.continuationPending}

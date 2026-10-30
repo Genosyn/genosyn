@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { ChatActivityEvent } from "../../shared/chatActivity";
+import {
+  MODEL_UNAVAILABLE_WAIT_CAUSE,
+  MODEL_UNAVAILABLE_WAIT_LABEL,
+  type ChatActivityEvent,
+} from "../../shared/chatActivity";
 import {
   QUIET_AFTER_MS,
   QUIET_START_AFTER_MS,
@@ -175,11 +179,11 @@ describe("what a running turn is doing", () => {
       input(2_000, {
         events: [
           event(1, "waiting", 1_000, {
-            name: "model_unavailable",
+            name: "approval_pending",
             detail: {
-              cause: "model_unavailable",
+              cause: "approval_pending",
               state: "waiting",
-              label: "The AI Model is unavailable; this message is answered when it is back",
+              label: "Waiting for an owner to approve the next step",
             },
           }),
         ],
@@ -188,8 +192,30 @@ describe("what a running turn is doing", () => {
     assert.equal(phase.kind, "waiting");
     assert.equal(
       describeLivePhase(phase, "Sam", T0).title,
-      "The AI Model is unavailable; this message is answered when it is back",
+      "Waiting for an owner to approve the next step",
     );
+  });
+
+  test("a message waiting for its unavailable AI Model says so in the server's words, and how to cancel", () => {
+    const phase = deriveLivePhase(
+      input(60_000, {
+        events: [
+          event(1, "waiting", 1_000, {
+            name: MODEL_UNAVAILABLE_WAIT_CAUSE,
+            detail: {
+              cause: MODEL_UNAVAILABLE_WAIT_CAUSE,
+              state: "waiting",
+              label: MODEL_UNAVAILABLE_WAIT_LABEL,
+            },
+          }),
+        ],
+      }),
+    );
+    assert.equal(phase.kind, "waiting");
+    const words = describeLivePhase(phase, "Sam", T0 + 60_000);
+    assert.equal(words.title, "The AI Model is unavailable — this will be answered when it is back");
+    assert.match(words.detail ?? "", /^Nothing to resend: Sam answers it .* Stop it to cancel\.$/);
+    assert.equal(words.tone, "warning");
   });
 
   test("a wait that ended is no longer the state", () => {

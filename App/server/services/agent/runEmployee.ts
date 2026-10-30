@@ -13,6 +13,8 @@ import {
 import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
 import type { PrivilegedToolCallAuthorizer } from "../memberTurnAuthority.js";
 import { formatModelError } from "./modelError.js";
+import { classifyModelError, type ModelUnavailability } from "./modelOutage.js";
+import { recordModelFailure, recordModelSuccess } from "../modelAvailability.js";
 import {
   createParallelDelegationTool,
   createParallelResultStore,
@@ -143,7 +145,18 @@ export type EmployeeAgentResult =
        */
       stopReason?: string;
     }
-  | { status: "error"; error: string };
+  | {
+      status: "error";
+      error: string;
+      /**
+       * Set when the AI Model's service was unavailable — no connection, a
+       * server error, an overload, every key rate-limited
+       * (`modelOutage.ts`). A caller with somewhere to wait waits for the model
+       * instead of recording a failure: a Run pauses, a chat message waits to
+       * be answered, background work defers (`services/modelAvailability.ts`).
+       */
+      unavailable?: ModelUnavailability;
+    };
 
 /**
  * Parameters for a deliberately tool-contained model turn.
@@ -217,7 +230,44 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     if (error instanceof RetryPreflightError) throw error;
     if (error instanceof CompanyAgentCapacityError)
       return { status: "error", error: error.message };
-    return { status: "error", error: formatModelError(params.model, error) };
+    return modelFailure(params.model, params.signal, error);
+  }
+}
+
+/**
+ * The error a turn ended with, for its caller. When it was the AI Model's
+ * service failing, that is also recorded against the model — a turn that ran
+ * out of its runtime's retries on an outage is enough to mark the model
+ * unavailable for every AI Employee using it. A turn somebody stopped is
+ * never an outage.
+ */
+function modelFailure(
+  model: AIModel,
+  signal: AbortSignal | undefined,
+  error: unknown,
+): EmployeeAgentResult {
+  const unavailable = signal?.aborted ? null : classifyModelError(error);
+  if (unavailable) {
+    try {
+      recordModelFailure(model, unavailable, { terminal: true });
+    } catch (recordError) {
+      console.error(`[agent:model] could not record an outage for model=${model.id}`, recordError);
+    }
+  }
+  return {
+    status: "error",
+    error: formatModelError(model, error),
+    ...(unavailable ? { unavailable } : {}),
+  };
+}
+
+/** A subscription turn answered: its model is available (OpenCode turns report per request). */
+function subscriptionAnswered(model: AIModel, result: { finalText: string; steps: number }): void {
+  if (result.steps <= 0 && !result.finalText.trim()) return;
+  try {
+    recordModelSuccess(model);
+  } catch {
+    // Availability bookkeeping never changes a turn's result.
   }
 }
 
@@ -424,10 +474,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
       params.signal,
       err,
     );
-    return {
-      status: "error",
-      error: formatModelError(params.model, err),
-    };
+    return modelFailure(params.model, params.signal, err);
   } finally {
     try {
       // A tool's bounded pending response must not let its workers outlive a
@@ -460,7 +507,7 @@ export async function runRestrictedEmployeeAgent(
   } catch (error) {
     if (error instanceof CompanyAgentCapacityError)
       return { status: "error", error: error.message };
-    return { status: "error", error: formatModelError(params.model, error) };
+    return modelFailure(params.model, params.signal, error);
   }
 }
 
@@ -481,6 +528,7 @@ async function runRestrictedEmployeeTurn(
         signal: params.signal,
         callbacks: params.callbacks,
       });
+      subscriptionAnswered(params.model, result);
       return { status: "ok", finalText: result.finalText, steps: result.steps };
     }
 
@@ -510,10 +558,7 @@ async function runRestrictedEmployeeTurn(
       params.signal,
       err,
     );
-    return {
-      status: "error",
-      error: formatModelError(params.model, err),
-    };
+    return modelFailure(params.model, params.signal, err);
   }
 }
 
@@ -583,6 +628,7 @@ async function runSubscriptionEmployeeAgent(
       signal: params.signal,
       callbacks: params.callbacks,
     });
+    subscriptionAnswered(params.model, result);
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
     if (err instanceof RetryPreflightError) throw err;
@@ -593,10 +639,7 @@ async function runSubscriptionEmployeeAgent(
       params.signal,
       err,
     );
-    return {
-      status: "error",
-      error: formatModelError(params.model, err),
-    };
+    return modelFailure(params.model, params.signal, err);
   } finally {
     try {
       await params.recoveryRecorder?.flush();
